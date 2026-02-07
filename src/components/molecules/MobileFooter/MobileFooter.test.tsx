@@ -1,7 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { usePathname } from 'next/navigation';
 import { MobileFooter } from './MobileFooter';
+
+const FORCE_HOME_SCROLL_TOP_KEY = 'pubky:force-home-scroll-top';
 
 // Mock Next.js router
 vi.mock('next/navigation', () => ({
@@ -253,6 +255,34 @@ describe('MobileFooter', () => {
     render(<MobileFooter />);
 
     expect(document.querySelector('.lucide-house')).toBeInTheDocument();
+  });
+
+  it('scrolls to top when clicking Home while already on /home', () => {
+    vi.mocked(usePathname).mockReturnValue('/home');
+    Object.defineProperty(window, 'scrollTo', { value: vi.fn(), writable: true });
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+
+    render(<MobileFooter />);
+    const homeLink = document.querySelector('.lucide-house')?.closest('a');
+    expect(homeLink).toBeTruthy();
+
+    fireEvent.click(homeLink!);
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+    expect(setItemSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not scroll to top when clicking Home from another page', () => {
+    vi.mocked(usePathname).mockReturnValue('/search');
+    Object.defineProperty(window, 'scrollTo', { value: vi.fn(), writable: true });
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+
+    render(<MobileFooter />);
+    const homeLink = document.querySelector('.lucide-house')?.closest('a');
+    expect(homeLink).toBeTruthy();
+
+    fireEvent.click(homeLink!);
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(setItemSpy).toHaveBeenCalledWith(FORCE_HOME_SCROLL_TOP_KEY, '1');
   });
 });
 
