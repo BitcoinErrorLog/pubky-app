@@ -34,8 +34,23 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
       - name: Install dependencies
-        run: npm ci
+        run: bun install
+
+      - name: Cache Vitest
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.vitest
+          # The key ensures we save a unique cache for this specific commit
+          key: ${{ runner.os }}-vitest-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-vitest-${{ github.ref_name }}-
+            ${{ runner.os }}-vitest-
 
       - name: Run Vitest Shard ${{ matrix.shard }}
         # 1. Force Vitest to output raw 'json' coverage data
