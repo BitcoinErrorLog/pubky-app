@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
 
     steps:
       - name: Checkout code
@@ -54,7 +54,7 @@ jobs:
 
       - name: Run Vitest Shard ${{ matrix.shard }}
         # 1. Force Vitest to output raw 'json' coverage data
-        run: npx vitest run --coverage --coverage.reporter=json --shard=${{ matrix.shard }}/4
+        run: npx vitest run --coverage --coverage.reporter=json --shard=${{ matrix.shard }}/5
 
       - name: Rename coverage file
         # 2. Rename the file so the shards don't overwrite each other when downloaded
