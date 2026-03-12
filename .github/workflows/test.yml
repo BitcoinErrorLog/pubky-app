@@ -43,7 +43,7 @@ jobs:
 
       - name: Run Vitest Shard ${{ matrix.shard }}
         # 1. Force Vitest to output raw 'json' coverage data
-        run: npx vitest run --coverage --coverage.reporter=json --shard=${{ matrix.shard }}/5 --poolOptions.threads.singleThread=true
+        run: npx vitest run --coverage --coverage.reporter=json --shard=${{ matrix.shard }}/5 --pool=forks
 
       - name: Rename coverage file
         # 2. Rename the file so the shards don't overwrite each other when downloaded
