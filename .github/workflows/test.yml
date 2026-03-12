@@ -37,7 +37,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npx vitest run --coverage --poolOptions.threads.maxThreads=2 --shard=${{ matrix.shard }}/3
+        run: npx vitest run --coverage --shard=${{ matrix.shard }}/3
 
       - name: Upload partial test results
         if: always()
