@@ -11,10 +11,17 @@ on:
   # Enable manual trigger
   workflow_dispatch:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: [1, 2, 3]
 
     steps:
       - name: Checkout code
@@ -30,12 +37,12 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm run test:coverage
+        run: npx vitest run --coverage --poolOptions.threads.maxThreads=2 --shard=${{ matrix.shard }}/3
 
-      - name: Upload test results
+      - name: Upload partial test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: coverage-shard-${{ matrix.shard }}
           path: coverage/
           retention-days: 30
