@@ -42,6 +42,8 @@ jobs:
         run: bun install
 
       - name: Run Vitest Shard ${{ matrix.shard }}
+        env:
+          VITEST_MAX_WORKERS: 4
         # 1. Force Vitest to output raw 'json' coverage data
         run: npx vitest run --coverage --coverage.reporter=json --shard=${{ matrix.shard }}/5 --pool=forks
 
