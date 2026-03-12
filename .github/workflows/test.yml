@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   test:
-    name: Run Tests
+    name: Run Shard Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -77,3 +77,19 @@ jobs:
           name: coverage-final
           path: coverage/ # Contains your unified lcov.info and html reports
           retention-days: 30
+
+  test-status:
+    name: Run Tests
+    needs: test     # Waits for all your test shards to finish
+    if: always()    # Forces this to run even if a shard fails
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test matrix status
+        # If any shard failed or was cancelled, this step fails the gatekeeper job
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One or more test shards failed."
+          exit 1
+
+      - name: Tests passed
+        run: echo "All test shards passed successfully!"
