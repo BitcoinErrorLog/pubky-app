@@ -15,13 +15,14 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
 
+
 jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
 
     steps:
       - name: Checkout code
@@ -36,13 +37,43 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npx vitest run --coverage --threads 4 --shard=${{ matrix.shard }}/3
+      - name: Run Vitest Shard ${{ matrix.shard }}
+        # 1. Force Vitest to output raw 'json' coverage data
+        run: npx vitest run --coverage --coverage.reporter=json --shard=${{ matrix.shard }}/4
 
-      - name: Upload partial test results
-        if: always()
+      - name: Rename coverage file
+        # 2. Rename the file so the shards don't overwrite each other when downloaded
+        run: mv coverage/coverage-final.json coverage/coverage-${{ matrix.shard }}.json
+
+      - name: Upload partial coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-shard-${{ matrix.shard }}
-          path: coverage/
+          path: coverage/coverage-${{ matrix.shard }}.json
+          retention-days: 1 # We only need this temporarily for the merge job
+
+  merge-coverage:
+    name: Merge Coverage Reports
+    needs: test # 3. Wait for all test shards to complete successfully
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          path: .nyc_output # 4. Download directly into nyc's default input folder
+          merge-multiple: true
+
+      - name: Merge coverage and generate final report
+        # 5. Read the .nyc_output folder and generate standard unified reports
+        run: npx nyc report --reporter=lcov --reporter=html --reporter=text-summary
+
+      - name: Upload Final Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-final
+          path: coverage/ # Contains your unified lcov.info and html reports
           retention-days: 30
