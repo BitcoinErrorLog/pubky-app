@@ -82,7 +82,9 @@
     "hot": "الرائج",
     "bookmarks": "المفضلة",
     "settings": "الاعدادات",
-    "signIn": "تسجيل الدخول"
+    "newHere": "جديد هنا؟",
+    "signIn": "تسجيل الدخول",
+    "feed": "فيد"
   },
   "settings": {
     "title": "الاعدادات",
@@ -621,6 +623,29 @@
       "urlField": "الرابط",
       "urlPlaceholder": "https://twitter.com/satoshi",
       "saveButton": "حفظ الرابط"
+    },
+    "customFeed": {
+      "createTitle": "إنشاء خلاصة",
+      "editTitle": "تعديل الخلاصة",
+      "feedName": "اسم الخلاصة",
+      "feedNamePlaceholder": "ليست مفاتيحك...",
+      "reach": "النطاق",
+      "reachPlaceholder": "اختر نطاقاً",
+      "sort": "الترتيب",
+      "sortPlaceholder": "اختر ترتيباً",
+      "layout": "التخطيط",
+      "layoutPlaceholder": "اختر تخطيطاً",
+      "content": "المحتوى",
+      "contentPlaceholder": "اختر محتوى",
+      "filterTags": "تصفية حسب وسوم المحتوى",
+      "saveFeed": "حفظ الخلاصة",
+      "deleteFeed": "حذف الخلاصة",
+      "feedCreated": "تم إنشاء الخلاصة {name}!",
+      "feedCreateError": "تعذر إنشاء الخلاصة، يرجى المحاولة مرة أخرى أو التواصل مع الدعم.",
+      "feedEdited": "تم تعديل الخلاصة {name}!",
+      "feedEditError": "تعذر تعديل الخلاصة، يرجى المحاولة مرة أخرى أو التواصل مع الدعم.",
+      "feedDeleted": "تم حذف الخلاصة {name}!",
+      "feedDeleteError": "تعذر حذف الخلاصة، يرجى المحاولة مرة أخرى أو التواصل مع الدعم."
     }
   },
   "sidebar": {
@@ -999,7 +1024,8 @@
     "layout": {
       "title": "التخطيط",
       "columns": "اعمدة",
-      "wide": "عريض"
+      "wide": "عريض",
+      "visual": "مرئي"
     },
     "content": {
       "title": "المحتوى",
@@ -1022,7 +1048,7 @@
     "hotTags": "الوسوم الرائجة",
     "activeUsers": "المستخدمون النشطون",
     "trendingPosts": "المنشورات الرائجة",
-    "postsCount": "{count} منشور",
+    "postsCount": "{count} منشور هذا الشهر",
     "failedToLoadUsers": "فشل تحميل المستخدمين",
     "failedToLoadTags": "فشل تحميل الوسوم",
     "noUsersToShow": "لا يوجد مستخدمون للعرض",
@@ -1145,5 +1171,15 @@
     "pullToRefresh": "اسحب للتحديث",
     "releaseToRefresh": "أفلت للتحديث",
     "refreshing": "جارٍ التحديث..."
+  },
+  "markdownEditor": {
+    "emoji": "رمز تعبيري",
+    "richText": "نص منسق",
+    "markdown": "ماركداون",
+    "clearToSwitch": "امسح المحتوى للتبديل بين الأوضاع",
+    "placeholder": "ابدأ بكتابة تحفتك",
+    "toolbarAriaLabel": "شريط أدوات تحرير ماركداون",
+    "warningApproaching": "أنت تقترب من الحد الأقصى لعدد الأحرف.",
+    "warningReached": "لقد وصلت إلى الحد الأقصى لعدد الأحرف."
   }
 }

@@ -82,7 +82,9 @@
     "hot": "Beliebt",
     "bookmarks": "Lesezeichen",
     "settings": "Einstellungen",
-    "signIn": "Anmelden"
+    "newHere": "Neu hier?",
+    "signIn": "Anmelden",
+    "feed": "Feed"
   },
   "settings": {
     "title": "Einstellungen",
@@ -621,6 +623,29 @@
       "urlField": "URL",
       "urlPlaceholder": "https://twitter.com/satoshi",
       "saveButton": "Link speichern"
+    },
+    "customFeed": {
+      "createTitle": "Feed erstellen",
+      "editTitle": "Feed bearbeiten",
+      "feedName": "Feed-Name",
+      "feedNamePlaceholder": "Nicht deine Schlüssel...",
+      "reach": "Reichweite",
+      "reachPlaceholder": "Reichweite auswählen",
+      "sort": "Sortierung",
+      "sortPlaceholder": "Sortierung auswählen",
+      "layout": "Layout",
+      "layoutPlaceholder": "Layout auswählen",
+      "content": "Inhalt",
+      "contentPlaceholder": "Inhalt auswählen",
+      "filterTags": "Nach Inhalts-Tags filtern",
+      "saveFeed": "Feed speichern",
+      "deleteFeed": "Feed löschen",
+      "feedCreated": "Feed {name} erstellt!",
+      "feedCreatedError": "Feed konnte nicht erstellt werden. Bitte versuche es erneut oder wende dich an den Support.",
+      "feedEdited": "Feed {name} bearbeitet!",
+      "feedEditedError": "Feed konnte nicht bearbeitet werden. Bitte versuche es erneut oder wende dich an den Support.",
+      "feedDeleted": "Feed {name} gelöscht!",
+      "feedDeletedError": "Feed konnte nicht gelöscht werden. Bitte versuche es erneut oder wende dich an den Support."
     }
   },
   "sidebar": {
@@ -1005,7 +1030,8 @@
     "layout": {
       "title": "Layout",
       "columns": "Spalten",
-      "wide": "Breit"
+      "wide": "Breit",
+      "visual": "Visuell"
     },
     "content": {
       "title": "Inhalt",
@@ -1028,7 +1054,7 @@
     "hotTags": "Beliebte Tags",
     "activeUsers": "Aktive Benutzer",
     "trendingPosts": "Trendende Beiträge",
-    "postsCount": "{count} Beiträge",
+    "postsCount": "{count} Beiträge diesen Monat",
     "failedToLoadUsers": "Benutzer konnten nicht geladen werden",
     "failedToLoadTags": "Tags konnten nicht geladen werden",
     "noUsersToShow": "Keine Benutzer anzuzeigen",
@@ -1151,5 +1177,15 @@
     "pullToRefresh": "Zum Aktualisieren ziehen",
     "releaseToRefresh": "Loslassen zum Aktualisieren",
     "refreshing": "Aktualisiere..."
+  },
+  "markdownEditor": {
+    "emoji": "Emoji",
+    "richText": "Rich-Text",
+    "markdown": "Markdown",
+    "clearToSwitch": "Inhalt löschen, um den Modus zu wechseln",
+    "placeholder": "Beginne dein Meisterwerk zu schreiben",
+    "toolbarAriaLabel": "Markdown-Bearbeitungsleiste",
+    "warningApproaching": "Du näherst dich dem maximalen Zeichenlimit.",
+    "warningReached": "Du hast das maximale Zeichenlimit erreicht."
   }
 }

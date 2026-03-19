@@ -82,7 +82,9 @@
     "hot": "Tendenze",
     "bookmarks": "Segnalibri",
     "settings": "Impostazioni",
-    "signIn": "Accedi"
+    "newHere": "Nuovo qui?",
+    "signIn": "Accedi",
+    "feed": "Feed"
   },
   "settings": {
     "title": "Impostazioni",
@@ -621,6 +623,29 @@
       "urlField": "URL",
       "urlPlaceholder": "https://twitter.com/satoshi",
       "saveButton": "Salva link"
+    },
+    "customFeed": {
+      "createTitle": "Crea Feed",
+      "editTitle": "Modifica Feed",
+      "feedName": "Nome del Feed",
+      "feedNamePlaceholder": "Non le tue chiavi...",
+      "reach": "Portata",
+      "reachPlaceholder": "Seleziona una portata",
+      "sort": "Ordina",
+      "sortPlaceholder": "Seleziona un ordinamento",
+      "layout": "Layout",
+      "layoutPlaceholder": "Seleziona un layout",
+      "content": "Contenuto",
+      "contentPlaceholder": "Seleziona un contenuto",
+      "filterTags": "Filtra per tag di contenuto",
+      "saveFeed": "Salva Feed",
+      "deleteFeed": "Elimina Feed",
+      "feedCreated": "Feed {name} creato!",
+      "feedCreateError": "Impossibile creare il feed, riprova o contatta il supporto.",
+      "feedEdited": "Feed {name} modificato!",
+      "feedEditError": "Impossibile modificare il feed, riprova o contatta il supporto.",
+      "feedDeleted": "Feed {name} eliminato!",
+      "feedDeleteError": "Impossibile eliminare il feed, riprova o contatta il supporto."
     }
   },
   "sidebar": {
@@ -1005,7 +1030,8 @@
     "layout": {
       "title": "Layout",
       "columns": "Colonne",
-      "wide": "Largo"
+      "wide": "Largo",
+      "visual": "Visuale"
     },
     "content": {
       "title": "Contenuto",
@@ -1028,7 +1054,7 @@
     "hotTags": "Tag di tendenza",
     "activeUsers": "Utenti attivi",
     "trendingPosts": "Post di tendenza",
-    "postsCount": "{count} post",
+    "postsCount": "{count} post questo mese",
     "failedToLoadUsers": "Caricamento utenti fallito",
     "failedToLoadTags": "Caricamento tag fallito",
     "noUsersToShow": "Nessun utente da mostrare",
@@ -1151,5 +1177,15 @@
     "pullToRefresh": "Scorri per aggiornare",
     "releaseToRefresh": "Rilascia per aggiornare",
     "refreshing": "Aggiornamento..."
+  },
+  "markdownEditor": {
+    "emoji": "Emoji",
+    "richText": "Testo formattato",
+    "markdown": "Markdown",
+    "clearToSwitch": "Cancella il contenuto per cambiare modalità",
+    "placeholder": "Inizia a scrivere il tuo capolavoro",
+    "toolbarAriaLabel": "Barra degli strumenti per la modifica Markdown",
+    "warningApproaching": "Ti stai avvicinando al limite massimo di caratteri.",
+    "warningReached": "Hai raggiunto il limite massimo di caratteri."
   }
 }

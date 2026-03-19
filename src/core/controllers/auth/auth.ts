@@ -1,5 +1,6 @@
 import * as Core from '@/core';
 import * as Libs from '@/libs';
+import { setLocaleCookie } from '@/i18n/utils';
 
 export class AuthController {
   private constructor() {} // Prevent instantiation
@@ -19,7 +20,10 @@ export class AuthController {
   static async restorePersistedSession(): Promise<boolean> {
     const authStore = Core.useAuthStore.getState();
     const result = await Core.AuthApplication.restorePersistedSession({ authStore });
-    if (!result) return false;
+    if (!result) {
+      await this.cleanupLocalState();
+      return false;
+    }
     const { session } = result;
     const initialState = {
       session,
@@ -39,6 +43,8 @@ export class AuthController {
   private static async signIn({ keypair }: Core.TKeypairParams): Promise<boolean> {
     // Clear database before sign in to ensure clean state
     await Core.clearDatabase();
+    // Skip post-migration resync — bootstrap runs if user has profile, otherwise no data to resync
+    Core.useMigrationStore.getState().reset();
     const session = await Core.AuthApplication.signIn({ keypair });
     if (!session) {
       Libs.Logger.error('Failed to sign in. Please try again.', { keypair });
@@ -75,8 +81,19 @@ export class AuthController {
       }
     };
 
-    const { notification } = await Core.BootstrapApplication.initialize({ pubky, lastReadUrl: url }, onProgress);
+    const localSettings = Core.SettingsNormalizer.extractState(Core.useSettingsStore.getState());
+    const { notification, remoteSettings } = await Core.BootstrapApplication.initialize(
+      { pubky, lastReadUrl: url, localSettings },
+      onProgress,
+    );
     Core.useNotificationStore.getState().setState(notification);
+
+    // Apply remote settings to store + cookie (store mutation stays in Controller layer)
+    if (remoteSettings) {
+      Core.useSettingsStore.getState().loadFromHomeserver(remoteSettings);
+      setLocaleCookie(remoteSettings.language);
+      Libs.Logger.info('Settings loaded from homeserver', { pubky });
+    }
   }
 
   /**
@@ -123,6 +140,8 @@ export class AuthController {
   static async signUp({ secretKey, signupToken }: Core.TSignUpParams) {
     // Clear database before sign up to ensure clean state
     await Core.clearDatabase();
+    // Skip post-migration resync — new user has no homeserver data to resync
+    Core.useMigrationStore.getState().reset();
     const keypair = Libs.Identity.keypairFromSecretKey(secretKey);
     const { session } = await Core.AuthApplication.signUp({ keypair, signupToken });
     const authStore = Core.useAuthStore.getState();
@@ -166,6 +185,8 @@ export class AuthController {
     generateFn: () => Promise<Core.TGenerateAuthUrlResult>,
   ): Promise<Core.TGenerateAuthUrlResult> {
     await Core.clearDatabase();
+    // Skip post-migration resync — full bootstrap below covers all data
+    Core.useMigrationStore.getState().reset();
     const token = Symbol('auth-flow');
     this.cancelActiveAuthFlow();
     this.activeAuthFlow = { token, cancel: null };
@@ -186,6 +207,48 @@ export class AuthController {
     });
 
     return { authorizationUrl, awaitApproval: wrappedAwaitApproval, cancelAuthFlow };
+  }
+
+  /**
+   * Centralizes all local state cleanup: resets every Zustand store, clears cookies,
+   * IndexedDB, query cache, singletons, and persisted localStorage keys.
+   * Used by both logout() and restorePersistedSession() on failure.
+   */
+  private static async cleanupLocalState() {
+    // Reset singletons
+    Core.PubkySpecsSingleton.reset();
+    Core.TtlCoordinator.resetInstance();
+    Core.StreamCoordinator.resetInstance();
+    Core.NotificationCoordinator.resetInstance();
+
+    // Cancel active auth flows
+    this.cancelActiveAuthFlow();
+
+    // Cancel all pending queries to prevent retries after sign-out
+    // TODO: Centralise query client cleanup via a registry in createQueryClient
+    // so new query clients are automatically cancelled/cleared here.
+    Core.nexusQueryClient.cancelQueries();
+    Core.nexusQueryClient.clear();
+
+    // Reset all Zustand stores.
+    // Settings reset() keeps `language`,
+    // so the "/logout" page stays in the chosen language while remote settings still win on next login.
+    Core.useOnboardingStore.getState().reset();
+    Core.useAuthStore.getState().reset();
+    Core.useSignInStore.getState().reset();
+    Core.useLocalFilesStore.getState().reset();
+    Core.useHomeStore.getState().reset();
+    Core.useHotStore.getState().reset();
+    Core.useSearchStore.getState().reset();
+    Core.useNotificationStore.getState().reset();
+    Core.useSettingsStore.getState().reset();
+
+    // Clear cookies (locale cookie excluded — device-level UI preference, not sensitive data)
+    Libs.clearCookies(['locale']);
+
+    await Core.clearDatabase();
+    // Skip post-migration resync — full cleanup resets all state
+    Core.useMigrationStore.getState().reset();
   }
 
   /**
@@ -211,8 +274,6 @@ export class AuthController {
    */
   static async logout() {
     const authStore = Core.useAuthStore.getState();
-    const onboardingStore = Core.useOnboardingStore.getState();
-    const signInStore = Core.useSignInStore.getState();
 
     // Set logging out flag immediately to prevent flash of weird states in UI
     authStore.setIsLoggingOut(true);
@@ -224,22 +285,8 @@ export class AuthController {
         Libs.Logger.warn('Homeserver logout failed, clearing local state anyway', { error });
       }
     }
-    // Reset PubkySpecsSingleton here to ensure it's always called even when homeserver logout fails.
-    // This allows users to sign out even when their profile pubky cannot be resolved (issue #538).
-    Core.PubkySpecsSingleton.reset();
-    this.cancelActiveAuthFlow();
 
-    // Cancel all pending Nexus API queries to prevent retries after logout
-    // This stops the React Query client from retrying 404s for user data that no longer exists
-    Core.nexusQueryClient.cancelQueries();
-    Core.nexusQueryClient.clear();
-
-    onboardingStore.reset();
-    authStore.reset();
-    signInStore.reset();
-    Core.useLocalFilesStore.getState().reset();
-    Libs.clearCookies();
-    await Core.clearDatabase();
+    await this.cleanupLocalState();
   }
 
   /**

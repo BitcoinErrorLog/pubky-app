@@ -82,7 +82,9 @@
     "hot": "Hot",
     "bookmarks": "Bookmarks",
     "settings": "Settings",
-    "signIn": "Sign in"
+    "newHere": "New here?",
+    "signIn": "Sign in",
+    "feed": "Feed"
   },
   "settings": {
     "title": "Settings",
@@ -615,6 +617,29 @@
       "urlField": "URL",
       "urlPlaceholder": "https://twitter.com/satoshi",
       "saveButton": "Save link"
+    },
+    "customFeed": {
+      "createTitle": "Create Feed",
+      "editTitle": "Edit Feed",
+      "feedName": "Feed Name",
+      "feedNamePlaceholder": "Not your keys...",
+      "reach": "Reach",
+      "reachPlaceholder": "Select a reach",
+      "sort": "Sort",
+      "sortPlaceholder": "Select a sort",
+      "layout": "Layout",
+      "layoutPlaceholder": "Select a layout",
+      "content": "Content",
+      "contentPlaceholder": "Select content",
+      "filterTags": "Filter on Content Tags",
+      "saveFeed": "Save Feed",
+      "deleteFeed": "Delete Feed",
+      "feedCreated": "Feed {name} created!",
+      "feedCreateError": "Could not create feed, please try again or reach out to support.",
+      "feedEdited": "Feed {name} edited!",
+      "feedEditError": "Could not edit feed, please try again or reach out to support.",
+      "feedDeleted": "Feed {name} deleted!",
+      "feedDeleteError": "Could not delete feed, please try again or reach out to support."
     }
   },
   "sidebar": {
@@ -999,7 +1024,8 @@
     "layout": {
       "title": "Layout",
       "columns": "Columns",
-      "wide": "Wide"
+      "wide": "Wide",
+      "visual": "Visual"
     },
     "content": {
       "title": "Content",
@@ -1022,7 +1048,7 @@
     "hotTags": "Hot tags",
     "activeUsers": "Active users",
     "trendingPosts": "Trending posts",
-    "postsCount": "{count} posts",
+    "postsCount": "{count} posts this month",
     "failedToLoadUsers": "Failed to load users",
     "failedToLoadTags": "Failed to load tags",
     "noUsersToShow": "No users to show",
@@ -1145,5 +1171,15 @@
     "pullToRefresh": "Pull to refresh",
     "releaseToRefresh": "Release to refresh",
     "refreshing": "Refreshing..."
+  },
+  "markdownEditor": {
+    "emoji": "Emoji",
+    "richText": "Rich Text",
+    "markdown": "Markdown",
+    "clearToSwitch": "Clear content to switch modes",
+    "placeholder": "Start writing your masterpiece",
+    "toolbarAriaLabel": "Markdown editing toolbar",
+    "warningApproaching": "You're approaching the maximum character limit.",
+    "warningReached": "You've reached the maximum character limit."
   }
 }
