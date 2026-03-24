@@ -5,6 +5,15 @@ import { MobileFooter } from './MobileFooter';
 
 const FORCE_HOME_SCROLL_TOP_KEY = 'pubky:force-home-scroll-top';
 
+const createSessionStorageMock = () => ({
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  key: vi.fn(),
+  length: 0,
+});
+
 // Mock Next.js router
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn(),
@@ -69,15 +78,19 @@ vi.mock('@/app', async () => {
 });
 
 // Mock Hooks
-vi.mock('@/hooks', () => ({
-  useCurrentUserProfile: vi.fn(() => ({
-    userDetails: { name: 'Test User', image: null, indexed_at: 123 },
-    currentUserPubky: 'pk:test-user-pubky',
-  })),
-  usePublicRoute: vi.fn(() => ({
-    isPublicRoute: false,
-  })),
-}));
+vi.mock('@/hooks', () => {
+  const mockUseKeyboardOffset = vi.fn(() => ({ isKeyboardVisible: false, keyboardOffset: 0 }));
+  return {
+    useCurrentUserProfile: vi.fn(() => ({
+      userDetails: { name: 'Test User', image: null, indexed_at: 123 },
+      currentUserPubky: 'pk:test-user-pubky',
+    })),
+    usePublicRoute: vi.fn(() => ({
+      isPublicRoute: false,
+    })),
+    useKeyboardOffset: mockUseKeyboardOffset,
+  };
+});
 
 // Track notification store mock for per-test overrides
 const mockSelectUnread = vi.fn(() => 0);
@@ -103,10 +116,18 @@ vi.mock('@/core', async () => {
 });
 
 describe('MobileFooter', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.mocked(usePathname).mockReturnValue('/home');
     mockSelectUnread.mockReturnValue(0);
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: createSessionStorageMock(),
+    });
+
+    // Reset keyboard offset mock
+    const { useKeyboardOffset } = await import('@/hooks');
+    vi.mocked(useKeyboardOffset).mockReturnValue({ isKeyboardVisible: false, keyboardOffset: 0 });
   });
 
   it('renders with default props', () => {
@@ -260,7 +281,7 @@ describe('MobileFooter', () => {
   it('scrolls to top when clicking Home while already on /home', () => {
     vi.mocked(usePathname).mockReturnValue('/home');
     Object.defineProperty(window, 'scrollTo', { value: vi.fn(), writable: true });
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const setItemSpy = vi.spyOn(window.sessionStorage, 'setItem');
 
     render(<MobileFooter />);
     const homeLink = document.querySelector('.lucide-house')?.closest('a');
@@ -274,7 +295,7 @@ describe('MobileFooter', () => {
   it('does not scroll to top when clicking Home from another page', () => {
     vi.mocked(usePathname).mockReturnValue('/search');
     Object.defineProperty(window, 'scrollTo', { value: vi.fn(), writable: true });
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const setItemSpy = vi.spyOn(window.sessionStorage, 'setItem');
 
     render(<MobileFooter />);
     const homeLink = document.querySelector('.lucide-house')?.closest('a');
@@ -284,12 +305,54 @@ describe('MobileFooter', () => {
     expect(window.scrollTo).not.toHaveBeenCalled();
     expect(setItemSpy).toHaveBeenCalledWith(FORCE_HOME_SCROLL_TOP_KEY, '1');
   });
+
+  it('applies transform when keyboard is visible', async () => {
+    const { useKeyboardOffset } = await import('@/hooks');
+    vi.mocked(useKeyboardOffset).mockReturnValue({ isKeyboardVisible: true, keyboardOffset: 300 });
+
+    const { container } = render(<MobileFooter />);
+    const footerContainer = container.querySelector('.fixed');
+
+    expect(footerContainer).toBeInTheDocument();
+    expect(footerContainer?.getAttribute('style')).toContain('translateY(-300px)');
+  });
+
+  it('does not apply transform when keyboard is not visible', async () => {
+    const { useKeyboardOffset } = await import('@/hooks');
+    vi.mocked(useKeyboardOffset).mockReturnValue({ isKeyboardVisible: false, keyboardOffset: 0 });
+
+    const { container } = render(<MobileFooter />);
+    const footerContainer = container.querySelector('.fixed');
+
+    expect(footerContainer).toBeInTheDocument();
+    expect(footerContainer?.getAttribute('style')).toBeFalsy();
+  });
+
+  it('always applies transition classes for smooth keyboard animation', async () => {
+    const { useKeyboardOffset } = await import('@/hooks');
+
+    // transition-transform and duration-75 are always present regardless of keyboard state
+    vi.mocked(useKeyboardOffset).mockReturnValue({ isKeyboardVisible: false, keyboardOffset: 0 });
+    const { container, rerender } = render(<MobileFooter />);
+    let footerContainer = container.querySelector('.fixed');
+    expect(footerContainer).toHaveClass('transition-transform', 'duration-75');
+
+    // Still present when keyboard is visible
+    vi.mocked(useKeyboardOffset).mockReturnValue({ isKeyboardVisible: true, keyboardOffset: 300 });
+    rerender(<MobileFooter />);
+    footerContainer = container.querySelector('.fixed');
+    expect(footerContainer).toHaveClass('transition-transform', 'duration-75');
+  });
 });
 
 describe('MobileFooter - Snapshots', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.mocked(usePathname).mockReturnValue('/home');
+    mockSelectUnread.mockReturnValue(0);
+
+    const { useKeyboardOffset } = await import('@/hooks');
+    vi.mocked(useKeyboardOffset).mockReturnValue({ isKeyboardVisible: false, keyboardOffset: 0 });
   });
 
   it('matches snapshot with default props', () => {
