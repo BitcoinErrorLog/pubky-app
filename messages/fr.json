@@ -213,8 +213,10 @@
     },
     "lightning": {
       "title": "Scannez pour <highlight>payer.</highlight>",
+      "title_mobile": "Touchez pour <highlight>payer.</highlight>",
       "subtitle": "Scannez le code QR avec votre portefeuille préféré.",
       "qrLabel": "Paiement Bitcoin Lightning",
+      "payNow": "Payer maintenant",
       "payAmount": "Payez ₿ {amount} pour continuer.",
       "payAmountUsd": "Payez ₿ {amount} (${usdAmount}) pour continuer.",
       "expired": "Paiement expire",
@@ -286,6 +288,8 @@
     "signIn": {
       "title": "Connectez-vous a <highlight>Pubky.</highlight>",
       "subtitle": "Autorisez avec Pubky Ring pour vous connecter.",
+      "progressTitle": "Connexion en cours.",
+      "progressSubtitle": "Veuillez patienter pendant le chargement de votre expérience Pubky.",
       "generating": "Génération du code QR...",
       "generatingShort": "Génération...",
 
@@ -540,6 +544,12 @@
     }
   },
   "dialogs": {
+    "deletePost": {
+      "title": "Supprimer la publication ?",
+      "description": "Cette action est irréversible. La publication sera définitivement supprimée.",
+      "confirmButton": "Supprimer",
+      "cancelButton": "Annuler"
+    },
     "editPost": {
       "editArticle": "Modifiér l'article",
       "editPost": "Modifiér la publication",
@@ -685,7 +695,8 @@
       "subtitle2": "Vous pouvez rechercher plusieurs tags separes par des virgules."
     },
     "userSuggestion": "Utilisateur {name} ({pubky})",
-    "viewProfile": "Voir le profil de {name}"
+    "viewProfile": "Voir le profil de {name}",
+    "invalidTag": "Les tags doivent contenir 20 caractères ou moins et ne peuvent pas contenir de caractères spéciaux"
   },
   "feedback": {
     "title": "Donner votre avis",
@@ -740,7 +751,7 @@
       "repostedPost": "a republie votre publication",
       "mentionedYou": "vous a mentionne dans une publication",
       "deletedPost": "a supprimé une publication",
-      "editedPost": "a modifié une publication",
+      "editedPost": "a modifié une publication avec laquelle vous avez interagi",
       "fallback": "Nouvelle notification"
     },
     "settings": {
@@ -897,7 +908,8 @@
       "failedToLoadPosts": "Échec du chargement des nouvelles publications",
       "failedToLoadPostsDesc": "Impossible d'afficher les nouvelles publications. Veuillez réessayer.",
       "parseError": "Échec de l'analyse du contenu de l'article",
-      "coverImageError": "Échec du chargement de l'image de couverture de l'article"
+      "coverImageError": "Échec du chargement de l'image de couverture de l'article",
+      "attachmentsLoadFailed": "Échec du chargement des pièces jointes"
     },
     "bookmark": {
       "added": "Favori ajoute",
@@ -961,6 +973,10 @@
       "userIdRequired": "L'ID utilisateur est obligatoire",
       "loginRequired": "Vous devez etre connecte pour ajouter des tags",
       "alreadyAdded": "Vous avez déjà ajoute ce tag",
+      "added": "Tag ajouté",
+      "addedDesc": "\"{label}\" a été ajouté avec succès.",
+      "removed": "Tag supprimé",
+      "removedDesc": "\"{label}\" a été supprimé avec succès.",
       "addFailed": "Échec de l'ajout du tag",
       "addFailedDesc": "Impossible d'ajouter \"{label}\". Veuillez réessayer.",
       "removeFailed": "Échec du retrait du tag",
@@ -979,6 +995,16 @@
       "maxFilesPartial": "Maximum {max} fichiers autorises. Certains fichiers n'ont pas ete ajoutes.",
       "unsupportedType": "\"{name}\" a un type non supporte \"{type}\". Formats supportes : {formats}.",
       "fileTooLarge": "\"{name}\" depasse la taille maximale de {maxSize}."
+    },
+    "status": {
+      "updateFailed": "Échec de la mise à jour du statut. Veuillez réessayer.",
+      "userNotLoaded": "Profil utilisateur non chargé. Veuillez réessayer."
+    },
+    "fullscreen": {
+      "error": "Erreur lors de l'activation du plein écran"
+    },
+    "logout": {
+      "failed": "Échec de la déconnexion. Veuillez réessayer."
     }
   },
   "empty": {
@@ -1014,6 +1040,7 @@
     "follow": "S'abonner",
     "unfollow": "Se désabonner",
     "following": "Abonne",
+    "editProfile": "Modifier le profil",
     "me": "Moi",
     "tags": "TAGS",
     "posts": "PUBLICATIONS",
@@ -1187,7 +1214,6 @@
     "emoji": "Émoji",
     "richText": "Texte enrichi",
     "markdown": "Markdown",
-    "clearToSwitch": "Effacez le contenu pour changer de mode",
     "placeholder": "Commencez à écrire votre chef-d'œuvre",
     "toolbarAriaLabel": "Barre d'outils d'édition Markdown",
     "warningApproaching": "Vous approchez de la limite maximale de caractères.",

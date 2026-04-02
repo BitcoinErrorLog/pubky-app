@@ -73,7 +73,7 @@ export function PostHeaderUserInfo({
           {characterLimit && (
             <Atoms.Typography
               data-cy="post-header-character-count"
-              className="shrink-0 text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground"
+              className="shrink-0 text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground sm:hidden"
               overrideDefaults
             >
               {characterLimit.count}/{characterLimit.max}
@@ -90,13 +90,13 @@ export function PostHeaderUserInfo({
   }
 
   return (
-    <Molecules.PostHeaderUserInfoPopoverWrapper
+    <Molecules.UserInfoPopover
       userId={userId}
       userName={userName}
       avatarUrl={avatarUrl}
       formattedPublicKey={formattedPublicKey}
     >
       {content}
-    </Molecules.PostHeaderUserInfoPopoverWrapper>
+    </Molecules.UserInfoPopover>
   );
 }
