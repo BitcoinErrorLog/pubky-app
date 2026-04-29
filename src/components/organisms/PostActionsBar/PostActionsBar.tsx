@@ -1,14 +1,17 @@
 'use client';
 
+import { useBookmark } from '@/hooks/useBookmark/useBookmark';
+import { usePostCounts } from '@/hooks/usePostCounts/usePostCounts';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useTranslations } from 'next-intl';
 import { cva } from 'class-variance-authority';
 import * as Atoms from '@/atoms';
-import * as Hooks from '@/hooks';
 import * as Organisms from '@/organisms';
 import { PostActionsBarSkeleton } from './PostActionsBar.skeleton';
 import type { PostActionsBarProps, ActionButtonConfig } from './PostActionsBar.types';
 import { Tag, MessageCircle, Repeat, Loader2, Bookmark, Ellipsis } from 'lucide-react';
 import { cn } from '@/libs/utils/utils';
+
 const postActionsButtonVariants = cva('', {
   variants: {
     variant: {
@@ -40,14 +43,14 @@ export function PostActionsBar({
   variant = 'default',
 }: PostActionsBarProps) {
   const t = useTranslations('common');
-  const { postCounts, isLoading: isCountsLoading } = Hooks.usePostCounts(postId);
+  const { postCounts, isLoading: isCountsLoading } = usePostCounts(postId);
   const {
     isBookmarked,
     isLoading: isBookmarkLoading,
     isToggling: isBookmarkToggling,
     toggle: toggleBookmark,
-  } = Hooks.useBookmark(postId);
-  const { requireAuth } = Hooks.useRequireAuth();
+  } = useBookmark(postId);
+  const { requireAuth } = useRequireAuth();
   const isBookmarkBusy = isBookmarkLoading || isBookmarkToggling;
   const buttonClassName = postActionsButtonVariants({
     variant,

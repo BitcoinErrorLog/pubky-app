@@ -1,13 +1,15 @@
 'use client';
 
+import { useFollowUser } from '@/hooks/useFollowUser/useFollowUser';
+import { useUserStream } from '@/hooks/useUserStream/useUserStream';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import * as Core from '@/core';
-import * as Hooks from '@/hooks';
 import * as Molecules from '@/molecules';
 import * as Organisms from '@/organisms';
 import { APP_ROUTES } from '@/app/routes';
 import { UsersRound } from 'lucide-react';
+
 const USERS_LIMIT = 3;
 
 /**
@@ -22,12 +24,12 @@ export function WhoToFollowSidebar() {
   const t = useTranslations('sidebar');
   const tCommon = useTranslations('common');
   const router = useRouter();
-  const { users, isLoading: isStreamLoading } = Hooks.useUserStream({
+  const { users, isLoading: isStreamLoading } = useUserStream({
     streamId: Core.UserStreamTypes.RECOMMENDED,
     limit: USERS_LIMIT,
     includeRelationships: true,
   });
-  const { toggleFollow, isUserLoading } = Hooks.useFollowUser();
+  const { toggleFollow, isUserLoading } = useFollowUser();
   const handleUserClick = (pubky: Core.Pubky) => {
     router.push(`${APP_ROUTES.PROFILE}/${pubky}`);
   };

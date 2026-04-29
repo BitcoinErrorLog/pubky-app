@@ -1,10 +1,13 @@
 'use client';
 
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard/useCopyToClipboard';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as Atoms from '@/atoms';
 import * as Organisms from '@/organisms';
-import * as Hooks from '@/hooks';
 import * as Core from '@/core';
+import { Key, ArrowRight } from 'lucide-react';
+import { Logger } from '@/libs/logger/logger';
+import { formatPublicKey, withPubkyPrefix } from '@/libs/utils/utils';
 
 /**
  * DialogWelcome
@@ -12,9 +15,6 @@ import * as Core from '@/core';
  * Self-contained welcome dialog that manages its own state and data.
  * No props needed - it fetches user data and manages dialog state internally.
  */
-import { Key, ArrowRight } from 'lucide-react';
-import { Logger } from '@/libs/logger/logger';
-import { formatPublicKey, withPubkyPrefix } from '@/libs/utils/utils';
 export function DialogWelcome() {
   const { currentUserPubky } = Core.useAuthStore();
   const { showWelcomeDialog, setShowWelcomeDialog } = Core.useOnboardingStore();
@@ -34,7 +34,7 @@ export function DialogWelcome() {
       return null;
     }
   }, [currentUserPubky]);
-  const { copyToClipboard } = Hooks.useCopyToClipboard();
+  const { copyToClipboard } = useCopyToClipboard();
 
   // Don't render if conditions aren't met
   if (!userDetails || !currentUserPubky) {

@@ -1,5 +1,6 @@
 'use client';
 
+import { useUserProfile } from '@/hooks/useUserProfile/useUserProfile';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -8,10 +9,14 @@ import * as Atoms from '@/atoms';
 import * as Molecules from '@/molecules';
 import * as Organisms from '@/organisms';
 import * as Core from '@/core';
-import * as Hooks from '@/hooks';
-import type { ArticleJSON } from '@/hooks';
+import type { ArticleJSON } from '@/hooks/usePostArticle/usePostArticle.types';
 import { NotificationType } from '@/core';
 import { buildSearchUrl } from '@/hooks/useTagSearch/useTagSearch.utils';
+import { resolvePubkyToNames } from './NotificationItem.helpers';
+import type { NotificationItemProps } from './NotificationItem.types';
+import { Logger } from '@/libs/logger/logger';
+import { formatNotificationTime, isPostDeleted } from '@/libs/utils/utils';
+
 import {
   getNotificationLink,
   getUserIdFromNotification,
@@ -21,10 +26,6 @@ import {
   formatPreviewText,
   hasPostPreview,
 } from './NotificationItem.utils';
-import { resolvePubkyToNames } from './NotificationItem.helpers';
-import type { NotificationItemProps } from './NotificationItem.types';
-import { Logger } from '@/libs/logger/logger';
-import { formatNotificationTime, isPostDeleted } from '@/libs/utils/utils';
 
 export function NotificationItem({ notification, isUnread }: NotificationItemProps) {
   const t = useTranslations('notifications.actions');
@@ -49,7 +50,7 @@ export function NotificationItem({ notification, isUnread }: NotificationItemPro
   const [postContent, setPostContent] = useState<string | null>(null);
 
   // Use existing hook for user profile data
-  const { profile } = Hooks.useUserProfile(actorUserId || '');
+  const { profile } = useUserProfile(actorUserId || '');
 
   // Fetch post content via controller (handles caching internally)
   useEffect(() => {

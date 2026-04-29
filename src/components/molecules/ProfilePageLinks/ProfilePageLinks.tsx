@@ -1,19 +1,20 @@
 'use client';
 
+import { useLinkConfirmation } from '@/hooks/useLinkConfirmation/useLinkConfirmation';
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import * as Atoms from '@/atoms';
 import * as Organisms from '@/organisms';
-import * as Hooks from '@/hooks';
 import { SETTINGS_ROUTES } from '@/app/routes';
 import type { ProfilePageLinksProps } from './ProfilePageLinks.types';
 import { Link } from 'lucide-react';
 import { getIconFromUrl } from '@/libs/utils/urlToIcon';
+
 export function ProfilePageLinks({ links, isOwnProfile = false }: ProfilePageLinksProps) {
   const t = useTranslations('profile.sidebar');
   const router = useRouter();
-  const { dialogOpen, setDialogOpen, clickedLink, handleLinkClick } = Hooks.useLinkConfirmation();
+  const { dialogOpen, setDialogOpen, clickedLink, handleLinkClick } = useLinkConfirmation();
   const handleAddLinkClick = () => {
     router.push(SETTINGS_ROUTES.EDIT);
   };

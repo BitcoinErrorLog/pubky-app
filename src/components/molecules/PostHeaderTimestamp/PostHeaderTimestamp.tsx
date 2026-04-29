@@ -1,8 +1,9 @@
 'use client';
 
 import * as Atoms from '@/atoms';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { Clock } from 'lucide-react';
+
 interface PostHeaderTimestampProps {
   timeAgo: string;
   /** When provided, shows exact date/time in a tooltip on hover (desktop only) */

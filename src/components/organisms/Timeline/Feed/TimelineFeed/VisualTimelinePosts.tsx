@@ -1,11 +1,20 @@
 'use client';
 
+import { useAvatarUrl } from '@/hooks/useAvatarUrl/useAvatarUrl';
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll/useInfiniteScroll';
+import { useIsTouchDevice } from '@/hooks/useIsTouchDevice/useIsTouchDevice';
+import { usePostNavigation } from '@/hooks/usePostNavigation/usePostNavigation';
+import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
+import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
+import { useViewportObserver } from '@/hooks/useViewportObserver/useViewportObserver';
 import * as React from 'react';
 import * as Atoms from '@/atoms';
 import * as Core from '@/core';
-import * as Hooks from '@/hooks';
 import * as Molecules from '@/molecules';
 import * as Organisms from '@/organisms';
+import { useVisualFeedTiles } from './useVisualFeedTiles';
+import { cn } from '@/libs/utils/utils';
+
 import {
   VISUAL_GRID_MAX_WIDTH_PX,
   VISUAL_TILE_ASPECT_RATIOS,
@@ -19,8 +28,6 @@ import type {
   VisualTimelineTileProps,
   VisualTileVideoProps,
 } from './VisualTimelinePosts.types';
-import { useVisualFeedTiles } from './useVisualFeedTiles';
-import { cn } from '@/libs/utils/utils';
 
 function stopPropagation(event: React.SyntheticEvent) {
   event.stopPropagation();
@@ -28,7 +35,7 @@ function stopPropagation(event: React.SyntheticEvent) {
 
 function VisualTileVideo({ tile }: VisualTileVideoProps) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
-  const { ref, isVisible } = Hooks.useViewportObserver({
+  const { ref, isVisible } = useViewportObserver({
     rootMargin: '300px 0px 300px 0px',
   });
 
@@ -99,9 +106,9 @@ function VisualTileImage({ tile }: VisualTileImageProps) {
 
 function VisualTimelineTileOverlay({ tile, size, onReplyClick, onRepostClick }: VisualTimelineTileOverlayProps) {
   const userId = React.useMemo(() => Core.parseCompositeId(tile.postId).pubky, [tile.postId]);
-  const { userDetails } = Hooks.useUserDetails(userId);
-  const avatarUrl = Hooks.useAvatarUrl(userDetails);
-  const { formatRelativeTime } = Hooks.useRelativeTime();
+  const { userDetails } = useUserDetails(userId);
+  const avatarUrl = useAvatarUrl(userDetails);
+  const { formatRelativeTime } = useRelativeTime();
   const indexedAt = new Date(tile.indexedAt);
   const [tagsExpanded, setTagsExpanded] = React.useState(false);
   const isCompact = size === 'square';
@@ -201,7 +208,7 @@ function VisualTimelineTileOverlay({ tile, size, onReplyClick, onRepostClick }: 
 }
 
 function VisualTimelineTile({ tile, size, onNavigate }: VisualTimelineTileProps) {
-  const isTouchDevice = Hooks.useIsTouchDevice();
+  const isTouchDevice = useIsTouchDevice();
   const [replyDialogOpen, setReplyDialogOpen] = React.useState(false);
   const [repostDialogOpen, setRepostDialogOpen] = React.useState(false);
 
@@ -289,10 +296,10 @@ export function VisualTimelinePosts({
   hasMore,
   loadMore,
 }: VisualTimelinePostsProps) {
-  const { navigateToPost } = Hooks.usePostNavigation();
+  const { navigateToPost } = usePostNavigation();
   const { rows, hasPendingTiles, hasPendingFiles } = useVisualFeedTiles({ postIds, hasMore });
 
-  const { sentinelRef } = Hooks.useInfiniteScroll({
+  const { sentinelRef } = useInfiniteScroll({
     onLoadMore: loadMore,
     hasMore,
     isLoading: loadingMore,

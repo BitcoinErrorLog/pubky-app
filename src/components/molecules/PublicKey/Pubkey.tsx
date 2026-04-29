@@ -1,13 +1,12 @@
 'use client';
 
+import { useInviteCodeSignUp } from '@/hooks/useInviteCodeSignUp/useInviteCodeSignUp';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-
 import * as Molecules from '@/molecules';
 import * as Atoms from '@/atoms';
 import * as Core from '@/core';
-import * as Hooks from '@/hooks';
 import * as App from '@/app';
 
 export const PublicKeyHeader = () => {
@@ -27,7 +26,7 @@ export const PublicKeyHeader = () => {
 export const PublicKeyNavigation = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const { validateAndSignUp } = Hooks.useInviteCodeSignUp();
+  const { validateAndSignUp } = useInviteCodeSignUp();
 
   const onHandleBackButton = () => {
     router.push(App.ONBOARDING_ROUTES.INSTALL);

@@ -15,15 +15,11 @@ vi.mock('@/core', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/useSettingsActions', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/hooks/useSettingsActions')>();
-  return {
-    ...actual,
-    useSettingsActions: () => ({
-      setNotificationPreference: mockSetNotificationPreference,
-    }),
-  };
-});
+vi.mock('@/hooks/useSettingsActions/useSettingsActions', () => ({
+  useSettingsActions: () => ({
+    setNotificationPreference: mockSetNotificationPreference,
+  }),
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -1,11 +1,21 @@
 'use client';
 
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard/useCopyToClipboard';
+import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
+import { useFollowUser } from '@/hooks/useFollowUser/useFollowUser';
+import { useIsFollowing } from '@/hooks/useIsFollowing/useIsFollowing';
+import { useMuteUser } from '@/hooks/useMuteUser/useMuteUser';
+import { useMutedUsers } from '@/hooks/useMutedUsers/useMutedUsers';
+import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { useUserProfile } from '@/hooks/useUserProfile/useUserProfile';
 import { useTranslations } from 'next-intl';
 import * as Core from '@/core';
-import * as Hooks from '@/hooks';
 import * as Molecules from '@/molecules';
 import { POST_ROUTES } from '@/app/routes';
 import { POST_MENU_ACTION_IDS, POST_MENU_ACTION_VARIANTS } from './usePostMenuActions.constants';
+import { isAppError } from '@/libs/error/error.utils';
+import { stripPubkyPrefix, truncateString, withPubkyPrefix } from '@/libs/utils/utils';
+
 import type {
   UsePostMenuActionsResult,
   UsePostMenuActionsOptions,
@@ -35,8 +45,6 @@ import {
   Edit,
   Trash,
 } from 'lucide-react';
-import { isAppError } from '@/libs/error/error.utils';
-import { stripPubkyPrefix, truncateString, withPubkyPrefix } from '@/libs/utils/utils';
 export function usePostMenuActions(postId: string, options: UsePostMenuActionsOptions): UsePostMenuActionsResult {
   const t = useTranslations('post.actions');
   const tToast = useTranslations('toast');
@@ -48,20 +56,20 @@ export function usePostMenuActions(postId: string, options: UsePostMenuActionsOp
   // Normalize author ID to ensure consistent format (strip pubky: or pk: prefix)
   // This is necessary because composite IDs may contain prefixed pubky IDs
   const postAuthorId = stripPubkyPrefix(parsedId.pubky) as Core.Pubky;
-  const { currentUserPubky } = Hooks.useCurrentUserProfile();
-  const { postDetails, isLoading: isPostLoading } = Hooks.usePostDetails(postId);
-  const { profile: authorProfile, isLoading: isAuthorLoading } = Hooks.useUserProfile(postAuthorId);
-  const { isFollowing, isLoading: isFollowingLoading } = Hooks.useIsFollowing(postAuthorId);
-  const { toggleFollow, isLoading: isFollowLoading, isUserLoading } = Hooks.useFollowUser();
-  const { toggleMute, isLoading: isMuteLoading, isUserLoading: isMuteUserLoading } = Hooks.useMuteUser();
-  const { isMuted, isLoading: isMutedUsersLoading } = Hooks.useMutedUsers();
-  const { copyToClipboard: copyPubky } = Hooks.useCopyToClipboard({
+  const { currentUserPubky } = useCurrentUserProfile();
+  const { postDetails, isLoading: isPostLoading } = usePostDetails(postId);
+  const { profile: authorProfile, isLoading: isAuthorLoading } = useUserProfile(postAuthorId);
+  const { isFollowing, isLoading: isFollowingLoading } = useIsFollowing(postAuthorId);
+  const { toggleFollow, isLoading: isFollowLoading, isUserLoading } = useFollowUser();
+  const { toggleMute, isLoading: isMuteLoading, isUserLoading: isMuteUserLoading } = useMuteUser();
+  const { isMuted, isLoading: isMutedUsersLoading } = useMutedUsers();
+  const { copyToClipboard: copyPubky } = useCopyToClipboard({
     successTitle: tCopy('pubkyCopied'),
   });
-  const { copyToClipboard: copyLink } = Hooks.useCopyToClipboard({
+  const { copyToClipboard: copyLink } = useCopyToClipboard({
     successTitle: tCopy('linkCopied'),
   });
-  const { copyToClipboard: copyText } = Hooks.useCopyToClipboard({
+  const { copyToClipboard: copyText } = useCopyToClipboard({
     successTitle: tCopy('textCopied'),
   });
   const isOwnPost = currentUserPubky === postAuthorId;

@@ -1,19 +1,21 @@
 'use client';
 
+import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
+import { useProfileForm } from '@/hooks/useProfileForm/useProfileForm';
 import * as Molecules from '@/molecules';
 import * as Organisms from '@/organisms';
 import * as Atoms from '@/atoms';
-import * as Hooks from '@/hooks';
 import * as Config from '@/config';
 import { useTranslations } from 'next-intl';
 import { EditProfileFormSkeleton } from './EditProfileForm.skeleton';
 import { Trash2, File } from 'lucide-react';
 import { extractInitials } from '@/libs/utils/utils';
+
 export const EditProfileForm = () => {
   const t = useTranslations('forms.profile');
   const tCommon = useTranslations('common');
-  const { userDetails, currentUserPubky } = Hooks.useCurrentUserProfile();
-  const { state, errors, handlers, cropDialog, fileInputRef, isSubmitDisabled } = Hooks.useProfileForm({
+  const { userDetails, currentUserPubky } = useCurrentUserProfile();
+  const { state, errors, handlers, cropDialog, fileInputRef, isSubmitDisabled } = useProfileForm({
     mode: 'edit',
     pubky: currentUserPubky,
     userDetails,

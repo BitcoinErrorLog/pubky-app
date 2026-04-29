@@ -1,10 +1,14 @@
 'use client';
 
+import { useAvatarUrl } from '@/hooks/useAvatarUrl/useAvatarUrl';
+import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
+import { useElementHeight } from '@/hooks/useElementHeight/useElementHeight';
+import { useEnterSubmit } from '@/hooks/useEnterSubmit/useEnterSubmit';
+import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
+import { usePostInput } from '@/hooks/usePostInput/usePostInput';
 import * as React from 'react';
 import { useTranslations } from 'next-intl';
-
 import * as Atoms from '@/atoms';
-import * as Hooks from '@/hooks';
 import * as Molecules from '@/molecules';
 import * as Organisms from '@/organisms';
 import { POST_MAX_CHARACTER_LENGTH } from '@/config';
@@ -13,7 +17,6 @@ import { POST_THREAD_CONNECTOR_VARIANTS } from '@/atoms';
 import { PostInputExpandableSection } from '@/organisms/PostInputExpandableSection';
 import { PostInputAttachments } from '@/molecules/PostInputAttachments/PostInputAttachments';
 import { usePostMainLayout, WIDE_POST_LAYOUT_CLASSES } from '@/organisms/PostMain/PostMainLayout';
-
 import { QUICK_REPLY_CONNECTOR_SPACER_HEIGHT } from './QuickReply.constants';
 import type { QuickReplyProps } from './QuickReply.types';
 import { canSubmitPost, cn, getCharacterCount } from '@/libs/utils/utils';
@@ -29,8 +32,8 @@ export function QuickReply({
   const [promptIndex] = React.useState(() => Math.floor(Math.random() * prompts.length));
   const prompt = prompts[promptIndex] || prompts[0];
 
-  const { userDetails, currentUserPubky } = Hooks.useCurrentUserProfile();
-  const avatarUrl = Hooks.useAvatarUrl(userDetails);
+  const { userDetails, currentUserPubky } = useCurrentUserProfile();
+  const avatarUrl = useAvatarUrl(userDetails);
 
   const {
     textareaRef,
@@ -64,7 +67,7 @@ export function QuickReply({
     setMentionSelectedIndex,
     handleMentionSelect,
     handleMentionKeyDown,
-  } = Hooks.usePostInput({
+  } = usePostInput({
     variant: POST_INPUT_VARIANT.REPLY,
     postId: parentPostId,
     placeholder: prompt,
@@ -72,7 +75,7 @@ export function QuickReply({
     onSuccess: onReplySubmitted,
   });
 
-  const { ref: cardRef, height: cardHeight } = Hooks.useElementHeight();
+  const { ref: cardRef, height: cardHeight } = useElementHeight();
 
   const isValid = React.useCallback(() => {
     return canSubmitPost(POST_INPUT_VARIANT.REPLY, content, attachments, isSubmitting);
@@ -80,7 +83,7 @@ export function QuickReply({
 
   const characterLimit = { count: getCharacterCount(content), max: POST_MAX_CHARACTER_LENGTH };
 
-  const enterSubmitHandler = Hooks.useEnterSubmit(isValid, handleSubmit, {
+  const enterSubmitHandler = useEnterSubmit(isValid, handleSubmit, {
     requireModifier: true,
   });
 
@@ -93,7 +96,7 @@ export function QuickReply({
   // Account for spacing between main post and QuickReply in connector calculation
   const connectorHeight = cardHeight ? cardHeight + QUICK_REPLY_CONNECTOR_SPACER_HEIGHT : undefined;
 
-  const isMobile = Hooks.useIsMobile();
+  const isMobile = useIsMobile();
   const inheritedTagsLayout = usePostMainLayout() ?? 'inline';
   const isWideLayout = !isMobile && inheritedTagsLayout === 'side';
 

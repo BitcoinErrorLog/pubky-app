@@ -1,12 +1,14 @@
 'use client';
 
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { useTtlSubscription } from '@/hooks/useTtlSubscription/useTtlSubscription';
 import { useTranslations } from 'next-intl';
 import { Check, Loader2, StickyNote, Tag, UserMinus, UserRound, UserRoundPlus } from 'lucide-react';
 import * as Atoms from '@/atoms';
 import * as Organisms from '@/organisms';
-import * as Hooks from '@/hooks';
 import * as Core from '@/core';
 import { USER_LIST_TAG_MAX_LENGTH, USER_LIST_TAGS_MAX_TOTAL_CHARS } from '@/config';
+import { cn, formatPublicKey } from '@/libs/utils/utils';
 import type {
   UserListItemProps,
   FollowButtonProps,
@@ -14,7 +16,6 @@ import type {
   UserStatsProps,
   VariantProps,
 } from './UserListItem.types';
-import { cn, formatPublicKey } from '@/libs/utils/utils';
 
 // =============================================================================
 // Internal Components
@@ -401,10 +402,10 @@ export function UserListItem({
   'data-testid': dataTestId,
 }: UserListItemProps) {
   // Auth requirement for follow action
-  const { requireAuth } = Hooks.useRequireAuth();
+  const { requireAuth } = useRequireAuth();
 
   // Subscribe to TTL coordinator based on viewport visibility
-  const { ref: ttlRef } = Hooks.useTtlSubscription({
+  const { ref: ttlRef } = useTtlSubscription({
     type: 'user',
     id: user.id,
   });

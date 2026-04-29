@@ -1,12 +1,15 @@
 'use client';
 
+import { useTtlSubscription } from '@/hooks/useTtlSubscription/useTtlSubscription';
 import { useTranslations } from 'next-intl';
 import * as Atoms from '@/atoms';
-import * as Hooks from '@/hooks';
 import * as Molecules from '@/molecules';
 import * as Organisms from '@/organisms';
 import * as Types from './ProfilePageHeader.types';
 import { FOLLOW_ACTIONS } from '@/hooks/useFollowUser/useFollowUser.types';
+import { Pencil, KeyRound, Link, Loader2, LogOut, Check, UserMinus, UserRoundPlus, Ellipsis } from 'lucide-react';
+import { extractEmojiFromStatus, parseStatus } from '@/libs/status/status';
+import { cn, formatPublicKey } from '@/libs/utils/utils';
 
 /**
  * ProfilePageHeader
@@ -17,9 +20,6 @@ import { FOLLOW_ACTIONS } from '@/hooks/useFollowUser/useFollowUser.types';
  * Subscribes the profile user to TTL tracking when visible in the viewport.
  * This ensures profile data gets refreshed when stale.
  */
-import { Pencil, KeyRound, Link, Loader2, LogOut, Check, UserMinus, UserRoundPlus, Ellipsis } from 'lucide-react';
-import { extractEmojiFromStatus, parseStatus } from '@/libs/status/status';
-import { cn, formatPublicKey } from '@/libs/utils/utils';
 export function ProfilePageHeader({ profile, actions, isOwnProfile = true, userId }: Types.ProfilePageHeaderProps) {
   const t = useTranslations('profile.actions');
   const tStatus = useTranslations('status');
@@ -40,7 +40,7 @@ export function ProfilePageHeader({ profile, actions, isOwnProfile = true, userI
 
   // Subscribe to TTL coordinator based on viewport visibility
   // Use raw userId (without prefix) for proper TTL tracking
-  const { ref: ttlRef } = Hooks.useTtlSubscription({
+  const { ref: ttlRef } = useTtlSubscription({
     type: 'user',
     id: userId,
   });

@@ -3,9 +3,10 @@
 import * as React from 'react';
 import * as Atoms from '@/atoms';
 import type { PostInputActionBarProps } from './PostInputActionBar.types';
-import { useIsMobile } from '@/hooks';
+import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { Loader2, Send, Smile, Image, Newspaper } from 'lucide-react';
 import { cn } from '@/libs/utils/utils';
+
 interface ActionButtonContentProps {
   Icon: React.ComponentType<{
     className?: string;

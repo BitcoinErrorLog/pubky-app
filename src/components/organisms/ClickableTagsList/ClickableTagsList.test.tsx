@@ -65,7 +65,7 @@ const { mockTagInputToggle, mockTagInput, mockPostTagAddButton } = vi.hoisted(()
   ),
 }));
 
-vi.mock('@/hooks', () => ({
+vi.mock('@/hooks/useEntityTags/useEntityTags', () => ({
   useEntityTags: vi.fn((_entityId, _taggedKind, options) => ({
     tags: options?.providedTags ?? [],
     count: options?.providedTags?.length ?? 0,
@@ -74,14 +74,23 @@ vi.mock('@/hooks', () => ({
     handleTagToggle: mockHandleTagToggle,
     handleTagAdd: mockHandleTagAdd,
   })),
+}));
+
+vi.mock('@/hooks/useTagSuggestions/useTagSuggestions', () => ({
   useTagSuggestions: vi.fn(() => ({
     suggestions: [],
     isLoading: false,
   })),
+}));
+
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({
     isAuthenticated: mockIsAuthenticated,
     requireAuth: <T,>(action: () => T) => (mockIsAuthenticated ? action() : (undefined as T)),
   }),
+}));
+
+vi.mock('@/hooks/useEnrichedTags/useEnrichedTags', () => ({
   useEnrichedTags: vi.fn((tags) => ({
     enrichedTags: tags,
     isLoading: false,

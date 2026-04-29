@@ -1,12 +1,13 @@
 'use client';
 
+import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import * as Atoms from '@/atoms';
 import * as Organisms from '@/organisms';
-import * as Hooks from '@/hooks';
 import { REPORT_REASON_MAX_LENGTH } from '@/core/pipes/report';
 import type { DialogReportPostReasonStepProps } from './DialogReportPostReasonStep.types';
 import { Loader2 } from 'lucide-react';
 import { getCharacterCount } from '@/libs/utils/utils';
+
 export function DialogReportPostReasonStep({
   reason,
   hasContent,
@@ -15,7 +16,7 @@ export function DialogReportPostReasonStep({
   onCancel,
   onSubmit,
 }: DialogReportPostReasonStepProps) {
-  const { currentUserPubky } = Hooks.useCurrentUserProfile();
+  const { currentUserPubky } = useCurrentUserProfile();
   return (
     <>
       <Atoms.DialogHeader>

@@ -1,21 +1,22 @@
 'use client';
 
+import { useProfileForm } from '@/hooks/useProfileForm/useProfileForm';
 import * as Molecules from '@/molecules';
 import * as Organisms from '@/organisms';
 import * as Atoms from '@/atoms';
-import * as Hooks from '@/hooks';
 import * as Core from '@/core';
 import * as Config from '@/config';
 import { useTranslations } from 'next-intl';
 import { Trash2, File } from 'lucide-react';
 import { extractInitials } from '@/libs/utils/utils';
+
 export const CreateProfileForm = () => {
   const t = useTranslations('forms.profile');
   const tCommon = useTranslations('common');
   const { setShowWelcomeDialog } = Core.useOnboardingStore();
   const authStore = Core.useAuthStore();
   const pubky = authStore.selectCurrentUserPubky();
-  const { state, errors, handlers, cropDialog, fileInputRef, isSubmitDisabled } = Hooks.useProfileForm({
+  const { state, errors, handlers, cropDialog, fileInputRef, isSubmitDisabled } = useProfileForm({
     mode: 'create',
     pubky,
     setShowWelcomeDialog,

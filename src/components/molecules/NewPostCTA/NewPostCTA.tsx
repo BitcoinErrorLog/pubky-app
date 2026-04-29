@@ -1,9 +1,13 @@
 'use client';
 
+import { useAuthStatus } from '@/hooks/useAuthStatus/useAuthStatus';
+import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useState } from 'react';
 import * as Atoms from '@/atoms';
-import * as Hooks from '@/hooks';
 import * as Organisms from '@/organisms';
+import { Plus } from 'lucide-react';
+import { cn } from '@/libs/utils/utils';
 
 /**
  * Floating Action Button (FAB) for creating new posts.
@@ -18,13 +22,11 @@ import * as Organisms from '@/organisms';
  * - 72px is the current height of the footer navigation bar.
  * - md breakpoint uses 80px for additional spacing.
  */
-import { Plus } from 'lucide-react';
-import { cn } from '@/libs/utils/utils';
 export function NewPostCTA() {
   const [open, setOpen] = useState(false);
-  const { isFullyAuthenticated, isLoading } = Hooks.useAuthStatus();
-  const { isPublicRoute } = Hooks.usePublicRoute();
-  const { requireAuth } = Hooks.useRequireAuth();
+  const { isFullyAuthenticated, isLoading } = useAuthStatus();
+  const { isPublicRoute } = usePublicRoute();
+  const { requireAuth } = useRequireAuth();
 
   // Show FAB for authenticated users OR unauthenticated users on public routes
   const shouldShow = isFullyAuthenticated || isPublicRoute;
