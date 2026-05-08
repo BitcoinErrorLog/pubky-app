@@ -1,14 +1,25 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
+import { usePostAncestors } from '@/hooks/usePostAncestors/usePostAncestors';
+import { usePostCounts } from '@/hooks/usePostCounts/usePostCounts';
+import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import type { UseRequireAuthResult } from '@/hooks/useRequireAuth/useRequireAuth.types';
+import { useUserDetailsFromIds } from '@/hooks/useUserDetailsFromIds/useUserDetailsFromIds';
+import type { PostCountsModelSchema } from '@/models/post/counts/postCounts.schema';
+import { useHomeStore } from '@/stores/home/home.store';
+import { LAYOUT } from '@/stores/home/home.types';
 import { SinglePostContent } from './SinglePostContent';
-import * as Hooks from '@/hooks';
 
 // Mock hooks
-const mockUseRequireAuth = vi.fn(() => ({
-  isAuthenticated: true,
-  requireAuth: vi.fn((action: () => unknown) => action()),
-}));
+const mockUseRequireAuth = vi.fn(
+  (): UseRequireAuthResult => ({
+    isAuthenticated: true,
+    requireAuth: <T,>(action: () => T) => action(),
+  }),
+);
 
 const mockUsePostDetails = vi.fn(() => ({
   postDetails: {
@@ -18,13 +29,20 @@ const mockUsePostDetails = vi.fn(() => ({
     uri: 'pubky://author/pub/pubky.app/posts/post123',
     content: 'Test post content',
     attachments: [],
+    is_moderated: false,
     is_blurred: false,
-  },
+  } satisfies EnrichedPostDetails,
   isLoading: false,
 }));
 
 const mockUsePostCounts = vi.fn(() => ({
-  postCounts: { replies: 0, tags: 0, unique_tags: 0, reposts: 0 },
+  postCounts: {
+    id: 'author:post123',
+    replies: 0,
+    tags: 0,
+    unique_tags: 0,
+    reposts: 0,
+  } satisfies PostCountsModelSchema,
   isLoading: false,
 }));
 
@@ -39,62 +57,100 @@ const mockUseUserDetailsFromIds = vi.fn(() => ({
   isLoading: false,
 }));
 
-vi.mock('@/hooks', () => ({
+vi.mock('@/hooks/usePostDetails/usePostDetails', () => ({
   usePostDetails: vi.fn(),
+}));
+
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: vi.fn(),
+}));
+
+vi.mock('@/hooks/usePostCounts/usePostCounts', () => ({
   usePostCounts: vi.fn(),
+}));
+
+vi.mock('@/hooks/usePostAncestors/usePostAncestors', () => ({
   usePostAncestors: vi.fn(),
+}));
+
+vi.mock('@/hooks/useUserDetailsFromIds/useUserDetailsFromIds', () => ({
   useUserDetailsFromIds: vi.fn(),
 }));
 
-// Use vi.hoisted to define mock functions before vi.mock calls
-const { mockIsPostDeleted } = vi.hoisted(() => ({
-  mockIsPostDeleted: vi.fn(() => false),
-}));
-
-// Mock libs - use actual implementations except for isPostDeleted
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual('@/libs');
+// Mock atoms
+vi.mock('@/atoms/Card/Card', () => {
   return {
-    ...actual,
-    isPostDeleted: mockIsPostDeleted,
+    Card: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+      <div data-testid="card" data-class-name={className}>
+        {children}
+      </div>
+    ),
+    CardContent: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+      <div data-testid="card-content" className={className}>
+        {children}
+      </div>
+    ),
   };
 });
 
-// Mock atoms
-vi.mock('@/atoms', () => ({
-  Container: ({
-    children,
-    className,
-    overrideDefaults,
-  }: {
-    children: React.ReactNode;
-    className?: string;
-    overrideDefaults?: boolean;
-  }) => (
-    <div data-testid="container" data-class-name={className} data-override-defaults={overrideDefaults}>
-      {children}
-    </div>
-  ),
-  Card: ({ children, className }: { children: React.ReactNode; className?: string }) => (
-    <div data-testid="card" data-class-name={className}>
-      {children}
-    </div>
-  ),
-  PostThreadSpacer: () => <div data-testid="post-thread-spacer" />,
-  POST_THREAD_CONNECTOR_VARIANTS: {
-    REGULAR: 'regular',
-    LAST: 'last',
-  },
-}));
+vi.mock('@/atoms/Container/Container', () => {
+  return {
+    Container: ({
+      children,
+      className,
+      overrideDefaults,
+    }: {
+      children: React.ReactNode;
+      className?: string;
+      overrideDefaults?: boolean;
+    }) => (
+      <div data-testid="container" data-class-name={className} data-override-defaults={overrideDefaults}>
+        {children}
+      </div>
+    ),
+  };
+});
+
+vi.mock('@/atoms/PageHeader/PageHeader', () => {
+  return {
+    PageHeader: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+      <div data-testid="page-header" {...props}>
+        {children}
+      </div>
+    ),
+  };
+});
+
+vi.mock('@/atoms/PostThreadConnector/PostThreadConnector.constants', () => {
+  return {
+    POST_THREAD_CONNECTOR_VARIANTS: {
+      REGULAR: 'regular',
+      LAST: 'last',
+    },
+  };
+});
+
+vi.mock('@/atoms/PostThreadSpacer/PostThreadSpacer', () => {
+  return {
+    PostThreadSpacer: () => <div data-testid="post-thread-spacer" />,
+  };
+});
+
+vi.mock('@/atoms/Skeleton/Skeleton', () => {
+  return {
+    Skeleton: ({ className }: { className?: string }) => <div data-testid="skeleton" className={className} />,
+  };
+});
 
 // Mock molecules
-vi.mock('@/molecules', () => ({
-  PostDeleted: () => <div data-testid="post-deleted">Post deleted</div>,
-}));
+vi.mock('@/molecules/PostDeleted/PostDeleted', () => {
+  return {
+    PostDeleted: () => <div data-testid="post-deleted">Post deleted</div>,
+  };
+});
 
 // Mock organisms used by SinglePostContent
-vi.mock('../SinglePostArticle', () => ({
+vi.mock('../SinglePostArticle/SinglePostArticle', () => ({
   SinglePostArticle: ({
     postId,
     content,
@@ -111,15 +167,22 @@ vi.mock('../SinglePostArticle', () => ({
   ),
 }));
 
-vi.mock('../SinglePostCard', () => ({
-  SinglePostCard: ({ postId }: { postId: string }) => (
-    <div data-testid="single-post-card" data-post-id={postId}>
-      SinglePostCard
-    </div>
-  ),
-}));
+vi.mock('../SinglePostCard/SinglePostCard', async () => {
+  const { usePostMainLayout } = await import('@/organisms/PostMain/PostMainLayout');
 
-vi.mock('../PostPageHeader', () => ({
+  return {
+    SinglePostCard: ({ postId }: { postId: string }) => {
+      const inheritedTagsLayout = usePostMainLayout();
+      return (
+        <div data-testid="single-post-card" data-post-id={postId} data-tags-layout={inheritedTagsLayout}>
+          SinglePostCard
+        </div>
+      );
+    },
+  };
+});
+
+vi.mock('../PostPageHeader/PostPageHeader', () => ({
   PostPageHeader: ({ postId }: { postId: string }) => (
     <div data-testid="post-page-header" data-post-id={postId}>
       PostPageHeader
@@ -127,7 +190,7 @@ vi.mock('../PostPageHeader', () => ({
   ),
 }));
 
-vi.mock('../SinglePostParticipants', () => ({
+vi.mock('../SinglePostParticipants/SinglePostParticipants', () => ({
   SinglePostParticipants: ({ postId }: { postId: string }) => (
     <div data-testid="single-post-participants" data-post-id={postId}>
       SinglePostParticipants
@@ -135,7 +198,7 @@ vi.mock('../SinglePostParticipants', () => ({
   ),
 }));
 
-vi.mock('../QuickReply', () => ({
+vi.mock('../QuickReply/QuickReply', () => ({
   QuickReply: ({ parentPostId, connectorVariant }: { parentPostId: string; connectorVariant?: string }) => (
     <div data-testid="quick-reply" data-parent-post-id={parentPostId} data-connector-variant={connectorVariant}>
       QuickReply
@@ -156,12 +219,12 @@ describe('SinglePostContent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIsPostDeleted.mockReturnValue(false);
-    vi.mocked(Hooks.useRequireAuth).mockReturnValue(mockUseRequireAuth());
-    vi.mocked(Hooks.usePostDetails).mockReturnValue(mockUsePostDetails());
-    vi.mocked(Hooks.usePostCounts).mockReturnValue(mockUsePostCounts());
-    vi.mocked(Hooks.usePostAncestors).mockReturnValue(mockUsePostAncestors());
-    vi.mocked(Hooks.useUserDetailsFromIds).mockReturnValue(mockUseUserDetailsFromIds());
+    useHomeStore.getState().reset();
+    vi.mocked(useRequireAuth).mockReturnValue(mockUseRequireAuth());
+    vi.mocked(usePostDetails).mockReturnValue(mockUsePostDetails());
+    vi.mocked(usePostCounts).mockReturnValue(mockUsePostCounts());
+    vi.mocked(usePostAncestors).mockReturnValue(mockUsePostAncestors());
+    vi.mocked(useUserDetailsFromIds).mockReturnValue(mockUseUserDetailsFromIds());
   });
 
   describe('rendering', () => {
@@ -170,11 +233,20 @@ describe('SinglePostContent', () => {
 
       expect(screen.getByTestId('single-post-card')).toBeInTheDocument();
       expect(screen.getByTestId('single-post-card')).toHaveAttribute('data-post-id', mockPostId);
+      expect(screen.getByTestId('single-post-card')).toHaveAttribute('data-tags-layout', 'inline');
       expect(screen.queryByTestId('single-post-article')).not.toBeInTheDocument();
     });
 
+    it('derives side tags layout for the single-post surface when the app is in wide mode', () => {
+      useHomeStore.getState().setLayout(LAYOUT.WIDE);
+
+      render(<SinglePostContent postId={mockPostId} />);
+
+      expect(screen.getByTestId('single-post-card')).toHaveAttribute('data-tags-layout', 'side');
+    });
+
     it('renders SinglePostArticle for long posts', () => {
-      vi.mocked(Hooks.usePostDetails).mockReturnValue({
+      vi.mocked(usePostDetails).mockReturnValue({
         postDetails: {
           id: mockPostId,
           indexed_at: Date.now(),
@@ -182,8 +254,9 @@ describe('SinglePostContent', () => {
           uri: 'pubky://author/pub/pubky.app/posts/post123',
           content: '# Article Title\n\nArticle content',
           attachments: [],
+          is_moderated: false,
           is_blurred: false,
-        },
+        } satisfies EnrichedPostDetails,
         isLoading: false,
       });
 
@@ -194,14 +267,14 @@ describe('SinglePostContent', () => {
     });
 
     it('renders loading text when postDetails is not available', () => {
-      vi.mocked(Hooks.usePostDetails).mockReturnValue({
+      vi.mocked(usePostDetails).mockReturnValue({
         postDetails: undefined,
         isLoading: true,
       });
 
       render(<SinglePostContent postId={mockPostId} />);
 
-      expect(screen.getByText('Loading post...')).toBeInTheDocument();
+      expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0);
     });
 
     it('renders ThreadTree with showQuickReply=true when parent post is not deleted', () => {
@@ -212,7 +285,13 @@ describe('SinglePostContent', () => {
     });
 
     it('renders ThreadTree with showQuickReply=false when parent post is deleted', () => {
-      mockIsPostDeleted.mockReturnValue(true);
+      vi.mocked(usePostDetails).mockReturnValue({
+        ...mockUsePostDetails(),
+        postDetails: {
+          ...mockUsePostDetails().postDetails,
+          content: '[DELETED]',
+        },
+      });
 
       render(<SinglePostContent postId={mockPostId} />);
 
@@ -221,7 +300,13 @@ describe('SinglePostContent', () => {
     });
 
     it('renders PostDeleted component instead of post content when post is deleted', () => {
-      mockIsPostDeleted.mockReturnValue(true);
+      vi.mocked(usePostDetails).mockReturnValue({
+        ...mockUsePostDetails(),
+        postDetails: {
+          ...mockUsePostDetails().postDetails,
+          content: '[DELETED]',
+        },
+      });
 
       render(<SinglePostContent postId={mockPostId} />);
 
@@ -230,11 +315,10 @@ describe('SinglePostContent', () => {
       expect(screen.queryByTestId('single-post-article')).not.toBeInTheDocument();
     });
 
-    it('renders SinglePostParticipants sidebar', () => {
+    it('does not render SinglePostParticipants inside content', () => {
       render(<SinglePostContent postId={mockPostId} />);
 
-      expect(screen.getByTestId('single-post-participants')).toBeInTheDocument();
-      expect(screen.getByTestId('single-post-participants')).toHaveAttribute('data-post-id', mockPostId);
+      expect(screen.queryByTestId('single-post-participants')).not.toBeInTheDocument();
     });
 
     it('renders ThreadTree with correct postId', () => {
@@ -248,9 +332,9 @@ describe('SinglePostContent', () => {
 
   describe('authentication', () => {
     it('hides replies section when not authenticated', () => {
-      vi.mocked(Hooks.useRequireAuth).mockReturnValue({
+      vi.mocked(useRequireAuth).mockReturnValue({
         isAuthenticated: false,
-        requireAuth: vi.fn(),
+        requireAuth: <T,>(_action: () => T) => undefined,
       });
 
       render(<SinglePostContent postId={mockPostId} />);
@@ -265,7 +349,7 @@ describe('SinglePostContent', () => {
     it('calls usePostDetails with the correct postId', () => {
       render(<SinglePostContent postId={mockPostId} />);
 
-      expect(Hooks.usePostDetails).toHaveBeenCalledWith(mockPostId);
+      expect(usePostDetails).toHaveBeenCalledWith(mockPostId);
     });
   });
 });
@@ -275,12 +359,11 @@ describe('SinglePostContent - Snapshots', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIsPostDeleted.mockReturnValue(false);
-    vi.mocked(Hooks.useRequireAuth).mockReturnValue(mockUseRequireAuth());
-    vi.mocked(Hooks.usePostDetails).mockReturnValue(mockUsePostDetails());
-    vi.mocked(Hooks.usePostCounts).mockReturnValue(mockUsePostCounts());
-    vi.mocked(Hooks.usePostAncestors).mockReturnValue(mockUsePostAncestors());
-    vi.mocked(Hooks.useUserDetailsFromIds).mockReturnValue(mockUseUserDetailsFromIds());
+    vi.mocked(useRequireAuth).mockReturnValue(mockUseRequireAuth());
+    vi.mocked(usePostDetails).mockReturnValue(mockUsePostDetails());
+    vi.mocked(usePostCounts).mockReturnValue(mockUsePostCounts());
+    vi.mocked(usePostAncestors).mockReturnValue(mockUsePostAncestors());
+    vi.mocked(useUserDetailsFromIds).mockReturnValue(mockUseUserDetailsFromIds());
   });
 
   it('matches snapshot with short post and no replies', () => {
@@ -289,7 +372,7 @@ describe('SinglePostContent - Snapshots', () => {
   });
 
   it('matches snapshot with long post (article)', () => {
-    vi.mocked(Hooks.usePostDetails).mockReturnValue({
+    vi.mocked(usePostDetails).mockReturnValue({
       postDetails: {
         id: mockPostId,
         indexed_at: Date.now(),
@@ -297,8 +380,9 @@ describe('SinglePostContent - Snapshots', () => {
         uri: 'pubky://author/pub/pubky.app/posts/post123',
         content: '# Article Title\n\nArticle content',
         attachments: [],
+        is_moderated: false,
         is_blurred: false,
-      },
+      } satisfies EnrichedPostDetails,
       isLoading: false,
     });
 
@@ -307,16 +391,22 @@ describe('SinglePostContent - Snapshots', () => {
   });
 
   it('matches snapshot with deleted parent post', () => {
-    mockIsPostDeleted.mockReturnValue(true);
+    vi.mocked(usePostDetails).mockReturnValue({
+      ...mockUsePostDetails(),
+      postDetails: {
+        ...mockUsePostDetails().postDetails,
+        content: '[DELETED]',
+      },
+    });
 
     const { container } = render(<SinglePostContent postId={mockPostId} />);
     expect(container).toMatchSnapshot();
   });
 
   it('matches snapshot when not authenticated', () => {
-    vi.mocked(Hooks.useRequireAuth).mockReturnValue({
+    vi.mocked(useRequireAuth).mockReturnValue({
       isAuthenticated: false,
-      requireAuth: vi.fn(),
+      requireAuth: <T,>(_action: () => T) => undefined,
     });
 
     const { container } = render(<SinglePostContent postId={mockPostId} />);

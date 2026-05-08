@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import * as Atoms from '@/atoms';
-import { POPOVER_ALIGN_OFFSET, POPOVER_HOVER_DELAY, POPOVER_SIDE_OFFSET } from './UserInfoPopover.constants';
+import { Popover, PopoverContent, PopoverTrigger } from '@/atoms/Popover/Popover';
+import { useClosingPresence } from '@/hooks/useClosingPresence/useClosingPresence';
 import { UserInfoPopoverContent } from './components/UserInfoPopoverContent/UserInfoPopoverContent';
+import { POPOVER_ALIGN_OFFSET, POPOVER_HOVER_DELAY, POPOVER_SIDE_OFFSET } from './UserInfoPopover.constants';
 
 interface UserInfoPopoverProps {
   userId: string;
@@ -37,19 +38,32 @@ export function UserInfoPopover({
   alignOffset = POPOVER_ALIGN_OFFSET,
 }: UserInfoPopoverProps) {
   const [open, setOpen] = useState(false);
+  const { shouldRender, beginOpening, beginClosing, onAnimationEnd } = useClosingPresence({
+    open,
+  });
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      beginOpening();
+    } else if (open) {
+      beginClosing();
+    }
+
+    setOpen(nextOpen);
+  };
 
   return (
-    <Atoms.Popover hover={hover} hoverDelay={POPOVER_HOVER_DELAY} open={open} onOpenChange={setOpen}>
-      <Atoms.PopoverTrigger asChild>{children}</Atoms.PopoverTrigger>
-      <Atoms.PopoverContent
-        side="top"
+    <Popover hover={hover} hoverDelay={POPOVER_HOVER_DELAY} open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
         sideOffset={sideOffset}
         align="start"
         alignOffset={alignOffset}
         className="mx-0 w-(--popover-width)"
         onOpenAutoFocus={(e) => e.preventDefault()}
+        onAnimationEnd={onAnimationEnd}
       >
-        {open ? (
+        {shouldRender ? (
           <UserInfoPopoverContent
             userId={userId}
             userName={userName}
@@ -57,7 +71,7 @@ export function UserInfoPopover({
             formattedPublicKey={formattedPublicKey}
           />
         ) : null}
-      </Atoms.PopoverContent>
-    </Atoms.Popover>
+      </PopoverContent>
+    </Popover>
   );
 }

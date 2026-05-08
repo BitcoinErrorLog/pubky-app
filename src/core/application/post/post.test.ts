@@ -1,29 +1,52 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as Core from '@/core';
-import { Err, DatabaseErrorCode, ErrorService, HttpMethod } from '@/libs';
-import { PubkyAppPost, PubkyAppPostKind } from 'pubky-app-specs';
-import type { BlobResult, FileResult } from 'pubky-app-specs';
+import { type BlobResult, type FileResult, PubkyAppPost, PubkyAppPostKind } from 'pubky-app-specs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { FileApplication } from '@/application/file/file';
+import { PostApplication } from '@/application/post/post';
+import type { TCreatePostInput, TEditPostInput } from '@/application/post/post.types';
+import { PostStreamApplication } from '@/application/stream/posts/post';
+import { TagApplication } from '@/application/tag/tag';
+import { TagKind, type TCreateTagInput } from '@/application/tag/tag.types';
+import type { TFetchPostTaggersParams } from '@/controllers/post/post.types';
+import { DatabaseErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import { HttpMethod } from '@/libs/http/http.types';
+import type { Pubky } from '@/models/models.types';
+import type { PostCountsModelSchema } from '@/models/post/counts/postCounts.schema';
+import { PostDetailsModel } from '@/models/post/details/postDetails';
+import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
+import type { PostRelationshipsModelSchema } from '@/models/post/relationships/postRelationships.schema';
+import type { TagCollectionModelSchema } from '@/models/shared/tag/tag.schema';
+import type { TFileAttachmentResult } from '@/pipes/file/file.types';
+import { HomeserverService } from '@/services/homeserver/homeserver';
+import { LocalPostService } from '@/services/local/post/post';
+import type { NexusTaggers } from '@/services/nexus/nexus.types';
+import { NexusPostService } from '@/services/nexus/post/post';
+import { asOpaque } from '@/test-utils/type-assertions';
 
 // Mock the Local.Post service
-vi.mock('@/core/services/local/post', () => ({
+vi.mock('@/services/local/post/post', () => ({
   LocalPostService: {
     fetch: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
     edit: vi.fn(),
     readDetails: vi.fn(),
+    readCounts: vi.fn(),
+    readTags: vi.fn(),
+    readRelationships: vi.fn(),
   },
 }));
 
 // Mock the HomeserverService
-vi.mock('@/core/services/homeserver', () => ({
+vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
     request: vi.fn(),
   },
 }));
 
 // Mock the FileApplication
-vi.mock('@/core/application/file', () => ({
+vi.mock('@/application/file/file', () => ({
   FileApplication: {
     commitCreate: vi.fn(),
     commitDelete: vi.fn(),
@@ -31,7 +54,7 @@ vi.mock('@/core/application/file', () => ({
 }));
 
 // Mock the TagApplication
-vi.mock('@/core/application/tag', () => ({
+vi.mock('@/application/tag/tag', () => ({
   TagApplication: {
     commitCreate: vi.fn(),
     commitDelete: vi.fn(),
@@ -40,7 +63,7 @@ vi.mock('@/core/application/tag', () => ({
 
 describe('Post Application', () => {
   // Test data factories
-  const createMockPostData = (): Core.TCreatePostInput => {
+  const createMockPostData = (): TCreatePostInput => {
     const mockPost = new PubkyAppPost('Hello, world!', PubkyAppPostKind.Short, undefined, undefined, undefined);
 
     return {
@@ -51,21 +74,21 @@ describe('Post Application', () => {
   };
 
   const createMockBlobResult = (url: string = 'pubky://author/pub/pubky.app/blobs/blob123'): BlobResult =>
-    ({
+    asOpaque<BlobResult>({
       blob: { data: new Uint8Array([1, 2, 3]) },
       meta: { url },
-    }) as unknown as BlobResult;
+    });
 
   const createMockFileResult = (
     url: string = 'pubky://author/pub/pubky.app/files/file123',
     fileJson: Record<string, unknown> = { id: 'file-1', src: 'blob-url', content_type: 'image/png', size: 1024 },
   ): FileResult =>
-    ({
+    asOpaque<FileResult>({
       file: { toJson: vi.fn(() => fileJson) },
       meta: { url },
-    }) as unknown as FileResult;
+    });
 
-  const createMockFileAttachment = (id: string = 'file1'): Core.TFileAttachmentResult => ({
+  const createMockFileAttachment = (id: string = 'file1'): TFileAttachmentResult => ({
     blobResult: createMockBlobResult(`pubky://author/pub/pubky.app/blobs/${id}`),
     fileResult: createMockFileResult(`pubky://author/pub/pubky.app/files/${id}`, {
       id,
@@ -75,34 +98,34 @@ describe('Post Application', () => {
     }),
   });
 
-  const createMockTag = (id: string, label: string = 'test-tag'): Core.TCreateTagInput => ({
-    taggerId: 'author' as Core.Pubky,
+  const createMockTag = (id: string, label: string = 'test-tag'): TCreateTagInput => ({
+    taggerId: 'author' as Pubky,
     taggedId: id,
     label,
-    taggedKind: Core.TagKind.POST,
+    taggedKind: TagKind.POST,
     tagUrl: `pubky://author/pub/pubky.app/tags/${label}`,
     tagJson: { uri: `pubky://author/pub/pubky.app/posts/${id}`, label },
   });
 
   // Spy setup helpers
   const setupBasicSpies = () => ({
-    saveSpy: vi.spyOn(Core.LocalPostService, 'create').mockResolvedValue(undefined),
-    deleteSpy: vi.spyOn(Core.LocalPostService, 'delete').mockResolvedValue(false),
-    requestSpy: vi.spyOn(Core.HomeserverService, 'request').mockResolvedValue(undefined),
+    saveSpy: vi.spyOn(LocalPostService, 'create').mockResolvedValue(undefined),
+    deleteSpy: vi.spyOn(LocalPostService, 'delete').mockResolvedValue(false),
+    requestSpy: vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined),
   });
 
   const setupCreateSpies = () => ({
-    commitCreateSpy: vi.spyOn(Core.FileApplication, 'commitCreate').mockResolvedValue(undefined),
-    saveSpy: vi.spyOn(Core.LocalPostService, 'create').mockResolvedValue(undefined),
-    requestSpy: vi.spyOn(Core.HomeserverService, 'request').mockResolvedValue(undefined),
-    tagCreateSpy: vi.spyOn(Core.TagApplication, 'commitCreate').mockResolvedValue(undefined),
+    commitCreateSpy: vi.spyOn(FileApplication, 'commitCreate').mockResolvedValue(undefined),
+    saveSpy: vi.spyOn(LocalPostService, 'create').mockResolvedValue(undefined),
+    requestSpy: vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined),
+    tagCreateSpy: vi.spyOn(TagApplication, 'commitCreate').mockResolvedValue(undefined),
   });
 
   const setupDeleteSpies = () => ({
-    findByIdSpy: vi.spyOn(Core.PostDetailsModel, 'findById'),
-    deleteSpy: vi.spyOn(Core.LocalPostService, 'delete'),
-    requestSpy: vi.spyOn(Core.HomeserverService, 'request').mockResolvedValue(undefined),
-    fileCommitDeleteSpy: vi.spyOn(Core.FileApplication, 'commitDelete').mockResolvedValue(undefined),
+    findByIdSpy: vi.spyOn(PostDetailsModel, 'findById'),
+    deleteSpy: vi.spyOn(LocalPostService, 'delete'),
+    requestSpy: vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined),
+    fileCommitDeleteSpy: vi.spyOn(FileApplication, 'commitDelete').mockResolvedValue(undefined),
   });
 
   beforeEach(() => {
@@ -114,7 +137,7 @@ describe('Post Application', () => {
       const mockData = createMockPostData();
       const { saveSpy, requestSpy } = setupBasicSpies();
 
-      await Core.PostApplication.commitCreate(mockData);
+      await PostApplication.commitCreate(mockData);
 
       expect(saveSpy).toHaveBeenCalledWith({
         compositePostId: mockData.compositePostId,
@@ -135,7 +158,7 @@ describe('Post Application', () => {
       const { saveSpy, requestSpy } = setupBasicSpies();
       saveSpy.mockRejectedValue(new Error('Database error'));
 
-      await expect(Core.PostApplication.commitCreate(mockData)).rejects.toThrow('Database error');
+      await expect(PostApplication.commitCreate(mockData)).rejects.toThrow('Database error');
       expect(saveSpy).toHaveBeenCalledOnce();
       expect(requestSpy).not.toHaveBeenCalled();
     });
@@ -145,7 +168,7 @@ describe('Post Application', () => {
       const { saveSpy, deleteSpy, requestSpy } = setupBasicSpies();
       requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 500'));
 
-      await expect(Core.PostApplication.commitCreate(mockData)).rejects.toThrow('Failed to PUT to homeserver: 500');
+      await expect(PostApplication.commitCreate(mockData)).rejects.toThrow('Failed to PUT to homeserver: 500');
       expect(saveSpy).toHaveBeenCalledOnce();
       expect(requestSpy).toHaveBeenCalledOnce();
       expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -157,21 +180,21 @@ describe('Post Application', () => {
       requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 401'));
       deleteSpy.mockRejectedValue(new Error('Rollback DB error'));
 
-      await expect(Core.PostApplication.commitCreate(mockData)).rejects.toThrow('Failed to PUT to homeserver: 401');
+      await expect(PostApplication.commitCreate(mockData)).rejects.toThrow('Failed to PUT to homeserver: 401');
       expect(saveSpy).toHaveBeenCalledOnce();
       expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
     });
 
     it('should handle posts with Long kind', async () => {
       const longPost = new PubkyAppPost('Long post content', PubkyAppPostKind.Long, undefined, undefined, undefined);
-      const mockData: Core.TCreatePostInput = {
+      const mockData: TCreatePostInput = {
         compositePostId: 'author:post456',
         post: longPost,
         postUrl: 'pubky://author/pub/pubky.app/posts/post456',
       };
       const { saveSpy, requestSpy } = setupBasicSpies();
 
-      await Core.PostApplication.commitCreate(mockData);
+      await PostApplication.commitCreate(mockData);
 
       expect(saveSpy).toHaveBeenCalledWith({
         compositePostId: mockData.compositePostId,
@@ -195,14 +218,14 @@ describe('Post Application', () => {
         undefined,
         undefined,
       );
-      const mockData: Core.TCreatePostInput = {
+      const mockData: TCreatePostInput = {
         compositePostId: 'author:post789',
         post: replyPost,
         postUrl: 'pubky://author/pub/pubky.app/posts/post789',
       };
       const { saveSpy, requestSpy } = setupBasicSpies();
 
-      await Core.PostApplication.commitCreate(mockData);
+      await PostApplication.commitCreate(mockData);
 
       expect(saveSpy).toHaveBeenCalledWith({
         compositePostId: mockData.compositePostId,
@@ -224,7 +247,7 @@ describe('Post Application', () => {
         const mockFileAttachments = [createMockFileAttachment('file1')];
 
         const mockPost = new PubkyAppPost('Post with image', PubkyAppPostKind.Short, undefined, undefined, undefined);
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-with-files',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-with-files',
@@ -233,7 +256,7 @@ describe('Post Application', () => {
 
         const { commitCreateSpy, saveSpy, requestSpy } = setupCreateSpies();
 
-        await Core.PostApplication.commitCreate(mockData);
+        await PostApplication.commitCreate(mockData);
 
         expect(commitCreateSpy).toHaveBeenCalledWith({ fileAttachments: mockFileAttachments });
         expect(commitCreateSpy).toHaveBeenCalledBefore(saveSpy);
@@ -255,7 +278,7 @@ describe('Post Application', () => {
         const mockFileAttachments = [createMockFileAttachment('file2')];
 
         const mockPost = new PubkyAppPost('Post with video', PubkyAppPostKind.Short, undefined, undefined, undefined);
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-with-video',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-with-video',
@@ -265,7 +288,7 @@ describe('Post Application', () => {
         const { commitCreateSpy, saveSpy, requestSpy } = setupCreateSpies();
         commitCreateSpy.mockRejectedValue(new Error('File upload failed: quota exceeded'));
 
-        await expect(Core.PostApplication.commitCreate(mockData)).rejects.toThrow('File upload failed: quota exceeded');
+        await expect(PostApplication.commitCreate(mockData)).rejects.toThrow('File upload failed: quota exceeded');
 
         expect(commitCreateSpy).toHaveBeenCalledWith({ fileAttachments: mockFileAttachments });
         expect(saveSpy).not.toHaveBeenCalled();
@@ -279,7 +302,7 @@ describe('Post Application', () => {
         const mockTags = [createMockTag('author:post-with-tags', 'technology')];
 
         const mockPost = new PubkyAppPost('Post with tags', PubkyAppPostKind.Short, undefined, undefined, undefined);
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-with-tags',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-with-tags',
@@ -288,7 +311,7 @@ describe('Post Application', () => {
 
         const { saveSpy, requestSpy, tagCreateSpy } = setupCreateSpies();
 
-        await Core.PostApplication.commitCreate(mockData);
+        await PostApplication.commitCreate(mockData);
 
         expect(tagCreateSpy).toHaveBeenCalledWith({ tagList: mockTags });
         expect(requestSpy).toHaveBeenCalledBefore(tagCreateSpy);
@@ -316,7 +339,7 @@ describe('Post Application', () => {
           undefined,
           undefined,
         );
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-with-tags-fail',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-with-tags-fail',
@@ -326,9 +349,7 @@ describe('Post Application', () => {
         const { saveSpy, requestSpy, tagCreateSpy } = setupCreateSpies();
         tagCreateSpy.mockRejectedValue(new Error('Tag creation failed: database locked'));
 
-        await expect(Core.PostApplication.commitCreate(mockData)).rejects.toThrow(
-          'Tag creation failed: database locked',
-        );
+        await expect(PostApplication.commitCreate(mockData)).rejects.toThrow('Tag creation failed: database locked');
 
         expect(saveSpy).toHaveBeenCalledWith({
           compositePostId: mockData.compositePostId,
@@ -359,7 +380,7 @@ describe('Post Application', () => {
           undefined,
           undefined,
         );
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-combo',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-combo',
@@ -369,7 +390,7 @@ describe('Post Application', () => {
 
         const { commitCreateSpy, saveSpy, requestSpy, tagCreateSpy } = setupCreateSpies();
 
-        await Core.PostApplication.commitCreate(mockData);
+        await PostApplication.commitCreate(mockData);
 
         expect(commitCreateSpy).toHaveBeenCalledWith({ fileAttachments: mockFileAttachments });
         expect(saveSpy).toHaveBeenCalledWith({
@@ -401,7 +422,7 @@ describe('Post Application', () => {
           undefined,
           undefined,
         );
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-fail',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-fail',
@@ -410,11 +431,11 @@ describe('Post Application', () => {
         };
 
         const { commitCreateSpy, saveSpy, requestSpy, tagCreateSpy } = setupCreateSpies();
-        const deleteSpy = vi.spyOn(Core.LocalPostService, 'delete').mockResolvedValue(false);
-        const fileCommitDeleteSpy = vi.spyOn(Core.FileApplication, 'commitDelete').mockResolvedValue(undefined);
+        const deleteSpy = vi.spyOn(LocalPostService, 'delete').mockResolvedValue(false);
+        const fileCommitDeleteSpy = vi.spyOn(FileApplication, 'commitDelete').mockResolvedValue(undefined);
         requestSpy.mockRejectedValue(new Error('Homeserver sync failed: 503 Service Unavailable'));
 
-        await expect(Core.PostApplication.commitCreate(mockData)).rejects.toThrow(
+        await expect(PostApplication.commitCreate(mockData)).rejects.toThrow(
           'Homeserver sync failed: 503 Service Unavailable',
         );
 
@@ -446,7 +467,7 @@ describe('Post Application', () => {
           undefined,
           undefined,
         );
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-file-rollback-fail',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-file-rollback-fail',
@@ -454,13 +475,13 @@ describe('Post Application', () => {
         };
 
         const { commitCreateSpy, saveSpy, requestSpy } = setupCreateSpies();
-        const deleteSpy = vi.spyOn(Core.LocalPostService, 'delete').mockResolvedValue(false);
+        const deleteSpy = vi.spyOn(LocalPostService, 'delete').mockResolvedValue(false);
         const fileCommitDeleteSpy = vi
-          .spyOn(Core.FileApplication, 'commitDelete')
+          .spyOn(FileApplication, 'commitDelete')
           .mockRejectedValue(new Error('File rollback failed'));
         requestSpy.mockRejectedValue(new Error('Homeserver sync failed: 401'));
 
-        await expect(Core.PostApplication.commitCreate(mockData)).rejects.toThrow('Homeserver sync failed: 401');
+        await expect(PostApplication.commitCreate(mockData)).rejects.toThrow('Homeserver sync failed: 401');
 
         expect(commitCreateSpy).toHaveBeenCalledWith({ fileAttachments: mockFileAttachments });
         expect(saveSpy).toHaveBeenCalledOnce();
@@ -499,7 +520,7 @@ describe('Post Application', () => {
       findByIdSpy.mockResolvedValue(mockPostDetails);
       deleteSpy.mockResolvedValue(false);
 
-      await Core.PostApplication.commitDelete(mockData);
+      await PostApplication.commitDelete(mockData);
 
       expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
       expect(deleteSpy).toHaveBeenCalledWith({
@@ -513,7 +534,7 @@ describe('Post Application', () => {
       const { findByIdSpy } = setupDeleteSpies();
       findByIdSpy.mockResolvedValue(null);
 
-      await expect(Core.PostApplication.commitDelete(mockData)).rejects.toThrow('Post not found');
+      await expect(PostApplication.commitDelete(mockData)).rejects.toThrow('Post not found');
 
       expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
     });
@@ -524,7 +545,7 @@ describe('Post Application', () => {
       findByIdSpy.mockResolvedValue(mockPostDetails);
       deleteSpy.mockRejectedValue(new Error('local-delete-fail'));
 
-      await expect(Core.PostApplication.commitDelete(mockData)).rejects.toThrow('local-delete-fail');
+      await expect(PostApplication.commitDelete(mockData)).rejects.toThrow('local-delete-fail');
 
       expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
       expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -538,9 +559,7 @@ describe('Post Application', () => {
       deleteSpy.mockResolvedValue(false);
       requestSpy.mockRejectedValue(new Error('Failed to DELETE from homeserver: 500'));
 
-      await expect(Core.PostApplication.commitDelete(mockData)).rejects.toThrow(
-        'Failed to DELETE from homeserver: 500',
-      );
+      await expect(PostApplication.commitDelete(mockData)).rejects.toThrow('Failed to DELETE from homeserver: 500');
 
       expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
       expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -557,7 +576,7 @@ describe('Post Application', () => {
       const { findByIdSpy, deleteSpy, requestSpy } = setupDeleteSpies();
       findByIdSpy.mockRejectedValue(databaseError);
 
-      await expect(Core.PostApplication.commitDelete(mockData)).rejects.toThrow('Database connection failed');
+      await expect(PostApplication.commitDelete(mockData)).rejects.toThrow('Database connection failed');
 
       expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
       expect(deleteSpy).not.toHaveBeenCalled();
@@ -572,7 +591,7 @@ describe('Post Application', () => {
         findByIdSpy.mockResolvedValue(mockPostDetailsWithAttachments);
         deleteSpy.mockResolvedValue(true);
 
-        await Core.PostApplication.commitDelete(mockData);
+        await PostApplication.commitDelete(mockData);
 
         expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
         expect(deleteSpy).toHaveBeenCalledWith({
@@ -599,7 +618,7 @@ describe('Post Application', () => {
         findByIdSpy.mockResolvedValue(postWithAttachments);
         deleteSpy.mockResolvedValue(true);
 
-        await Core.PostApplication.commitDelete(mockData);
+        await PostApplication.commitDelete(mockData);
 
         expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -627,7 +646,7 @@ describe('Post Application', () => {
         findByIdSpy.mockResolvedValue(postWithFiles);
         deleteSpy.mockResolvedValue(false);
 
-        await Core.PostApplication.commitDelete(mockData);
+        await PostApplication.commitDelete(mockData);
 
         expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -651,7 +670,7 @@ describe('Post Application', () => {
         findByIdSpy.mockResolvedValue(postWithoutFiles);
         deleteSpy.mockResolvedValue(false);
 
-        await Core.PostApplication.commitDelete(mockData);
+        await PostApplication.commitDelete(mockData);
 
         expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -675,9 +694,7 @@ describe('Post Application', () => {
         deleteSpy.mockResolvedValue(false);
         fileCommitDeleteSpy.mockRejectedValue(new Error('File deletion failed: permission denied'));
 
-        await expect(Core.PostApplication.commitDelete(mockData)).rejects.toThrow(
-          'File deletion failed: permission denied',
-        );
+        await expect(PostApplication.commitDelete(mockData)).rejects.toThrow('File deletion failed: permission denied');
 
         expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -696,7 +713,7 @@ describe('Post Application', () => {
           undefined,
           undefined,
         );
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-empty-tags',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-empty-tags',
@@ -705,7 +722,7 @@ describe('Post Application', () => {
 
         const { saveSpy, requestSpy, tagCreateSpy } = setupCreateSpies();
 
-        await Core.PostApplication.commitCreate(mockData);
+        await PostApplication.commitCreate(mockData);
 
         expect(saveSpy).toHaveBeenCalledWith({
           compositePostId: mockData.compositePostId,
@@ -730,7 +747,7 @@ describe('Post Application', () => {
           undefined,
           undefined,
         );
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-empty-files',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-empty-files',
@@ -739,7 +756,7 @@ describe('Post Application', () => {
 
         const { commitCreateSpy, saveSpy, requestSpy } = setupCreateSpies();
 
-        await Core.PostApplication.commitCreate(mockData);
+        await PostApplication.commitCreate(mockData);
 
         expect(commitCreateSpy).not.toHaveBeenCalled();
         expect(saveSpy).toHaveBeenCalledWith({
@@ -764,7 +781,7 @@ describe('Post Application', () => {
           undefined,
           undefined,
         );
-        const mockData: Core.TCreatePostInput = {
+        const mockData: TCreatePostInput = {
           compositePostId: 'author:post-all-empty',
           post: mockPost,
           postUrl: 'pubky://author/pub/pubky.app/posts/post-all-empty',
@@ -774,7 +791,7 @@ describe('Post Application', () => {
 
         const { commitCreateSpy, saveSpy, requestSpy, tagCreateSpy } = setupCreateSpies();
 
-        await Core.PostApplication.commitCreate(mockData);
+        await PostApplication.commitCreate(mockData);
 
         expect(commitCreateSpy).not.toHaveBeenCalled();
         expect(tagCreateSpy).not.toHaveBeenCalled();
@@ -807,7 +824,7 @@ describe('Post Application', () => {
         findByIdSpy.mockResolvedValue(postWithEmptyAttachments);
         deleteSpy.mockResolvedValue(false);
 
-        await Core.PostApplication.commitDelete(mockData);
+        await PostApplication.commitDelete(mockData);
 
         expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -818,7 +835,7 @@ describe('Post Application', () => {
   });
 
   describe('getOrFetch', () => {
-    const mockPostDetails: Core.PostDetailsModelSchema = {
+    const mockPostDetails: PostDetailsModelSchema = {
       id: 'author:post123',
       content: 'Test post',
       kind: 'short',
@@ -828,10 +845,10 @@ describe('Post Application', () => {
     };
 
     it('should return post from local database if exists', async () => {
-      const mockViewerId = 'test-viewer-id' as Core.Pubky;
-      const readSpy = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValue(mockPostDetails);
+      const mockViewerId = 'test-viewer-id' as Pubky;
+      const readSpy = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValue(mockPostDetails);
 
-      const result = await Core.PostApplication.getOrFetch({
+      const result = await PostApplication.getOrFetch({
         compositeId: 'author:post123',
         viewerId: mockViewerId,
       });
@@ -841,14 +858,14 @@ describe('Post Application', () => {
     });
 
     it('should fetch post from Nexus using stream posts logic', async () => {
-      const mockViewerId = 'test-viewer-id' as Core.Pubky;
-      const readSpyFirst = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValueOnce(null);
+      const mockViewerId = 'test-viewer-id' as Pubky;
+      const readSpyFirst = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
       const fetchMissingSpy = vi
-        .spyOn(Core.PostStreamApplication, 'fetchMissingPostsFromNexus')
+        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
         .mockResolvedValue(undefined);
-      const readSpySecond = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValueOnce(mockPostDetails);
+      const readSpySecond = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(mockPostDetails);
 
-      const result = await Core.PostApplication.getOrFetch({
+      const result = await PostApplication.getOrFetch({
         compositeId: 'author:post123',
         viewerId: mockViewerId,
       });
@@ -863,14 +880,14 @@ describe('Post Application', () => {
     });
 
     it('should return null when post not found in Nexus', async () => {
-      const mockViewerId = 'test-viewer-id' as Core.Pubky;
-      const readSpyFirst = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValueOnce(null);
+      const mockViewerId = 'test-viewer-id' as Pubky;
+      const readSpyFirst = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
       const fetchMissingSpy = vi
-        .spyOn(Core.PostStreamApplication, 'fetchMissingPostsFromNexus')
+        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
         .mockResolvedValue(undefined);
-      const readSpySecond = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValueOnce(null);
+      const readSpySecond = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
 
-      const result = await Core.PostApplication.getOrFetch({
+      const result = await PostApplication.getOrFetch({
         compositeId: 'author:post123',
         viewerId: mockViewerId,
       });
@@ -886,7 +903,7 @@ describe('Post Application', () => {
   });
 
   describe('fetch', () => {
-    const mockPostDetails: Core.PostDetailsModelSchema = {
+    const mockPostDetails: PostDetailsModelSchema = {
       id: 'author:post123',
       content: 'Test post',
       kind: 'short',
@@ -896,13 +913,13 @@ describe('Post Application', () => {
     };
 
     it('should fetch post from Nexus and return persisted data', async () => {
-      const mockViewerId = 'test-viewer-id' as Core.Pubky;
+      const mockViewerId = 'test-viewer-id' as Pubky;
       const fetchMissingSpy = vi
-        .spyOn(Core.PostStreamApplication, 'fetchMissingPostsFromNexus')
+        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
         .mockResolvedValue(undefined);
-      const readSpy = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValueOnce(mockPostDetails);
+      const readSpy = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(mockPostDetails);
 
-      const result = await Core.PostApplication.fetch({
+      const result = await PostApplication.fetch({
         compositeId: 'author:post123',
         viewerId: mockViewerId,
       });
@@ -917,13 +934,13 @@ describe('Post Application', () => {
     });
 
     it('should return null when post not found on Nexus', async () => {
-      const mockViewerId = 'test-viewer-id' as Core.Pubky;
+      const mockViewerId = 'test-viewer-id' as Pubky;
       const fetchMissingSpy = vi
-        .spyOn(Core.PostStreamApplication, 'fetchMissingPostsFromNexus')
+        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
         .mockResolvedValue(undefined);
-      const readSpy = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValueOnce(null);
+      const readSpy = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
 
-      const result = await Core.PostApplication.fetch({
+      const result = await PostApplication.fetch({
         compositeId: 'author:post123',
         viewerId: mockViewerId,
       });
@@ -938,11 +955,11 @@ describe('Post Application', () => {
     });
 
     it('should propagate errors from PostStreamApplication', async () => {
-      const mockViewerId = 'test-viewer-id' as Core.Pubky;
-      vi.spyOn(Core.PostStreamApplication, 'fetchMissingPostsFromNexus').mockRejectedValue(new Error('Nexus error'));
+      const mockViewerId = 'test-viewer-id' as Pubky;
+      vi.spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus').mockRejectedValue(new Error('Nexus error'));
 
       await expect(
-        Core.PostApplication.fetch({
+        PostApplication.fetch({
           compositeId: 'author:post123',
           viewerId: mockViewerId,
         }),
@@ -952,7 +969,7 @@ describe('Post Application', () => {
 
   describe('getCounts', () => {
     it('should call LocalPostService.readCounts', async () => {
-      const mockCounts: Core.PostCountsModelSchema = {
+      const mockCounts: PostCountsModelSchema = {
         id: 'author:post123',
         tags: 5,
         unique_tags: 3,
@@ -960,9 +977,9 @@ describe('Post Application', () => {
         reposts: 2,
       };
 
-      const getCountsSpy = vi.spyOn(Core.LocalPostService, 'readCounts').mockResolvedValue(mockCounts);
+      const getCountsSpy = vi.spyOn(LocalPostService, 'readCounts').mockResolvedValue(mockCounts);
 
-      const result = await Core.PostApplication.getCounts({ compositeId: 'author:post123' });
+      const result = await PostApplication.getCounts({ compositeId: 'author:post123' });
 
       expect(getCountsSpy).toHaveBeenCalledWith('author:post123');
       expect(result).toEqual(mockCounts);
@@ -971,16 +988,16 @@ describe('Post Application', () => {
 
   describe('getTags', () => {
     it('should call LocalPostService.readTags', async () => {
-      const mockTags: Core.TagCollectionModelSchema<string>[] = [
+      const mockTags: TagCollectionModelSchema<string>[] = [
         {
           id: 'author:post123',
-          tags: [{ label: 'tag1', taggers: ['test-viewer-id'] as Core.Pubky[], taggers_count: 0, relationship: false }],
+          tags: [{ label: 'tag1', taggers: ['test-viewer-id'] as Pubky[], taggers_count: 0, relationship: false }],
         },
       ];
 
-      const getTagsSpy = vi.spyOn(Core.LocalPostService, 'readTags').mockResolvedValue(mockTags);
+      const getTagsSpy = vi.spyOn(LocalPostService, 'readTags').mockResolvedValue(mockTags);
 
-      const result = await Core.PostApplication.getTags({ compositeId: 'author:post123' });
+      const result = await PostApplication.getTags({ compositeId: 'author:post123' });
 
       expect(getTagsSpy).toHaveBeenCalledWith('author:post123');
       expect(result).toEqual(mockTags);
@@ -989,27 +1006,25 @@ describe('Post Application', () => {
 
   describe('getRelationships', () => {
     it('should call LocalPostService.readRelationships', async () => {
-      const mockRelationships: Core.PostRelationshipsModelSchema = {
+      const mockRelationships: PostRelationshipsModelSchema = {
         id: 'author:post123',
         replied: 'pubky://parent/pub/pubky.app/posts/parent123',
         reposted: null,
         mentioned: [],
       };
 
-      const getRelationshipsSpy = vi
-        .spyOn(Core.LocalPostService, 'readRelationships')
-        .mockResolvedValue(mockRelationships);
+      const getRelationshipsSpy = vi.spyOn(LocalPostService, 'readRelationships').mockResolvedValue(mockRelationships);
 
-      const result = await Core.PostApplication.getRelationships({ compositeId: 'author:post123' });
+      const result = await PostApplication.getRelationships({ compositeId: 'author:post123' });
 
       expect(getRelationshipsSpy).toHaveBeenCalledWith('author:post123');
       expect(result).toEqual(mockRelationships);
     });
 
     it('should return null when relationships do not exist', async () => {
-      const getRelationshipsSpy = vi.spyOn(Core.LocalPostService, 'readRelationships').mockResolvedValue(null);
+      const getRelationshipsSpy = vi.spyOn(LocalPostService, 'readRelationships').mockResolvedValue(null);
 
-      const result = await Core.PostApplication.getRelationships({ compositeId: 'nonexistent:post' });
+      const result = await PostApplication.getRelationships({ compositeId: 'nonexistent:post' });
 
       expect(getRelationshipsSpy).toHaveBeenCalledWith('nonexistent:post');
       expect(result).toBeNull();
@@ -1018,7 +1033,7 @@ describe('Post Application', () => {
 
   describe('getDetails', () => {
     it('should call LocalPostService.readDetails and enrich with moderation', async () => {
-      const mockPost: Core.PostDetailsModelSchema = {
+      const mockPost: PostDetailsModelSchema = {
         id: 'author:post123',
         content: 'Test post',
         indexed_at: Date.now(),
@@ -1027,9 +1042,9 @@ describe('Post Application', () => {
         attachments: null,
       };
 
-      const readSpy = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValue(mockPost);
+      const readSpy = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValue(mockPost);
 
-      const result = await Core.PostApplication.getDetails({ compositeId: 'author:post123' });
+      const result = await PostApplication.getDetails({ compositeId: 'author:post123' });
 
       expect(readSpy).toHaveBeenCalledWith({ postId: 'author:post123' });
       expect(result).toEqual({
@@ -1040,9 +1055,9 @@ describe('Post Application', () => {
     });
 
     it('should return null when post does not exist', async () => {
-      const readSpy = vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValue(null);
+      const readSpy = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValue(null);
 
-      const result = await Core.PostApplication.getDetails({ compositeId: 'nonexistent:post' });
+      const result = await PostApplication.getDetails({ compositeId: 'nonexistent:post' });
 
       expect(readSpy).toHaveBeenCalledWith({ postId: 'nonexistent:post' });
       expect(result).toBeNull();
@@ -1051,35 +1066,35 @@ describe('Post Application', () => {
 
   describe('fetchTaggers', () => {
     it('should delegate to NexusPostService.getPostTaggers', async () => {
-      const params: Core.TFetchPostTaggersParams = {
+      const params: TFetchPostTaggersParams = {
         compositeId: 'author:post123',
         label: 'bitcoin',
         skip: 10,
         limit: 20,
       };
-      const mockTaggers: Core.NexusTaggers = { relationship: false, users: ['user1' as Core.Pubky] };
-      const taggersSpy = vi.spyOn(Core.NexusPostService, 'getPostTaggers').mockResolvedValue(mockTaggers);
+      const mockTaggers: NexusTaggers = { relationship: false, users: ['user1' as Pubky] };
+      const taggersSpy = vi.spyOn(NexusPostService, 'getPostTaggers').mockResolvedValue(mockTaggers);
 
-      const result = await Core.PostApplication.fetchTaggers(params);
+      const result = await PostApplication.fetchTaggers(params);
 
       expect(taggersSpy).toHaveBeenCalledWith(params);
       expect(result).toEqual(mockTaggers);
     });
 
     it('should propagate errors from NexusPostService.getPostTaggers', async () => {
-      const params: Core.TFetchPostTaggersParams = {
+      const params: TFetchPostTaggersParams = {
         compositeId: 'author:post123',
         label: 'bitcoin',
       };
-      const taggersSpy = vi.spyOn(Core.NexusPostService, 'getPostTaggers').mockRejectedValue(new Error('Nexus failed'));
+      const taggersSpy = vi.spyOn(NexusPostService, 'getPostTaggers').mockRejectedValue(new Error('Nexus failed'));
 
-      await expect(Core.PostApplication.fetchTaggers(params)).rejects.toThrow('Nexus failed');
+      await expect(PostApplication.fetchTaggers(params)).rejects.toThrow('Nexus failed');
       expect(taggersSpy).toHaveBeenCalledWith(params);
     });
   });
 
   describe('commitEdit', () => {
-    const mockPostDetails: Core.PostDetailsModelSchema = {
+    const mockPostDetails: PostDetailsModelSchema = {
       id: 'author:post123',
       content: 'Original content',
       kind: 'short',
@@ -1088,7 +1103,7 @@ describe('Post Application', () => {
       attachments: null,
     };
 
-    const createMockEditInput = (): Core.TEditPostInput => {
+    const createMockEditInput = (): TEditPostInput => {
       const mockPost = new PubkyAppPost('Edited content', PubkyAppPostKind.Short, undefined, undefined, undefined);
       return {
         compositePostId: 'author:post123',
@@ -1098,16 +1113,16 @@ describe('Post Application', () => {
     };
 
     const setupEditSpies = () => ({
-      readDetailsSpy: vi.spyOn(Core.LocalPostService, 'readDetails').mockResolvedValue(mockPostDetails),
-      editSpy: vi.spyOn(Core.LocalPostService, 'edit').mockResolvedValue(undefined),
-      requestSpy: vi.spyOn(Core.HomeserverService, 'request').mockResolvedValue(undefined),
+      readDetailsSpy: vi.spyOn(LocalPostService, 'readDetails').mockResolvedValue(mockPostDetails),
+      editSpy: vi.spyOn(LocalPostService, 'edit').mockResolvedValue(undefined),
+      requestSpy: vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined),
     });
 
     it('should edit locally and sync to homeserver', async () => {
       const mockData = createMockEditInput();
       const { readDetailsSpy, editSpy, requestSpy } = setupEditSpies();
 
-      await Core.PostApplication.commitEdit(mockData);
+      await PostApplication.commitEdit(mockData);
 
       expect(readDetailsSpy).toHaveBeenCalledWith({ postId: mockData.compositePostId });
       expect(editSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId, content: 'Edited content' });
@@ -1123,7 +1138,7 @@ describe('Post Application', () => {
       const { readDetailsSpy, editSpy, requestSpy } = setupEditSpies();
       requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 401'));
 
-      await expect(Core.PostApplication.commitEdit(mockData)).rejects.toThrow('Failed to PUT to homeserver: 401');
+      await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('Failed to PUT to homeserver: 401');
 
       expect(readDetailsSpy).toHaveBeenCalledWith({ postId: mockData.compositePostId });
       expect(editSpy).toHaveBeenCalledTimes(2);
@@ -1143,7 +1158,7 @@ describe('Post Application', () => {
       requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 401'));
       editSpy.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('Rollback DB error'));
 
-      await expect(Core.PostApplication.commitEdit(mockData)).rejects.toThrow('Failed to PUT to homeserver: 401');
+      await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('Failed to PUT to homeserver: 401');
 
       expect(readDetailsSpy).toHaveBeenCalledWith({ postId: mockData.compositePostId });
       expect(editSpy).toHaveBeenCalledTimes(2);

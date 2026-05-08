@@ -1,12 +1,13 @@
 'use client';
 
-import { useForm, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslations } from 'next-intl';
-import * as Molecules from '@/molecules';
-import { postJson } from '@/libs';
-import { copyrightFormSchema, type CopyrightFormData, type RoleField } from './useCopyrightForm.types';
-import { copyrightFormDefaultValues, COPYRIGHT_FORM_FIELDS } from './useCopyrightForm.constants';
+import { type FieldErrors, useForm } from 'react-hook-form';
+import { postJson } from '@/libs/api/client-request';
+import { showErrorToast } from '@/molecules/Toaster/showErrorToast';
+import { toast } from '@/molecules/Toaster/use-toast';
+import { COPYRIGHT_ROLES, copyrightFormDefaultValues } from './useCopyrightForm.constants';
+import { type CopyrightFormData, copyrightFormSchema } from './useCopyrightForm.types';
 
 export function useCopyrightForm() {
   const tToast = useTranslations('toast');
@@ -19,12 +20,17 @@ export function useCopyrightForm() {
 
   const submitForm = async (data: CopyrightFormData) => {
     try {
-      await postJson('/api/copyright', data);
+      const { role, ...rest } = data;
+      await postJson('/api/copyright', {
+        ...rest,
+        isRightsOwner: role === COPYRIGHT_ROLES.RIGHTS_OWNER,
+        isReportingOnBehalf: role === COPYRIGHT_ROLES.REPORTING_ON_BEHALF,
+      });
 
       form.reset();
-      Molecules.toast({ title: tToast('success'), description: tCopyright('success') });
+      toast({ title: tToast('success'), description: tCopyright('success') });
     } catch (error) {
-      Molecules.showErrorToast({
+      showErrorToast({
         description: error instanceof Error ? error.message : tCopyright('error'),
       });
     }
@@ -46,31 +52,8 @@ export function useCopyrightForm() {
 
   const onSubmit = form.handleSubmit(submitForm, handleInvalidSubmit);
 
-  const handleRoleChange = (field: RoleField, checked: boolean) => {
-    const { IS_RIGHTS_OWNER, IS_REPORTING_ON_BEHALF } = COPYRIGHT_FORM_FIELDS;
-
-    if (field === IS_RIGHTS_OWNER) {
-      form.setValue(IS_RIGHTS_OWNER, checked);
-      if (checked) form.setValue(IS_REPORTING_ON_BEHALF, false);
-    } else {
-      form.setValue(IS_REPORTING_ON_BEHALF, checked);
-      if (checked) form.setValue(IS_RIGHTS_OWNER, false);
-    }
-    const nextIsRightsOwner = form.getValues(IS_RIGHTS_OWNER);
-    const nextIsReportingOnBehalf = form.getValues(IS_REPORTING_ON_BEHALF);
-
-    if (nextIsRightsOwner || nextIsReportingOnBehalf) {
-      // Clear the role error when a valid selection is made
-      form.clearErrors(IS_RIGHTS_OWNER);
-    } else {
-      // Re-validate to surface the role error immediately
-      void form.trigger(IS_RIGHTS_OWNER);
-    }
-  };
-
   return {
     form,
     onSubmit,
-    handleRoleChange,
   };
 }

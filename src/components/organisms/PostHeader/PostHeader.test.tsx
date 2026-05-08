@@ -1,41 +1,52 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
+import { useAvatarUrl } from '@/hooks/useAvatarUrl/useAvatarUrl';
+import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
+import type { NexusUserDetails } from '@/services/nexus/nexus.types';
 import { PostHeader } from './PostHeader';
-import * as Hooks from '@/hooks';
-import * as Core from '@/core';
 
-vi.mock('@/hooks', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/hooks')>();
-  return {
-    ...actual,
-    usePostDetails: vi.fn(),
-    useUserDetails: vi.fn(),
-    useAvatarUrl: vi.fn(),
-    useRelativeTime: vi.fn(() => ({
-      formatRelativeTime: vi.fn(() => '2h'),
-    })),
-  };
-});
+vi.mock('@/hooks/usePostDetails/usePostDetails', () => ({
+  usePostDetails: vi.fn(),
+}));
 
-vi.mock('@/atoms', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/atoms')>();
+vi.mock('@/hooks/useUserDetails/useUserDetails', () => ({
+  useUserDetails: vi.fn(),
+}));
+
+vi.mock('@/hooks/useAvatarUrl/useAvatarUrl', () => ({
+  useAvatarUrl: vi.fn(),
+}));
+
+vi.mock('@/hooks/useRelativeTime/useRelativeTime', () => ({
+  useRelativeTime: vi.fn(() => ({
+    formatRelativeTime: vi.fn(() => '2h'),
+  })),
+}));
+
+vi.mock('@/atoms/Container/Container', () => {
   return {
-    ...actual,
     Container: vi.fn(
       ({
         children,
         className,
-        overrideDefaults,
+        overrideDefaults: _overrideDefaults,
       }: {
         children: React.ReactNode;
         className?: string;
         overrideDefaults?: boolean;
       }) => (
-        <div data-testid="container" className={className} data-override-defaults={overrideDefaults}>
+        <div data-testid="container" className={className}>
           {children}
         </div>
       ),
     ),
+  };
+});
+
+vi.mock('@/atoms/Typography/Typography', () => {
+  return {
     Typography: vi.fn(
       ({
         children,
@@ -56,10 +67,19 @@ vi.mock('@/atoms', async (importOriginal) => {
   };
 });
 
-vi.mock('@/molecules', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/molecules')>();
+vi.mock('@/molecules/PostHeaderTimestamp/PostHeaderTimestamp', () => {
   return {
-    ...actual,
+    PostHeaderTimestamp: vi.fn(({ timeAgo }: { timeAgo: string; indexedAt: Date }) => (
+      <div data-testid="post-header-timestamp">
+        <svg data-testid="clock-icon" />
+        <span>{timeAgo}</span>
+      </div>
+    )),
+  };
+});
+
+vi.mock('@/molecules/PostHeaderUserInfo/PostHeaderUserInfo', () => {
+  return {
     PostHeaderUserInfo: vi.fn(
       ({
         userId,
@@ -87,42 +107,27 @@ vi.mock('@/molecules', async (importOriginal) => {
         </div>
       ),
     ),
-    PostHeaderTimestamp: vi.fn(({ timeAgo }: { timeAgo: string; indexedAt: Date }) => (
-      <div data-testid="post-header-timestamp">
-        <svg data-testid="clock-icon" />
-        <span>{timeAgo}</span>
-      </div>
-    )),
   };
 });
 
 // Use real libs - use actual implementations
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual('@/libs');
-  return {
-    ...actual,
-    extractInitials: vi.fn(({ name }) => name?.substring(0, 2).toUpperCase() || ''),
-    formatPublicKey: vi.fn(({ key, length }) => key?.substring(0, length) || ''),
-    Clock: vi.fn(({ className }: { className?: string }) => <svg data-testid="clock-icon" className={className} />),
-  };
-});
 
-const mockUsePostDetails = vi.mocked(Hooks.usePostDetails);
-const mockUseUserDetails = vi.mocked(Hooks.useUserDetails);
-const mockUseAvatarUrl = vi.mocked(Hooks.useAvatarUrl);
+const mockUsePostDetails = vi.mocked(usePostDetails);
+const mockUseUserDetails = vi.mocked(useUserDetails);
+const mockUseAvatarUrl = vi.mocked(useAvatarUrl);
 
 describe('PostHeader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('shows loading when details are unavailable', () => {
+  it('shows skeleton when details are unavailable', () => {
     mockUsePostDetails.mockReturnValue({ postDetails: null, isLoading: false });
     mockUseUserDetails.mockReturnValue({ userDetails: null, isLoading: false });
     mockUseAvatarUrl.mockReturnValue(undefined);
 
-    const { container } = render(<PostHeader postId="user123:post456" />);
-    expect(container.firstChild).toHaveTextContent('Loading header...');
+    render(<PostHeader postId="user123:post456" />);
+    expect(screen.getAllByRole('generic').some((el) => el.getAttribute('data-slot') === 'skeleton')).toBe(true);
   });
 
   it('renders user name, handle and time', () => {
@@ -134,11 +139,13 @@ describe('PostHeader', () => {
         uri: 'pubky://userpubkykey/pub/pubky.app/posts/post456',
         content: '',
         attachments: null,
-      } as Core.PostDetailsModelSchema,
+        is_moderated: false,
+        is_blurred: false,
+      } as EnrichedPostDetails,
       isLoading: false,
     });
     mockUseUserDetails.mockReturnValue({
-      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as Core.NexusUserDetails,
+      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as NexusUserDetails,
       isLoading: false,
     });
     mockUseAvatarUrl.mockReturnValue('https://example.com/avatar/userpubkykey.png');
@@ -154,7 +161,7 @@ describe('PostHeader', () => {
     // When isReplyInput is true, postDetails is not fetched
     mockUsePostDetails.mockReturnValue({ postDetails: null, isLoading: false });
     mockUseUserDetails.mockReturnValue({
-      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as Core.NexusUserDetails,
+      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as NexusUserDetails,
       isLoading: false,
     });
     mockUseAvatarUrl.mockReturnValue('https://example.com/avatar/userpubkykey.png');
@@ -167,14 +174,14 @@ describe('PostHeader', () => {
     expect(container.querySelector('[data-testid="clock-icon"]')).not.toBeInTheDocument();
   });
 
-  it('shows loading when user details are not available and isReplyInput is true', () => {
+  it('shows skeleton when user details are not available and isReplyInput is true', () => {
     mockUsePostDetails.mockReturnValue({ postDetails: null, isLoading: false });
     mockUseUserDetails.mockReturnValue({ userDetails: null, isLoading: false });
     mockUseAvatarUrl.mockReturnValue(undefined);
 
-    const { container } = render(<PostHeader postId="userpubkykey:post456" isReplyInput={true} />);
+    render(<PostHeader postId="userpubkykey:post456" isReplyInput={true} />);
 
-    expect(container.firstChild).toHaveTextContent('Loading header...');
+    expect(screen.getAllByRole('generic').some((el) => el.getAttribute('data-slot') === 'skeleton')).toBe(true);
   });
 
   it('passes size prop to PostHeaderUserInfo', () => {
@@ -186,11 +193,13 @@ describe('PostHeader', () => {
         uri: 'pubky://userpubkykey/pub/pubky.app/posts/post456',
         content: '',
         attachments: null,
-      } as Core.PostDetailsModelSchema,
+        is_moderated: false,
+        is_blurred: false,
+      } as EnrichedPostDetails,
       isLoading: false,
     });
     mockUseUserDetails.mockReturnValue({
-      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as Core.NexusUserDetails,
+      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as NexusUserDetails,
       isLoading: false,
     });
     mockUseAvatarUrl.mockReturnValue('https://example.com/avatar/userpubkykey.png');
@@ -209,11 +218,13 @@ describe('PostHeader', () => {
         uri: 'pubky://userpubkykey/pub/pubky.app/posts/post456',
         content: '',
         attachments: null,
-      } as Core.PostDetailsModelSchema,
+        is_moderated: false,
+        is_blurred: false,
+      } as EnrichedPostDetails,
       isLoading: false,
     });
     mockUseUserDetails.mockReturnValue({
-      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as Core.NexusUserDetails,
+      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as NexusUserDetails,
       isLoading: false,
     });
     mockUseAvatarUrl.mockReturnValue('https://example.com/avatar/userpubkykey.png');
@@ -233,11 +244,13 @@ describe('PostHeader', () => {
         uri: 'pubky://userpubkykey/pub/pubky.app/posts/post456',
         content: '',
         attachments: null,
-      } as Core.PostDetailsModelSchema,
+        is_moderated: false,
+        is_blurred: false,
+      } as EnrichedPostDetails,
       isLoading: false,
     });
     mockUseUserDetails.mockReturnValue({
-      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as Core.NexusUserDetails,
+      userDetails: { id: 'userpubkykey', name: 'Test User', image: 'test-image-id' } as NexusUserDetails,
       isLoading: false,
     });
     mockUseAvatarUrl.mockReturnValue('https://example.com/avatar/userpubkykey.png');
@@ -263,7 +276,9 @@ describe('PostHeader - Snapshots', () => {
         uri: 'pubky://userpubkykey/pub/pubky.app/posts/post456',
         content: '',
         attachments: null,
-      } as Core.PostDetailsModelSchema,
+        is_moderated: false,
+        is_blurred: false,
+      } as EnrichedPostDetails,
       isLoading: false,
     });
     mockUseUserDetails.mockReturnValue({
@@ -271,7 +286,7 @@ describe('PostHeader - Snapshots', () => {
         id: 'snapshotUserKey',
         name: 'Snapshot User',
         image: 'snapshot-image-id',
-      } as Core.NexusUserDetails,
+      } as NexusUserDetails,
       isLoading: false,
     });
     mockUseAvatarUrl.mockReturnValue('https://example.com/avatar/snapshotUserKey.png');

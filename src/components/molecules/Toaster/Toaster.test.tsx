@@ -1,5 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { Toaster } from './Toaster';
 
 // Mock the useToast hook
@@ -7,13 +7,6 @@ const mockUseToast = vi.fn();
 vi.mock('./use-toast', () => ({
   useToast: () => mockUseToast(),
 }));
-
-// Mock @/libs to intercept any icons and utilities
-// Mock libs - use actual utility functions and icons from lucide-react
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual('@/libs');
-  return { ...actual };
-});
 
 describe('Toaster', () => {
   beforeEach(() => {
@@ -66,6 +59,47 @@ describe('Toaster', () => {
 
     const descriptionElement = screen.getByText(longDescription);
     expect(descriptionElement).not.toHaveClass('truncate');
+  });
+
+  it('should render dismiss button when dismissButton is true', () => {
+    const mockDismiss = vi.fn();
+    mockUseToast.mockReturnValue({
+      toasts: [
+        {
+          id: 'dismiss-toast',
+          title: 'Success',
+          description: 'Operation completed',
+          dismissButton: true,
+          open: true,
+        },
+      ],
+      dismiss: mockDismiss,
+    });
+
+    render(<Toaster />);
+
+    const okButton = screen.getByRole('button', { name: 'OK' });
+    expect(okButton).toBeInTheDocument();
+
+    fireEvent.click(okButton);
+    expect(mockDismiss).toHaveBeenCalledWith('dismiss-toast');
+  });
+
+  it('should not render dismiss button when dismissButton is not set', () => {
+    mockUseToast.mockReturnValue({
+      toasts: [
+        {
+          id: 'no-dismiss',
+          title: 'Simple toast',
+          open: true,
+        },
+      ],
+      dismiss: vi.fn(),
+    });
+
+    render(<Toaster />);
+
+    expect(screen.queryByRole('button', { name: 'OK' })).not.toBeInTheDocument();
   });
 
   it('should handle complex toast with action button click', () => {

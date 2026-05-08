@@ -1,5 +1,5 @@
-import { TIMELINE_FEED_VARIANT, type TimelineFeedVariant } from '@/config';
-import type { ContentType } from '@/core';
+import { TIMELINE_FEED_VARIANT, type TimelineFeedVariant } from '@/config/feed';
+import type { ContentType } from '@/stores/home/home.types';
 import type { VisualRow, VisualTile, VisualTileSize } from './TimelineFeedVisual.types';
 
 export const VISUAL_GRID_GAP_PX = 24;
@@ -29,6 +29,7 @@ export const VISUAL_DISABLED_CONTENT: ContentType[] = [
 const VISUAL_INTERACTIVE_CONTENT_VARIANTS = new Set<TimelineFeedVariant>([
   TIMELINE_FEED_VARIANT.HOME,
   TIMELINE_FEED_VARIANT.BOOKMARKS,
+  TIMELINE_FEED_VARIANT.SEARCH,
 ]);
 
 export const VISUAL_TILE_COLUMN_SPANS: Record<VisualTileSize, number> = {

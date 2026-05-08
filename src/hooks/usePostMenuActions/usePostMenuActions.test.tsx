@@ -1,13 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
+import { isAppError } from '@/libs/error/error.utils';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { usePostMenuActions } from './usePostMenuActions';
-import * as Libs from '@/libs';
 import { POST_MENU_ACTION_IDS } from './usePostMenuActions.constants';
 
 // Hoist mocks
 const {
   mockIsAppError,
   mockParseCompositeId,
+  mockToast,
   mockUseCurrentUserProfile,
   mockUsePostDetails,
   mockUseUserProfile,
@@ -16,10 +19,10 @@ const {
   mockUseMuteUser,
   mockUseMutedUsers,
   mockUseCopyToClipboard,
-  mockToast,
 } = vi.hoisted(() => ({
   mockIsAppError: vi.fn(),
   mockParseCompositeId: vi.fn(),
+  mockToast: vi.fn(),
   mockUseCurrentUserProfile: vi.fn(),
   mockUsePostDetails: vi.fn(),
   mockUseUserProfile: vi.fn(),
@@ -28,46 +31,57 @@ const {
   mockUseMuteUser: vi.fn(),
   mockUseMutedUsers: vi.fn(),
   mockUseCopyToClipboard: vi.fn(),
-  mockToast: vi.fn(),
 }));
 
-// Mock Core
-vi.mock('@/core', () => ({
+// Mock dependencies
+vi.mock('@/models/models.utils', () => ({
   parseCompositeId: (id: string) => mockParseCompositeId(id),
 }));
 
 // Mock Hooks
-vi.mock('@/hooks', () => ({
-  useCurrentUserProfile: (props: unknown) => mockUseCurrentUserProfile(props),
-  usePostDetails: (postId: string) => mockUsePostDetails(postId),
-  useUserProfile: (userId: string) => mockUseUserProfile(userId),
-  useIsFollowing: (userId: string) => mockUseIsFollowing(userId),
-  useFollowUser: () => mockUseFollowUser(),
-  useMuteUser: () => mockUseMuteUser(),
-  useMutedUsers: () => mockUseMutedUsers(),
-  useCopyToClipboard: (options: unknown) => mockUseCopyToClipboard(options),
+vi.mock('@/hooks/useCurrentUserProfile/useCurrentUserProfile', () => ({
+  useCurrentUserProfile: mockUseCurrentUserProfile,
+}));
+
+vi.mock('@/hooks/usePostDetails/usePostDetails', () => ({
+  usePostDetails: mockUsePostDetails,
+}));
+
+vi.mock('@/hooks/useUserProfile/useUserProfile', () => ({
+  useUserProfile: mockUseUserProfile,
+}));
+
+vi.mock('@/hooks/useIsFollowing/useIsFollowing', () => ({
+  useIsFollowing: mockUseIsFollowing,
+}));
+
+vi.mock('@/hooks/useFollowUser/useFollowUser', () => ({
+  useFollowUser: mockUseFollowUser,
+}));
+
+vi.mock('@/hooks/useMuteUser/useMuteUser', () => ({
+  useMuteUser: mockUseMuteUser,
+}));
+
+vi.mock('@/hooks/useMutedUsers/useMutedUsers', () => ({
+  useMutedUsers: mockUseMutedUsers,
+}));
+
+vi.mock('@/hooks/useCopyToClipboard/useCopyToClipboard', () => ({
+  useCopyToClipboard: mockUseCopyToClipboard,
 }));
 
 // Mock Molecules
-vi.mock('@/molecules', () => ({
-  toast: (props: unknown) => mockToast(props),
-}));
+vi.mock('@/molecules/Toaster/use-toast', () => {
+  return {
+    toast: (props: unknown) => mockToast(props),
+  };
+});
 
-// Mock Libs
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual('@/libs');
+vi.mock('@/libs/error/error.utils', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/error/error.utils')>('@/libs/error/error.utils');
   return {
     ...actual,
-    UserRoundPlus: vi.fn(() => <span>UserRoundPlus</span>),
-    UserRoundMinus: vi.fn(() => <span>UserRoundMinus</span>),
-    Key: vi.fn(() => <span>Key</span>),
-    Link: vi.fn(() => <span>Link</span>),
-    FileText: vi.fn(() => <span>FileText</span>),
-    MegaphoneOff: vi.fn(() => <span>MegaphoneOff</span>),
-    Megaphone: vi.fn(() => <span>Megaphone</span>),
-    Flag: vi.fn(() => <span>Flag</span>),
-    Edit: vi.fn(() => <span>Edit</span>),
-    Trash: vi.fn(() => <span>Trash</span>),
     isAppError: mockIsAppError,
   };
 });
@@ -87,7 +101,16 @@ describe('usePostMenuActions', () => {
 
   const defaultMocks = {
     currentUserPubky: mockCurrentUserId,
-    postDetails: { id: 'post456', content: 'Test post', kind: 'short' },
+    postDetails: {
+      id: 'post456',
+      content: 'Test post',
+      kind: 'short',
+      uri: 'pubky://author/pub/pubky.app/posts/post456',
+      indexed_at: Date.now(),
+      attachments: null,
+      is_moderated: false,
+      is_blurred: false,
+    } satisfies EnrichedPostDetails,
     authorProfile: { name: 'Test Author' },
     isFollowing: false,
     toggleFollow: vi.fn().mockResolvedValue(undefined),
@@ -155,7 +178,9 @@ describe('usePostMenuActions', () => {
 
   describe('Menu items for other user posts', () => {
     it('returns follow action when not following', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
       expect(followItem).toBeDefined();
@@ -169,7 +194,9 @@ describe('usePostMenuActions', () => {
         isLoading: false,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
       expect(followItem).toBeDefined();
@@ -183,14 +210,18 @@ describe('usePostMenuActions', () => {
         isUserLoading: defaultMocks.isUserLoading,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
       expect(followItem?.disabled).toBe(true);
     });
 
     it('calls toggleFollow on follow action click', async () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
       expect(followItem).toBeDefined();
@@ -203,11 +234,13 @@ describe('usePostMenuActions', () => {
     });
 
     it('shows error toast when follow fails with AppError', async () => {
-      const error = { type: 'AppError', message: 'Follow failed' } as unknown as Error;
-      vi.mocked(Libs.isAppError).mockReturnValue(true);
+      const error = asOpaque<Error>({ type: 'AppError', message: 'Follow failed' });
+      vi.mocked(isAppError).mockReturnValue(true);
       defaultMocks.toggleFollow.mockRejectedValue(error);
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
 
@@ -225,10 +258,12 @@ describe('usePostMenuActions', () => {
 
     it('shows generic error toast when follow fails with non-AppError', async () => {
       const error = new Error('Follow failed');
-      vi.mocked(Libs.isAppError).mockReturnValue(false);
+      vi.mocked(isAppError).mockReturnValue(false);
       defaultMocks.toggleFollow.mockRejectedValue(error);
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
 
@@ -245,7 +280,9 @@ describe('usePostMenuActions', () => {
     });
 
     it('includes mute action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const muteItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.MUTE);
       expect(muteItem).toBeDefined();
@@ -256,14 +293,18 @@ describe('usePostMenuActions', () => {
     it('shows unmute when user is already muted', () => {
       defaultMocks.isMuted.mockReturnValue(true);
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const muteItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.MUTE);
       expect(muteItem?.label).toBe('Unmute Test Author');
     });
 
     it('calls toggleMute on mute action click', async () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const muteItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.MUTE);
 
@@ -279,7 +320,9 @@ describe('usePostMenuActions', () => {
     });
 
     it('includes report action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const reportItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.REPORT);
       expect(reportItem).toBeDefined();
@@ -288,14 +331,18 @@ describe('usePostMenuActions', () => {
     });
 
     it('does not include edit action for other user posts', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const editItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.EDIT);
       expect(editItem).toBeUndefined();
     });
 
     it('does not include delete action for other user posts', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const deleteItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.DELETE);
       expect(deleteItem).toBeUndefined();
@@ -310,21 +357,27 @@ describe('usePostMenuActions', () => {
     });
 
     it('does not include follow action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
       expect(followItem).toBeUndefined();
     });
 
     it('does not include mute action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const muteItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.MUTE);
       expect(muteItem).toBeUndefined();
     });
 
     it('does not include report action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const reportItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.REPORT);
       expect(reportItem).toBeUndefined();
@@ -333,7 +386,11 @@ describe('usePostMenuActions', () => {
     it('includes edit action', () => {
       const mockOnEditClick = vi.fn();
       const { result } = renderHook(() =>
-        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: mockOnEditClick }),
+        usePostMenuActions(mockPostId, {
+          onReportClick: vi.fn(),
+          onEditClick: mockOnEditClick,
+          onDeleteClick: vi.fn(),
+        }),
       );
 
       const editItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.EDIT);
@@ -345,7 +402,11 @@ describe('usePostMenuActions', () => {
     it('calls onEditClick on edit action click', async () => {
       const mockOnEditClick = vi.fn();
       const { result } = renderHook(() =>
-        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: mockOnEditClick }),
+        usePostMenuActions(mockPostId, {
+          onReportClick: vi.fn(),
+          onEditClick: mockOnEditClick,
+          onDeleteClick: vi.fn(),
+        }),
       );
 
       const editItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.EDIT);
@@ -358,7 +419,9 @@ describe('usePostMenuActions', () => {
     });
 
     it('includes delete action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const deleteItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.DELETE);
       expect(deleteItem).toBeDefined();
@@ -369,7 +432,12 @@ describe('usePostMenuActions', () => {
 
     it('disables delete action when deleting', () => {
       const { result } = renderHook(() =>
-        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onDeleteClick: vi.fn(), isDeleting: true }),
+        usePostMenuActions(mockPostId, {
+          onReportClick: vi.fn(),
+          onEditClick: vi.fn(),
+          onDeleteClick: vi.fn(),
+          isDeleting: true,
+        }),
       );
 
       const deleteItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.DELETE);
@@ -398,7 +466,9 @@ describe('usePostMenuActions', () => {
 
   describe('Copy actions', () => {
     it('includes copy pubky action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyPubkyItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_PUBKY);
       expect(copyPubkyItem).toBeDefined();
@@ -406,7 +476,9 @@ describe('usePostMenuActions', () => {
     });
 
     it('calls copyToClipboard with pubky on copy pubky click', async () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyPubkyItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_PUBKY);
 
@@ -418,7 +490,9 @@ describe('usePostMenuActions', () => {
     });
 
     it('includes copy link action', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyLinkItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_LINK);
       expect(copyLinkItem).toBeDefined();
@@ -426,7 +500,9 @@ describe('usePostMenuActions', () => {
     });
 
     it('calls copyToClipboard with post URL on copy link click', async () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyLinkItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_LINK);
 
@@ -438,7 +514,9 @@ describe('usePostMenuActions', () => {
     });
 
     it('includes copy text action for short posts', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyTextItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_TEXT);
       expect(copyTextItem).toBeDefined();
@@ -451,14 +529,18 @@ describe('usePostMenuActions', () => {
         isLoading: false,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyTextItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_TEXT);
       expect(copyTextItem).toBeUndefined();
     });
 
     it('calls copyToClipboard with post content on copy text click', async () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyTextItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_TEXT);
 
@@ -475,7 +557,9 @@ describe('usePostMenuActions', () => {
         isLoading: false,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const copyTextItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.COPY_TEXT);
 
@@ -494,7 +578,9 @@ describe('usePostMenuActions', () => {
         isLoading: true,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       expect(result.current.isLoading).toBe(true);
     });
@@ -505,7 +591,9 @@ describe('usePostMenuActions', () => {
         isLoading: true,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       expect(result.current.isLoading).toBe(true);
     });
@@ -516,13 +604,17 @@ describe('usePostMenuActions', () => {
         isLoading: true,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       expect(result.current.isLoading).toBe(true);
     });
 
     it('returns isLoading false when all data is loaded', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       expect(result.current.isLoading).toBe(false);
     });
@@ -530,7 +622,9 @@ describe('usePostMenuActions', () => {
 
   describe('Username fallback', () => {
     it('uses author profile name when available', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
       expect(followItem?.label).toContain('Test Author');
@@ -542,7 +636,9 @@ describe('usePostMenuActions', () => {
         isLoading: false,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const followItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.FOLLOW);
       expect(followItem?.label).toContain(mockAuthorId);
@@ -551,7 +647,9 @@ describe('usePostMenuActions', () => {
 
   describe('Menu items order', () => {
     it('returns menu items in correct order for other user posts', () => {
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const itemIds = result.current.menuItems.map((item) => item.id);
       expect(itemIds).toEqual([
@@ -569,7 +667,9 @@ describe('usePostMenuActions', () => {
         currentUserPubky: mockAuthorId,
       });
 
-      const { result } = renderHook(() => usePostMenuActions(mockPostId, { onReportClick: vi.fn() }));
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
 
       const itemIds = result.current.menuItems.map((item) => item.id);
       expect(itemIds).toEqual([

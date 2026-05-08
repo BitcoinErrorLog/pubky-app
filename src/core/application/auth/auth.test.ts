@@ -1,18 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as Core from '@/core';
-import {
-  AppError,
-  ErrorCategory,
-  NetworkErrorCode,
-  AuthErrorCode,
-  Err,
-  ClientErrorCode,
-  ErrorService,
-  HttpMethod,
-  ServerErrorCode,
-} from '@/libs';
-import * as libs from '@/libs';
-import type { Session, Keypair } from '@synonymdev/pubky';
+import type { Keypair, Session } from '@synonymdev/pubky';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthApplication } from '@/application/auth/auth';
+import type { THomeserverAuthenticateParams } from '@/application/auth/auth.types';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode, ClientErrorCode, NetworkErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { HttpMethod } from '@/libs/http/http.types';
+import type { Pubky } from '@/models/models.types';
+import { HomeserverService } from '@/services/homeserver/homeserver';
+import type { THomeserverSignUpParams } from '@/services/homeserver/homeserver.types';
+import { mockSession } from '@/test-utils/pubky';
+import { mockAuthStore } from '@/test-utils/stores';
+import { asOpaque } from '@/test-utils/type-assertions';
+
+const spyOnSleep = async () => vi.spyOn(await import('@/libs/utils/utils'), 'sleep').mockResolvedValue(undefined);
 
 vi.mock('pubky-app-specs', () => ({
   default: vi.fn(() => Promise.resolve()),
@@ -25,22 +27,22 @@ describe('AuthApplication', () => {
   });
 
   describe('signUp', () => {
-    const createParams = (): Core.THomeserverSignUpParams => ({
-      keypair: {
+    const createParams = (): THomeserverSignUpParams => ({
+      keypair: asOpaque<Keypair>({
         publicKey: vi.fn(() => ({ z32: () => 'test-pubky' })),
         secret: vi.fn(() => new Uint8Array([1, 2, 3])),
-      } as unknown as Keypair,
+      }),
       signupToken: 'test-signup-token',
     });
 
     it('should sign up successfully', async () => {
       const params = createParams();
-      const mockSession = { token: 'test-token' } as unknown as Session;
-      const expectedResult = { session: mockSession };
+      const session = asOpaque<Session>({ token: 'test-token' });
+      const expectedResult = { session };
 
-      const signUpSpy = vi.spyOn(Core.HomeserverService, 'signUp').mockResolvedValue(expectedResult);
+      const signUpSpy = vi.spyOn(HomeserverService, 'signUp').mockResolvedValue(expectedResult);
 
-      const result = await Core.AuthApplication.signUp(params);
+      const result = await AuthApplication.signUp(params);
 
       expect(signUpSpy).toHaveBeenCalledWith({ keypair: params.keypair, signupToken: params.signupToken });
       expect(result).toEqual(expectedResult);
@@ -48,30 +50,30 @@ describe('AuthApplication', () => {
 
     it('should propagate error when signup fails', async () => {
       const params = createParams();
-      const signUpSpy = vi.spyOn(Core.HomeserverService, 'signUp').mockRejectedValue(new Error('Signup failed'));
+      const signUpSpy = vi.spyOn(HomeserverService, 'signUp').mockRejectedValue(new Error('Signup failed'));
 
-      await expect(Core.AuthApplication.signUp(params)).rejects.toThrow('Signup failed');
+      await expect(AuthApplication.signUp(params)).rejects.toThrow('Signup failed');
       expect(signUpSpy).toHaveBeenCalledOnce();
     });
   });
 
   describe('signIn', () => {
-    const createParams = (): Core.THomeserverAuthenticateParams => ({
-      keypair: {
+    const createParams = (): THomeserverAuthenticateParams => ({
+      keypair: asOpaque<Keypair>({
         publicKey: vi.fn(() => ({ z32: () => 'test-pubky' })),
         secret: vi.fn(() => new Uint8Array([1, 2, 3])),
-      } as unknown as Keypair,
+      }),
       secretKey: 'test-secret-key',
     });
 
     it('should successfully authenticate and return result', async () => {
       const params = createParams();
-      const mockSession = { token: 'test-token' } as unknown as Session;
-      const expectedResult = { session: mockSession };
+      const session = asOpaque<Session>({ token: 'test-token' });
+      const expectedResult = { session };
 
-      const signInSpy = vi.spyOn(Core.HomeserverService, 'signIn').mockResolvedValue(expectedResult);
+      const signInSpy = vi.spyOn(HomeserverService, 'signIn').mockResolvedValue(expectedResult);
 
-      const result = await Core.AuthApplication.signIn(params);
+      const result = await AuthApplication.signIn(params);
 
       expect(signInSpy).toHaveBeenCalledWith({ keypair: params.keypair });
       expect(result).toEqual(expectedResult);
@@ -79,9 +81,9 @@ describe('AuthApplication', () => {
 
     it('should return undefined when homeserver is not found during authentication', async () => {
       const params = createParams();
-      const signInSpy = vi.spyOn(Core.HomeserverService, 'signIn').mockResolvedValue(undefined);
+      const signInSpy = vi.spyOn(HomeserverService, 'signIn').mockResolvedValue(undefined);
 
-      const result = await Core.AuthApplication.signIn(params);
+      const result = await AuthApplication.signIn(params);
 
       expect(signInSpy).toHaveBeenCalledWith({ keypair: params.keypair });
       expect(result).toBeUndefined();
@@ -89,28 +91,26 @@ describe('AuthApplication', () => {
 
     it('should propagate error when authentication throws', async () => {
       const params = createParams();
-      const signInSpy = vi
-        .spyOn(Core.HomeserverService, 'signIn')
-        .mockRejectedValue(new Error('Authentication failed'));
+      const signInSpy = vi.spyOn(HomeserverService, 'signIn').mockRejectedValue(new Error('Authentication failed'));
 
-      await expect(Core.AuthApplication.signIn(params)).rejects.toThrow('Authentication failed');
+      await expect(AuthApplication.signIn(params)).rejects.toThrow('Authentication failed');
       expect(signInSpy).toHaveBeenCalledOnce();
     });
   });
 
   describe('generateAuthUrl', () => {
     it('should generate and return auth URL', async () => {
-      const mockSession = { token: 'test-token' } as unknown as Session;
+      const session = asOpaque<Session>({ token: 'test-token' });
       const cancelAuthFlow = vi.fn();
       const expectedResult = {
         authorizationUrl: 'https://example.com/auth?token=test-token',
-        awaitApproval: Promise.resolve(mockSession),
+        awaitApproval: Promise.resolve(session),
         cancelAuthFlow,
       };
 
-      const generateAuthUrlSpy = vi.spyOn(Core.HomeserverService, 'generateAuthUrl').mockResolvedValue(expectedResult);
+      const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl').mockResolvedValue(expectedResult);
 
-      const result = await Core.AuthApplication.generateAuthUrl();
+      const result = await AuthApplication.generateAuthUrl();
 
       expect(generateAuthUrlSpy).toHaveBeenCalled();
       expect(result).toEqual(expectedResult);
@@ -118,42 +118,40 @@ describe('AuthApplication', () => {
 
     it('should propagate error when URL generation fails', async () => {
       const generateAuthUrlSpy = vi
-        .spyOn(Core.HomeserverService, 'generateAuthUrl')
+        .spyOn(HomeserverService, 'generateAuthUrl')
         .mockRejectedValue(new Error('Failed to generate auth URL'));
 
-      await expect(Core.AuthApplication.generateAuthUrl()).rejects.toThrow('Failed to generate auth URL');
+      await expect(AuthApplication.generateAuthUrl()).rejects.toThrow('Failed to generate auth URL');
       expect(generateAuthUrlSpy).toHaveBeenCalledOnce();
     });
   });
 
   describe('logout', () => {
     it('should successfully logout', async () => {
-      const mockSession = { signout: vi.fn() } as unknown as Session;
-      const params = { session: mockSession };
-      const logoutSpy = vi.spyOn(Core.HomeserverService, 'logout').mockResolvedValue(undefined);
+      const session = mockSession({ signout: vi.fn() });
+      const params = { session };
+      const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
 
-      await Core.AuthApplication.logout(params);
+      await AuthApplication.logout(params);
 
       expect(logoutSpy).toHaveBeenCalledWith(params);
     });
 
     it('should propagate error when logout fails', async () => {
-      const mockSession = { signout: vi.fn() } as unknown as Session;
-      const params = { session: mockSession };
-      const logoutSpy = vi.spyOn(Core.HomeserverService, 'logout').mockRejectedValue(new Error('Logout failed'));
+      const session = mockSession({ signout: vi.fn() });
+      const params = { session };
+      const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockRejectedValue(new Error('Logout failed'));
 
-      await expect(Core.AuthApplication.logout(params)).rejects.toThrow('Logout failed');
+      await expect(AuthApplication.logout(params)).rejects.toThrow('Logout failed');
       expect(logoutSpy).toHaveBeenCalledOnce();
     });
   });
 
   describe('generateSignupToken', () => {
     it('should generate signup token successfully', async () => {
-      const generateSignupTokenSpy = vi
-        .spyOn(Core.HomeserverService, 'generateSignupToken')
-        .mockResolvedValue('test-token');
+      const generateSignupTokenSpy = vi.spyOn(HomeserverService, 'generateSignupToken').mockResolvedValue('test-token');
 
-      const result = await Core.AuthApplication.generateSignupToken();
+      const result = await AuthApplication.generateSignupToken();
 
       expect(generateSignupTokenSpy).toHaveBeenCalled();
       expect(result).toBe('test-token');
@@ -161,22 +159,22 @@ describe('AuthApplication', () => {
 
     it('should propagate error when signup token generation fails', async () => {
       const generateSignupTokenSpy = vi
-        .spyOn(Core.HomeserverService, 'generateSignupToken')
+        .spyOn(HomeserverService, 'generateSignupToken')
         .mockRejectedValue(new Error('Failed to generate signup token'));
 
-      await expect(Core.AuthApplication.generateSignupToken()).rejects.toThrow('Failed to generate signup token');
+      await expect(AuthApplication.generateSignupToken()).rejects.toThrow('Failed to generate signup token');
       expect(generateSignupTokenSpy).toHaveBeenCalledOnce();
     });
   });
 
   describe('restorePersistedSession', () => {
     const createMockAuthStore = (sessionExport: string | null = 'mock-session-export') =>
-      ({
+      mockAuthStore({
         sessionExport,
         isRestoringSession: false,
         setIsRestoringSession: vi.fn(),
         init: vi.fn(),
-      }) as unknown as Core.AuthStore;
+      });
 
     const createNetworkError = () =>
       new AppError({
@@ -198,19 +196,19 @@ describe('AuthApplication', () => {
 
     let sleepSpy: ReturnType<typeof vi.spyOn>;
 
-    beforeEach(() => {
-      sleepSpy = vi.spyOn(libs, 'sleep').mockResolvedValue(undefined);
+    beforeEach(async () => {
+      sleepSpy = await spyOnSleep();
     });
 
     it('should restore session successfully on first attempt', async () => {
       const authStore = createMockAuthStore();
-      const mockSession = { token: 'test-token' } as unknown as Session;
-      const restoreSpy = vi.spyOn(Core.HomeserverService, 'restoreSession').mockResolvedValue(mockSession);
+      const session = asOpaque<Session>({ token: 'test-token' });
+      const restoreSpy = vi.spyOn(HomeserverService, 'restoreSession').mockResolvedValue(session);
 
-      const result = await Core.AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({ authStore });
 
       expect(restoreSpy).toHaveBeenCalledOnce();
-      expect(result).toEqual({ session: mockSession });
+      expect(result).toEqual({ session });
       // Ensure loading state is toggled: true on start, false on finish (prevents stuck spinner)
       expect(authStore.setIsRestoringSession).toHaveBeenCalledWith(true);
       expect(authStore.setIsRestoringSession).toHaveBeenCalledWith(false);
@@ -221,35 +219,35 @@ describe('AuthApplication', () => {
     it('should return null when sessionExport is missing', async () => {
       const authStore = createMockAuthStore(null);
 
-      const result = await Core.AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({ authStore });
 
       expect(result).toBeNull();
     });
 
     it('should retry on retryable error and succeed on subsequent attempt', async () => {
       const authStore = createMockAuthStore();
-      const mockSession = { token: 'test-token' } as unknown as Session;
+      const session = asOpaque<Session>({ token: 'test-token' });
       // Simulate: 1st call fails (network), 2nd call fails (network), 3rd call succeeds
       const restoreSpy = vi
-        .spyOn(Core.HomeserverService, 'restoreSession')
+        .spyOn(HomeserverService, 'restoreSession')
         .mockRejectedValueOnce(createNetworkError())
         .mockRejectedValueOnce(createNetworkError())
-        .mockResolvedValueOnce(mockSession);
+        .mockResolvedValueOnce(session);
 
-      const result = await Core.AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({ authStore });
 
       expect(restoreSpy).toHaveBeenCalledTimes(3);
       expect(sleepSpy).toHaveBeenCalledTimes(2);
-      expect(result).toEqual({ session: mockSession });
+      expect(result).toEqual({ session });
     });
 
     // Errors like expired session (Auth category) are permanent — retrying won't help.
     // Only transient errors (Network, Timeout, Server) should trigger retries.
     it('should not retry on non-retryable AppError', async () => {
       const authStore = createMockAuthStore();
-      const restoreSpy = vi.spyOn(Core.HomeserverService, 'restoreSession').mockRejectedValueOnce(createAuthError()); // Non-retryable error
+      const restoreSpy = vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValueOnce(createAuthError()); // Non-retryable error
 
-      const result = await Core.AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({ authStore });
 
       expect(restoreSpy).toHaveBeenCalledOnce();
       expect(sleepSpy).not.toHaveBeenCalled();
@@ -259,10 +257,10 @@ describe('AuthApplication', () => {
     it('should not retry on non-AppError (plain Error)', async () => {
       const authStore = createMockAuthStore();
       const restoreSpy = vi
-        .spyOn(Core.HomeserverService, 'restoreSession')
+        .spyOn(HomeserverService, 'restoreSession')
         .mockRejectedValueOnce(new Error('Unknown error'));
 
-      const result = await Core.AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({ authStore });
 
       expect(restoreSpy).toHaveBeenCalledOnce();
       expect(sleepSpy).not.toHaveBeenCalled();
@@ -271,9 +269,9 @@ describe('AuthApplication', () => {
 
     it('should return null after exhausting all retry attempts', async () => {
       const authStore = createMockAuthStore();
-      const restoreSpy = vi.spyOn(Core.HomeserverService, 'restoreSession').mockRejectedValue(createNetworkError());
+      const restoreSpy = vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValue(createNetworkError());
 
-      const result = await Core.AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({ authStore });
 
       // 10 attempts total (RESTORE_MAX_ATTEMPTS)
       expect(restoreSpy).toHaveBeenCalledTimes(10);
@@ -287,9 +285,9 @@ describe('AuthApplication', () => {
     // Without this, the UI would be stuck on a loading spinner after an error.
     it('should always reset isRestoringSession to false even on failure', async () => {
       const authStore = createMockAuthStore();
-      vi.spyOn(Core.HomeserverService, 'restoreSession').mockRejectedValue(createAuthError());
+      vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValue(createAuthError());
 
-      await Core.AuthApplication.restorePersistedSession({ authStore });
+      await AuthApplication.restorePersistedSession({ authStore });
 
       expect(authStore.setIsRestoringSession).toHaveBeenCalledWith(true);
       expect(authStore.setIsRestoringSession).toHaveBeenLastCalledWith(false);
@@ -297,12 +295,12 @@ describe('AuthApplication', () => {
   });
 
   describe('userIsSignedUp', () => {
-    const testPubky = 'test-pubky' as Core.Pubky;
+    const testPubky = 'test-pubky' as Pubky;
 
     it('should return true when profile.json exists', async () => {
-      const requestSpy = vi.spyOn(Core.HomeserverService, 'request').mockResolvedValue({ name: 'Test' });
+      const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue({ name: 'Test' });
 
-      const result = await Core.AuthApplication.userIsSignedUp({ pubky: testPubky });
+      const result = await AuthApplication.userIsSignedUp({ pubky: testPubky });
 
       expect(result).toBe(true);
       expect(requestSpy).toHaveBeenCalledWith({
@@ -316,9 +314,9 @@ describe('AuthApplication', () => {
         service: ErrorService.Homeserver,
         operation: 'userIsSignedUp',
       });
-      vi.spyOn(Core.HomeserverService, 'request').mockRejectedValue(notFoundError);
+      vi.spyOn(HomeserverService, 'request').mockRejectedValue(notFoundError);
 
-      const result = await Core.AuthApplication.userIsSignedUp({ pubky: testPubky });
+      const result = await AuthApplication.userIsSignedUp({ pubky: testPubky });
 
       expect(result).toBe(false);
     });
@@ -328,9 +326,9 @@ describe('AuthApplication', () => {
         service: ErrorService.Homeserver,
         operation: 'userIsSignedUp',
       });
-      vi.spyOn(Core.HomeserverService, 'request').mockRejectedValue(serverError);
+      vi.spyOn(HomeserverService, 'request').mockRejectedValue(serverError);
 
-      await expect(Core.AuthApplication.userIsSignedUp({ pubky: testPubky })).rejects.toMatchObject({
+      await expect(AuthApplication.userIsSignedUp({ pubky: testPubky })).rejects.toMatchObject({
         code: ServerErrorCode.INTERNAL_ERROR,
       });
     });

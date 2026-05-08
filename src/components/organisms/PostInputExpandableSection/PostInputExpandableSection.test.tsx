@@ -1,67 +1,98 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PostInputExpandableSection } from './PostInputExpandableSection';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST_INPUT_VARIANT } from '../PostInput/PostInput.constants';
+import { PostInputExpandableSection } from './PostInputExpandableSection';
+
+vi.mock('motion/react', () => ({
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  motion: {
+    div: ({
+      children,
+      initial: _initial,
+      animate: _animate,
+      exit: _exit,
+      transition: _transition,
+      ...props
+    }: {
+      children: React.ReactNode;
+      initial?: unknown;
+      animate?: unknown;
+      exit?: unknown;
+      transition?: unknown;
+      [key: string]: unknown;
+    }) => <div {...props}>{children}</div>,
+  },
+}));
 
 // Use real libs - use actual implementations
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual('@/libs');
-  return { ...actual };
-});
 
 // Mock atoms
-vi.mock('@/atoms', () => ({
-  Container: ({
-    children,
-    className,
-    overrideDefaults,
-  }: {
-    children: React.ReactNode;
-    className?: string;
-    overrideDefaults?: boolean;
-  }) => (
-    <div data-testid="container" className={className} data-override-defaults={overrideDefaults}>
-      {children}
-    </div>
-  ),
-}));
+vi.mock('@/atoms/Container/Container', () => {
+  return {
+    Container: ({
+      children,
+      className,
+      overrideDefaults,
+    }: {
+      children: React.ReactNode;
+      className?: string;
+      overrideDefaults?: boolean;
+    }) => (
+      <div data-testid="container" className={className} data-override-defaults={overrideDefaults}>
+        {children}
+      </div>
+    ),
+  };
+});
 
 // Mock molecules
-vi.mock('@/molecules', () => ({
-  PostLinkEmbeds: ({ content }: { content: string }) => <div data-testid="post-link-embeds">{content}</div>,
-  PostTag: ({ label, showClose, onClose }: { label: string; showClose?: boolean; onClose?: () => void }) => (
-    <div data-testid="post-tag">
-      {label}
-      {showClose && (
-        <button data-testid={`tag-close-${label}`} onClick={onClose}>
-          ×
-        </button>
-      )}
-    </div>
-  ),
-  EmojiPickerDialog: ({
-    open,
-    onOpenChange,
-    onEmojiSelect,
-  }: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    onEmojiSelect: (emoji: { native: string }) => void;
-  }) =>
-    open ? (
-      <div data-testid="emoji-picker-dialog">
-        <button data-testid="emoji-select" onClick={() => onEmojiSelect({ native: '😀' })}>
-          Select Emoji
-        </button>
-        <button data-testid="emoji-close" onClick={() => onOpenChange(false)}>
-          Close
-        </button>
+vi.mock('@/molecules/EmojiPickerDialog/EmojiPickerDialog', () => {
+  return {
+    EmojiPickerDialog: ({
+      open,
+      onOpenChange,
+      onEmojiSelect,
+    }: {
+      open: boolean;
+      onOpenChange: (open: boolean) => void;
+      onEmojiSelect: (emoji: { native: string }) => void;
+    }) =>
+      open ? (
+        <div data-testid="emoji-picker-dialog">
+          <button data-testid="emoji-select" onClick={() => onEmojiSelect({ native: '😀' })}>
+            Select Emoji
+          </button>
+          <button data-testid="emoji-close" onClick={() => onOpenChange(false)}>
+            Close
+          </button>
+        </div>
+      ) : null,
+  };
+});
+
+vi.mock('@/molecules/PostLinkEmbeds/PostLinkEmbeds', () => {
+  return {
+    PostLinkEmbeds: ({ content }: { content: string }) => <div data-testid="post-link-embeds">{content}</div>,
+  };
+});
+
+vi.mock('@/molecules/PostTag/PostTag', () => {
+  return {
+    PostTag: ({ label, showClose, onClose }: { label: string; showClose?: boolean; onClose?: () => void }) => (
+      <div data-testid="post-tag">
+        {label}
+        {showClose && (
+          <button data-testid={`tag-close-${label}`} onClick={onClose}>
+            ×
+          </button>
+        )}
       </div>
-    ) : null,
-}));
+    ),
+  };
+});
 
 // Mock PostInputTags
-vi.mock('../PostInputTags', () => ({
+vi.mock('../PostInputTags/PostInputTags', () => ({
   PostInputTags: ({
     tags,
     onTagsChange: _onTagsChange,
@@ -81,7 +112,7 @@ vi.mock('../PostInputTags', () => ({
 
 // Mock PostInputActionBar
 const mockOnPostClick = vi.fn();
-vi.mock('../PostInputActionBar', () => ({
+vi.mock('../PostInputActionBar/PostInputActionBar', () => ({
   PostInputActionBar: ({
     onPostClick,
     onEmojiClick,
@@ -297,28 +328,21 @@ describe('PostInputExpandableSection', () => {
     expect(onEmojiSelect).toHaveBeenCalledWith({ native: '😀' });
   });
 
-  it('applies correct classes when expanded', () => {
-    const { container } = render(<PostInputExpandableSection {...defaultProps} isExpanded={true} />);
+  it('renders animated wrapper with overflow-hidden when expanded', () => {
+    const { container } = render(
+      <PostInputExpandableSection {...defaultProps} isExpanded={true} className="test-expandable-class" />,
+    );
 
-    const expandableContainer = container.querySelector('[data-testid="container"]');
-    expect(expandableContainer).toHaveClass('grid-rows-[1fr]');
-    expect(expandableContainer).toHaveClass('opacity-100');
+    const expandableContainer = container.querySelector('.overflow-hidden');
+    expect(expandableContainer).toBeInTheDocument();
+    expect(expandableContainer).toHaveClass('test-expandable-class');
   });
 
-  it('applies correct classes when collapsed', () => {
-    const { container } = render(<PostInputExpandableSection {...defaultProps} isExpanded={false} />);
+  it('unmounts expandable section when collapsed', () => {
+    render(<PostInputExpandableSection {...defaultProps} isExpanded={false} />);
 
-    const expandableContainer = container.querySelector('[data-testid="container"]');
-    expect(expandableContainer).toHaveClass('grid-rows-[0fr]');
-    expect(expandableContainer).toHaveClass('opacity-0');
-  });
-
-  it('uses overflow-hidden to keep collapse animation behavior', () => {
-    const { container } = render(<PostInputExpandableSection {...defaultProps} isExpanded={false} />);
-
-    const containers = container.querySelectorAll('[data-testid="container"]');
-    const contentWrapper = containers[1];
-    expect(contentWrapper).toHaveClass('overflow-hidden');
+    expect(screen.queryByTestId('post-input-action-bar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('post-input-tags')).not.toBeInTheDocument();
   });
 
   it('shows article button when submitMode is POST and not an article', () => {

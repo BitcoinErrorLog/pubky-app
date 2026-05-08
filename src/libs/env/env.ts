@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { Err, ErrorService, ValidationErrorCode } from '@/libs/error';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 
 const DEFAULT_PKARR_RELAYS = ['https://pkarr.pubky.app', 'https://pkarr.pubky.org'];
 
@@ -154,8 +156,8 @@ const envSchema = z.object({
   HOMESERVER_ADMIN_URL: z.string().url().default('http://localhost:6288/generate_signup_token'),
   HOMESERVER_ADMIN_PASSWORD: z.string().default('admin'),
 
-  /** HTTP relay for pubky protocol */
-  NEXT_PUBLIC_DEFAULT_HTTP_RELAY: z.string().url().default('https://httprelay.staging.pubky.app'),
+  /** HTTP relay for pubky protocol (auth uses `/inbox` with Pubky SDK 0.7+) */
+  NEXT_PUBLIC_DEFAULT_HTTP_RELAY: z.url().default('https://httprelay.staging.pubky.app/inbox'),
   NEXT_PUBLIC_MODERATION_ID: z.string().default('euwmq57zefw5ynnkhh37b3gcmhs7g3cptdbw1doaxj1pbmzp3wro'),
   NEXT_PUBLIC_MODERATED_TAGS: z
     .string()
@@ -167,6 +169,19 @@ const envSchema = z.object({
   NEXT_PUBLIC_EXCHANGE_RATE_API: z.url().default('https://api1.blocktank.to/api/fx/rates/btc'),
   /** Homegate authentication service URL */
   NEXT_PUBLIC_HOMEGATE_URL: z.url().default('https://homegate.staging.pubky.app'),
+
+  // Prelude SDK key for collecting client browser signals for SMS fraud prevention.
+  // This is a public/publishable key (distinct from the secret Prelude API key used server-side).
+  // It is safe to expose in client-side bundles.
+  // Optional: if not set, signals are not dispatched.
+  NEXT_PUBLIC_PRELUDE_SDK_KEY: z.string().optional(),
+
+  /** Prelude SDK signal dispatch timeout in milliseconds (default: 5000) */
+  NEXT_PUBLIC_PRELUDE_SDK_TIMEOUT_MS: z
+    .string()
+    .default('5000')
+    .transform((val) => parseInt(val, 10))
+    .pipe(z.number().int().positive()),
 
   // Test environment variable (optional)
   VITEST: z.string().optional(),
@@ -212,6 +227,53 @@ const envSchema = z.object({
     .string()
     .optional()
     .default('https://play.google.com/store/apps/details?id=to.pubky.ring&pcampaignid=web_share'),
+
+  // App version (injected from package.json via next.config.ts)
+  NEXT_PUBLIC_APP_VERSION: z.string(),
+
+  // =============================================================================
+  // SENTRY (Observability)
+  // =============================================================================
+  // DSN is shared across browser/server/edge runtimes. Empty string disables Sentry entirely.
+  NEXT_PUBLIC_SENTRY_DSN: z
+    .string()
+    .optional()
+    .transform((val) => {
+      const trimmed = val?.trim();
+      return trimmed && trimmed !== '' ? trimmed : undefined;
+    })
+    .pipe(z.url().optional()),
+
+  // Environment tag attached to every event (e.g. "production", "staging", "preview").
+  // Defaults to NODE_ENV when unset.
+  NEXT_PUBLIC_SENTRY_ENVIRONMENT: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim() !== '' ? val : undefined)),
+
+  NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: z
+    .string()
+    .default('0.1')
+    .transform((val) => parseFloat(val))
+    .pipe(z.number().min(0).max(1)),
+
+  NEXT_PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE: z
+    .string()
+    .default('0.0')
+    .transform((val) => parseFloat(val))
+    .pipe(z.number().min(0).max(1)),
+
+  NEXT_PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE: z
+    .string()
+    .default('1.0')
+    .transform((val) => parseFloat(val))
+    .pipe(z.number().min(0).max(1)),
+
+  // Build-only secrets used by withSentryConfig for source map upload.
+  // Not exposed to runtime; safe to leave undefined in dev/CI without source maps.
+  SENTRY_AUTH_TOKEN: z.string().optional(),
+  SENTRY_ORG: z.string().optional(),
+  SENTRY_PROJECT: z.string().optional(),
 });
 
 /**
@@ -323,6 +385,8 @@ function parseEnv(): z.infer<typeof envSchema> {
     NEXT_PUBLIC_MODERATED_TAGS: process.env.NEXT_PUBLIC_MODERATED_TAGS,
     NEXT_PUBLIC_EXCHANGE_RATE_API: process.env.NEXT_PUBLIC_EXCHANGE_RATE_API,
     NEXT_PUBLIC_HOMEGATE_URL: process.env.NEXT_PUBLIC_HOMEGATE_URL,
+    NEXT_PUBLIC_PRELUDE_SDK_KEY: process.env.NEXT_PUBLIC_PRELUDE_SDK_KEY,
+    NEXT_PUBLIC_PRELUDE_SDK_TIMEOUT_MS: process.env.NEXT_PUBLIC_PRELUDE_SDK_TIMEOUT_MS,
     VITEST: process.env.VITEST,
     BASE_URL_SUPPORT: process.env.BASE_URL_SUPPORT,
     SUPPORT_API_ACCESS_TOKEN: process.env.SUPPORT_API_ACCESS_TOKEN,
@@ -346,7 +410,16 @@ function parseEnv(): z.infer<typeof envSchema> {
     NEXT_PUBLIC_EMAIL: process.env.NEXT_PUBLIC_EMAIL,
     NEXT_PUBLIC_APP_STORE_URL: process.env.NEXT_PUBLIC_APP_STORE_URL,
     NEXT_PUBLIC_PLAY_STORE_URL: process.env.NEXT_PUBLIC_PLAY_STORE_URL,
+    NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
     NEXT_PUBLIC_SITE_NAME: process.env.NEXT_PUBLIC_SITE_NAME,
+    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT,
+    NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE,
+    NEXT_PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE: process.env.NEXT_PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+    NEXT_PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE: process.env.NEXT_PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+    SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+    SENTRY_ORG: process.env.SENTRY_ORG,
+    SENTRY_PROJECT: process.env.SENTRY_PROJECT,
   });
 
   if (!result.success) {

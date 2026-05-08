@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { useEmojiInsert } from '../useEmojiInsert';
-import { filterSuggestions } from './useTagInput.utils';
-import * as Libs from '@/libs';
-import { TAG_MAX_LENGTH } from '@/config';
+import { useRef, useState } from 'react';
+import { TAG_MAX_LENGTH } from '@/config/posts';
+import { Logger } from '@/libs/logger/logger';
+import { getCharacterCount, sanitizeTagInput } from '@/libs/utils/utils';
+import { useEmojiInsert } from '../useEmojiInsert/useEmojiInsert';
 import type { UseTagInputOptions, UseTagInputReturn } from './useTagInput.types';
+import { filterSuggestions } from './useTagInput.utils';
 
 /**
  * Hook for managing tag input state and local suggestions.
@@ -67,13 +68,13 @@ export function useTagInput({ onTagAdd, existingTags = [], allTags = [] }: UseTa
       await onTagAdd(trimmedTag);
       clearInput();
     } catch (error: unknown) {
-      Libs.Logger.error('Failed to add tag:', error);
+      Logger.error('Failed to add tag:', error);
       // Don't clear input on failure so user can retry
     }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const sanitized = Libs.sanitizeTagInput(e.target.value);
+    const sanitized = sanitizeTagInput(e.target.value);
     const value = sanitized.toLowerCase();
     setInputValue(value);
     setShowSuggestions(value.trim().length > 0);
@@ -88,24 +89,34 @@ export function useTagInput({ onTagAdd, existingTags = [], allTags = [] }: UseTa
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
     const pasted = e.clipboardData.getData('text');
-    const sanitized = Libs.sanitizeTagInput(pasted).toLowerCase();
+    const sanitized = sanitizeTagInput(pasted).toLowerCase();
 
-    const newValue = inputValue + sanitized;
-    const charCount = Libs.getCharacterCount(newValue);
+    const input = inputRef.current;
+    const start = input?.selectionStart ?? inputValue.length;
+    const end = input?.selectionEnd ?? inputValue.length;
 
-    if (charCount <= TAG_MAX_LENGTH) {
-      setInputValue(newValue);
-    } else {
-      const chars = Array.from(newValue);
-      setInputValue(chars.slice(0, TAG_MAX_LENGTH).join(''));
-    }
+    const before = inputValue.slice(0, start);
+    const after = inputValue.slice(end);
+    const merged = before + sanitized + after;
+
+    const newValue =
+      getCharacterCount(merged) <= TAG_MAX_LENGTH ? merged : Array.from(merged).slice(0, TAG_MAX_LENGTH).join('');
+
+    setInputValue(newValue);
     setShowSuggestions(true);
+
+    const caretTarget = Math.min(start + sanitized.length, newValue.length);
+    requestAnimationFrame(() => {
+      if (input?.isConnected) {
+        input.setSelectionRange(caretTarget, caretTarget);
+      }
+    });
   };
 
   const handleEmojiChange = (newValue: string) => {
-    const sanitized = Libs.sanitizeTagInput(newValue);
+    const sanitized = sanitizeTagInput(newValue);
     const value = sanitized.toLowerCase();
-    const charCount = Libs.getCharacterCount(value);
+    const charCount = getCharacterCount(value);
 
     if (charCount <= TAG_MAX_LENGTH) {
       setInputValue(value);
@@ -120,7 +131,7 @@ export function useTagInput({ onTagAdd, existingTags = [], allTags = [] }: UseTa
 
   // Set input value with sanitization (for programmatic updates like suggestion selection)
   const setSanitizedInputValue = (value: string) => {
-    const sanitized = Libs.sanitizeTagInput(value).toLowerCase();
+    const sanitized = sanitizeTagInput(value).toLowerCase();
     setInputValue(sanitized);
   };
 

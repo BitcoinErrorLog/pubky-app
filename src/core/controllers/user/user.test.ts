@@ -1,18 +1,60 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FollowResult } from 'pubky-app-specs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { UserApplication } from '@/application/user/user';
+import { HttpMethod } from '@/libs/http/http.types';
+import type { Pubky } from '@/models/models.types';
+import type { PostStreamTypes } from '@/models/stream/post/postStream.types';
+import type { UserCountsModel } from '@/models/user/counts/userCounts';
+import { FollowNormalizer } from '@/pipes/follow/follow.normalizer';
+import type { NexusTag, NexusTaggers, NexusUserCounts, NexusUserDetails } from '@/services/nexus/nexus.types';
+import { useHomeStore } from '@/stores/home/home.store';
+import { CONTENT, REACH, SORT } from '@/stores/home/home.types';
+import { getStreamId } from '@/stores/home/home.utils';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { UserController } from './user';
-import * as Core from '@/core';
-import { HttpMethod } from '@/libs';
+
+vi.mock('@/stores/home/home.store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/home/home.store')>();
+  const useHomeStoreMock = Object.assign(vi.fn(), {
+    getState: vi.fn(),
+  });
+  return {
+    ...actual,
+    useHomeStore: useHomeStoreMock,
+  };
+});
+
+vi.mock('@/stores/home/home.utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/home/home.utils')>();
+  return {
+    ...actual,
+    getStreamId: vi.fn(),
+  };
+});
+
+const mockUseHomeStore = vi.mocked(useHomeStore);
+const mockUseHomeStoreGetState = vi.mocked(useHomeStore.getState);
+const mockGetStreamId = vi.mocked(getStreamId);
+
+const createMockHomeState = () =>
+  asOpaque<ReturnType<typeof useHomeStore.getState>>({
+    sort: SORT.TIMELINE,
+    reach: REACH.ALL,
+    content: CONTENT.ALL,
+  });
 
 // Valid 52-character z-base32 encoded pubky IDs for testing
 const TEST_PUBKY = {
-  USER_1: '5a1diz4pghi47ywdfyfzpit5f3bdomzt4pugpbmq4rngdd4iub4y' as Core.Pubky,
-  USER_2: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Core.Pubky,
+  USER_1: '5a1diz4pghi47ywdfyfzpit5f3bdomzt4pugpbmq4rngdd4iub4y' as Pubky,
+  USER_2: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Pubky,
 };
 
 describe('UserController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseHomeStore.mockReset();
+    mockUseHomeStoreGetState.mockReset();
+    mockGetStreamId.mockReset();
   });
 
   afterEach(() => {
@@ -22,7 +64,7 @@ describe('UserController', () => {
   describe('getDetails', () => {
     it('should delegate to UserApplication.getDetails', async () => {
       const userId = 'test-user-id';
-      const mockUserDetails: Core.NexusUserDetails = {
+      const mockUserDetails: NexusUserDetails = {
         id: userId,
         name: 'Test User',
         bio: 'Test bio',
@@ -32,7 +74,7 @@ describe('UserController', () => {
         indexed_at: Date.now(),
       };
 
-      const getDetailsSpy = vi.spyOn(Core.UserApplication, 'getDetails').mockResolvedValue(mockUserDetails);
+      const getDetailsSpy = vi.spyOn(UserApplication, 'getDetails').mockResolvedValue(mockUserDetails);
 
       const result = await UserController.getDetails({ userId });
 
@@ -43,7 +85,7 @@ describe('UserController', () => {
     it('should return null when user details not found', async () => {
       const userId = 'non-existent-user';
 
-      vi.spyOn(Core.UserApplication, 'getDetails').mockResolvedValue(null);
+      vi.spyOn(UserApplication, 'getDetails').mockResolvedValue(null);
 
       const result = await UserController.getDetails({ userId });
 
@@ -53,7 +95,7 @@ describe('UserController', () => {
     it('should propagate errors from application layer', async () => {
       const userId = 'test-user-id';
 
-      vi.spyOn(Core.UserApplication, 'getDetails').mockRejectedValue(new Error('Database error'));
+      vi.spyOn(UserApplication, 'getDetails').mockRejectedValue(new Error('Database error'));
 
       await expect(UserController.getDetails({ userId })).rejects.toThrow('Database error');
     });
@@ -61,13 +103,13 @@ describe('UserController', () => {
 
   describe('getManyDetails', () => {
     it('should delegate to UserApplication.getManyDetails', async () => {
-      const userIds = ['user1', 'user2'] as Core.Pubky[];
-      const mockMap = new Map<Core.Pubky, Core.NexusUserDetails>([
-        ['user1' as Core.Pubky, { id: 'user1', name: 'User 1' } as Core.NexusUserDetails],
-        ['user2' as Core.Pubky, { id: 'user2', name: 'User 2' } as Core.NexusUserDetails],
+      const userIds = ['user1', 'user2'] as Pubky[];
+      const mockMap = new Map<Pubky, NexusUserDetails>([
+        ['user1' as Pubky, { id: 'user1', name: 'User 1' } as NexusUserDetails],
+        ['user2' as Pubky, { id: 'user2', name: 'User 2' } as NexusUserDetails],
       ]);
 
-      const getManyDetailsSpy = vi.spyOn(Core.UserApplication, 'getManyDetails').mockResolvedValue(mockMap);
+      const getManyDetailsSpy = vi.spyOn(UserApplication, 'getManyDetails').mockResolvedValue(mockMap);
 
       const result = await UserController.getManyDetails({ userIds });
 
@@ -76,7 +118,7 @@ describe('UserController', () => {
     });
 
     it('should return empty map for empty array', async () => {
-      const getManyDetailsSpy = vi.spyOn(Core.UserApplication, 'getManyDetails').mockResolvedValue(new Map());
+      const getManyDetailsSpy = vi.spyOn(UserApplication, 'getManyDetails').mockResolvedValue(new Map());
 
       const result = await UserController.getManyDetails({ userIds: [] });
 
@@ -87,8 +129,8 @@ describe('UserController', () => {
 
   describe('getCounts', () => {
     it('should delegate to UserApplication.getCounts', async () => {
-      const userId = 'test-user-id';
-      const mockUserCounts: Core.NexusUserCounts = {
+      const userId = 'test-user-id' as Pubky;
+      const mockUserCounts: NexusUserCounts = {
         posts: 10,
         replies: 5,
         followers: 20,
@@ -100,18 +142,20 @@ describe('UserController', () => {
         bookmarks: 7,
       };
 
-      const countsSpy = vi.spyOn(Core.UserApplication, 'getCounts').mockResolvedValue(mockUserCounts);
+      const mockCachedCounts = { id: userId, ...mockUserCounts } as UserCountsModel;
+
+      const countsSpy = vi.spyOn(UserApplication, 'getCounts').mockResolvedValue(mockCachedCounts);
 
       const result = await UserController.getCounts({ userId });
 
-      expect(result).toEqual(mockUserCounts);
+      expect(result).toEqual(mockCachedCounts);
       expect(countsSpy).toHaveBeenCalledWith({ userId });
     });
 
     it('should return null when user counts not found', async () => {
       const userId = 'non-existent-user';
 
-      vi.spyOn(Core.UserApplication, 'getCounts').mockResolvedValue(null);
+      vi.spyOn(UserApplication, 'getCounts').mockResolvedValue(null);
 
       const result = await UserController.getCounts({ userId });
 
@@ -121,7 +165,7 @@ describe('UserController', () => {
     it('should propagate errors from application layer', async () => {
       const userId = 'test-user-id';
 
-      vi.spyOn(Core.UserApplication, 'getCounts').mockRejectedValue(new Error('Database error'));
+      vi.spyOn(UserApplication, 'getCounts').mockRejectedValue(new Error('Database error'));
 
       await expect(UserController.getCounts({ userId })).rejects.toThrow('Database error');
     });
@@ -130,7 +174,7 @@ describe('UserController', () => {
   describe('getOrFetchCounts', () => {
     it('should delegate to UserApplication.getOrFetchCounts', async () => {
       const userId = 'test-user-id';
-      const mockUserCounts: Core.NexusUserCounts = {
+      const mockUserCounts: NexusUserCounts = {
         posts: 10,
         replies: 5,
         followers: 20,
@@ -142,7 +186,7 @@ describe('UserController', () => {
         bookmarks: 7,
       };
 
-      const countsSpy = vi.spyOn(Core.UserApplication, 'getOrFetchCounts').mockResolvedValue(mockUserCounts);
+      const countsSpy = vi.spyOn(UserApplication, 'getOrFetchCounts').mockResolvedValue(mockUserCounts);
 
       const result = await UserController.getOrFetchCounts({ userId });
 
@@ -153,7 +197,7 @@ describe('UserController', () => {
     it('should return null when user counts not found', async () => {
       const userId = 'non-existent-user';
 
-      vi.spyOn(Core.UserApplication, 'getOrFetchCounts').mockResolvedValue(null);
+      vi.spyOn(UserApplication, 'getOrFetchCounts').mockResolvedValue(null);
 
       const result = await UserController.getOrFetchCounts({ userId });
 
@@ -163,7 +207,7 @@ describe('UserController', () => {
     it('should propagate errors from application layer', async () => {
       const userId = 'test-user-id';
 
-      vi.spyOn(Core.UserApplication, 'getOrFetchCounts').mockRejectedValue(new Error('Database error'));
+      vi.spyOn(UserApplication, 'getOrFetchCounts').mockRejectedValue(new Error('Database error'));
 
       await expect(UserController.getOrFetchCounts({ userId })).rejects.toThrow('Database error');
     });
@@ -172,7 +216,7 @@ describe('UserController', () => {
   describe('fetchDetails', () => {
     it('should delegate to UserApplication.fetchDetails', async () => {
       const userId = 'test-user-id';
-      const mockUserDetails: Core.NexusUserDetails = {
+      const mockUserDetails: NexusUserDetails = {
         id: userId,
         name: 'Test User',
         bio: 'Test bio',
@@ -182,7 +226,7 @@ describe('UserController', () => {
         indexed_at: Date.now(),
       };
 
-      const spy = vi.spyOn(Core.UserApplication, 'fetchDetails').mockResolvedValue(mockUserDetails);
+      const spy = vi.spyOn(UserApplication, 'fetchDetails').mockResolvedValue(mockUserDetails);
 
       const result = await UserController.fetchDetails({ userId });
 
@@ -193,7 +237,7 @@ describe('UserController', () => {
     it('should return null when user not found', async () => {
       const userId = 'non-existent-user';
 
-      vi.spyOn(Core.UserApplication, 'fetchDetails').mockResolvedValue(null);
+      vi.spyOn(UserApplication, 'fetchDetails').mockResolvedValue(null);
 
       const result = await UserController.fetchDetails({ userId });
 
@@ -203,7 +247,7 @@ describe('UserController', () => {
     it('should propagate errors from application layer', async () => {
       const userId = 'test-user-id';
 
-      vi.spyOn(Core.UserApplication, 'fetchDetails').mockRejectedValue(new Error('Network error'));
+      vi.spyOn(UserApplication, 'fetchDetails').mockRejectedValue(new Error('Network error'));
 
       await expect(UserController.fetchDetails({ userId })).rejects.toThrow('Network error');
     });
@@ -212,7 +256,7 @@ describe('UserController', () => {
   describe('fetch', () => {
     it('should delegate to UserApplication.fetch', async () => {
       const userId = 'test-user-id';
-      const mockUserDetails: Core.NexusUserDetails = {
+      const mockUserDetails: NexusUserDetails = {
         id: userId,
         name: 'Test User',
         bio: 'Test bio',
@@ -222,7 +266,7 @@ describe('UserController', () => {
         indexed_at: Date.now(),
       };
 
-      const spy = vi.spyOn(Core.UserApplication, 'fetch').mockResolvedValue(mockUserDetails);
+      const spy = vi.spyOn(UserApplication, 'fetch').mockResolvedValue(mockUserDetails);
 
       const result = await UserController.fetch({ userId });
 
@@ -233,7 +277,7 @@ describe('UserController', () => {
     it('should return null when user not found', async () => {
       const userId = 'non-existent-user';
 
-      vi.spyOn(Core.UserApplication, 'fetch').mockResolvedValue(null);
+      vi.spyOn(UserApplication, 'fetch').mockResolvedValue(null);
 
       const result = await UserController.fetch({ userId });
 
@@ -243,7 +287,7 @@ describe('UserController', () => {
     it('should propagate errors from application layer', async () => {
       const userId = 'test-user-id';
 
-      vi.spyOn(Core.UserApplication, 'fetch').mockRejectedValue(new Error('Network error'));
+      vi.spyOn(UserApplication, 'fetch').mockRejectedValue(new Error('Network error'));
 
       await expect(UserController.fetch({ userId })).rejects.toThrow('Network error');
     });
@@ -252,7 +296,7 @@ describe('UserController', () => {
   describe('fetchCounts', () => {
     it('should delegate to UserApplication.fetchCounts', async () => {
       const userId = 'test-user-id';
-      const mockUserCounts: Core.NexusUserCounts = {
+      const mockUserCounts: NexusUserCounts = {
         posts: 10,
         replies: 5,
         followers: 20,
@@ -264,7 +308,7 @@ describe('UserController', () => {
         bookmarks: 7,
       };
 
-      const spy = vi.spyOn(Core.UserApplication, 'fetchCounts').mockResolvedValue(mockUserCounts);
+      const spy = vi.spyOn(UserApplication, 'fetchCounts').mockResolvedValue(mockUserCounts);
 
       const result = await UserController.fetchCounts({ userId });
 
@@ -275,7 +319,7 @@ describe('UserController', () => {
     it('should return null when counts not found', async () => {
       const userId = 'non-existent-user';
 
-      vi.spyOn(Core.UserApplication, 'fetchCounts').mockResolvedValue(null);
+      vi.spyOn(UserApplication, 'fetchCounts').mockResolvedValue(null);
 
       const result = await UserController.fetchCounts({ userId });
 
@@ -285,7 +329,7 @@ describe('UserController', () => {
     it('should propagate errors from application layer', async () => {
       const userId = 'test-user-id';
 
-      vi.spyOn(Core.UserApplication, 'fetchCounts').mockRejectedValue(new Error('Network error'));
+      vi.spyOn(UserApplication, 'fetchCounts').mockRejectedValue(new Error('Network error'));
 
       await expect(UserController.fetchCounts({ userId })).rejects.toThrow('Network error');
     });
@@ -293,10 +337,10 @@ describe('UserController', () => {
 
   describe('getManyCounts', () => {
     it('should delegate to UserApplication.getManyCounts', async () => {
-      const userIds = ['user1', 'user2'] as Core.Pubky[];
-      const mockMap = new Map<Core.Pubky, Core.NexusUserCounts>([
+      const userIds = ['user1', 'user2'] as Pubky[];
+      const mockMap = new Map<Pubky, NexusUserCounts>([
         [
-          'user1' as Core.Pubky,
+          'user1' as Pubky,
           {
             posts: 10,
             replies: 0,
@@ -310,7 +354,7 @@ describe('UserController', () => {
           },
         ],
         [
-          'user2' as Core.Pubky,
+          'user2' as Pubky,
           {
             posts: 20,
             replies: 0,
@@ -325,7 +369,7 @@ describe('UserController', () => {
         ],
       ]);
 
-      const getManyCountsSpy = vi.spyOn(Core.UserApplication, 'getManyCounts').mockResolvedValue(mockMap);
+      const getManyCountsSpy = vi.spyOn(UserApplication, 'getManyCounts').mockResolvedValue(mockMap);
 
       const result = await UserController.getManyCounts({ userIds });
 
@@ -334,7 +378,7 @@ describe('UserController', () => {
     });
 
     it('should return empty map for empty array', async () => {
-      const getManyCountsSpy = vi.spyOn(Core.UserApplication, 'getManyCounts').mockResolvedValue(new Map());
+      const getManyCountsSpy = vi.spyOn(UserApplication, 'getManyCounts').mockResolvedValue(new Map());
 
       const result = await UserController.getManyCounts({ userIds: [] });
 
@@ -352,16 +396,16 @@ describe('UserController', () => {
       const mockToJson = vi.fn(() => mockFollowJson);
       const mockMeta = { url: 'https://example.com/follow' } as { url: string };
 
-      const toSpy = vi.spyOn(Core.FollowNormalizer, 'to').mockReturnValue({
-        meta: mockMeta,
-        follow: { toJson: mockToJson },
-      } as unknown as FollowResult);
+      const toSpy = vi.spyOn(FollowNormalizer, 'to').mockReturnValue(
+        asOpaque<FollowResult>({
+          meta: mockMeta,
+          follow: { toJson: mockToJson },
+        }),
+      );
 
       // Mock useHomeStore to return null for activeStreamId (not on /home route)
-      vi.spyOn(Core, 'useHomeStore').mockReturnValue({
-        getState: () => ({ sort: 'all', reach: 'all', content: 'all' }),
-      } as unknown as typeof Core.useHomeStore);
-      const followSpy = vi.spyOn(Core.UserApplication, 'commitFollow').mockResolvedValue(undefined);
+      mockUseHomeStoreGetState.mockReturnValue(createMockHomeState());
+      const followSpy = vi.spyOn(UserApplication, 'commitFollow').mockResolvedValue(undefined);
 
       await UserController.commitFollow(HttpMethod.PUT, { follower, followee });
 
@@ -385,16 +429,16 @@ describe('UserController', () => {
       const mockToJson = vi.fn(() => mockFollowJson);
       const mockMeta = { url: 'https://example.com/unfollow' } as { url: string };
 
-      vi.spyOn(Core.FollowNormalizer, 'to').mockReturnValue({
-        meta: mockMeta,
-        follow: { toJson: mockToJson },
-      } as unknown as FollowResult);
+      vi.spyOn(FollowNormalizer, 'to').mockReturnValue(
+        asOpaque<FollowResult>({
+          meta: mockMeta,
+          follow: { toJson: mockToJson },
+        }),
+      );
 
       // Mock useHomeStore to return null for activeStreamId (not on /home route)
-      vi.spyOn(Core, 'useHomeStore').mockReturnValue({
-        getState: () => ({ sort: 'all', reach: 'all', content: 'all' }),
-      } as unknown as typeof Core.useHomeStore);
-      const followSpy = vi.spyOn(Core.UserApplication, 'commitFollow').mockResolvedValue(undefined);
+      mockUseHomeStoreGetState.mockReturnValue(createMockHomeState());
+      const followSpy = vi.spyOn(UserApplication, 'commitFollow').mockResolvedValue(undefined);
 
       await UserController.commitFollow(HttpMethod.DELETE, { follower, followee });
 
@@ -412,10 +456,10 @@ describe('UserController', () => {
       const follower = TEST_PUBKY.USER_1;
       const followee = TEST_PUBKY.USER_2;
 
-      vi.spyOn(Core.FollowNormalizer, 'to').mockImplementation(() => {
+      vi.spyOn(FollowNormalizer, 'to').mockImplementation(() => {
         throw new Error('normalize-fail');
       });
-      const followSpy = vi.spyOn(Core.UserApplication, 'commitFollow').mockResolvedValue(undefined);
+      const followSpy = vi.spyOn(UserApplication, 'commitFollow').mockResolvedValue(undefined);
 
       await expect(UserController.commitFollow(HttpMethod.PUT, { follower, followee })).rejects.toThrow(
         'normalize-fail',
@@ -428,16 +472,16 @@ describe('UserController', () => {
       const follower = TEST_PUBKY.USER_1;
       const followee = TEST_PUBKY.USER_2;
 
-      vi.spyOn(Core.FollowNormalizer, 'to').mockReturnValue({
-        meta: { url: 'https://example.com/follow' },
-        follow: { toJson: () => ({}) },
-      } as unknown as FollowResult);
+      vi.spyOn(FollowNormalizer, 'to').mockReturnValue(
+        asOpaque<FollowResult>({
+          meta: { url: 'https://example.com/follow' },
+          follow: { toJson: () => ({}) },
+        }),
+      );
 
       // Mock useHomeStore to return null for activeStreamId (not on /home route)
-      vi.spyOn(Core, 'useHomeStore').mockReturnValue({
-        getState: () => ({ sort: 'all', reach: 'all', content: 'all' }),
-      } as unknown as typeof Core.useHomeStore);
-      vi.spyOn(Core.UserApplication, 'commitFollow').mockRejectedValue(new Error('delegate-fail'));
+      mockUseHomeStoreGetState.mockReturnValue(createMockHomeState());
+      vi.spyOn(UserApplication, 'commitFollow').mockRejectedValue(new Error('delegate-fail'));
 
       await expect(UserController.commitFollow(HttpMethod.PUT, { follower, followee })).rejects.toThrow(
         'delegate-fail',
@@ -447,16 +491,18 @@ describe('UserController', () => {
     it('should pass activeStreamId when on /home route', async () => {
       const follower = TEST_PUBKY.USER_1;
       const followee = TEST_PUBKY.USER_2;
-      const mockStreamId = 'home:all:all' as Core.PostStreamTypes;
+      const mockStreamId = 'home:all:all' as PostStreamTypes;
 
       const mockFollowJson = { foo: 'bar' } as Record<string, unknown>;
       const mockToJson = vi.fn(() => mockFollowJson);
       const mockMeta = { url: 'https://example.com/follow' } as { url: string };
 
-      vi.spyOn(Core.FollowNormalizer, 'to').mockReturnValue({
-        meta: mockMeta,
-        follow: { toJson: mockToJson },
-      } as unknown as FollowResult);
+      vi.spyOn(FollowNormalizer, 'to').mockReturnValue(
+        asOpaque<FollowResult>({
+          meta: mockMeta,
+          follow: { toJson: mockToJson },
+        }),
+      );
 
       // Mock window.location.pathname to be /home
       Object.defineProperty(window, 'location', {
@@ -464,11 +510,9 @@ describe('UserController', () => {
         writable: true,
       });
       // Mock useHomeStore and getStreamId to return the mock stream ID
-      vi.spyOn(Core, 'useHomeStore').mockReturnValue({
-        getState: () => ({ sort: 'all', reach: 'all', content: 'all' }),
-      } as unknown as typeof Core.useHomeStore);
-      vi.spyOn(Core, 'getStreamId').mockReturnValue(mockStreamId);
-      const followSpy = vi.spyOn(Core.UserApplication, 'commitFollow').mockResolvedValue(undefined);
+      mockUseHomeStoreGetState.mockReturnValue(createMockHomeState());
+      mockGetStreamId.mockReturnValue(mockStreamId);
+      const followSpy = vi.spyOn(UserApplication, 'commitFollow').mockResolvedValue(undefined);
 
       await UserController.commitFollow(HttpMethod.PUT, { follower, followee });
 
@@ -485,12 +529,12 @@ describe('UserController', () => {
 
   describe('tags', () => {
     it('should delegate to UserApplication with correct params', async () => {
-      const userId = 'pubky-user' as unknown as Core.Pubky;
+      const userId = 'pubky-user';
       const mockTags = [
-        { label: 'developer', taggers: [] as Core.Pubky[], taggers_count: 0, relationship: false },
-      ] as Core.NexusTag[];
+        { label: 'developer', taggers: [] as Pubky[], taggers_count: 0, relationship: false },
+      ] as NexusTag[];
 
-      const tagsSpy = vi.spyOn(Core.UserApplication, 'fetchTags').mockResolvedValue(mockTags);
+      const tagsSpy = vi.spyOn(UserApplication, 'fetchTags').mockResolvedValue(mockTags);
 
       const result = await UserController.fetchTags({
         user_id: userId,
@@ -507,9 +551,9 @@ describe('UserController', () => {
     });
 
     it('should propagate errors from application layer', async () => {
-      const userId = 'pubky-user' as unknown as Core.Pubky;
+      const userId = 'pubky-user';
 
-      vi.spyOn(Core.UserApplication, 'fetchTags').mockRejectedValue(new Error('Application error'));
+      vi.spyOn(UserApplication, 'fetchTags').mockRejectedValue(new Error('Application error'));
 
       await expect(
         UserController.fetchTags({
@@ -523,10 +567,10 @@ describe('UserController', () => {
 
   describe('taggers', () => {
     it('should delegate to UserApplication with correct params', async () => {
-      const userId = 'pubky-user' as unknown as Core.Pubky;
-      const mockTaggers: Core.NexusTaggers[] = [];
+      const userId = 'pubky-user';
+      const mockTaggers: NexusTaggers[] = [];
 
-      const taggersSpy = vi.spyOn(Core.UserApplication, 'fetchTaggers').mockResolvedValue(mockTaggers);
+      const taggersSpy = vi.spyOn(UserApplication, 'fetchTaggers').mockResolvedValue(mockTaggers);
 
       const result = await UserController.fetchTaggers({
         user_id: userId,
@@ -545,9 +589,9 @@ describe('UserController', () => {
     });
 
     it('should propagate errors from application layer', async () => {
-      const userId = 'pubky-user' as unknown as Core.Pubky;
+      const userId = 'pubky-user';
 
-      vi.spyOn(Core.UserApplication, 'fetchTaggers').mockRejectedValue(new Error('Application error'));
+      vi.spyOn(UserApplication, 'fetchTaggers').mockRejectedValue(new Error('Application error'));
 
       await expect(
         UserController.fetchTaggers({

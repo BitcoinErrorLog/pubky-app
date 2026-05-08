@@ -33,6 +33,8 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+# Sentry source map upload token (covered by .env* but listed explicitly for discoverability)
+.env.sentry-build-plugin
 
 # vercel
 .vercel
@@ -43,10 +45,6 @@ next-env.d.ts
 
 #Intelij
 .idea
-
-# Storybook
-*storybook.log
-storybook-static
 
 # Cypress files
 cypress/download
@@ -74,3 +72,6 @@ public/sw.js.map
 
 # AI Context Plans
 .plans
+
+# Serena
+.serena

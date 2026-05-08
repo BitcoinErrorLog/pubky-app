@@ -1,31 +1,37 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
+import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { useRepostInfo } from '@/hooks/useRepostInfo/useRepostInfo';
 import { usePostHeaderVisibility } from './usePostHeaderVisibility';
-import * as Hooks from '@/hooks';
 
 // Mock the hooks that usePostHeaderVisibility depends on
-vi.mock('@/hooks/usePostDetails', () => ({
+vi.mock('@/hooks/usePostDetails/usePostDetails', () => ({
   usePostDetails: vi.fn(),
 }));
 
-vi.mock('@/hooks/useRepostInfo', () => ({
+vi.mock('@/hooks/useRepostInfo/useRepostInfo', () => ({
   useRepostInfo: vi.fn(),
 }));
 
 // Helper to create complete PostDetails mock
-const createMockPostDetails = (overrides: Partial<{ content: string; attachments: string[] | null }> = {}) => ({
+const createMockPostDetails = (
+  overrides: Partial<{ content: string; attachments: string[] | null }> = {},
+): EnrichedPostDetails => ({
   id: 'test-author:test-post',
   indexed_at: Date.now(),
   kind: 'short' as const,
   uri: 'pubky://test-author/pub/pubky.app/posts/test-post',
   content: '',
   attachments: null as string[] | null,
+  is_moderated: false,
+  is_blurred: false,
   ...overrides,
 });
 
 describe('usePostHeaderVisibility', () => {
-  const mockUsePostDetails = vi.mocked(Hooks.usePostDetails);
-  const mockUseRepostInfo = vi.mocked(Hooks.useRepostInfo);
+  const mockUsePostDetails = vi.mocked(usePostDetails);
+  const mockUseRepostInfo = vi.mocked(useRepostInfo);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,8 +105,10 @@ describe('usePostHeaderVisibility', () => {
         content: '',
         attachments: ['attachment-1', 'attachment-2'],
         indexed_at: Date.now(),
-        kind: 'short',
+        kind: 'short' as const,
         uri: 'https://example.com/post/me:repost-with-attachments-1',
+        is_moderated: false,
+        is_blurred: false,
       },
       isLoading: false,
     });
@@ -127,8 +135,10 @@ describe('usePostHeaderVisibility', () => {
         content: '   \n\t  ',
         attachments: null,
         indexed_at: Date.now(),
-        kind: 'short',
+        kind: 'short' as const,
         uri: 'https://example.com/post/me:repost-whitespace-1',
+        is_moderated: false,
+        is_blurred: false,
       },
       isLoading: false,
     });

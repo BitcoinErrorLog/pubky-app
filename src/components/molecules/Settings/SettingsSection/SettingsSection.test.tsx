@@ -1,77 +1,95 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { SettingsSection } from './SettingsSection';
 
 // Mock Atoms
-vi.mock('@/atoms', () => ({
-  Container: ({
-    children,
-    className,
-    overrideDefaults,
-  }: {
-    children: React.ReactNode;
-    className?: string;
-    overrideDefaults?: boolean;
-  }) => (
-    <div data-testid="container" className={className} data-override-defaults={overrideDefaults}>
-      {children}
-    </div>
-  ),
-  Heading: ({
-    children,
-    level,
-    size,
-    className,
-  }: {
-    children: React.ReactNode;
-    level: number;
-    size: string;
-    className?: string;
-  }) => (
-    <div
-      role="heading"
-      aria-level={level}
-      data-testid="heading"
-      data-level={level}
-      data-size={size}
-      className={className}
-    >
-      {children}
-    </div>
-  ),
-  Typography: ({ children, size, className }: { children: React.ReactNode; size?: string; className?: string }) => (
-    <p data-testid="typography" data-size={size} className={className}>
-      {children}
-    </p>
-  ),
-  Button: ({
-    children,
-    id,
-    variant,
-    size,
-    disabled,
-    onClick,
-  }: {
-    children: React.ReactNode;
-    id?: string;
-    variant?: string;
-    size?: string;
-    disabled?: boolean;
-    onClick?: () => void;
-  }) => (
-    <button data-testid="button" id={id} data-variant={variant} data-size={size} disabled={disabled} onClick={onClick}>
-      {children}
-    </button>
-  ),
-}));
+vi.mock('@/atoms/Button/Button', () => {
+  return {
+    Button: ({
+      children,
+      id,
+      variant,
+      size,
+      disabled,
+      onClick,
+    }: {
+      children: React.ReactNode;
+      id?: string;
+      variant?: string;
+      size?: string;
+      disabled?: boolean;
+      onClick?: () => void;
+    }) => (
+      <button
+        data-testid="button"
+        id={id}
+        data-variant={variant}
+        data-size={size}
+        disabled={disabled}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    ),
+  };
+});
+
+vi.mock('@/atoms/Container/Container', () => {
+  return {
+    Container: ({
+      children,
+      className,
+      overrideDefaults,
+    }: {
+      children: React.ReactNode;
+      className?: string;
+      overrideDefaults?: boolean;
+    }) => (
+      <div data-testid="container" className={className} data-override-defaults={overrideDefaults}>
+        {children}
+      </div>
+    ),
+  };
+});
+
+vi.mock('@/atoms/Heading/Heading', () => {
+  return {
+    Heading: ({
+      children,
+      level,
+      size,
+      className,
+    }: {
+      children: React.ReactNode;
+      level: number;
+      size: string;
+      className?: string;
+    }) => (
+      <div
+        role="heading"
+        aria-level={level}
+        data-testid="heading"
+        data-level={level}
+        data-size={size}
+        className={className}
+      >
+        {children}
+      </div>
+    ),
+  };
+});
+
+vi.mock('@/atoms/Typography/Typography', () => {
+  return {
+    Typography: ({ children, size, className }: { children: React.ReactNode; size?: string; className?: string }) => (
+      <p data-testid="typography" data-size={size} className={className}>
+        {children}
+      </p>
+    ),
+  };
+});
 
 // Mock icon components
-const MockIcon = ({ size, className }: { size?: number; className?: string }) => (
-  <svg data-testid="mock-icon" data-size={size} className={className}>
-    <title>Mock Icon</title>
-  </svg>
-);
-
 const MockButtonIcon = ({ size }: { size?: number }) => (
   <svg data-testid="mock-button-icon" data-size={size}>
     <title>Mock Button Icon</title>
@@ -79,7 +97,6 @@ const MockButtonIcon = ({ size }: { size?: number }) => (
 );
 
 const defaultProps = {
-  icon: MockIcon,
   title: 'Account Settings',
   description: 'Manage your account preferences and security settings.',
   buttonText: 'Edit Account',
@@ -138,13 +155,6 @@ describe('SettingsSection - Snapshots', () => {
 
   it('matches snapshot with disabled button', () => {
     const { container } = render(<SettingsSection {...defaultProps} buttonDisabled={true} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom classNames', () => {
-    const { container } = render(
-      <SettingsSection {...defaultProps} titleClassName="custom-title" iconClassName="custom-icon" />,
-    );
     expect(container.firstChild).toMatchSnapshot();
   });
 });

@@ -81,10 +81,10 @@ it('matches snapshot for small size', () => {
 
 ### Default: Use Real Implementations
 
-Always prefer real implementations from `@/libs` for pure functions and business logic:
+Always prefer real implementations from concrete `@/libs/*` files for pure functions and business logic:
 
 ```typescript
-import { formatDate, validateEmail } from '@/libs/utils';
+import { formatPublicKey, truncateString } from '@/libs/utils/utils';
 // No mocking needed for pure functions
 ```
 
@@ -101,8 +101,8 @@ Mock only for:
 ### Selective Mocking
 
 ```typescript
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual('@/libs');
+vi.mock('@/libs/logger/logger', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/logger/logger')>('@/libs/logger/logger');
   return {
     ...actual,
     Logger: { ...actual.Logger, error: vi.fn() },
@@ -110,9 +110,53 @@ vi.mock('@/libs', async () => {
 });
 ```
 
+### Typed Mocks: No `as unknown as T` or `as any`
+
+ESLint bans both `as any` and `as unknown as T` in every `*.test.{ts,tsx}` file (via `no-restricted-syntax` in `eslint.config.mjs`). Both patterns silently switch off TypeScript on the mock and let a bad shape sail through for the lifetime of the test.
+
+Route every cast in a test through a named helper from `src/test-utils` instead. See `src/test-utils/README.md` for the full list, but in short:
+
+| Situation                                                            | Helper                                                   |
+| -------------------------------------------------------------------- | -------------------------------------------------------- |
+| Partial Zustand store double                                         | `mockAuthStore({...})`, `mockHomeStore({...})`, etc.     |
+| Partial React synthetic event                                        | `mockKeyboardEvent({...})`, `mockDragEvent({...})`, etc. |
+| Partial `@synonymdev/pubky` `Session` / `Keypair`                    | `mockSession({...})` / `mockKeypair({...})`              |
+| Partial `fetch` `Response`                                           | `mockResponse({...})`                                    |
+| Deliberately invalid input to exercise a runtime guard               | `asInvalid<T>(value)`                                    |
+| Opaque external SDK type with no constructor and no dedicated helper | `asOpaque<T>(value)`                                     |
+
+Each helper takes a `Partial<T>` (or a named `T` type parameter) and buries the cast in one place, so the shape of the argument you pass is still type-checked and every remaining escape hatch is greppable.
+
+```typescript
+// Before — silently disables the type check on AuthStore and the keyboard event
+import type { AuthStore } from '@/stores/auth/auth.types';
+
+const authStore = {
+  currentUserPubky: 'abc',
+  signIn: vi.fn(),
+} as unknown as AuthStore;
+
+const event = { key: 'Enter', preventDefault: vi.fn() } as any;
+
+// After — the helpers type-check the partials and add sensible defaults
+import { mockKeyboardEvent } from '@/test-utils/react-events';
+import { mockAuthStore } from '@/test-utils/stores';
+
+const authStore = mockAuthStore({
+  currentUserPubky: 'abc',
+  signIn: vi.fn(),
+});
+
+const event = mockKeyboardEvent({ key: 'Enter' });
+```
+
+A single-step widening cast like `value as unknown` or `[] as unknown[]` (inside a `vi.hoisted` placeholder, for instance) is still allowed — it widens the type without bypassing any read-side check, so it's not an escape hatch. The rule only fires on the `unknown as T` second hop and on `as any`.
+
 ### Icon Components: Always Real
 
-Icon components from `@/libs/icons` should **always** use real implementations. This ensures snapshots capture actual SVG rendering and visual regression tests detect icon changes.
+Stock Lucide icons imported from `lucide-react` and custom SVG icons from `@/icons` (`src/libs/icons/icons.tsx`) should **always** use real implementations in tests—do not `vi.mock('lucide-react')` or `vi.mock('@/icons')` to stub icons. This ensures snapshots capture actual SVG output and visual regression tests detect icon changes.
+
+Application import conventions (where to import icons, URL helpers, and what not to do) are documented in **`docs/components.md`** — _Icons (Lucide and custom)_.
 
 ### Radix UI Components: Always Real
 

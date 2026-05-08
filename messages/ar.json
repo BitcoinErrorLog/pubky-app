@@ -32,21 +32,10 @@
     "cancel": "الغاء",
     "confirm": "تاكيد",
     "delete": "حذف",
+    "ok": "حسنا",
     "send": "ارسال",
     "submit": "ارسال",
     "loading": "جاري التحميل...",
-    "loadingActions": "جاري تحميل الاجراءات...",
-    "loadingHeader": "جاري تحميل العنوان...",
-    "loadingPost": "جاري تحميل المنشور...",
-    "loadingContent": "جاري تحميل المحتوى...",
-    "loadingReplies": "جاري تحميل الردود...",
-    "loadingParticipants": "جاري تحميل المشاركين...",
-    "loadingTags": "جاري تحميل الوسوم...",
-    "loadingMoreTags": "جاري تحميل المزيد من الوسوم...",
-    "loadingTaggers": "جاري تحميل الموسّمين...",
-    "loadingPosts": "جاري تحميل المنشورات...",
-    "loadingMorePosts": "جاري تحميل المزيد من المنشورات...",
-    "loadingPreview": "جاري تحميل المعاينة...",
     "loadingBookmark": "جاري التحميل...",
     "addBookmark": "اضافة للمفضلة",
     "removeBookmark": "ازالة من المفضلة",
@@ -926,8 +915,7 @@
       "textCopied": "تم نسخ النص الى الحافظة",
       "profileLinkCopied": "تم نسخ رابط الملف الشخصي الى الحافظة",
       "copyFailed": "فشل النسخ",
-      "copyFailedDesc": "تعذر النسخ الى الحافظة",
-      "ok": "حسنا"
+      "copyFailedDesc": "تعذر النسخ الى الحافظة"
     },
     "follow": {
       "failed": "فشل تحديث حالة المتابعة"
@@ -1072,6 +1060,7 @@
     "timeframe": {
       "title": "الفترة الزمنية",
       "today": "اليوم",
+      "thisWeek": "هذا الأسبوع",
       "thisMonth": "هذا الشهر",
       "allTime": "كل الاوقات"
     }
@@ -1080,11 +1069,17 @@
     "hotTags": "الوسوم الرائجة",
     "activeUsers": "المستخدمون النشطون",
     "trendingPosts": "المنشورات الرائجة",
-    "postsCount": "{count} منشور هذا الشهر",
+    "postsCountToday": "{count} منشور اليوم",
+    "postsCountThisWeek": "{count} منشور هذا الأسبوع",
+    "postsCountThisMonth": "{count} منشور هذا الشهر",
+    "postsCountAllTime": "{count} منشور",
     "failedToLoadUsers": "فشل تحميل المستخدمين",
     "failedToLoadTags": "فشل تحميل الوسوم",
     "noUsersToShow": "لا يوجد مستخدمون للعرض",
-    "noTagsToShow": "لا توجد وسوم للعرض"
+    "noTagsToShow": "لا توجد وسوم للعرض",
+    "tags": "الوسوم",
+    "users": "المستخدمون",
+    "posts": "المنشورات"
   },
   "privacy": {
     "showConfirmation": "اظهار تاكيد قبل اعادة التوجيه",
@@ -1126,15 +1121,19 @@
       }
     },
     "version": {
-      "title": "الاصدار",
-      "text": "Pubky v0.12 © Synonym Software Ltd"
+      "title": "الاصدار"
     }
   },
   "logout": {
+    "loadingTitle": "Signing you out...",
+    "loadingSubtitle": "We're ending your session securely.",
+    "errorTitle": "We couldn't sign you out yet",
+    "errorSubtitle": "Please try again to finish signing out securely.",
     "title": "إلى <highlight>اللقاء!</highlight>",
     "subtitle": "لقد قمت بتسجيل الخروج بأمان.",
     "homepage": "الصفحة الرئيسية",
-    "signBackIn": "تسجيل الدخول مجدداً"
+    "signBackIn": "تسجيل الدخول مجدداً",
+    "retry": "Retry"
   },
   "tradeoffs": {
     "title": "كن على علم بهذه المفاضلات:",

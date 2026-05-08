@@ -1,9 +1,10 @@
 'use client';
-
-import * as Atoms from '@/atoms';
-import * as Molecules from '@/molecules';
-import * as Core from '@/core';
-import * as Libs from '@/libs';
+import { Activity, SlidersHorizontal, UserRound } from 'lucide-react';
+import { Button } from '@/atoms/Button/Button';
+import { Container } from '@/atoms/Container/Container';
+import { cn } from '@/libs/utils/utils';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { Logo } from '../Logo/Logo';
 
 export interface MobileHeaderProps {
   onLeftIconClick?: () => void;
@@ -13,9 +14,7 @@ export interface MobileHeaderProps {
   hasGradientBackground?: boolean;
   fixed?: boolean;
 }
-
-const Placeholder = () => <Atoms.Container overrideDefaults className="w-10" />;
-
+const Placeholder = () => <Container overrideDefaults className="w-10" />;
 export function MobileHeader({
   onLeftIconClick,
   onRightIconClick,
@@ -24,58 +23,51 @@ export function MobileHeader({
   hasGradientBackground = true,
   fixed = false,
 }: MobileHeaderProps) {
-  const isAuthenticated = Core.useAuthStore((state) => Boolean(state.currentUserPubky));
-  const setShowSignInDialog = Core.useAuthStore((state) => state.setShowSignInDialog);
-
+  const isAuthenticated = useAuthStore((state) => Boolean(state.currentUserPubky));
+  const setShowSignInDialog = useAuthStore((state) => state.setShowSignInDialog);
   const showLeftIcon = showLeftButton && isAuthenticated;
-
   return (
-    <Atoms.Container
+    <Container
       overrideDefaults
-      className={Libs.cn(
-        fixed ? 'fixed right-0 left-0' : 'sticky',
-        'top-0 z-(--z-mobile-menu) lg:hidden',
+      className={cn(
+        fixed ? 'fixed inset-x-0' : 'sticky',
+        'top-0 z-(--z-mobile-menu) w-full lg:hidden',
         hasGradientBackground
           ? 'bg-linear-to-b from-(--background) from-35% to-transparent'
           : 'bg-background shadow-xs',
       )}
     >
-      <Atoms.Container
-        overrideDefaults
-        className="m-auto w-full max-w-sm p-6 pb-0 sm:max-w-xl md:max-w-3xl lg:max-w-5xl xl:max-w-6xl xl:px-0"
-      >
-        <Atoms.Container overrideDefaults className="flex items-center justify-between py-3">
-          {/* Left icon - filters (authenticated only) */}
-          {showLeftIcon ? (
-            <Atoms.Button variant="ghost" size="icon" onClick={onLeftIconClick}>
-              <Libs.SlidersHorizontal className="size-6" />
-            </Atoms.Button>
-          ) : (
-            <Placeholder />
-          )}
+      <Container overrideDefaults className="flex w-full items-center justify-between p-6">
+        {/* Left icon - filters (authenticated only) */}
+        {showLeftIcon ? (
+          <Button variant="ghost" size="icon" onClick={onLeftIconClick}>
+            <SlidersHorizontal className="size-6" />
+          </Button>
+        ) : (
+          <Placeholder />
+        )}
 
-          <Molecules.Logo />
+        <Logo />
 
-          {/* Right icon - Join for unauthenticated, Activity for authenticated */}
-          {!isAuthenticated ? (
-            <Atoms.Button
-              variant="secondary"
-              size="icon"
-              className="size-12"
-              onClick={() => setShowSignInDialog(true)}
-              aria-label="Join Pubky"
-            >
-              <Libs.UserRound className="size-6" />
-            </Atoms.Button>
-          ) : showRightButton ? (
-            <Atoms.Button variant="ghost" size="icon" onClick={onRightIconClick}>
-              <Libs.Activity className="size-6" />
-            </Atoms.Button>
-          ) : (
-            <Placeholder />
-          )}
-        </Atoms.Container>
-      </Atoms.Container>
-    </Atoms.Container>
+        {/* Right icon - Join for unauthenticated, Activity for authenticated */}
+        {!isAuthenticated ? (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="size-12"
+            onClick={() => setShowSignInDialog(true)}
+            aria-label="Join Pubky"
+          >
+            <UserRound className="size-6" />
+          </Button>
+        ) : showRightButton ? (
+          <Button variant="ghost" size="icon" onClick={onRightIconClick}>
+            <Activity className="size-6" />
+          </Button>
+        ) : (
+          <Placeholder />
+        )}
+      </Container>
+    </Container>
   );
 }

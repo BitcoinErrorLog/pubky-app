@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef } from 'react';
-import * as Atoms from '@/atoms';
-import * as Libs from '@/libs';
+import { Container } from '@/atoms/Container/Container';
+import { Input } from '@/atoms/Input/Input';
+import { cn } from '@/libs/utils/utils';
 import { DIGITS } from './HumanPhoneCodeInput.constants';
 import type { HumanPhoneCodeInputProps } from './HumanPhoneCodeInput.types';
 
@@ -57,52 +58,54 @@ export const HumanPhoneCodeInput = ({ value, onChange, onEnter = () => {} }: Hum
         prevInput?.select();
       }
 
-      // Handle paste (Ctrl/Cmd + V)
-      if (e.key === 'v' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        navigator.clipboard.readText().then((text) => {
-          const digits = text.replace(/\D/g, '').slice(0, DIGITS).split('');
-          const newCode = [...value];
-
-          digits.forEach((digit, i) => {
-            if (index + i < DIGITS) {
-              newCode[index + i] = digit;
-            }
-          });
-
-          onChange(newCode);
-
-          // Focus the last filled input or the next empty one
-          const lastFilledIndex = Math.min(index + digits.length - 1, DIGITS - 1);
-          const nextEmptyIndex = newCode.findIndex((digit, i) => i > lastFilledIndex && digit === '');
-          const focusIndex = nextEmptyIndex !== -1 ? nextEmptyIndex : lastFilledIndex;
-          inputRefs.current[focusIndex]?.focus();
-        });
-      }
-
       // Handle enter - if the code is complete, call onEnter
       if (e.key === 'Enter' && isCodeComplete) {
         onEnter();
       }
     },
-    [value, onChange, onEnter, isCodeComplete],
+    [value, onEnter, isCodeComplete],
+  );
+
+  const handlePaste = useCallback(
+    (index: number, e: React.ClipboardEvent<HTMLInputElement>) => {
+      e.preventDefault();
+      const pastedText = e.clipboardData.getData('text');
+      const digits = pastedText.replace(/\D/g, '').slice(0, DIGITS).split('');
+
+      if (digits.length === 0) return;
+
+      const newCode = [...value];
+      digits.forEach((digit, i) => {
+        if (index + i < DIGITS) {
+          newCode[index + i] = digit;
+        }
+      });
+      onChange(newCode);
+
+      // Focus the next empty input or the last filled one
+      const lastFilledIndex = Math.min(index + digits.length - 1, DIGITS - 1);
+      const nextEmptyIndex = newCode.findIndex((d, i) => i > lastFilledIndex && d === '');
+      const focusIndex = nextEmptyIndex !== -1 ? nextEmptyIndex : lastFilledIndex;
+      inputRefs.current[focusIndex]?.focus();
+    },
+    [value, onChange],
   );
 
   return (
-    <Atoms.Container className={Libs.cn('flex-row flex-wrap gap-3')} data-testid="code-input-container">
+    <Container className={cn('flex-row flex-wrap gap-3')} data-testid="code-input-container">
       {value.map((digit, index) => (
-        <Atoms.Container
+        <Container
           key={index}
           overrideDefaults={true}
           data-testid={`human-phone-code-input-${index}`}
-          className={Libs.cn(
+          className={cn(
             'rounded-md border border-dashed border-brand',
             'px-2 py-4 shadow-xs',
             'flex items-center justify-center',
             'w-[33px] flex-shrink-0 flex-grow-0 md:w-[50px]',
           )}
         >
-          <Atoms.Input
+          <Input
             ref={(el) => {
               inputRefs.current[index] = el;
             }}
@@ -114,14 +117,15 @@ export const HumanPhoneCodeInput = ({ value, onChange, onEnter = () => {} }: Hum
             value={digit}
             onChange={(e) => handleCodeChange(index, e.target.value)}
             onKeyDown={(e) => handleKeyDown(index, e)}
-            className={Libs.cn(
+            onPaste={(e) => handlePaste(index, e)}
+            className={cn(
               'text-center text-base font-medium text-brand',
               '!h-auto !border-none !bg-transparent !p-0',
               'focus:ring-0 focus:outline-none',
             )}
           />
-        </Atoms.Container>
+        </Container>
       ))}
-    </Atoms.Container>
+    </Container>
   );
 };

@@ -1,36 +1,28 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { MobileHeader } from './MobileHeader';
 
 // Mock the molecules
-vi.mock('@/molecules', () => ({
-  Logo: ({ width, height }: { width?: number; height?: number }) => (
-    <div data-testid="logo" data-width={width} data-height={height}>
-      Logo
-    </div>
-  ),
-}));
-
-// Mock libs - use actual utility functions and icons from lucide-react
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual('@/libs');
-  return { ...actual };
-});
-
-// Mock Core - component now uses useAuthStore directly for isAuthenticated
-vi.mock('@/core', async () => {
-  const actual = await vi.importActual('@/core');
+vi.mock('@/molecules/Logo/Logo', () => {
   return {
-    ...actual,
-    useAuthStore: vi.fn((selector) => {
-      const state = {
-        currentUserPubky: 'pk:test-user-pubky',
-        setShowSignInDialog: vi.fn(),
-      };
-      return selector(state);
-    }),
+    Logo: ({ width, height }: { width?: number; height?: number }) => (
+      <div data-testid="logo" data-width={width} data-height={height}>
+        Logo
+      </div>
+    ),
   };
 });
+
+// Mock auth store - component uses useAuthStore directly for isAuthenticated
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: vi.fn((selector) => {
+    const state = {
+      currentUserPubky: 'pk:test-user-pubky',
+      setShowSignInDialog: vi.fn(),
+    };
+    return selector(state);
+  }),
+}));
 
 describe('MobileHeader', () => {
   it('renders with default props', () => {
@@ -73,7 +65,7 @@ describe('MobileHeader', () => {
   it('uses fixed positioning when fixed prop is true', () => {
     const { container } = render(<MobileHeader fixed />);
     const outerContainer = container.firstChild as HTMLElement;
-    expect(outerContainer).toHaveClass('fixed', 'right-0', 'left-0');
+    expect(outerContainer).toHaveClass('fixed', 'inset-x-0');
     expect(outerContainer).not.toHaveClass('sticky');
   });
 
@@ -96,8 +88,8 @@ describe('MobileHeader', () => {
   it('applies correct classes to inner container', () => {
     render(<MobileHeader />);
 
-    const innerContainer = screen.getByTestId('logo').closest('div')?.parentElement;
-    expect(innerContainer).toHaveClass('flex', 'items-center', 'justify-between', 'py-3');
+    const innerContainer = screen.getByTestId('logo').parentElement;
+    expect(innerContainer).toHaveClass('flex', 'w-full', 'items-center', 'justify-between', 'p-6');
   });
 
   it('applies correct classes to left button', () => {

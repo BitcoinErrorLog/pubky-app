@@ -1,9 +1,15 @@
-import * as Core from '@/core';
-import { HttpMethod } from '@/libs';
+import type { TFollowParams } from '@/controllers/user/user.type';
+import { HttpMethod } from '@/libs/http/http.types';
+import type { PostStreamTypes } from '@/models/stream/post/postStream.types';
+import type { UserCountsModel } from '@/models/user/counts/userCounts';
+import type { NexusUserCounts } from '@/services/nexus/nexus.types';
 
-export type TUserApplicationFollowParams = Core.TFollowParams & {
+/** Cached Dexie row (includes `id`) or Nexus API payload (counters only). */
+export type TUserCountsOrFetchResult = UserCountsModel | NexusUserCounts;
+
+export type TUserApplicationFollowParams = TFollowParams & {
   eventType: HttpMethod;
   followUrl: string;
   followJson: Record<string, unknown>;
-  activeStreamId?: Core.PostStreamTypes | null;
+  activeStreamId?: PostStreamTypes | null;
 };

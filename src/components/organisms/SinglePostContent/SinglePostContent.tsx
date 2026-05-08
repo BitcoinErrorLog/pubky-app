@@ -1,15 +1,18 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
-import * as Atoms from '@/atoms';
-import * as Molecules from '@/molecules';
-import * as Hooks from '@/hooks';
-import * as Libs from '@/libs';
-import { SinglePostArticle } from '../SinglePostArticle';
-import { SinglePostCard } from '../SinglePostCard';
-import { SinglePostParticipants } from '../SinglePostParticipants';
-import { PostPageHeader } from '../PostPageHeader';
+import { Card } from '@/atoms/Card/Card';
+import { Container } from '@/atoms/Container/Container';
+import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { isPostDeleted } from '@/libs/utils/utils';
+import { PostDeleted } from '@/molecules/PostDeleted/PostDeleted';
+import { getTagsLayoutForSurfaceLayout, PostMainLayoutProvider } from '@/organisms/PostMain/PostMainLayout';
+import { useHomeStore } from '@/stores/home/home.store';
+import { PostPageHeader } from '../PostPageHeader/PostPageHeader';
+import { SinglePostArticle } from '../SinglePostArticle/SinglePostArticle';
+import { SinglePostCard } from '../SinglePostCard/SinglePostCard';
 import { ThreadTree } from '../ThreadTree/ThreadTree';
+import { SinglePostContentSkeleton } from './SinglePostContent.skeleton';
 import type { SinglePostContentProps } from './SinglePostContent.types';
 
 /**
@@ -27,30 +30,32 @@ import type { SinglePostContentProps } from './SinglePostContent.types';
  * following the atomic design pattern where only organisms can call hooks.
  */
 export function SinglePostContent({ postId }: SinglePostContentProps) {
-  const t = useTranslations('common');
+  const layout = useHomeStore((state) => state.layout);
+  const tagsLayout = getTagsLayoutForSurfaceLayout(layout);
 
   // Check authentication status - unauthenticated users see limited view
-  const { isAuthenticated } = Hooks.useRequireAuth();
+  const { isAuthenticated } = useRequireAuth();
 
   // Check if parent post is deleted to determine replyability
-  const { postDetails } = Hooks.usePostDetails(postId);
-  const isDeleted = Libs.isPostDeleted(postDetails?.content);
+  const { postDetails } = usePostDetails(postId);
+  const isDeleted = isPostDeleted(postDetails?.content);
 
-  // TODO - Add loading skeleton
-  if (!postDetails) return t('loadingPost');
+  if (!postDetails) {
+    return <SinglePostContentSkeleton />;
+  }
 
   const isArticle = postDetails.kind === 'long';
 
   return (
-    <>
+    <PostMainLayoutProvider tagsLayout={tagsLayout}>
       {/* Page header with breadcrumb navigation */}
       <PostPageHeader postId={postId} />
 
       {/* Main post - FULL WIDTH - always visible */}
       {isDeleted ? (
-        <Atoms.Card className="rounded-md py-0">
-          <Molecules.PostDeleted />
-        </Atoms.Card>
+        <Card className="rounded-md py-0">
+          <PostDeleted />
+        </Card>
       ) : isArticle ? (
         <SinglePostArticle
           postId={postId}
@@ -64,28 +69,15 @@ export function SinglePostContent({ postId }: SinglePostContentProps) {
 
       {/* Replies section - only visible for authenticated users */}
       {isAuthenticated && (
-        <Atoms.Container overrideDefaults className="flex gap-6">
+        <Container overrideDefaults className="mb-6 flex">
           {/* Left column - Replies thread with QuickReply at the end (larger) */}
-          <Atoms.Container className="w-full min-w-0 flex-1 gap-0 overflow-hidden">
-            <Atoms.Container overrideDefaults className="ml-3">
+          <Container className="mb-12 w-full min-w-0 flex-1 gap-0 overflow-hidden sm:mb-0">
+            <Container overrideDefaults className="ml-3">
               <ThreadTree key={postId} postId={postId} showQuickReply={!isDeleted} />
-            </Atoms.Container>
-          </Atoms.Container>
-
-          {/* Right column - Participants sidebar (desktop only) */}
-          <Atoms.Container
-            overrideDefaults
-            className={Libs.cn(
-              'sticky hidden flex-col items-start justify-start gap-6 self-start pt-6 lg:flex',
-              // Aligns sticky sidebar below the fixed page header stack on desktop.
-              'top-[147px]',
-              'w-full max-w-xs',
-            )}
-          >
-            <SinglePostParticipants postId={postId} />
-          </Atoms.Container>
-        </Atoms.Container>
+            </Container>
+          </Container>
+        </Container>
       )}
-    </>
+    </PostMainLayoutProvider>
   );
 }

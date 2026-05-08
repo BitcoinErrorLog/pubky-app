@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useHotStore } from './hot.store';
-import { TIMEFRAME, hotInitialState } from './hot.types';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { REACH } from '../home/home.types';
+import { useHotStore } from './hot.store';
+import { hotInitialState, TIMEFRAME } from './hot.types';
 
 describe('HotStore', () => {
   beforeEach(() => {
@@ -64,6 +64,13 @@ describe('HotStore', () => {
 
       store.setTimeframe(TIMEFRAME.TODAY);
       expect(useHotStore.getState().timeframe).toBe(TIMEFRAME.TODAY);
+    });
+
+    it('should set timeframe to this week', () => {
+      const store = useHotStore.getState();
+
+      store.setTimeframe(TIMEFRAME.THIS_WEEK);
+      expect(useHotStore.getState().timeframe).toBe(TIMEFRAME.THIS_WEEK);
     });
 
     it('should set timeframe to this month', () => {

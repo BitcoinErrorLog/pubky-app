@@ -1,7 +1,12 @@
-import { ReactNode } from 'react';
+'use client';
 
-import * as Atoms from '@/atoms';
-import * as Libs from '@/libs';
+import { ReactNode } from 'react';
+import { Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { Container } from '@/atoms/Container/Container';
+import { Input } from '@/atoms/Input/Input';
+import { Typography } from '@/atoms/Typography/Typography';
+import { cn } from '@/libs/utils/utils';
 
 interface InputFieldProps {
   id?: string;
@@ -29,7 +34,6 @@ interface InputFieldProps {
   size?: 'sm' | 'md' | 'lg';
   dataCy?: string;
 }
-
 export function InputField({
   id,
   name,
@@ -43,7 +47,7 @@ export function InputField({
   icon,
   variant = 'default',
   loading = false,
-  loadingText = 'Loading...',
+  loadingText,
   loadingIcon,
   status = 'default',
   onChange,
@@ -56,20 +60,19 @@ export function InputField({
   size = 'md',
   dataCy,
 }: InputFieldProps) {
+  const t = useTranslations('common');
+  const resolvedLoadingText = loadingText ?? t('loading');
   const containerClasses = variant === 'dashed' && 'border-dashed';
-
   const statusClasses = {
     default: '',
     success: 'border-brand text-brand',
     error: 'border-red-500 text-red-500',
   };
-
   const sizeClasses = {
     sm: 'h-10 text-sm',
     md: 'h-12 text-base',
     lg: 'h-14 text-lg',
   } as const;
-
   const messageClasses = {
     default: 'text-muted-foreground',
     info: 'text-blue-500',
@@ -77,11 +80,10 @@ export function InputField({
     error: 'text-red-500',
     success: 'text-brand',
   } as const;
-
   return (
     <>
-      <Atoms.Container
-        className={Libs.cn(
+      <Container
+        className={cn(
           '!bg-alpha-90/10 mx-0 mb-2 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent',
           icon && iconPosition === 'left' ? 'pl-4.5' : 'pl-2',
           containerClasses,
@@ -92,26 +94,23 @@ export function InputField({
         )}
       >
         {loading && (
-          <Atoms.Container className="w-auto items-center justify-center">
+          <Container className="w-auto items-center justify-center">
             {loadingIcon ?? (
-              <Libs.Loader2 className="linear infinite h-4 w-4 animate-spin text-brand" data-testid="loading-icon" />
+              <Loader2 className="linear infinite h-4 w-4 animate-spin text-brand" data-testid="loading-icon" />
             )}
-          </Atoms.Container>
+          </Container>
         )}
         {!loading && icon && iconPosition === 'left' && (
-          <Atoms.Container
-            onClick={onClickIcon}
-            className={Libs.cn('w-auto cursor-pointer items-center justify-center')}
-          >
+          <Container onClick={onClickIcon} className={cn('w-auto cursor-pointer items-center justify-center')}>
             {icon}
-          </Atoms.Container>
+          </Container>
         )}
-        <Atoms.Input
+        <Input
           id={id}
           name={name}
           type="text"
-          className={Libs.cn('w-full border-none !bg-transparent')}
-          value={loading ? loadingText : value}
+          className={cn('w-full border-none !bg-transparent')}
+          value={loading ? resolvedLoadingText : value}
           placeholder={placeholder}
           disabled={disabled || loading}
           readOnly={readOnly}
@@ -124,18 +123,15 @@ export function InputField({
           data-cy={dataCy}
         />
         {!loading && icon && iconPosition === 'right' && (
-          <Atoms.Container
-            onClick={onClickIcon}
-            className={Libs.cn('mr-5 w-auto cursor-pointer items-center justify-center')}
-          >
+          <Container onClick={onClickIcon} className={cn('mr-5 w-auto cursor-pointer items-center justify-center')}>
             {icon}
-          </Atoms.Container>
+          </Container>
         )}
-      </Atoms.Container>
+      </Container>
       {message && (
-        <Atoms.Typography as="small" size="sm" className={Libs.cn('ml-1', messageClasses[messageType])}>
+        <Typography as="small" size="sm" className={cn('ml-1', messageClasses[messageType])}>
           {message}
-        </Atoms.Typography>
+        </Typography>
       )}
     </>
   );

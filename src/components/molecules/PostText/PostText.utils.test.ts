@@ -1,15 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import type { Root, Paragraph, Text, Code, Link, Emphasis } from 'mdast';
+import type { Code, Emphasis, Link, Paragraph, Root, Text } from 'mdast';
+import { describe, expect, it } from 'vitest';
+import { asInvalid } from '@/test-utils/type-assertions';
+import { TRUNCATION_LIMIT } from './PostText.constants';
 import {
-  remarkPlaintextCodeblock,
+  extractTextFromChildren,
   remarkDisallowMarkdownLinks,
+  remarkExtractFirstParagraph,
   remarkHashtags,
   remarkMentions,
-  extractTextFromChildren,
+  remarkPlaintextCodeblock,
   truncateAtWordBoundary,
-  remarkExtractFirstParagraph,
 } from './PostText.utils';
-import { TRUNCATION_LIMIT } from './PostText.constants';
 
 // Helper to create a simple paragraph node with text
 const createParagraph = (text: string): Paragraph => ({
@@ -1333,7 +1334,7 @@ describe('extractTextFromChildren', () => {
     });
 
     it('returns empty string when first element is an object', () => {
-      expect(extractTextFromChildren([{ text: 'hello' }, 'second'] as unknown as React.ReactNode)).toBe('');
+      expect(extractTextFromChildren(asInvalid<React.ReactNode>([{ text: 'hello' }, 'second']))).toBe('');
     });
 
     it('returns empty string when first element is null', () => {
@@ -1355,15 +1356,15 @@ describe('extractTextFromChildren', () => {
     });
 
     it('returns empty string for number', () => {
-      expect(extractTextFromChildren(42 as unknown as React.ReactNode)).toBe('');
+      expect(extractTextFromChildren(asInvalid<React.ReactNode>(42))).toBe('');
     });
 
     it('returns empty string for boolean', () => {
-      expect(extractTextFromChildren(true as unknown as React.ReactNode)).toBe('');
+      expect(extractTextFromChildren(asInvalid<React.ReactNode>(true))).toBe('');
     });
 
     it('returns empty string for object', () => {
-      expect(extractTextFromChildren({ type: 'element' } as unknown as React.ReactNode)).toBe('');
+      expect(extractTextFromChildren(asInvalid<React.ReactNode>({ type: 'element' }))).toBe('');
     });
   });
 });

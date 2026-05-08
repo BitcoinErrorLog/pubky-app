@@ -1,12 +1,16 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
-import * as Atoms from '@/atoms';
-import * as Molecules from '@/molecules';
-import * as Organisms from '@/organisms';
-import * as Libs from '@/libs';
-import * as Hooks from '@/hooks';
-import * as Core from '@/core';
+import { Container } from '@/atoms/Container/Container';
+import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { cn, isPostDeleted } from '@/libs/utils/utils';
+import { PostDeleted } from '@/molecules/PostDeleted/PostDeleted';
+import { PostLinkEmbeds } from '@/molecules/PostLinkEmbeds/PostLinkEmbeds';
+import { PostText } from '@/molecules/PostText/PostText';
+import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
+import { PostArticle } from '../PostArticle/PostArticle';
+import { PostAttachments } from '../PostAttachments/PostAttachments';
+import { PostContentBlurred } from '../PostContentBlurred/PostContentBlurred';
+import { PostContentBaseSkeleton } from './PostContentBase.skeleton';
 import type { PostContentBaseProps } from './PostContentBase.types';
 
 /**
@@ -14,31 +18,28 @@ import type { PostContentBaseProps } from './PostContentBase.types';
  * This component is used internally by PostContent and PostPreviewCard.
  * It only renders the content elements: text, link embeds, and attachments.
  */
-export function PostContentBase({ postId, className }: PostContentBaseProps) {
-  const t = useTranslations('common');
-
-  const localAttachments = Core.useLocalFilesStore((s) => s.posts[postId]);
+export function PostContentBase({ postId, className, textClassName }: PostContentBaseProps) {
+  const localAttachments = useLocalFilesStore((s) => s.posts[postId]);
 
   // Fetch post details for content
-  const { postDetails } = Hooks.usePostDetails(postId);
+  const { postDetails } = usePostDetails(postId);
 
   if (!postDetails) {
-    // TODO: Add skeleton loading component for PostContent
-    return <div className="text-muted-foreground">{t('loadingContent')}</div>;
+    return <PostContentBaseSkeleton />;
   }
 
-  const isDeleted = Libs.isPostDeleted(postDetails.content);
+  const isDeleted = isPostDeleted(postDetails.content);
   const hasContent = postDetails.content.trim().length > 0;
   const isBlurred = postDetails.is_blurred;
   const isArticle = postDetails.kind === 'long';
 
-  if (isDeleted) return <Molecules.PostDeleted />;
+  if (isDeleted) return <PostDeleted />;
 
-  if (isBlurred) return <Organisms.PostContentBlurred postId={postId} className={className} />;
+  if (isBlurred) return <PostContentBlurred postId={postId} className={className} />;
 
   if (isArticle)
     return (
-      <Organisms.PostArticle
+      <PostArticle
         content={postDetails.content}
         attachments={postDetails.attachments}
         localAttachments={localAttachments}
@@ -46,16 +47,18 @@ export function PostContentBase({ postId, className }: PostContentBaseProps) {
       />
     );
 
+  if (!hasContent && !postDetails.attachments?.length && !localAttachments) return null;
+
   return (
-    <Atoms.Container className={Libs.cn('min-w-0 gap-3', className)}>
+    <Container className={cn('min-w-0 gap-3', className)}>
       {/* Post text */}
-      {hasContent && <Molecules.PostText content={postDetails.content} />}
+      {hasContent && <PostText content={postDetails.content} className={textClassName} />}
 
       {/* Link previews from text */}
-      {hasContent && <Molecules.PostLinkEmbeds content={postDetails.content} />}
+      {hasContent && <PostLinkEmbeds content={postDetails.content} />}
 
       {/* Attachments on this post */}
-      <Organisms.PostAttachments attachments={postDetails.attachments} localAttachments={localAttachments} />
-    </Atoms.Container>
+      <PostAttachments attachments={postDetails.attachments} localAttachments={localAttachments} />
+    </Container>
   );
 }

@@ -1,18 +1,26 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { BlobResult, FileResult } from 'pubky-app-specs';
-import * as Core from '@/core';
-import * as Libs from '@/libs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetDatabase } from '@/database/franky/franky.helpers';
+import { DatabaseErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { FileDetailsModel } from '@/models/file/fileDetails';
+import type { Pubky } from '@/models/models.types';
+import { buildCompositeId } from '@/models/models.utils';
+import { buildUrls } from '@/services/local/file/file.utils';
+import type { NexusFileDetails } from '@/services/nexus/nexus.types';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { LocalFileService } from './file';
 
 describe('LocalFileService', () => {
-  const testPubky: Core.Pubky = 'operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rd0';
+  const testPubky: Pubky = 'operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rd0';
   const testFileId1 = 'file-test-1';
   const testFileId2 = 'file-test-2';
-  const compositeId1 = Core.buildCompositeId({ pubky: testPubky, id: testFileId1 });
-  const compositeId2 = Core.buildCompositeId({ pubky: testPubky, id: testFileId2 });
+  const compositeId1 = buildCompositeId({ pubky: testPubky, id: testFileId1 });
+  const compositeId2 = buildCompositeId({ pubky: testPubky, id: testFileId2 });
 
-  const createMockFile = (fileId: string, overrides?: Partial<Core.NexusFileDetails>): Core.NexusFileDetails => ({
-    id: Core.buildCompositeId({ pubky: testPubky, id: fileId }),
+  const createMockFile = (fileId: string, overrides?: Partial<NexusFileDetails>): NexusFileDetails => ({
+    id: buildCompositeId({ pubky: testPubky, id: fileId }),
     name: `test-file-${fileId}.jpg`,
     src: `https://example.com/files/${fileId}`,
     content_type: 'image/jpeg',
@@ -31,7 +39,7 @@ describe('LocalFileService', () => {
   });
 
   beforeEach(async () => {
-    await Core.resetDatabase();
+    await resetDatabase();
   });
 
   describe('createMany', () => {
@@ -41,8 +49,8 @@ describe('LocalFileService', () => {
       await LocalFileService.createMany({ files: [file1, file2] });
 
       const [saved1, saved2] = await Promise.all([
-        Core.FileDetailsModel.findById(compositeId1),
-        Core.FileDetailsModel.findById(compositeId2),
+        FileDetailsModel.findById(compositeId1),
+        FileDetailsModel.findById(compositeId2),
       ]);
 
       expect(saved1?.name).toBe(file1.name);
@@ -53,14 +61,14 @@ describe('LocalFileService', () => {
       const file = createMockFile(testFileId1);
       await LocalFileService.createMany({ files: [file] });
 
-      const saved = await Core.FileDetailsModel.findById(compositeId1);
+      const saved = await FileDetailsModel.findById(compositeId1);
       expect(saved?.name).toBe(file.name);
       expect(saved?.content_type).toBe(file.content_type);
     });
 
     it('handles empty array', async () => {
       await expect(LocalFileService.createMany({ files: [] })).resolves.not.toThrow();
-      expect(await Core.FileDetailsModel.table.toArray()).toHaveLength(0);
+      expect(await FileDetailsModel.table.toArray()).toHaveLength(0);
     });
 
     it('updates existing files', async () => {
@@ -69,7 +77,7 @@ describe('LocalFileService', () => {
         files: [createMockFile(testFileId1, { name: 'updated.jpg', size: 204800 })],
       });
 
-      const saved = await Core.FileDetailsModel.findById(compositeId1);
+      const saved = await FileDetailsModel.findById(compositeId1);
       expect(saved?.name).toBe('updated.jpg');
       expect(saved?.size).toBe(204800);
     });
@@ -82,7 +90,7 @@ describe('LocalFileService', () => {
       });
       await LocalFileService.createMany({ files: [file] });
 
-      const saved = await Core.FileDetailsModel.findById(compositeId1);
+      const saved = await FileDetailsModel.findById(compositeId1);
       expect(saved?.content_type).toBe('image/png');
       expect(saved?.size).toBe(204800);
       expect(saved?.metadata).toEqual({ width: '1920', height: '1080' });
@@ -90,21 +98,21 @@ describe('LocalFileService', () => {
 
     it('propagates database error when bulkSave fails', async () => {
       const file = createMockFile(testFileId1);
-      const databaseError = Libs.Err.database(
-        Libs.DatabaseErrorCode.WRITE_FAILED,
+      const databaseError = Err.database(
+        DatabaseErrorCode.WRITE_FAILED,
         'Failed to bulk save records in file_details',
         {
-          service: Libs.ErrorService.Local,
+          service: ErrorService.Local,
           operation: 'bulkSave',
           context: { rowsCount: 1 },
         },
       );
 
-      vi.spyOn(Core.FileDetailsModel, 'bulkSave').mockRejectedValueOnce(databaseError);
+      vi.spyOn(FileDetailsModel, 'bulkSave').mockRejectedValueOnce(databaseError);
 
       await expect(LocalFileService.createMany({ files: [file] })).rejects.toMatchObject({
-        category: Libs.ErrorCategory.Database,
-        code: Libs.DatabaseErrorCode.WRITE_FAILED,
+        category: ErrorCategory.Database,
+        code: DatabaseErrorCode.WRITE_FAILED,
         message: 'Failed to bulk save records in file_details',
       });
     });
@@ -113,7 +121,7 @@ describe('LocalFileService', () => {
       const file = createMockFile(testFileId1);
       const error = new Error('Unexpected database error');
 
-      vi.spyOn(Core.FileDetailsModel, 'bulkSave').mockRejectedValueOnce(error);
+      vi.spyOn(FileDetailsModel, 'bulkSave').mockRejectedValueOnce(error);
 
       await expect(LocalFileService.createMany({ files: [file] })).rejects.toThrow('Unexpected database error');
     });
@@ -144,14 +152,14 @@ describe('LocalFileService', () => {
     });
 
     it('returns empty array for non-existent IDs', async () => {
-      const nonExistentId = Core.buildCompositeId({ pubky: testPubky, id: 'non-existent' });
+      const nonExistentId = buildCompositeId({ pubky: testPubky, id: 'non-existent' });
       expect(await LocalFileService.findByIds([nonExistentId])).toEqual([]);
     });
 
     it('returns only existing files when some IDs are missing', async () => {
       await LocalFileService.createMany({ files: [createMockFile(testFileId1)] });
 
-      const nonExistentId = Core.buildCompositeId({ pubky: testPubky, id: 'non-existent' });
+      const nonExistentId = buildCompositeId({ pubky: testPubky, id: 'non-existent' });
       const result = await LocalFileService.findByIds([compositeId1, nonExistentId]);
 
       expect(result).toHaveLength(1);
@@ -196,17 +204,17 @@ describe('LocalFileService', () => {
 
   describe('create', () => {
     const createMockBlobResult = (url: string): BlobResult =>
-      ({
+      asOpaque<BlobResult>({
         blob: { data: new Uint8Array([1, 2, 3]) },
         meta: { url },
-      }) as unknown as BlobResult;
+      });
 
     const createMockFileResult = (
       fileId: string,
       overrides?: Partial<{ name: string; content_type: string; size: number; created_at: string }>,
     ): FileResult => {
       const uri = `pubky://${testPubky}/pub/pubky.app/files/${fileId}`;
-      return {
+      return asOpaque<FileResult>({
         file: {
           name: overrides?.name || `test-file-${fileId}.jpg`,
           content_type: overrides?.content_type || 'image/jpeg',
@@ -214,7 +222,7 @@ describe('LocalFileService', () => {
           created_at: overrides?.created_at || '1234567890',
         },
         meta: { url: uri },
-      } as unknown as FileResult;
+      });
     };
 
     it('creates a file record with correct properties', async () => {
@@ -223,7 +231,7 @@ describe('LocalFileService', () => {
 
       await LocalFileService.create({ blobResult, fileResult });
 
-      const saved = await Core.FileDetailsModel.findById(compositeId1);
+      const saved = await FileDetailsModel.findById(compositeId1);
       expect(saved).toBeDefined();
       expect(saved?.name).toBe(fileResult.file.name);
       expect(saved?.src).toBe(blobResult.meta.url);
@@ -234,7 +242,7 @@ describe('LocalFileService', () => {
       expect(saved?.indexed_at).toBe(Number(fileResult.file.created_at));
       expect(saved?.metadata).toEqual({});
       expect(saved?.owner_id).toBe(testPubky);
-      expect(saved?.urls).toEqual(Core.buildUrls(compositeId1));
+      expect(saved?.urls).toEqual(buildUrls(compositeId1));
     });
 
     it('creates file with all provided properties', async () => {
@@ -248,7 +256,7 @@ describe('LocalFileService', () => {
 
       await LocalFileService.create({ blobResult, fileResult });
 
-      const saved = await Core.FileDetailsModel.findById(compositeId1);
+      const saved = await FileDetailsModel.findById(compositeId1);
       expect(saved?.name).toBe('custom-image.png');
       expect(saved?.content_type).toBe('image/png');
       expect(saved?.size).toBe(204800);
@@ -262,8 +270,8 @@ describe('LocalFileService', () => {
 
       await LocalFileService.create({ blobResult, fileResult });
 
-      const saved = await Core.FileDetailsModel.findById(compositeId1);
-      const expectedUrls = Core.buildUrls(compositeId1);
+      const saved = await FileDetailsModel.findById(compositeId1);
+      const expectedUrls = buildUrls(compositeId1);
       expect(saved?.urls).toEqual(expectedUrls);
       expect(saved?.urls.feed).toContain('/feed');
       expect(saved?.urls.main).toContain('/main');
@@ -272,7 +280,7 @@ describe('LocalFileService', () => {
 
     it('does not create file when URI is invalid', async () => {
       const blobResult = createMockBlobResult(`pubky://${testPubky}/blobs/blob-invalid`);
-      const fileResult = {
+      const fileResult = asOpaque<FileResult>({
         file: {
           name: 'test.jpg',
           content_type: 'image/jpeg',
@@ -280,33 +288,29 @@ describe('LocalFileService', () => {
           created_at: '1234567890',
         },
         meta: { url: 'invalid-uri' },
-      } as unknown as FileResult;
+      });
 
       await LocalFileService.create({ blobResult, fileResult });
 
       // Should not create any file since buildCompositeIdFromPubkyUri returns null
-      const allFiles = await Core.FileDetailsModel.table.toArray();
+      const allFiles = await FileDetailsModel.table.toArray();
       expect(allFiles).toHaveLength(0);
     });
 
     it('propagates database error when create fails', async () => {
       const blobResult = createMockBlobResult(`pubky://${testPubky}/blobs/blob-error`);
       const fileResult = createMockFileResult(testFileId1);
-      const databaseError = Libs.Err.database(
-        Libs.DatabaseErrorCode.WRITE_FAILED,
-        'Failed to create record in file_details',
-        {
-          service: Libs.ErrorService.Local,
-          operation: 'create',
-          context: { error: 'Database constraint violation' },
-        },
-      );
+      const databaseError = Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to create record in file_details', {
+        service: ErrorService.Local,
+        operation: 'create',
+        context: { error: 'Database constraint violation' },
+      });
 
-      vi.spyOn(Core.FileDetailsModel, 'create').mockRejectedValueOnce(databaseError);
+      vi.spyOn(FileDetailsModel, 'create').mockRejectedValueOnce(databaseError);
 
       await expect(LocalFileService.create({ blobResult, fileResult })).rejects.toMatchObject({
-        category: Libs.ErrorCategory.Database,
-        code: Libs.DatabaseErrorCode.WRITE_FAILED,
+        category: ErrorCategory.Database,
+        code: DatabaseErrorCode.WRITE_FAILED,
         message: 'Failed to create record in file_details',
       });
     });
@@ -316,7 +320,7 @@ describe('LocalFileService', () => {
       const fileResult = createMockFileResult(testFileId1);
       const error = new Error('Unexpected database error');
 
-      vi.spyOn(Core.FileDetailsModel, 'create').mockRejectedValueOnce(error);
+      vi.spyOn(FileDetailsModel, 'create').mockRejectedValueOnce(error);
 
       await expect(LocalFileService.create({ blobResult, fileResult })).rejects.toThrow('Unexpected database error');
     });
@@ -327,7 +331,7 @@ describe('LocalFileService', () => {
 
       await LocalFileService.create({ blobResult, fileResult });
 
-      const saved = await Core.FileDetailsModel.findById(compositeId1);
+      const saved = await FileDetailsModel.findById(compositeId1);
       expect(saved?.owner_id).toBe(testPubky);
     });
   });

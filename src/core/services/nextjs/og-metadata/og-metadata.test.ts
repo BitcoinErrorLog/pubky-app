@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { URL_TRUNCATE_LENGTH, TITLE_TRUNCATE_LENGTH } from '@/config';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TITLE_TRUNCATE_LENGTH, URL_TRUNCATE_LENGTH } from '@/config/urls';
+import { AuthErrorCode, NetworkErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { HttpStatusCode } from '@/libs/http/http.types';
+import { asOpaque } from '@/test-utils/type-assertions';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -47,7 +51,6 @@ const createErrorResponse = (status: number) => {
 
 describe('NextJsOgMetadataService', () => {
   let NextJsOgMetadataService: typeof import('./og-metadata').NextJsOgMetadataService;
-  let Libs: typeof import('@/libs');
 
   beforeEach(async () => {
     vi.resetModules();
@@ -58,7 +61,6 @@ describe('NextJsOgMetadataService', () => {
     mockNormalizeImageUrl.mockResolvedValue(null);
 
     const mod = await import('./og-metadata');
-    Libs = await import('@/libs');
     NextJsOgMetadataService = mod.NextJsOgMetadataService;
   });
 
@@ -116,8 +118,8 @@ describe('NextJsOgMetadataService', () => {
     mockFetch.mockResolvedValue(createOkResponse('application/json'));
 
     await expect(NextJsOgMetadataService.fetch(new URL('https://example.com/api'))).rejects.toMatchObject({
-      category: Libs.ErrorCategory.Validation,
-      code: Libs.ValidationErrorCode.INVALID_INPUT,
+      category: ErrorCategory.Validation,
+      code: ValidationErrorCode.INVALID_INPUT,
       message: 'Not HTML content',
     });
   });
@@ -249,7 +251,7 @@ describe('NextJsOgMetadataService', () => {
     // Mock setTimeout to invoke the callback immediately to trigger abort.
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: TimerHandler) => {
       if (typeof fn === 'function') fn();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
+      return asOpaque<ReturnType<typeof setTimeout>>(0);
     });
 
     mockFetch.mockImplementation(() => {
@@ -257,7 +259,7 @@ describe('NextJsOgMetadataService', () => {
     });
 
     await expect(NextJsOgMetadataService.fetch(new URL('https://slow.test/page'))).rejects.toMatchObject({
-      category: Libs.ErrorCategory.Timeout,
+      category: ErrorCategory.Timeout,
     });
 
     vi.mocked(globalThis.setTimeout).mockRestore();
@@ -280,9 +282,9 @@ describe('NextJsOgMetadataService', () => {
     );
 
     await expect(NextJsOgMetadataService.fetch(new URL('https://example.com/'))).rejects.toMatchObject({
-      category: Libs.ErrorCategory.Auth,
-      code: Libs.AuthErrorCode.FORBIDDEN,
-      context: { protocol: 'ftp:', statusCode: Libs.HttpStatusCode.FORBIDDEN },
+      category: ErrorCategory.Auth,
+      code: AuthErrorCode.FORBIDDEN,
+      context: { protocol: 'ftp:', statusCode: HttpStatusCode.FORBIDDEN },
     });
   });
 
@@ -294,8 +296,8 @@ describe('NextJsOgMetadataService', () => {
     }
 
     await expect(NextJsOgMetadataService.fetch(new URL('https://example.com/'))).rejects.toMatchObject({
-      category: Libs.ErrorCategory.Network,
-      code: Libs.NetworkErrorCode.CONNECTION_FAILED,
+      category: ErrorCategory.Network,
+      code: NetworkErrorCode.CONNECTION_FAILED,
       message: 'Too many redirects',
     });
   });
@@ -311,11 +313,12 @@ describe('NextJsOgMetadataService', () => {
   // -------------------------------------------------------------------------
 
   it('should re-throw AppError as-is', async () => {
-    const appError = new Libs.AppError({
-      category: Libs.ErrorCategory.Network,
-      code: Libs.NetworkErrorCode.DNS_FAILED,
+    const { AppError: FreshAppError } = await import('@/libs/error/error');
+    const appError = new FreshAppError({
+      category: ErrorCategory.Network,
+      code: NetworkErrorCode.DNS_FAILED,
       message: 'DNS failed',
-      service: Libs.ErrorService.NextJsServer,
+      service: ErrorService.NextJsServer,
       operation: 'validateDns',
     });
     mockValidateDns.mockRejectedValue(appError);
@@ -330,10 +333,10 @@ describe('NextJsOgMetadataService', () => {
     mockValidateDns.mockRejectedValue(rawError);
 
     await expect(NextJsOgMetadataService.fetch(new URL('https://example.com/'))).rejects.toMatchObject({
-      category: Libs.ErrorCategory.Server,
-      code: Libs.ServerErrorCode.UNKNOWN_ERROR,
+      category: ErrorCategory.Server,
+      code: ServerErrorCode.UNKNOWN_ERROR,
       cause: rawError,
-      context: { url: 'https://example.com/', statusCode: Libs.HttpStatusCode.INTERNAL_SERVER_ERROR },
+      context: { url: 'https://example.com/', statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR },
     });
   });
 });

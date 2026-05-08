@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { usePost } from './usePost';
 
 // Hoist mock data and functions
@@ -28,39 +28,35 @@ const {
   };
 });
 
-// Mock Core
-vi.mock('@/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/core')>();
-  return {
-    ...actual,
-    PostController: {
-      commitCreate: mockPostControllerCreate,
-      commitEdit: mockPostControllerEdit,
-    },
-    useAuthStore: vi.fn((selector) => {
-      const state = {
-        currentUserPubky: mockCurrentUserId.current,
-        selectCurrentUserPubky: () => mockCurrentUserId.current,
-      };
-      return selector ? selector(state) : state;
-    }),
-  };
-});
+// Mock dependencies
+vi.mock('@/controllers/post/post', () => ({
+  PostController: {
+    commitCreate: mockPostControllerCreate,
+    commitEdit: mockPostControllerEdit,
+  },
+}));
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: vi.fn((selector) => {
+    const state = {
+      currentUserPubky: mockCurrentUserId.current,
+      selectCurrentUserPubky: () => mockCurrentUserId.current,
+    };
+    return selector ? selector(state) : state;
+  }),
+}));
 
 // Mock Molecules
-vi.mock('@/molecules', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/molecules')>();
+vi.mock('@/molecules/Toaster/use-toast', () => {
   return {
-    ...actual,
     useToast: vi.fn(() => ({
       toast: mockToast,
     })),
   };
 });
 
-// Mock Libs
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual<typeof import('@/libs')>('@/libs');
+// Mock Logger
+vi.mock('@/libs/logger/logger', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/logger/logger')>('@/libs/logger/logger');
   return {
     ...actual,
     Logger: {
@@ -264,10 +260,13 @@ describe('usePost', () => {
       expect(result.current.content).toBe('');
       expect(result.current.tags).toEqual([]);
       expect(result.current.attachments).toEqual([]);
-      expect(mockToast).toHaveBeenCalledWith({
-        title: 'Reply posted',
-        description: 'Your reply has been posted successfully.',
-      });
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Reply posted',
+          description: 'Your reply has been posted successfully.',
+          dismissButton: true,
+        }),
+      );
       expect(mockOnSuccess).toHaveBeenCalled();
       expect(result.current.isSubmitting).toBe(false);
     });
@@ -518,6 +517,7 @@ describe('usePost', () => {
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Post created',
         description: 'Your post has been created successfully.',
+        dismissButton: true,
       });
       expect(mockOnSuccess).toHaveBeenCalled();
       expect(result.current.isSubmitting).toBe(false);
@@ -758,6 +758,7 @@ describe('usePost', () => {
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Post created',
         description: 'Your post has been created successfully.',
+        dismissButton: true,
       });
       expect(mockOnSuccess).toHaveBeenCalled();
     });

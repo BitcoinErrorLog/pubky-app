@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MutedUsers } from './MutedUsers';
 
 const { mockUseMutedUsers, mockUseBulkUserAvatars, mockUseMuteUser, mockUseIsMobile } = vi.hoisted(() => ({
@@ -10,11 +10,20 @@ const { mockUseMutedUsers, mockUseBulkUserAvatars, mockUseMuteUser, mockUseIsMob
   mockUseIsMobile: vi.fn(() => false),
 }));
 
-vi.mock('@/hooks', () => ({
-  useMutedUsers: () => mockUseMutedUsers(),
-  useBulkUserAvatars: (ids: string[]) => mockUseBulkUserAvatars(ids),
-  useMuteUser: () => mockUseMuteUser(),
-  useIsMobile: () => mockUseIsMobile(),
+vi.mock('@/hooks/useMutedUsers/useMutedUsers', () => ({
+  useMutedUsers: mockUseMutedUsers,
+}));
+
+vi.mock('@/hooks/useBulkUserAvatars/useBulkUserAvatars', () => ({
+  useBulkUserAvatars: mockUseBulkUserAvatars,
+}));
+
+vi.mock('@/hooks/useMuteUser/useMuteUser', () => ({
+  useMuteUser: mockUseMuteUser,
+}));
+
+vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
+  useIsMobile: mockUseIsMobile,
 }));
 
 describe('MutedUsers', () => {
@@ -70,7 +79,7 @@ describe('MutedUsers', () => {
     expect(screen.getByText('No muted users yet')).toBeInTheDocument();
   });
 
-  it('renders loading state', () => {
+  it('renders loading state with skeletons', () => {
     mockUseMutedUsers.mockReturnValue({
       mutedUserIds: [],
       mutedUserIdSet: new Set(),
@@ -78,7 +87,7 @@ describe('MutedUsers', () => {
       isLoading: true,
     });
     render(<MutedUsers />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getAllByRole('generic').some((el) => el.getAttribute('data-slot') === 'skeleton')).toBe(true);
   });
 
   it('renders muted users list', () => {

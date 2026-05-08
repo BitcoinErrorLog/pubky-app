@@ -1,26 +1,29 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HttpMethod } from '@/libs/http/http.types';
+import type { Pubky } from '@/models/models.types';
+import { HomeserverService } from '@/services/homeserver/homeserver';
+import { LocalBookmarkService } from '@/services/local/bookmark/bookmark';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { mockAuthStore } from '@/test-utils/stores';
 import { BookmarkApplication } from './bookmark';
-import * as Core from '@/core';
-import { HttpMethod } from '@/libs';
 import type { TCreateBookmarkInput, TDeleteBookmarkInput } from './bookmark.types';
-import type { AuthStore } from '@/core/stores/auth/auth.types';
 
 // Mock the LocalBookmarkService
-vi.mock('@/core/services/local/bookmark', () => ({
+vi.mock('@/services/local/bookmark/bookmark', () => ({
   LocalBookmarkService: {
     persist: vi.fn(),
   },
 }));
 
 // Mock the HomeserverService
-vi.mock('@/core/services/homeserver', () => ({
+vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
     request: vi.fn(),
   },
 }));
 
 describe('BookmarkApplication', () => {
-  const testUserId = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Core.Pubky;
+  const testUserId = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Pubky;
 
   // Test data factory
   const createMockBookmarkData = (): TCreateBookmarkInput => ({
@@ -36,9 +39,9 @@ describe('BookmarkApplication', () => {
 
   // Helper functions
   const setupMocks = () => ({
-    persistSpy: vi.spyOn(Core.LocalBookmarkService, 'persist'),
-    requestSpy: vi.spyOn(Core.HomeserverService, 'request'),
-    authSpy: vi.spyOn(Core.useAuthStore, 'getState'),
+    persistSpy: vi.spyOn(LocalBookmarkService, 'persist'),
+    requestSpy: vi.spyOn(HomeserverService, 'request'),
+    authSpy: vi.spyOn(useAuthStore, 'getState'),
   });
 
   beforeEach(() => {
@@ -50,7 +53,7 @@ describe('BookmarkApplication', () => {
       const mockData = createMockBookmarkData();
       const { persistSpy, requestSpy, authSpy } = setupMocks();
 
-      authSpy.mockReturnValue({ selectCurrentUserPubky: () => testUserId } as unknown as AuthStore);
+      authSpy.mockReturnValue(mockAuthStore({ selectCurrentUserPubky: () => testUserId }));
       persistSpy.mockResolvedValue(undefined);
       requestSpy.mockResolvedValue(undefined);
 
@@ -72,11 +75,13 @@ describe('BookmarkApplication', () => {
       const { authSpy } = setupMocks();
 
       // Mock unauthenticated state - selectCurrentUserPubky throws when user is null
-      authSpy.mockReturnValue({
-        selectCurrentUserPubky: () => {
-          throw new Error('Current user pubky is not available. User may not be authenticated.');
-        },
-      } as unknown as AuthStore);
+      authSpy.mockReturnValue(
+        mockAuthStore({
+          selectCurrentUserPubky: () => {
+            throw new Error('Current user pubky is not available. User may not be authenticated.');
+          },
+        }),
+      );
 
       await expect(BookmarkApplication.persist(HttpMethod.PUT, mockData)).rejects.toThrow(
         'Current user pubky is not available',
@@ -87,7 +92,7 @@ describe('BookmarkApplication', () => {
       const mockData = createMockBookmarkData();
       const { persistSpy, authSpy } = setupMocks();
 
-      authSpy.mockReturnValue({ selectCurrentUserPubky: () => testUserId } as unknown as AuthStore);
+      authSpy.mockReturnValue(mockAuthStore({ selectCurrentUserPubky: () => testUserId }));
       persistSpy.mockRejectedValue(new Error('Database error'));
 
       await expect(BookmarkApplication.persist(HttpMethod.PUT, mockData)).rejects.toThrow('Database error');
@@ -98,7 +103,7 @@ describe('BookmarkApplication', () => {
       const mockData = createMockBookmarkData();
       const { persistSpy, requestSpy, authSpy } = setupMocks();
 
-      authSpy.mockReturnValue({ selectCurrentUserPubky: () => testUserId } as unknown as AuthStore);
+      authSpy.mockReturnValue(mockAuthStore({ selectCurrentUserPubky: () => testUserId }));
       persistSpy.mockResolvedValue(undefined);
       requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 500'));
 
@@ -115,7 +120,7 @@ describe('BookmarkApplication', () => {
       const mockData = createMockDeleteData();
       const { persistSpy, requestSpy, authSpy } = setupMocks();
 
-      authSpy.mockReturnValue({ selectCurrentUserPubky: () => testUserId } as unknown as AuthStore);
+      authSpy.mockReturnValue(mockAuthStore({ selectCurrentUserPubky: () => testUserId }));
       persistSpy.mockResolvedValue(undefined);
       requestSpy.mockResolvedValue(undefined);
 
@@ -137,11 +142,13 @@ describe('BookmarkApplication', () => {
       const { authSpy } = setupMocks();
 
       // Mock unauthenticated state - selectCurrentUserPubky throws when user is null
-      authSpy.mockReturnValue({
-        selectCurrentUserPubky: () => {
-          throw new Error('Current user pubky is not available. User may not be authenticated.');
-        },
-      } as unknown as AuthStore);
+      authSpy.mockReturnValue(
+        mockAuthStore({
+          selectCurrentUserPubky: () => {
+            throw new Error('Current user pubky is not available. User may not be authenticated.');
+          },
+        }),
+      );
 
       await expect(BookmarkApplication.persist(HttpMethod.DELETE, mockData)).rejects.toThrow(
         'Current user pubky is not available',
@@ -152,7 +159,7 @@ describe('BookmarkApplication', () => {
       const mockData = createMockDeleteData();
       const { persistSpy, authSpy } = setupMocks();
 
-      authSpy.mockReturnValue({ selectCurrentUserPubky: () => testUserId } as unknown as AuthStore);
+      authSpy.mockReturnValue(mockAuthStore({ selectCurrentUserPubky: () => testUserId }));
       persistSpy.mockRejectedValue(new Error('Bookmark not found'));
 
       await expect(BookmarkApplication.persist(HttpMethod.DELETE, mockData)).rejects.toThrow('Bookmark not found');
@@ -163,7 +170,7 @@ describe('BookmarkApplication', () => {
       const mockData = createMockDeleteData();
       const { persistSpy, requestSpy, authSpy } = setupMocks();
 
-      authSpy.mockReturnValue({ selectCurrentUserPubky: () => testUserId } as unknown as AuthStore);
+      authSpy.mockReturnValue(mockAuthStore({ selectCurrentUserPubky: () => testUserId }));
       persistSpy.mockResolvedValue(undefined);
       requestSpy.mockRejectedValue(new Error('Failed to DELETE from homeserver: 404'));
 

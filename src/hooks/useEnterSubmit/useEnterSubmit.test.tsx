@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { mockKeyboardEvent } from '@/test-utils/react-events';
 import { useEnterSubmit } from './useEnterSubmit';
 
 describe('useEnterSubmit', () => {
@@ -10,14 +11,14 @@ describe('useEnterSubmit', () => {
     ctrlKey: boolean = false,
     metaKey: boolean = false,
   ): React.KeyboardEvent =>
-    ({
+    mockKeyboardEvent({
       key,
       shiftKey,
       ctrlKey,
       metaKey,
       nativeEvent: { isComposing } as KeyboardEvent,
       preventDefault: vi.fn(),
-    }) as unknown as React.KeyboardEvent;
+    });
 
   it('calls onSubmit when Enter is pressed and form is valid', () => {
     const mockOnSubmit = vi.fn();

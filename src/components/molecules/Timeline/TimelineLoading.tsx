@@ -1,7 +1,8 @@
 'use client';
+import { Container } from '@/atoms/Container/Container';
+import { PostCardSkeleton } from '@/organisms/PostCardSkeleton/PostCardSkeleton';
 
-import { useTranslations } from 'next-intl';
-import * as Atoms from '@/atoms';
+const TIMELINE_SKELETON_COUNT = 3;
 
 /**
  * TimelineLoading
@@ -9,13 +10,11 @@ import * as Atoms from '@/atoms';
  * Loading indicator for initial timeline load.
  */
 export function TimelineLoading() {
-  const t = useTranslations('common');
-
   return (
-    <Atoms.Container data-cy="timeline-container" className="flex items-center justify-center py-8">
-      <Atoms.Typography size="md" className="text-muted-foreground">
-        {t('loadingPosts')}
-      </Atoms.Typography>
-    </Atoms.Container>
+    <Container data-cy="timeline-container" className="gap-4">
+      {Array.from({ length: TIMELINE_SKELETON_COUNT }).map((_, i) => (
+        <PostCardSkeleton key={`timeline-skeleton-${i}`} />
+      ))}
+    </Container>
   );
 }

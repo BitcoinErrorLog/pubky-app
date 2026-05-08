@@ -1,26 +1,43 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as Core from '@/core';
-import { HttpMethod } from '@/libs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FileApplication } from '@/application/file/file';
+import { PostApplication } from '@/application/post/post';
+import type { TCreatePostParams, TFetchPostTaggersParams } from '@/controllers/post/post.types';
+import { db } from '@/database/franky/franky';
+import { HttpMethod } from '@/libs/http/http.types';
+import type { Pubky } from '@/models/models.types';
+import { buildCompositeId } from '@/models/models.utils';
+import { PostCountsModel } from '@/models/post/counts/postCounts';
+import { PostDetailsModel } from '@/models/post/details/postDetails';
+import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
+import { PostRelationshipsModel } from '@/models/post/relationships/postRelationships';
+import { PostTagsModel } from '@/models/post/tags/postTags';
+import { HomeserverService } from '@/services/homeserver/homeserver';
+import type { NexusTaggers } from '@/services/nexus/nexus.types';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { mockSession } from '@/test-utils/pubky';
 
 // Mock HomeserverService
-vi.mock('@/core/services/homeserver', () => ({
+vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
     request: vi.fn(),
   },
 }));
 
 // Mock FileApplication
-vi.mock('@/core/application/file', () => ({
+vi.mock('@/application/file/file', () => ({
   FileApplication: {
     upload: vi.fn(),
     delete: vi.fn(),
+    commitCreate: vi.fn(),
+    commitDelete: vi.fn(),
   },
 }));
 
 // Mock TagApplication
-vi.mock('@/core/application/tag', () => ({
+vi.mock('@/application/tag/tag', () => ({
   TagApplication: {
     create: vi.fn(),
+    commitCreate: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -41,12 +58,38 @@ vi.mock('pubky-app-specs', () => ({
           content,
           kind: kindMap[kind] ?? 'short',
           attachments: null,
-          toJson: () => ({ content, kind }),
+          toJson: () => ({ content, kind: kindMap[kind] ?? 'short' }),
         },
         meta: {
           id: 'post123',
           url: `pubky://author/pub/pubky.app/posts/post123`,
         },
+      };
+    }
+
+    createBlob(blob: Uint8Array) {
+      return {
+        blob: { data: blob },
+        meta: { url: 'pubky://author/pub/pubky.app/blobs/blob123' },
+      };
+    }
+
+    createFile(name: string, url: string, contentType: string, size: number) {
+      return {
+        file: {
+          toJson: () => ({ name, src: url, content_type: contentType, size }),
+        },
+        meta: { url: `pubky://author/pub/pubky.app/files/${name}` },
+      };
+    }
+
+    createTag(uri: string, label: string) {
+      return {
+        tag: {
+          label,
+          toJson: () => ({ uri, label }),
+        },
+        meta: { url: `pubky://author/pub/pubky.app/tags/${label}` },
       };
     }
   },
@@ -69,22 +112,22 @@ vi.mock('pubky-app-specs', () => ({
 
 // Test data
 const testData = {
-  authorPubky: 'pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy' as Core.Pubky,
+  authorPubky: 'pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy' as Pubky,
   postId: 'abc123xyz',
   get fullPostId() {
-    return Core.buildCompositeId({ pubky: this.authorPubky, id: this.postId });
+    return buildCompositeId({ pubky: this.authorPubky, id: this.postId });
   },
 };
 
 // Helper functions
-const createPostParams = (content: string, parentPostId?: string): Core.TCreatePostParams => ({
+const createPostParams = (content: string, parentPostId?: string): TCreatePostParams => ({
   content,
   authorId: testData.authorPubky,
   parentPostId,
 });
 
 const setupExistingPost = async () => {
-  const postDetails: Core.PostDetailsModelSchema = {
+  const postDetails: PostDetailsModelSchema = {
     id: testData.fullPostId,
     content: 'Test post content',
     indexed_at: Date.now(),
@@ -93,15 +136,15 @@ const setupExistingPost = async () => {
     attachments: null,
   };
 
-  await Core.PostDetailsModel.table.add(postDetails);
-  await Core.PostCountsModel.table.add({
+  await PostDetailsModel.table.add(postDetails);
+  await PostCountsModel.table.add({
     id: testData.fullPostId,
     tags: 0,
     unique_tags: 0,
     replies: 0,
     reposts: 0,
   });
-  await Core.PostRelationshipsModel.table.add({
+  await PostRelationshipsModel.table.add({
     id: testData.fullPostId,
     replied: null,
     reposted: null,
@@ -109,45 +152,45 @@ const setupExistingPost = async () => {
   });
 };
 
-const setupAuthUser = (pubky: Core.Pubky) => {
-  const authStore = Core.useAuthStore.getState();
+const setupAuthUser = (pubky: Pubky) => {
+  const authStore = useAuthStore.getState();
   authStore.init({
     currentUserPubky: pubky,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    session: {} as any,
+    session: mockSession(),
     hasProfile: false,
   });
 };
 
 const cleanupAuthUser = () => {
-  Core.useAuthStore.getState().reset();
+  useAuthStore.getState().reset();
 };
 
+// TODO: Refactor the dynamic `await import('./post')` / application-module import.
+// pattern in these tests to static top-level imports in a follow-up PR.
 describe('PostController', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
 
     // Mock HomeserverService.request to resolve successfully
-    vi.spyOn(Core.HomeserverService, 'request').mockResolvedValue(undefined);
-    vi.spyOn(Core.FileApplication, 'commitCreate').mockResolvedValue(undefined);
+    vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    vi.spyOn(FileApplication, 'commitCreate').mockResolvedValue(undefined);
 
     // Initialize database and clear tables
-    await Core.db.initialize();
-    await Core.db.transaction(
+    await db.initialize();
+    await db.transaction(
       'rw',
-      [
-        Core.PostDetailsModel.table,
-        Core.PostCountsModel.table,
-        Core.PostRelationshipsModel.table,
-        Core.PostTagsModel.table,
-      ],
+      [PostDetailsModel.table, PostCountsModel.table, PostRelationshipsModel.table, PostTagsModel.table],
       async () => {
-        await Core.PostDetailsModel.table.clear();
-        await Core.PostCountsModel.table.clear();
-        await Core.PostRelationshipsModel.table.clear();
-        await Core.PostTagsModel.table.clear();
+        await PostDetailsModel.table.clear();
+        await PostCountsModel.table.clear();
+        await PostRelationshipsModel.table.clear();
+        await PostTagsModel.table.clear();
       },
     );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe('getDetails', () => {
@@ -200,7 +243,7 @@ describe('PostController', () => {
       await setupExistingPost();
 
       // Update counts to non-zero values
-      await Core.PostCountsModel.table.update(testData.fullPostId, {
+      await PostCountsModel.table.update(testData.fullPostId, {
         tags: 5,
         unique_tags: 3,
         replies: 10,
@@ -222,14 +265,14 @@ describe('PostController', () => {
       const { PostController } = await import('./post');
 
       const parentUri = `pubky://${testData.authorPubky}/pub/pubky.app/posts/${testData.postId}`;
-      const replyOneId = Core.buildCompositeId({ pubky: 'reply-author-1' as Core.Pubky, id: 'reply-1' });
-      const replyTwoId = Core.buildCompositeId({ pubky: 'reply-author-2' as Core.Pubky, id: 'reply-2' });
+      const replyOneId = buildCompositeId({ pubky: 'reply-author-1' as Pubky, id: 'reply-1' });
+      const replyTwoId = buildCompositeId({ pubky: 'reply-author-2' as Pubky, id: 'reply-2' });
 
-      await Core.PostRelationshipsModel.table.bulkAdd([
+      await PostRelationshipsModel.table.bulkAdd([
         { id: replyOneId, replied: parentUri, reposted: null, mentioned: [] },
         { id: replyTwoId, replied: parentUri, reposted: null, mentioned: [] },
         {
-          id: Core.buildCompositeId({ pubky: 'reply-author-3' as Core.Pubky, id: 'reply-3' }),
+          id: buildCompositeId({ pubky: 'reply-author-3' as Pubky, id: 'reply-3' }),
           replied: 'pubky://someone/pub/pubky.app/posts/another-parent',
           reposted: null,
           mentioned: [],
@@ -258,7 +301,7 @@ describe('PostController', () => {
 
       await PostController.commitCreate(createPostParams('Hello, world!'));
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       expect(allPosts.length).toBeGreaterThan(0);
 
       const savedPost = allPosts[0];
@@ -266,7 +309,7 @@ describe('PostController', () => {
       expect(savedPost.kind).toBe('short'); // PubkyAppPostKind.Short
 
       // Verify homeserver sync was called
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith({
+      expect(HomeserverService.request).toHaveBeenCalledWith({
         method: HttpMethod.PUT,
         url: expect.stringContaining('pubky://'),
         bodyJson: expect.any(Object),
@@ -279,14 +322,14 @@ describe('PostController', () => {
 
       await PostController.commitCreate(createPostParams('This is a reply', testData.fullPostId));
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const replyPost = allPosts.find((p) => p.content === 'This is a reply');
 
       expect(replyPost).toBeTruthy();
       expect(replyPost!.kind).toBe('short'); // PubkyAppPostKind.Short
 
       // Verify homeserver sync was called
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith({
+      expect(HomeserverService.request).toHaveBeenCalledWith({
         method: HttpMethod.PUT,
         url: expect.stringContaining('pubky://'),
         bodyJson: expect.any(Object),
@@ -303,11 +346,11 @@ describe('PostController', () => {
         attachments: [imageFile],
       });
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const savedPost = allPosts.find((p) => p.content === 'A post with image');
 
       expect(savedPost?.kind).toBe('image');
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith(
+      expect(HomeserverService.request).toHaveBeenCalledWith(
         expect.objectContaining({
           bodyJson: expect.objectContaining({ kind: 'image' }),
         }),
@@ -324,11 +367,11 @@ describe('PostController', () => {
         attachments: [videoFile],
       });
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const savedPost = allPosts.find((p) => p.content === 'A post with video');
 
       expect(savedPost?.kind).toBe('video');
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith(
+      expect(HomeserverService.request).toHaveBeenCalledWith(
         expect.objectContaining({
           bodyJson: expect.objectContaining({ kind: 'video' }),
         }),
@@ -345,11 +388,11 @@ describe('PostController', () => {
         attachments: [pdfFile],
       });
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const savedPost = allPosts.find((p) => p.content === 'A post with file');
 
       expect(savedPost?.kind).toBe('file');
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith(
+      expect(HomeserverService.request).toHaveBeenCalledWith(
         expect.objectContaining({
           bodyJson: expect.objectContaining({ kind: 'file' }),
         }),
@@ -364,11 +407,11 @@ describe('PostController', () => {
         authorId: testData.authorPubky,
       });
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const savedPost = allPosts.find((p) => p.content === 'Visit https://pubky.app for details');
 
       expect(savedPost?.kind).toBe('link');
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith(
+      expect(HomeserverService.request).toHaveBeenCalledWith(
         expect.objectContaining({
           bodyJson: expect.objectContaining({ kind: 'link' }),
         }),
@@ -384,11 +427,11 @@ describe('PostController', () => {
         isArticle: true,
       });
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const savedPost = allPosts.find((p) => p.content.includes('My Article'));
 
       expect(savedPost?.kind).toBe('long');
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith(
+      expect(HomeserverService.request).toHaveBeenCalledWith(
         expect.objectContaining({
           bodyJson: expect.objectContaining({ kind: 'long' }),
         }),
@@ -405,10 +448,9 @@ describe('PostController', () => {
 
     it('should propagate errors from application layer', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
       const createSpy = vi
-        .spyOn(ApplicationModule.PostApplication, 'commitCreate')
+        .spyOn(PostApplication, 'commitCreate')
         .mockRejectedValueOnce(new Error('Database transaction failed'));
 
       try {
@@ -430,14 +472,14 @@ describe('PostController', () => {
         originalPostId: testData.fullPostId,
       });
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const repost = allPosts.find((p) => p.content === 'Reposting this!');
 
       expect(repost).toBeTruthy();
       expect(repost!.kind).toBe('short');
 
       // Verify homeserver sync was called
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith({
+      expect(HomeserverService.request).toHaveBeenCalledWith({
         method: HttpMethod.PUT,
         url: expect.stringContaining('pubky://'),
         bodyJson: expect.any(Object),
@@ -466,17 +508,73 @@ describe('PostController', () => {
         originalPostId: testData.fullPostId,
       });
 
-      const allPosts = await Core.PostDetailsModel.table.toArray();
+      const allPosts = await PostDetailsModel.table.toArray();
       const repost = allPosts.find((p) => p.content === '');
 
       expect(repost).toBeTruthy();
 
       // Verify homeserver sync was called
-      expect(Core.HomeserverService.request).toHaveBeenCalledWith({
+      expect(HomeserverService.request).toHaveBeenCalledWith({
         method: HttpMethod.PUT,
         url: expect.stringContaining('pubky://'),
         bodyJson: expect.any(Object),
       });
+    });
+
+    it('should apply tags to the original post for a simple repost', async () => {
+      await setupExistingPost();
+      const postCommitSpy = vi.spyOn(PostApplication, 'commitCreate');
+
+      const { PostController } = await import('./post');
+      await PostController.commitCreate({
+        content: '',
+        authorId: testData.authorPubky,
+        originalPostId: testData.fullPostId,
+        tags: ['bitcoin'],
+      });
+
+      expect(postCommitSpy).toHaveBeenCalled();
+      const { tags: tagList } = postCommitSpy.mock.calls[0][0];
+      expect(tagList?.[0]?.taggedId).toBe(testData.fullPostId);
+      expect(tagList?.[0]?.label).toBe('bitcoin');
+    });
+
+    it('should apply tags to the new post for a quote repost with text', async () => {
+      await setupExistingPost();
+      const postCommitSpy = vi.spyOn(PostApplication, 'commitCreate');
+
+      const { PostController } = await import('./post');
+      const createdId = await PostController.commitCreate({
+        content: 'my comment',
+        authorId: testData.authorPubky,
+        originalPostId: testData.fullPostId,
+        tags: ['ethereum'],
+      });
+
+      expect(postCommitSpy).toHaveBeenCalled();
+      const { tags: tagList } = postCommitSpy.mock.calls[0][0];
+      expect(tagList?.[0]?.taggedId).toBe(createdId);
+      expect(tagList?.[0]?.label).toBe('ethereum');
+    });
+
+    it('should apply tags to the new post for a quote repost with attachment only', async () => {
+      await setupExistingPost();
+      const postCommitSpy = vi.spyOn(PostApplication, 'commitCreate');
+      const imageFile = new File(['image-content'], 'photo.png', { type: 'image/png' });
+
+      const { PostController } = await import('./post');
+      const createdId = await PostController.commitCreate({
+        content: '',
+        authorId: testData.authorPubky,
+        originalPostId: testData.fullPostId,
+        attachments: [imageFile],
+        tags: ['nft'],
+      });
+
+      expect(postCommitSpy).toHaveBeenCalled();
+      const { tags: tagList } = postCommitSpy.mock.calls[0][0];
+      expect(tagList?.[0]?.taggedId).toBe(createdId);
+      expect(tagList?.[0]?.label).toBe('nft');
     });
   });
 
@@ -486,9 +584,8 @@ describe('PostController', () => {
       setupAuthUser(testData.authorPubky);
 
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const deleteSpy = vi.spyOn(ApplicationModule.PostApplication, 'commitDelete').mockResolvedValue(undefined);
+      const deleteSpy = vi.spyOn(PostApplication, 'commitDelete').mockResolvedValue(undefined);
 
       try {
         await PostController.commitDelete({ compositePostId: testData.fullPostId });
@@ -502,7 +599,7 @@ describe('PostController', () => {
 
     it('should throw error when user is not the author', async () => {
       await setupExistingPost();
-      setupAuthUser('different_user_pubky' as Core.Pubky);
+      setupAuthUser('different_user_pubky' as Pubky);
 
       const { PostController } = await import('./post');
 
@@ -520,10 +617,9 @@ describe('PostController', () => {
       setupAuthUser(testData.authorPubky);
 
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
       const deleteSpy = vi
-        .spyOn(ApplicationModule.PostApplication, 'commitDelete')
+        .spyOn(PostApplication, 'commitDelete')
         .mockRejectedValueOnce(new Error('Database transaction failed'));
 
       try {
@@ -538,7 +634,7 @@ describe('PostController', () => {
   });
 
   describe('getOrFetch', () => {
-    const mockViewerId = 'test-viewer-id' as Core.Pubky;
+    const mockViewerId = 'test-viewer-id' as Pubky;
 
     it('should return post from local database if exists', async () => {
       await setupExistingPost();
@@ -553,9 +649,8 @@ describe('PostController', () => {
 
     it('should return null when PostApplication.getOrFetch returns null', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const getOrFetchSpy = vi.spyOn(ApplicationModule.PostApplication, 'getOrFetch').mockResolvedValue(null);
+      const getOrFetchSpy = vi.spyOn(PostApplication, 'getOrFetch').mockResolvedValue(null);
 
       try {
         const post = await PostController.getOrFetch({
@@ -570,11 +665,8 @@ describe('PostController', () => {
 
     it('should propagate error when PostApplication throws an error', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const getOrFetchSpy = vi
-        .spyOn(ApplicationModule.PostApplication, 'getOrFetch')
-        .mockRejectedValueOnce(new Error('Nexus error'));
+      const getOrFetchSpy = vi.spyOn(PostApplication, 'getOrFetch').mockRejectedValueOnce(new Error('Nexus error'));
 
       try {
         await expect(PostController.getOrFetch({ compositeId: 'error:post', viewerId: mockViewerId })).rejects.toThrow(
@@ -587,9 +679,8 @@ describe('PostController', () => {
 
     it('should call PostApplication.getOrFetch with correct postId', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const getOrFetchSpy = vi.spyOn(ApplicationModule.PostApplication, 'getOrFetch').mockResolvedValue(null);
+      const getOrFetchSpy = vi.spyOn(PostApplication, 'getOrFetch').mockResolvedValue(null);
 
       try {
         await PostController.getOrFetch({ compositeId: 'author:post123', viewerId: mockViewerId });
@@ -601,13 +692,12 @@ describe('PostController', () => {
   });
 
   describe('fetch', () => {
-    const mockViewerId = 'test-viewer-id' as Core.Pubky;
+    const mockViewerId = 'test-viewer-id' as Pubky;
 
     it('should delegate to PostApplication.fetch', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const fetchSpy = vi.spyOn(ApplicationModule.PostApplication, 'fetch').mockResolvedValue(null);
+      const fetchSpy = vi.spyOn(PostApplication, 'fetch').mockResolvedValue(null);
 
       try {
         await PostController.fetch({ compositeId: 'author:post123', viewerId: mockViewerId });
@@ -619,9 +709,8 @@ describe('PostController', () => {
 
     it('should return null when PostApplication.fetch returns null', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const fetchSpy = vi.spyOn(ApplicationModule.PostApplication, 'fetch').mockResolvedValue(null);
+      const fetchSpy = vi.spyOn(PostApplication, 'fetch').mockResolvedValue(null);
 
       try {
         const post = await PostController.fetch({
@@ -636,11 +725,8 @@ describe('PostController', () => {
 
     it('should propagate error when PostApplication.fetch throws', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const fetchSpy = vi
-        .spyOn(ApplicationModule.PostApplication, 'fetch')
-        .mockRejectedValueOnce(new Error('Nexus error'));
+      const fetchSpy = vi.spyOn(PostApplication, 'fetch').mockRejectedValueOnce(new Error('Nexus error'));
 
       try {
         await expect(PostController.fetch({ compositeId: 'error:post', viewerId: mockViewerId })).rejects.toThrow(
@@ -655,18 +741,15 @@ describe('PostController', () => {
   describe('fetchTaggers', () => {
     it('should call PostApplication.fetchTaggers and return result', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
-      const params: Core.TFetchPostTaggersParams = {
+      const params: TFetchPostTaggersParams = {
         compositeId: testData.fullPostId,
         label: 'bitcoin',
         skip: 0,
         limit: 20,
       };
-      const mockTaggers: Core.NexusTaggers = { relationship: false, users: ['user1' as Core.Pubky] };
+      const mockTaggers: NexusTaggers = { relationship: false, users: ['user1' as Pubky] };
 
-      const fetchTaggersSpy = vi
-        .spyOn(ApplicationModule.PostApplication, 'fetchTaggers')
-        .mockResolvedValue(mockTaggers);
+      const fetchTaggersSpy = vi.spyOn(PostApplication, 'fetchTaggers').mockResolvedValue(mockTaggers);
 
       try {
         const result = await PostController.fetchTaggers(params);
@@ -680,15 +763,12 @@ describe('PostController', () => {
 
     it('should propagate errors from PostApplication.fetchTaggers', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
-      const params: Core.TFetchPostTaggersParams = {
+      const params: TFetchPostTaggersParams = {
         compositeId: testData.fullPostId,
         label: 'bitcoin',
       };
 
-      const fetchTaggersSpy = vi
-        .spyOn(ApplicationModule.PostApplication, 'fetchTaggers')
-        .mockRejectedValue(new Error('Nexus failed'));
+      const fetchTaggersSpy = vi.spyOn(PostApplication, 'fetchTaggers').mockRejectedValue(new Error('Nexus failed'));
 
       try {
         await expect(PostController.fetchTaggers(params)).rejects.toThrow('Nexus failed');
@@ -723,7 +803,7 @@ describe('PostController', () => {
 
     it('should return relationships with parent URI when post is a reply', async () => {
       const parentUri = 'pubky://parent/pub/pubky.app/posts/parent123';
-      const postDetails: Core.PostDetailsModelSchema = {
+      const postDetails: PostDetailsModelSchema = {
         id: testData.fullPostId,
         content: 'Reply post content',
         indexed_at: Date.now(),
@@ -732,8 +812,8 @@ describe('PostController', () => {
         attachments: null,
       };
 
-      await Core.PostDetailsModel.table.add(postDetails);
-      await Core.PostRelationshipsModel.table.add({
+      await PostDetailsModel.table.add(postDetails);
+      await PostRelationshipsModel.table.add({
         id: testData.fullPostId,
         replied: parentUri,
         reposted: null,
@@ -749,11 +829,8 @@ describe('PostController', () => {
 
     it('should call PostApplication.getRelationships with correct postId', async () => {
       const { PostController } = await import('./post');
-      const ApplicationModule = await import('@/core/application');
 
-      const getRelationshipsSpy = vi
-        .spyOn(ApplicationModule.PostApplication, 'getRelationships')
-        .mockResolvedValue(null);
+      const getRelationshipsSpy = vi.spyOn(PostApplication, 'getRelationships').mockResolvedValue(null);
 
       try {
         await PostController.getRelationships({ compositeId: 'author:post123' });

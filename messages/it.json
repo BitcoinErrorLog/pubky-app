@@ -32,21 +32,10 @@
     "cancel": "Annulla",
     "confirm": "Conferma",
     "delete": "Elimina",
+    "ok": "OK",
     "send": "Invia",
     "submit": "Invia",
     "loading": "Caricamento...",
-    "loadingActions": "Caricamento azioni...",
-    "loadingHeader": "Caricamento intestazione...",
-    "loadingPost": "Caricamento post...",
-    "loadingContent": "Caricamento contenuto...",
-    "loadingReplies": "Caricamento risposte...",
-    "loadingParticipants": "Caricamento partecipanti...",
-    "loadingTags": "Caricamento tag...",
-    "loadingMoreTags": "Caricamento altri tag...",
-    "loadingTaggers": "Caricamento taggatori...",
-    "loadingPosts": "Caricamento post...",
-    "loadingMorePosts": "Caricamento altri post...",
-    "loadingPreview": "Caricamento anteprima...",
     "loadingBookmark": "Caricamento...",
     "addBookmark": "Aggiungi segnalibro",
     "removeBookmark": "Rimuovi segnalibro",
@@ -926,8 +915,7 @@
       "textCopied": "Testo copiato negli appunti",
       "profileLinkCopied": "Link profilo copiato negli appunti",
       "copyFailed": "Copia fallita",
-      "copyFailedDesc": "Impossibile copiare negli appunti",
-      "ok": "OK"
+      "copyFailedDesc": "Impossibile copiare negli appunti"
     },
     "follow": {
       "failed": "Aggiornamento stato follow fallito"
@@ -1078,6 +1066,7 @@
     "timeframe": {
       "title": "Periodo",
       "today": "Oggi",
+      "thisWeek": "Questa settimana",
       "thisMonth": "Questo mese",
       "allTime": "Sempre"
     }
@@ -1086,11 +1075,17 @@
     "hotTags": "Tag di tendenza",
     "activeUsers": "Utenti attivi",
     "trendingPosts": "Post di tendenza",
-    "postsCount": "{count} post questo mese",
+    "postsCountToday": "{count} post oggi",
+    "postsCountThisWeek": "{count} post questa settimana",
+    "postsCountThisMonth": "{count} post questo mese",
+    "postsCountAllTime": "{count} post",
     "failedToLoadUsers": "Caricamento utenti fallito",
     "failedToLoadTags": "Caricamento tag fallito",
     "noUsersToShow": "Nessun utente da mostrare",
-    "noTagsToShow": "Nessun tag da mostrare"
+    "noTagsToShow": "Nessun tag da mostrare",
+    "tags": "Tag",
+    "users": "Utenti",
+    "posts": "Post"
   },
   "privacy": {
     "showConfirmation": "Mostra conferma prima del reindirizzamento",
@@ -1132,15 +1127,19 @@
       }
     },
     "version": {
-      "title": "Versione",
-      "text": "Pubky v0.12 © Synonym Software Ltd"
+      "title": "Versione"
     }
   },
   "logout": {
+    "loadingTitle": "Signing you out...",
+    "loadingSubtitle": "We're ending your session securely.",
+    "errorTitle": "We couldn't sign you out yet",
+    "errorSubtitle": "Please try again to finish signing out securely.",
     "title": "A <highlight>presto!</highlight>",
     "subtitle": "Ti sei disconnesso in modo sicuro.",
     "homepage": "Homepage",
-    "signBackIn": "Accedi di nuovo"
+    "signBackIn": "Accedi di nuovo",
+    "retry": "Retry"
   },
   "tradeoffs": {
     "title": "Sii consapevole di questi svantaggi:",

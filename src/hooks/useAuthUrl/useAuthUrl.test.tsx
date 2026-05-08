@@ -1,7 +1,10 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Session } from '@synonymdev/pubky';
-import * as Libs from '@/libs';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { mockSession } from '@/test-utils/pubky';
 import { useAuthUrl } from './useAuthUrl';
 
 // Mock dependencies
@@ -28,33 +31,45 @@ vi.mock('next-intl', () => ({
   useTranslations: () => mockTranslations,
 }));
 
-vi.mock('@/molecules', () => ({
-  toast: (...args: unknown[]) => mockToast(...args),
-}));
+vi.mock('@/molecules/Toaster/use-toast', () => {
+  return {
+    toast: (...args: unknown[]) => mockToast(...args),
+  };
+});
 
-vi.mock('@/libs', async () => {
-  const actual = await vi.importActual<typeof import('@/libs')>('@/libs');
+vi.mock('@/libs/logger/logger', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/logger/logger')>('@/libs/logger/logger');
   return {
     ...actual,
     Logger: {
       ...actual.Logger,
       error: (...args: unknown[]) => mockLoggerError(...args),
     },
+  };
+});
+vi.mock('@/libs/utils/utils', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/utils/utils')>('@/libs/utils/utils');
+  return {
+    ...actual,
     copyToClipboard: (...args: unknown[]) => mockCopyToClipboard(...args),
   };
 });
 
-vi.mock('@/core', () => ({
+vi.mock('@/controllers/auth/auth', () => ({
   AuthController: {
     getAuthUrl: (...args: unknown[]) => mockGetAuthUrl(...args),
     getSignupAuthUrl: (...args: unknown[]) => mockGetSignupAuthUrl(...args),
     initializeAuthenticatedSession: (...args: unknown[]) => mockInitializeAuthenticatedSession(...args),
     cancelActiveAuthFlow: (...args: unknown[]) => mockCancelActiveAuthFlow(...args),
   },
+}));
+vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector?: (state: { session: Session | null }) => unknown) => {
     const state = { session: null };
     return selector ? selector(state) : state;
   },
+}));
+vi.mock('@/services/homeserver/error.utils', () => ({
   AUTH_FLOW_CANCELED_ERROR_NAME: 'AuthFlowCanceled',
 }));
 
@@ -116,7 +131,7 @@ describe('useAuthUrl', () => {
   });
 
   it('initializes session when approval succeeds', async () => {
-    const mockSession = { token: 'test-token' } as unknown as Session;
+    const session = mockSession();
 
     let resolveApproval: (session: Session) => void;
     const mockAwaitApproval = new Promise<Session>((resolve) => {
@@ -135,10 +150,10 @@ describe('useAuthUrl', () => {
       expect(mockGetAuthUrl).toHaveBeenCalled();
     });
 
-    resolveApproval!(mockSession);
+    resolveApproval!(session);
 
     await waitFor(() => {
-      expect(mockInitializeAuthenticatedSession).toHaveBeenCalledWith({ session: mockSession });
+      expect(mockInitializeAuthenticatedSession).toHaveBeenCalledWith({ session });
     });
   });
 
@@ -215,11 +230,11 @@ describe('useAuthUrl', () => {
     });
 
     rejectApproval!(
-      new Libs.AppError({
-        category: Libs.ErrorCategory.Auth,
-        code: Libs.AuthErrorCode.SESSION_EXPIRED,
+      new AppError({
+        category: ErrorCategory.Auth,
+        code: AuthErrorCode.SESSION_EXPIRED,
         message: 'Session expired',
-        service: Libs.ErrorService.Homeserver,
+        service: ErrorService.Homeserver,
         operation: 'awaitApproval',
       }),
     );
@@ -250,11 +265,11 @@ describe('useAuthUrl', () => {
     });
 
     rejectApproval!(
-      new Libs.AppError({
-        category: Libs.ErrorCategory.Timeout,
-        code: Libs.TimeoutErrorCode.REQUEST_TIMEOUT,
+      new AppError({
+        category: ErrorCategory.Timeout,
+        code: TimeoutErrorCode.REQUEST_TIMEOUT,
         message: 'Auth flow timed out after maximum attempts',
-        service: Libs.ErrorService.Homeserver,
+        service: ErrorService.Homeserver,
         operation: 'awaitApproval',
       }),
     );
@@ -267,7 +282,7 @@ describe('useAuthUrl', () => {
   });
 
   it('shows toast when session initialization fails', async () => {
-    const mockSession = { token: 'test-token' } as unknown as Session;
+    const session = mockSession();
 
     let resolveApproval: (session: Session) => void;
     const mockAwaitApproval = new Promise<Session>((resolve) => {
@@ -288,7 +303,7 @@ describe('useAuthUrl', () => {
       expect(mockGetAuthUrl).toHaveBeenCalled();
     });
 
-    resolveApproval!(mockSession);
+    resolveApproval!(session);
 
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith({
@@ -329,7 +344,7 @@ describe('useAuthUrl', () => {
   });
 
   it('initializes session even after component unmounts', async () => {
-    const mockSession = { token: 'test-token' } as unknown as Session;
+    const session = mockSession();
 
     let resolveApproval: (session: Session) => void;
     const mockAwaitApproval = new Promise<Session>((resolve) => {
@@ -349,10 +364,10 @@ describe('useAuthUrl', () => {
     });
 
     unmount();
-    resolveApproval!(mockSession);
+    resolveApproval!(session);
 
     await waitFor(() => {
-      expect(mockInitializeAuthenticatedSession).toHaveBeenCalledWith({ session: mockSession });
+      expect(mockInitializeAuthenticatedSession).toHaveBeenCalledWith({ session });
     });
   });
 

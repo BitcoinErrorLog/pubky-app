@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import type { MDXEditorMethods } from '@mdxeditor/editor';
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarkdownEditor } from './MarkdownEditor';
 
 interface DynamicOptions {
@@ -63,13 +63,23 @@ vi.mock('next/dynamic', () => ({
 }));
 
 // Mock Atoms for Container component
-vi.mock('@/atoms', () => ({
-  Container: ({ className, children, ...props }: { className?: string; children?: React.ReactNode }) => (
-    <div data-testid="container" className={className} {...props}>
-      {children}
-    </div>
-  ),
-}));
+vi.mock('@/atoms/Container/Container', () => {
+  return {
+    Container: ({ className, children, ...props }: { className?: string; children?: React.ReactNode }) => (
+      <div data-testid="container" className={className} {...props}>
+        {children}
+      </div>
+    ),
+  };
+});
+
+vi.mock('@/atoms/Skeleton/Skeleton', () => {
+  return {
+    Skeleton: ({ className, ...props }: { className?: string }) => (
+      <div data-testid="skeleton" data-slot="skeleton" className={className} {...props} />
+    ),
+  };
+});
 
 describe('MarkdownEditor', () => {
   beforeEach(() => {
@@ -89,15 +99,13 @@ describe('MarkdownEditor', () => {
     expect(wrapper).toHaveAttribute('data-ssr', 'false');
   });
 
-  it('renders loading state with correct styling', () => {
+  it('renders loading state with skeleton', () => {
     render(<MarkdownEditor markdown="" />);
 
-    const loadingContainer = screen.getByTestId('container');
-    expect(loadingContainer).toBeInTheDocument();
-    expect(loadingContainer).toHaveClass('h-22');
-    expect(loadingContainer).toHaveClass('animate-pulse');
-    expect(loadingContainer).toHaveClass('rounded-md');
-    expect(loadingContainer).toHaveClass('bg-card');
+    const skeletons = screen.getAllByTestId('skeleton');
+    expect(skeletons.length).toBe(2);
+    expect(skeletons[0]).toHaveClass('h-11');
+    expect(skeletons[1]).toHaveClass('h-4');
   });
 
   it('passes props to the editor', () => {

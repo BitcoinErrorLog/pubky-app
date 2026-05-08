@@ -1,69 +1,93 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import React from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostLinkEmbeds } from './PostLinkEmbeds';
 
-vi.mock('@/atoms', () => ({
-  Container: ({
-    children,
-    className,
-    onClick,
-    'data-testid': dataTestId,
-    'data-theme': dataTheme,
-  }: {
-    children: React.ReactNode;
-    className?: string;
-    onClick?: (e: React.MouseEvent) => void;
-    'data-testid'?: string;
-    'data-theme'?: string;
-  }) => (
-    <div data-testid={dataTestId || 'container'} data-theme={dataTheme} className={className} onClick={onClick}>
-      {children}
-    </div>
-  ),
-  Iframe: ({
-    'data-testid': dataTestId,
-    width = '100%',
-    height = '315',
-    className,
-    ...props
-  }: React.IframeHTMLAttributes<HTMLIFrameElement> & { 'data-testid'?: string }) => (
-    <iframe
-      data-testid={dataTestId}
-      loading="lazy"
-      allowFullScreen
-      className={`rounded-md ${className || ''}`.trim()}
-      width={width}
-      height={height}
-      {...props}
-    />
-  ),
-  Anchor: ({
-    children,
-    href,
-    'data-testid': dataTestId,
-    ...props
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { 'data-testid'?: string }) => (
-    <a data-testid={dataTestId} href={href} {...props}>
-      {children}
-    </a>
-  ),
-  Link: ({
-    children,
-    href,
-    'data-testid': dataTestId,
-    ...props
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { 'data-testid'?: string }) => (
-    <a data-testid={dataTestId} href={href?.toString()} {...props}>
-      {children}
-    </a>
-  ),
-  Typography: ({ children, className }: { children: React.ReactNode; className?: string; size?: string }) => (
-    <span className={className}>{children}</span>
-  ),
-  Image: ({ src, alt, className }: React.ImgHTMLAttributes<HTMLImageElement>) => (
-    <img src={src} alt={alt} className={className} />
-  ),
-}));
+vi.mock('@/atoms/Container/Container', () => {
+  return {
+    Container: React.forwardRef(function MockContainer(
+      {
+        children,
+        className,
+        onClick,
+        'data-testid': dataTestId,
+        'data-theme': dataTheme,
+      }: {
+        children: React.ReactNode;
+        className?: string;
+        onClick?: (e: React.MouseEvent) => void;
+        'data-testid'?: string;
+        'data-theme'?: string;
+      },
+      ref: React.Ref<HTMLDivElement>,
+    ) {
+      return (
+        <div
+          ref={ref}
+          data-testid={dataTestId || 'container'}
+          data-theme={dataTheme}
+          className={className}
+          onClick={onClick}
+        >
+          {children}
+        </div>
+      );
+    }),
+  };
+});
+
+vi.mock('@/atoms/Iframe/Iframe', () => {
+  return {
+    Iframe: ({
+      'data-testid': dataTestId,
+      width = '100%',
+      height = '315',
+      className,
+      ...props
+    }: React.IframeHTMLAttributes<HTMLIFrameElement> & { 'data-testid'?: string }) => (
+      <iframe
+        data-testid={dataTestId}
+        loading="lazy"
+        allowFullScreen
+        className={`rounded-md ${className || ''}`.trim()}
+        width={width}
+        height={height}
+        {...props}
+      />
+    ),
+  };
+});
+
+vi.mock('@/atoms/Image/Image', () => {
+  return {
+    Image: ({ src, alt, className }: React.ImgHTMLAttributes<HTMLImageElement>) => (
+      <img src={src} alt={alt} className={className} />
+    ),
+  };
+});
+
+vi.mock('@/atoms/Link/Link', () => {
+  return {
+    Link: ({
+      children,
+      href,
+      'data-testid': dataTestId,
+      ...props
+    }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { 'data-testid'?: string }) => (
+      <a data-testid={dataTestId} href={href?.toString()} {...props}>
+        {children}
+      </a>
+    ),
+  };
+});
+
+vi.mock('@/atoms/Typography/Typography', () => {
+  return {
+    Typography: ({ children, className }: { children: React.ReactNode; className?: string; size?: string }) => (
+      <span className={className}>{children}</span>
+    ),
+  };
+});
 
 vi.mock('react-tweet', () => ({
   Tweet: ({ id }: { id: string }) => (
@@ -569,6 +593,40 @@ describe('PostLinkEmbeds', () => {
       expect(tweet).toBeInTheDocument();
       expect(tweet).toHaveAttribute('data-tweet-id', '987654321');
       expect(tweet).toHaveTextContent('Mocked Tweet 987654321');
+    });
+
+    it('intercepts video click and opens tweet on X', () => {
+      const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      render(<PostLinkEmbeds content="https://x.com/user/status/123456789" />);
+
+      const container = screen.getByTestId('twitter-container');
+
+      // Simulate a click on a video element inside the container
+      const video = document.createElement('video');
+      container.querySelector('[data-testid="twitter-tweet"]')!.appendChild(video);
+      fireEvent.click(video);
+
+      expect(windowOpenSpy).toHaveBeenCalledWith('https://x.com/i/status/123456789', '_blank', 'noopener,noreferrer');
+
+      windowOpenSpy.mockRestore();
+    });
+
+    // Verifies that our video click interception handler does NOT trigger
+    // for non-video elements (e.g. tweet text, profile links).
+    // Note: This uses a mocked Tweet component (plain <div>), so it only tests
+    // our handler logic — not the real react-tweet link behavior.
+    it('video click handler does not intercept clicks on non-video elements', () => {
+      const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      render(<PostLinkEmbeds content="https://x.com/user/status/123456789" />);
+
+      const tweet = screen.getByTestId('twitter-tweet');
+      fireEvent.click(tweet);
+
+      expect(windowOpenSpy).not.toHaveBeenCalled();
+
+      windowOpenSpy.mockRestore();
     });
   });
 

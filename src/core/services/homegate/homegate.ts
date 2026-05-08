@@ -1,30 +1,27 @@
-import {
-  TLnVerificationStatus,
-  TAwaitLnVerificationResult,
-  TCreateLnVerificationResult,
-  TVerifySmsCodeParams,
-  TVerifySmsCodeResult,
-  TSendSmsCodeResult,
-  TSmsInfoResult,
-  TLnInfoResult,
-  TRawApiResponse,
-  TAssertValidVerificationIdParams,
-} from './homegate.types';
+import { dispatchSignals } from '@prelude.so/js-sdk/signals';
+import { Env } from '@/libs/env/env';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
+import { ErrorService } from '@/libs/error/error.types';
+import { HttpMethod, HttpStatusCode, JSON_HEADERS } from '@/libs/http/http.types';
+import { parseResponseOrThrow, parseRetryAfterHeader } from '@/libs/http/response.utils';
+import { Logger } from '@/libs/logger/logger';
 import { homegateApi } from './homegate.api';
 import { HOMEGATE_QUERY_KEYS, SmsCodeErrorType } from './homegate.constants';
 import { homegateQueryClient } from './homegate.query-client';
 import {
-  ErrorService,
-  HttpStatusCode,
-  JSON_HEADERS,
-  httpResponseToError,
-  safeFetch,
-  parseResponseOrThrow,
-  Err,
-  ValidationErrorCode,
-  HttpMethod,
-  parseRetryAfterHeader,
-} from '@/libs';
+  TAssertValidVerificationIdParams,
+  TAwaitLnVerificationResult,
+  TCreateLnVerificationResult,
+  TLnInfoResult,
+  TLnVerificationStatus,
+  TRawApiResponse,
+  TSendSmsCodeResult,
+  TSmsInfoResult,
+  TVerifySmsCodeParams,
+  TVerifySmsCodeResult,
+} from './homegate.types';
 
 /** Regex for validating UUID format strings (verification ID format) */
 const VERIFICATION_ID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -72,6 +69,29 @@ export class HomegateService {
   private constructor() {} // Prevent instantiation
 
   /**
+   * Dispatches signals to Prelude for fraud prevention.
+   * Returns undefined if not configured, times out, or fails.
+   */
+  private static async getPreludeDispatchId(): Promise<string | undefined> {
+    const sdkKey = Env.NEXT_PUBLIC_PRELUDE_SDK_KEY;
+    if (!sdkKey) {
+      return undefined;
+    }
+
+    try {
+      return await Promise.race([
+        dispatchSignals(sdkKey),
+        new Promise<undefined>((resolve) =>
+          setTimeout(() => resolve(undefined), Env.NEXT_PUBLIC_PRELUDE_SDK_TIMEOUT_MS),
+        ),
+      ]);
+    } catch (error) {
+      Logger.warn('Prelude dispatchSignals failed:', error);
+      return undefined;
+    }
+  }
+
+  /**
    * Checks if SMS verification is available for the user's region.
    * Returns available: true if service is accessible, false if geoblocked (403).
    * Uses TanStack Query for caching - the result is cached for 30 minutes.
@@ -101,14 +121,23 @@ export class HomegateService {
   /**
    * Sends a SMS code to the user. This only errors on network errors.
    * Any phone number is valid to avoid user enumeration.
+   * Automatically dispatches Prelude signals for fraud prevention if configured.
    * @param phoneNumber - The phone number to send the SMS code to.
    * @returns The result of the SMS code send request.
    */
   static async sendSmsCode(phoneNumber: string): Promise<TSendSmsCodeResult> {
     const url = homegateApi.sendSmsCode();
+    const body: { phoneNumber: string; dispatchId?: string } = { phoneNumber };
+
+    // Get Prelude dispatch ID for fraud prevention (non-blocking if it fails or times out)
+    const dispatchId = await this.getPreludeDispatchId();
+    if (dispatchId) {
+      body.dispatchId = dispatchId;
+    }
+
     const response = await safeFetch(
       url,
-      { method: HttpMethod.POST, body: JSON.stringify({ phoneNumber }), headers: JSON_HEADERS },
+      { method: HttpMethod.POST, body: JSON.stringify(body), headers: JSON_HEADERS },
       ErrorService.Homegate,
       'sendSmsCode',
     );

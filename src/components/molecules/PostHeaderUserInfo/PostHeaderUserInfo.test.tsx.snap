@@ -40,7 +40,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot for current user (no 
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Snapshot User
@@ -55,14 +55,13 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot for current user (no 
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
         </div>
       </div>
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -77,7 +76,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot for current user (no 
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>
@@ -124,7 +123,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot when following 1`] = 
           href="/profile/otherUser123"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Other User
@@ -139,14 +138,13 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot when following 1`] = 
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            otherUse
+            othe...r123
           </p>
         </div>
       </div>
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -161,7 +159,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot when following 1`] = 
       </div>
       <div>
         @
-        otherUse
+        othe...r123
       </div>
     </div>
   </div>
@@ -178,7 +176,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all new props 1`
     data-testid="popover-trigger"
   >
     <div
-      class="flex min-w-0 items-center gap-5"
+      class="flex min-w-0 items-center gap-4"
       data-override-defaults="true"
       data-testid="container"
     >
@@ -213,7 +211,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all new props 1`
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-2xl"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-2xl leading-8"
             data-testid="typography"
           >
             Snapshot User
@@ -228,7 +226,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all new props 1`
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
           <span
             data-testid="post-header-timestamp"
@@ -240,7 +238,6 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all new props 1`
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -255,7 +252,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all new props 1`
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>
@@ -307,7 +304,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all props 1`] = 
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Snapshot User
@@ -322,10 +319,10 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all props 1`] = 
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
           <p
-            class="shrink-0 text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground sm:hidden"
+            class="shrink-0 text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground tabular-nums sm:hidden"
             data-testid="typography"
           >
             150
@@ -337,7 +334,6 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all props 1`] = 
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -352,7 +348,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with all props 1`] = 
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>
@@ -399,7 +395,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with bio 1`] = `
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Snapshot User
@@ -414,14 +410,13 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with bio 1`] = `
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
         </div>
       </div>
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -436,7 +431,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with bio 1`] = `
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>
@@ -453,7 +448,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with large size 1`] =
     data-testid="popover-trigger"
   >
     <div
-      class="flex min-w-0 items-center gap-5"
+      class="flex min-w-0 items-center gap-4"
       data-override-defaults="true"
       data-testid="container"
     >
@@ -483,7 +478,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with large size 1`] =
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-2xl"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-2xl leading-8"
             data-testid="typography"
           >
             Snapshot User
@@ -498,14 +493,13 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with large size 1`] =
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
         </div>
       </div>
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -520,7 +514,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with large size 1`] =
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>
@@ -567,7 +561,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with minimal props 1`
           href="/profile/user123"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Test User
@@ -589,7 +583,6 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with minimal props 1`
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -651,7 +644,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with timeAgo 1`] = `
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Snapshot User
@@ -666,7 +659,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with timeAgo 1`] = `
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
           <span
             data-testid="post-header-timestamp"
@@ -678,7 +671,6 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with timeAgo 1`] = `
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -693,7 +685,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot with timeAgo 1`] = `
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>
@@ -740,7 +732,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot without avatarUrl 1`]
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Snapshot User
@@ -755,10 +747,10 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot without avatarUrl 1`]
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
           <p
-            class="shrink-0 text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground sm:hidden"
+            class="shrink-0 text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground tabular-nums sm:hidden"
             data-testid="typography"
           >
             50
@@ -770,7 +762,6 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot without avatarUrl 1`]
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -785,7 +776,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot without avatarUrl 1`]
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>
@@ -837,7 +828,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot without character cou
           href="/profile/snapshotUserKey"
         >
           <p
-            class="block max-w-full cursor-pointer truncate leading-5 font-bold text-foreground text-base"
+            class="block max-w-full cursor-pointer truncate font-bold text-foreground text-base leading-5"
             data-testid="typography"
           >
             Snapshot User
@@ -852,14 +843,13 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot without character cou
             class="text-xs leading-4 font-medium tracking-[0.075rem] whitespace-nowrap text-muted-foreground uppercase"
             data-testid="typography"
           >
-            snapshot
+            snap...rKey
           </p>
         </div>
       </div>
     </div>
   </div>
   <div
-    data-side="top"
     data-side-offset="1"
     data-testid="popover-content"
   >
@@ -874,7 +864,7 @@ exports[`PostHeaderUserInfo - Snapshots > matches snapshot without character cou
       </div>
       <div>
         @
-        snapshot
+        snap...rKey
       </div>
     </div>
   </div>

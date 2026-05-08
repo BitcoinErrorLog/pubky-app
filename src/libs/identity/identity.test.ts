@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Identity } from './identity';
+import { Keypair } from '@synonymdev/pubky';
 import * as bip39 from 'bip39';
-import { ErrorCategory, ClientErrorCode, ValidationErrorCode } from '@/libs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory } from '@/libs/error/error.types';
+import { asInvalid } from '@/test-utils/type-assertions';
+import { Identity } from './identity';
 
 // Mock @synonymdev/pubky
 const mockCreateRecoveryFile = vi.fn(() => new Uint8Array([1, 2, 3, 4, 5]));
@@ -208,12 +211,18 @@ describe('Identity', () => {
 
     it('should throw error for invalid secret key format', () => {
       const invalidSecretKey = 'invalid-hex-string';
+      vi.mocked(Keypair.fromSecret).mockImplementationOnce(() => {
+        throw new Error('Invalid secret key');
+      });
 
       expect(() => Identity.keypairFromSecretKey(invalidSecretKey)).toThrow();
     });
 
     it('should throw AppError with proper error type for invalid secret key', () => {
       const invalidSecretKey = 'invalid-hex-string';
+      vi.mocked(Keypair.fromSecret).mockImplementationOnce(() => {
+        throw new Error('Invalid secret key');
+      });
 
       try {
         Identity.keypairFromSecretKey(invalidSecretKey);
@@ -408,17 +417,17 @@ describe('Identity', () => {
       });
 
       it('should return null for null input', () => {
-        expect(Identity.extractPubkyPublicKey(null as unknown as string)).toBeNull();
+        expect(Identity.extractPubkyPublicKey(asInvalid<string>(null))).toBeNull();
       });
 
       it('should return null for undefined input', () => {
-        expect(Identity.extractPubkyPublicKey(undefined as unknown as string)).toBeNull();
+        expect(Identity.extractPubkyPublicKey(asInvalid<string>(undefined))).toBeNull();
       });
 
       it('should return null for non-string input', () => {
-        expect(Identity.extractPubkyPublicKey(12345 as unknown as string)).toBeNull();
-        expect(Identity.extractPubkyPublicKey({} as unknown as string)).toBeNull();
-        expect(Identity.extractPubkyPublicKey([] as unknown as string)).toBeNull();
+        expect(Identity.extractPubkyPublicKey(asInvalid<string>(12345))).toBeNull();
+        expect(Identity.extractPubkyPublicKey(asInvalid<string>({}))).toBeNull();
+        expect(Identity.extractPubkyPublicKey(asInvalid<string>([]))).toBeNull();
       });
 
       it('should return null for string with only whitespace', () => {
