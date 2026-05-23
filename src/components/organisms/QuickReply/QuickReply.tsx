@@ -18,7 +18,8 @@ import { canSubmitPost, cn, getCharacterCount } from '@/libs/utils/utils';
 import { MentionPopover } from '@/molecules/MentionPopover/MentionPopover';
 import { PostInputAttachments } from '@/molecules/PostInputAttachments/PostInputAttachments';
 import { POST_INPUT_VARIANT } from '@/organisms/PostInput/PostInput.constants';
-import { usePostMainLayout, WIDE_POST_LAYOUT_CLASSES } from '@/organisms/PostMain/PostMainLayout';
+import { usePostMainLayout } from '@/organisms/PostMain/PostMainLayoutContext';
+import { WIDE_POST_BODY_TEXT_CLASS } from '@/organisms/PostMain/PostMainTypography';
 import { AvatarWithFallback } from '../AvatarWithFallback/AvatarWithFallback';
 import { PostInputExpandableSection } from '../PostInputExpandableSection/PostInputExpandableSection';
 import { QUICK_REPLY_CONNECTOR_SPACER_HEIGHT } from './QuickReply.constants';
@@ -62,6 +63,7 @@ export function QuickReply({
     handleDragLeave,
     handleDragOver,
     handleDrop,
+    handlePaste,
     setTags,
     // Mention autocomplete
     mentionUsers,
@@ -149,11 +151,12 @@ export function QuickReply({
                 aria-label="Reply"
                 placeholder={displayPlaceholder}
                 variant="inline"
-                className={isWideLayout ? WIDE_POST_LAYOUT_CLASSES.bodyText : undefined}
+                className={isWideLayout ? WIDE_POST_BODY_TEXT_CLASS : undefined}
                 value={content}
                 onChange={handleChange}
                 onFocus={handleExpand}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 rows={1}
                 disabled={isSubmitting}
                 data-testid="quick-reply-textarea"
