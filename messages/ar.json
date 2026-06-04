@@ -7,7 +7,7 @@
   "landing": {
     "title": "<highlight>افتح</highlight> الويب.",
     "subtitle": "مفاتيحك، محتواك، قواعدك.",
-    "signIn": "تسجيل الدخول",
+    "explore": "استكشف",
     "joinNow": "انضم الآن",
     "aTetherCompany": "شركة تابعة لـ <tether>tether.</tether>",
     "copyright": "Synonym Software, S.A. DE C.V. ©2026. جميع الحقوق محفوظة."
@@ -573,7 +573,7 @@
     },
     "signIn": {
       "title": "انضم الى Pubky",
-      "description": "سجل الدخول او انشئ حسابا للتفاعل مع المنشورات والملفات الشخصية.",
+      "description": "هل أعجبك ما رأيت؟ انضم إلى ويب الحرية الآن.",
       "newHere": "جديد هنا؟",
       "newHereDescription": "انشئ حسابك وابدا باستكشاف Pubky.",
       "joinButton": "انضم الى Pubky",

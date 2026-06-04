@@ -7,7 +7,7 @@
   "landing": {
     "title": "<highlight>解锁</highlight>网络。",
     "subtitle": "你的密钥，你的内容，你的规则。",
-    "signIn": "登录",
+    "explore": "探索",
     "joinNow": "立即加入",
     "aTetherCompany": "<tether>tether.</tether> 旗下公司",
     "copyright": "Synonym Software, S.A. DE C.V. ©2026。保留所有权利。"
@@ -573,7 +573,7 @@
     },
     "signIn": {
       "title": "加入 Pubky",
-      "description": "登录或创建账户以与帖子和个人资料互动。",
+      "description": "喜欢你所看到的吗？立即加入自由网络。",
       "newHere": "新用户？",
       "newHereDescription": "创建您的账户并开始探索 Pubky。",
       "joinButton": "加入 Pubky",

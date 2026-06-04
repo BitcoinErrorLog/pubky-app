@@ -7,7 +7,7 @@
   "landing": {
     "title": "<highlight>Libérez</highlight> le web.",
     "subtitle": "Vos clés, votre contenu, vos règles.",
-    "signIn": "Se connecter",
+    "explore": "Explorer",
     "joinNow": "Rejoignez-nous maintenant",
     "aTetherCompany": "une entreprise <tether>tether.</tether>",
     "copyright": "Synonym Software, S.A. DE C.V. ©2026. Tous droits réservés."
@@ -573,7 +573,7 @@
     },
     "signIn": {
       "title": "Rejoindre Pubky",
-      "description": "Connectez-vous ou crééz un compte pour interagir avec les publications et les profils.",
+      "description": "Vous aimez ce que vous voyez ? Rejoignez le web de la liberté dès maintenant.",
       "newHere": "Nouveau ici ?",
       "newHereDescription": "Crééz votre compte et commencez a explorer Pubky.",
       "joinButton": "Rejoindre Pubky",

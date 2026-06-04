@@ -7,7 +7,7 @@
   "landing": {
     "title": "<highlight>Unlock</highlight> the web.",
     "subtitle": "Your keys, your content, your rules.",
-    "signIn": "Sign in",
+    "explore": "Explore",
     "joinNow": "Join now",
     "aTetherCompany": "a <tether>tether.</tether> company",
     "copyright": "Synonym Software, S.A. DE C.V. ©2026. All rights reserved."
@@ -567,7 +567,7 @@
     },
     "signIn": {
       "title": "Join Pubky",
-      "description": "Sign in or create an account to interact with posts and profiles.",
+      "description": "Like what you see? Join the freedom web now.",
       "newHere": "New here?",
       "newHereDescription": "Create your account and start exploring Pubky.",
       "joinButton": "Join Pubky",
