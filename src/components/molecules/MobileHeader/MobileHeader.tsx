@@ -1,5 +1,5 @@
 'use client';
-import { Activity, SlidersHorizontal, UserRound } from 'lucide-react';
+import { Activity, SlidersHorizontal } from 'lucide-react';
 import type React from 'react';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -34,8 +34,9 @@ export function MobileHeader({
 }: MobileHeaderProps) {
   const isAuthenticated = useAuthStore((state) => Boolean(state.currentUserPubky));
   const setShowSignInDialog = useAuthStore((state) => state.setShowSignInDialog);
-  const { isCoreExploreRoute } = usePublicRoute();
-  const showLeftIcon = showLeftButton && (isAuthenticated || isCoreExploreRoute);
+  const { isPublicExploreRoute } = usePublicRoute();
+  // Layout filters drawer: signed-in users and guests on explore/public routes (/home, /post/..., etc.)
+  const showLeftIcon = showLeftButton && (isAuthenticated || isPublicExploreRoute);
   return (
     <Container
       overrideDefaults
@@ -51,7 +52,6 @@ export function MobileHeader({
         overrideDefaults
         className={cn('relative flex min-h-12 w-full items-center justify-between p-6', containerClassName)}
       >
-        {/* Left icon - filters (authenticated only) */}
         <SideSlot>
           {showLeftIcon ? (
             <Button variant="ghost" size="icon" onClick={onLeftIconClick}>
@@ -77,7 +77,7 @@ export function MobileHeader({
             }}
             aria-label="Join Pubky"
           >
-            <UserRound className="size-6" />
+            <Activity className="size-6" />
           </Button>
         ) : (
           <SideSlot>

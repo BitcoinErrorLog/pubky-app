@@ -5,6 +5,7 @@ import {
   isCoreExploreRoute,
   isDynamicPublicRoute,
   isLogoLandingRoute,
+  isPostRoute,
   isPublicExploreRoute,
   LOGO_LANDING_ROUTES,
   ONBOARDING_ROUTES,
@@ -155,6 +156,19 @@ describe('getProfileRoute', () => {
 
   it('preserves sub-paths other than posts', () => {
     expect(getProfileRoute(PROFILE_ROUTES.FOLLOWERS, pubky)).toBe(`/profile/${pubky}/followers`);
+  });
+});
+
+describe('isPostRoute', () => {
+  it('returns true for single post pages', () => {
+    const pubky = 'o1gg96ewuojmopcjbz8895478wdtxtzzber7aezq6ror5a91j7dy';
+    expect(isPostRoute(`/post/${pubky}/0034BBBDFK83G`)).toBe(true);
+  });
+
+  it('returns false for non-post paths', () => {
+    expect(isPostRoute('/post')).toBe(false);
+    expect(isPostRoute('/post/user-only')).toBe(false);
+    expect(isPostRoute('/home')).toBe(false);
   });
 });
 
