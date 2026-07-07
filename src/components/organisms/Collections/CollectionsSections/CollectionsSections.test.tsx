@@ -12,9 +12,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 }));
 
 vi.mock('@/organisms/Collections/MyCollections/MyCollections', () => ({
-  MyCollections: ({ showPublicNote }: { showPublicNote?: boolean }) => (
-    <div data-testid="my-collections" data-show-public-note={String(showPublicNote ?? false)} />
-  ),
+  MyCollections: () => <div data-testid="my-collections" />,
 }));
 
 vi.mock('@/organisms/Collections/FollowedCollections/FollowedCollections', () => ({
@@ -73,18 +71,6 @@ describe('CollectionsSections', () => {
     const outer = container.firstElementChild;
     expect(outer).not.toBeNull();
     expect(outer?.className).toContain('custom-sections-class');
-  });
-
-  it('forwards showMyCollectionsPublicNote=false to MyCollections by default', () => {
-    render(<CollectionsSections />);
-
-    expect(screen.getByTestId('my-collections')).toHaveAttribute('data-show-public-note', 'false');
-  });
-
-  it('forwards showMyCollectionsPublicNote=true to MyCollections when set', () => {
-    render(<CollectionsSections showMyCollectionsPublicNote />);
-
-    expect(screen.getByTestId('my-collections')).toHaveAttribute('data-show-public-note', 'true');
   });
 
   it('matches the snapshot for authenticated users', () => {

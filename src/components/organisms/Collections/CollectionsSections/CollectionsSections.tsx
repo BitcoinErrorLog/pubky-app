@@ -9,7 +9,6 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 interface CollectionsSectionsProps {
   className?: string;
-  showMyCollectionsPublicNote?: boolean;
 }
 
 /**
@@ -25,7 +24,7 @@ interface CollectionsSectionsProps {
  * `MyCollections` and `FollowedCollections` require a signed-in viewer
  * (bookmarks / authored streams). Guests only see `DiscoverCollections`.
  */
-export function CollectionsSections({ className, showMyCollectionsPublicNote = false }: CollectionsSectionsProps) {
+export function CollectionsSections({ className }: CollectionsSectionsProps) {
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const showPersonalSections = hasHydrated && Boolean(currentUserPubky);
@@ -34,7 +33,7 @@ export function CollectionsSections({ className, showMyCollectionsPublicNote = f
     <Container overrideDefaults className={cn('flex w-full flex-col gap-12', className)}>
       {showPersonalSections ? (
         <>
-          <MyCollections showPublicNote={showMyCollectionsPublicNote} />
+          <MyCollections />
           <FollowedCollections />
         </>
       ) : null}
