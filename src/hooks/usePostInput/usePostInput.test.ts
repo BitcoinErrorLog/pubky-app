@@ -10,6 +10,7 @@ import {
   POST_MAX_CHARACTER_LENGTH,
 } from '@/config/posts';
 import { PostController } from '@/controllers/post/post';
+import { Logger } from '@/libs/logger/logger';
 import { PostStreamTypes } from '@/models/stream/post/postStream.types';
 import { POST_INPUT_VARIANT } from '@/organisms/PostInput/PostInput.constants';
 import { useTimelineFeedContext } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext';
@@ -94,6 +95,14 @@ vi.mock('@/controllers/post/post', () => ({
     getDetails: vi.fn(),
   },
 }));
+
+vi.mock('@/libs/logger/logger', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/logger/logger')>('@/libs/logger/logger');
+  return {
+    ...actual,
+    Logger: { ...actual.Logger, error: vi.fn() },
+  };
+});
 
 // Mock TimelineFeed context
 const mockPrependPosts = vi.fn();
@@ -702,6 +711,44 @@ describe('usePostInput', () => {
       });
     });
 
+    it('collapses PostInput and logs when getDetails rejects during stream-gated prepend', async () => {
+      mockContent = 'Test content';
+      mockPost.mockImplementation(async ({ onSuccess }) => {
+        onSuccess('created-post-id');
+      });
+      vi.mocked(useTimelineFeedContext).mockReturnValue({
+        ...mockTimelineFeedContext,
+        streamId: PostStreamTypes.TIMELINE_ALL_COLLECTION,
+      });
+      const getDetailsError = new Error('getDetails failed');
+      vi.mocked(PostController.getDetails).mockRejectedValue(getDetailsError);
+
+      const { result } = renderHook(() =>
+        usePostInput({
+          variant: 'post',
+        }),
+      );
+
+      act(() => {
+        result.current.handleExpand();
+      });
+      expect(result.current.isExpanded).toBe(true);
+
+      await act(async () => {
+        await result.current.handleSubmit();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isExpanded).toBe(false);
+      });
+      expect(mockPrependPosts).not.toHaveBeenCalled();
+      expect(Logger.error).toHaveBeenCalledWith('[usePostInput] Failed to prepend created post to timeline', {
+        error: getDetailsError,
+        createdPostId: 'created-post-id',
+        streamId: PostStreamTypes.TIMELINE_ALL_COLLECTION,
+      });
+    });
+
     it('collapses PostInput after successful post submission', async () => {
       mockContent = 'Test content';
       mockPost.mockImplementation(async ({ onSuccess }) => {
@@ -814,7 +861,7 @@ describe('usePostInput', () => {
       expect(mockOnSuccess).toHaveBeenCalledWith('created-post-id');
     });
 
-    it('calls onSuccess and prependPosts when submission succeeds for repost variant', async () => {
+    it('calls onSuccess and prependPosts when submission succeeds for repost variant on home feed', async () => {
       mockContent = 'Test repost content';
       mockRepost.mockImplementation(async ({ onSuccess }) => {
         onSuccess('created-repost-id');
@@ -838,6 +885,37 @@ describe('usePostInput', () => {
       });
       expect(mockOnSuccess).toHaveBeenCalledWith('created-repost-id');
     });
+
+    it.each([TIMELINE_FEED_VARIANT.COLLECTION, TIMELINE_FEED_VARIANT.BOOKMARKS])(
+      'calls onSuccess but does NOT prependPosts for repost variant on %s feed',
+      async (feedVariant) => {
+        vi.mocked(useTimelineFeedContext).mockReturnValueOnce({
+          ...mockTimelineFeedContext,
+          variant: feedVariant,
+        });
+
+        mockContent = 'Test repost content';
+        mockRepost.mockImplementation(async ({ onSuccess }) => {
+          onSuccess('created-repost-id');
+        });
+
+        const mockOnSuccess = vi.fn();
+        const { result } = renderHook(() =>
+          usePostInput({
+            variant: 'repost',
+            originalPostId: 'original-post-id',
+            onSuccess: mockOnSuccess,
+          }),
+        );
+
+        await act(async () => {
+          await result.current.handleSubmit();
+        });
+
+        expect(mockPrependPosts).not.toHaveBeenCalled();
+        expect(mockOnSuccess).toHaveBeenCalledWith('created-repost-id');
+      },
+    );
 
     it('calls onSuccess but does NOT prependPosts for reply variant', async () => {
       mockContent = 'Test reply content';
