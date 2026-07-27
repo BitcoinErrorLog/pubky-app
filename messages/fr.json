@@ -1355,6 +1355,9 @@
       "descriptionLabel": "Description",
       "descriptionPlaceholder": "Que trouveront les gens ici ?",
       "backgroundLabel": "Arrière-plan",
+      "layoutLabel": "Mise en page",
+      "layoutGrid": "Grille",
+      "layoutList": "Liste",
       "addImage": "Ajouter une image",
       "removeImage": "Supprimer l'image",
       "coverImageInvalid": "L'image de couverture doit être un fichier image.",
@@ -1377,6 +1380,7 @@
     "edit": {
       "title": "Modifier la collection",
       "save": "Enregistrer les modifications",
+      "defaultLayoutLabel": "Mise en page par défaut",
       "updated": "Collection mise à jour",
       "updateFailed": "Échec de la mise à jour de la collection."
     },
@@ -1417,6 +1421,9 @@
       "unfollow": "Ne plus suivre",
       "content": "Ajouter une publication",
       "addContent": "Ajouter une publication",
+      "layout": "Mise en page",
+      "layoutGrid": "Grille",
+      "layoutList": "Liste",
       "empty": "Cette collection est vide.",
       "notFound": {
         "title": "Collection introuvable",
