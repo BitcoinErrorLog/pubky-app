@@ -67,3 +67,10 @@ describe('MarketplaceListingForm', () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 });
+
+describe('MarketplaceListingForm - Snapshots', () => {
+  it('matches the physical listing form snapshot', () => {
+    const { container } = render(<FormHarness />);
+    expect(container.firstChild).toMatchSnapshot();
+  });
+});
