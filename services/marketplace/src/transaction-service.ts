@@ -1,11 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
+  type AcceptOfferCommand,
   buildMarketplaceListingAggregateId,
+  buildMarketplaceOfferAggregateId,
+  type CounterOfferCommand,
+  type CreateOfferCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
+  type RejectOfferCommand,
   type RegisterListingCommand,
   type ReserveInventoryCommand,
+  type WithdrawOfferCommand,
 } from './contracts';
 
 export interface MarketplaceListingAggregate {
@@ -38,13 +44,48 @@ export interface MarketplaceReservation {
   createdAt: string;
 }
 
+export interface MarketplaceOfferHistoryEntry {
+  revision: number;
+  actorPubky: string;
+  action: 'created' | 'countered' | 'accepted' | 'rejected' | 'withdrawn';
+  amount: MarketplaceListingAggregate['unitPrice'];
+  quantity: number;
+  message: string;
+  occurredAt: string;
+}
+
+export interface MarketplaceOffer {
+  id: string;
+  aggregateId: string;
+  listingAggregateId: string;
+  buyerPubky: string;
+  sellerPubky: string;
+  revision: number;
+  state: 'pending' | 'countered' | 'accepted' | 'rejected' | 'withdrawn' | 'expired';
+  offeredBy: string;
+  amount: MarketplaceListingAggregate['unitPrice'];
+  quantity: number;
+  message: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  history: MarketplaceOfferHistoryEntry[];
+}
+
 export interface MarketplaceEvent {
   id: string;
   commandId: string;
   aggregateId: string;
   revision: number;
   actorPubky: string;
-  kind: 'listing.registered' | 'inventory.reserved';
+  kind:
+    | 'listing.registered'
+    | 'inventory.reserved'
+    | 'offer.created'
+    | 'offer.countered'
+    | 'offer.accepted'
+    | 'offer.rejected'
+    | 'offer.withdrawn';
   occurredAt: string;
 }
 
@@ -57,7 +98,14 @@ export type MarketplaceCommandSuccess = {
   eventIds: string[];
   result:
     | { kind: 'listing'; listing: MarketplaceListingAggregate }
-    | { kind: 'reservation'; listing: MarketplaceListingAggregate; reservation: MarketplaceReservation };
+    | { kind: 'reservation'; listing: MarketplaceListingAggregate; reservation: MarketplaceReservation }
+    | { kind: 'offer'; offer: MarketplaceOffer }
+    | {
+        kind: 'accepted_offer';
+        offer: MarketplaceOffer;
+        listing: MarketplaceListingAggregate;
+        reservation: MarketplaceReservation;
+      };
 };
 
 export type MarketplaceCommandFailure = {
@@ -70,7 +118,9 @@ export type MarketplaceCommandFailure = {
       | 'REVISION_CONFLICT'
       | 'IDEMPOTENCY_CONFLICT'
       | 'INSUFFICIENT_INVENTORY'
-      | 'INVARIANT_VIOLATION';
+      | 'INVARIANT_VIOLATION'
+      | 'OFFER_EXPIRED'
+      | 'INVALID_STATE';
     message: string;
     currentRevision?: number;
     issues?: Array<{ path: string; message: string }>;
@@ -87,6 +137,7 @@ type StoredCommand = {
 export class InMemoryMarketplaceRepository {
   private listings = new Map<string, MarketplaceListingAggregate>();
   private reservations = new Map<string, MarketplaceReservation>();
+  private offers = new Map<string, MarketplaceOffer>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -115,6 +166,18 @@ export class InMemoryMarketplaceRepository {
 
   putReservation(reservation: MarketplaceReservation): void {
     this.reservations.set(reservation.id, reservation);
+  }
+
+  getOffer(id: string): MarketplaceOffer | undefined {
+    return this.offers.get(id);
+  }
+
+  putOffer(offer: MarketplaceOffer): void {
+    this.offers.set(offer.id, offer);
+  }
+
+  getOffersForListing(listingAggregateId: string): MarketplaceOffer[] {
+    return [...this.offers.values()].filter((offer) => offer.listingAggregateId === listingAggregateId);
   }
 
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
@@ -167,16 +230,32 @@ export class MarketplaceTransactionService {
           : failure('IDEMPOTENCY_CONFLICT', 'The command id was already used with different input.');
       }
 
-      const result =
-        command.kind === 'listing.register'
-          ? this.registerListing(actorPubky, command)
-          : this.reserveInventory(actorPubky, command);
+      const result = this.dispatchCommand(actorPubky, command);
 
       if (result.ok) {
         this.repository.putStoredCommand(actorPubky, command.commandId, { requestHash, result });
       }
       return result;
     });
+  }
+
+  private dispatchCommand(actorPubky: string, command: MarketplaceCommand): MarketplaceCommandResult {
+    switch (command.kind) {
+      case 'listing.register':
+        return this.registerListing(actorPubky, command);
+      case 'inventory.reserve':
+        return this.reserveInventory(actorPubky, command);
+      case 'offer.create':
+        return this.createOffer(actorPubky, command);
+      case 'offer.counter':
+        return this.counterOffer(actorPubky, command);
+      case 'offer.accept':
+        return this.acceptOffer(actorPubky, command);
+      case 'offer.reject':
+        return this.rejectOffer(actorPubky, command);
+      case 'offer.withdraw':
+        return this.withdrawOffer(actorPubky, command);
+    }
   }
 
   private registerListing(actorPubky: string, command: RegisterListingCommand): MarketplaceCommandResult {
@@ -281,17 +360,274 @@ export class MarketplaceTransactionService {
     });
   }
 
+  private createOffer(actorPubky: string, command: CreateOfferCommand): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The listing is not registered.');
+    if (listing.sellerPubky === actorPubky) {
+      return failure('UNAUTHORIZED', 'A seller cannot make an offer on their own listing.');
+    }
+    if (command.expectedRevision !== listing.serverRevision) {
+      return failure('REVISION_CONFLICT', 'The listing revision is stale.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    if (listing.availableQuantity < command.payload.quantity) {
+      return failure('INSUFFICIENT_INVENTORY', 'The requested offer quantity is unavailable.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    if (!sameAsset(listing.unitPrice, command.payload.amount)) {
+      return failure('INVALID_COMMAND', 'Offer amount must use the listing asset and exponent.');
+    }
+
+    const now = this.now();
+    const occurredAt = now.toISOString();
+    const offer: MarketplaceOffer = {
+      id: command.commandId,
+      aggregateId: buildMarketplaceOfferAggregateId(command.commandId),
+      listingAggregateId: listing.aggregateId,
+      buyerPubky: actorPubky,
+      sellerPubky: listing.sellerPubky,
+      revision: 1,
+      state: 'pending',
+      offeredBy: actorPubky,
+      amount: command.payload.amount,
+      quantity: command.payload.quantity,
+      message: command.payload.message,
+      expiresAt: new Date(now.getTime() + command.payload.expiresInSeconds * 1_000).toISOString(),
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+      history: [
+        {
+          revision: 1,
+          actorPubky,
+          action: 'created',
+          amount: command.payload.amount,
+          quantity: command.payload.quantity,
+          message: command.payload.message,
+          occurredAt,
+        },
+      ],
+    };
+    const event = this.createEvent(actorPubky, command, offer.revision, 'offer.created', occurredAt);
+    this.repository.putOffer(offer);
+    this.repository.appendEvent(event);
+    return success(command, offer.revision, event.id, { kind: 'offer', offer });
+  }
+
+  private counterOffer(actorPubky: string, command: CounterOfferCommand): MarketplaceCommandResult {
+    const offer = this.getActionableOffer(actorPubky, command.payload.offerId, command.aggregateId);
+    if (!offer.ok) return offer.failure;
+    if (command.expectedRevision !== offer.value.revision) {
+      return failure('REVISION_CONFLICT', 'The offer revision is stale.', {
+        currentRevision: offer.value.revision,
+      });
+    }
+    if (actorPubky === offer.value.offeredBy) {
+      return failure('UNAUTHORIZED', 'The current offer author cannot counter their own terms.');
+    }
+    if (!sameAsset(offer.value.amount, command.payload.amount)) {
+      return failure('INVALID_COMMAND', 'Counteroffer amount must use the original asset and exponent.');
+    }
+    const listing = this.repository.getListing(offer.value.listingAggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The offer listing is unavailable.');
+    if (listing.availableQuantity < command.payload.quantity) {
+      return failure('INSUFFICIENT_INVENTORY', 'The counteroffer quantity is unavailable.', {
+        currentRevision: offer.value.revision,
+      });
+    }
+
+    const now = this.now();
+    const occurredAt = now.toISOString();
+    const updated: MarketplaceOffer = {
+      ...offer.value,
+      revision: offer.value.revision + 1,
+      state: 'countered',
+      offeredBy: actorPubky,
+      amount: command.payload.amount,
+      quantity: command.payload.quantity,
+      message: command.payload.message,
+      expiresAt: new Date(now.getTime() + command.payload.expiresInSeconds * 1_000).toISOString(),
+      updatedAt: occurredAt,
+      history: [
+        ...offer.value.history,
+        {
+          revision: offer.value.revision + 1,
+          actorPubky,
+          action: 'countered',
+          amount: command.payload.amount,
+          quantity: command.payload.quantity,
+          message: command.payload.message,
+          occurredAt,
+        },
+      ],
+    };
+    const event = this.createEvent(actorPubky, command, updated.revision, 'offer.countered', occurredAt);
+    this.repository.putOffer(updated);
+    this.repository.appendEvent(event);
+    return success(command, updated.revision, event.id, { kind: 'offer', offer: updated });
+  }
+
+  private acceptOffer(actorPubky: string, command: AcceptOfferCommand): MarketplaceCommandResult {
+    const offer = this.getActionableOffer(actorPubky, command.payload.offerId, command.aggregateId);
+    if (!offer.ok) return offer.failure;
+    if (command.expectedRevision !== offer.value.revision) {
+      return failure('REVISION_CONFLICT', 'The offer revision is stale.', {
+        currentRevision: offer.value.revision,
+      });
+    }
+    if (actorPubky === offer.value.offeredBy) {
+      return failure('UNAUTHORIZED', 'The current offer author cannot accept their own terms.');
+    }
+    const listing = this.repository.getListing(offer.value.listingAggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The offer listing is unavailable.');
+    if (listing.availableQuantity < offer.value.quantity) {
+      return failure('INSUFFICIENT_INVENTORY', 'The offered quantity is no longer available.', {
+        currentRevision: offer.value.revision,
+      });
+    }
+
+    const now = this.now();
+    const occurredAt = now.toISOString();
+    const acceptedOffer = this.finishOffer(offer.value, actorPubky, 'accepted', occurredAt);
+    const reservation: MarketplaceReservation = {
+      id: command.commandId,
+      aggregateId: listing.aggregateId,
+      buyerPubky: acceptedOffer.buyerPubky,
+      quantity: acceptedOffer.quantity,
+      status: 'active',
+      expiresAt: new Date(now.getTime() + 30 * 60 * 1_000).toISOString(),
+      createdAt: occurredAt,
+    };
+    const updatedListing: MarketplaceListingAggregate = {
+      ...listing,
+      serverRevision: listing.serverRevision + 1,
+      state: listing.availableQuantity === acceptedOffer.quantity ? 'reserved' : 'available',
+      availableQuantity: listing.availableQuantity - acceptedOffer.quantity,
+      reservedQuantity: listing.reservedQuantity + acceptedOffer.quantity,
+      updatedAt: occurredAt,
+    };
+    const offerEvent = this.createEvent(actorPubky, command, acceptedOffer.revision, 'offer.accepted', occurredAt);
+    const inventoryEvent = this.createEvent(
+      actorPubky,
+      command,
+      updatedListing.serverRevision,
+      'inventory.reserved',
+      occurredAt,
+      updatedListing.aggregateId,
+    );
+    this.repository.putOffer(acceptedOffer);
+    this.repository.putListing(updatedListing);
+    this.repository.putReservation(reservation);
+    this.repository.appendEvent(offerEvent);
+    this.repository.appendEvent(inventoryEvent);
+    return success(command, acceptedOffer.revision, [offerEvent.id, inventoryEvent.id], {
+      kind: 'accepted_offer',
+      offer: acceptedOffer,
+      listing: updatedListing,
+      reservation,
+    });
+  }
+
+  private rejectOffer(actorPubky: string, command: RejectOfferCommand): MarketplaceCommandResult {
+    return this.completeOfferAction(actorPubky, command, 'rejected', 'offer.rejected');
+  }
+
+  private withdrawOffer(actorPubky: string, command: WithdrawOfferCommand): MarketplaceCommandResult {
+    const offer = this.getActionableOffer(actorPubky, command.payload.offerId, command.aggregateId);
+    if (!offer.ok) return offer.failure;
+    if (actorPubky !== offer.value.offeredBy) {
+      return failure('UNAUTHORIZED', 'Only the current offer author may withdraw it.');
+    }
+    return this.completeOfferAction(actorPubky, command, 'withdrawn', 'offer.withdrawn');
+  }
+
+  private completeOfferAction(
+    actorPubky: string,
+    command: RejectOfferCommand | WithdrawOfferCommand,
+    state: 'rejected' | 'withdrawn',
+    eventKind: 'offer.rejected' | 'offer.withdrawn',
+  ): MarketplaceCommandResult {
+    const offer = this.getActionableOffer(actorPubky, command.payload.offerId, command.aggregateId);
+    if (!offer.ok) return offer.failure;
+    if (command.expectedRevision !== offer.value.revision) {
+      return failure('REVISION_CONFLICT', 'The offer revision is stale.', {
+        currentRevision: offer.value.revision,
+      });
+    }
+    if (state === 'rejected' && actorPubky === offer.value.offeredBy) {
+      return failure('UNAUTHORIZED', 'The current offer author cannot reject their own terms.');
+    }
+
+    const occurredAt = this.now().toISOString();
+    const updated = this.finishOffer(offer.value, actorPubky, state, occurredAt);
+    const event = this.createEvent(actorPubky, command, updated.revision, eventKind, occurredAt);
+    this.repository.putOffer(updated);
+    this.repository.appendEvent(event);
+    return success(command, updated.revision, event.id, { kind: 'offer', offer: updated });
+  }
+
+  private getActionableOffer(
+    actorPubky: string,
+    offerId: string,
+    aggregateId: string,
+  ): { ok: true; value: MarketplaceOffer } | { ok: false; failure: MarketplaceCommandFailure } {
+    const offer = this.repository.getOffer(offerId);
+    if (!offer) return { ok: false, failure: failure('NOT_FOUND', 'The offer was not found.') };
+    if (aggregateId !== offer.aggregateId) {
+      return { ok: false, failure: failure('INVALID_COMMAND', 'The offer aggregate id is invalid.') };
+    }
+    if (actorPubky !== offer.buyerPubky && actorPubky !== offer.sellerPubky) {
+      return { ok: false, failure: failure('UNAUTHORIZED', 'Only offer participants may act on it.') };
+    }
+    if (offer.state !== 'pending' && offer.state !== 'countered') {
+      return { ok: false, failure: failure('INVALID_STATE', 'The offer is no longer actionable.') };
+    }
+    if (Date.parse(offer.expiresAt) <= this.now().getTime()) {
+      return { ok: false, failure: failure('OFFER_EXPIRED', 'The offer has expired.') };
+    }
+    return { ok: true, value: offer };
+  }
+
+  private finishOffer(
+    offer: MarketplaceOffer,
+    actorPubky: string,
+    state: 'accepted' | 'rejected' | 'withdrawn',
+    occurredAt: string,
+  ): MarketplaceOffer {
+    const revision = offer.revision + 1;
+    return {
+      ...offer,
+      revision,
+      state,
+      updatedAt: occurredAt,
+      history: [
+        ...offer.history,
+        {
+          revision,
+          actorPubky,
+          action: state,
+          amount: offer.amount,
+          quantity: offer.quantity,
+          message: '',
+          occurredAt,
+        },
+      ],
+    };
+  }
+
   private createEvent(
     actorPubky: string,
     command: MarketplaceCommand,
     revision: number,
     kind: MarketplaceEvent['kind'],
     occurredAt: string,
+    aggregateId = command.aggregateId,
   ): MarketplaceEvent {
     return {
       id: randomUUID(),
       commandId: command.commandId,
-      aggregateId: command.aggregateId,
+      aggregateId,
       revision,
       actorPubky,
       kind,
@@ -303,7 +639,7 @@ export class MarketplaceTransactionService {
 function success(
   command: MarketplaceCommand,
   revision: number,
-  eventId: string,
+  eventIds: string | string[],
   result: MarketplaceCommandSuccess['result'],
 ): MarketplaceCommandSuccess {
   return {
@@ -312,7 +648,7 @@ function success(
     commandId: command.commandId,
     aggregateId: command.aggregateId,
     revision,
-    eventIds: [eventId],
+    eventIds: Array.isArray(eventIds) ? eventIds : [eventIds],
     result,
   };
 }
@@ -327,4 +663,11 @@ function failure(
 
 function hashCommand(command: MarketplaceCommand): string {
   return createHash('sha256').update(JSON.stringify(command)).digest('hex');
+}
+
+function sameAsset(
+  left: MarketplaceListingAggregate['unitPrice'],
+  right: MarketplaceListingAggregate['unitPrice'],
+): boolean {
+  return left.currency === right.currency && left.exponent === right.exponent;
 }

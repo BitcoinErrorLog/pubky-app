@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildMarketplaceListingAggregateId } from './contracts';
+import { buildMarketplaceListingAggregateId, buildMarketplaceOfferAggregateId } from './contracts';
 import { InMemoryMarketplaceRepository, MarketplaceTransactionService } from './transaction-service';
 
 const SELLER = 'y'.repeat(52);
 const BUYER = 'b'.repeat(52);
+const OTHER_BUYER = 'n'.repeat(52);
 const AGGREGATE_ID = buildMarketplaceListingAggregateId(SELLER, 'boots_01');
 const NOW = new Date('2026-08-19T22:00:00.000Z');
 const REGISTER_COMMAND_ID = '018f47d2-6a27-7c23-a49d-6b21bb770120';
@@ -39,6 +40,59 @@ function reserveCommand(index = 1, quantity = 1, expectedRevision = 1) {
     payload: {
       quantity,
       reservationTtlSeconds: 600,
+    },
+  };
+}
+
+function createOfferCommand(quantity = 1) {
+  return {
+    version: 1,
+    commandId: '00000000-0000-4000-8000-000000000500',
+    aggregateId: AGGREGATE_ID,
+    expectedRevision: 1,
+    issuedAt: NOW.toISOString(),
+    kind: 'offer.create',
+    payload: {
+      amount: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+      quantity,
+      expiresInSeconds: 3_600,
+      message: 'Would you take this?',
+    },
+  };
+}
+
+function offerAction(
+  kind: 'offer.accept' | 'offer.reject' | 'offer.withdraw',
+  expectedRevision: number,
+  commandId: string,
+) {
+  const offerId = createOfferCommand().commandId;
+  return {
+    version: 1,
+    commandId,
+    aggregateId: buildMarketplaceOfferAggregateId(offerId),
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind,
+    payload: { offerId },
+  };
+}
+
+function counterOfferCommand(expectedRevision = 1) {
+  const offerId = createOfferCommand().commandId;
+  return {
+    version: 1,
+    commandId: '00000000-0000-4000-8000-000000000501',
+    aggregateId: buildMarketplaceOfferAggregateId(offerId),
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind: 'offer.counter',
+    payload: {
+      offerId,
+      amount: { amountMinor: 11_000, currency: 'USD', exponent: 2 },
+      quantity: 1,
+      expiresInSeconds: 3_600,
+      message: 'Meet me here.',
     },
   };
 }
@@ -201,5 +255,115 @@ describe('MarketplaceTransactionService', () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain('secret-address');
+  });
+
+  it('supports private offer, counteroffer, and atomic acceptance history', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerCommand(2));
+
+    const created = await service.execute(BUYER, createOfferCommand());
+    const countered = await service.execute(SELLER, counterOfferCommand());
+    const accepted = await service.execute(
+      BUYER,
+      offerAction('offer.accept', 2, '00000000-0000-4000-8000-000000000502'),
+    );
+
+    expect(created).toMatchObject({
+      ok: true,
+      revision: 1,
+      result: { kind: 'offer', offer: { buyerPubky: BUYER, sellerPubky: SELLER, state: 'pending' } },
+    });
+    expect(countered).toMatchObject({
+      ok: true,
+      revision: 2,
+      result: { kind: 'offer', offer: { state: 'countered', offeredBy: SELLER, amount: { amountMinor: 11_000 } } },
+    });
+    expect(accepted).toMatchObject({
+      ok: true,
+      revision: 3,
+      eventIds: expect.arrayContaining([expect.any(String), expect.any(String)]),
+      result: {
+        kind: 'accepted_offer',
+        offer: { state: 'accepted', revision: 3 },
+        listing: { availableQuantity: 1, reservedQuantity: 1, serverRevision: 2 },
+        reservation: { buyerPubky: BUYER, quantity: 1 },
+      },
+    });
+    expect(repository.getOffer(createOfferCommand().commandId)?.history.map(({ action }) => action)).toEqual([
+      'created',
+      'countered',
+      'accepted',
+    ]);
+  });
+
+  it('enforces participant roles for counter, reject, and withdraw', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await service.execute(BUYER, createOfferCommand());
+
+    await expect(service.execute(BUYER, counterOfferCommand())).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+    await expect(service.execute(OTHER_BUYER, counterOfferCommand())).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+    await expect(
+      service.execute(SELLER, offerAction('offer.withdraw', 1, '00000000-0000-4000-8000-000000000503')),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+    await expect(
+      service.execute(BUYER, offerAction('offer.reject', 1, '00000000-0000-4000-8000-000000000504')),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+  });
+
+  it('supports rejection by the recipient and withdrawal by the current author', async () => {
+    const rejectedService = createService().service;
+    await rejectedService.execute(SELLER, registerCommand());
+    await rejectedService.execute(BUYER, createOfferCommand());
+    await expect(
+      rejectedService.execute(SELLER, offerAction('offer.reject', 1, '00000000-0000-4000-8000-000000000505')),
+    ).resolves.toMatchObject({ ok: true, result: { offer: { state: 'rejected' } } });
+
+    const withdrawnService = createService().service;
+    await withdrawnService.execute(SELLER, registerCommand());
+    await withdrawnService.execute(BUYER, createOfferCommand());
+    await expect(
+      withdrawnService.execute(BUYER, offerAction('offer.withdraw', 1, '00000000-0000-4000-8000-000000000506')),
+    ).resolves.toMatchObject({ ok: true, result: { offer: { state: 'withdrawn' } } });
+  });
+
+  it('does not accept an offer after another buyer reserves the inventory', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await service.execute(BUYER, createOfferCommand());
+    await service.execute(OTHER_BUYER, reserveCommand(20));
+
+    await expect(
+      service.execute(SELLER, offerAction('offer.accept', 1, '00000000-0000-4000-8000-000000000507')),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INSUFFICIENT_INVENTORY' },
+    });
+  });
+
+  it('rejects actions after server-time offer expiry', async () => {
+    let now = new Date(NOW);
+    const repository = new InMemoryMarketplaceRepository();
+    const service = new MarketplaceTransactionService(repository, () => new Date(now));
+    await service.execute(SELLER, registerCommand());
+    await service.execute(BUYER, createOfferCommand());
+    now = new Date(NOW.getTime() + 3_601_000);
+
+    await expect(service.execute(SELLER, counterOfferCommand())).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'OFFER_EXPIRED' },
+    });
   });
 });

@@ -126,7 +126,10 @@ function statusForFailure(code: string): number {
     case 'IDEMPOTENCY_CONFLICT':
     case 'INSUFFICIENT_INVENTORY':
     case 'INVARIANT_VIOLATION':
+    case 'INVALID_STATE':
       return 409;
+    case 'OFFER_EXPIRED':
+      return 410;
     default:
       return 500;
   }
