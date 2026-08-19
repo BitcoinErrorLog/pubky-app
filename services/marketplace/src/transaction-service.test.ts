@@ -29,6 +29,26 @@ function registerCommand(quantity = 1, overrides: Record<string, unknown> = {}) 
   };
 }
 
+function registerAuctionCommand() {
+  return registerCommand(1, {
+    commandId: '00000000-0000-4000-8000-000000000600',
+    payload: {
+      ...registerCommand().payload,
+      listingRevision: 1,
+      unitPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      saleFormat: 'auction',
+      auctionTerms: {
+        startsAt: NOW.toISOString(),
+        endsAt: new Date(NOW.getTime() + 10 * 60 * 1_000).toISOString(),
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+        reservePrice: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
+        antiSnipingWindowSeconds: 60,
+        antiSnipingExtensionSeconds: 120,
+      },
+    },
+  });
+}
+
 function reserveCommand(index = 1, quantity = 1, expectedRevision = 1) {
   return {
     version: 1,
@@ -93,6 +113,20 @@ function counterOfferCommand(expectedRevision = 1) {
       quantity: 1,
       expiresInSeconds: 3_600,
       message: 'Meet me here.',
+    },
+  };
+}
+
+function placeBidCommand(actorIndex: number, maximumMinor: number, expectedRevision: number) {
+  return {
+    version: 1,
+    commandId: `00000000-0000-4000-8001-${actorIndex.toString().padStart(12, '0')}`,
+    aggregateId: AGGREGATE_ID,
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind: 'auction.place_bid',
+    payload: {
+      maximumAmount: { amountMinor: maximumMinor, currency: 'USD', exponent: 2 },
     },
   };
 }
@@ -365,5 +399,94 @@ describe('MarketplaceTransactionService', () => {
       ok: false,
       error: { code: 'OFFER_EXPIRED' },
     });
+  });
+
+  it('applies deterministic proxy bidding and reserve status', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerAuctionCommand());
+
+    const first = await service.execute(BUYER, placeBidCommand(1, 10_000, 1));
+    const second = await service.execute(OTHER_BUYER, placeBidCommand(2, 8_000, 2));
+
+    expect(first).toMatchObject({
+      ok: true,
+      result: {
+        kind: 'bid',
+        listing: {
+          auction: {
+            currentPrice: { amountMinor: 4_500 },
+            leaderPubky: BUYER,
+            reserveMet: false,
+            bidCount: 1,
+          },
+        },
+      },
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      revision: 3,
+      result: {
+        kind: 'bid',
+        listing: {
+          auction: {
+            currentPrice: { amountMinor: 8_500 },
+            leaderPubky: BUYER,
+            reserveMet: true,
+            bidCount: 2,
+          },
+        },
+      },
+    });
+    expect(repository.getBidsForListing(AGGREGATE_ID)).toHaveLength(2);
+  });
+
+  it('uses first accepted sequence as the proxy-bid tie breaker', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, placeBidCommand(1, 10_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(2, 10_000, 2));
+
+    expect(repository.getListing(AGGREGATE_ID)?.auction).toMatchObject({
+      currentPrice: { amountMinor: 10_000 },
+      leaderPubky: BUYER,
+    });
+  });
+
+  it('rejects seller, low, stale, and post-close bids', async () => {
+    let now = new Date(NOW);
+    const repository = new InMemoryMarketplaceRepository();
+    const service = new MarketplaceTransactionService(repository, () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+
+    await expect(service.execute(SELLER, placeBidCommand(1, 10_000, 1))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+    await expect(service.execute(BUYER, placeBidCommand(2, 4_500, 1))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'BID_TOO_LOW' },
+    });
+    await service.execute(BUYER, placeBidCommand(3, 10_000, 1));
+    await expect(service.execute(OTHER_BUYER, placeBidCommand(4, 11_000, 1))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', currentRevision: 2 },
+    });
+    now = new Date(NOW.getTime() + 11 * 60 * 1_000);
+    await expect(service.execute(OTHER_BUYER, placeBidCommand(5, 11_000, 2))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'AUCTION_CLOSED' },
+    });
+  });
+
+  it('extends an auction when a valid bid lands inside the anti-sniping window', async () => {
+    let now = new Date(NOW);
+    const repository = new InMemoryMarketplaceRepository();
+    const service = new MarketplaceTransactionService(repository, () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+    now = new Date(NOW.getTime() + 9 * 60 * 1_000 + 30_000);
+
+    await service.execute(BUYER, placeBidCommand(1, 10_000, 1));
+
+    expect(repository.getListing(AGGREGATE_ID)?.auction?.endsAt).toBe(new Date(now.getTime() + 120_000).toISOString());
   });
 });

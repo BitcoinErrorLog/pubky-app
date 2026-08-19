@@ -127,8 +127,10 @@ function statusForFailure(code: string): number {
     case 'INSUFFICIENT_INVENTORY':
     case 'INVARIANT_VIOLATION':
     case 'INVALID_STATE':
+    case 'BID_TOO_LOW':
       return 409;
     case 'OFFER_EXPIRED':
+    case 'AUCTION_CLOSED':
       return 410;
     default:
       return 500;

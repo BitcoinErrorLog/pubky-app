@@ -8,6 +8,7 @@ import {
   type CreateOfferCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
+  type PlaceBidCommand,
   type RegisterListingCommand,
   type RejectOfferCommand,
   type ReserveInventoryCommand,
@@ -31,6 +32,19 @@ export interface MarketplaceListingAggregate {
     currency: string;
     exponent: number;
   };
+  saleFormat: 'fixed_price' | 'auction';
+  auction: {
+    startsAt: string;
+    endsAt: string;
+    minimumIncrement: MarketplaceListingAggregate['unitPrice'];
+    reservePrice?: MarketplaceListingAggregate['unitPrice'];
+    antiSnipingWindowSeconds: number;
+    antiSnipingExtensionSeconds: number;
+    currentPrice: MarketplaceListingAggregate['unitPrice'];
+    leaderPubky: string | null;
+    bidCount: number;
+    reserveMet: boolean;
+  } | null;
   updatedAt: string;
 }
 
@@ -72,6 +86,15 @@ export interface MarketplaceOffer {
   history: MarketplaceOfferHistoryEntry[];
 }
 
+export interface MarketplaceBid {
+  id: string;
+  listingAggregateId: string;
+  bidderPubky: string;
+  maximumAmount: MarketplaceListingAggregate['unitPrice'];
+  sequence: number;
+  createdAt: string;
+}
+
 export interface MarketplaceEvent {
   id: string;
   commandId: string;
@@ -85,7 +108,8 @@ export interface MarketplaceEvent {
     | 'offer.countered'
     | 'offer.accepted'
     | 'offer.rejected'
-    | 'offer.withdrawn';
+    | 'offer.withdrawn'
+    | 'auction.bid_placed';
   occurredAt: string;
 }
 
@@ -100,6 +124,11 @@ export type MarketplaceCommandSuccess = {
     | { kind: 'listing'; listing: MarketplaceListingAggregate }
     | { kind: 'reservation'; listing: MarketplaceListingAggregate; reservation: MarketplaceReservation }
     | { kind: 'offer'; offer: MarketplaceOffer }
+    | {
+        kind: 'bid';
+        listing: MarketplaceListingAggregate;
+        bid: MarketplaceBid;
+      }
     | {
         kind: 'accepted_offer';
         offer: MarketplaceOffer;
@@ -120,7 +149,9 @@ export type MarketplaceCommandFailure = {
       | 'INSUFFICIENT_INVENTORY'
       | 'INVARIANT_VIOLATION'
       | 'OFFER_EXPIRED'
-      | 'INVALID_STATE';
+      | 'INVALID_STATE'
+      | 'AUCTION_CLOSED'
+      | 'BID_TOO_LOW';
     message: string;
     currentRevision?: number;
     issues?: Array<{ path: string; message: string }>;
@@ -138,6 +169,7 @@ export class InMemoryMarketplaceRepository {
   private listings = new Map<string, MarketplaceListingAggregate>();
   private reservations = new Map<string, MarketplaceReservation>();
   private offers = new Map<string, MarketplaceOffer>();
+  private bids = new Map<string, MarketplaceBid[]>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -178,6 +210,15 @@ export class InMemoryMarketplaceRepository {
 
   getOffersForListing(listingAggregateId: string): MarketplaceOffer[] {
     return [...this.offers.values()].filter((offer) => offer.listingAggregateId === listingAggregateId);
+  }
+
+  putBid(bid: MarketplaceBid): void {
+    const current = this.bids.get(bid.listingAggregateId) ?? [];
+    this.bids.set(bid.listingAggregateId, [...current, bid]);
+  }
+
+  getBidsForListing(listingAggregateId: string): MarketplaceBid[] {
+    return [...(this.bids.get(listingAggregateId) ?? [])];
   }
 
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
@@ -255,6 +296,8 @@ export class MarketplaceTransactionService {
         return this.rejectOffer(actorPubky, command);
       case 'offer.withdraw':
         return this.withdrawOffer(actorPubky, command);
+      case 'auction.place_bid':
+        return this.placeBid(actorPubky, command);
     }
   }
 
@@ -299,6 +342,20 @@ export class MarketplaceTransactionService {
       reservedQuantity: current?.reservedQuantity ?? 0,
       soldQuantity: current?.soldQuantity ?? 0,
       unitPrice: payload.unitPrice,
+      saleFormat: payload.saleFormat,
+      auction: payload.auctionTerms
+        ? {
+            ...payload.auctionTerms,
+            currentPrice: current?.auction?.currentPrice ?? payload.unitPrice,
+            leaderPubky: current?.auction?.leaderPubky ?? null,
+            bidCount: current?.auction?.bidCount ?? 0,
+            reserveMet:
+              current?.auction?.reserveMet ??
+              (payload.auctionTerms.reservePrice
+                ? payload.unitPrice.amountMinor >= payload.auctionTerms.reservePrice.amountMinor
+                : true),
+          }
+        : null,
       updatedAt: occurredAt,
     };
     const event = this.createEvent(actorPubky, command, listing.serverRevision, 'listing.registered', occurredAt);
@@ -616,6 +673,103 @@ export class MarketplaceTransactionService {
     };
   }
 
+  private placeBid(actorPubky: string, command: PlaceBidCommand): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The auction listing is not registered.');
+    if (listing.sellerPubky === actorPubky) {
+      return failure('UNAUTHORIZED', 'A seller cannot bid on their own auction.');
+    }
+    if (listing.saleFormat !== 'auction' || !listing.auction) {
+      return failure('INVALID_STATE', 'This listing is not an auction.');
+    }
+    if (command.expectedRevision !== listing.serverRevision) {
+      return failure('REVISION_CONFLICT', 'The auction revision is stale.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    const now = this.now();
+    const nowMs = now.getTime();
+    if (nowMs < Date.parse(listing.auction.startsAt) || nowMs >= Date.parse(listing.auction.endsAt)) {
+      return failure('AUCTION_CLOSED', 'The auction is not open for bidding.');
+    }
+    if (!sameAsset(listing.unitPrice, command.payload.maximumAmount)) {
+      return failure('INVALID_COMMAND', 'Bid maximum must use the auction asset and exponent.');
+    }
+    if (command.payload.maximumAmount.amountMinor <= listing.auction.currentPrice.amountMinor) {
+      return failure('BID_TOO_LOW', 'Bid maximum must exceed the current visible price.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+
+    const previousBids = this.repository.getBidsForListing(listing.aggregateId);
+    const bidderPreviousMaximum = previousBids
+      .filter((bid) => bid.bidderPubky === actorPubky)
+      .reduce((maximum, bid) => Math.max(maximum, bid.maximumAmount.amountMinor), 0);
+    if (command.payload.maximumAmount.amountMinor <= bidderPreviousMaximum) {
+      return failure('BID_TOO_LOW', 'A new proxy maximum must exceed the bidder previous maximum.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+
+    const occurredAt = now.toISOString();
+    const bid: MarketplaceBid = {
+      id: command.commandId,
+      listingAggregateId: listing.aggregateId,
+      bidderPubky: actorPubky,
+      maximumAmount: command.payload.maximumAmount,
+      sequence: listing.auction.bidCount + 1,
+      createdAt: occurredAt,
+    };
+    const bidderMaximums = latestBidderMaximums([...previousBids, bid]);
+    const ranked = [...bidderMaximums.values()].sort(
+      (left, right) =>
+        right.maximumAmount.amountMinor - left.maximumAmount.amountMinor || left.sequence - right.sequence,
+    );
+    const leader = ranked[0];
+    const runnerUp = ranked[1];
+    const visibleAmount = runnerUp
+      ? Math.min(
+          leader.maximumAmount.amountMinor,
+          runnerUp.maximumAmount.amountMinor + listing.auction.minimumIncrement.amountMinor,
+        )
+      : listing.unitPrice.amountMinor;
+    const remainingMs = Date.parse(listing.auction.endsAt) - nowMs;
+    const shouldExtend =
+      listing.auction.antiSnipingWindowSeconds > 0 && remainingMs <= listing.auction.antiSnipingWindowSeconds * 1_000;
+    const endsAt = shouldExtend
+      ? new Date(nowMs + listing.auction.antiSnipingExtensionSeconds * 1_000).toISOString()
+      : listing.auction.endsAt;
+    const currentPrice = { ...listing.unitPrice, amountMinor: visibleAmount };
+    const updatedListing: MarketplaceListingAggregate = {
+      ...listing,
+      serverRevision: listing.serverRevision + 1,
+      auction: {
+        ...listing.auction,
+        endsAt,
+        currentPrice,
+        leaderPubky: leader.bidderPubky,
+        bidCount: listing.auction.bidCount + 1,
+        reserveMet: listing.auction.reservePrice ? visibleAmount >= listing.auction.reservePrice.amountMinor : true,
+      },
+      updatedAt: occurredAt,
+    };
+    const event = this.createEvent(
+      actorPubky,
+      command,
+      updatedListing.serverRevision,
+      'auction.bid_placed',
+      occurredAt,
+    );
+    this.repository.putBid(bid);
+    this.repository.putListing(updatedListing);
+    this.repository.appendEvent(event);
+    return success(command, updatedListing.serverRevision, event.id, {
+      kind: 'bid',
+      listing: updatedListing,
+      bid,
+    });
+  }
+
   private createEvent(
     actorPubky: string,
     command: MarketplaceCommand,
@@ -670,4 +824,19 @@ function sameAsset(
   right: MarketplaceListingAggregate['unitPrice'],
 ): boolean {
   return left.currency === right.currency && left.exponent === right.exponent;
+}
+
+function latestBidderMaximums(bids: MarketplaceBid[]): Map<string, MarketplaceBid> {
+  const latest = new Map<string, MarketplaceBid>();
+  for (const bid of bids) {
+    const current = latest.get(bid.bidderPubky);
+    if (
+      !current ||
+      bid.maximumAmount.amountMinor > current.maximumAmount.amountMinor ||
+      (bid.maximumAmount.amountMinor === current.maximumAmount.amountMinor && bid.sequence < current.sequence)
+    ) {
+      latest.set(bid.bidderPubky, bid);
+    }
+  }
+  return latest;
 }
