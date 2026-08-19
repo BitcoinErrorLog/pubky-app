@@ -5,6 +5,18 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { type BookmarkModelSchema, bookmarkTableSchema } from '@/models/bookmark/bookmark.schema';
+import {
+  type CommerceListingDraftModelSchema,
+  commerceListingDraftTableSchema,
+  type CommerceListingModelSchema,
+  type CommerceListingProjectionModelSchema,
+  commerceListingProjectionTableSchema,
+  commerceListingTableSchema,
+  type CommerceShopModelSchema,
+  commerceShopTableSchema,
+  type CommerceSyncJobModelSchema,
+  commerceSyncJobTableSchema,
+} from '@/models/commerce/commerce.schema';
 import { type FeedModelSchema, feedTableSchema } from '@/models/feed/feed.schema';
 import { type FileDetailsModelSchema, fileDetailsTableSchema } from '@/models/file/fileDetails.schema';
 import { type HotTagsModelSchema, hotTagsTableSchema } from '@/models/hot/hot.schema';
@@ -104,6 +116,12 @@ export class AppDatabase extends Dexie {
   tag_streams!: Dexie.Table<TagStreamModelSchema>;
   // Bookmarks
   bookmarks!: Dexie.Table<BookmarkModelSchema>;
+  // Commerce
+  commerce_shops!: Dexie.Table<CommerceShopModelSchema>;
+  commerce_listings!: Dexie.Table<CommerceListingModelSchema>;
+  commerce_listing_drafts!: Dexie.Table<CommerceListingDraftModelSchema>;
+  commerce_listing_projections!: Dexie.Table<CommerceListingProjectionModelSchema>;
+  commerce_sync_jobs!: Dexie.Table<CommerceSyncJobModelSchema>;
   // Hot tags
   hot_tags!: Dexie.Table<HotTagsModelSchema>;
   // Feeds
@@ -139,6 +157,12 @@ export class AppDatabase extends Dexie {
         tag_streams: tagStreamTableSchema,
         // Bookmarks
         bookmarks: bookmarkTableSchema,
+        // Commerce
+        commerce_shops: commerceShopTableSchema,
+        commerce_listings: commerceListingTableSchema,
+        commerce_listing_drafts: commerceListingDraftTableSchema,
+        commerce_listing_projections: commerceListingProjectionTableSchema,
+        commerce_sync_jobs: commerceSyncJobTableSchema,
         // Hot tags
         hot_tags: hotTagsTableSchema,
         // Feeds

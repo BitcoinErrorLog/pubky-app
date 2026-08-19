@@ -85,6 +85,30 @@ describe('Database Initialization', () => {
     vi.clearAllMocks();
   });
 
+  it('creates the marketplace cache, draft, projection, and sync stores', async () => {
+    const testDbName = `${DB_NAME}-commerce-stores`;
+    const testDb = new AppDatabase(testDbName);
+
+    await waitForDatabaseDeletion(testDbName, () => testDb.close());
+
+    try {
+      await testDb.initialize();
+      const storeNames = await readNativeObjectStoreNames(testDbName);
+
+      expect(storeNames).toEqual(
+        expect.arrayContaining([
+          'commerce_shops',
+          'commerce_listings',
+          'commerce_listing_drafts',
+          'commerce_listing_projections',
+          'commerce_sync_jobs',
+        ]),
+      );
+    } finally {
+      await testDb.delete();
+    }
+  });
+
   it('prevents the manual version mismatch reproduction steps from persisting', async () => {
     const reproductionDbName = `${DB_NAME}-manual-mismatch-test`;
     const reproductionDb = new AppDatabase(reproductionDbName);
