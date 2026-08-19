@@ -21,13 +21,13 @@ This is a pre-production prototype, not a claim of production eBay parity. Payki
 
 ## Verified upstream constraints
 
-| Dependency | Verified capability | Integration consequence |
-| --- | --- | --- |
-| `pubky/paykit-rs` | Public/private payment endpoints, encrypted links, payment requests/proofs, encrypted receipts; Rust plus Swift/Kotlin bindings | No browser binding exists. Web integration must use a service boundary; Bitkit/Pubky Ring can own companion approval and wallet execution. |
-| `pubky/paykit-server` | Signed invoice creation/status routes, Bitkit companion setup, unique BIP84 addresses, confirmation observation | Only a trusted Locks service may call business routes. It is receiver-side, BTC-only, single-process, and cannot refund. |
-| `pubky/locks` | Lock policies, proof submission, verification polling, entitlement/access credentials, browser JS/WASM SDK, Paykit verifier | Use for paid digital delivery and proof-backed access, never as custody or general buyer protection. |
-| `@synonymdev/pubky` | Browser Pubky sessions, homeserver storage, public storage, auth URLs | Reuse current app auth and homeserver service. Existing app grant is `/pub/pubky.app/:rw`; private Locks creator authority remains a separate flow. |
-| `pubky-app-specs` | Posts support a `lock` link | Marketplace previews may point at a Locks policy without changing post wire format. |
+| Dependency            | Verified capability                                                                                                             | Integration consequence                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pubky/paykit-rs`     | Public/private payment endpoints, encrypted links, payment requests/proofs, encrypted receipts; Rust plus Swift/Kotlin bindings | No browser binding exists. Web integration must use a service boundary; Bitkit/Pubky Ring can own companion approval and wallet execution.          |
+| `pubky/paykit-server` | Signed invoice creation/status routes, Bitkit companion setup, unique BIP84 addresses, confirmation observation                 | Only a trusted Locks service may call business routes. It is receiver-side, BTC-only, single-process, and cannot refund.                            |
+| `pubky/locks`         | Lock policies, proof submission, verification polling, entitlement/access credentials, browser JS/WASM SDK, Paykit verifier     | Use for paid digital delivery and proof-backed access, never as custody or general buyer protection.                                                |
+| `@synonymdev/pubky`   | Browser Pubky sessions, homeserver storage, public storage, auth URLs                                                           | Reuse current app auth and homeserver service. Existing app grant is `/pub/pubky.app/:rw`; private Locks creator authority remains a separate flow. |
+| `pubky-app-specs`     | Posts support a `lock` link                                                                                                     | Marketplace previews may point at a Locks policy without changing post wire format.                                                                 |
 
 Upstream references:
 
@@ -313,9 +313,9 @@ Each implementation task closes only through this loop:
 
 Ledger format:
 
-| Requirement | Verification address | Expected evidence | Finding | Fix | Re-verification | Status |
-| --- | --- | --- | --- | --- | --- | --- |
-| Example: payment confirmation is idempotent | payment transition test + checkout E2E + order timeline | one paid transition after duplicate confirmations | Pending | Pending | Pending | Open |
+| Requirement                                 | Verification address                                    | Expected evidence                                 | Finding | Fix     | Re-verification | Status |
+| ------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- | ------- | ------- | --------------- | ------ |
+| Example: payment confirmation is idempotent | payment transition test + checkout E2E + order timeline | one paid transition after duplicate confirmations | Pending | Pending | Pending         | Open   |
 
 Required gates:
 
