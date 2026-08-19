@@ -5,10 +5,12 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { RecordModelBase } from '@/models/shared/base/record/baseRecord';
 import type {
+  CommerceFavoriteModelSchema,
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceShopModelSchema,
+  CommerceShopFollowModelSchema,
   CommerceSyncJobModelSchema,
 } from './commerce.schema';
 
@@ -233,6 +235,68 @@ export class CommerceSyncJobModel
         service: ErrorService.Local,
         operation: 'findReady',
         context: { table: this.table.name, limit },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceFavoriteModel
+  extends RecordModelBase<string, CommerceFavoriteModelSchema>
+  implements CommerceFavoriteModelSchema
+{
+  static table: Table<CommerceFavoriteModelSchema> = db.table('commerce_favorites');
+
+  owner_id: string;
+  listing_id: string;
+  created_at: number;
+
+  constructor(favorite: CommerceFavoriteModelSchema) {
+    super(favorite);
+    this.owner_id = favorite.owner_id;
+    this.listing_id = favorite.listing_id;
+    this.created_at = favorite.created_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceFavoriteModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('created_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceShopFollowModel
+  extends RecordModelBase<string, CommerceShopFollowModelSchema>
+  implements CommerceShopFollowModelSchema
+{
+  static table: Table<CommerceShopFollowModelSchema> = db.table('commerce_shop_follows');
+
+  owner_id: string;
+  seller_id: string;
+  created_at: number;
+
+  constructor(follow: CommerceShopFollowModelSchema) {
+    super(follow);
+    this.owner_id = follow.owner_id;
+    this.seller_id = follow.seller_id;
+    this.created_at = follow.created_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceShopFollowModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('created_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
         cause: error,
       });
     }

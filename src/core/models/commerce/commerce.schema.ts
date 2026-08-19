@@ -132,3 +132,21 @@ export const commerceSyncJobTableSchema = [
   'updated_at',
   '[owner_id+status]',
 ].join(', ');
+
+export interface CommerceFavoriteModelSchema {
+  id: string;
+  owner_id: string;
+  listing_id: string;
+  created_at: number;
+}
+
+export const commerceFavoriteTableSchema = '&id, owner_id, listing_id, created_at, [owner_id+created_at]';
+
+export interface CommerceShopFollowModelSchema {
+  id: string;
+  owner_id: string;
+  seller_id: string;
+  created_at: number;
+}
+
+export const commerceShopFollowTableSchema = '&id, owner_id, seller_id, created_at, [owner_id+created_at]';

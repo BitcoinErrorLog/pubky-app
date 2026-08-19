@@ -69,4 +69,25 @@ describe('CommerceController', () => {
 
     expect(useCommerceStore.getState().pendingEntityIds).toEqual([]);
   });
+
+  it('scopes favorite writes to the signed-in owner', async () => {
+    const create = vi.spyOn(CommerceApplication, 'commitCreateFavorite').mockResolvedValue(undefined);
+    const listingId = `${COMMERCE_FIXTURE_BUYER}:boots_01`;
+
+    await CommerceController.commitCreateFavorite(listingId);
+
+    expect(create).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, listingId);
+    await expect(CommerceController.commitCreateFavorite('../invalid')).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    });
+  });
+
+  it('prevents following the signed-in seller own shop', async () => {
+    const create = vi.spyOn(CommerceApplication, 'commitCreateShopFollow').mockResolvedValue(undefined);
+
+    await expect(CommerceController.commitCreateShopFollow(COMMERCE_FIXTURE_SELLER)).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
 });

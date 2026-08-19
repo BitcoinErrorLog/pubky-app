@@ -3,10 +3,12 @@ import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/c
 import { db } from '@/database/franky/franky';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import {
+  CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceShopModel,
+  CommerceShopFollowModel,
   CommerceSyncJobModel,
 } from './commerce.models';
 import type {
@@ -162,6 +164,8 @@ describe('commerce Dexie models', () => {
       CommerceListingDraftModel.table.clear(),
       CommerceListingProjectionModel.table.clear(),
       CommerceSyncJobModel.table.clear(),
+      CommerceFavoriteModel.table.clear(),
+      CommerceShopFollowModel.table.clear(),
     ]);
   });
 
@@ -281,5 +285,28 @@ describe('commerce Dexie models', () => {
 
     expect(oneJob.map(({ entity_id }) => entity_id)).toEqual(['boots_01']);
     expect(allDueJobs.map(({ entity_id }) => entity_id)).toEqual(['boots_01', 'second']);
+  });
+
+  it('stores favorites and shop follows under the active owner', async () => {
+    await CommerceFavoriteModel.bulkSave([
+      {
+        id: `${SELLER_PUBKY}|${OTHER_SELLER_PUBKY}:boots_01`,
+        owner_id: SELLER_PUBKY,
+        listing_id: `${OTHER_SELLER_PUBKY}:boots_01`,
+        created_at: 100,
+      },
+    ]);
+    await CommerceShopFollowModel.bulkSave([
+      {
+        id: `${SELLER_PUBKY}|${OTHER_SELLER_PUBKY}`,
+        owner_id: SELLER_PUBKY,
+        seller_id: OTHER_SELLER_PUBKY,
+        created_at: 200,
+      },
+    ]);
+
+    expect(await CommerceFavoriteModel.findByOwner(SELLER_PUBKY)).toHaveLength(1);
+    expect(await CommerceShopFollowModel.findByOwner(SELLER_PUBKY)).toHaveLength(1);
+    expect(await CommerceFavoriteModel.findByOwner(OTHER_SELLER_PUBKY)).toEqual([]);
   });
 });

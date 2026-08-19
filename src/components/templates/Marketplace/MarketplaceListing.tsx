@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Gavel, MapPin, PackageCheck, ShieldCheck, Store } from 'lucide-react';
+import { ArrowLeft, Gavel, Heart, MapPin, PackageCheck, ShieldCheck, Store } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceShopRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -13,6 +13,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -28,6 +29,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const { requireAuth } = useRequireAuth();
   const [error, setError] = useState<string | null>(null);
   const adapterMode = getCommerceAdapterMode();
+  const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
 
   useEffect(() => {
     let active = true;
@@ -196,22 +198,35 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </div>
             </div>
 
-            <Button
-              size="lg"
-              className="mt-auto w-full rounded-full"
-              disabled={adapterMode === 'unavailable'}
-              onClick={() =>
-                requireAuth(() =>
-                  toast({
-                    variant: 'info',
-                    title: 'Sandbox transaction',
-                    description: 'Checkout and bidding are connected in the next transaction slice.',
-                  }),
-                )
-              }
-            >
-              {actionLabel}
-            </Button>
+            <div className="mt-auto flex gap-3">
+              <Button
+                size="lg"
+                className="flex-1 rounded-full"
+                disabled={adapterMode === 'unavailable'}
+                onClick={() =>
+                  requireAuth(() =>
+                    toast({
+                      variant: 'info',
+                      title: 'Sandbox transaction',
+                      description: 'Checkout and bidding are connected in the next transaction slice.',
+                    }),
+                  )
+                }
+              >
+                {actionLabel}
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
+                className="rounded-full"
+                aria-label={favorite.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                aria-pressed={favorite.isFavorite}
+                disabled={favorite.isMutating}
+                onClick={favorite.toggle}
+              >
+                <Heart className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
+              </Button>
+            </div>
             {adapterMode === 'unavailable' && (
               <Typography as="p" className="text-center text-sm text-muted-foreground">
                 Transactions are disabled in this deployment.

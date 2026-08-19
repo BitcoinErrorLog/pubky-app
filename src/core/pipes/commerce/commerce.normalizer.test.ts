@@ -55,6 +55,15 @@ describe('CommerceRecordNormalizer', () => {
     );
   });
 
+  it('normalizes seller-scoped composite listing ids', () => {
+    expect(CommerceRecordNormalizer.listingCompositeId(`${COMMERCE_FIXTURE_SELLER}:boots_01`)).toBe(
+      `${COMMERCE_FIXTURE_SELLER}:boots_01`,
+    );
+    expect(() => CommerceRecordNormalizer.listingCompositeId('seller:../private')).toThrow(
+      expect.objectContaining({ code: 'INVALID_INPUT' }),
+    );
+  });
+
   it.each([
     ['invalid owner', 'not-a-pubky', 'listing_01'],
     ['path traversal', COMMERCE_FIXTURE_SELLER, '../private'],

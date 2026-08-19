@@ -102,6 +102,8 @@ describe('Database Initialization', () => {
           'commerce_listing_drafts',
           'commerce_listing_projections',
           'commerce_sync_jobs',
+          'commerce_favorites',
+          'commerce_shop_follows',
         ]),
       );
     } finally {

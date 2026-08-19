@@ -59,6 +59,61 @@ export class CommerceController {
     return await CommerceApplication.initializeSandboxCatalog();
   }
 
+  static async isFavorite(listingCompositeId: unknown): Promise<boolean> {
+    return await CommerceApplication.isFavorite(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+    );
+  }
+
+  static async getFavorites() {
+    return await CommerceApplication.getFavorites(this.getCurrentUserPubky());
+  }
+
+  static async commitCreateFavorite(listingCompositeId: unknown): Promise<void> {
+    await CommerceApplication.commitCreateFavorite(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+    );
+  }
+
+  static async commitDeleteFavorite(listingCompositeId: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteFavorite(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+    );
+  }
+
+  static async isShopFollowed(sellerPubky: unknown): Promise<boolean> {
+    return await CommerceApplication.isShopFollowed(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.pubky(sellerPubky),
+    );
+  }
+
+  static async getShopFollows() {
+    return await CommerceApplication.getShopFollows(this.getCurrentUserPubky());
+  }
+
+  static async commitCreateShopFollow(sellerPubky: unknown): Promise<void> {
+    const ownerPubky = this.getCurrentUserPubky();
+    const seller = CommerceRecordNormalizer.pubky(sellerPubky);
+    if (ownerPubky === seller) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A seller cannot follow their own shop.', {
+        service: ErrorService.Local,
+        operation: 'commitCreateShopFollow',
+      });
+    }
+    await CommerceApplication.commitCreateShopFollow(ownerPubky, seller);
+  }
+
+  static async commitDeleteShopFollow(sellerPubky: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteShopFollow(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.pubky(sellerPubky),
+    );
+  }
+
   static async commitUpsertShop(input: unknown): Promise<void> {
     const record = CommerceRecordNormalizer.shop(input);
     this.assertCurrentUserOwns(record.ownerPubky);
@@ -74,7 +129,7 @@ export class CommerceController {
   }
 
   private static assertCurrentUserOwns(ownerPubky: string): void {
-    const currentUserPubky = useAuthStore.getState().selectCurrentUserPubky();
+    const currentUserPubky = this.getCurrentUserPubky();
     if (currentUserPubky !== ownerPubky) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Commerce record owner must match the signed-in user.', {
         service: ErrorService.Local,
@@ -82,6 +137,10 @@ export class CommerceController {
         context: { ownerMatches: false },
       });
     }
+  }
+
+  private static getCurrentUserPubky(): string {
+    return useAuthStore.getState().selectCurrentUserPubky();
   }
 
   private static async withPending(entityId: string, operation: () => Promise<void>): Promise<void> {

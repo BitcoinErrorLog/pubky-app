@@ -5,10 +5,12 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError } from '@/libs/error/error.utils';
 import {
+  CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceShopModel,
+  CommerceShopFollowModel,
   CommerceSyncJobModel,
 } from '@/models/commerce/commerce.models';
 import type {
@@ -30,6 +32,48 @@ export class LocalCommerceService {
 
   static async getAllShops(): Promise<CommerceShopModelSchema[]> {
     return await CommerceShopModel.findAllSorted();
+  }
+
+  static async isFavorite(ownerId: string, listingId: string): Promise<boolean> {
+    return await CommerceFavoriteModel.exists(this.favoriteId(ownerId, listingId));
+  }
+
+  static async getFavorites(ownerId: string) {
+    return await CommerceFavoriteModel.findByOwner(ownerId);
+  }
+
+  static async createFavorite(ownerId: string, listingId: string, now: number): Promise<void> {
+    await CommerceFavoriteModel.upsert({
+      id: this.favoriteId(ownerId, listingId),
+      owner_id: ownerId,
+      listing_id: listingId,
+      created_at: now,
+    });
+  }
+
+  static async deleteFavorite(ownerId: string, listingId: string): Promise<void> {
+    await CommerceFavoriteModel.deleteById(this.favoriteId(ownerId, listingId));
+  }
+
+  static async isShopFollowed(ownerId: string, sellerId: string): Promise<boolean> {
+    return await CommerceShopFollowModel.exists(this.shopFollowId(ownerId, sellerId));
+  }
+
+  static async getShopFollows(ownerId: string) {
+    return await CommerceShopFollowModel.findByOwner(ownerId);
+  }
+
+  static async createShopFollow(ownerId: string, sellerId: string, now: number): Promise<void> {
+    await CommerceShopFollowModel.upsert({
+      id: this.shopFollowId(ownerId, sellerId),
+      owner_id: ownerId,
+      seller_id: sellerId,
+      created_at: now,
+    });
+  }
+
+  static async deleteShopFollow(ownerId: string, sellerId: string): Promise<void> {
+    await CommerceShopFollowModel.deleteById(this.shopFollowId(ownerId, sellerId));
   }
 
   static async upsertShop(record: CommerceShopRecord, syncStatus: CommerceCacheStatus): Promise<void> {
@@ -381,5 +425,13 @@ export class LocalCommerceService {
         context: { ownerMatches, entityMatches, typeMatches },
       });
     }
+  }
+
+  private static favoriteId(ownerId: string, listingId: string): string {
+    return `${ownerId}|${listingId}`;
+  }
+
+  private static shopFollowId(ownerId: string, sellerId: string): string {
+    return `${ownerId}|${sellerId}`;
   }
 }

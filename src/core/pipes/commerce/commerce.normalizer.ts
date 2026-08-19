@@ -49,6 +49,16 @@ export class CommerceRecordNormalizer {
     return this.parse(commerceEntityIdSchema, input, 'entityId');
   }
 
+  static listingCompositeId(input: unknown): string {
+    if (typeof input !== 'string') {
+      return this.parse(commerceEntityIdSchema, input, 'listingCompositeId');
+    }
+    const separator = input.indexOf(':');
+    const owner = this.pubky(input.slice(0, separator));
+    const listingId = this.entityId(input.slice(separator + 1));
+    return `${owner}:${listingId}`;
+  }
+
   static shopUri(ownerPubky: unknown): string {
     const owner = this.pubky(ownerPubky);
     return `pubky://${owner}${MARKETPLACE_BASE_PATH}/shop.json`;

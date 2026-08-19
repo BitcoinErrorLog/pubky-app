@@ -2,20 +2,24 @@
 
 import { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, MapPin, Store } from 'lucide-react';
+import { ArrowLeft, MapPin, Store, UserCheck, UserPlus } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
+import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
+  const follow = useCommerceShopFollow(sellerPubky);
+
   useEffect(() => {
     CommerceController.initializeSandboxCatalog().catch(() => {});
   }, []);
@@ -68,22 +72,34 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                     {shop.record.location.countryCode}
                   </Typography>
                 </div>
-                <div className="flex gap-6 text-sm">
-                  <div>
-                    <Typography as="p" className="text-2xl font-bold">
-                      {listings.length}
-                    </Typography>
-                    <Typography as="p" className="text-muted-foreground">
-                      Listings
-                    </Typography>
-                  </div>
-                  <div>
-                    <Typography as="p" className="text-2xl font-bold">
-                      Yes
-                    </Typography>
-                    <Typography as="p" className="text-muted-foreground">
-                      Owner-signed
-                    </Typography>
+                <div className="flex flex-col items-start gap-4 sm:items-end">
+                  <Button
+                    variant={follow.isFollowing ? 'default' : 'secondary'}
+                    className="rounded-full"
+                    aria-pressed={follow.isFollowing}
+                    disabled={follow.isMutating}
+                    onClick={follow.toggle}
+                  >
+                    {follow.isFollowing ? <UserCheck className="mr-2 size-4" /> : <UserPlus className="mr-2 size-4" />}
+                    {follow.isFollowing ? 'Following' : 'Follow shop'}
+                  </Button>
+                  <div className="flex gap-6 text-sm">
+                    <div>
+                      <Typography as="p" className="text-2xl font-bold">
+                        {listings.length}
+                      </Typography>
+                      <Typography as="p" className="text-muted-foreground">
+                        Listings
+                      </Typography>
+                    </div>
+                    <div>
+                      <Typography as="p" className="text-2xl font-bold">
+                        Yes
+                      </Typography>
+                      <Typography as="p" className="text-muted-foreground">
+                        Owner-signed
+                      </Typography>
+                    </div>
                   </div>
                 </div>
               </CardContent>

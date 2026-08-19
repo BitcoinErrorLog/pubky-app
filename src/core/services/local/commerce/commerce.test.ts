@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/database/franky/franky';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
+  CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceShopModel,
+  CommerceShopFollowModel,
   CommerceSyncJobModel,
 } from '@/models/commerce/commerce.models';
 import {
@@ -27,6 +29,8 @@ describe('LocalCommerceService', () => {
       CommerceListingDraftModel.table.clear(),
       CommerceListingProjectionModel.table.clear(),
       CommerceSyncJobModel.table.clear(),
+      CommerceFavoriteModel.table.clear(),
+      CommerceShopFollowModel.table.clear(),
     ]);
   });
 
@@ -226,5 +230,23 @@ describe('LocalCommerceService', () => {
       code: 'INVALID_INPUT',
       category: 'validation',
     });
+  });
+
+  it('persists idempotent favorites and shop follows per owner', async () => {
+    const listingId = `${COMMERCE_FIXTURE_BUYER}:boots_01`;
+
+    await LocalCommerceService.createFavorite(COMMERCE_FIXTURE_SELLER, listingId, 100);
+    await LocalCommerceService.createFavorite(COMMERCE_FIXTURE_SELLER, listingId, 200);
+    await LocalCommerceService.createShopFollow(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER, 300);
+
+    expect(await LocalCommerceService.isFavorite(COMMERCE_FIXTURE_SELLER, listingId)).toBe(true);
+    expect(await LocalCommerceService.getFavorites(COMMERCE_FIXTURE_SELLER)).toHaveLength(1);
+    expect(await LocalCommerceService.isShopFollowed(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER)).toBe(true);
+
+    await LocalCommerceService.deleteFavorite(COMMERCE_FIXTURE_SELLER, listingId);
+    await LocalCommerceService.deleteShopFollow(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER);
+
+    expect(await LocalCommerceService.isFavorite(COMMERCE_FIXTURE_SELLER, listingId)).toBe(false);
+    expect(await LocalCommerceService.isShopFollowed(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER)).toBe(false);
   });
 });

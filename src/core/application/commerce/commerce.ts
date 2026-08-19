@@ -52,6 +52,38 @@ export class CommerceApplication {
     return await LocalCommerceService.seedSandboxCatalog(createCommerceSandboxCatalog());
   }
 
+  static async isFavorite(ownerPubky: string, listingId: string): Promise<boolean> {
+    return await LocalCommerceService.isFavorite(ownerPubky, listingId);
+  }
+
+  static async getFavorites(ownerPubky: string) {
+    return await LocalCommerceService.getFavorites(ownerPubky);
+  }
+
+  static async commitCreateFavorite(ownerPubky: string, listingId: string): Promise<void> {
+    await LocalCommerceService.createFavorite(ownerPubky, listingId, Date.now());
+  }
+
+  static async commitDeleteFavorite(ownerPubky: string, listingId: string): Promise<void> {
+    await LocalCommerceService.deleteFavorite(ownerPubky, listingId);
+  }
+
+  static async isShopFollowed(ownerPubky: string, sellerPubky: string): Promise<boolean> {
+    return await LocalCommerceService.isShopFollowed(ownerPubky, sellerPubky);
+  }
+
+  static async getShopFollows(ownerPubky: string) {
+    return await LocalCommerceService.getShopFollows(ownerPubky);
+  }
+
+  static async commitCreateShopFollow(ownerPubky: string, sellerPubky: string): Promise<void> {
+    await LocalCommerceService.createShopFollow(ownerPubky, sellerPubky, Date.now());
+  }
+
+  static async commitDeleteShopFollow(ownerPubky: string, sellerPubky: string): Promise<void> {
+    await LocalCommerceService.deleteShopFollow(ownerPubky, sellerPubky);
+  }
+
   static async fetchListing(ownerPubky: string, listingId: string): Promise<CommerceListingRecord> {
     const url = CommerceRecordNormalizer.listingUri(ownerPubky, listingId);
     return CommerceRecordNormalizer.listing(await CommerceHomeserverService.fetchJson(url));
