@@ -531,9 +531,9 @@ describe('Header Components', () => {
     it('renders full navigation with account routes gated behind the Join dialog', () => {
       render(<HeaderExploreNavigationButtons />);
 
-      // Home, Hot, and Collections are public explore routes → real navigation links.
+      // Home, Hot, Marketplace, and Collections are public explore routes → real navigation links.
       const links = screen.getAllByRole('link');
-      expect(links.map((link) => link.getAttribute('href'))).toEqual(['/home', '/hot', '/collections']);
+      expect(links.map((link) => link.getAttribute('href'))).toEqual(['/home', '/hot', '/marketplace', '/collections']);
       expect(screen.getByTestId('search-input')).toBeInTheDocument();
 
       // All four nav icons are shown.

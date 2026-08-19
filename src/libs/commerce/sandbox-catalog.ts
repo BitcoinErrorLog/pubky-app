@@ -1,10 +1,10 @@
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
 import type { CommerceListingProjectionModelSchema } from '@/models/commerce/commerce.schema';
 import {
-  commerceListingRecordSchema,
-  commerceShopRecordSchema,
   type CommerceListingRecord,
+  commerceListingRecordSchema,
   type CommerceShopRecord,
+  commerceShopRecordSchema,
 } from './marketplace-records';
 
 export interface CommerceSandboxCatalog {

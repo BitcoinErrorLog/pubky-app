@@ -29,7 +29,6 @@ export interface MarketplaceListingCardProps {
 export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: MarketplaceListingCardProps) {
   const record = listing.record;
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-  const Icon = iconForCategory(record.categoryId);
   const colorIndex = Number.parseInt(record.media[0]?.contentHash.charAt(0) ?? '0', 16) % MEDIA_BACKGROUNDS.length;
   const background = MEDIA_BACKGROUNDS[colorIndex] ?? MEDIA_BACKGROUNDS[0];
 
@@ -53,10 +52,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           )}
         >
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.16),transparent_32%)]" />
-          <Icon
-            aria-hidden="true"
-            className="size-20 text-foreground/75 drop-shadow-xl transition-transform group-hover:scale-105"
-          />
+          <MarketplaceCategoryIcon categoryId={record.categoryId} />
           <Badge className="absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
             {record.sale.format === 'auction' ? 'Auction' : 'Buy now'}
           </Badge>
@@ -98,23 +94,24 @@ function formatAuctionEnd(endsAt: string): string {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(endsAt));
 }
 
-function iconForCategory(categoryId: string) {
+function MarketplaceCategoryIcon({ categoryId }: { categoryId: string }) {
+  const className = 'size-20 text-foreground/75 drop-shadow-xl transition-transform group-hover:scale-105';
   switch (true) {
     case categoryId.includes('camera'):
-      return Camera;
+      return <Camera aria-hidden="true" className={className} />;
     case categoryId.includes('vinyl'):
-      return Disc3;
+      return <Disc3 aria-hidden="true" className={className} />;
     case categoryId.includes('shoes'):
-      return Footprints;
+      return <Footprints aria-hidden="true" className={className} />;
     case categoryId.includes('jewelry'):
-      return Gem;
+      return <Gem aria-hidden="true" className={className} />;
     case categoryId.includes('home'):
-      return House;
+      return <House aria-hidden="true" className={className} />;
     case categoryId.includes('keyboard'):
-      return Keyboard;
+      return <Keyboard aria-hidden="true" className={className} />;
     case categoryId.includes('fashion'):
-      return Shirt;
+      return <Shirt aria-hidden="true" className={className} />;
     default:
-      return Package;
+      return <Package aria-hidden="true" className={className} />;
   }
 }
