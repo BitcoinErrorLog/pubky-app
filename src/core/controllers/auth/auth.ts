@@ -26,6 +26,7 @@ import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import type { TGenerateAuthUrlResult, THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
 import { useHotStore } from '@/stores/hot/hot.store';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
@@ -325,6 +326,7 @@ export class AuthController {
     useAuthStore.getState().reset();
     useSignInStore.getState().reset();
     useLocalFilesStore.getState().reset();
+    useCommerceStore.getState().reset();
     useHomeStore.getState().reset();
     useHotStore.getState().reset();
     useSearchStore.getState().reset();
