@@ -7,8 +7,8 @@ import {
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
-  CommerceShopModel,
   CommerceShopFollowModel,
+  CommerceShopModel,
   CommerceSyncJobModel,
 } from './commerce.models';
 import type {

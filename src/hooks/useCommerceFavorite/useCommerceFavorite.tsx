@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 
 export function useCommerceFavorite(listingCompositeId: string) {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);

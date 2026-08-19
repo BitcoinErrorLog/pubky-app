@@ -9,8 +9,8 @@ import type {
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
-  CommerceShopModelSchema,
   CommerceShopFollowModelSchema,
+  CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
 } from './commerce.schema';
 

@@ -6,8 +6,8 @@ import {
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
-  CommerceShopModel,
   CommerceShopFollowModel,
+  CommerceShopModel,
   CommerceSyncJobModel,
 } from '@/models/commerce/commerce.models';
 import {
