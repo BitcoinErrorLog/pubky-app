@@ -7,17 +7,17 @@ This document records the exact upstream behavior the marketplace may rely on. I
 
 ## Audited revisions
 
-| Repository | Branch | Commit |
-| --- | --- | --- |
-| `pubky/paykit-rs` | `master` | `c8892f638951f033acbcd12804a31667a81ddc14` |
-| `pubky/locks` | `master` | `ba49a777a94db318ec6ebd427315080a5b904645` |
-| `pubky/paykit-server` | `master` | `f38c7915e6b9b104e040773e78438f8aa984c46c` |
-| `pubky/pubky-ring` | `main` | `16320e786af4ab2916cdb629e0f186a14a728ed0` |
-| `pubky/pubky-ring-simulator` | `main` | `14b333bc18579b96e57efb256ceefff44f62616f` |
-| `pubky/pubky-homeserver` | `main` | `214bb4685e56bc404ba6694990d7d653342e86ec` |
-| `pubky/pubky-docker` | `main` | `4e8dfb9a5067f59dd91e0abe60ef19edde17813b` |
-| `synonymdev/bitkit-android` | `master` | `d13d0e225cb7699a59b61485f84dc99bdccdda40` |
-| `synonymdev/bitkit-ios` | `master` | `625b54e2fcce5f076f42cca434c4c7cad2b6f9d5` |
+| Repository                   | Branch   | Commit                                     |
+| ---------------------------- | -------- | ------------------------------------------ |
+| `pubky/paykit-rs`            | `master` | `c8892f638951f033acbcd12804a31667a81ddc14` |
+| `pubky/locks`                | `master` | `ba49a777a94db318ec6ebd427315080a5b904645` |
+| `pubky/paykit-server`        | `master` | `f38c7915e6b9b104e040773e78438f8aa984c46c` |
+| `pubky/pubky-ring`           | `main`   | `16320e786af4ab2916cdb629e0f186a14a728ed0` |
+| `pubky/pubky-ring-simulator` | `main`   | `14b333bc18579b96e57efb256ceefff44f62616f` |
+| `pubky/pubky-homeserver`     | `main`   | `214bb4685e56bc404ba6694990d7d653342e86ec` |
+| `pubky/pubky-docker`         | `main`   | `4e8dfb9a5067f59dd91e0abe60ef19edde17813b` |
+| `synonymdev/bitkit-android`  | `master` | `d13d0e225cb7699a59b61485f84dc99bdccdda40` |
+| `synonymdev/bitkit-ios`      | `master` | `625b54e2fcce5f076f42cca434c4c7cad2b6f9d5` |
 
 Known release anchors at audit time:
 
@@ -206,15 +206,15 @@ Locks acceptance:
 
 Marketplace mapping:
 
-| Upstream fact | Marketplace state |
-| --- | --- |
-| Proof submitted; Locks pending | `awaiting_payment_entitlement` |
-| Locks verification completed | `payment_confirmed` exactly once |
-| Marketplace payment window elapsed while Locks pending | `payment_window_elapsed` plus reconciliation |
-| Completion after marketplace expiry | `manual_review`, never silently discard |
-| Locks/network error | remains pending with bounded UI polling and server reconciliation |
-| Refund requested | `external_refund_required`; never `refunded` |
-| Independently verified seller transaction evidence | `refunded_external` |
+| Upstream fact                                          | Marketplace state                                                 |
+| ------------------------------------------------------ | ----------------------------------------------------------------- |
+| Proof submitted; Locks pending                         | `awaiting_payment_entitlement`                                    |
+| Locks verification completed                           | `payment_confirmed` exactly once                                  |
+| Marketplace payment window elapsed while Locks pending | `payment_window_elapsed` plus reconciliation                      |
+| Completion after marketplace expiry                    | `manual_review`, never silently discard                           |
+| Locks/network error                                    | remains pending with bounded UI polling and server reconciliation |
+| Refund requested                                       | `external_refund_required`; never `refunded`                      |
+| Independently verified seller transaction evidence     | `refunded_external`                                               |
 
 Detected, underpaid, overpaid, and confirmation-count details are operator-only unless a future signed Locks API deliberately exposes them. The client must not infer them.
 
@@ -254,20 +254,20 @@ Pubky Ring Simulator may verify generic auth handoff against a local testnet. It
 
 ## Verification addresses
 
-| Requirement | Automated address | Manual evidence |
-| --- | --- | --- |
-| Locks generated package loads in Next.js | generated API smoke + production Next build | creator/viewer UI opens without SSR or WASM error |
-| Creator authority uses Ring grant | Lock Server contract test with pinned build | grant scope and approved setup shown |
-| Paykit setup keeps xpub out of app | network/log/storage assertions | Bitkit/helper approval completes |
-| Browser cannot call Paykit business routes | route/security test | direct unsigned request rejected |
-| Paykit proof shape stays canonical | fixture contract test against Lock Server | proof creates one pending lifecycle |
-| Payment confirmation is idempotent | duplicate/reordered completion integration test | one order transition/timeline event |
-| Confirmations stay in `0..6` | schema boundary tests | unsupported policy blocked before publish |
-| Network errors remain pending | fault-injection test | UI shows retrying, not failed/paid |
-| Late payment reconciles | fake-clock integration test | manual-review timeline shown |
-| Digital content requires entitlement | unauthorized/authorized proxy-read tests | access denied before and allowed after payment |
-| External refund is not automatic | state-machine and evidence-verifier tests | UI requests evidence and never claims funds moved |
-| No sensitive telemetry | log/Sentry/analytics redaction tests | browser storage and operator output inspected |
+| Requirement                                | Automated address                               | Manual evidence                                   |
+| ------------------------------------------ | ----------------------------------------------- | ------------------------------------------------- |
+| Locks generated package loads in Next.js   | generated API smoke + production Next build     | creator/viewer UI opens without SSR or WASM error |
+| Creator authority uses Ring grant          | Lock Server contract test with pinned build     | grant scope and approved setup shown              |
+| Paykit setup keeps xpub out of app         | network/log/storage assertions                  | Bitkit/helper approval completes                  |
+| Browser cannot call Paykit business routes | route/security test                             | direct unsigned request rejected                  |
+| Paykit proof shape stays canonical         | fixture contract test against Lock Server       | proof creates one pending lifecycle               |
+| Payment confirmation is idempotent         | duplicate/reordered completion integration test | one order transition/timeline event               |
+| Confirmations stay in `0..6`               | schema boundary tests                           | unsupported policy blocked before publish         |
+| Network errors remain pending              | fault-injection test                            | UI shows retrying, not failed/paid                |
+| Late payment reconciles                    | fake-clock integration test                     | manual-review timeline shown                      |
+| Digital content requires entitlement       | unauthorized/authorized proxy-read tests        | access denied before and allowed after payment    |
+| External refund is not automatic           | state-machine and evidence-verifier tests       | UI requests evidence and never claims funds moved |
+| No sensitive telemetry                     | log/Sentry/analytics redaction tests            | browser storage and operator output inspected     |
 
 Before completion, run the pinned upstream smoke suites plus a composed buyer/seller flow from creator setup through regtest payment, confirmation, credential issuance, content read, order advancement, restart recovery, and duplicate event replay.
 
