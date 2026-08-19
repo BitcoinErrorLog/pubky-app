@@ -223,16 +223,16 @@ Rules:
 
 ### Authority split
 
-| Concern | Authority | Client behavior |
-| --- | --- | --- |
-| Public shop/listing/review records | Seller-signed Pubky homeserver records; indexed by Nexus when supported | Cache in Dexie and reconcile by version/tombstone |
-| Drafts, carts, saved searches, UI preferences | Account-scoped Dexie | Local-first with export and account isolation |
-| Follows, favorites, safe unsent messages | Pubky records or reviewed encrypted transport | Optimistic local state with visible sync status |
-| Inventory reservation, offers, auctions, bids | Marketplace Transaction Service | Must be online; apply returned server revision |
-| Orders, immutable terms, ledger, returns, disputes | Marketplace Transaction Service | Mirror redacted role-appropriate projections |
-| Payment discovery and private requests | Paykit | Consume through supported service/native bindings |
-| Payment-backed digital entitlement | Locks backed by Paykit Server observation | Poll verified lifecycle; store bearer material privately |
-| Real BTC refund | Seller's external wallet | Record evidence only after independent verification |
+| Concern                                            | Authority                                                               | Client behavior                                          |
+| -------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------- |
+| Public shop/listing/review records                 | Seller-signed Pubky homeserver records; indexed by Nexus when supported | Cache in Dexie and reconcile by version/tombstone        |
+| Drafts, carts, saved searches, UI preferences      | Account-scoped Dexie                                                    | Local-first with export and account isolation            |
+| Follows, favorites, safe unsent messages           | Pubky records or reviewed encrypted transport                           | Optimistic local state with visible sync status          |
+| Inventory reservation, offers, auctions, bids      | Marketplace Transaction Service                                         | Must be online; apply returned server revision           |
+| Orders, immutable terms, ledger, returns, disputes | Marketplace Transaction Service                                         | Mirror redacted role-appropriate projections             |
+| Payment discovery and private requests             | Paykit                                                                  | Consume through supported service/native bindings        |
+| Payment-backed digital entitlement                 | Locks backed by Paykit Server observation                               | Poll verified lifecycle; store bearer material privately |
+| Real BTC refund                                    | Seller's external wallet                                                | Record evidence only after independent verification      |
 
 ### Marketplace Transaction Service
 
