@@ -1,20 +1,20 @@
 import type { z } from 'zod';
+import {
+  type CommerceCollectionRecord,
+  commerceCollectionRecordSchema,
+  type CommerceListingRecord,
+  commerceListingRecordSchema,
+  type CommerceReviewRecord,
+  commerceReviewRecordSchema,
+  type CommerceShopRecord,
+  commerceShopRecordSchema,
+  type CommerceTombstoneRecord,
+  commerceTombstoneRecordSchema,
+} from '@/libs/commerce/marketplace-records';
+import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import {
-  commerceCollectionRecordSchema,
-  commerceListingRecordSchema,
-  commerceReviewRecordSchema,
-  commerceShopRecordSchema,
-  commerceTombstoneRecordSchema,
-  type CommerceCollectionRecord,
-  type CommerceListingRecord,
-  type CommerceReviewRecord,
-  type CommerceShopRecord,
-  type CommerceTombstoneRecord,
-} from '@/libs/commerce/marketplace-records';
-import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 
 const MARKETPLACE_BASE_PATH = '/pub/pubky.app/marketplace/v1';
 

@@ -1,5 +1,5 @@
-import { HomeserverService } from '@/services/homeserver/homeserver';
 import { HttpMethod } from '@/libs/http/http.types';
+import { HomeserverService } from '@/services/homeserver/homeserver';
 
 export class CommerceHomeserverService {
   private constructor() {}
