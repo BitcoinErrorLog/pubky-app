@@ -10,12 +10,14 @@ The prototype is complete only when:
 1. Every capability in the acceptance matrix below has a reachable desktop and mobile flow.
 2. Commerce state survives reloads and account changes without leaking data between users.
 3. Public marketplace records sync through Pubky homeserver paths and work locally first.
-4. A real adapter exercises the Locks → Paykit Server invoice and payment-status flow.
-5. A deterministic sandbox adapter exercises every payment, timeout, failure, refund, and dispute branch without real funds.
-6. Automated tests cover domain transitions, persistence, adapters, forms, routes, accessibility-critical behavior, and representative visual surfaces.
-7. End-to-end walkthroughs cover buyer, seller, bidder, and moderator journeys.
-8. The final verification ledger contains no unresolved required finding.
-9. Final videos demonstrate all feature groups.
+4. A durable server-authoritative transaction service arbitrates bids, reservations, orders, payment facts, refunds, and ledger entries; Dexie only mirrors these states.
+5. A real adapter exercises the Locks → Paykit Server invoice and payment-status flow.
+6. A deterministic sandbox adapter exercises every payment, timeout, failure, refund, and dispute branch without real funds.
+7. Automated tests cover domain transitions, persistence, adapters, forms, routes, accessibility-critical behavior, and representative visual surfaces.
+8. Adversarial concurrency tests prove one winner for scarce inventory and auctions and at-most-once financial transitions.
+9. End-to-end walkthroughs cover buyer, seller, bidder, moderator, support, and operator journeys.
+10. The final verification ledger contains no unresolved required finding.
+11. Final videos demonstrate all feature groups.
 
 This is a pre-production prototype, not a claim of production eBay parity. Paykit, Locks, and Paykit Server explicitly describe themselves as WIP or pre-production. Paykit discovers and exchanges payment data but does not execute payments. Locks gates resources after proofs; it is not escrow. Paykit Server currently observes BTC payments but cannot spend, refund, issue receipts, or process payer proof events. The UI must label simulated, detected, confirmed, refund-pending, and externally-refunded states accurately.
 
@@ -43,6 +45,9 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 - Buyer: favorite/follow, message, offer, bid, cart, pay, track, cancel, return, dispute, and review.
 - Seller: create a shop, list inventory, negotiate, fulfill, refund externally, resolve disputes, and inspect analytics.
 - Moderator: review reports, restrict listings/users, record decisions, and audit actions.
+- Support: inspect scoped order evidence and administer non-financial resolutions.
+- Risk: apply transaction holds, investigate fraud signals, and release reviewed activity.
+- Finance: reconcile the sandbox ledger and record externally executed refunds without gaining moderation powers.
 - Operator: configure adapters, inspect health, run migrations, and execute the verification suite.
 
 ## Acceptance matrix
@@ -143,7 +148,19 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 - Inventory supports search, filters, bulk pause/relist/delete, low-stock state, and CSV export/import preview.
 - Order work queues expose awaiting payment, to ship, returns, disputes, and completed states.
 - Shop settings cover policies, notifications, payment setup, shipping presets, blocked buyers, and vacation mode.
+- Promotions support scheduled markdowns and usage-limited seller coupons without producing negative totals.
+- Seller statements export orders, fees, taxes, refunds, holds, external payouts, and adjustments and reconcile to the ledger.
 - Analytics clearly distinguish local prototype estimates from settled payment facts.
+
+### Tax, shipping, ledger, and guarantees
+
+- A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable.
+- Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels.
+- Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
+- Any unbalanced posting blocks order finalization and creates an operator finding.
+- Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order.
+- Sandbox hold/release and payout states are visibly simulated and blocked by open disputes, returns, risk holds, or unresolved payment status.
+- Real Paykit BTC confirmation is never described as escrow, card authorization, marketplace custody, or payout.
 
 ### Notifications
 
@@ -157,13 +174,25 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 - Prohibited-item/category policy warnings are shown during listing creation.
 - Moderator queues support assignment, notes, decisions, reversals, and an append-only audit log.
 - Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
+- Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
+- Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history.
 - Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests.
+
+### Privacy, security, observability, and operations
+
+- Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests.
+- Recovery phrases, payment secrets, raw delivery details, message bodies, evidence, access credentials, and private Pubky identifiers never enter analytics, logs, Sentry, or public records.
+- Export and deletion flows isolate each account while preserving pseudonymized transaction/audit records required for prototype consistency.
+- Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses.
+- Invariant alerts cover oversell, double winner, duplicate payment/refund, unbalanced ledger, stuck fulfillment, and authorization failures.
+- Admin searches and manual actions are role-scoped, redacted, reasoned, previewed, and append-only audited.
 
 ### Accessibility, responsiveness, and local-first behavior
 
 - Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review.
 - Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow.
-- Public reads render cached data offline; writes commit locally first and show pending/synced/failed status.
+- Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
+- Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
 - Retry queues preserve idempotency and never silently drop a transaction action.
 - Sign-out clears private commerce state and adapter credentials for the prior account.
 
@@ -175,9 +204,10 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 UI / hooks
   -> Marketplace controllers
     -> Listing | Discovery | Negotiation | Checkout | Order | Trust applications
-      -> local services -> Dexie models
-      -> homeserver services -> Pubky public records
-      -> commerce gateway services -> Locks / Paykit adapters
+      -> local services -> Dexie read models, drafts, safe outbox
+      -> homeserver services -> signed Pubky public records
+      -> transaction gateway -> Marketplace Transaction Service -> PostgreSQL
+      -> entitlement gateway -> Locks -> Paykit Server
 ```
 
 Rules:
@@ -187,8 +217,40 @@ Rules:
 - Applications never access Zustand stores and do not call other applications.
 - Services own all IndexedDB, homeserver, HTTP, wallet/deep-link, and clock IO.
 - Pipes are pure schema/version normalization.
-- Cross-domain invariants are implemented by one owning application using transactional local services, not application-to-application calls.
+- Cross-domain transaction invariants are implemented atomically by the Marketplace Transaction Service, not Dexie or application-to-application calls.
+- Client applications persist server revisions and idempotency keys but never arbitrate winners, stock, settlement, refunds, or ledger state.
 - Payment and order state machines use explicit transition tables; UI labels never infer settlement from a generic success response.
+
+### Authority split
+
+| Concern | Authority | Client behavior |
+| --- | --- | --- |
+| Public shop/listing/review records | Seller-signed Pubky homeserver records; indexed by Nexus when supported | Cache in Dexie and reconcile by version/tombstone |
+| Drafts, carts, saved searches, UI preferences | Account-scoped Dexie | Local-first with export and account isolation |
+| Follows, favorites, safe unsent messages | Pubky records or reviewed encrypted transport | Optimistic local state with visible sync status |
+| Inventory reservation, offers, auctions, bids | Marketplace Transaction Service | Must be online; apply returned server revision |
+| Orders, immutable terms, ledger, returns, disputes | Marketplace Transaction Service | Mirror redacted role-appropriate projections |
+| Payment discovery and private requests | Paykit | Consume through supported service/native bindings |
+| Payment-backed digital entitlement | Locks backed by Paykit Server observation | Poll verified lifecycle; store bearer material privately |
+| Real BTC refund | Seller's external wallet | Record evidence only after independent verification |
+
+### Marketplace Transaction Service
+
+The existing browser app, homeserver, Nexus, Locks, and Paykit Server cannot provide compare-and-swap inventory, deterministic proxy bidding, an immutable double-entry ledger, or private role-scoped order queries. A separate service is therefore a required prototype component.
+
+It will:
+
+- authenticate Pubky identities without receiving identity secrets;
+- expose versioned commands and role-scoped queries for inventory, offers, bids, checkout, orders, fulfillment, returns, disputes, moderation, and the sandbox ledger;
+- require an idempotency key and expected aggregate revision for every mutation;
+- use PostgreSQL transactions, unique constraints, an append-only event/audit log, and an outbox for side effects;
+- use server time for auction close, offer expiry, reservation expiry, claim windows, and payout simulation;
+- publish no private order data to Nexus or public homeserver paths;
+- integrate with Locks through a narrow adapter and verify payment/entitlement state server-side instead of trusting a client callback;
+- expose health, readiness, redacted metrics, reconciliation, and dead-letter replay;
+- remain non-custodial and label all holds, releases, payouts, taxes, carriers, and refunds as sandbox facts unless independently verified.
+
+The Next.js API may proxy browser requests and protect deployment secrets, but it is not the durable authority. The service owns its PostgreSQL schema and can run with the requested Pubky Docker topology.
 
 ### Data ownership
 
@@ -210,7 +272,7 @@ Locks-owned paths follow the upstream Locks protocol:
 /priv/locks.app/proofs/{bundleId}.json
 ```
 
-Private buyer/seller records remain in Dexie in the first vertical slice. Networked private exchange must use Paykit encrypted links or another reviewed encrypted Pubky protocol before multi-device claims are made. Raw addresses, messages, evidence, access credentials, and payment correlations must never be written to public marketplace paths.
+Private buyer/seller projections are cached in account-scoped Dexie tables. Their authority is the Marketplace Transaction Service or a reviewed encrypted Pubky transport. Networked private messages must use Paykit encrypted links or another reviewed encrypted Pubky protocol before multi-device claims are made. Raw addresses, messages, evidence, access credentials, and payment correlations must never be written to public marketplace paths.
 
 ### Local tables
 
@@ -221,7 +283,7 @@ Private buyer/seller records remain in Dexie in the first vertical slice. Networ
 - `commerce_returns`, `commerce_disputes`, `commerce_reviews`, `commerce_reports`
 - `commerce_notifications`, `commerce_sync_jobs`, `commerce_audit_events`
 
-Indexes are derived from actual query plans. Schema changes require a database version change, migration/reset decision, and database tests.
+These are client read models, drafts, and safe outbox records—not a financial or auction authority. Indexes are derived from actual query plans. Schema changes require a database version change, migration/reset decision, and database tests.
 
 ### State machines
 
@@ -254,13 +316,15 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T1 — Architecture and contracts
 
 - Add marketplace ADRs for bounded contexts, public/private protocol, state machines, and adapter trust boundaries.
-- Define Zod v4 wire schemas, domain types, IDs, money rules, clocks, and idempotency.
+- Define Zod v4 wire schemas, domain types, IDs, integer money rules, ledger balancing, clocks, revisions, and idempotency.
+- Define the Marketplace Transaction Service API, PostgreSQL schema, Pubky authentication, authorization matrix, event log, outbox, reconciliation, and failure semantics.
 - Threat-model public records, private delivery data, access credentials, payment status, file uploads, reports, and telemetry.
 
 ### T2 — Local-first foundation
 
 - Add Dexie schemas/models, database version handling, local services, sync outbox, stores, controllers, and applications.
-- Add deterministic fixtures and sandbox clock/payment/carrier adapters.
+- Add the transaction service skeleton, PostgreSQL migrations, Pubky auth verifier, health/readiness, event/audit log, and deterministic clock.
+- Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters.
 - Verify account isolation, recovery, conflict handling, replay, and offline behavior.
 
 ### T3 — Catalog and discovery
@@ -271,13 +335,13 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T4 — Messaging, offers, and auctions
 
 - Build listing-scoped conversations, system events, offers/counters, watcher offers, auction setup, proxy bidding, anti-sniping, close jobs, and notifications.
-- Verify concurrent bids, stale revisions, expiry, inventory reservation, and idempotent close.
+- Verify 100-way concurrent bids and one-unit purchases, stale revisions, expiry, inventory reservation, and idempotent close.
 
 ### T5 — Checkout, Paykit, and Locks
 
 - Build cart, checkout, totals, private delivery capture, order creation, seller payment setup, invoice presentation, polling, recovery, and status UI.
 - Integrate Locks proof/credential APIs and Paykit-backed invoice/status lifecycle.
-- Add digital delivery and explicit external-refund evidence.
+- Add balanced sandbox ledger postings, tax/shipping quotes, guarantee disclosures, digital delivery, and explicit external-refund evidence.
 
 ### T6 — Fulfillment and post-purchase
 
@@ -286,11 +350,11 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 ### T7 — Seller operations
 
-- Build dashboard, analytics, inventory bulk actions, CSV preview/export, policies, payment status, vacation mode, notification settings, and blocked-buyer controls.
+- Build dashboard, analytics, inventory bulk actions, CSV preview/export, promotions, statements, policies, payment status, vacation mode, notification settings, and blocked-buyer controls.
 
 ### T8 — Hardening and parity audit
 
-- Run unit, integration, component, VRT, E2E, accessibility, responsive, security, migration, offline, retry, and adapter contract suites.
+- Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites.
 - Compare every acceptance item with authoritative runtime evidence.
 - Fix findings and repeat the complete affected verification scope.
 
@@ -328,6 +392,7 @@ npm run test:vrt
 npm run build
 npm run test:e2e
 Locks/Paykit Docker contract smoke tests
+Marketplace Transaction Service migrations, concurrency, ledger, replay, and restore tests
 manual desktop and 390x844 walkthroughs
 ```
 
@@ -339,11 +404,12 @@ Every slice must remain demonstrable:
 
 1. Marketplace shell + sandbox catalog + listing creation.
 2. Discovery + favorites/follows + seller shop.
-3. Messaging + offers + auctions.
-4. Cart + checkout + sandbox order/payment lifecycle.
-5. Real Locks/Paykit adapter + Bitkit/Ring setup.
-6. Fulfillment + returns/refunds/disputes/reviews.
-7. Seller analytics + moderation + hardening.
-8. Full parity audit, documentation, and final videos.
+3. Durable transaction service + inventory/ledger foundations.
+4. Messaging + offers + concurrency-safe auctions.
+5. Cart + checkout + sandbox order/payment lifecycle.
+6. Real Locks/Paykit adapter + Bitkit/Ring setup.
+7. Fulfillment + returns/refunds/disputes/reviews.
+8. Seller analytics + moderation + hardening.
+9. Full parity audit, documentation, and final videos.
 
 No slice may silently remove already visible Pubky functionality or reduce existing feed/profile behavior.
