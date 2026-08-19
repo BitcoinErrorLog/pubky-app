@@ -4,7 +4,7 @@ import { type ChangeEvent, type RefObject, useEffect, useRef, useState } from 'r
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
-import { commerceMediaSchema, type CommerceListingRecord } from '@/libs/commerce/marketplace-records';
+import { type CommerceListingRecord, commerceMediaSchema } from '@/libs/commerce/marketplace-records';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 

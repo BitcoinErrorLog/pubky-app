@@ -3,11 +3,11 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
 import { describe, expect, it, vi } from 'vitest';
-import type { UseListingMediaPickerResult } from '@/hooks/useListingMediaPicker/useListingMediaPicker';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
+import type { UseListingMediaPickerResult } from '@/hooks/useListingMediaPicker/useListingMediaPicker';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
 
 const media: UseListingMediaPickerResult = {

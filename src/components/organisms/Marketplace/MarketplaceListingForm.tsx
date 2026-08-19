@@ -10,11 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Typography } from '@/atoms/Typography/Typography';
 import { COMMERCE_CATEGORIES } from '@/config/commerce';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
-import type { UseListingMediaPickerResult } from '@/hooks/useListingMediaPicker/useListingMediaPicker';
 import {
   CREATE_MARKETPLACE_LISTING_FIELDS,
   type CreateMarketplaceListingData,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
+import type { UseListingMediaPickerResult } from '@/hooks/useListingMediaPicker/useListingMediaPicker';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
@@ -26,13 +26,14 @@ export interface MarketplaceListingFormProps {
 }
 
 export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: MarketplaceListingFormProps) {
+  const { previewUrl, error: pickerError, inputRef, onInputChange, choose, remove } = media;
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const mediaError =
-    media.error === 'invalid-type'
+    pickerError === 'invalid-type'
       ? 'Choose an image file.'
-      : media.error === 'too-large'
+      : pickerError === 'too-large'
         ? 'Image is too large.'
-        : media.error === 'decode-failed'
+        : pickerError === 'decode-failed'
           ? 'Image could not be processed.'
           : null;
 
@@ -56,27 +57,21 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
           </div>
           <div
             className="relative flex min-h-56 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-card bg-cover bg-center"
-            style={media.previewUrl ? { backgroundImage: `url(${media.previewUrl})` } : undefined}
+            style={previewUrl ? { backgroundImage: `url(${previewUrl})` } : undefined}
           >
-            {media.previewUrl ? (
-              <Button type="button" variant="secondary" className="rounded-full" onClick={media.remove}>
+            {previewUrl ? (
+              <Button type="button" variant="secondary" className="rounded-full" onClick={remove}>
                 <Trash2 className="mr-2 size-4" />
                 Remove image
               </Button>
             ) : (
-              <Button type="button" variant="secondary" className="rounded-full" onClick={media.choose}>
+              <Button type="button" variant="secondary" className="rounded-full" onClick={choose}>
                 <ImagePlus className="mr-2 size-4" />
                 Add image
               </Button>
             )}
           </div>
-          <input
-            ref={media.inputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            hidden
-            onChange={media.onInputChange}
-          />
+          <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onInputChange} />
           {mediaError && (
             <Typography as="p" role="alert" className="text-sm text-destructive">
               {mediaError}

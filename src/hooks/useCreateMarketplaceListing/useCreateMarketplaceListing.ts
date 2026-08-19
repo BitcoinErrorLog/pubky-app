@@ -8,7 +8,7 @@ import {
   useListingMediaPicker,
   type UseListingMediaPickerResult,
 } from '@/hooks/useListingMediaPicker/useListingMediaPicker';
-import { commerceListingRecordSchema, type CommerceListingRecord } from '@/libs/commerce/marketplace-records';
+import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {

@@ -1,5 +1,5 @@
-import type { ChangeEvent } from 'react';
 import { act, renderHook } from '@testing-library/react';
+import type { ChangeEvent } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -41,10 +41,11 @@ describe('useListingMediaPicker', () => {
     const { result } = renderHook(() => useListingMediaPicker());
 
     act(() => result.current.onInputChange(changeEvent(file)));
-    let prepared: PreparedListingMedia | null = null;
+    const preparedBox: { current: PreparedListingMedia | null } = { current: null };
     await act(async () => {
-      prepared = await result.current.prepare(OWNER, 'Brown leather boots');
+      preparedBox.current = await result.current.prepare(OWNER, 'Brown leather boots');
     });
+    const prepared = preparedBox.current;
 
     expect(stripImageMetadata).toHaveBeenCalledWith(file);
     expect(prepared).toMatchObject({
