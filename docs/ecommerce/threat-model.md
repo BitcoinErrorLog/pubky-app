@@ -1,6 +1,6 @@
 # Pubky Marketplace Threat Model
 
-Status: active  
+Status: active
 Reviewed baseline: 2026-08-19
 
 ## Scope
