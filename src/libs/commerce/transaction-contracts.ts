@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 
-export const COMMERCE_CONTRACT_VERSION = 1 as const;
+export { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 
 const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
 
