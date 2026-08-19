@@ -11,8 +11,8 @@ import {
   type CommerceTombstoneRecord,
   commerceTombstoneRecordSchema,
 } from '@/libs/commerce/marketplace-records';
-import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
+import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';

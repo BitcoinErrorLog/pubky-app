@@ -114,8 +114,10 @@ describe('CommerceController', () => {
       title: 'Autosaved boots',
       quantity: '1',
     });
-    await expect(CommerceController.commitUpdateListingDraft('draft_01', { invalid: 1n })).rejects.toMatchObject({
-      code: 'INVALID_INPUT',
-    });
+    await expect(CommerceController.commitUpdateListingDraft('draft_01', { invalid: BigInt(1) })).rejects.toMatchObject(
+      {
+        code: 'INVALID_INPUT',
+      },
+    );
   });
 });

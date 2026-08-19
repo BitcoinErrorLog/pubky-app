@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, type UseFormReturn } from 'react-hook-form';
+import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
@@ -37,6 +37,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     defaultValues: createMarketplaceListingDefaults,
     mode: 'onChange',
   });
+  const watchedValues = useWatch({ control: form.control });
 
   useEffect(() => {
     if (!currentUserPubky) return;
@@ -62,18 +63,18 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
 
   useEffect(() => {
     if (!currentUserPubky) return;
-    const subscription = form.watch(() => {
-      if (!draftReadyRef.current) return;
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        void CommerceController.commitUpdateListingDraft(draftId, form.getValues());
-      }, 750);
-    });
+    if (!draftReadyRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const serialized = JSON.stringify(watchedValues);
+      if (serialized) {
+        void CommerceController.commitUpdateListingDraft(draftId, JSON.parse(serialized));
+      }
+    }, 750);
     return () => {
-      subscription.unsubscribe();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [currentUserPubky, draftId, form]);
+  }, [currentUserPubky, draftId, watchedValues]);
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky) return null;
