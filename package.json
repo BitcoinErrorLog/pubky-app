@@ -46,6 +46,7 @@
     "@emoji-mart/data": "1.2.1",
     "@hookform/resolvers": "5.2.2",
     "@mdxeditor/editor": "4.0.0",
+    "@noble/hashes": "^2.3.0",
     "@prelude.so/js-sdk": "0.8.0",
     "@sentry/nextjs": "^10.53.1",
     "@serwist/next": "9.5.11",

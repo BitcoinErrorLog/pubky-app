@@ -149,6 +149,12 @@ export class CommerceApplication {
     );
   }
 
+  static async commitCreateMedia(ownerPubky: string, mediaId: string, bytes: Uint8Array): Promise<string> {
+    const url = CommerceRecordNormalizer.mediaUri(ownerPubky, mediaId);
+    await CommerceHomeserverService.putMedia(url, bytes);
+    return url;
+  }
+
   private static createSyncJob({
     ownerId,
     entityType,

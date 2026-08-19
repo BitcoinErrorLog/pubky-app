@@ -1,4 +1,5 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -126,6 +127,18 @@ export class CommerceController {
     await this.withPending(`${record.ownerPubky}:${record.listingId}`, () =>
       CommerceApplication.commitUpsertListing(record),
     );
+  }
+
+  static async commitCreateMedia(mediaId: unknown, bytes: Uint8Array): Promise<string> {
+    const id = CommerceRecordNormalizer.entityId(mediaId);
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > IMAGE_MAX_UPLOAD_SIZE) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Marketplace media bytes are missing or too large.', {
+        service: ErrorService.Local,
+        operation: 'commitCreateMedia',
+        context: { byteLength: bytes?.byteLength ?? 0 },
+      });
+    }
+    return await CommerceApplication.commitCreateMedia(this.getCurrentUserPubky(), id, bytes);
   }
 
   private static assertCurrentUserOwns(ownerPubky: string): void {

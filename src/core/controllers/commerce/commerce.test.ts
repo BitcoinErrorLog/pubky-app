@@ -90,4 +90,18 @@ describe('CommerceController', () => {
     });
     expect(create).not.toHaveBeenCalled();
   });
+
+  it('validates and scopes marketplace media uploads', async () => {
+    const upload = vi
+      .spyOn(CommerceApplication, 'commitCreateMedia')
+      .mockResolvedValue(`pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/image_01`);
+    const bytes = new Uint8Array([1, 2, 3]);
+
+    await CommerceController.commitCreateMedia('image_01', bytes);
+
+    expect(upload).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, 'image_01', bytes);
+    await expect(CommerceController.commitCreateMedia('image_02', new Uint8Array())).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    });
+  });
 });
