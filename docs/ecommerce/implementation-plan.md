@@ -36,6 +36,7 @@ Upstream references:
 - <https://github.com/pubky/paykit-rs>
 - <https://github.com/pubky/paykit-server>
 - <https://github.com/pubky/locks>
+- Exact audited revisions, route contracts, settlement semantics, and local topology: [`upstream-integration.md`](upstream-integration.md)
 
 The requested `pubky/design.md` is not a GitHub repository and no `design.md` file is currently discoverable in the Pubky organization. Until an authoritative file is located, the implementation follows this repository's Shadcn/Tailwind design tokens and component rules.
 
@@ -109,12 +110,15 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 
 - Seller payment setup launches the Paykit Server/Bitkit companion approval flow and reports setup state without exposing wallet secrets.
 - Checkout can create a Locks proof lifecycle that causes Locks to request a Paykit invoice.
-- Desktop shows a QR/copy flow; mobile exposes a wallet deep link.
-- Payment status distinguishes awaiting payment, detected/underpaid/overpaid, confirming, confirmed, expired, failed, and manual review.
+- The real browser flow shows Paykit request/entitlement progress while Bitkit privately receives and executes the payment request; it does not expose or reconstruct the invoice.
+- Real buyer-visible status distinguishes awaiting entitlement, confirmed, marketplace-expired, and manual review. Detected, underpaid, overpaid, confirmation count, and transport failures stay internal to Locks/Paykit Server unless a future signed API exposes them.
+- The sandbox adapter may demonstrate invoice QR/deep-link and detailed settlement states only when visibly labeled as simulated.
 - Polling is abortable, bounded, resumable after reload, and tolerant of duplicate/reordered responses.
 - A confirmed payment advances the order once; later duplicate confirmations are harmless.
 - Digital goods use a Locks access credential and verify content hashes.
-- Sandbox mode reproduces all statuses deterministically and is visibly labeled.
+- Real payment criteria use direct on-chain Bitcoin with `minimum_confirmations` constrained to `0..6`; Lightning is not claimed by the current Paykit Server adapter.
+- Marketplace expiry is an order policy, not a terminal Paykit failure. A late payment enters manual reconciliation because Locks v1 keeps upstream/network failures pending.
+- Sandbox mode reproduces all supported statuses deterministically and is visibly labeled.
 
 ### Orders and fulfillment
 
