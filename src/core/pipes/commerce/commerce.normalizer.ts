@@ -11,7 +11,7 @@ import {
   type CommerceTombstoneRecord,
   commerceTombstoneRecordSchema,
 } from '@/libs/commerce/marketplace-records';
-import { marketplaceCommandSchema, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
+import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import {
   commerceAggregateIdSchema,
