@@ -1,9 +1,9 @@
 import { db } from '@/database/franky/franky';
+import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { DatabaseErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError } from '@/libs/error/error.utils';
-import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import {
   CommerceListingDraftModel,
   CommerceListingModel,
