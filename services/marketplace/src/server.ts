@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import { commerceAggregateIdSchema, commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import { InMemoryMarketplaceRepository, MarketplaceTransactionService } from './transaction-service';
 
 export type MarketplaceServerMode = 'disabled' | 'sandbox';
@@ -8,15 +9,28 @@ export interface MarketplaceServerOptions {
   mode: MarketplaceServerMode;
   service?: MarketplaceTransactionService;
   maxBodyBytes?: number;
+  allowedOrigin?: string;
 }
 
 export function createMarketplaceHttpServer({
   mode,
   service = new MarketplaceTransactionService(new InMemoryMarketplaceRepository()),
   maxBodyBytes = 1_000_000,
+  allowedOrigin = '*',
 }: MarketplaceServerOptions): Server {
   return createServer(async (request, response) => {
     try {
+      if (mode === 'sandbox') {
+        response.setHeader('access-control-allow-origin', allowedOrigin);
+        response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+        response.setHeader('access-control-allow-headers', 'content-type, x-pubky-actor');
+      }
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+
       if (request.method === 'GET' && request.url === '/health/live') {
         writeJson(response, 200, { status: 'live' }, mode);
         return;
@@ -63,6 +77,51 @@ export function createMarketplaceHttpServer({
         const result = await service.execute(actor, body);
         const status = result.ok ? 200 : statusForFailure(result.error.code);
         writeJson(response, status, result, mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/listings?')) {
+        const aggregateId = new URL(request.url, 'http://marketplace.local').searchParams.get('aggregateId');
+        const parsed = commerceAggregateIdSchema.safeParse(aggregateId);
+        if (!parsed.success) {
+          writeJson(
+            response,
+            400,
+            { error: { code: 'INVALID_COMMAND', message: 'A valid listing aggregate id is required.' } },
+            mode,
+          );
+          return;
+        }
+        const listing = service.getListingProjection(parsed.data);
+        writeJson(
+          response,
+          listing ? 200 : 404,
+          listing ?? { error: { code: 'NOT_FOUND', message: 'Listing not found.' } },
+          mode,
+        );
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/offers?')) {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        const aggregateId = new URL(request.url, 'http://marketplace.local').searchParams.get('aggregateId');
+        const aggregateResult = commerceAggregateIdSchema.safeParse(aggregateId);
+        if (!actorResult.success || !aggregateResult.success) {
+          writeJson(
+            response,
+            401,
+            { error: { code: 'UNAUTHORIZED', message: 'Valid offer participant identity is required.' } },
+            mode,
+          );
+          return;
+        }
+        writeJson(
+          response,
+          200,
+          { offers: service.getParticipantOffers(actorResult.data, aggregateResult.data) },
+          mode,
+        );
         return;
       }
 

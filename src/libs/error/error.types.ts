@@ -27,6 +27,7 @@ export enum ErrorService {
   Homegate = 'homegate',
   Exchangerate = 'exchangerate',
   Chatwoot = 'chatwoot',
+  Marketplace = 'marketplace',
   PubkyAppSpecs = 'pubky-app-specs',
   Local = 'local', // Client-side operations
   NextJsServer = 'nextjs-server', // Server-side operations

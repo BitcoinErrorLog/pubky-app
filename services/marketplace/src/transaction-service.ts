@@ -244,6 +244,16 @@ export class MarketplaceTransactionService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  getListingProjection(aggregateId: string): MarketplaceListingAggregate | undefined {
+    return this.repository.getListing(aggregateId);
+  }
+
+  getParticipantOffers(actorPubky: string, listingAggregateId: string): MarketplaceOffer[] {
+    return this.repository
+      .getOffersForListing(listingAggregateId)
+      .filter((offer) => offer.buyerPubky === actorPubky || offer.sellerPubky === actorPubky);
+  }
+
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
     const commandResult = marketplaceCommandSchema.safeParse(commandInput);

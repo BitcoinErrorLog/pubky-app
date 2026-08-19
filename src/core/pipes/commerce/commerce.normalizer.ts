@@ -11,8 +11,13 @@ import {
   type CommerceTombstoneRecord,
   commerceTombstoneRecordSchema,
 } from '@/libs/commerce/marketplace-records';
+import { marketplaceCommandSchema, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
-import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
+import {
+  commerceAggregateIdSchema,
+  commerceEntityIdSchema,
+  commercePubkySchema,
+} from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -62,6 +67,14 @@ export class CommerceRecordNormalizer {
 
   static jsonValue(input: unknown): CommerceJsonValue {
     return this.parse(z.json(), input, 'jsonValue');
+  }
+
+  static marketplaceCommand(input: unknown): MarketplaceCommand {
+    return this.parse(marketplaceCommandSchema, input, 'marketplaceCommand');
+  }
+
+  static aggregateId(input: unknown): string {
+    return this.parse(commerceAggregateIdSchema, input, 'aggregateId');
   }
 
   static shopUri(ownerPubky: unknown): string {

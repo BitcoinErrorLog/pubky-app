@@ -86,7 +86,23 @@ describe('marketplace HTTP server', () => {
 
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get('x-marketplace-mode')).toBe('sandbox');
+      expect(accepted.headers.get('access-control-allow-origin')).toBe('*');
       await expect(accepted.json()).resolves.toMatchObject({ ok: true, revision: 1 });
+
+      const listing = await realFetch(
+        `${baseUrl}/v1/listings?aggregateId=${encodeURIComponent(registrationCommand().aggregateId)}`,
+      );
+      expect(listing.status).toBe(200);
+      await expect(listing.json()).resolves.toMatchObject({ serverRevision: 1, saleFormat: 'fixed_price' });
+    });
+  });
+
+  it('answers sandbox CORS preflight without enabling disabled commands', async () => {
+    await withServer('sandbox', async (baseUrl) => {
+      const response = await realFetch(`${baseUrl}/v1/commands`, { method: 'OPTIONS' });
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('access-control-allow-methods')).toContain('POST');
     });
   });
 

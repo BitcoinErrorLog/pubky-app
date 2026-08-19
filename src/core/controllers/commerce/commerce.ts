@@ -1,5 +1,6 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
+import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -58,6 +59,19 @@ export class CommerceController {
 
   static async initializeSandboxCatalog(): Promise<boolean> {
     return await CommerceApplication.initializeSandboxCatalog();
+  }
+
+  static async executeMarketplaceCommand(input: unknown) {
+    return await CommerceApplication.executeMarketplaceCommand(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.marketplaceCommand(input),
+    );
+  }
+
+  static async getMarketplaceListingProjection(ownerPubky: unknown, listingId: unknown) {
+    const owner = CommerceRecordNormalizer.pubky(ownerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    return await CommerceApplication.getMarketplaceListingProjection(buildMarketplaceListingAggregateId(owner, id));
   }
 
   static async getListingDrafts() {

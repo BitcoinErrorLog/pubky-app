@@ -1,11 +1,13 @@
 import { getCommerceAdapterMode } from '@/config/commerce';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
+import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 
 export class CommerceApplication {
   private constructor() {}
@@ -67,7 +69,18 @@ export class CommerceApplication {
 
   static async initializeSandboxCatalog(): Promise<boolean> {
     if (getCommerceAdapterMode() !== 'sandbox') return false;
-    return await LocalCommerceService.seedSandboxCatalog(createCommerceSandboxCatalog());
+    const catalog = createCommerceSandboxCatalog();
+    const seeded = await LocalCommerceService.seedSandboxCatalog(catalog);
+    await Promise.allSettled(catalog.listings.map((listing) => this.registerSandboxListing(listing)));
+    return seeded;
+  }
+
+  static async executeMarketplaceCommand(actorPubky: string, command: MarketplaceCommand) {
+    return await MarketplaceGatewayService.execute(actorPubky, command);
+  }
+
+  static async getMarketplaceListingProjection(aggregateId: string) {
+    return await MarketplaceGatewayService.getListing(aggregateId);
   }
 
   static async isFavorite(ownerPubky: string, listingId: string): Promise<boolean> {
@@ -171,6 +184,42 @@ export class CommerceApplication {
     const url = CommerceRecordNormalizer.mediaUri(ownerPubky, mediaId);
     await CommerceHomeserverService.putMedia(url, bytes);
     return url;
+  }
+
+  private static async registerSandboxListing(listing: CommerceListingRecord): Promise<void> {
+    const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
+    const existing = await MarketplaceGatewayService.getListing(aggregateId);
+    if (existing?.serverRevision) return;
+    const unitPrice = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId,
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'listing.register',
+      payload: {
+        sellerPubky: listing.ownerPubky,
+        listingId: listing.listingId,
+        listingRevision: listing.revision,
+        contentHash: listing.media[0].contentHash,
+        quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
+        unitPrice,
+        saleFormat: listing.sale.format,
+        auctionTerms:
+          listing.sale.format === 'auction'
+            ? {
+                startsAt: listing.sale.startsAt,
+                endsAt: listing.sale.endsAt,
+                minimumIncrement: listing.sale.minimumIncrement,
+                reservePrice: listing.sale.reservePrice,
+                antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
+                antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
+              }
+            : undefined,
+      },
+    });
+    await MarketplaceGatewayService.execute(listing.ownerPubky, command);
   }
 
   private static createSyncJob({
