@@ -42,6 +42,8 @@ const testnetValue = z.boolean();
 const sampleRateValue = z.number().min(0).max(1);
 const positiveIntValue = z.number().int().positive();
 const nonEmptyStringValue = z.string().min(1);
+const commerceAdapterModeValue = z.enum(['unavailable', 'sandbox', 'locks-paykit']);
+export type CommerceAdapterMode = z.infer<typeof commerceAdapterModeValue>;
 const pubkyValue = z
   .string()
   .trim()
@@ -174,6 +176,11 @@ export const APP_RUNTIME_DEFAULTS = {
   moderationId: 'nto4u7kkagk5hfjk4wgueemzy61nssic811hid1ty9u81uatmqzy',
   moderatedTags: ['nudity'],
   exchangeRateApi: 'https://api1.blocktank.to/api/fx/rates/btc',
+  marketplaceUrl: 'http://localhost:3100',
+  locksUrl: 'http://localhost:3101',
+  paykitSetupUrl: 'http://localhost:3102/setup',
+  commerceAdapterMode: 'unavailable' as CommerceAdapterMode,
+  commercePollIntervalMs: 2_000,
   preludeSdkTimeoutMs: 5_000,
   previewImage: '/preview.webp',
   siteName: 'Pubky App',
@@ -248,6 +255,11 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
   moderationId: pubkyValue.optional(),
   moderatedTags: z.array(nonEmptyStringValue).default([...APP_RUNTIME_DEFAULTS.moderatedTags]),
   exchangeRateApi: urlValue.default(APP_RUNTIME_DEFAULTS.exchangeRateApi),
+  marketplaceUrl: urlValue.default(APP_RUNTIME_DEFAULTS.marketplaceUrl),
+  locksUrl: urlValue.default(APP_RUNTIME_DEFAULTS.locksUrl),
+  paykitSetupUrl: urlValue.default(APP_RUNTIME_DEFAULTS.paykitSetupUrl),
+  commerceAdapterMode: commerceAdapterModeValue.default(APP_RUNTIME_DEFAULTS.commerceAdapterMode),
+  commercePollIntervalMs: positiveIntValue.default(APP_RUNTIME_DEFAULTS.commercePollIntervalMs),
   preludeSdkKey: nonEmptyStringValue.optional(),
   preludeSdkTimeoutMs: positiveIntValue.default(APP_RUNTIME_DEFAULTS.preludeSdkTimeoutMs),
   plausibleDomain: nonEmptyStringValue.optional(),
@@ -320,6 +332,11 @@ export const runtimeEnvInputSchema = z
     moderationId: optionalTrimmedString,
     moderatedTags: optionalStringArrayFromString('MODERATED_TAGS'),
     exchangeRateApi: optionalUrlFromString,
+    marketplaceUrl: optionalUrlFromString,
+    locksUrl: optionalUrlFromString,
+    paykitSetupUrl: optionalUrlFromString,
+    commerceAdapterMode: commerceAdapterModeValue.optional(),
+    commercePollIntervalMs: optionalPositiveIntFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
     plausibleDomain: optionalTrimmedString,
@@ -398,6 +415,11 @@ export const runtimeEnvInputSchemaWithDefaults = z
     moderationId: optionalTrimmedString,
     moderatedTags: optionalStringArrayFromString('MODERATED_TAGS'),
     exchangeRateApi: optionalUrlFromString,
+    marketplaceUrl: optionalUrlFromString,
+    locksUrl: optionalUrlFromString,
+    paykitSetupUrl: optionalUrlFromString,
+    commerceAdapterMode: commerceAdapterModeValue.optional(),
+    commercePollIntervalMs: optionalPositiveIntFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
     plausibleDomain: optionalTrimmedString,
@@ -468,6 +490,11 @@ export const PUBKY_RUNTIME_ENV_NAMES: Record<keyof RuntimeConfig, string> = {
   moderationId: 'PUBKY_RUNTIME_MODERATION_ID',
   moderatedTags: 'PUBKY_RUNTIME_MODERATED_TAGS',
   exchangeRateApi: 'PUBKY_RUNTIME_EXCHANGE_RATE_API',
+  marketplaceUrl: 'PUBKY_RUNTIME_MARKETPLACE_URL',
+  locksUrl: 'PUBKY_RUNTIME_LOCKS_URL',
+  paykitSetupUrl: 'PUBKY_RUNTIME_PAYKIT_SETUP_URL',
+  commerceAdapterMode: 'PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE',
+  commercePollIntervalMs: 'PUBKY_RUNTIME_COMMERCE_POLL_INTERVAL_MS',
   preludeSdkKey: 'PUBKY_RUNTIME_PRELUDE_SDK_KEY',
   preludeSdkTimeoutMs: 'PUBKY_RUNTIME_PRELUDE_SDK_TIMEOUT_MS',
   plausibleDomain: 'PUBKY_RUNTIME_PLAUSIBLE_DOMAIN',

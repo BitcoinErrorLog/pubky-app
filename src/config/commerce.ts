@@ -1,3 +1,21 @@
+import {
+  getCommerceAdapterMode,
+  getCommercePollIntervalMs,
+  getLocksUrl,
+  getMarketplaceUrl,
+  getPaykitSetupUrl,
+} from '@/libs/runtime-config/runtime-config';
+import type { CommerceAdapterMode } from '@/libs/runtime-config/runtime-config.schema';
+
+export {
+  type CommerceAdapterMode,
+  getCommerceAdapterMode,
+  getCommercePollIntervalMs,
+  getLocksUrl,
+  getMarketplaceUrl,
+  getPaykitSetupUrl,
+};
+
 export const COMMERCE_CONTRACT_VERSION = 1 as const;
 export const COMMERCE_TAXONOMY_VERSION = 1 as const;
 
