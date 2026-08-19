@@ -27,16 +27,16 @@ Treating a local optimistic state as final would let stale or malicious clients 
 
 ### 1. Split data by authority
 
-| Data | Authority | Client behavior |
-| --- | --- | --- |
-| Public shop, listing, and public review documents | Pubky homeserver records signed by the owner | Cache and reconcile locally |
-| Drafts, carts, saved searches, UI preferences | Account-scoped Dexie | Local-first |
-| Follows, favorites, and safe unsent messages | Pubky records or a reviewed encrypted transport | Optimistic with visible sync state |
-| Stock reservation, offers, auctions, bids | Marketplace Transaction Service | Online server acknowledgement required |
-| Orders, immutable terms, ledger, fulfillment, returns, disputes | Marketplace Transaction Service | Cache role-appropriate projections |
-| Payment endpoint discovery and private requests | Paykit | Consume through supported bindings/services |
-| Paid digital entitlement | Locks backed by Paykit Server observation | Verify through the Locks lifecycle |
-| Real Bitcoin refund | Seller's external wallet | Record only independently verified evidence |
+| Data                                                            | Authority                                       | Client behavior                             |
+| --------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------- |
+| Public shop, listing, and public review documents               | Pubky homeserver records signed by the owner    | Cache and reconcile locally                 |
+| Drafts, carts, saved searches, UI preferences                   | Account-scoped Dexie                            | Local-first                                 |
+| Follows, favorites, and safe unsent messages                    | Pubky records or a reviewed encrypted transport | Optimistic with visible sync state          |
+| Stock reservation, offers, auctions, bids                       | Marketplace Transaction Service                 | Online server acknowledgement required      |
+| Orders, immutable terms, ledger, fulfillment, returns, disputes | Marketplace Transaction Service                 | Cache role-appropriate projections          |
+| Payment endpoint discovery and private requests                 | Paykit                                          | Consume through supported bindings/services |
+| Paid digital entitlement                                        | Locks backed by Paykit Server observation       | Verify through the Locks lifecycle          |
+| Real Bitcoin refund                                             | Seller's external wallet                        | Record only independently verified evidence |
 
 The UI may optimistically show a transactional command as **submitting**, but it must not show **reserved**, **won**, **paid**, **refunded**, **released**, or **paid out** until it receives an authoritative result.
 
