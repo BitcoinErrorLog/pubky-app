@@ -126,6 +126,11 @@ describe('useCreateMarketplaceListing', () => {
 
     act(() => {
       result.current.form.setValue('title', 'Autosaved boots');
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
       vi.advanceTimersByTime(750);
     });
 
