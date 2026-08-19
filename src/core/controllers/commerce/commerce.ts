@@ -60,6 +60,25 @@ export class CommerceController {
     return await CommerceApplication.initializeSandboxCatalog();
   }
 
+  static async getListingDrafts() {
+    return await CommerceApplication.getListingDrafts(this.getCurrentUserPubky());
+  }
+
+  static async commitUpdateListingDraft(listingId: unknown, form: unknown): Promise<void> {
+    await CommerceApplication.commitUpdateListingDraft(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(listingId),
+      CommerceRecordNormalizer.jsonValue(form),
+    );
+  }
+
+  static async commitDeleteListingDraft(listingId: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteListingDraft(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(listingId),
+    );
+  }
+
   static async isFavorite(listingCompositeId: unknown): Promise<boolean> {
     return await CommerceApplication.isFavorite(
       this.getCurrentUserPubky(),

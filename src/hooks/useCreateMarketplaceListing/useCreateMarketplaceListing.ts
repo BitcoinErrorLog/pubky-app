@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
@@ -14,6 +15,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
+  createMarketplaceListingDraftSchema,
   createMarketplaceListingSchema,
 } from './useCreateMarketplaceListing.types';
 
@@ -27,11 +29,51 @@ export interface UseCreateMarketplaceListingResult {
 export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const media = useListingMediaPicker();
+  const [draftId, setDraftId] = useState(() => crypto.randomUUID().replaceAll('-', ''));
+  const draftReadyRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const form = useForm<CreateMarketplaceListingData>({
     resolver: zodResolver(createMarketplaceListingSchema),
     defaultValues: createMarketplaceListingDefaults,
     mode: 'onChange',
   });
+
+  useEffect(() => {
+    if (!currentUserPubky) return;
+    let active = true;
+    CommerceController.getListingDrafts()
+      .then((drafts) => {
+        if (!active) return;
+        const latest = drafts[0];
+        const parsed = createMarketplaceListingDraftSchema.safeParse(latest?.data.form);
+        if (latest && parsed.success) {
+          setDraftId(latest.listing_id);
+          form.reset({ ...createMarketplaceListingDefaults, ...parsed.data });
+        }
+        draftReadyRef.current = true;
+      })
+      .catch(() => {
+        draftReadyRef.current = true;
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUserPubky, form]);
+
+  useEffect(() => {
+    if (!currentUserPubky) return;
+    const subscription = form.watch(() => {
+      if (!draftReadyRef.current) return;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        void CommerceController.commitUpdateListingDraft(draftId, form.getValues());
+      }, 750);
+    });
+    return () => {
+      subscription.unsubscribe();
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [currentUserPubky, draftId, form]);
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky) return null;
@@ -51,6 +93,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
         await CommerceController.commitCreateMedia(preparedMedia.record.id, preparedMedia.bytes);
         const listing = buildListingRecord(currentUserPubky, data, preparedMedia.record);
         await CommerceController.commitUpsertListing(listing);
+        await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;
         toast({ title: 'Listing published', description: 'Your owner-signed listing is now available.' });
       } catch {
@@ -64,6 +107,10 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const reset = () => {
     form.reset(createMarketplaceListingDefaults);
     media.reset();
+    draftReadyRef.current = false;
+    void CommerceController.commitDeleteListingDraft(draftId);
+    setDraftId(crypto.randomUUID().replaceAll('-', ''));
+    draftReadyRef.current = true;
   };
 
   return { form, media, submit, reset };

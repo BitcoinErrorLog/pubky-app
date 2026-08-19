@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   type CommerceCollectionRecord,
   commerceCollectionRecordSchema,
@@ -12,6 +12,7 @@ import {
   commerceTombstoneRecordSchema,
 } from '@/libs/commerce/marketplace-records';
 import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
+import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -57,6 +58,10 @@ export class CommerceRecordNormalizer {
     const owner = this.pubky(input.slice(0, separator));
     const listingId = this.entityId(input.slice(separator + 1));
     return `${owner}:${listingId}`;
+  }
+
+  static jsonValue(input: unknown): CommerceJsonValue {
+    return this.parse(z.json(), input, 'jsonValue');
   }
 
   static shopUri(ownerPubky: unknown): string {

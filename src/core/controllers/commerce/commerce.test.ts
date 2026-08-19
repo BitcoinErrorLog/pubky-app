@@ -104,4 +104,18 @@ describe('CommerceController', () => {
       code: 'INVALID_INPUT',
     });
   });
+
+  it('validates and scopes local listing draft autosave data', async () => {
+    const update = vi.spyOn(CommerceApplication, 'commitUpdateListingDraft').mockResolvedValue(undefined);
+
+    await CommerceController.commitUpdateListingDraft('draft_01', { title: 'Autosaved boots', quantity: '1' });
+
+    expect(update).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, 'draft_01', {
+      title: 'Autosaved boots',
+      quantity: '1',
+    });
+    await expect(CommerceController.commitUpdateListingDraft('draft_01', { invalid: 1n })).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    });
+  });
 });

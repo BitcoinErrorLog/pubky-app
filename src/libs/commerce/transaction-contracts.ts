@@ -137,6 +137,14 @@ export const orderStateSchema = z.enum([
   'closed',
 ]);
 
+export type CommerceJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | CommerceJsonValue[]
+  | { [key: string]: CommerceJsonValue };
+
 export type CommerceMoney = z.infer<typeof commerceMoneySchema>;
 export type ListingState = z.infer<typeof listingStateSchema>;
 export type OfferState = z.infer<typeof offerStateSchema>;

@@ -60,7 +60,7 @@ export function MarketplaceSell() {
           </Typography>
           <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldCheck className="size-4 text-brand" />
-            Images are sanitized and BLAKE3 hashed before upload.
+            Drafts autosave locally. Images are sanitized and BLAKE3 hashed before upload.
           </div>
         </div>
 

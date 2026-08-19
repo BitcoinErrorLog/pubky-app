@@ -1,5 +1,5 @@
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
-import type { AuctionState, CommerceMoney } from '@/libs/commerce/transaction-contracts';
+import type { AuctionState, CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
 export type CommerceCacheStatus = 'local' | 'pending' | 'synced' | 'failed';
 
@@ -51,7 +51,9 @@ export type CommerceListingDraftData = Pick<CommerceListingRecord, 'listingId' |
       CommerceListingRecord,
       'schemaVersion' | 'recordType' | 'listingId' | 'ownerPubky' | 'revision' | 'createdAt' | 'updatedAt' | 'state'
     >
-  >;
+  > & {
+    form?: CommerceJsonValue;
+  };
 
 export interface CommerceListingDraftModelSchema {
   id: string;
@@ -97,14 +99,6 @@ export const commerceListingProjectionTableSchema = [
 
 export type CommerceSyncJobOperation = 'publish' | 'register' | 'update' | 'remove';
 export type CommerceSyncJobStatus = 'pending' | 'running' | 'failed';
-
-export type CommerceJsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | CommerceJsonValue[]
-  | { [key: string]: CommerceJsonValue };
 
 export interface CommerceSyncJobModelSchema {
   id: string;

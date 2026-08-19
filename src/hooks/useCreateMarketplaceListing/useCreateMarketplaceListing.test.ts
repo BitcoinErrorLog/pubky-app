@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -44,6 +44,9 @@ vi.mock('@/hooks/useListingMediaPicker/useListingMediaPicker', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    getListingDrafts: vi.fn(async () => []),
+    commitUpdateListingDraft: vi.fn(),
+    commitDeleteListingDraft: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(),
   },
@@ -58,6 +61,10 @@ describe('useCreateMarketplaceListing', () => {
     vi.clearAllMocks();
     mediaState.prepared = true;
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770121');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('uploads prepared media and publishes a schema-valid owner listing', async () => {
@@ -108,5 +115,23 @@ describe('useCreateMarketplaceListing', () => {
     expect(CommerceController.commitCreateMedia).not.toHaveBeenCalled();
     expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' }));
+  });
+
+  it('autosaves draft form values after local hydration', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.form.setValue('title', 'Autosaved boots');
+      vi.advanceTimersByTime(750);
+    });
+
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
+      '018f47d26a277c23a49d6b21bb770121',
+      expect.objectContaining({ title: 'Autosaved boots' }),
+    );
   });
 });

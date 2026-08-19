@@ -100,6 +100,29 @@ export const createMarketplaceListingSchema = z
     }
   });
 
+export const createMarketplaceListingDraftSchema = z
+  .object({
+    title: z.string(),
+    description: z.string(),
+    categoryId: z.string(),
+    condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
+    countryCode: z.string(),
+    region: z.string(),
+    saleFormat: z.enum(['fixed_price', 'auction']),
+    price: z.string(),
+    quantity: z.string(),
+    fulfillment: z.enum(['pickup', 'physical']),
+    shippingPrice: z.string(),
+    weightGrams: z.string(),
+    lengthMillimeters: z.string(),
+    widthMillimeters: z.string(),
+    heightMillimeters: z.string(),
+    returnDays: z.enum(['none', '14', '30']),
+    altText: z.string(),
+  })
+  .partial()
+  .strict();
+
 export type CreateMarketplaceListingData = z.infer<typeof createMarketplaceListingSchema>;
 
 export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {

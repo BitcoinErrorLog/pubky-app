@@ -1,6 +1,7 @@
 import { getCommerceAdapterMode } from '@/config/commerce';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
+import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
@@ -45,6 +46,23 @@ export class CommerceApplication {
 
   static async getAllListings() {
     return await LocalCommerceService.getAllListings();
+  }
+
+  static async getListingDrafts(ownerPubky: string) {
+    return await LocalCommerceService.getDraftsByOwner(ownerPubky);
+  }
+
+  static async commitUpdateListingDraft(ownerPubky: string, listingId: string, form: CommerceJsonValue): Promise<void> {
+    await LocalCommerceService.upsertDraft({
+      ownerId: ownerPubky,
+      listingId,
+      data: { ownerPubky, listingId, form },
+      now: Date.now(),
+    });
+  }
+
+  static async commitDeleteListingDraft(ownerPubky: string, listingId: string): Promise<void> {
+    await LocalCommerceService.deleteDraft(`${ownerPubky}:${listingId}`);
   }
 
   static async initializeSandboxCatalog(): Promise<boolean> {
