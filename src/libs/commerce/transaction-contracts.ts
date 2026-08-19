@@ -18,8 +18,8 @@ export const commerceEntityIdSchema = z
 export const commerceAggregateIdSchema = z
   .string()
   .min(3)
-  .max(161)
-  .regex(/^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9_-]{1,128}$/, 'Expected type:identifier aggregate format');
+  .max(289)
+  .regex(/^[a-z][a-z0-9_-]{1,31}:[A-Za-z0-9_-]{1,256}$/, 'Expected type:identifier aggregate format');
 
 export const commerceTimestampSchema = z.iso.datetime({ offset: true });
 
