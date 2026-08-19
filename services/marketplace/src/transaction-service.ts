@@ -2,8 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   buildMarketplaceListingAggregateId,
-  marketplaceCommandSchema,
   type MarketplaceCommand,
+  marketplaceCommandSchema,
   type RegisterListingCommand,
   type ReserveInventoryCommand,
 } from './contracts';

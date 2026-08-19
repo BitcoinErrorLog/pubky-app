@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net';
+import { fetch as realFetch } from 'undici';
 import { describe, expect, it } from 'vitest';
 import { buildMarketplaceListingAggregateId } from './contracts';
 import { createMarketplaceHttpServer, type MarketplaceServerMode } from './server';
@@ -44,8 +45,8 @@ function registrationCommand() {
 describe('marketplace HTTP server', () => {
   it('reports liveness while disabled but fails readiness closed', async () => {
     await withServer('disabled', async (baseUrl) => {
-      const live = await fetch(`${baseUrl}/health/live`);
-      const ready = await fetch(`${baseUrl}/health/ready`);
+      const live = await realFetch(`${baseUrl}/health/live`);
+      const ready = await realFetch(`${baseUrl}/health/ready`);
 
       expect(live.status).toBe(200);
       expect(await live.json()).toEqual({ status: 'live' });
@@ -56,7 +57,7 @@ describe('marketplace HTTP server', () => {
 
   it('rejects commands when sandbox mode was not explicit', async () => {
     await withServer('disabled', async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/v1/commands`, {
+      const response = await realFetch(`${baseUrl}/v1/commands`, {
         method: 'POST',
         body: JSON.stringify(registrationCommand()),
       });
@@ -68,13 +69,13 @@ describe('marketplace HTTP server', () => {
 
   it('requires an explicit sandbox actor and labels every response', async () => {
     await withServer('sandbox', async (baseUrl) => {
-      const missingActor = await fetch(`${baseUrl}/v1/commands`, {
+      const missingActor = await realFetch(`${baseUrl}/v1/commands`, {
         method: 'POST',
         body: JSON.stringify(registrationCommand()),
       });
       expect(missingActor.status).toBe(401);
 
-      const accepted = await fetch(`${baseUrl}/v1/commands`, {
+      const accepted = await realFetch(`${baseUrl}/v1/commands`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -91,7 +92,7 @@ describe('marketplace HTTP server', () => {
 
   it('returns a coarse error for malformed JSON without echoing the body', async () => {
     await withServer('sandbox', async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/v1/commands`, {
+      const response = await realFetch(`${baseUrl}/v1/commands`, {
         method: 'POST',
         headers: {
           'x-pubky-actor': SELLER,
