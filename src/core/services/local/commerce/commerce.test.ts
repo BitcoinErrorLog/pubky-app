@@ -54,6 +54,41 @@ describe('LocalCommerceService', () => {
     });
   });
 
+  it('stages public records and their retry jobs in the same local transaction', async () => {
+    const shop = createCommerceShopFixture();
+    const listing = createCommerceListingFixture();
+    const shopJob = createCommerceSyncJobFixture({
+      id: '018f47d2-6a27-7c23-a49d-6b21bb770125',
+      entity_type: 'shop',
+      entity_id: COMMERCE_FIXTURE_SELLER,
+      operation: 'publish',
+    });
+    const listingJob = createCommerceSyncJobFixture();
+
+    await LocalCommerceService.stageShopSync(shop, shopJob);
+    await LocalCommerceService.stageListingSync(listing, listingJob);
+
+    expect(await LocalCommerceService.getShop(COMMERCE_FIXTURE_SELLER)).toMatchObject({ sync_status: 'pending' });
+    expect(await LocalCommerceService.getListing(`${COMMERCE_FIXTURE_SELLER}:boots_01`)).toMatchObject({
+      sync_status: 'pending',
+    });
+    expect(await CommerceSyncJobModel.findById(shopJob.id)).toMatchObject({ entity_type: 'shop' });
+    expect(await CommerceSyncJobModel.findById(listingJob.id)).toMatchObject({ entity_type: 'listing' });
+  });
+
+  it('rejects a sync job scoped to a different public record', async () => {
+    const listing = createCommerceListingFixture();
+    const mismatchedJob = createCommerceSyncJobFixture({ entity_id: 'other_listing' });
+
+    await expect(LocalCommerceService.stageListingSync(listing, mismatchedJob)).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'INVALID_INPUT',
+      category: 'validation',
+    });
+    expect(await CommerceListingModel.table.count()).toBe(0);
+    expect(await CommerceSyncJobModel.table.count()).toBe(0);
+  });
+
   it('atomically persists matching public terms and transaction projection', async () => {
     const listing = createCommerceListingFixture();
     const projection = createCommerceProjectionFixture();

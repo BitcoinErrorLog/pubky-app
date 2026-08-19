@@ -1,0 +1,97 @@
+import type { z } from 'zod';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import {
+  commerceCollectionRecordSchema,
+  commerceListingRecordSchema,
+  commerceReviewRecordSchema,
+  commerceShopRecordSchema,
+  commerceTombstoneRecordSchema,
+  type CommerceCollectionRecord,
+  type CommerceListingRecord,
+  type CommerceReviewRecord,
+  type CommerceShopRecord,
+  type CommerceTombstoneRecord,
+} from '@/libs/commerce/marketplace-records';
+import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
+
+const MARKETPLACE_BASE_PATH = '/pub/pubky.app/marketplace/v1';
+
+export class CommerceRecordNormalizer {
+  private constructor() {}
+
+  static shop(input: unknown): CommerceShopRecord {
+    return this.parse(commerceShopRecordSchema, input, 'shop');
+  }
+
+  static listing(input: unknown): CommerceListingRecord {
+    return this.parse(commerceListingRecordSchema, input, 'listing');
+  }
+
+  static review(input: unknown): CommerceReviewRecord {
+    return this.parse(commerceReviewRecordSchema, input, 'review');
+  }
+
+  static collection(input: unknown): CommerceCollectionRecord {
+    return this.parse(commerceCollectionRecordSchema, input, 'collection');
+  }
+
+  static tombstone(input: unknown): CommerceTombstoneRecord {
+    return this.parse(commerceTombstoneRecordSchema, input, 'tombstone');
+  }
+
+  static pubky(input: unknown): string {
+    return this.parse(commercePubkySchema, input, 'pubky');
+  }
+
+  static entityId(input: unknown): string {
+    return this.parse(commerceEntityIdSchema, input, 'entityId');
+  }
+
+  static shopUri(ownerPubky: unknown): string {
+    const owner = this.pubky(ownerPubky);
+    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/shop.json`;
+  }
+
+  static listingUri(ownerPubky: unknown, listingId: unknown): string {
+    const owner = this.pubky(ownerPubky);
+    const id = this.entityId(listingId);
+    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/listings/${id}.json`;
+  }
+
+  static mediaUri(ownerPubky: unknown, mediaId: unknown): string {
+    const owner = this.pubky(ownerPubky);
+    const id = this.entityId(mediaId);
+    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/media/${id}`;
+  }
+
+  static reviewUri(ownerPubky: unknown, reviewId: unknown): string {
+    const owner = this.pubky(ownerPubky);
+    const id = this.entityId(reviewId);
+    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/reviews/${id}.json`;
+  }
+
+  static collectionUri(ownerPubky: unknown, collectionId: unknown): string {
+    const owner = this.pubky(ownerPubky);
+    const id = this.entityId(collectionId);
+    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/collections/${id}.json`;
+  }
+
+  private static parse<T>(schema: z.ZodType<T>, input: unknown, operation: string): T {
+    const result = schema.safeParse(input);
+    if (result.success) return result.data;
+
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, `Invalid commerce ${operation}.`, {
+      service: ErrorService.Local,
+      operation: `normalizeCommerce${operation}`,
+      context: {
+        issues: result.error.issues.map(({ code, message, path }) => ({
+          code,
+          message,
+          path: path.join('.'),
+        })),
+      },
+    });
+  }
+}

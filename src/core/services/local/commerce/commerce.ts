@@ -38,6 +38,33 @@ export class LocalCommerceService {
     });
   }
 
+  static async stageShopSync(record: CommerceShopRecord, job: CommerceSyncJobModelSchema): Promise<void> {
+    this.assertSyncJobIdentity(job, record.ownerPubky, record.ownerPubky, 'shop');
+    const shop = {
+      id: record.ownerPubky,
+      owner_id: record.ownerPubky,
+      record,
+      revision: record.revision,
+      sync_status: 'pending' as const,
+      updated_at: Date.parse(record.updatedAt),
+    };
+
+    try {
+      await db.transaction('rw', CommerceShopModel.table, CommerceSyncJobModel.table, async () => {
+        await CommerceShopModel.upsert(shop);
+        await CommerceSyncJobModel.upsert(job);
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to stage shop synchronization', {
+        service: ErrorService.Local,
+        operation: 'stageShopSync',
+        context: { tables: [CommerceShopModel.table.name, CommerceSyncJobModel.table.name] },
+        cause: error,
+      });
+    }
+  }
+
   static async getListing(compositeListingId: string) {
     return await CommerceListingModel.findById(compositeListingId);
   }
@@ -52,6 +79,26 @@ export class LocalCommerceService {
 
   static async upsertListing(record: CommerceListingRecord, syncStatus: CommerceCacheStatus): Promise<void> {
     await CommerceListingModel.upsert(this.toListingModel(record, syncStatus));
+  }
+
+  static async stageListingSync(record: CommerceListingRecord, job: CommerceSyncJobModelSchema): Promise<void> {
+    this.assertSyncJobIdentity(job, record.ownerPubky, record.listingId, 'listing');
+    const listing = this.toListingModel(record, 'pending');
+
+    try {
+      await db.transaction('rw', CommerceListingModel.table, CommerceSyncJobModel.table, async () => {
+        await CommerceListingModel.upsert(listing);
+        await CommerceSyncJobModel.upsert(job);
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to stage listing synchronization', {
+        service: ErrorService.Local,
+        operation: 'stageListingSync',
+        context: { tables: [CommerceListingModel.table.name, CommerceSyncJobModel.table.name] },
+        cause: error,
+      });
+    }
   }
 
   static async upsertListingAndProjection(
@@ -242,5 +289,23 @@ export class LocalCommerceService {
       sync_status: syncStatus,
       updated_at: Date.parse(record.updatedAt),
     };
+  }
+
+  private static assertSyncJobIdentity(
+    job: CommerceSyncJobModelSchema,
+    ownerId: string,
+    entityId: string,
+    entityType: CommerceSyncJobModelSchema['entity_type'],
+  ): void {
+    const ownerMatches = job.owner_id === ownerId;
+    const entityMatches = job.entity_id === entityId;
+    const typeMatches = job.entity_type === entityType;
+    if (!ownerMatches || !entityMatches || !typeMatches) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Sync job identity must match its public record.', {
+        service: ErrorService.Local,
+        operation: 'assertSyncJobIdentity',
+        context: { ownerMatches, entityMatches, typeMatches },
+      });
+    }
   }
 }
