@@ -12,6 +12,7 @@ import {
 import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
+  CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
 } from './commerce.schema';
 
@@ -99,6 +100,7 @@ function makeListingModel(
 ): CommerceListingModelSchema {
   const record = makeListingRecord(listingId);
   record.categoryId = categoryId;
+  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   return {
     id: `${SELLER_PUBKY}:${listingId}`,
     seller_id: SELLER_PUBKY,
@@ -108,8 +110,8 @@ function makeListingModel(
     state: record.state,
     category_id: categoryId,
     format: record.sale.format,
-    currency: record.sale.unitPrice.currency,
-    price_minor: record.sale.unitPrice.amountMinor,
+    currency: price.currency,
+    price_minor: price.amountMinor,
     sync_status: 'synced',
     updated_at: updatedAt,
   };
@@ -165,14 +167,15 @@ describe('commerce Dexie models', () => {
 
   it('persists and materializes a shop record', async () => {
     const record = makeShop();
-    await CommerceShopModel.upsert({
+    const shopRecord: CommerceShopModelSchema = {
       id: SELLER_PUBKY,
       owner_id: SELLER_PUBKY,
       record,
       revision: record.revision,
       sync_status: 'synced',
       updated_at: 1_000,
-    });
+    };
+    await CommerceShopModel.upsert(shopRecord);
 
     const shop = await CommerceShopModel.findById(SELLER_PUBKY);
 
