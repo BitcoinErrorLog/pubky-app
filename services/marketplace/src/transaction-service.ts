@@ -8,8 +8,8 @@ import {
   type CreateOfferCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
-  type RejectOfferCommand,
   type RegisterListingCommand,
+  type RejectOfferCommand,
   type ReserveInventoryCommand,
   type WithdrawOfferCommand,
 } from './contracts';
