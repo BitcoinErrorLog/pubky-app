@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  COMMERCE_CONTRACT_VERSION,
   auctionStateSchema,
+  COMMERCE_CONTRACT_VERSION,
   commerceAggregateIdSchema,
   commerceCommandBaseSchema,
   commerceCurrencySchema,
