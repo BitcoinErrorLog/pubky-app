@@ -36,3 +36,11 @@ export const COMMERCE_LISTING_MAX_QUANTITY = 1_000_000;
 
 export const COMMERCE_REVIEW_TEXT_MAX_CHARS = 5_000;
 export const COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS = 300;
+export const COMMERCE_CATALOG_SKELETON_COUNT = 8;
+
+export const COMMERCE_CATEGORIES = [
+  { id: 'fashion', label: 'Fashion' },
+  { id: 'electronics', label: 'Electronics' },
+  { id: 'home', label: 'Home' },
+  { id: 'collectibles', label: 'Collectibles' },
+] as const;

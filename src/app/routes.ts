@@ -22,6 +22,7 @@ export enum APP_ROUTES {
   SEARCH = '/search',
   HOT = '/hot',
   COLLECTIONS = '/collections',
+  MARKETPLACE = '/marketplace',
   SETTINGS = '/settings',
   PROFILE = '/profile',
   WHO_TO_FOLLOW = '/who-to-follow',
@@ -30,6 +31,16 @@ export enum APP_ROUTES {
 
 export enum COLLECTION_ROUTES {
   BOOKMARKS = '/collections/bookmarks',
+}
+
+export enum MARKETPLACE_ROUTES {
+  LISTING = '/marketplace/listing',
+  SHOP = '/marketplace/shop',
+  SELL = '/marketplace/sell',
+  DASHBOARD = '/marketplace/dashboard',
+  ORDERS = '/marketplace/orders',
+  MESSAGES = '/marketplace/messages',
+  SETTINGS = '/marketplace/settings',
 }
 
 export enum PROFILE_ROUTES {
@@ -67,7 +78,13 @@ export enum DEV_ROUTES {
   SENTRY_TEST = '/sentry-test',
 }
 
-export const EXPLORE_ROUTES: string[] = [APP_ROUTES.HOME, APP_ROUTES.HOT, APP_ROUTES.SEARCH, APP_ROUTES.COLLECTIONS];
+export const EXPLORE_ROUTES: string[] = [
+  APP_ROUTES.HOME,
+  APP_ROUTES.HOT,
+  APP_ROUTES.SEARCH,
+  APP_ROUTES.COLLECTIONS,
+  APP_ROUTES.MARKETPLACE,
+];
 
 // Public routes are accessible regardless of authentication status.
 // This includes routes that need to be accessible during auth transitions (like logout).
@@ -94,6 +111,7 @@ export const ALLOWED_ROUTES = [
   APP_ROUTES.SEARCH,
   APP_ROUTES.HOT,
   APP_ROUTES.COLLECTIONS,
+  APP_ROUTES.MARKETPLACE,
   APP_ROUTES.SETTINGS,
   APP_ROUTES.PROFILE,
   APP_ROUTES.WHO_TO_FOLLOW,
@@ -154,6 +172,8 @@ export function isDynamicPublicRoute(pathname: string): boolean {
     case segments[0] === 'post' && segments.length === 3:
     case segments[0] === 'profile' && segments.length === 2 && isPubkyIdentifier(segments[1]):
     case matchSingleCollectionRoute(pathname) !== null:
+    case matchMarketplaceListingRoute(pathname) !== null:
+    case matchMarketplaceShopRoute(pathname) !== null:
       return true;
     default:
       return false;
@@ -302,6 +322,30 @@ export function matchSingleCollectionRoute(pathname: string): { userId: string; 
     return null;
   }
   return { userId, postId };
+}
+
+export function getMarketplaceListingRoute(sellerPubky: string, listingId: string): string {
+  return `${MARKETPLACE_ROUTES.LISTING}/${sellerPubky}/${listingId}`;
+}
+
+export function matchMarketplaceListingRoute(pathname: string): { sellerPubky: string; listingId: string } | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'marketplace' || segments[1] !== 'listing' || segments.length !== 4) {
+    return null;
+  }
+  return { sellerPubky: segments[2], listingId: segments[3] };
+}
+
+export function getMarketplaceShopRoute(sellerPubky: string): string {
+  return `${MARKETPLACE_ROUTES.SHOP}/${sellerPubky}`;
+}
+
+export function matchMarketplaceShopRoute(pathname: string): { sellerPubky: string } | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'marketplace' || segments[1] !== 'shop' || segments.length !== 3) {
+    return null;
+  }
+  return { sellerPubky: segments[2] };
 }
 
 // ============================================================================

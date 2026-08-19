@@ -17,6 +17,7 @@ import type {
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
+  CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
 } from '@/models/commerce/commerce.schema';
 
@@ -25,6 +26,10 @@ export class LocalCommerceService {
 
   static async getShop(ownerId: string) {
     return await CommerceShopModel.findById(ownerId);
+  }
+
+  static async getAllShops(): Promise<CommerceShopModelSchema[]> {
+    return await CommerceShopModel.findAllSorted();
   }
 
   static async upsertShop(record: CommerceShopRecord, syncStatus: CommerceCacheStatus): Promise<void> {
@@ -75,6 +80,10 @@ export class LocalCommerceService {
 
   static async getListingsByCategory(categoryId: string): Promise<CommerceListingModelSchema[]> {
     return await CommerceListingModel.findByCategory(categoryId);
+  }
+
+  static async getAllListings(): Promise<CommerceListingModelSchema[]> {
+    return await CommerceListingModel.findAllSorted();
   }
 
   static async upsertListing(record: CommerceListingRecord, syncStatus: CommerceCacheStatus): Promise<void> {
@@ -133,6 +142,71 @@ export class LocalCommerceService {
         service: ErrorService.Local,
         operation: 'upsertListingAndProjection',
         context: { tables: [CommerceListingModel.table.name, CommerceListingProjectionModel.table.name] },
+        cause: error,
+      });
+    }
+  }
+
+  static async seedSandboxCatalog({
+    shops,
+    listings,
+    projections,
+  }: {
+    shops: CommerceShopRecord[];
+    listings: CommerceListingRecord[];
+    projections: CommerceListingProjectionModelSchema[];
+  }): Promise<boolean> {
+    try {
+      return await db.transaction(
+        'rw',
+        CommerceShopModel.table,
+        CommerceListingModel.table,
+        CommerceListingProjectionModel.table,
+        async () => {
+          if ((await CommerceListingModel.table.count()) > 0) return false;
+
+          const shopModels: CommerceShopModelSchema[] = shops.map((record) => ({
+            id: record.ownerPubky,
+            owner_id: record.ownerPubky,
+            record,
+            revision: record.revision,
+            sync_status: 'synced',
+            updated_at: Date.parse(record.updatedAt),
+          }));
+          const listingModels = listings.map((record) => this.toListingModel(record, 'synced'));
+          const listingRevisions = new Map(listingModels.map(({ id, revision }) => [id, revision]));
+          const projectionsMatch = projections.every(
+            ({ id, listing_revision }) => listingRevisions.get(id) === listing_revision,
+          );
+          if (!projectionsMatch) {
+            throw Err.validation(
+              ValidationErrorCode.INVALID_INPUT,
+              'Sandbox projections must match their listing identities and revisions.',
+              {
+                service: ErrorService.Local,
+                operation: 'seedSandboxCatalog',
+              },
+            );
+          }
+
+          await CommerceShopModel.bulkSave(shopModels);
+          await CommerceListingModel.bulkSave(listingModels);
+          await CommerceListingProjectionModel.bulkSave(projections);
+          return true;
+        },
+      );
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to seed the sandbox marketplace catalog', {
+        service: ErrorService.Local,
+        operation: 'seedSandboxCatalog',
+        context: {
+          tables: [
+            CommerceShopModel.table.name,
+            CommerceListingModel.table.name,
+            CommerceListingProjectionModel.table.name,
+          ],
+        },
         cause: error,
       });
     }

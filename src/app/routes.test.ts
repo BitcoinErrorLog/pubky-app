@@ -4,6 +4,8 @@ import {
   AUTH_ROUTES,
   AUTHENTICATED_ROUTES,
   getCollectionRoute,
+  getMarketplaceListingRoute,
+  getMarketplaceShopRoute,
   getProfileRoute,
   getUserProfileUrl,
   isCollectionsOverviewRoute,
@@ -16,6 +18,8 @@ import {
   LOGO_LANDING_ROUTES,
   matchesAllowedRoute,
   matchPostRoute,
+  matchMarketplaceListingRoute,
+  matchMarketplaceShopRoute,
   matchSingleCollectionRoute,
   ONBOARDING_ROUTES,
   PROFILE_ROUTES,
@@ -135,6 +139,21 @@ describe('isDynamicPublicRoute', () => {
     });
   });
 
+  describe('marketplace routes', () => {
+    const pubky = 'o1gg96ewuojmopcjbz8895478wdtxtzzber7aezq6ror5a91j7dy';
+
+    it('allows public listing and shop detail routes', () => {
+      expect(isDynamicPublicRoute(`/marketplace/listing/${pubky}/boots_01`)).toBe(true);
+      expect(isDynamicPublicRoute(`/marketplace/shop/${pubky}`)).toBe(true);
+    });
+
+    it('keeps seller tools private', () => {
+      expect(isDynamicPublicRoute('/marketplace/sell')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/dashboard')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/orders')).toBe(false);
+    });
+  });
+
   describe('other routes', () => {
     it('returns false for home route', () => {
       expect(isDynamicPublicRoute('/home')).toBe(false);
@@ -207,6 +226,12 @@ describe('route access matrix', () => {
     expect(isRouteAccessible('/collections/bookmarks', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(false);
   });
 
+  it('allows marketplace browsing while blocking guest seller tools', () => {
+    expect(isRouteAccessible('/marketplace', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(true);
+    expect(isRouteAccessible('/marketplace/sell', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(false);
+    expect(isRouteAccessible('/marketplace/sell', AUTHENTICATED_ROUTES.allowedRoutes, false)).toBe(true);
+  });
+
   it('allows guests to reach single collection pages via dynamic public route, not allowedRoutes prefix', () => {
     const pubky = 'o1gg96ewuojmopcjbz8895478wdtxtzzber7aezq6ror5a91j7dy';
     const pathname = `/collections/${pubky}/0034BBBDFK83G`;
@@ -250,6 +275,24 @@ describe('getCollectionRoute', () => {
 
   it('is anchored on APP_ROUTES.COLLECTIONS', () => {
     expect(getCollectionRoute(pubky, postId).startsWith(`${APP_ROUTES.COLLECTIONS}/`)).toBe(true);
+  });
+});
+
+describe('marketplace route helpers', () => {
+  const pubky = 'o1gg96ewuojmopcjbz8895478wdtxtzzber7aezq6ror5a91j7dy';
+
+  it('builds and matches listing routes', () => {
+    const pathname = getMarketplaceListingRoute(pubky, 'boots_01');
+    expect(pathname).toBe(`/marketplace/listing/${pubky}/boots_01`);
+    expect(matchMarketplaceListingRoute(pathname)).toEqual({ sellerPubky: pubky, listingId: 'boots_01' });
+    expect(matchMarketplaceListingRoute('/marketplace/listing/incomplete')).toBeNull();
+  });
+
+  it('builds and matches shop routes', () => {
+    const pathname = getMarketplaceShopRoute(pubky);
+    expect(pathname).toBe(`/marketplace/shop/${pubky}`);
+    expect(matchMarketplaceShopRoute(pathname)).toEqual({ sellerPubky: pubky });
+    expect(matchMarketplaceShopRoute('/marketplace/shop')).toBeNull();
   });
 });
 

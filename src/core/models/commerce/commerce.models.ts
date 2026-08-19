@@ -32,6 +32,19 @@ export class CommerceShopModel
     this.sync_status = shop.sync_status;
     this.updated_at = shop.updated_at;
   }
+
+  static async findAllSorted(): Promise<CommerceShopModelSchema[]> {
+    try {
+      return await this.table.orderBy('updated_at').reverse().toArray();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read sorted records from ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findAllSorted',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
 }
 
 export class CommerceListingModel
@@ -73,6 +86,19 @@ export class CommerceListingModel
 
   static async findByCategory(categoryId: string): Promise<CommerceListingModelSchema[]> {
     return await this.findAndSort('category_id', categoryId);
+  }
+
+  static async findAllSorted(): Promise<CommerceListingModelSchema[]> {
+    try {
+      return await this.table.orderBy('updated_at').reverse().toArray();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read sorted records from ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findAllSorted',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
   }
 
   private static async findAndSort(index: 'seller_id' | 'category_id', value: string) {

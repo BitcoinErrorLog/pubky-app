@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as commerceConfig from '@/config/commerce';
 import { CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
@@ -33,6 +34,18 @@ describe('CommerceApplication', () => {
 
     await expect(CommerceApplication.getOrFetchShop(COMMERCE_FIXTURE_SELLER)).resolves.toEqual(record);
     expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it('seeds catalog data only when sandbox mode is explicit', async () => {
+    const seed = vi.spyOn(LocalCommerceService, 'seedSandboxCatalog').mockResolvedValue(true);
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+
+    await expect(CommerceApplication.initializeSandboxCatalog()).resolves.toBe(false);
+    expect(seed).not.toHaveBeenCalled();
+
+    vi.mocked(commerceConfig.getCommerceAdapterMode).mockReturnValue('sandbox');
+    await expect(CommerceApplication.initializeSandboxCatalog()).resolves.toBe(true);
+    expect(seed).toHaveBeenCalledOnce();
   });
 
   it('fetches, validates, and caches a missing shop', async () => {

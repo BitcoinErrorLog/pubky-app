@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/database/franky/franky';
+import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
   CommerceListingDraftModel,
   CommerceListingModel,
@@ -27,6 +28,17 @@ describe('LocalCommerceService', () => {
       CommerceListingProjectionModel.table.clear(),
       CommerceSyncJobModel.table.clear(),
     ]);
+  });
+
+  it('seeds the deterministic sandbox catalog once', async () => {
+    const catalog = createCommerceSandboxCatalog();
+
+    await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(true);
+    await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(false);
+
+    expect(await LocalCommerceService.getAllShops()).toHaveLength(8);
+    expect(await LocalCommerceService.getAllListings()).toHaveLength(8);
+    expect(await CommerceListingProjectionModel.table.count()).toBe(8);
   });
 
   it('persists normalized shop and listing cache fields', async () => {

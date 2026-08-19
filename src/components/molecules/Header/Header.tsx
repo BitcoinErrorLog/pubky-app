@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Flame, Home, Library, Settings, UserRoundPlus } from 'lucide-react';
+import { Flame, Home, Library, Settings, Store, UserRoundPlus } from 'lucide-react';
 import { APP_ROUTES, isCoreExploreRoute, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -110,6 +110,13 @@ const NAVIGATION_ITEMS: NavigationItemConfig[] = [
     icon: Flame,
     label: 'Hot',
     dataCy: 'header-hot-btn',
+  },
+  {
+    href: APP_ROUTES.MARKETPLACE,
+    icon: Store,
+    label: 'Marketplace',
+    dataCy: 'header-marketplace-btn',
+    activePrefix: APP_ROUTES.MARKETPLACE,
   },
   {
     href: APP_ROUTES.COLLECTIONS,

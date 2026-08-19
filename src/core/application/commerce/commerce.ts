@@ -1,4 +1,6 @@
+import { getCommerceAdapterMode } from '@/config/commerce';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
@@ -9,6 +11,10 @@ export class CommerceApplication {
 
   static async getShop(ownerPubky: string) {
     return await LocalCommerceService.getShop(ownerPubky);
+  }
+
+  static async getAllShops() {
+    return await LocalCommerceService.getAllShops();
   }
 
   static async fetchShop(ownerPubky: string): Promise<CommerceShopRecord> {
@@ -35,6 +41,15 @@ export class CommerceApplication {
 
   static async getListingsByCategory(categoryId: string) {
     return await LocalCommerceService.getListingsByCategory(categoryId);
+  }
+
+  static async getAllListings() {
+    return await LocalCommerceService.getAllListings();
+  }
+
+  static async initializeSandboxCatalog(): Promise<boolean> {
+    if (getCommerceAdapterMode() !== 'sandbox') return false;
+    return await LocalCommerceService.seedSandboxCatalog(createCommerceSandboxCatalog());
   }
 
   static async fetchListing(ownerPubky: string, listingId: string): Promise<CommerceListingRecord> {

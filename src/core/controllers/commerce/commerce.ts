@@ -13,6 +13,10 @@ export class CommerceController {
     return await CommerceApplication.getShop(CommerceRecordNormalizer.pubky(ownerPubky));
   }
 
+  static async getAllShops() {
+    return await CommerceApplication.getAllShops();
+  }
+
   static async fetchShop(ownerPubky: unknown) {
     return await CommerceApplication.fetchShop(CommerceRecordNormalizer.pubky(ownerPubky));
   }
@@ -45,6 +49,14 @@ export class CommerceController {
 
   static async getListingsByCategory(categoryId: unknown) {
     return await CommerceApplication.getListingsByCategory(CommerceRecordNormalizer.entityId(categoryId));
+  }
+
+  static async getAllListings() {
+    return await CommerceApplication.getAllListings();
+  }
+
+  static async initializeSandboxCatalog(): Promise<boolean> {
+    return await CommerceApplication.initializeSandboxCatalog();
   }
 
   static async commitUpsertShop(input: unknown): Promise<void> {
