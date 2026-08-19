@@ -19,7 +19,6 @@ import {
   COMMERCE_TAXONOMY_VERSION,
 } from '@/config/commerce';
 import {
-  commerceCurrencySchema,
   commerceEntityIdSchema,
   commerceMoneySchema,
   commercePositiveMoneySchema,

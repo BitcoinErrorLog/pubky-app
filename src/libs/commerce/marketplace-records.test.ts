@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
 import {
   commerceCollectionRecordSchema,
+  type CommerceListingRecord,
   commerceListingRecordSchema,
   commercePublicRecordSchema,
   commerceReviewRecordSchema,
@@ -9,7 +10,6 @@ import {
   commerceTombstoneRecordSchema,
   locksPublicUriSchema,
   marketplacePublicUriSchema,
-  type CommerceListingRecord,
 } from './marketplace-records';
 
 const SELLER_PUBKY = 'y'.repeat(52);
