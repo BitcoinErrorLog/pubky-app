@@ -14,10 +14,14 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
+import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
+import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
+import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceListingProps {
@@ -30,6 +34,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const [error, setError] = useState<string | null>(null);
   const adapterMode = getCommerceAdapterMode();
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
+  const negotiation = useMarketplaceProjection(sellerPubky, listingId);
+  const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
 
   useEffect(() => {
     let active = true;
@@ -93,7 +99,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const record = listing.record;
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-  const actionLabel = record.sale.format === 'auction' ? 'Place a bid' : 'Buy now';
+  const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
 
   return (
     <ContentLayout
@@ -137,9 +143,20 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 {record.title}
               </Heading>
               <Typography as="p" className="mt-3 text-3xl font-bold text-brand">
-                {record.sale.format === 'auction' ? 'Starting at ' : ''}
-                {formatCommerceMoney(price)}
+                {record.sale.format === 'auction'
+                  ? negotiation.projection?.auction?.bidCount
+                    ? 'Current bid '
+                    : 'Starting at '
+                  : ''}
+                {formatCommerceMoney(displayPrice)}
               </Typography>
+              {negotiation.projection?.auction && (
+                <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                  {negotiation.projection.auction.bidCount}{' '}
+                  {negotiation.projection.auction.bidCount === 1 ? 'bid' : 'bids'} ·{' '}
+                  {negotiation.projection.auction.reserveMet ? 'Reserve met' : 'Reserve not met'}
+                </Typography>
+              )}
             </div>
 
             <Card className="gap-4 border py-5">
@@ -199,22 +216,39 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             </div>
 
             <div className="mt-auto flex gap-3">
-              <Button
-                size="lg"
-                className="flex-1 rounded-full"
-                disabled={adapterMode === 'unavailable'}
-                onClick={() =>
-                  requireAuth(() =>
-                    toast({
-                      variant: 'info',
-                      title: 'Sandbox transaction',
-                      description: 'Checkout and bidding are connected in the next transaction slice.',
-                    }),
-                  )
-                }
-              >
-                {actionLabel}
-              </Button>
+              {record.sale.format === 'auction' ? (
+                <MarketplaceBidDialog
+                  aggregateId={aggregateId}
+                  projection={negotiation.projection}
+                  onAccepted={negotiation.refresh}
+                />
+              ) : (
+                <>
+                  <Button
+                    size="lg"
+                    className="flex-1 rounded-full"
+                    disabled={adapterMode === 'unavailable'}
+                    onClick={() =>
+                      requireAuth(() =>
+                        toast({
+                          variant: 'info',
+                          title: 'Sandbox checkout',
+                          description: 'Checkout opens in the transaction slice.',
+                        }),
+                      )
+                    }
+                  >
+                    Buy now
+                  </Button>
+                  {record.sale.acceptsOffers && (
+                    <MarketplaceOfferDialog
+                      aggregateId={aggregateId}
+                      expectedRevision={negotiation.projection?.serverRevision ?? null}
+                      onAccepted={negotiation.refresh}
+                    />
+                  )}
+                </>
+              )}
               <Button
                 size="lg"
                 variant="secondary"
@@ -230,6 +264,11 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             {adapterMode === 'unavailable' && (
               <Typography as="p" className="text-center text-sm text-muted-foreground">
                 Transactions are disabled in this deployment.
+              </Typography>
+            )}
+            {adapterMode === 'sandbox' && negotiation.error && (
+              <Typography as="p" className="text-center text-sm text-amber-300">
+                {negotiation.error}
               </Typography>
             )}
           </div>

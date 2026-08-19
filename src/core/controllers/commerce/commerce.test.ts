@@ -120,4 +120,27 @@ describe('CommerceController', () => {
       },
     );
   });
+
+  it('validates and scopes sandbox transaction commands to the signed-in actor', async () => {
+    const execute = vi.spyOn(CommerceApplication, 'executeMarketplaceCommand').mockResolvedValue({
+      ok: false,
+      error: { code: 'BID_TOO_LOW', message: 'Bid is too low.' },
+    });
+    const command = {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000820',
+      aggregateId: `listing:${COMMERCE_FIXTURE_BUYER}_boots_01`,
+      expectedRevision: 1,
+      issuedAt: '2026-08-19T23:00:00.000Z',
+      kind: 'auction.place_bid',
+      payload: { maximumAmount: { amountMinor: 10_000, currency: 'USD', exponent: 2 } },
+    };
+
+    await CommerceController.executeMarketplaceCommand(command);
+
+    expect(execute).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, command);
+    await expect(
+      CommerceController.executeMarketplaceCommand({ ...command, privateData: 'leak' }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
 });
