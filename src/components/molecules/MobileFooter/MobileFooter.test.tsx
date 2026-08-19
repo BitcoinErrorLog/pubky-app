@@ -493,6 +493,7 @@ describe('MobileFooter', () => {
       '/home',
       '/search',
       '/hot',
+      '/marketplace',
       '/collections',
       '/settings/account',
     ]);
