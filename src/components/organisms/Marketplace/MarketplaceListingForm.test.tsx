@@ -66,6 +66,17 @@ describe('MarketplaceListingForm', () => {
     expect(media.choose).toHaveBeenCalled();
     expect(onSubmit).toHaveBeenCalledOnce();
   });
+
+  it('adds and removes inventory variants', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness fulfillment="pickup" />);
+
+    await user.click(screen.getByRole('button', { name: 'Add variant' }));
+    expect(screen.getAllByText('Seller SKU')).toHaveLength(2);
+
+    await user.click(screen.getByRole('button', { name: 'Remove variant 2' }));
+    expect(screen.getAllByText('Seller SKU')).toHaveLength(1);
+  });
 });
 
 describe('MarketplaceListingForm - Snapshots', () => {

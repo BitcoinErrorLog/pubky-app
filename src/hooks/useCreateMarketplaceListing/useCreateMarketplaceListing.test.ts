@@ -73,7 +73,6 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('title', 'Vintage leather boots');
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
       result.current.form.setValue('price', '125.00');
-      result.current.form.setValue('quantity', '1');
       result.current.form.setValue('fulfillment', 'pickup');
       result.current.form.setValue('altText', 'Brown leather boots');
       result.current.form.setValue('countryCode', 'US');
@@ -94,6 +93,7 @@ describe('useCreateMarketplaceListing', () => {
       title: 'Vintage leather boots',
       fulfillmentMethods: ['pickup'],
       sale: { format: 'fixed_price', unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 } },
+      variants: [{ id: 'variant_1', quantity: 1 }],
     });
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));

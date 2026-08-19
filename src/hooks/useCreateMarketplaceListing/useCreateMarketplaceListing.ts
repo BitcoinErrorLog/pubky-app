@@ -165,15 +165,23 @@ function buildListingRecord(
       region: data.region || undefined,
     },
     media: [media],
-    variants: [
-      {
-        id: 'default',
-        options: {},
-        quantity: Number(data.quantity),
-        mediaIds: [media.id],
-        enabled: true,
-      },
-    ],
+    variants: data.variants.map((variant, index) => ({
+      id: `variant_${index + 1}`,
+      sku: variant.sku || undefined,
+      options: Object.fromEntries(
+        [
+          ['size', variant.size],
+          ['color', variant.color],
+          ['style', variant.style],
+        ].filter((entry) => entry[1]),
+      ),
+      priceOverride: variant.priceOverride
+        ? { amountMinor: Math.round(Number(variant.priceOverride) * 100), currency: 'USD', exponent: 2 }
+        : undefined,
+      quantity: Number(variant.quantity),
+      mediaIds: [media.id],
+      enabled: true,
+    })),
     sale,
     fulfillmentMethods: [data.fulfillment],
     package: isPhysical

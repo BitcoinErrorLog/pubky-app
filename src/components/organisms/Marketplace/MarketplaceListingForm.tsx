@@ -1,7 +1,7 @@
 'use client';
 
-import { ImagePlus, Trash2 } from 'lucide-react';
-import { Controller, type UseFormReturn, useWatch } from 'react-hook-form';
+import { ImagePlus, Plus, Trash2 } from 'lucide-react';
+import { Controller, useFieldArray, type UseFormReturn, useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
@@ -28,6 +28,8 @@ export interface MarketplaceListingFormProps {
 export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: MarketplaceListingFormProps) {
   const { previewUrl, error: pickerError, inputRef, onInputChange, choose, remove } = media;
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
+  const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
+  const variants = useFieldArray({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS });
   const mediaError =
     pickerError === 'invalid-type'
       ? 'Choose an image file.'
@@ -152,7 +154,7 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
           <Typography as="h2" className="text-xl font-semibold">
             Price and availability
           </Typography>
-          <div className="grid gap-5 sm:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2">
             <FormSelect
               form={form}
               name={CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT}
@@ -170,13 +172,92 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               placeholder="125.00"
               disabled={isPublishing}
             />
-            <ControlledInputField
-              name={CREATE_MARKETPLACE_LISTING_FIELDS.QUANTITY}
-              control={form.control}
-              label="Quantity"
-              placeholder="1"
-              disabled={isPublishing}
-            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4 border-t pt-5">
+            <div>
+              <Typography as="h3" className="font-semibold">
+                Variants and inventory
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Up to three option dimensions with independent SKU, price, and quantity.
+              </Typography>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="shrink-0 rounded-full"
+              disabled={isPublishing || saleFormat === 'auction' || variants.fields.length >= 100}
+              onClick={() =>
+                variants.append({ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' })
+              }
+            >
+              <Plus className="mr-2 size-4" />
+              Add variant
+            </Button>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {variants.fields.map((variant, index) => (
+              <div key={variant.id} className="relative grid gap-4 rounded-xl border bg-card/60 p-4 sm:grid-cols-3">
+                <ControlledInputField
+                  name={`variants.${index}.sku`}
+                  control={form.control}
+                  label="Seller SKU"
+                  placeholder="BOOTS-42"
+                  disabled={isPublishing}
+                />
+                <ControlledInputField
+                  name={`variants.${index}.size`}
+                  control={form.control}
+                  label="Size"
+                  placeholder="42"
+                  disabled={isPublishing}
+                />
+                <ControlledInputField
+                  name={`variants.${index}.color`}
+                  control={form.control}
+                  label="Color"
+                  placeholder="Brown"
+                  disabled={isPublishing}
+                />
+                <ControlledInputField
+                  name={`variants.${index}.style`}
+                  control={form.control}
+                  label="Style"
+                  placeholder="Classic"
+                  disabled={isPublishing}
+                />
+                <ControlledInputField
+                  name={`variants.${index}.quantity`}
+                  control={form.control}
+                  label="Quantity"
+                  placeholder="1"
+                  disabled={isPublishing}
+                />
+                <ControlledInputField
+                  name={`variants.${index}.priceOverride`}
+                  control={form.control}
+                  label="Price override (USD)"
+                  placeholder="Optional"
+                  disabled={isPublishing}
+                />
+                {variants.fields.length > 1 && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="absolute top-2 right-2 rounded-full"
+                    aria-label={`Remove variant ${index + 1}`}
+                    disabled={isPublishing}
+                    onClick={() => variants.remove(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
