@@ -8,8 +8,8 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {
-  marketplaceShopSettingsDefaults,
   type MarketplaceShopSettingsData,
+  marketplaceShopSettingsDefaults,
   marketplaceShopSettingsSchema,
 } from './useMarketplaceShopSettings.types';
 
