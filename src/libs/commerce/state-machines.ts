@@ -27,7 +27,11 @@ type TransitionMap<State extends string> = Readonly<Record<State, readonly State
 export const listingTransitions = {
   available: ['reserved'],
   reserved: ['available', 'sold'],
-  sold: [],
+  // Approving the cancellation of a paid order returns its quantity to stock.
+  // The durable service moves quantity reserved -> sold on payment confirmation,
+  // so releasing it again is a sold -> available edge rather than reserved ->
+  // available. Driven only by order.cancel_approve.
+  sold: ['available'],
 } as const satisfies TransitionMap<ListingState>;
 
 export const reservationTransitions = {
