@@ -144,3 +144,15 @@ export interface CommerceShopFollowModelSchema {
 }
 
 export const commerceShopFollowTableSchema = '&id, owner_id, seller_id, created_at, [owner_id+created_at]';
+
+export interface CommerceCartItemModelSchema {
+  id: string;
+  owner_id: string;
+  listing_id: string;
+  variant_id: string;
+  quantity: number;
+  added_at: number;
+  updated_at: number;
+}
+
+export const commerceCartItemTableSchema = '&id, owner_id, listing_id, variant_id, updated_at, [owner_id+updated_at]';

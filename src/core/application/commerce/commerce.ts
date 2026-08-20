@@ -111,6 +111,27 @@ export class CommerceApplication {
     return await LocalCommerceService.isFavorite(ownerPubky, listingId);
   }
 
+  static async getCartItems(ownerPubky: string) {
+    return await LocalCommerceService.getCartItems(ownerPubky);
+  }
+
+  static async commitUpsertCartItem(
+    ownerPubky: string,
+    listingId: string,
+    variantId: string,
+    quantity: number,
+  ): Promise<void> {
+    await LocalCommerceService.upsertCartItem(ownerPubky, listingId, variantId, quantity, Date.now());
+  }
+
+  static async commitDeleteCartItem(ownerPubky: string, listingId: string, variantId: string): Promise<void> {
+    await LocalCommerceService.deleteCartItem(ownerPubky, listingId, variantId);
+  }
+
+  static async commitClearCart(ownerPubky: string): Promise<void> {
+    await LocalCommerceService.clearCart(ownerPubky);
+  }
+
   static async getFavorites(ownerPubky: string) {
     return await LocalCommerceService.getFavorites(ownerPubky);
   }

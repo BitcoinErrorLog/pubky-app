@@ -6,6 +6,8 @@ import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { type BookmarkModelSchema, bookmarkTableSchema } from '@/models/bookmark/bookmark.schema';
 import {
+  type CommerceCartItemModelSchema,
+  commerceCartItemTableSchema,
   type CommerceFavoriteModelSchema,
   commerceFavoriteTableSchema,
   type CommerceListingDraftModelSchema,
@@ -128,6 +130,7 @@ export class AppDatabase extends Dexie {
   commerce_sync_jobs!: Dexie.Table<CommerceSyncJobModelSchema>;
   commerce_favorites!: Dexie.Table<CommerceFavoriteModelSchema>;
   commerce_shop_follows!: Dexie.Table<CommerceShopFollowModelSchema>;
+  commerce_cart_items!: Dexie.Table<CommerceCartItemModelSchema>;
   // Hot tags
   hot_tags!: Dexie.Table<HotTagsModelSchema>;
   // Feeds
@@ -171,6 +174,7 @@ export class AppDatabase extends Dexie {
         commerce_sync_jobs: commerceSyncJobTableSchema,
         commerce_favorites: commerceFavoriteTableSchema,
         commerce_shop_follows: commerceShopFollowTableSchema,
+        commerce_cart_items: commerceCartItemTableSchema,
         // Hot tags
         hot_tags: hotTagsTableSchema,
         // Feeds

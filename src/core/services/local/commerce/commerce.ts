@@ -5,6 +5,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError } from '@/libs/error/error.utils';
 import {
+  CommerceCartItemModel,
   CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
@@ -36,6 +37,63 @@ export class LocalCommerceService {
 
   static async isFavorite(ownerId: string, listingId: string): Promise<boolean> {
     return await CommerceFavoriteModel.exists(this.favoriteId(ownerId, listingId));
+  }
+
+  static async getCartItems(ownerId: string) {
+    return await CommerceCartItemModel.findByOwner(ownerId);
+  }
+
+  static async upsertCartItem(
+    ownerId: string,
+    listingId: string,
+    variantId: string,
+    quantity: number,
+    now: number,
+  ): Promise<void> {
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Cart quantity must be a positive safe integer.', {
+        service: ErrorService.Local,
+        operation: 'upsertCartItem',
+        context: { quantity },
+      });
+    }
+    const listing = await CommerceListingModel.findById(listingId);
+    const variant = listing?.record.variants.find(({ id, enabled }) => id === variantId && enabled);
+    if (!listing || !variant || quantity > variant.quantity) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Cart item is unavailable in the requested quantity.', {
+        service: ErrorService.Local,
+        operation: 'upsertCartItem',
+        context: { listingFound: Boolean(listing), variantFound: Boolean(variant), quantity },
+      });
+    }
+    const id = this.cartItemId(ownerId, listingId, variantId);
+    const current = await CommerceCartItemModel.findById(id);
+    await CommerceCartItemModel.upsert({
+      id,
+      owner_id: ownerId,
+      listing_id: listingId,
+      variant_id: variantId,
+      quantity,
+      added_at: current?.added_at ?? now,
+      updated_at: now,
+    });
+  }
+
+  static async deleteCartItem(ownerId: string, listingId: string, variantId: string): Promise<void> {
+    await CommerceCartItemModel.deleteById(this.cartItemId(ownerId, listingId, variantId));
+  }
+
+  static async clearCart(ownerId: string): Promise<void> {
+    try {
+      await CommerceCartItemModel.table.where('owner_id').equals(ownerId).delete();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.DELETE_FAILED, 'Failed to clear commerce cart', {
+        service: ErrorService.Local,
+        operation: 'clearCart',
+        context: { table: CommerceCartItemModel.table.name },
+        cause: error,
+      });
+    }
   }
 
   static async getFavorites(ownerId: string) {
@@ -433,5 +491,9 @@ export class LocalCommerceService {
 
   private static shopFollowId(ownerId: string, sellerId: string): string {
     return `${ownerId}|${sellerId}`;
+  }
+
+  private static cartItemId(ownerId: string, listingId: string, variantId: string): string {
+    return `${ownerId}|${listingId}|${variantId}`;
   }
 }

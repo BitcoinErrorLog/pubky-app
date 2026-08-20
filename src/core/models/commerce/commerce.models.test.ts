@@ -3,6 +3,7 @@ import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/c
 import { db } from '@/database/franky/franky';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import {
+  CommerceCartItemModel,
   CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
@@ -166,6 +167,7 @@ describe('commerce Dexie models', () => {
       CommerceSyncJobModel.table.clear(),
       CommerceFavoriteModel.table.clear(),
       CommerceShopFollowModel.table.clear(),
+      CommerceCartItemModel.table.clear(),
     ]);
   });
 

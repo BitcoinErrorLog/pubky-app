@@ -140,6 +140,33 @@ export class CommerceController {
     );
   }
 
+  static async getCartItems() {
+    return await CommerceApplication.getCartItems(this.getCurrentUserPubky());
+  }
+
+  static async commitUpsertCartItem(listingCompositeId: unknown, variantId: unknown, quantity: unknown): Promise<void> {
+    const parsedQuantity =
+      typeof quantity === 'number' && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : Number.NaN;
+    await CommerceApplication.commitUpsertCartItem(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+      CommerceRecordNormalizer.entityId(variantId),
+      parsedQuantity,
+    );
+  }
+
+  static async commitDeleteCartItem(listingCompositeId: unknown, variantId: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteCartItem(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+      CommerceRecordNormalizer.entityId(variantId),
+    );
+  }
+
+  static async commitClearCart(): Promise<void> {
+    await CommerceApplication.commitClearCart(this.getCurrentUserPubky());
+  }
+
   static async getFavorites() {
     return await CommerceApplication.getFavorites(this.getCurrentUserPubky());
   }

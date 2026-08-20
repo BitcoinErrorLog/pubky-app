@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/database/franky/franky';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
+  CommerceCartItemModel,
   CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
@@ -31,6 +32,7 @@ describe('LocalCommerceService', () => {
       CommerceSyncJobModel.table.clear(),
       CommerceFavoriteModel.table.clear(),
       CommerceShopFollowModel.table.clear(),
+      CommerceCartItemModel.table.clear(),
     ]);
   });
 
@@ -248,5 +250,25 @@ describe('LocalCommerceService', () => {
 
     expect(await LocalCommerceService.isFavorite(COMMERCE_FIXTURE_SELLER, listingId)).toBe(false);
     expect(await LocalCommerceService.isShopFollowed(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER)).toBe(false);
+  });
+
+  it('persists account-scoped cart quantities against real listing variants', async () => {
+    const listing = createCommerceListingFixture();
+    listing.variants[0].quantity = 3;
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    const listingId = `${COMMERCE_FIXTURE_SELLER}:${listing.listingId}`;
+
+    await LocalCommerceService.upsertCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 2, 100);
+    await LocalCommerceService.upsertCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 3, 200);
+
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([
+      expect.objectContaining({ listing_id: listingId, variant_id: 'variant_01', quantity: 3, added_at: 100 }),
+    ]);
+    await expect(
+      LocalCommerceService.upsertCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 4, 300),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+
+    await LocalCommerceService.clearCart(COMMERCE_FIXTURE_BUYER);
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
   });
 });

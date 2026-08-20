@@ -5,6 +5,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { RecordModelBase } from '@/models/shared/base/record/baseRecord';
 import type {
+  CommerceCartItemModelSchema,
   CommerceFavoriteModelSchema,
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
@@ -292,6 +293,43 @@ export class CommerceShopFollowModel
   static async findByOwner(ownerId: string): Promise<CommerceShopFollowModelSchema[]> {
     try {
       return await this.table.where('owner_id').equals(ownerId).sortBy('created_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceCartItemModel
+  extends RecordModelBase<string, CommerceCartItemModelSchema>
+  implements CommerceCartItemModelSchema
+{
+  static table: Table<CommerceCartItemModelSchema> = db.table('commerce_cart_items');
+
+  owner_id: string;
+  listing_id: string;
+  variant_id: string;
+  quantity: number;
+  added_at: number;
+  updated_at: number;
+
+  constructor(item: CommerceCartItemModelSchema) {
+    super(item);
+    this.owner_id = item.owner_id;
+    this.listing_id = item.listing_id;
+    this.variant_id = item.variant_id;
+    this.quantity = item.quantity;
+    this.added_at = item.added_at;
+    this.updated_at = item.updated_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceCartItemModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
     } catch (error) {
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
         service: ErrorService.Local,
