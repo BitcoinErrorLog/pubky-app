@@ -108,6 +108,10 @@ export class CommerceController {
     );
   }
 
+  static async getMarketplaceReports() {
+    return await CommerceApplication.getMarketplaceReports(this.getCurrentUserPubky());
+  }
+
   static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
     const recipient = CommerceRecordNormalizer.pubky(recipientPubky);
     if (

@@ -265,6 +265,17 @@ const receiptSchema = z.object({
   issuedAt: z.string(),
 });
 
+const reportSchema = z.object({
+  id: z.uuid(),
+  reporterPubky: commercePubkySchema,
+  targetType: z.enum(['listing', 'user', 'message', 'review']),
+  targetId: z.string(),
+  reason: z.enum(['prohibited_item', 'counterfeit', 'scam', 'harassment', 'unsafe', 'other']),
+  details: z.string(),
+  state: z.literal('open'),
+  createdAt: z.string(),
+});
+
 export type MarketplaceListingProjection = z.infer<typeof listingProjectionSchema>;
 export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotification = z.infer<typeof notificationSchema>;
@@ -274,6 +285,7 @@ export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSch
 export type MarketplaceOrder = z.infer<typeof orderSchema>;
 export type MarketplacePayment = z.infer<typeof paymentSchema>;
 export type MarketplaceReceipt = z.infer<typeof receiptSchema>;
+export type MarketplaceReport = z.infer<typeof reportSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -475,6 +487,27 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data;
+  }
+
+  static async getReports(actor: string): Promise<MarketplaceReport[]> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/reports`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getReports',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getReports', url);
+    const parsed = z.object({ reports: z.array(reportSchema) }).safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid moderation reports.', {
+        service: ErrorService.Marketplace,
+        operation: 'getReports',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data.reports;
   }
 
   static async uploadAttachment(actor: string, recipient: string, file: File): Promise<MarketplaceAttachmentMetadata> {
