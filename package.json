@@ -66,6 +66,7 @@
     "jszip": "3.10.1",
     "libphonenumber-js": "1.13.2",
     "linkify-it": "5.0.0",
+    "locks-sdk-wasm": "file:vendor/locks-sdk-wasm",
     "lodash-es": "4.18.1",
     "lucide-react": "1.16.0",
     "motion": "12.39.0",

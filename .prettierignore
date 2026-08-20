@@ -50,4 +50,8 @@ next-env.d.ts
 # kept byte-identical so re-vendoring is a plain copy
 src/libs/commerce/contracts/state-machines.json
 
+# Vendored verbatim wasm-pack output of the Pubky Locks browser SDK;
+# kept byte-identical to the recorded build (see docs/ecommerce/locks-sdk-provenance.md)
+vendor/locks-sdk-wasm/
+
 tsconfig.json

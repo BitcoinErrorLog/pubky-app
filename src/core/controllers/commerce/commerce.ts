@@ -181,6 +181,10 @@ export class CommerceController {
     );
   }
 
+  static async generateLocksBundleId() {
+    return await CommerceApplication.generateLocksBundleId();
+  }
+
   static async submitLocksPaykitProof({
     creatorPubky,
     bundleId,
@@ -215,7 +219,12 @@ export class CommerceController {
     );
   }
 
-  static async fetchLocksGuardedContent(relativePath: unknown, credential: unknown) {
+  static async fetchLocksGuardedContent(
+    creatorPubky: unknown,
+    bundleId: unknown,
+    relativePath: unknown,
+    credential: unknown,
+  ) {
     if (
       typeof relativePath !== 'string' ||
       relativePath
@@ -231,7 +240,12 @@ export class CommerceController {
         operation: 'fetchLocksGuardedContent',
       });
     }
-    return await CommerceApplication.fetchLocksGuardedContent(relativePath, credential);
+    return await CommerceApplication.fetchLocksGuardedContent({
+      creatorPubky: CommerceRecordNormalizer.pubky(creatorPubky),
+      bundleId: CommerceRecordNormalizer.entityId(bundleId),
+      relativePath,
+      credential,
+    });
   }
 
   static getPaykitSetupUrl(returnTo: unknown, state: unknown): string {
