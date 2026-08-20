@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
-import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
@@ -28,11 +27,6 @@ const fixtures = vi.hoisted(async () => {
 
 const view = vi.hoisted(() => ({
   conversation: null as unknown,
-  locks: {
-    lifecycle: null as unknown,
-    credential: null as unknown,
-    error: null as string | null,
-  },
 }));
 
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
@@ -110,16 +104,6 @@ vi.mock('@/hooks/useMarketplaceMessages/useMarketplaceMessages', async () => {
 
 vi.mock('@/hooks/useMarketplaceAttachmentUrl/useMarketplaceAttachmentUrl', () => ({
   useMarketplaceAttachmentUrl: () => ({ url: ATTACHMENT_DATA_URL, error: null }),
-}));
-
-vi.mock('@/hooks/useLocksPayment/useLocksPayment', () => ({
-  useLocksPayment: () => ({
-    lifecycle: view.locks.lifecycle,
-    credential: view.locks.credential,
-    error: view.locks.error,
-    isStarting: false,
-    start: vi.fn(async () => false),
-  }),
 }));
 
 async function openDialog(trigger: { click: () => Promise<void> }) {
@@ -228,72 +212,5 @@ describe('Marketplace dialogs — visual regression', () => {
     );
     await openDialog(screen.getByRole('button', { name: 'Report listing' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-report-open-desktop');
-  });
-
-  it('renders the Locks payment card in its initial state at desktop viewport', async () => {
-    const { seller } = await fixtures;
-    view.locks = { lifecycle: null, credential: null, error: null };
-
-    const screen = await renderForVRT(
-      <DialogHarness>
-        <MarketplaceLocksPayment
-          creatorPubky={seller}
-          lockResource={`pubky://${seller}/pub/locks.app/policies/field_recordings.json`}
-          criterionId="criterion-1"
-        />
-      </DialogHarness>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-locks-initial-desktop');
-  });
-
-  it('renders the Locks payment card while verification is in progress at desktop viewport', async () => {
-    const { seller } = await fixtures;
-    view.locks = {
-      lifecycle: {
-        creator: `pubky://${seller}`,
-        bundle_id: 'f'.repeat(32),
-        status: 'in_progress',
-        submitted_at: '2026-08-19T12:00:00.000Z',
-        started_at: '2026-08-19T12:00:05.000Z',
-        completed_at: null,
-        failure_message: null,
-      },
-      credential: null,
-      error: null,
-    };
-
-    const screen = await renderForVRT(
-      <DialogHarness>
-        <MarketplaceLocksPayment
-          creatorPubky={seller}
-          lockResource={`pubky://${seller}/pub/locks.app/policies/field_recordings.json`}
-          criterionId="criterion-1"
-        />
-      </DialogHarness>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-locks-pending-desktop');
-  });
-
-  it('renders the Locks payment card with a verified entitlement at desktop viewport', async () => {
-    const { seller } = await fixtures;
-    view.locks = {
-      lifecycle: null,
-      credential: { credential: 'locks-credential-token', expires_at: '2026-08-19T13:00:00.000Z' },
-      error: null,
-    };
-
-    const screen = await renderForVRT(
-      <DialogHarness>
-        <MarketplaceLocksPayment
-          creatorPubky={seller}
-          lockResource={`pubky://${seller}/pub/locks.app/policies/field_recordings.json`}
-          criterionId="criterion-1"
-        />
-      </DialogHarness>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-locks-verified-desktop');
   });
 });

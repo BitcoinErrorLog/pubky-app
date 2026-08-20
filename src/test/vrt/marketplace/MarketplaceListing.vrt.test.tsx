@@ -55,6 +55,7 @@ const fixtures = vi.hoisted(async () => {
         digitalLock: {
           policyUri: `pubky://${seller}/pub/locks.app/policies/field_recordings.json`,
           criterionId: 'criterion-1',
+          contentPath: 'field_recordings/archive.zip',
           resourceHash: 'a'.repeat(64),
           minimumConfirmations: 3,
         },
@@ -187,10 +188,6 @@ vi.mock('@/hooks/useMarketplaceOffer/useMarketplaceOffer', async () => {
   };
 });
 
-vi.mock('@/hooks/useLocksPayment/useLocksPayment', () => ({
-  useLocksPayment: () => ({ lifecycle: null, credential: null, error: null, isStarting: false, start: vi.fn() }),
-}));
-
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
@@ -244,6 +241,19 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-digital-locks-desktop');
+  });
+
+  // In locks-paykit mode the digital-delivery notice describes the REAL
+  // post-checkout wallet flow instead of the fail-closed unavailability note
+  // covered by the scenario above (non-locks-paykit modes).
+  it('renders a digital listing with the live payment-rails notice at desktop viewport', async () => {
+    const { seller, digitalListing, fixedPriceProjection } = await fixtures;
+    await setView({ listing: digitalListing, projection: fixedPriceProjection, adapterMode: 'locks-paykit' });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="field_recordings" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-digital-locks-paykit-desktop');
   });
 
   it('renders a sold-out listing at desktop viewport', async () => {

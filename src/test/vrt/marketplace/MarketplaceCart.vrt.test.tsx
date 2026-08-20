@@ -192,4 +192,17 @@ describe('Marketplace cart — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-durable-desktop');
     view.adapterMode = 'sandbox';
   });
+
+  // locks-paykit mode: real payment rails are live, so the guarantee copy must
+  // NOT claim "no real funds move" — it states where the funds actually go.
+  it('renders the locks-paykit checkout labels at desktop viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.adapterMode = 'locks-paykit';
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-locks-paykit-desktop');
+    view.adapterMode = 'sandbox';
+  });
 });

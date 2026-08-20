@@ -17,6 +17,11 @@ const configuredShop = vi.hoisted(() => ({
 
 const view = vi.hoisted(() => ({
   configured: false,
+  locksConnect: {
+    connectedCreator: null as string | null,
+    isExchanging: false,
+    error: null as string | null,
+  },
 }));
 
 vi.mock('next/navigation', () => ({
@@ -42,6 +47,13 @@ vi.mock('@/hooks/useMarketplaceShopSettings/useMarketplaceShopSettings', async (
     }),
   };
 });
+
+vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => ({
+  useMarketplaceLocksConnect: () => ({
+    ...view.locksConnect,
+    openConnect: vi.fn(),
+  }),
+}));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
@@ -71,11 +83,28 @@ describe('Marketplace payment settings — visual regression', () => {
 
   it('renders the Locks and Paykit connect steps at desktop viewport', async () => {
     view.configured = false;
+    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
 
     const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
     // The connect-step cards and the pre-production warning sit below the shop
     // policies form, outside the viewport crop, so bring them into view.
     screen.getByRole('button', { name: 'Open Bitkit setup' }).element().scrollIntoView({ block: 'center' });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-integrations-desktop');
+  });
+
+  // The completed state is driven by a REAL signal: the Lock Server's
+  // frontend-session exchange proved creator authority for this seller.
+  it('renders the connected Lock Server setup state at desktop viewport', async () => {
+    view.configured = false;
+    view.locksConnect = {
+      connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      isExchanging: false,
+      error: null,
+    };
+
+    const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
+    screen.getByRole('button', { name: 'Open Bitkit setup' }).element().scrollIntoView({ block: 'center' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-locks-connected-desktop');
+    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
   });
 });

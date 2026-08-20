@@ -1,0 +1,225 @@
+// Intentional import order — browser-mode mock factories rely on stable aliases.
+/* eslint-disable simple-import-sort/imports */
+import { describe, expect, it, vi } from 'vitest';
+import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
+import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
+
+/**
+ * Every buyer-visible payment state of the truthful status card (plan task
+ * 4.6), rendered for baselines (task 4.8):
+ *
+ * - `locks-paykit` mode: awaiting (start / registered / poll-bound reached),
+ *   confirmed with the digital delivery view (locked and unlocked), expired,
+ *   and manual review. Detection and confirmation counts are deliberately
+ *   absent from every one of these — the upstream contract keeps them
+ *   internal.
+ * - sandbox mode: the simulate affordances and the finer-grained simulated
+ *   `detected` state, which may exist ONLY under the visible sandbox label —
+ *   the label is part of these baselines on purpose.
+ */
+
+const fixtures = vi.hoisted(async () => {
+  const { createOrderFixture, createPaymentFixture, ORDER_FIXTURE_BUYER } =
+    await import('@/test/fixtures/commerce/orders');
+  return { createOrderFixture, createPaymentFixture, buyer: ORDER_FIXTURE_BUYER };
+});
+
+const view = vi.hoisted(() => ({
+  locks: {
+    enabled: true,
+    correlation: null as unknown,
+    isStarting: false,
+    isUnlocking: false,
+    delivery: null as unknown,
+    error: null as string | null,
+    pollExhausted: false,
+  },
+}));
+
+vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => ({
+  useMarketplaceLocksPayment: () => ({
+    ...view.locks,
+    start: vi.fn(async () => false),
+    unlock: vi.fn(async () => false),
+    resumePolling: vi.fn(),
+  }),
+}));
+
+vi.mock('@/controllers/commerce/commerce', async () => {
+  const { ORDER_FIXTURE_SELLER } = await import('@/test/fixtures/commerce/orders');
+  return {
+    CommerceController: {
+      getOrFetchListing: vi.fn(async () => ({
+        digitalLock: {
+          policyUri: `pubky://${ORDER_FIXTURE_SELLER}/pub/locks.app/${'0'.repeat(52)}.json`,
+          criterionId: 'criterion-1',
+          contentPath: 'field_recordings/archive.zip',
+          resourceHash: 'a'.repeat(64),
+          minimumConfirmations: 1,
+        },
+      })),
+    },
+  };
+});
+
+function makeCorrelation(registered: boolean) {
+  return {
+    id: 'fixture-correlation',
+    owner_id: 'b'.repeat(52),
+    payment_id: '018f47d2-6a27-7c23-a49d-000000000301',
+    order_id: '018f47d2-6a27-7c23-a49d-000000000001',
+    seller_pubky: 's'.repeat(52),
+    bundle_id: '000G40R40M30E209185GR38E1W',
+    policy_uri: `pubky://${'s'.repeat(52)}/pub/locks.app/${'0'.repeat(52)}.json`,
+    criterion_id: 'criterion-1',
+    content_path: 'field_recordings/archive.zip',
+    resource_hash: 'a'.repeat(64),
+    window_expires_at: '2026-08-20T21:00:00.000Z',
+    registered,
+    created_at: 1,
+    updated_at: 1,
+  };
+}
+
+function Harness({ children }: { children: React.ReactNode }) {
+  return <main className="mx-auto flex w-full max-w-xl flex-col gap-6 px-6 py-10">{children}</main>;
+}
+
+async function renderCard(
+  paymentState: 'awaiting_entitlement' | 'detected' | 'confirmed' | 'expired' | 'manual_review',
+  adapterMode: 'sandbox' | 'transaction-service' | 'locks-paykit',
+  options: { adapter?: 'sandbox' | 'locks'; orderState?: 'pending_payment' | 'paid'; viewport?: object } = {},
+) {
+  const { createOrderFixture, createPaymentFixture } = await fixtures;
+  const payment = createPaymentFixture(paymentState, {
+    adapter: options.adapter ?? 'sandbox',
+    locksBundleId: undefined,
+  });
+  const order = createOrderFixture(options.orderState ?? (paymentState === 'confirmed' ? 'paid' : 'pending_payment'), {
+    paymentId: payment.id,
+  });
+  return await renderForVRT(
+    <Harness>
+      <MarketplacePaymentStatusCard
+        order={order}
+        payment={payment}
+        isBuyer
+        adapterMode={adapterMode}
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />
+    </Harness>,
+    { viewport: (options.viewport as never) ?? VRT_VIEWPORT_DESKTOP },
+  );
+}
+
+describe('Marketplace payment status card — visual regression', () => {
+  it('renders awaiting entitlement with the wallet payment request action (locks-paykit) at desktop viewport', async () => {
+    view.locks = { ...view.locks, correlation: null, delivery: null, error: null, pollExhausted: false };
+    const screen = await renderCard('awaiting_entitlement', 'locks-paykit', { adapter: 'sandbox' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-awaiting-start-desktop');
+  });
+
+  it('renders awaiting entitlement with the wallet payment request action at mobile viewport', async () => {
+    view.locks = { ...view.locks, correlation: null, delivery: null, error: null, pollExhausted: false };
+    const screen = await renderCard('awaiting_entitlement', 'locks-paykit', {
+      adapter: 'sandbox',
+      viewport: VRT_VIEWPORT_MOBILE,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-awaiting-start-mobile');
+  });
+
+  it('renders a registered payment request awaiting server-side verification at desktop viewport', async () => {
+    view.locks = {
+      ...view.locks,
+      correlation: makeCorrelation(true),
+      delivery: null,
+      error: null,
+      pollExhausted: false,
+    };
+    const screen = await renderCard('awaiting_entitlement', 'locks-paykit', { adapter: 'locks' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-awaiting-registered-desktop');
+  });
+
+  it('renders the bounded-poll limit with its explicit resume action at desktop viewport', async () => {
+    view.locks = {
+      ...view.locks,
+      correlation: makeCorrelation(true),
+      delivery: null,
+      error: null,
+      pollExhausted: true,
+    };
+    const screen = await renderCard('awaiting_entitlement', 'locks-paykit', { adapter: 'locks' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-poll-exhausted-desktop');
+  });
+
+  it('renders a confirmed payment with the locked digital delivery at desktop viewport', async () => {
+    view.locks = {
+      ...view.locks,
+      correlation: makeCorrelation(true),
+      delivery: null,
+      error: null,
+      pollExhausted: false,
+    };
+    const screen = await renderCard('confirmed', 'locks-paykit', { adapter: 'locks' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-confirmed-locked-desktop');
+  });
+
+  it('renders the unlocked digital delivery with its verified file at desktop viewport', async () => {
+    view.locks = {
+      ...view.locks,
+      correlation: makeCorrelation(true),
+      delivery: { objectUrl: 'blob:vrt-fixture', fileName: 'archive.zip', byteSize: 48_213 },
+      error: null,
+      pollExhausted: false,
+    };
+    const screen = await renderCard('confirmed', 'locks-paykit', { adapter: 'locks' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-delivery-unlocked-desktop');
+  });
+
+  it('renders the marketplace-expired state at desktop viewport', async () => {
+    view.locks = {
+      ...view.locks,
+      correlation: makeCorrelation(true),
+      delivery: null,
+      error: null,
+      pollExhausted: false,
+    };
+    const screen = await renderCard('expired', 'locks-paykit', { adapter: 'locks' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-expired-desktop');
+  });
+
+  it('renders the manual-review state at desktop viewport', async () => {
+    view.locks = {
+      ...view.locks,
+      correlation: makeCorrelation(true),
+      delivery: null,
+      error: null,
+      pollExhausted: false,
+    };
+    const screen = await renderCard('manual_review', 'locks-paykit', { adapter: 'locks' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-manual-review-desktop');
+  });
+
+  it('renders the honest awaiting note in transaction-service mode at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-durable-awaiting-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders the sandbox simulate affordances under the visible sandbox label at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('awaiting_entitlement', 'sandbox');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-sandbox-awaiting-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders the simulated detected state, which exists only under the sandbox label, at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('detected', 'sandbox');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-sandbox-detected-desktop');
+    view.locks.enabled = true;
+  });
+});
