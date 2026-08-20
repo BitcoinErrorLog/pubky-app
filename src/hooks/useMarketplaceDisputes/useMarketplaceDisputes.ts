@@ -1,7 +1,7 @@
 'use client';
 
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
-import { getCommerceAdapterMode } from '@/config/commerce';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -22,7 +22,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function useMarketplaceDisputes() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const adapterMode = getCommerceAdapterMode();
-  const isDurable = adapterMode === 'transaction-service';
+  const isDurable = isDurableCommerceMode(adapterMode);
   const [disputes, setDisputes] = useState<MarketplaceOrder[]>([]);
   const [isModerator, setIsModerator] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(isDurable && Boolean(currentUserPubky));
@@ -48,7 +48,7 @@ async function loadDisputes(
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
 ): Promise<void> {
-  if (!currentUserPubky || getCommerceAdapterMode() !== 'transaction-service') return;
+  if (!currentUserPubky || !isDurableCommerceMode(getCommerceAdapterMode())) return;
   try {
     const queue = await CommerceController.getMarketplaceDisputes();
     if (queue === null) {

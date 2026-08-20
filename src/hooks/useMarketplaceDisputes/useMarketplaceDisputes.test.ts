@@ -57,7 +57,9 @@ describe('useMarketplaceDisputes', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it.each(['sandbox', 'unavailable', 'locks-paykit'])('never fetches in %s mode', async (mode) => {
+  // locks-paykit composes with the durable transport (it IS transaction-service
+  // plus real payment rails), so the adjudication queue exists there too.
+  it.each(['sandbox', 'unavailable'])('never fetches in %s mode', async (mode) => {
     config.mode = mode;
 
     const { result } = renderHook(() => useMarketplaceDisputes());
@@ -66,6 +68,17 @@ describe('useMarketplaceDisputes', () => {
     expect(result.current.isModerator).toBeNull();
     expect(result.current.adapterMode).toBe(mode);
     expect(CommerceController.getMarketplaceDisputes).not.toHaveBeenCalled();
+  });
+
+  it('fetches the queue in locks-paykit mode exactly as in transaction-service mode', async () => {
+    config.mode = 'locks-paykit';
+    vi.mocked(CommerceController.getMarketplaceDisputes).mockResolvedValue(null);
+
+    const { result } = renderHook(() => useMarketplaceDisputes());
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(CommerceController.getMarketplaceDisputes).toHaveBeenCalled();
+    expect(result.current.isModerator).toBe(false);
   });
 
   it('surfaces actionable session guidance instead of a generic failure', async () => {

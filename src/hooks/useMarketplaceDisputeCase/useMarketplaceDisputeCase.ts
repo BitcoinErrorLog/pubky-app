@@ -3,7 +3,7 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import { getCommerceAdapterMode } from '@/config/commerce';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { buildMarketplaceOrderAggregateId, isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -143,7 +143,7 @@ async function loadCase(
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
 ): Promise<void> {
-  if (!currentUserPubky || getCommerceAdapterMode() !== 'transaction-service') return;
+  if (!currentUserPubky || !isDurableCommerceMode(getCommerceAdapterMode())) return;
   setIsLoading(true);
   try {
     const [order, caseFile] = await Promise.all([

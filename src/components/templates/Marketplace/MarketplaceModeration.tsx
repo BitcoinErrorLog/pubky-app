@@ -9,6 +9,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { isDurableCommerceMode } from '@/config/commerce';
 import { useMarketplaceDisputes } from '@/hooks/useMarketplaceDisputes/useMarketplaceDisputes';
 import { useMarketplaceModeration } from '@/hooks/useMarketplaceModeration/useMarketplaceModeration';
 import { formatCommerceMoney } from '@/libs/commerce/format';
@@ -83,7 +84,7 @@ export function MarketplaceModeration() {
             service refuses everyone else with 403, and this template renders
             nothing at all in that case — an empty-looking queue would fake a
             role the account does not hold. */}
-        {disputes.adapterMode !== 'transaction-service' ? (
+        {!isDurableCommerceMode(disputes.adapterMode) ? (
           <div className="grid gap-3">
             <Heading level={2} size="lg">
               Dispute adjudication

@@ -1,27 +1,28 @@
 'use client';
 
-import { ArrowLeft, CheckCircle2, Clock3, ReceiptText } from 'lucide-react';
+import { ArrowLeft, ReceiptText } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
-import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { isTransactionalCommerceMode } from '@/config/commerce';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
+import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { orders, isLoading, error, refresh, advancePayment, actOnOrder, adapterMode } = useMarketplaceOrders();
   const isSandbox = adapterMode === 'sandbox';
-  const hasTransactionBackend = adapterMode === 'sandbox' || adapterMode === 'transaction-service';
+  const hasTransactionBackend = isTransactionalCommerceMode(adapterMode);
 
   return (
     <ContentLayout
@@ -80,7 +81,6 @@ export function MarketplaceOrders() {
                       <div className="mb-3 flex flex-wrap gap-2">
                         <Badge>{isBuyer ? 'Purchase' : 'Sale'}</Badge>
                         <Badge variant="secondary">{order.state.replaceAll('_', ' ')}</Badge>
-                        {payment && <Badge variant="outline">{payment.state.replaceAll('_', ' ')}</Badge>}
                       </div>
                       {order.lines.map((line) => (
                         <Typography key={line.listingAggregateId} as="p" className="font-semibold">
@@ -132,40 +132,24 @@ export function MarketplaceOrders() {
                       )}
                       {order.externalRefund && (
                         <Typography as="p" className="mt-2 text-sm text-brand">
-                          External refund evidence: {order.externalRefund.transactionId}
+                          {/* Only ever externally evidenced: Paykit Server cannot spend, so
+                              the app records the seller's transaction evidence and never
+                              claims it moved funds itself. */}
+                          Refund recorded from external evidence: {order.externalRefund.transactionId}
                         </Typography>
                       )}
+                      <div className="mt-4">
+                        <MarketplacePaymentStatusCard
+                          order={order}
+                          payment={payment}
+                          isBuyer={isBuyer}
+                          adapterMode={adapterMode}
+                          advancePayment={advancePayment}
+                          onPaymentChanged={refresh}
+                        />
+                      </div>
                     </div>
 
-                    {isBuyer && payment && payment.state !== 'confirmed' && (
-                      <div className="flex flex-wrap gap-2">
-                        {/* Simulate buttons are sandbox-only. The durable service still
-                            models payments with its sandbox adapter, and this client
-                            refuses to simulate payment progress against the authority. */}
-                        {isSandbox && payment.state === 'awaiting_entitlement' && (
-                          <Button
-                            variant="secondary"
-                            className="rounded-full"
-                            onClick={() => void advancePayment(payment, 'detected', 0)}
-                          >
-                            <Clock3 className="mr-2 size-4" />
-                            Simulate detected
-                          </Button>
-                        )}
-                        {isSandbox && (payment.state === 'awaiting_entitlement' || payment.state === 'detected') && (
-                          <Button className="rounded-full" onClick={() => void advancePayment(payment, 'confirmed', 1)}>
-                            <CheckCircle2 className="mr-2 size-4" />
-                            Confirm payment
-                          </Button>
-                        )}
-                        {!isSandbox && (
-                          <Typography as="p" className="max-w-56 text-right text-xs text-muted-foreground">
-                            Real payments are not live yet, and this client does not simulate them against the durable
-                            service — the order stays {payment.state.replaceAll('_', ' ')}.
-                          </Typography>
-                        )}
-                      </div>
-                    )}
                     <MarketplaceOrderActions
                       order={order}
                       isBuyer={isBuyer}

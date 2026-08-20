@@ -12,7 +12,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
-import { getCommerceAdapterMode } from '@/config/commerce';
+import { getCommerceAdapterMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
@@ -21,7 +21,7 @@ import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/fo
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
-import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
+import { MarketplaceDigitalDeliveryNotice } from '@/organisms/Marketplace/MarketplaceDigitalDeliveryNotice';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
@@ -249,13 +249,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </div>
             </div>
 
-            {record.digitalLock && (
-              <MarketplaceLocksPayment
-                creatorPubky={record.ownerPubky}
-                lockResource={record.digitalLock.policyUri}
-                criterionId={record.digitalLock.criterionId}
-              />
-            )}
+            {record.digitalLock && <MarketplaceDigitalDeliveryNotice adapterMode={adapterMode} />}
 
             <div className="mt-auto flex gap-3">
               {record.sale.format === 'auction' ? (
@@ -316,7 +310,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 Transactions are disabled in this deployment.
               </Typography>
             )}
-            {(adapterMode === 'sandbox' || adapterMode === 'transaction-service') && negotiation.error && (
+            {isTransactionalCommerceMode(adapterMode) && negotiation.error && (
               <Typography as="p" role="alert" className="text-center text-sm text-amber-300">
                 {negotiation.error}
               </Typography>

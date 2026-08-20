@@ -90,12 +90,15 @@ export function useMarketplaceCheckout(
         }
         await clearCart();
         succeeded = true;
+        const mode = getCommerceAdapterMode();
         toast({
           title: 'Order created',
           description:
-            getCommerceAdapterMode() === 'sandbox'
+            mode === 'sandbox'
               ? 'Complete the sandbox payment to continue.'
-              : 'Recorded by the transaction service. Payments are not yet live, so it will stay awaiting payment.',
+              : mode === 'locks-paykit'
+                ? 'Recorded by the transaction service. Open Orders to request the payment in your wallet.'
+                : 'Recorded by the transaction service. Payments are not enabled here, so it will stay awaiting payment.',
         });
       } catch {
         toast({ variant: 'error', description: 'Checkout could not be completed.' });
