@@ -19,7 +19,7 @@ Last updated: 2026-08-20.
 | Durable transaction service             | Separate Rust service: PostgreSQL, constraint-enforced invariants, Pubky AuthToken authentication, proven one-winner concurrency. **Connected**: in `transaction-service` mode the client executes its ported commands there over authenticated sessions (see below for what that does and does not cover).                                                                                                                                                               |
 | Transaction-service transport & auth    | Real Pubky auth: the SDK auth flow yields an `AuthToken` after signer approval, its bytes buy an opaque bearer session, commands go over snake_case wire per ADR 0019. The token lives in memory only and dies on sign-out. Verified end to end against the running service by `npm run test:marketplace:service`.                                                                                                                                                        |
 | Contract lockstep                       | The service's canonical `contracts/state-machines.json` is vendored into the client and a CI test fails on any drift between it and the TypeScript state tables/enums.                                                                                                                                                                                                                                                                                                    |
-| Locks browser SDK                       | Built and smoke-tested from the pinned upstream commit; provenance recorded.                                                                                                                                                                                                                                                                                                                                                                                              |
+| Locks browser SDK                       | Built from the pinned upstream commit, vendored into the repo (`vendor/locks-sdk-wasm`, provenance recorded), smoke-tested in CI ahead of the Next build. `LocksGatewayService` calls Locks exclusively through this SDK — bundle-id generation, proof-bundle submission, verification lookup, credential issuance, and guarded reads all go through the generated `Viewer` surface instead of hand-rolled HTTP. The WASM module loads lazily in the browser only.        |
 
 ## Simulated, and labeled as such in the UI
 
@@ -40,7 +40,7 @@ The UI labels simulated states, and the catalog hero carries a persistent "Sandb
 
 ### Real payments are not exercised end to end
 
-The Locks browser SDK is built and its API verified. What is missing is deliberate, not overlooked:
+The Locks browser SDK is vendored and the client now speaks to Locks through it rather than hand-rolled HTTP. What is missing is deliberate, not overlooked:
 
 - `pubky/paykit-server` has **no releases**, so it must be built from a pinned commit.
 - A composed environment is required: Lock Server, Paykit Server, Bitcoin regtest, and an Electrum-compatible indexer.
