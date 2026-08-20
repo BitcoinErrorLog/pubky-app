@@ -40,6 +40,21 @@ This is the correct boundary: the signer device holds the key and signs, the ser
 
 The service's own session tokens continue to work as they do today (opaque, hashed at rest, TTL, Bearer on `/v1/commands`), so only the establishment step changes.
 
+## Version interoperability, measured
+
+The service verifies with the Rust crate `pubky-common`, pinned to `=0.11.0`. This app ships `@synonymdev/pubky` **0.8.0**. Those are three minor versions apart, and the crate's signature serialization was refactored in between (0.8 relies on the default `Signature` serde; 0.11 uses a custom fixed-64-byte module). That raised an obvious risk: tokens produced around the client's version failing verification at the service.
+
+It does not happen. Tested against the real implementations rather than reasoned about:
+
+| Token minted by       | Verified by                          | Result   |
+| --------------------- | ------------------------------------ | -------- |
+| `pubky-common` 0.8.0  | `pubky-common` 0.11.0                | verifies |
+| `pubky-common` 0.11.0 | `@synonymdev/pubky` 0.8.0 (this app) | verifies |
+
+Both directions round-trip, so the serde refactor preserved the wire format. The exact pin is still worth keeping — it makes any future format change a deliberate, visible upgrade rather than a silent break — but the client and service do **not** have to move in lockstep today.
+
+Reproduce by minting a token with `AuthToken::sign` under each crate version and cross-verifying with `AuthToken::verify` and the SDK's `AuthToken.verify`.
+
 ## Consequence to weigh
 
 `awaitToken()` requires a signer approval. If the marketplace session is established separately from the app's existing sign-in, the user sees a second Pubky Ring prompt the first time they do something transactional.
