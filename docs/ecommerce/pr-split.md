@@ -40,3 +40,25 @@ Consequences to plan for:
 - Nexus indexing must target the suffix-free paths.
 
 No records exist in production yet (commerce ships disabled), so no migration of live data is required — but any sandbox or staging records written before this slice become unreadable and should be re-seeded.
+
+## Blocker: the specs-consumption slice requires a specs major upgrade
+
+The marketplace objects are implemented on `pubky-app-specs` **0.8.0** (current upstream). This app pins **0.6.2**. Consuming the marketplace builders therefore means upgrading the specs dependency by two minor versions, and that upgrade is breaking in one specific place.
+
+Measured, not assumed — pointing the app at a locally built 0.8.0 package produces exactly six TypeScript errors, all from one API change:
+
+| What changed                                                                            | Effect                                                                                                       |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `createFeed` moved from seven positional arguments to a single `CreateFeedInput` object | Mechanical; 6 call sites in `feed.normalizer.ts`, `feed/feed.ts`, and their tests                            |
+| `CreateFeedInput` adds a **required** `icon: string`                                    | Not mechanical. This app has no feed/collection icon concept anywhere — no model field, no UI, no Nexus type |
+
+Nothing else in the app breaks on 0.8.0, which makes this a small but genuinely product-scoped blocker rather than a refactor.
+
+Two ways forward, and the choice belongs to whoever owns collections:
+
+1. **Schedule the 0.8.0 upgrade** as its own PR: add feed icons (model, UI, and a decision about what icon existing collections get), then land marketplace specs consumption on top. Cleanest long-term, since the app has to reach 0.8.0 eventually.
+2. **Backport the marketplace objects onto the 0.6.x line** and publish that, keeping the marketplace slice independent of the feed-icon work. Unblocks commerce sooner at the cost of maintaining a second specs line.
+
+Until one is chosen, the client keeps its own URI builders and the paths above stay as-is. Supplying a placeholder icon is not an option — it would write a fabricated value into users' homeserver feed records.
+
+The marketplace specs work itself is complete and verified on 0.8.0: 352 crate tests pass (32 marketplace-specific), clippy and fmt are clean, the wasm bindings compile, and the generated npm package's own suite passes (35 tests). It lives on `BitcoinErrorLog/pubky-app-specs` branch `feat/marketplace-objects`.
