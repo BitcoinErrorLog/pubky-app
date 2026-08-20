@@ -3,7 +3,7 @@ import { HttpMethod } from '@/libs/http/http.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { CommerceHomeserverService } from './commerce';
 
-const URL = `pubky://${'y'.repeat(52)}/pub/pubky.app/marketplace/v1/listings/boots_01.json`;
+const URL = `pubky://${'y'.repeat(52)}/pub/pubky.app/marketplace/v1/listings/boots_01`;
 
 describe('CommerceHomeserverService', () => {
   afterEach(() => {

@@ -1,3 +1,4 @@
+import { listingUriBuilder, marketplaceReviewUriBuilder, shopUriBuilder } from 'pubky-app-specs';
 import { z } from 'zod';
 import {
   type CommerceCollectionRecord,
@@ -82,15 +83,14 @@ export class CommerceRecordNormalizer {
     return this.parse(locksPublicUriSchema, input, 'lockResource');
   }
 
+  // Record paths come from pubky-app-specs so the client cannot drift from the
+  // protocol definition. Media has no spec object yet and keeps a local path.
   static shopUri(ownerPubky: unknown): string {
-    const owner = this.pubky(ownerPubky);
-    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/shop.json`;
+    return shopUriBuilder(this.pubky(ownerPubky));
   }
 
   static listingUri(ownerPubky: unknown, listingId: unknown): string {
-    const owner = this.pubky(ownerPubky);
-    const id = this.entityId(listingId);
-    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/listings/${id}.json`;
+    return listingUriBuilder(this.pubky(ownerPubky), this.entityId(listingId));
   }
 
   static mediaUri(ownerPubky: unknown, mediaId: unknown): string {
@@ -100,9 +100,7 @@ export class CommerceRecordNormalizer {
   }
 
   static reviewUri(ownerPubky: unknown, reviewId: unknown): string {
-    const owner = this.pubky(ownerPubky);
-    const id = this.entityId(reviewId);
-    return `pubky://${owner}${MARKETPLACE_BASE_PATH}/reviews/${id}.json`;
+    return marketplaceReviewUriBuilder(this.pubky(ownerPubky), this.entityId(reviewId));
   }
 
   static collectionUri(ownerPubky: unknown, collectionId: unknown): string {
