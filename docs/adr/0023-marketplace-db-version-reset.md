@@ -16,9 +16,15 @@ Ship exactly **one** coordinated version bump, `NEXT_PUBLIC_DB_VERSION` 2→3, c
 
 No additive Dexie migration machinery is built for this release. Franky's existing recreate-on-mismatch behavior is the migration.
 
-## Amendment — 2026-08-20 (version 3→4)
+## Amendment — 2026-08-20 (folded into version 3, no second reset)
 
-Consuming the Nexus auction-terms fields added a `commerce_catalog_entries` table (the index-projection cache the catalog grid renders from). Per the neutral consequence below, this is an explicit second reset decision, not silent churn: `NEXT_PUBLIC_DB_VERSION` moves 3→4 in the same PR that introduces the table, with the same cost profile (device-local drafts and unsent content are lost once; everything else re-syncs).
+Consuming the Nexus auction-terms fields added a `commerce_catalog_entries` table (the index-projection cache the catalog grid renders from). That table was briefly shipped as a 3→4 bump — an explicit second reset — before we checked whether one was needed.
+
+It is not. Version 3 has never reached a user: every marketplace slice is still an unmerged pull request and `dev` remains at version 2. Since franky declares all tables in a single `this.version(DB_VERSION).stores({…})` call, adding a table to the not-yet-released version 3 costs nothing, whereas bumping to 4 would have charged users a second full wipe purely because of the order we happened to build things in.
+
+So the table is folded into version 3 and the decision above stands unchanged: **exactly one reset, 2→3.**
+
+The rule this establishes for the remaining pre-launch work: while version 3 is unreleased, new `commerce_*` tables are added to it directly. The moment version 3 ships, any further schema change needs its own explicit reset decision, exactly as the neutral consequence below requires.
 
 ## Consequences
 
