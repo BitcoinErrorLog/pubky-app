@@ -12,6 +12,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getLocksUrl } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceShopSettingsForm } from '@/organisms/Marketplace/MarketplaceShopSettingsForm';
 
 export function MarketplacePaymentSettings() {
   const openLocks = () => {
@@ -53,6 +54,8 @@ export function MarketplacePaymentSettings() {
             Connect creator authority with Pubky Ring, then approve a watch-only Paykit account through Bitkit.
           </Typography>
         </div>
+
+        <MarketplaceShopSettingsForm />
 
         <Card className="border">
           <CardContent className="grid gap-4 px-6 sm:grid-cols-[1fr_auto] sm:items-center">
