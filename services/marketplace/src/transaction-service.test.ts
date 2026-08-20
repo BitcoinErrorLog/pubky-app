@@ -152,10 +152,10 @@ function messageCommand(sender: string, recipient: string, expectedRevision: num
   };
 }
 
-function closeAuctionCommand(expectedRevision: number) {
+function closeAuctionCommand(expectedRevision: number, commandNumber = 950) {
   return {
     version: 1,
-    commandId: '00000000-0000-4000-8000-000000000950',
+    commandId: `00000000-0000-4000-8000-${commandNumber.toString().padStart(12, '0')}`,
     aggregateId: AGGREGATE_ID,
     expectedRevision,
     issuedAt: NOW.toISOString(),
@@ -603,7 +603,7 @@ describe('MarketplaceTransactionService', () => {
       },
     });
     expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('auction_won');
-    await expect(service.execute(SELLER, closeAuctionCommand(4))).resolves.toMatchObject({
+    await expect(service.execute(SELLER, closeAuctionCommand(4, 951))).resolves.toMatchObject({
       ok: false,
       error: { code: 'INVALID_STATE' },
     });
