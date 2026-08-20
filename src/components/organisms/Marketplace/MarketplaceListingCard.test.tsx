@@ -1,19 +1,35 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildMarketplaceCatalogItems,
   catalogItemFromCatalogEntry,
   type MarketplaceCatalogItem,
 } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import type { MarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import { createCommerceCatalogEntryFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import { MarketplaceListingCard } from './MarketplaceListingCard';
 
+// The card is presentational: the live-bid hook (its viewport observer and
+// transaction-service fetch) is behavior-tested in `useMarketplaceLiveBid.test.tsx`.
+// Here it is replaced with mutable state so each test declares what the
+// service answered — `bid: null` is the default (no fetch / unreachable / no
+// durable backend), which matches how the card renders in every prior test.
+const liveBid = vi.hoisted(() => ({ bid: null as MarketplaceLiveBid | null }));
+
+vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
+  useMarketplaceLiveBid: () => ({ ref: () => {}, bid: liveBid.bid }),
+}));
+
 function catalogItem(index = 0): MarketplaceCatalogItem {
   const record = createCommerceSandboxCatalog().listings[index];
   return buildMarketplaceCatalogItems([toCommerceListingModel(record)], [])[0];
 }
+
+beforeEach(() => {
+  liveBid.bid = null;
+});
 
 describe('MarketplaceListingCard', () => {
   it('renders listing terms and canonical detail link', () => {
@@ -57,6 +73,40 @@ describe('MarketplaceListingCard', () => {
     render(<MarketplaceListingCard listing={catalogItem()} layout="list" />);
 
     expect(screen.getByTestId('card')).toHaveClass('flex-row');
+  });
+
+  it('shows the live current bid and bid count once the transaction service answered with bids', () => {
+    liveBid.bid = { currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 }, bidCount: 4, reserveMet: true };
+    render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
+
+    expect(screen.getByText('Current bid')).toBeInTheDocument();
+    expect(screen.getByText('$75.00')).toBeInTheDocument();
+    expect(screen.getByText('4 bids')).toBeInTheDocument();
+    expect(screen.queryByText('Starting bid')).not.toBeInTheDocument();
+    expect(screen.queryByText('$45.00')).not.toBeInTheDocument();
+  });
+
+  it('keeps the starting-bid label when the service reports zero bids', () => {
+    liveBid.bid = {
+      currentPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      bidCount: 0,
+      reserveMet: false,
+    };
+    render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
+
+    expect(screen.getByText('Starting bid')).toBeInTheDocument();
+    expect(screen.getByText('$45.00')).toBeInTheDocument();
+    expect(screen.queryByText(/current bid/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d+ bids?/)).not.toBeInTheDocument();
+  });
+
+  it('never shows live bid state on fixed-price listings even if a bid value leaks in', () => {
+    liveBid.bid = { currentPrice: { amountMinor: 9_900, currency: 'USD', exponent: 2 }, bidCount: 2, reserveMet: true };
+    render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
+
+    expect(screen.getByText('$125.00')).toBeInTheDocument();
+    expect(screen.queryByText(/current bid/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('2 bids')).not.toBeInTheDocument();
   });
 });
 
