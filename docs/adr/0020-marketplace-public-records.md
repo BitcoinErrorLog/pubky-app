@@ -4,6 +4,8 @@
 
 Accepted — 2026-08-19
 
+> **Current state (2026-08-20)**: record paths are not yet registered in `pubky-app-specs`; until that lands (implementation plan Phase 1), the paths in this ADR are client-side conventions that Nexus and other clients cannot parse. Namespace choice is recorded in [ADR 0021](0021-marketplace-record-namespace.md).
+
 ## Context
 
 Marketplace shops and listings should retain Pubky's owner-controlled public-data model. A seller must be able to publish and move their catalog with their Pubky identity rather than handing canonical listing content to a marketplace database.

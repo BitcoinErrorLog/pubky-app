@@ -4,6 +4,8 @@
 
 Accepted — 2026-08-19
 
+> **Current state (2026-08-20)**: this ADR describes the target architecture. The implemented service (`services/marketplace/`) is the in-memory sandbox adapter only: no PostgreSQL persistence, no Pubky authentication (a plain actor header), and sandbox-only commands. The production implementation is specified in [ADR 0022](0022-marketplace-transaction-service-rust.md) (Rust) and must land before any non-sandbox transactional endpoint is enabled.
+
 ## Context
 
 Pubky App is local-first. Existing posts, profiles, follows, bookmarks, and settings can commit to Dexie first and synchronize to a user's homeserver because one user owns each write and temporary divergence is acceptable.
