@@ -60,7 +60,7 @@ process.env.PUBKY_RUNTIME_LOCKS_URL = LOCKS_URL;
 process.env.PUBKY_RUNTIME_PAYKIT_SETUP_URL = `${PAYKIT_URL}/setup`;
 process.env.PUBKY_RUNTIME_TESTNET = 'false';
 process.env.NEXT_PUBLIC_APP_VERSION ??= '0.0.0-live';
-process.env.NEXT_PUBLIC_DB_VERSION ??= '4';
+process.env.NEXT_PUBLIC_DB_VERSION ??= '3';
 process.env.NEXT_PUBLIC_DEBUG_MODE ??= 'false';
 
 // ---------------------------------------------------------------------------
