@@ -46,4 +46,8 @@ public/
 # Generated files
 next-env.d.ts
 
+# Vendored verbatim from pubky-marketplace-service (emit-contracts output);
+# kept byte-identical so re-vendoring is a plain copy
+src/libs/commerce/contracts/state-machines.json
+
 tsconfig.json

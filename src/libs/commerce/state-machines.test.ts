@@ -5,33 +5,54 @@ import {
   canTransitionOffer,
   canTransitionOrder,
   canTransitionPayment,
+  canTransitionReport,
+  canTransitionReservation,
 } from './state-machines';
-import type { AuctionState, ListingState, OfferState, OrderState, PaymentState } from './transaction-contracts';
+import type {
+  AuctionState,
+  ListingState,
+  OfferState,
+  OrderState,
+  PaymentState,
+  ReportState,
+  ReservationState,
+} from './transaction-contracts';
 
 describe('listing state machine', () => {
   it.each<[ListingState, ListingState]>([
-    ['draft', 'active'],
-    ['active', 'reserved'],
+    ['available', 'reserved'],
+    ['reserved', 'available'],
     ['reserved', 'sold'],
-    ['reserved', 'active'],
-    ['active', 'paused'],
-    ['paused', 'active'],
-    ['active', 'expired'],
-    ['expired', 'active'],
-    ['sold', 'active'],
-    ['active', 'removed'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionListing(from, to)).toBe(true);
   });
 
   it.each<[ListingState, ListingState]>([
-    ['draft', 'sold'],
-    ['paused', 'sold'],
+    ['available', 'sold'],
+    ['sold', 'available'],
     ['sold', 'reserved'],
-    ['removed', 'active'],
-    ['active', 'active'],
+    ['available', 'available'],
   ])('rejects %s -> %s', (from, to) => {
     expect(canTransitionListing(from, to)).toBe(false);
+  });
+});
+
+describe('reservation state machine', () => {
+  it.each<[ReservationState, ReservationState]>([
+    ['active', 'converted'],
+    ['active', 'released'],
+    ['active', 'expired'],
+  ])('allows %s -> %s', (from, to) => {
+    expect(canTransitionReservation(from, to)).toBe(true);
+  });
+
+  it.each<[ReservationState, ReservationState]>([
+    ['converted', 'active'],
+    ['released', 'active'],
+    ['expired', 'converted'],
+    ['active', 'active'],
+  ])('rejects %s -> %s', (from, to) => {
+    expect(canTransitionReservation(from, to)).toBe(false);
   });
 });
 
@@ -60,16 +81,17 @@ describe('offer state machine', () => {
 describe('auction state machine', () => {
   it.each<[AuctionState, AuctionState]>([
     ['scheduled', 'active'],
-    ['scheduled', 'cancelled'],
     ['active', 'sold'],
     ['active', 'unsold'],
-    ['active', 'cancelled'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionAuction(from, to)).toBe(true);
   });
 
+  // `cancelled` is declared but unreachable in the canonical contract.
   it.each<[AuctionState, AuctionState]>([
     ['scheduled', 'sold'],
+    ['scheduled', 'cancelled'],
+    ['active', 'cancelled'],
     ['sold', 'active'],
     ['unsold', 'active'],
     ['cancelled', 'active'],
@@ -80,25 +102,22 @@ describe('auction state machine', () => {
 
 describe('payment state machine', () => {
   it.each<[PaymentState, PaymentState]>([
-    ['created', 'awaiting_entitlement'],
+    ['awaiting_entitlement', 'detected'],
     ['awaiting_entitlement', 'confirmed'],
-    ['awaiting_entitlement', 'window_elapsed'],
+    ['awaiting_entitlement', 'expired'],
     ['awaiting_entitlement', 'manual_review'],
-    ['window_elapsed', 'confirmed'],
-    ['window_elapsed', 'manual_review'],
-    ['confirmed', 'external_refund_required'],
-    ['external_refund_required', 'refunded_external'],
-    ['external_refund_required', 'manual_review'],
-    ['manual_review', 'confirmed'],
+    ['detected', 'confirmed'],
+    ['detected', 'manual_review'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionPayment(from, to)).toBe(true);
   });
 
   it.each<[PaymentState, PaymentState]>([
-    ['created', 'confirmed'],
-    ['confirmed', 'window_elapsed'],
-    ['refunded_external', 'confirmed'],
-    ['awaiting_entitlement', 'refunded_external'],
+    ['confirmed', 'detected'],
+    ['expired', 'confirmed'],
+    ['manual_review', 'confirmed'],
+    ['detected', 'expired'],
+    ['awaiting_entitlement', 'awaiting_entitlement'],
   ])('rejects %s -> %s', (from, to) => {
     expect(canTransitionPayment(from, to)).toBe(false);
   });
@@ -107,22 +126,21 @@ describe('payment state machine', () => {
 describe('order state machine', () => {
   it.each<[OrderState, OrderState]>([
     ['pending_payment', 'paid'],
-    ['paid', 'processing'],
-    ['processing', 'shipped'],
-    ['processing', 'ready_for_pickup'],
-    ['shipped', 'delivered'],
-    ['ready_for_pickup', 'delivered'],
-    ['delivered', 'completed'],
-    ['completed', 'closed'],
+    ['pending_payment', 'cancelled'],
+    ['paid', 'shipped'],
     ['paid', 'cancel_requested'],
-    ['cancel_requested', 'processing'],
+    ['paid', 'disputed'],
+    ['shipped', 'delivered'],
+    ['delivered', 'completed'],
+    ['delivered', 'return_requested'],
+    ['completed', 'return_requested'],
     ['cancel_requested', 'cancelled'],
-    ['shipped', 'return_requested'],
-    ['return_requested', 'return_in_transit'],
-    ['return_in_transit', 'return_inspection'],
-    ['return_inspection', 'refunded_external'],
+    ['cancelled', 'refunded_external'],
+    ['return_requested', 'return_approved'],
+    ['return_approved', 'return_received'],
+    ['return_received', 'refunded_external'],
+    ['disputed', 'completed'],
     ['disputed', 'refunded_external'],
-    ['refunded_external', 'closed'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionOrder(from, to)).toBe(true);
   });
@@ -130,12 +148,31 @@ describe('order state machine', () => {
   it.each<[OrderState, OrderState]>([
     ['pending_payment', 'shipped'],
     ['paid', 'delivered'],
+    ['paid', 'processing'],
+    ['shipped', 'return_requested'],
     ['shipped', 'cancelled'],
-    ['completed', 'processing'],
+    ['completed', 'closed'],
     ['cancelled', 'paid'],
     ['closed', 'return_requested'],
-    ['refunded_external', 'processing'],
+    ['refunded_external', 'closed'],
   ])('rejects %s -> %s', (from, to) => {
     expect(canTransitionOrder(from, to)).toBe(false);
+  });
+});
+
+describe('report state machine', () => {
+  it.each<[ReportState, ReportState]>([
+    ['open', 'dismissed'],
+    ['open', 'actioned'],
+  ])('allows %s -> %s', (from, to) => {
+    expect(canTransitionReport(from, to)).toBe(true);
+  });
+
+  it.each<[ReportState, ReportState]>([
+    ['dismissed', 'open'],
+    ['actioned', 'dismissed'],
+    ['open', 'open'],
+  ])('rejects %s -> %s', (from, to) => {
+    expect(canTransitionReport(from, to)).toBe(false);
   });
 });

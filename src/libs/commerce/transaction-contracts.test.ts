@@ -17,6 +17,8 @@ import {
   offerStateSchema,
   orderStateSchema,
   paymentStateSchema,
+  reportStateSchema,
+  reservationStateSchema,
 } from './transaction-contracts';
 
 const PUBKY = 'y'.repeat(52);
@@ -205,18 +207,38 @@ describe('commerce identifiers and money', () => {
 describe('commerce state vocabularies', () => {
   it.each([
     [listingStateSchema, 'reserved'],
+    [reservationStateSchema, 'converted'],
     [offerStateSchema, 'countered'],
     [auctionStateSchema, 'unsold'],
-    [paymentStateSchema, 'awaiting_entitlement'],
-    [orderStateSchema, 'return_inspection'],
+    [paymentStateSchema, 'detected'],
+    [orderStateSchema, 'return_approved'],
+    [reportStateSchema, 'actioned'],
   ])('accepts a canonical state', (schema, state) => {
     expect(schema.parse(state)).toBe(state);
   });
 
-  it.each([listingStateSchema, offerStateSchema, auctionStateSchema, paymentStateSchema, orderStateSchema])(
-    'rejects unknown states',
-    (schema) => {
-      expect(schema.safeParse('processing_payment').success).toBe(false);
-    },
-  );
+  it.each([
+    listingStateSchema,
+    reservationStateSchema,
+    offerStateSchema,
+    auctionStateSchema,
+    paymentStateSchema,
+    orderStateSchema,
+    reportStateSchema,
+  ])('rejects unknown states', (schema) => {
+    expect(schema.safeParse('processing_payment').success).toBe(false);
+  });
+
+  it.each([
+    [listingStateSchema, 'draft'],
+    [listingStateSchema, 'paused'],
+    [paymentStateSchema, 'created'],
+    [paymentStateSchema, 'window_elapsed'],
+    [paymentStateSchema, 'external_refund_required'],
+    [orderStateSchema, 'ready_for_pickup'],
+    [orderStateSchema, 'return_in_transit'],
+    [orderStateSchema, 'return_inspection'],
+  ])('rejects states the canonical service contract resolved away', (schema, state) => {
+    expect(schema.safeParse(state).success).toBe(false);
+  });
 });

@@ -103,39 +103,49 @@ export function createCommerceCommandResultSchema<TResult extends z.ZodType>(res
     .strict();
 }
 
-export const listingStateSchema = z.enum(['draft', 'active', 'paused', 'reserved', 'sold', 'expired', 'removed']);
+// -----------------------------------------------------------------------------
+// Aggregate state enums.
+//
+// These mirror the Marketplace Transaction Service's canonical contract
+// artifact (`contracts/state-machines.json`, vendored at
+// `src/libs/commerce/contracts/state-machines.json`); the service is the
+// authority when the two disagree (ADR-0022). `state-machines.contract.test.ts`
+// fails whenever these enums or the transition tables drift from the artifact.
+// -----------------------------------------------------------------------------
+
+/**
+ * The transaction authority tracks inventory availability only; the catalog
+ * lifecycle (drafts, pauses, removal) belongs to seller-signed homeserver
+ * records, not to this enum.
+ */
+export const listingStateSchema = z.enum(['available', 'reserved', 'sold']);
+
+export const reservationStateSchema = z.enum(['active', 'converted', 'released', 'expired']);
 
 export const offerStateSchema = z.enum(['pending', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired']);
 
 export const auctionStateSchema = z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']);
 
-export const paymentStateSchema = z.enum([
-  'created',
-  'awaiting_entitlement',
-  'confirmed',
-  'window_elapsed',
-  'manual_review',
-  'external_refund_required',
-  'refunded_external',
-]);
+export const paymentStateSchema = z.enum(['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review']);
 
 export const orderStateSchema = z.enum([
   'pending_payment',
   'paid',
   'processing',
-  'ready_for_pickup',
   'shipped',
   'delivered',
   'completed',
   'cancel_requested',
   'cancelled',
   'return_requested',
-  'return_in_transit',
-  'return_inspection',
+  'return_approved',
+  'return_received',
   'disputed',
   'refunded_external',
   'closed',
 ]);
+
+export const reportStateSchema = z.enum(['open', 'dismissed', 'actioned']);
 
 export type CommerceJsonValue =
   | null
@@ -147,7 +157,9 @@ export type CommerceJsonValue =
 
 export type CommerceMoney = z.infer<typeof commerceMoneySchema>;
 export type ListingState = z.infer<typeof listingStateSchema>;
+export type ReservationState = z.infer<typeof reservationStateSchema>;
 export type OfferState = z.infer<typeof offerStateSchema>;
 export type AuctionState = z.infer<typeof auctionStateSchema>;
 export type PaymentState = z.infer<typeof paymentStateSchema>;
 export type OrderState = z.infer<typeof orderStateSchema>;
+export type ReportState = z.infer<typeof reportStateSchema>;
