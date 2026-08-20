@@ -1,0 +1,107 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import { useMarketplaceOrders } from './useMarketplaceOrders';
+
+const BUYER = 'b'.repeat(52);
+const SELLER = 'y'.repeat(52);
+const PAYMENT_ID = '00000000-0000-4000-8000-000000001110';
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommercePollIntervalMs: () => 60_000 };
+});
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: BUYER }),
+}));
+
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    getMarketplaceOrders: vi.fn(),
+    getMarketplacePayment: vi.fn(),
+    getMarketplaceReceipt: vi.fn(),
+    executeMarketplaceCommand: vi.fn(),
+  },
+}));
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({
+  toast: vi.fn(),
+}));
+
+describe('useMarketplaceOrders', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000001111');
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
+      {
+        id: '00000000-0000-4000-8000-000000001112',
+        buyerPubky: BUYER,
+        sellerPubky: SELLER,
+        revision: 1,
+        state: 'pending_payment',
+        lines: [
+          {
+            listingAggregateId: `listing:${SELLER}_boots`,
+            listingRevision: 1,
+            contentHash: 'a'.repeat(64),
+            title: 'Boots',
+            quantity: 1,
+            unitPrice: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+            subtotal: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+          },
+        ],
+        subtotal: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+        shipping: { amountMinor: 1_200, currency: 'USD', exponent: 2 },
+        tax: { amountMinor: 896, currency: 'USD', exponent: 2 },
+        total: { amountMinor: 12_096, currency: 'USD', exponent: 2 },
+        guaranteePolicyVersion: 1,
+        paymentId: PAYMENT_ID,
+        receiptId: null,
+        createdAt: '2026-08-19T23:00:00.000Z',
+        updatedAt: '2026-08-19T23:00:00.000Z',
+      },
+    ]);
+    vi.mocked(CommerceController.getMarketplacePayment).mockResolvedValue({
+      id: PAYMENT_ID,
+      orderId: '00000000-0000-4000-8000-000000001112',
+      buyerPubky: BUYER,
+      sellerPubky: SELLER,
+      revision: 1,
+      adapter: 'sandbox',
+      state: 'awaiting_entitlement',
+      confirmations: 0,
+      locksBundleId: '00000000-0000-4000-8000-000000001113',
+      amount: { amountMinor: 12_096, currency: 'USD', exponent: 2 },
+      createdAt: '2026-08-19T23:00:00.000Z',
+      updatedAt: '2026-08-19T23:00:00.000Z',
+    });
+    vi.mocked(CommerceController.getMarketplaceReceipt).mockResolvedValue(null);
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001111',
+      aggregateId: `payment:${PAYMENT_ID}`,
+      revision: 2,
+      eventIds: ['00000000-0000-4000-8000-000000001114'],
+      result: { kind: 'payment' },
+    });
+  });
+
+  it('loads participant order/payment views and advances sandbox confirmation', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const payment = result.current.orders[0].payment!;
+
+    await act(() => result.current.advancePayment(payment, 'confirmed', 1));
+
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aggregateId: `payment:${PAYMENT_ID}`,
+        expectedRevision: 1,
+        kind: 'payment.sandbox_advance',
+        payload: { paymentId: PAYMENT_ID, target: 'confirmed', confirmations: 1 },
+      }),
+    );
+  });
+});
