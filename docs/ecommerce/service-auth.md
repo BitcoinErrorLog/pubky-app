@@ -64,7 +64,7 @@ That is a real UX cost and it is a product decision, not a technical one. Two di
 - **Accept it.** A distinct approval for "this app may transact on my behalf in the marketplace" is arguably the honest thing to show a user, and it keeps marketplace authority scoped separately from social write access.
 - **Fold it into sign-in.** Request the marketplace capability during the existing auth flow so there is one approval. Cheaper UX, but it grants marketplace authority to every user at sign-in whether or not they ever use it.
 
-Until this is decided, the app stays on the sandbox service and marketplace outcomes remain simulated. This is the last blocker between the durable service and authoritative order and auction outcomes.
+The transport no longer waits on this decision: in `transaction-service` mode the client establishes sessions exactly as designed above (`MarketplaceSessionService.beginSessionFlow()` starts the flow, `awaitToken()` bytes are exchanged at `/v1/auth/sessions`, the bearer lives in memory and dies on sign-out), and commands execute against the durable service — verified end to end by `npm run test:marketplace:service`. What still waits on the decision is the in-app UX for the approval prompt, so the browser UI does not yet offer a "connect" affordance; see [`status.md`](status.md) for exactly what is authoritative versus still sandbox-only.
 
 ## What is not affected
 

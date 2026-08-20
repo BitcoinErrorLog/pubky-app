@@ -8,15 +8,17 @@ Last updated: 2026-08-20.
 
 ## Real
 
-| Capability                              | Notes                                                                                                                                                                                               |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public shop, listing, and media records | Written to the owner's homeserver, signed by the owner's session. Real Pubky data you own and can take elsewhere.                                                                                   |
-| Marketplace object specs                | Shop, listing, and review are specified in a `pubky-app-specs` fork with full validation and tests, so they are parseable protocol objects rather than client-private JSON.                         |
-| Local-first state                       | Carts, drafts, favorites, and shop follows in account-scoped IndexedDB.                                                                                                                             |
-| Catalog browse, filter, search          | Reads the local cache; works with no transaction service running.                                                                                                                                   |
-| Listing studio                          | Variants, SKUs, media with content hashing, draft autosave, publish.                                                                                                                                |
-| Durable transaction service             | Separate Rust service: PostgreSQL, constraint-enforced invariants, real ed25519 challenge–response auth, proven one-winner concurrency. Exists and is tested, but **not yet connected to the app**. |
-| Locks browser SDK                       | Built and smoke-tested from the pinned upstream commit; provenance recorded.                                                                                                                        |
+| Capability                              | Notes                                                                                                                                                                                                                                                                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public shop, listing, and media records | Written to the owner's homeserver, signed by the owner's session. Real Pubky data you own and can take elsewhere.                                                                                                                                                                                                  |
+| Marketplace object specs                | Shop, listing, and review are specified in a `pubky-app-specs` fork with full validation and tests, so they are parseable protocol objects rather than client-private JSON.                                                                                                                                        |
+| Local-first state                       | Carts, drafts, favorites, and shop follows in account-scoped IndexedDB.                                                                                                                                                                                                                                            |
+| Catalog browse, filter, search          | Reads the local cache; works with no transaction service running.                                                                                                                                                                                                                                                  |
+| Listing studio                          | Variants, SKUs, media with content hashing, draft autosave, publish.                                                                                                                                                                                                                                               |
+| Durable transaction service             | Separate Rust service: PostgreSQL, constraint-enforced invariants, Pubky AuthToken authentication, proven one-winner concurrency. **Connected**: in `transaction-service` mode the client executes its ported commands there over authenticated sessions (see below for what that does and does not cover).        |
+| Transaction-service transport & auth    | Real Pubky auth: the SDK auth flow yields an `AuthToken` after signer approval, its bytes buy an opaque bearer session, commands go over snake_case wire per ADR 0019. The token lives in memory only and dies on sign-out. Verified end to end against the running service by `npm run test:marketplace:service`. |
+| Contract lockstep                       | The service's canonical `contracts/state-machines.json` is vendored into the client and a CI test fails on any drift between it and the TypeScript state tables/enums.                                                                                                                                             |
+| Locks browser SDK                       | Built and smoke-tested from the pinned upstream commit; provenance recorded.                                                                                                                                                                                                                                       |
 
 ## Simulated, and labeled as such in the UI
 
@@ -45,9 +47,15 @@ The Locks browser SDK is built and its API verified. What is missing is delibera
 
 That last item is a person with a mobile wallet. It cannot be automated, and simulating it would produce exactly the kind of false confidence this document exists to prevent. **Real-payment verification is therefore explicitly deferred**, and `locks-paykit` mode is not usable until it happens. Build provenance and the remaining steps are in [`locks-sdk-provenance.md`](locks-sdk-provenance.md).
 
-### The app is not connected to the durable service
+### The durable service is connected for commands, not yet for the shopping UI
 
-The Rust service is the intended authority, but the client still speaks to the sandbox: different auth (header vs. challenge–response session) and different wire casing (camelCase vs. snake_case per ADR 0019). Until that swap lands, **order, payment, and auction outcomes in the UI are not authoritative**.
+The client now has a real transport for the Rust service (`transaction-service` mode): authenticated sessions from Pubky AuthTokens, snake_case wire, the ported command set, and reports. What it deliberately does **not** give you yet:
+
+- **No interactive shopping flows.** The service exposes no query projections (listings, orders, payments, conversations), and the UI needs those to compose `expected_revision` values — so buy/offer/bid/checkout screens do not operate against it and say so instead of simulating. They remain sandbox-only.
+- **No in-app session UX.** Establishing a session requires a signer approval, and whether that prompt is folded into sign-in or kept separate is an open product decision recorded in [`service-auth.md`](service-auth.md). Until it is made, sessions are established programmatically (the integration suite does exactly this), not by a button in the app.
+- **Payments are still the sandbox adapter** on the durable service too — no Bitcoin anywhere, and the client refuses to send `payment.sandbox_advance` to it at all.
+
+So: outcomes produced through the transaction-service transport are durable and authoritative; everything you can _click through_ today still runs on the sandbox and is labeled as such.
 
 ### Other deferred items
 
