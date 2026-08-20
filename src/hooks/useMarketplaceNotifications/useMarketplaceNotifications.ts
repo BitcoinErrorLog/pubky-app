@@ -70,7 +70,13 @@ export function useMarketplaceNotifications() {
         current.map((notification) =>
           notification.readAt
             ? notification
-            : { ...notification, revision: notification.revision + 1, readAt: new Date().toISOString() },
+            : {
+                ...notification,
+                // Only the sandbox revisions notifications; durable ones are
+                // immutable outbox rows and carry no revision to advance.
+                ...(notification.revision === undefined ? {} : { revision: notification.revision + 1 }),
+                readAt: new Date().toISOString(),
+              },
         ),
       );
     } catch {

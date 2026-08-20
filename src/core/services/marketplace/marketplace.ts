@@ -89,7 +89,10 @@ const attachmentMetadataSchema = z.object({
 const notificationSchema = z
   .object({
     id: z.uuid(),
-    revision: z.number().int().positive(),
+    // Absent from the durable service: delivered notifications are immutable
+    // outbox rows, not revisioned aggregates. The sandbox models them with a
+    // revision, so this stays optional rather than required.
+    revision: z.number().int().positive().optional(),
     recipientPubky: commercePubkySchema,
     actorPubky: commercePubkySchema,
     type: z.enum([
@@ -252,7 +255,10 @@ const paymentSchema = z
     adapter: z.literal('sandbox'),
     state: z.enum(['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review']),
     confirmations: z.number().int().min(0).max(6),
-    locksBundleId: z.uuid(),
+    // Withheld by the durable service: a bundle id is bearer material, so
+    // ADR-0019 section 8 keeps it out of read projections. The sandbox still
+    // sends it, hence optional rather than removed.
+    locksBundleId: z.uuid().optional(),
     amount: moneySchema,
     createdAt: z.string(),
     updatedAt: z.string(),
