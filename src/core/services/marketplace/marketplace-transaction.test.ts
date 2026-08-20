@@ -177,6 +177,7 @@ describe('MarketplaceTransactionService.execute', () => {
     'dispute.evidence',
     'dispute.resolve',
     'review.create',
+    'review.update',
   ] as const)('sends the ported post-purchase command kind %s to the service', async (kind) => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(

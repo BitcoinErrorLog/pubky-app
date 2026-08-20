@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
+import { COMMERCE_REVIEW_EDIT_WINDOW_SECONDS } from '@/config/commerce';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
@@ -14,6 +15,7 @@ export function MarketplaceOrderActions({
   order,
   isBuyer,
   canCancel,
+  canEditReview,
   actOnOrder,
 }: {
   order: MarketplaceOrder;
@@ -25,16 +27,40 @@ export function MarketplaceOrderActions({
    * instead of failing after a click.
    */
   canCancel: boolean;
+  /**
+   * `review.update` only exists on the durable service (the sandbox has no
+   * review editing), so the edit affordance is withheld in sandbox mode
+   * instead of failing after a click. Within the mode, the button further
+   * requires the caller's own review to still be inside the service's
+   * 24-hour edit window.
+   */
+  canEditReview: boolean;
   actOnOrder: (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
+  // Read once per mount (render must stay pure, so the clock is sampled in an
+  // effect): the affordance freezes at page entry rather than vanishing
+  // mid-view, and the service enforces the real boundary on submit anyway.
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, []);
   const action = useMarketplaceOrderAction(order, actOnOrder);
   const actionType = useWatch({ control: action.form.control, name: 'action' });
 
-  const begin = (next: MarketplaceOrderActionData['action']) => {
-    action.setAction(next);
+  const begin = (next: MarketplaceOrderActionData['action'], overrides?: Partial<MarketplaceOrderActionData>) => {
+    action.setAction(next, overrides);
     setOpen(true);
   };
+
+  const ownReviewerPubky = isBuyer ? order.buyerPubky : order.sellerPubky;
+  const ownReview = order.reviews?.find(({ reviewerPubky }) => reviewerPubky === ownReviewerPubky);
+  // Mirrors the service's boundary exactly: the edit is refused only once
+  // `now` moves PAST created_at + window, so `<=` here matches `>` there.
+  const isOwnReviewEditable =
+    ownReview !== undefined &&
+    nowMs !== null &&
+    nowMs <= Date.parse(ownReview.createdAt) + COMMERCE_REVIEW_EDIT_WINDOW_SECONDS * 1000;
   const submit = async () => {
     if (await action.submit()) setOpen(false);
   };
@@ -102,6 +128,16 @@ export function MarketplaceOrderActions({
               Leave review
             </Button>
           )}
+        {canEditReview && ownReview && isOwnReviewEditable && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="rounded-full"
+            onClick={() => begin('review_edit', { rating: String(ownReview.rating), text: ownReview.text })}
+          >
+            Edit review
+          </Button>
+        )}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -133,7 +169,7 @@ export function MarketplaceOrderActions({
               label="External Bitcoin transaction evidence"
             />
           )}
-          {actionType === 'review' && (
+          {['review', 'review_edit'].includes(actionType) && (
             <>
               <ControlledInputField name="rating" control={action.form.control} label="Rating (1–5)" />
               <ControlledTextareaField name="text" control={action.form.control} label="Review" />
@@ -167,5 +203,7 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Open a dispute';
     case 'review':
       return 'Leave a review';
+    case 'review_edit':
+      return 'Edit your review';
   }
 }
