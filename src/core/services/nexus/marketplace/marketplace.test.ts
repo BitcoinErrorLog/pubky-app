@@ -34,6 +34,16 @@ describe('Marketplace API', () => {
     );
   });
 
+  it('serializes the auction end-time sorting as query parameters', () => {
+    const url = marketplaceApi.listingStream({
+      state: 'active',
+      sorting: 'ends_at',
+      order: 'ascending',
+    });
+
+    expect(url).toBe(`${getNexusUrl()}/v0/stream/listings?state=active&sorting=ends_at&order=ascending`);
+  });
+
   it('omits undefined and null filters from the query string', () => {
     const url = marketplaceApi.listingStream({
       state: 'active',

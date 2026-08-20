@@ -6,7 +6,7 @@ import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { Logger } from '@/libs/logger/logger';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
-import { filterMarketplaceCatalog } from './useMarketplaceCatalog.utils';
+import { buildMarketplaceCatalogItems, filterMarketplaceCatalog } from './useMarketplaceCatalog.utils';
 
 export function useMarketplaceCatalog() {
   const query = useCommerceStore((state) => state.query);
@@ -27,7 +27,7 @@ export function useMarketplaceCatalog() {
 
     let active = true;
     setIsRefreshing(true);
-    CommerceController.fetchCatalogListings({ saleFormat, conditions })
+    CommerceController.fetchCatalogListings({ saleFormat, conditions, sort })
       .catch((error) => {
         // The catalog keeps rendering from the local cache when the index is
         // unreachable; discovery just does not widen until it comes back.
@@ -40,11 +40,15 @@ export function useMarketplaceCatalog() {
     return () => {
       active = false;
     };
-  }, [adapterMode, saleFormat, conditions]);
+  }, [adapterMode, saleFormat, conditions, sort]);
 
+  // The grid renders from both catalog sources: index projections cached by
+  // discovery (no homeserver round-trips) and canonical records that are
+  // already local (opened listings, own listings, sandbox seeds).
   const localListings = useLiveQuery(() => CommerceController.getAllListings(), []);
+  const catalogEntries = useLiveQuery(() => CommerceController.getAllCatalogEntries(), []);
   const localShops = useLiveQuery(() => CommerceController.getAllShops(), []);
-  const listings = filterMarketplaceCatalog(localListings ?? [], {
+  const listings = filterMarketplaceCatalog(buildMarketplaceCatalogItems(localListings ?? [], catalogEntries ?? []), {
     query,
     categoryId,
     saleFormat,
@@ -58,8 +62,9 @@ export function useMarketplaceCatalog() {
   // While a refresh is in flight over an empty cache, stay in the loading
   // state so the skeleton shows instead of flashing "No listings match"
   // before the first discovery results land.
-  const isCacheUnresolved = localListings === undefined || localShops === undefined;
-  const isCacheEmpty = localListings !== undefined && localListings.length === 0;
+  const isCacheUnresolved = localListings === undefined || catalogEntries === undefined || localShops === undefined;
+  const isCacheEmpty =
+    localListings !== undefined && catalogEntries !== undefined && localListings.length + catalogEntries.length === 0;
 
   return {
     listings,

@@ -9,7 +9,7 @@ import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
-import type { CommerceConditionFilter, CommerceSaleFormatFilter } from '@/stores/commerce/commerce.types';
+import type { CommerceConditionFilter, CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 
 export class CommerceController {
@@ -61,23 +61,34 @@ export class CommerceController {
     return await CommerceApplication.getAllListings();
   }
 
+  static async getAllCatalogEntries() {
+    return await CommerceApplication.getAllCatalogEntries();
+  }
+
+  static async getCatalogEntriesBySeller(sellerPubky: unknown) {
+    return await CommerceApplication.getCatalogEntriesBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
   /**
    * Refreshes the catalog cache from the Nexus marketplace index.
    *
-   * Maps the catalog filter state onto the filters Nexus can evaluate
-   * server-side: sale format (when not 'all') and condition (only when
-   * exactly one is selected — Nexus accepts a single condition). Everything
+   * Maps the catalog filter state onto what Nexus can evaluate server-side:
+   * sale format (when not 'all'), condition (only when exactly one is
+   * selected — Nexus accepts a single condition), and the ending-soon sort
+   * (served by the auction end-time stream, `sorting=ends_at`). Everything
    * else (text query, hierarchical category prefix, minor-unit price range,
-   * sorting) stays client-side in `filterMarketplaceCatalog`, so server-side
-   * filters only narrow what gets fetched, never what renders.
+   * the remaining sorts) stays client-side in `filterMarketplaceCatalog`, so
+   * server-side filters only narrow what gets fetched, never what renders.
    */
   static async fetchCatalogListings(filters: {
     saleFormat: CommerceSaleFormatFilter;
     conditions: CommerceConditionFilter[];
+    sort: CommerceSort;
   }): Promise<void> {
     await CommerceApplication.fetchCatalogListings({
       ...(filters.saleFormat !== 'all' ? { saleFormat: filters.saleFormat } : {}),
       ...(filters.conditions.length === 1 ? { condition: filters.conditions[0] } : {}),
+      ...(filters.sort === 'ending_soon' ? { endingSoonest: true } : {}),
     });
   }
 
@@ -262,6 +273,10 @@ export class CommerceController {
     );
   }
 
+  static async generateLocksBundleId() {
+    return await CommerceApplication.generateLocksBundleId();
+  }
+
   static async submitLocksPaykitProof({
     creatorPubky,
     bundleId,
@@ -296,7 +311,12 @@ export class CommerceController {
     );
   }
 
-  static async fetchLocksGuardedContent(relativePath: unknown, credential: unknown) {
+  static async fetchLocksGuardedContent(
+    creatorPubky: unknown,
+    bundleId: unknown,
+    relativePath: unknown,
+    credential: unknown,
+  ) {
     if (
       typeof relativePath !== 'string' ||
       relativePath
@@ -312,7 +332,12 @@ export class CommerceController {
         operation: 'fetchLocksGuardedContent',
       });
     }
-    return await CommerceApplication.fetchLocksGuardedContent(relativePath, credential);
+    return await CommerceApplication.fetchLocksGuardedContent({
+      creatorPubky: CommerceRecordNormalizer.pubky(creatorPubky),
+      bundleId: CommerceRecordNormalizer.entityId(bundleId),
+      relativePath,
+      credential,
+    });
   }
 
   static getPaykitSetupUrl(returnTo: unknown, state: unknown): string {

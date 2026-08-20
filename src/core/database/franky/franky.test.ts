@@ -99,6 +99,7 @@ describe('Database Initialization', () => {
         expect.arrayContaining([
           'commerce_shops',
           'commerce_listings',
+          'commerce_catalog_entries',
           'commerce_listing_drafts',
           'commerce_listing_projections',
           'commerce_sync_jobs',

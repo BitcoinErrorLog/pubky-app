@@ -6,6 +6,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { RecordModelBase } from '@/models/shared/base/record/baseRecord';
 import type {
   CommerceCartItemModelSchema,
+  CommerceCatalogEntryModelSchema,
   CommerceFavoriteModelSchema,
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
@@ -113,6 +114,75 @@ export class CommerceListingModel
         service: ErrorService.Local,
         operation: 'findAndSort',
         context: { table: this.table.name, index },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceCatalogEntryModel
+  extends RecordModelBase<string, CommerceCatalogEntryModelSchema>
+  implements CommerceCatalogEntryModelSchema
+{
+  static table: Table<CommerceCatalogEntryModelSchema> = db.table('commerce_catalog_entries');
+
+  seller_id: string;
+  listing_id: string;
+  state: CommerceCatalogEntryModelSchema['state'];
+  title: string;
+  description: string;
+  category_id: string;
+  condition: CommerceCatalogEntryModelSchema['condition'];
+  tags: string[];
+  country_code: string;
+  region: string | null;
+  sale_format: CommerceCatalogEntryModelSchema['sale_format'];
+  price: CommerceCatalogEntryModelSchema['price'];
+  auction: CommerceCatalogEntryModelSchema['auction'];
+  revision: number;
+  updated_at: number;
+
+  constructor(entry: CommerceCatalogEntryModelSchema) {
+    super(entry);
+    this.seller_id = entry.seller_id;
+    this.listing_id = entry.listing_id;
+    this.state = entry.state;
+    this.title = entry.title;
+    this.description = entry.description;
+    this.category_id = entry.category_id;
+    this.condition = entry.condition;
+    this.tags = entry.tags;
+    this.country_code = entry.country_code;
+    this.region = entry.region;
+    this.sale_format = entry.sale_format;
+    this.price = entry.price;
+    this.auction = entry.auction;
+    this.revision = entry.revision;
+    this.updated_at = entry.updated_at;
+  }
+
+  static async findBySeller(sellerId: string): Promise<CommerceCatalogEntryModelSchema[]> {
+    try {
+      const entries = await this.table.where('seller_id').equals(sellerId).toArray();
+      return entries.sort((left, right) => right.updated_at - left.updated_at);
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by seller`, {
+        service: ErrorService.Local,
+        operation: 'findBySeller',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+
+  static async findAllSorted(): Promise<CommerceCatalogEntryModelSchema[]> {
+    try {
+      return await this.table.orderBy('updated_at').reverse().toArray();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read sorted records from ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findAllSorted',
+        context: { table: this.table.name },
         cause: error,
       });
     }

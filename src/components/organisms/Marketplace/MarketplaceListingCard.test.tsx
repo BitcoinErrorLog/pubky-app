@@ -1,31 +1,39 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildMarketplaceCatalogItems,
+  catalogItemFromCatalogEntry,
+  type MarketplaceCatalogItem,
+} from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import type { MarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
-import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
+import { createCommerceCatalogEntryFixture } from '@/test/fixtures/commerce/commerce';
+import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import { MarketplaceListingCard } from './MarketplaceListingCard';
 
-function listingModel(index = 0): CommerceListingModelSchema {
+// The card is presentational: the live-bid hook (its viewport observer and
+// transaction-service fetch) is behavior-tested in `useMarketplaceLiveBid.test.tsx`.
+// Here it is replaced with mutable state so each test declares what the
+// service answered — `bid: null` is the default (no fetch / unreachable / no
+// durable backend), which matches how the card renders in every prior test.
+const liveBid = vi.hoisted(() => ({ bid: null as MarketplaceLiveBid | null }));
+
+vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
+  useMarketplaceLiveBid: () => ({ ref: () => {}, bid: liveBid.bid }),
+}));
+
+function catalogItem(index = 0): MarketplaceCatalogItem {
   const record = createCommerceSandboxCatalog().listings[index];
-  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-  return {
-    id: `${record.ownerPubky}:${record.listingId}`,
-    seller_id: record.ownerPubky,
-    listing_id: record.listingId,
-    record,
-    revision: record.revision,
-    state: record.state,
-    category_id: record.categoryId,
-    format: record.sale.format,
-    currency: price.currency,
-    price_minor: price.amountMinor,
-    sync_status: 'synced',
-    updated_at: Date.parse(record.updatedAt),
-  };
+  return buildMarketplaceCatalogItems([toCommerceListingModel(record)], [])[0];
 }
+
+beforeEach(() => {
+  liveBid.bid = null;
+});
 
 describe('MarketplaceListingCard', () => {
   it('renders listing terms and canonical detail link', () => {
-    const listing = listingModel();
+    const listing = catalogItem();
     render(<MarketplaceListingCard listing={listing} shopName="Satoshi Vintage" />);
 
     expect(screen.getByRole('heading', { name: 'Vintage leather boots' })).toBeInTheDocument();
@@ -33,27 +41,101 @@ describe('MarketplaceListingCard', () => {
     expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View Vintage leather boots' })).toHaveAttribute(
       'href',
-      `/marketplace/listing/${listing.seller_id}/${listing.listing_id}`,
+      `/marketplace/listing/${listing.sellerId}/${listing.listingId}`,
     );
   });
 
-  it('renders auction timing without claiming a fixed price', () => {
-    render(<MarketplaceListingCard listing={listingModel(2)} shopName="Proof of Film" />);
+  it('labels the auction price as a starting bid instead of claiming a current price', () => {
+    render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
 
     expect(screen.getByText('Auction')).toBeInTheDocument();
     expect(screen.getByText('Ends Aug 29')).toBeInTheDocument();
+    expect(screen.getByText('Starting bid')).toBeInTheDocument();
+    expect(screen.getByText('$45.00')).toBeInTheDocument();
+    expect(screen.getByText('Buy now $125.00')).toBeInTheDocument();
+    expect(screen.queryByText(/current bid/i)).not.toBeInTheDocument();
+  });
+
+  it('renders an auction whose stale index row lacks terms without inventing them', () => {
+    const listing = catalogItemFromCatalogEntry(
+      createCommerceCatalogEntryFixture({ sale_format: 'auction', auction: null }),
+    );
+    render(<MarketplaceListingCard listing={listing} shopName="Satoshi Vintage" />);
+
+    expect(screen.getByText('Auction')).toBeInTheDocument();
+    expect(screen.getByText('Starting bid')).toBeInTheDocument();
+    expect(screen.getByText('$125.00')).toBeInTheDocument();
+    expect(screen.queryByText(/^Ends /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Buy now/)).not.toBeInTheDocument();
   });
 
   it('renders the horizontal card variant for list layout', () => {
-    render(<MarketplaceListingCard listing={listingModel()} layout="list" />);
+    render(<MarketplaceListingCard listing={catalogItem()} layout="list" />);
 
     expect(screen.getByTestId('card')).toHaveClass('flex-row');
+  });
+
+  it('shows the live current bid and bid count once the transaction service answered with bids', () => {
+    liveBid.bid = { currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 }, bidCount: 4, reserveMet: true };
+    render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
+
+    expect(screen.getByText('Current bid')).toBeInTheDocument();
+    expect(screen.getByText('$75.00')).toBeInTheDocument();
+    expect(screen.getByText('4 bids')).toBeInTheDocument();
+    expect(screen.queryByText('Starting bid')).not.toBeInTheDocument();
+    expect(screen.queryByText('$45.00')).not.toBeInTheDocument();
+  });
+
+  it('keeps the starting-bid label when the service reports zero bids', () => {
+    liveBid.bid = {
+      currentPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      bidCount: 0,
+      reserveMet: false,
+    };
+    render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
+
+    expect(screen.getByText('Starting bid')).toBeInTheDocument();
+    expect(screen.getByText('$45.00')).toBeInTheDocument();
+    expect(screen.queryByText(/current bid/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d+ bids?/)).not.toBeInTheDocument();
+  });
+
+  it('never shows live bid state on fixed-price listings even if a bid value leaks in', () => {
+    liveBid.bid = { currentPrice: { amountMinor: 9_900, currency: 'USD', exponent: 2 }, bidCount: 2, reserveMet: true };
+    render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
+
+    expect(screen.getByText('$125.00')).toBeInTheDocument();
+    expect(screen.queryByText(/current bid/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('2 bids')).not.toBeInTheDocument();
   });
 });
 
 describe('MarketplaceListingCard - Snapshots', () => {
   it('matches the fixed-price listing snapshot', () => {
-    const { container } = render(<MarketplaceListingCard listing={listingModel()} shopName="Satoshi Vintage" />);
+    const { container } = render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
+    expect(container.firstChild).toMatchSnapshot();
+  });
+
+  it('matches the auction listing snapshot rendered from an index entry', () => {
+    const listing = catalogItemFromCatalogEntry(
+      createCommerceCatalogEntryFixture({
+        id: `${'y'.repeat(52)}:rangefinder_camera`,
+        listing_id: 'rangefinder_camera',
+        title: '35mm rangefinder camera',
+        category_id: 'electronics-cameras-film',
+        condition: 'excellent',
+        sale_format: 'auction',
+        price: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+        auction: {
+          startsAt: '2026-08-19T20:00:00.000Z',
+          endsAt: '2026-08-29T20:00:00.000Z',
+          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
+          buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+          minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+        },
+      }),
+    );
+    const { container } = render(<MarketplaceListingCard listing={listing} shopName="Proof of Film" />);
     expect(container.firstChild).toMatchSnapshot();
   });
 });

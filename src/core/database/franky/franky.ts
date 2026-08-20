@@ -8,6 +8,8 @@ import { type BookmarkModelSchema, bookmarkTableSchema } from '@/models/bookmark
 import {
   type CommerceCartItemModelSchema,
   commerceCartItemTableSchema,
+  type CommerceCatalogEntryModelSchema,
+  commerceCatalogEntryTableSchema,
   type CommerceFavoriteModelSchema,
   commerceFavoriteTableSchema,
   type CommerceListingDraftModelSchema,
@@ -125,6 +127,7 @@ export class AppDatabase extends Dexie {
   // Commerce
   commerce_shops!: Dexie.Table<CommerceShopModelSchema>;
   commerce_listings!: Dexie.Table<CommerceListingModelSchema>;
+  commerce_catalog_entries!: Dexie.Table<CommerceCatalogEntryModelSchema>;
   commerce_listing_drafts!: Dexie.Table<CommerceListingDraftModelSchema>;
   commerce_listing_projections!: Dexie.Table<CommerceListingProjectionModelSchema>;
   commerce_sync_jobs!: Dexie.Table<CommerceSyncJobModelSchema>;
@@ -169,6 +172,7 @@ export class AppDatabase extends Dexie {
         // Commerce
         commerce_shops: commerceShopTableSchema,
         commerce_listings: commerceListingTableSchema,
+        commerce_catalog_entries: commerceCatalogEntryTableSchema,
         commerce_listing_drafts: commerceListingDraftTableSchema,
         commerce_listing_projections: commerceListingProjectionTableSchema,
         commerce_sync_jobs: commerceSyncJobTableSchema,

@@ -1,6 +1,7 @@
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import type {
+  CommerceCatalogEntryModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceSyncJobModelSchema,
 } from '@/models/commerce/commerce.schema';
@@ -105,11 +106,65 @@ export function createNexusListingDetailsFixture(overrides: Partial<NexusListing
     price_amount_minor: 12_500,
     price_currency: 'USD',
     price_exponent: 2,
+    auction_starts_at: null,
+    auction_ends_at: null,
+    auction_reserve_price_minor: null,
+    auction_buy_now_price_minor: null,
+    auction_minimum_increment_minor: null,
     fulfillment_methods: ['pickup'],
     adult_only: false,
     created_at: COMMERCE_FIXTURE_CREATED_AT,
     updated_at: COMMERCE_FIXTURE_UPDATED_AT,
     revision: 1,
+    ...overrides,
+  };
+}
+
+/** The Nexus projection of an auction listing whose index row carries the full auction terms. */
+export function createNexusAuctionListingDetailsFixture(
+  overrides: Partial<NexusListingDetails> = {},
+): NexusListingDetails {
+  return createNexusListingDetailsFixture({
+    id: 'rangefinder_camera',
+    uri: `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/listings/rangefinder_camera`,
+    title: '35mm rangefinder camera',
+    description: 'Recently serviced mechanical rangefinder with bright optics.',
+    category_id: 'electronics-cameras-film',
+    condition: 'excellent',
+    tags: ['film', 'camera'],
+    media_urls: [`pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/rangefinder_camera_image`],
+    sale_format: 'auction',
+    price_amount_minor: 4_500,
+    auction_starts_at: '2026-08-19T20:00:00.000Z',
+    auction_ends_at: '2026-08-29T20:00:00.000Z',
+    auction_reserve_price_minor: 6_500,
+    auction_buy_now_price_minor: 12_500,
+    auction_minimum_increment_minor: 500,
+    ...overrides,
+  });
+}
+
+/** The normalized catalog-entry model produced from `createNexusListingDetailsFixture`. */
+export function createCommerceCatalogEntryFixture(
+  overrides: Partial<CommerceCatalogEntryModelSchema> = {},
+): CommerceCatalogEntryModelSchema {
+  return {
+    id: `${COMMERCE_FIXTURE_SELLER}:boots_01`,
+    seller_id: COMMERCE_FIXTURE_SELLER,
+    listing_id: 'boots_01',
+    state: 'active',
+    title: 'Vintage leather boots',
+    description: 'Well cared for boots with light wear.',
+    category_id: 'fashion-shoes-boots',
+    condition: 'good',
+    tags: ['vintage'],
+    country_code: 'US',
+    region: 'NY',
+    sale_format: 'fixed_price',
+    price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+    auction: null,
+    revision: 1,
+    updated_at: Date.parse(COMMERCE_FIXTURE_UPDATED_AT),
     ...overrides,
   };
 }

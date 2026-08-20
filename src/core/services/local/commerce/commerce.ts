@@ -6,6 +6,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { isAppError } from '@/libs/error/error.utils';
 import {
   CommerceCartItemModel,
+  CommerceCatalogEntryModel,
   CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
@@ -16,6 +17,7 @@ import {
 } from '@/models/commerce/commerce.models';
 import type {
   CommerceCacheStatus,
+  CommerceCatalogEntryModelSchema,
   CommerceListingDraftData,
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
@@ -174,6 +176,22 @@ export class LocalCommerceService {
 
   static async getListing(compositeListingId: string) {
     return await CommerceListingModel.findById(compositeListingId);
+  }
+
+  static async getCatalogEntry(compositeListingId: string) {
+    return await CommerceCatalogEntryModel.findById(compositeListingId);
+  }
+
+  static async getAllCatalogEntries(): Promise<CommerceCatalogEntryModelSchema[]> {
+    return await CommerceCatalogEntryModel.findAllSorted();
+  }
+
+  static async getCatalogEntriesBySeller(sellerId: string): Promise<CommerceCatalogEntryModelSchema[]> {
+    return await CommerceCatalogEntryModel.findBySeller(sellerId);
+  }
+
+  static async bulkUpsertCatalogEntries(entries: CommerceCatalogEntryModelSchema[]): Promise<void> {
+    await CommerceCatalogEntryModel.bulkSave(entries);
   }
 
   static async getListingsBySeller(sellerId: string): Promise<CommerceListingModelSchema[]> {

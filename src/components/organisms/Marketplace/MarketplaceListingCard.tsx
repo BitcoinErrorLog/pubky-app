@@ -6,9 +6,10 @@ import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { cn } from '@/libs/utils/utils';
-import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
 
 const MEDIA_BACKGROUNDS = [
@@ -21,25 +22,42 @@ const MEDIA_BACKGROUNDS = [
 ] as const;
 
 export interface MarketplaceListingCardProps {
-  listing: CommerceListingModelSchema;
+  listing: MarketplaceCatalogItem;
   shopName?: string;
   layout?: CommerceLayout;
 }
 
+/**
+ * One catalog card, renderable purely from the Nexus index projection.
+ *
+ * Truthfulness constraint: live auction state (current bid, bid count) is
+ * not part of the listing record or its index projection — it lives in the
+ * transaction service. In `transaction-service` mode the card lazily reads
+ * the service's public listing projection once it scrolls into view (see
+ * `useMarketplaceLiveBid` for the cost model) and, only when at least one
+ * bid actually exists, relabels the price as the current bid. In every
+ * other case — no bids yet, service unreachable, sandbox or read-only
+ * modes — the card shows only the seller's terms from the index: the
+ * starting bid (labeled as such, never as a current price), the optional
+ * buy-now price, and the end date. An auction whose index row predates the
+ * term fields (`auction === null`) simply omits the term badges instead of
+ * guessing.
+ */
 export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: MarketplaceListingCardProps) {
-  const record = listing.record;
-  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-  const colorIndex = Number.parseInt(record.media[0]?.contentHash.charAt(0) ?? '0', 16) % MEDIA_BACKGROUNDS.length;
-  const background = MEDIA_BACKGROUNDS[colorIndex] ?? MEDIA_BACKGROUNDS[0];
+  const background = MEDIA_BACKGROUNDS[colorIndex(listing.listingId)];
+  const isAuction = listing.saleFormat === 'auction';
+  const { ref: liveBidRef, bid } = useMarketplaceLiveBid(listing.sellerId, listing.listingId, isAuction);
+  const hasLiveBid = isAuction && bid !== null && bid.bidCount > 0;
 
   return (
     <Link
-      href={getMarketplaceListingRoute(record.ownerPubky, record.listingId)}
+      href={getMarketplaceListingRoute(listing.sellerId, listing.listingId)}
       overrideDefaults
       className="group block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      aria-label={`View ${record.title}`}
+      aria-label={`View ${listing.title}`}
     >
       <Card
+        ref={liveBidRef}
         className={cn(
           'h-full gap-0 overflow-hidden border border-border/60 py-0 transition-all group-hover:-translate-y-0.5 group-hover:border-brand/40 group-hover:shadow-lg',
           layout === 'list' && 'flex-row',
@@ -52,13 +70,13 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           )}
         >
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.16),transparent_32%)]" />
-          <MarketplaceCategoryIcon categoryId={record.categoryId} />
+          <MarketplaceCategoryIcon categoryId={listing.categoryId} />
           <Badge className="absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
-            {record.sale.format === 'auction' ? 'Auction' : 'Buy now'}
+            {isAuction ? 'Auction' : 'Buy now'}
           </Badge>
-          {record.sale.format === 'auction' && (
+          {listing.auction && (
             <Badge variant="secondary" className="absolute right-3 bottom-3 bg-background/85 backdrop-blur-md">
-              Ends {formatAuctionEnd(record.sale.endsAt)}
+              Ends {formatAuctionEnd(listing.auction.endsAt)}
             </Badge>
           )}
         </div>
@@ -66,28 +84,56 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
         <CardContent className="flex flex-1 flex-col gap-2 p-4">
           <div className="flex items-start justify-between gap-3">
             <Typography as="h2" className="line-clamp-2 text-base leading-5 font-semibold text-foreground">
-              {record.title}
+              {listing.title}
             </Typography>
-            <Typography as="p" className="shrink-0 text-base font-bold text-brand">
-              {formatCommerceMoney(price)}
-            </Typography>
+            <div className="flex shrink-0 flex-col items-end">
+              {isAuction && (
+                <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                  {hasLiveBid ? 'Current bid' : 'Starting bid'}
+                </Typography>
+              )}
+              <Typography as="p" className="text-base font-bold text-brand">
+                {formatCommerceMoney(hasLiveBid ? bid.currentPrice : listing.price)}
+              </Typography>
+              {hasLiveBid && (
+                <Typography as="span" className="text-xs text-muted-foreground">
+                  {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}
+                </Typography>
+              )}
+              {listing.auction?.buyNowPrice && (
+                <Typography as="span" className="text-xs text-muted-foreground">
+                  Buy now {formatCommerceMoney(listing.auction.buyNowPrice)}
+                </Typography>
+              )}
+            </div>
           </div>
           <Typography as="p" className="truncate text-sm text-muted-foreground">
-            {shopName ?? `${record.ownerPubky.slice(0, 8)}…`}
+            {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
           </Typography>
           <div className="mt-auto flex items-center justify-between gap-2 pt-1">
             <Typography as="span" className="text-xs text-muted-foreground">
-              {formatCommerceCondition(record.condition)}
+              {formatCommerceCondition(listing.condition)}
             </Typography>
             <Typography as="span" className="text-xs text-muted-foreground">
-              {record.location.region ? `${record.location.region}, ` : ''}
-              {record.location.countryCode}
+              {listing.location.region ? `${listing.location.region}, ` : ''}
+              {listing.location.countryCode}
             </Typography>
           </div>
         </CardContent>
       </Card>
     </Link>
   );
+}
+
+// Deterministic per-listing gradient, seeded by the listing id so the card
+// keeps its color whether it rendered from the index projection or from the
+// hydrated record (the two sources share no media metadata to seed from).
+function colorIndex(listingId: string): number {
+  let sum = 0;
+  for (let index = 0; index < listingId.length; index++) {
+    sum = (sum + listingId.charCodeAt(index)) % MEDIA_BACKGROUNDS.length;
+  }
+  return sum;
 }
 
 function formatAuctionEnd(endsAt: string): string {

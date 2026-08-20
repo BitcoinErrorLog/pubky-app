@@ -1,26 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
-import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
-import { filterMarketplaceCatalog, type MarketplaceCatalogFilters } from './useMarketplaceCatalog.utils';
+import {
+  COMMERCE_FIXTURE_SELLER,
+  createCommerceCatalogEntryFixture,
+  createCommerceListingFixture,
+} from '@/test/fixtures/commerce/commerce';
+import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
+import {
+  buildMarketplaceCatalogItems,
+  catalogItemFromCatalogEntry,
+  filterMarketplaceCatalog,
+  type MarketplaceCatalogFilters,
+  type MarketplaceCatalogItem,
+} from './useMarketplaceCatalog.utils';
 
-function catalogModels(): CommerceListingModelSchema[] {
-  return createCommerceSandboxCatalog().listings.map((record) => {
-    const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-    return {
-      id: `${record.ownerPubky}:${record.listingId}`,
-      seller_id: record.ownerPubky,
-      listing_id: record.listingId,
-      record,
-      revision: record.revision,
-      state: record.state,
-      category_id: record.categoryId,
-      format: record.sale.format,
-      currency: price.currency,
-      price_minor: price.amountMinor,
-      sync_status: 'synced',
-      updated_at: Date.parse(record.updatedAt),
-    };
-  });
+function catalogItems(): MarketplaceCatalogItem[] {
+  return buildMarketplaceCatalogItems(createCommerceSandboxCatalog().listings.map(toCommerceListingModel), []);
 }
 
 function filters(overrides: Partial<MarketplaceCatalogFilters> = {}): MarketplaceCatalogFilters {
@@ -36,22 +31,84 @@ function filters(overrides: Partial<MarketplaceCatalogFilters> = {}): Marketplac
   };
 }
 
+describe('buildMarketplaceCatalogItems', () => {
+  it('renders an index entry for a listing with no cached record', () => {
+    const items = buildMarketplaceCatalogItems([], [createCommerceCatalogEntryFixture()]);
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: `${COMMERCE_FIXTURE_SELLER}:boots_01`,
+        sellerId: COMMERCE_FIXTURE_SELLER,
+        listingId: 'boots_01',
+        title: 'Vintage leather boots',
+        saleFormat: 'fixed_price',
+        price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+        auction: null,
+        location: { countryCode: 'US', region: 'NY' },
+      }),
+    ]);
+  });
+
+  it('prefers the cached canonical record when its revision is not behind the index', () => {
+    const record = toCommerceListingModel(createCommerceListingFixture({ title: 'Hydrated title', revision: 2 }));
+    const entry = createCommerceCatalogEntryFixture({ title: 'Indexed title', revision: 2 });
+
+    const [item] = buildMarketplaceCatalogItems([record], [entry]);
+
+    expect(item.title).toBe('Hydrated title');
+    expect(item.revision).toBe(2);
+  });
+
+  it('prefers the index entry when it has seen a newer revision than the cache', () => {
+    const record = toCommerceListingModel(createCommerceListingFixture({ title: 'Stale cached title', revision: 1 }));
+    const entry = createCommerceCatalogEntryFixture({ title: 'Reindexed title', revision: 3 });
+
+    const [item] = buildMarketplaceCatalogItems([record], [entry]);
+
+    expect(item.title).toBe('Reindexed title');
+    expect(item.revision).toBe(3);
+  });
+
+  it('unions records and entries that do not overlap', () => {
+    const record = toCommerceListingModel(createCommerceListingFixture());
+    const entry = createCommerceCatalogEntryFixture({
+      id: `${COMMERCE_FIXTURE_SELLER}:jacket_01`,
+      listing_id: 'jacket_01',
+      title: 'Selvedge denim jacket',
+    });
+
+    const items = buildMarketplaceCatalogItems([record], [entry]);
+
+    expect(items.map(({ listingId }) => listingId).sort()).toEqual(['boots_01', 'jacket_01']);
+  });
+
+  it('keeps auction terms null for an auction entry indexed before Nexus carried them', () => {
+    const item = catalogItemFromCatalogEntry(
+      createCommerceCatalogEntryFixture({ sale_format: 'auction', auction: null }),
+    );
+
+    expect(item.saleFormat).toBe('auction');
+    expect(item.auction).toBeNull();
+    expect(item.price).toEqual({ amountMinor: 12_500, currency: 'USD', exponent: 2 });
+  });
+});
+
 describe('filterMarketplaceCatalog', () => {
   it('searches title, description, and tags case-insensitively', () => {
-    const results = filterMarketplaceCatalog(catalogModels(), filters({ query: 'JAZZ' }));
+    const results = filterMarketplaceCatalog(catalogItems(), filters({ query: 'JAZZ' }));
 
-    expect(results.map(({ listing_id }) => listing_id)).toEqual(['jazz_first_press']);
+    expect(results.map(({ listingId }) => listingId)).toEqual(['jazz_first_press']);
   });
 
   it('matches a category subtree', () => {
-    const results = filterMarketplaceCatalog(catalogModels(), filters({ categoryId: 'fashion-shoes' }));
+    const results = filterMarketplaceCatalog(catalogItems(), filters({ categoryId: 'fashion-shoes' }));
 
-    expect(results.map(({ listing_id }) => listing_id).sort()).toEqual(['leather_boots', 'trail_runners']);
+    expect(results.map(({ listingId }) => listingId).sort()).toEqual(['leather_boots', 'trail_runners']);
   });
 
   it('combines format, condition, and inclusive price filters', () => {
     const results = filterMarketplaceCatalog(
-      catalogModels(),
+      catalogItems(),
       filters({
         saleFormat: 'fixed_price',
         conditions: ['excellent'],
@@ -60,20 +117,44 @@ describe('filterMarketplaceCatalog', () => {
       }),
     );
 
-    expect(results.map(({ listing_id }) => listing_id).sort()).toEqual(['mechanical_keyboard', 'selvedge_jacket']);
+    expect(results.map(({ listingId }) => listingId).sort()).toEqual(['mechanical_keyboard', 'selvedge_jacket']);
   });
 
   it('sorts price in both directions', () => {
-    const low = filterMarketplaceCatalog(catalogModels(), filters({ sort: 'price_low' }));
-    const high = filterMarketplaceCatalog(catalogModels(), filters({ sort: 'price_high' }));
+    const low = filterMarketplaceCatalog(catalogItems(), filters({ sort: 'price_low' }));
+    const high = filterMarketplaceCatalog(catalogItems(), filters({ sort: 'price_high' }));
 
-    expect(low[0].listing_id).toBe('jazz_first_press');
-    expect(high[0].listing_id).toBe('mechanical_keyboard');
+    expect(low[0].listingId).toBe('jazz_first_press');
+    expect(high[0].listingId).toBe('mechanical_keyboard');
   });
 
   it('puts active auctions before fixed-price listings for ending-soon', () => {
-    const results = filterMarketplaceCatalog(catalogModels(), filters({ sort: 'ending_soon' }));
+    const results = filterMarketplaceCatalog(catalogItems(), filters({ sort: 'ending_soon' }));
 
-    expect(results.slice(0, 2).every(({ format }) => format === 'auction')).toBe(true);
+    expect(results.slice(0, 2).every(({ saleFormat }) => saleFormat === 'auction')).toBe(true);
+  });
+
+  it('orders term-less auctions after known auctions but before fixed-price for ending-soon', () => {
+    const staleAuction = catalogItemFromCatalogEntry(
+      createCommerceCatalogEntryFixture({
+        id: `${COMMERCE_FIXTURE_SELLER}:mystery_auction`,
+        listing_id: 'mystery_auction',
+        sale_format: 'auction',
+        auction: null,
+      }),
+    );
+
+    const results = filterMarketplaceCatalog([...catalogItems(), staleAuction], filters({ sort: 'ending_soon' }));
+    const order = results.map(({ listingId }) => listingId);
+    const staleIndex = order.indexOf('mystery_auction');
+    const knownAuctionIndexes = results
+      .map((item, index) => (item.saleFormat === 'auction' && item.auction ? index : -1))
+      .filter((index) => index >= 0);
+    const fixedPriceIndexes = results
+      .map((item, index) => (item.saleFormat === 'fixed_price' ? index : -1))
+      .filter((index) => index >= 0);
+
+    expect(knownAuctionIndexes.every((index) => index < staleIndex)).toBe(true);
+    expect(fixedPriceIndexes.every((index) => index > staleIndex)).toBe(true);
   });
 });

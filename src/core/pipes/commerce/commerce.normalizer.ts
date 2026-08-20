@@ -14,67 +14,107 @@ import {
   locksPublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
 import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
-import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
+import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import {
   commerceAggregateIdSchema,
   commerceEntityIdSchema,
   commercePubkySchema,
+  commerceTimestampSchema,
 } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import type { CommerceCatalogAuctionTerms, CommerceCatalogEntryModelSchema } from '@/models/commerce/commerce.schema';
 import type { NexusListingDetails } from '@/services/nexus/marketplace/marketplace.types';
 
 const MARKETPLACE_BASE_PATH = '/pub/pubky.app/marketplace/v1';
+
+const NEXUS_AUCTION_TERM_FIELDS = [
+  'auction_starts_at',
+  'auction_ends_at',
+  'auction_reserve_price_minor',
+  'auction_buy_now_price_minor',
+  'auction_minimum_increment_minor',
+] as const;
 
 /**
  * Wire schema for one Nexus listing projection (`NexusListingDetails`).
  *
  * This intentionally does NOT reuse `commerceListingRecordSchema`: the Nexus
- * projection is lossy (no media metadata, variants, sale terms, shipping
- * options, or return policy), so it can never reconstruct a
- * `CommerceListingRecord` without fabricating fields. Identity fields reuse
- * the shared record schemas; the remaining fields are validated for type
- * agreement with the real Nexus response shape. Unknown extra keys are
- * tolerated so additive Nexus changes do not break discovery.
+ * projection is lossy (no media metadata, variants, shipping options, or
+ * return policy), so it can never reconstruct a `CommerceListingRecord`
+ * without fabricating fields. Identity fields reuse the shared record
+ * schemas; the remaining fields are validated for type agreement with the
+ * real Nexus response shape. Unknown extra keys are tolerated so additive
+ * Nexus changes do not break discovery.
+ *
+ * The `auction_*` term fields must all be present as keys (a payload missing
+ * them is not the Nexus marketplace shape), but null values are legal in two
+ * states Nexus actually serves: fixed-price listings (always all null) and
+ * auction listings indexed before Nexus carried auction terms (all null
+ * until re-indexed). Any other partial combination is rejected — in
+ * particular an auction claiming terms without an end time.
  */
-const nexusListingDetailsSchema: z.ZodType<NexusListingDetails> = z.object({
-  id: commerceEntityIdSchema,
-  uri: z.string(),
-  owner_id: commercePubkySchema,
-  indexed_at: z.number().int(),
-  state: z.enum(['active', 'paused', 'ended', 'removed']),
-  title: z.string(),
-  description: z.string(),
-  category_id: z.string(),
-  condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
-  tags: z.array(z.string()),
-  country_code: z.string(),
-  region: z.string().nullable(),
-  media_urls: z.array(z.string()),
-  sale_format: z.enum(['fixed_price', 'auction']),
-  price_amount_minor: z.number().int(),
-  price_currency: z.string(),
-  price_exponent: z.number().int(),
-  fulfillment_methods: z.array(z.enum(['physical', 'digital', 'pickup'])),
-  adult_only: z.boolean(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  revision: z.number().int().positive(),
-});
+const nexusListingDetailsSchema: z.ZodType<NexusListingDetails> = z
+  .object({
+    id: commerceEntityIdSchema,
+    uri: z.string(),
+    owner_id: commercePubkySchema,
+    indexed_at: z.number().int(),
+    state: z.enum(['active', 'paused', 'ended', 'removed']),
+    title: z.string(),
+    description: z.string(),
+    category_id: z.string(),
+    condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
+    tags: z.array(z.string()),
+    country_code: z.string(),
+    region: z.string().nullable(),
+    media_urls: z.array(z.string()),
+    sale_format: z.enum(['fixed_price', 'auction']),
+    price_amount_minor: z.number().int(),
+    price_currency: z.string(),
+    price_exponent: z.number().int(),
+    auction_starts_at: commerceTimestampSchema.nullable(),
+    auction_ends_at: commerceTimestampSchema.nullable(),
+    auction_reserve_price_minor: z.number().int().positive().nullable(),
+    auction_buy_now_price_minor: z.number().int().positive().nullable(),
+    auction_minimum_increment_minor: z.number().int().positive().nullable(),
+    fulfillment_methods: z.array(z.enum(['physical', 'digital', 'pickup'])),
+    adult_only: z.boolean(),
+    created_at: commerceTimestampSchema,
+    updated_at: commerceTimestampSchema,
+    revision: z.number().int().positive(),
+  })
+  .superRefine((listing, context) => {
+    if (listing.sale_format === 'fixed_price') {
+      for (const field of NEXUS_AUCTION_TERM_FIELDS) {
+        if (listing[field] !== null) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Fixed-price listings must not carry auction terms',
+            path: [field],
+          });
+        }
+      }
+      return;
+    }
+
+    const hasCompleteTerms =
+      listing.auction_starts_at !== null &&
+      listing.auction_ends_at !== null &&
+      listing.auction_minimum_increment_minor !== null;
+    const hasNoTerms = NEXUS_AUCTION_TERM_FIELDS.every((field) => listing[field] === null);
+    if (!hasCompleteTerms && !hasNoTerms) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Auction terms must be complete (start, end, minimum increment) or entirely null for rows indexed before Nexus carried them',
+        path: ['auction_ends_at'],
+      });
+    }
+  });
 
 const nexusListingStreamSchema = z.array(nexusListingDetailsSchema);
-
-/**
- * Discovery identity extracted from a Nexus listing projection: which
- * canonical homeserver record to hydrate, and the revision Nexus has seen
- * (used to decide whether a cached record is stale).
- */
-export interface CommerceNexusListingKey {
-  sellerId: string;
-  listingId: string;
-  revision: number;
-}
 
 export class CommerceRecordNormalizer {
   private constructor() {}
@@ -126,13 +166,69 @@ export class CommerceRecordNormalizer {
   }
 
   /**
-   * Validates a Nexus `v0/stream/listings` payload and reduces it to
-   * discovery keys. Pure: hydration of the canonical records happens in the
-   * application layer against the owner homeserver (ADR-0020).
+   * Validates a Nexus `v0/stream/listings` payload and normalizes it into
+   * catalog entries the grid can render directly. Pure: persisting the
+   * entries — and any later hydration of the canonical record from the owner
+   * homeserver (ADR-0020) — happens in the application layer.
    */
-  static nexusListingStream(input: unknown): CommerceNexusListingKey[] {
+  static nexusListingStream(input: unknown): CommerceCatalogEntryModelSchema[] {
     const listings = this.parse(nexusListingStreamSchema, input, 'nexusListingStream');
-    return listings.map(({ owner_id, id, revision }) => ({ sellerId: owner_id, listingId: id, revision }));
+    return listings.map((listing) => this.toCatalogEntry(listing));
+  }
+
+  private static toCatalogEntry(listing: NexusListingDetails): CommerceCatalogEntryModelSchema {
+    return {
+      id: `${listing.owner_id}:${listing.id}`,
+      seller_id: listing.owner_id,
+      listing_id: listing.id,
+      state: listing.state,
+      title: listing.title,
+      description: listing.description,
+      category_id: listing.category_id,
+      condition: listing.condition,
+      tags: listing.tags,
+      country_code: listing.country_code,
+      region: listing.region,
+      sale_format: listing.sale_format,
+      price: this.toCatalogMoney(listing, listing.price_amount_minor),
+      auction: this.toCatalogAuctionTerms(listing),
+      revision: listing.revision,
+      updated_at: Date.parse(listing.updated_at),
+    };
+  }
+
+  /**
+   * Auction money terms arrive as minor units of the listing's primary asset
+   * (`price_currency` / `price_exponent`); pubky-app-specs guarantees all
+   * auction prices share that asset, so denominating them here reproduces the
+   * record's terms rather than inventing values.
+   */
+  private static toCatalogMoney(listing: NexusListingDetails, amountMinor: number): CommerceMoney {
+    return { amountMinor, currency: listing.price_currency, exponent: listing.price_exponent };
+  }
+
+  // Returns null both for fixed-price listings and for auction rows indexed
+  // before Nexus carried auction terms (the schema guarantees no other
+  // partial state can reach this point).
+  private static toCatalogAuctionTerms(listing: NexusListingDetails): CommerceCatalogAuctionTerms | null {
+    if (listing.sale_format !== 'auction') return null;
+    const { auction_starts_at, auction_ends_at, auction_minimum_increment_minor } = listing;
+    if (auction_starts_at === null || auction_ends_at === null || auction_minimum_increment_minor === null) {
+      return null;
+    }
+    return {
+      startsAt: auction_starts_at,
+      endsAt: auction_ends_at,
+      reservePrice:
+        listing.auction_reserve_price_minor === null
+          ? null
+          : this.toCatalogMoney(listing, listing.auction_reserve_price_minor),
+      buyNowPrice:
+        listing.auction_buy_now_price_minor === null
+          ? null
+          : this.toCatalogMoney(listing, listing.auction_buy_now_price_minor),
+      minimumIncrement: this.toCatalogMoney(listing, auction_minimum_increment_minor),
+    };
   }
 
   static aggregateId(input: unknown): string {

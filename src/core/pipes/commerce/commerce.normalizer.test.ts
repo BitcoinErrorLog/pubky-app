@@ -3,6 +3,7 @@ import {
   COMMERCE_FIXTURE_SELLER,
   createCommerceListingFixture,
   createCommerceShopFixture,
+  createNexusAuctionListingDetailsFixture,
   createNexusListingDetailsFixture,
 } from '@/test/fixtures/commerce/commerce';
 import { CommerceRecordNormalizer } from './commerce.normalizer';
@@ -76,23 +77,76 @@ describe('CommerceRecordNormalizer', () => {
   });
 
   describe('nexusListingStream', () => {
-    it('reduces a Nexus listing stream payload to discovery keys', () => {
-      const payload = [
-        createNexusListingDetailsFixture(),
-        createNexusListingDetailsFixture({ owner_id: 'b'.repeat(52), id: 'jacket_01', revision: 3 }),
-      ];
+    it('normalizes a fixed-price projection into a renderable catalog entry', () => {
+      const payload = [createNexusListingDetailsFixture()];
 
       expect(CommerceRecordNormalizer.nexusListingStream(payload)).toEqual([
-        { sellerId: COMMERCE_FIXTURE_SELLER, listingId: 'boots_01', revision: 1 },
-        { sellerId: 'b'.repeat(52), listingId: 'jacket_01', revision: 3 },
+        {
+          id: `${COMMERCE_FIXTURE_SELLER}:boots_01`,
+          seller_id: COMMERCE_FIXTURE_SELLER,
+          listing_id: 'boots_01',
+          state: 'active',
+          title: 'Vintage leather boots',
+          description: 'Well cared for boots with light wear.',
+          category_id: 'fashion-shoes-boots',
+          condition: 'good',
+          tags: ['vintage'],
+          country_code: 'US',
+          region: 'NY',
+          sale_format: 'fixed_price',
+          price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+          auction: null,
+          revision: 1,
+          updated_at: Date.parse('2026-08-19T21:00:00.000Z'),
+        },
       ]);
+    });
+
+    it('denominates auction terms in the listing primary asset', () => {
+      const [entry] = CommerceRecordNormalizer.nexusListingStream([createNexusAuctionListingDetailsFixture()]);
+
+      expect(entry.sale_format).toBe('auction');
+      expect(entry.price).toEqual({ amountMinor: 4_500, currency: 'USD', exponent: 2 });
+      expect(entry.auction).toEqual({
+        startsAt: '2026-08-19T20:00:00.000Z',
+        endsAt: '2026-08-29T20:00:00.000Z',
+        reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
+        buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      });
+    });
+
+    it('keeps optional auction terms null without inventing values', () => {
+      const [entry] = CommerceRecordNormalizer.nexusListingStream([
+        createNexusAuctionListingDetailsFixture({
+          auction_reserve_price_minor: null,
+          auction_buy_now_price_minor: null,
+        }),
+      ]);
+
+      expect(entry.auction).toMatchObject({ reservePrice: null, buyNowPrice: null });
+    });
+
+    it('accepts an auction row with all-null terms as indexed before Nexus carried them', () => {
+      const [entry] = CommerceRecordNormalizer.nexusListingStream([
+        createNexusAuctionListingDetailsFixture({
+          auction_starts_at: null,
+          auction_ends_at: null,
+          auction_reserve_price_minor: null,
+          auction_buy_now_price_minor: null,
+          auction_minimum_increment_minor: null,
+        }),
+      ]);
+
+      expect(entry.sale_format).toBe('auction');
+      expect(entry.auction).toBeNull();
     });
 
     it('accepts a null region and tolerates additive fields Nexus may introduce', () => {
       const payload = [{ ...createNexusListingDetailsFixture({ region: null }), future_field: 'ignored' }];
 
-      expect(CommerceRecordNormalizer.nexusListingStream(payload)).toEqual([
-        { sellerId: COMMERCE_FIXTURE_SELLER, listingId: 'boots_01', revision: 1 },
+      expect(CommerceRecordNormalizer.nexusListingStream(payload)).toMatchObject([
+        { seller_id: COMMERCE_FIXTURE_SELLER, listing_id: 'boots_01', region: null, revision: 1 },
       ]);
     });
 
@@ -102,6 +156,35 @@ describe('CommerceRecordNormalizer', () => {
       ['a path-unsafe listing id', [createNexusListingDetailsFixture({ id: '../private' })]],
       ['a missing revision', [{ ...createNexusListingDetailsFixture(), revision: undefined }]],
       ['an unknown condition value', [{ ...createNexusListingDetailsFixture(), condition: 'mint' }]],
+      ['an auction payload missing the end time', [createNexusAuctionListingDetailsFixture({ auction_ends_at: null })]],
+      [
+        'an auction payload without the auction term keys',
+        [
+          (() => {
+            const {
+              auction_starts_at: _startsAt,
+              auction_ends_at: _endsAt,
+              auction_reserve_price_minor: _reserve,
+              auction_buy_now_price_minor: _buyNow,
+              auction_minimum_increment_minor: _increment,
+              ...withoutTerms
+            } = createNexusAuctionListingDetailsFixture();
+            return withoutTerms;
+          })(),
+        ],
+      ],
+      [
+        'an auction end time that is not an RFC 3339 timestamp',
+        [createNexusAuctionListingDetailsFixture({ auction_ends_at: 'tomorrow' })],
+      ],
+      [
+        'a non-positive minimum increment',
+        [createNexusAuctionListingDetailsFixture({ auction_minimum_increment_minor: 0 })],
+      ],
+      [
+        'a fixed-price payload carrying auction terms',
+        [createNexusListingDetailsFixture({ auction_ends_at: '2026-08-29T20:00:00.000Z' })],
+      ],
     ])('rejects %s', (_label, payload) => {
       expect(() => CommerceRecordNormalizer.nexusListingStream(payload)).toThrow(
         expect.objectContaining({ code: 'INVALID_INPUT', category: 'validation' }),
