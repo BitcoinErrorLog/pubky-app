@@ -3,6 +3,7 @@ import {
   COMMERCE_FIXTURE_SELLER,
   createCommerceListingFixture,
   createCommerceShopFixture,
+  createNexusListingDetailsFixture,
 } from '@/test/fixtures/commerce/commerce';
 import { CommerceRecordNormalizer } from './commerce.normalizer';
 
@@ -72,5 +73,39 @@ describe('CommerceRecordNormalizer', () => {
     expect(() => CommerceRecordNormalizer.listingUri(owner, id)).toThrow(
       expect.objectContaining({ code: 'INVALID_INPUT' }),
     );
+  });
+
+  describe('nexusListingStream', () => {
+    it('reduces a Nexus listing stream payload to discovery keys', () => {
+      const payload = [
+        createNexusListingDetailsFixture(),
+        createNexusListingDetailsFixture({ owner_id: 'b'.repeat(52), id: 'jacket_01', revision: 3 }),
+      ];
+
+      expect(CommerceRecordNormalizer.nexusListingStream(payload)).toEqual([
+        { sellerId: COMMERCE_FIXTURE_SELLER, listingId: 'boots_01', revision: 1 },
+        { sellerId: 'b'.repeat(52), listingId: 'jacket_01', revision: 3 },
+      ]);
+    });
+
+    it('accepts a null region and tolerates additive fields Nexus may introduce', () => {
+      const payload = [{ ...createNexusListingDetailsFixture({ region: null }), future_field: 'ignored' }];
+
+      expect(CommerceRecordNormalizer.nexusListingStream(payload)).toEqual([
+        { sellerId: COMMERCE_FIXTURE_SELLER, listingId: 'boots_01', revision: 1 },
+      ]);
+    });
+
+    it.each([
+      ['a non-array payload', createNexusListingDetailsFixture()],
+      ['an owner that is not a pubky', [createNexusListingDetailsFixture({ owner_id: 'not-a-pubky' })]],
+      ['a path-unsafe listing id', [createNexusListingDetailsFixture({ id: '../private' })]],
+      ['a missing revision', [{ ...createNexusListingDetailsFixture(), revision: undefined }]],
+      ['an unknown condition value', [{ ...createNexusListingDetailsFixture(), condition: 'mint' }]],
+    ])('rejects %s', (_label, payload) => {
+      expect(() => CommerceRecordNormalizer.nexusListingStream(payload)).toThrow(
+        expect.objectContaining({ code: 'INVALID_INPUT', category: 'validation' }),
+      );
+    });
   });
 });

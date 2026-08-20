@@ -7,6 +7,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import type { CommerceConditionFilter, CommerceSaleFormatFilter } from '@/stores/commerce/commerce.types';
 
 export class CommerceController {
   private constructor() {}
@@ -55,6 +56,26 @@ export class CommerceController {
 
   static async getAllListings() {
     return await CommerceApplication.getAllListings();
+  }
+
+  /**
+   * Refreshes the catalog cache from the Nexus marketplace index.
+   *
+   * Maps the catalog filter state onto the filters Nexus can evaluate
+   * server-side: sale format (when not 'all') and condition (only when
+   * exactly one is selected — Nexus accepts a single condition). Everything
+   * else (text query, hierarchical category prefix, minor-unit price range,
+   * sorting) stays client-side in `filterMarketplaceCatalog`, so server-side
+   * filters only narrow what gets fetched, never what renders.
+   */
+  static async fetchCatalogListings(filters: {
+    saleFormat: CommerceSaleFormatFilter;
+    conditions: CommerceConditionFilter[];
+  }): Promise<void> {
+    await CommerceApplication.fetchCatalogListings({
+      ...(filters.saleFormat !== 'all' ? { saleFormat: filters.saleFormat } : {}),
+      ...(filters.conditions.length === 1 ? { condition: filters.conditions[0] } : {}),
+    });
   }
 
   static async initializeSandboxCatalog(): Promise<boolean> {

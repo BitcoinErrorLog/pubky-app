@@ -4,6 +4,7 @@ import type {
   CommerceListingProjectionModelSchema,
   CommerceSyncJobModelSchema,
 } from '@/models/commerce/commerce.schema';
+import type { NexusListingDetails } from '@/services/nexus/marketplace/marketplace.types';
 
 export const COMMERCE_FIXTURE_SELLER = 'y'.repeat(52);
 export const COMMERCE_FIXTURE_BUYER = 'b'.repeat(52);
@@ -80,6 +81,35 @@ export function createCommerceListingFixture(overrides: Partial<CommerceListingR
       buyerPaysReturnShipping: true,
     },
     adultOnly: false,
+    ...overrides,
+  };
+}
+
+/** The lossy Nexus index projection of the listing built by `createCommerceListingFixture`. */
+export function createNexusListingDetailsFixture(overrides: Partial<NexusListingDetails> = {}): NexusListingDetails {
+  return {
+    id: 'boots_01',
+    uri: `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/listings/boots_01`,
+    owner_id: COMMERCE_FIXTURE_SELLER,
+    indexed_at: Date.parse(COMMERCE_FIXTURE_UPDATED_AT),
+    state: 'active',
+    title: 'Vintage leather boots',
+    description: 'Well cared for boots with light wear.',
+    category_id: 'fashion-shoes-boots',
+    condition: 'good',
+    tags: ['vintage'],
+    country_code: 'US',
+    region: 'NY',
+    media_urls: [`pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/image_01`],
+    sale_format: 'fixed_price',
+    price_amount_minor: 12_500,
+    price_currency: 'USD',
+    price_exponent: 2,
+    fulfillment_methods: ['pickup'],
+    adult_only: false,
+    created_at: COMMERCE_FIXTURE_CREATED_AT,
+    updated_at: COMMERCE_FIXTURE_UPDATED_AT,
+    revision: 1,
     ...overrides,
   };
 }

@@ -60,6 +60,14 @@ With sandbox mode on and the catalog seeded:
 
 Demo data is opt-in and lives behind `/marketplace/sandbox`, which returns 404 unless the deployment is explicitly in sandbox mode. The seeded sellers are fictional (`'y'.repeat(52)` and friends), which is exactly why the page is gated — those records must never appear in a real catalog.
 
+## Nexus discovery
+
+In every mode **except sandbox**, the catalog refreshes itself from the Nexus marketplace index: it reads the listing stream (`GET /v0/stream/listings`), then hydrates each discovered listing's full record from the seller's homeserver, which stays canonical (ADR 0020). The catalog always renders from the local cache first; when Nexus is unreachable or does not serve the marketplace endpoints, the refresh fails quietly and browsing continues cache-only.
+
+**Sandbox mode never queries Nexus.** The sandbox catalog is a self-contained demo seeded with fictional sellers, and mixing indexed network listings into it would blend real and simulated content — so with `commerceAdapterMode=sandbox` the browsing flow above works exactly as described with no Nexus involved.
+
+The marketplace endpoints are implemented on the `feat/marketplace-indexing` branch of [`BitcoinErrorLog/pubky-nexus`](https://github.com/BitcoinErrorLog/pubky-nexus) and are **not yet deployed** to the staging Nexus the app points at by default. To exercise discovery end to end, run a Nexus built from that branch and point the app at it with `PUBKY_RUNTIME_NEXUS_URL`.
+
 ## Running the tests
 
 ```bash

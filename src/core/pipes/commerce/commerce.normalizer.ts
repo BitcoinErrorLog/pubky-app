@@ -23,8 +23,58 @@ import {
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import type { NexusListingDetails } from '@/services/nexus/marketplace/marketplace.types';
 
 const MARKETPLACE_BASE_PATH = '/pub/pubky.app/marketplace/v1';
+
+/**
+ * Wire schema for one Nexus listing projection (`NexusListingDetails`).
+ *
+ * This intentionally does NOT reuse `commerceListingRecordSchema`: the Nexus
+ * projection is lossy (no media metadata, variants, sale terms, shipping
+ * options, or return policy), so it can never reconstruct a
+ * `CommerceListingRecord` without fabricating fields. Identity fields reuse
+ * the shared record schemas; the remaining fields are validated for type
+ * agreement with the real Nexus response shape. Unknown extra keys are
+ * tolerated so additive Nexus changes do not break discovery.
+ */
+const nexusListingDetailsSchema: z.ZodType<NexusListingDetails> = z.object({
+  id: commerceEntityIdSchema,
+  uri: z.string(),
+  owner_id: commercePubkySchema,
+  indexed_at: z.number().int(),
+  state: z.enum(['active', 'paused', 'ended', 'removed']),
+  title: z.string(),
+  description: z.string(),
+  category_id: z.string(),
+  condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
+  tags: z.array(z.string()),
+  country_code: z.string(),
+  region: z.string().nullable(),
+  media_urls: z.array(z.string()),
+  sale_format: z.enum(['fixed_price', 'auction']),
+  price_amount_minor: z.number().int(),
+  price_currency: z.string(),
+  price_exponent: z.number().int(),
+  fulfillment_methods: z.array(z.enum(['physical', 'digital', 'pickup'])),
+  adult_only: z.boolean(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  revision: z.number().int().positive(),
+});
+
+const nexusListingStreamSchema = z.array(nexusListingDetailsSchema);
+
+/**
+ * Discovery identity extracted from a Nexus listing projection: which
+ * canonical homeserver record to hydrate, and the revision Nexus has seen
+ * (used to decide whether a cached record is stale).
+ */
+export interface CommerceNexusListingKey {
+  sellerId: string;
+  listingId: string;
+  revision: number;
+}
 
 export class CommerceRecordNormalizer {
   private constructor() {}
@@ -73,6 +123,16 @@ export class CommerceRecordNormalizer {
 
   static marketplaceCommand(input: unknown): MarketplaceCommand {
     return this.parse(marketplaceCommandSchema, input, 'marketplaceCommand');
+  }
+
+  /**
+   * Validates a Nexus `v0/stream/listings` payload and reduces it to
+   * discovery keys. Pure: hydration of the canonical records happens in the
+   * application layer against the owner homeserver (ADR-0020).
+   */
+  static nexusListingStream(input: unknown): CommerceNexusListingKey[] {
+    const listings = this.parse(nexusListingStreamSchema, input, 'nexusListingStream');
+    return listings.map(({ owner_id, id, revision }) => ({ sellerId: owner_id, listingId: id, revision }));
   }
 
   static aggregateId(input: unknown): string {

@@ -17,6 +17,24 @@ describe('CommerceController', () => {
     useCommerceStore.getState().reset();
   });
 
+  it('maps catalog filters onto the server-side filters Nexus supports', async () => {
+    const fetchCatalog = vi.spyOn(CommerceApplication, 'fetchCatalogListings').mockResolvedValue(undefined);
+
+    await CommerceController.fetchCatalogListings({ saleFormat: 'auction', conditions: ['like_new'] });
+    expect(fetchCatalog).toHaveBeenCalledWith({ saleFormat: 'auction', condition: 'like_new' });
+
+    await CommerceController.fetchCatalogListings({ saleFormat: 'all', conditions: [] });
+    expect(fetchCatalog).toHaveBeenLastCalledWith({});
+  });
+
+  it('keeps multi-condition filtering client-side because Nexus accepts one condition', async () => {
+    const fetchCatalog = vi.spyOn(CommerceApplication, 'fetchCatalogListings').mockResolvedValue(undefined);
+
+    await CommerceController.fetchCatalogListings({ saleFormat: 'all', conditions: ['new', 'good'] });
+
+    expect(fetchCatalog).toHaveBeenCalledWith({});
+  });
+
   it('validates local listing lookup identity before calling application', async () => {
     const getListing = vi.spyOn(CommerceApplication, 'getListing').mockResolvedValue(null);
 

@@ -1,15 +1,24 @@
 import { getCommerceAdapterMode } from '@/config/commerce';
+import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
+import { Logger } from '@/libs/logger/logger';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
-import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
+import { type CommerceNexusListingKey, CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { LocksGatewayService } from '@/services/locks/locks';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
+import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/nexus/marketplace/marketplace.types';
+
+export interface CommerceCatalogStreamFilters {
+  saleFormat?: NexusListingSaleFormat;
+  condition?: NexusListingCondition;
+}
 
 export class CommerceApplication {
   private constructor() {}
@@ -211,6 +220,69 @@ export class CommerceApplication {
 
   static async commitDeleteShopFollow(ownerPubky: string, sellerPubky: string): Promise<void> {
     await LocalCommerceService.deleteShopFollow(ownerPubky, sellerPubky);
+  }
+
+  /**
+   * Populates the local catalog cache from the Nexus marketplace index.
+   *
+   * Nexus serves lossy listing projections, so this method uses the index for
+   * discovery only: it collects `{seller, listing, revision}` keys and then
+   * hydrates full records from the canonical owner homeserver (ADR-0020),
+   * refetching cached listings whose revision fell behind the index.
+   *
+   * Sandbox catalogs are seeded locally and stay self-contained: querying the
+   * index there would blend real network listings into a demo catalog of
+   * fictional sellers, so sandbox mode never reads from Nexus.
+   *
+   * Per-record hydration failures are logged and skipped so one unreachable
+   * seller cannot block the rest of the catalog.
+   */
+  static async fetchCatalogListings(filters: CommerceCatalogStreamFilters = {}): Promise<void> {
+    if (getCommerceAdapterMode() === 'sandbox') return;
+
+    const payload = await NexusMarketplaceService.fetchListingStream({
+      state: 'active',
+      limit: NEXUS_LISTINGS_PER_PAGE,
+      ...(filters.saleFormat ? { sale_format: filters.saleFormat } : {}),
+      ...(filters.condition ? { condition: filters.condition } : {}),
+    });
+    const keys = CommerceRecordNormalizer.nexusListingStream(payload);
+    await this.hydrateDiscoveredListings(keys);
+  }
+
+  private static async hydrateDiscoveredListings(keys: CommerceNexusListingKey[]): Promise<void> {
+    const listingResults = await Promise.allSettled(keys.map((key) => this.hydrateDiscoveredListing(key)));
+    listingResults.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        Logger.warn('Failed to hydrate a discovered marketplace listing', {
+          listing: `${keys[index].sellerId}:${keys[index].listingId}`,
+          error: result.reason,
+        });
+      }
+    });
+
+    const sellerIds = [...new Set(keys.map(({ sellerId }) => sellerId))];
+    const shopResults = await Promise.allSettled(sellerIds.map((sellerId) => this.getOrFetchShop(sellerId)));
+    shopResults.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        Logger.warn('Failed to hydrate a discovered marketplace shop', {
+          sellerId: sellerIds[index],
+          error: result.reason,
+        });
+      }
+    });
+  }
+
+  private static async hydrateDiscoveredListing({
+    sellerId,
+    listingId,
+    revision,
+  }: CommerceNexusListingKey): Promise<void> {
+    const local = await LocalCommerceService.getListing(`${sellerId}:${listingId}`);
+    if (local && local.revision >= revision) return;
+
+    const record = await this.fetchListing(sellerId, listingId);
+    await LocalCommerceService.upsertListing(record, 'synced');
   }
 
   static async fetchListing(ownerPubky: string, listingId: string): Promise<CommerceListingRecord> {
