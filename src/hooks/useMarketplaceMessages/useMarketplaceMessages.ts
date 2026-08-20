@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useMessageAttachmentPicker } from '@/hooks/useMessageAttachmentPicker/useMessageAttachmentPicker';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
@@ -23,6 +24,7 @@ export interface UseMarketplaceMessagesResult {
   conversation: MarketplaceConversation | null;
   isLoading: boolean;
   error: string | null;
+  attachment: ReturnType<typeof useMessageAttachmentPicker>;
   submit: () => Promise<boolean>;
   refresh: () => Promise<void>;
 }
@@ -32,6 +34,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
   const [conversation, setConversation] = useState<MarketplaceConversation | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
+  const attachment = useMessageAttachmentPicker();
   const form = useForm<MarketplaceMessageData>({
     resolver: zodResolver(marketplaceMessageSchema),
     defaultValues: marketplaceMessageDefaults,
@@ -64,6 +67,8 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
     let succeeded = false;
     await form.handleSubmit(async (data) => {
       try {
+        const uploadedAttachment = attachment.file ? await attachment.upload(sellerPubky) : null;
+        if (attachment.file && !uploadedAttachment) return;
         const response = await CommerceController.executeMarketplaceCommand({
           version: 1,
           commandId: crypto.randomUUID(),
@@ -75,6 +80,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
             listingAggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
             recipientPubky: sellerPubky,
             text: data.text,
+            attachmentIds: uploadedAttachment ? [uploadedAttachment.id] : [],
           },
         });
         if (!response.ok) {
@@ -83,6 +89,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
         }
         succeeded = true;
         form.reset(marketplaceMessageDefaults);
+        attachment.reset();
         await refresh();
       } catch {
         toast({ variant: 'error', description: 'Could not send this message.' });
@@ -91,7 +98,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
     return succeeded;
   };
 
-  return { form, conversation, isLoading, error, submit, refresh };
+  return { form, conversation, isLoading, error, attachment, submit, refresh };
 }
 
 async function loadConversation(

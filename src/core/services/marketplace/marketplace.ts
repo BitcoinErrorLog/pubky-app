@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { blake3 } from '@noble/hashes/blake3.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { getCommerceAdapterMode, getMarketplaceUrl } from '@/config/commerce';
 import {
   type MarketplaceCommand,
@@ -52,11 +54,32 @@ const conversationSchema = z
         senderPubky: commercePubkySchema,
         recipientPubky: commercePubkySchema,
         text: z.string(),
+        attachments: z.array(
+          z.object({
+            id: z.uuid(),
+            senderPubky: commercePubkySchema,
+            recipientPubky: commercePubkySchema,
+            mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+            byteSize: z.number().int().positive(),
+            contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+            createdAt: z.string(),
+          }),
+        ),
         createdAt: z.string(),
       }),
     ),
   })
   .passthrough();
+
+const attachmentMetadataSchema = z.object({
+  id: z.uuid(),
+  senderPubky: commercePubkySchema,
+  recipientPubky: commercePubkySchema,
+  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  byteSize: z.number().int().positive(),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  createdAt: z.string(),
+});
 
 const notificationSchema = z
   .object({
@@ -113,6 +136,7 @@ export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotification = z.infer<typeof notificationSchema>;
 export type MarketplaceOffer = z.infer<typeof offerSchema>;
 export type MarketplaceNotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
+export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -249,6 +273,56 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data;
+  }
+
+  static async uploadAttachment(actor: string, recipient: string, file: File): Promise<MarketplaceAttachmentMetadata> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/attachments`;
+    const response = await safeFetch(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': file.type,
+          'x-pubky-actor': actor,
+          'x-recipient-pubky': recipient,
+        },
+        body: file,
+      },
+      ErrorService.Marketplace,
+      'uploadAttachment',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'uploadAttachment', url);
+    const parsed = attachmentMetadataSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid attachment metadata.', {
+        service: ErrorService.Marketplace,
+        operation: 'uploadAttachment',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  static async fetchAttachment(actor: string, attachmentId: string): Promise<Blob> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/attachments/${encodeURIComponent(attachmentId)}`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'fetchAttachment',
+    );
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const expectedHash = response.headers.get('x-content-hash');
+    if (!expectedHash || bytesToHex(blake3(bytes)) !== expectedHash) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace attachment integrity check failed.', {
+        service: ErrorService.Marketplace,
+        operation: 'fetchAttachment',
+        context: { statusCode: response.status },
+      });
+    }
+    return new Blob([bytes], { type: response.headers.get('content-type') ?? 'application/octet-stream' });
   }
 
   private static assertSandbox(): void {

@@ -148,6 +148,7 @@ function messageCommand(sender: string, recipient: string, expectedRevision: num
       listingAggregateId: AGGREGATE_ID,
       recipientPubky: recipient,
       text,
+      attachmentIds: [] as string[],
     },
   };
 }
@@ -572,6 +573,64 @@ describe('MarketplaceTransactionService', () => {
     await expect(
       service.execute(BUYER, messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000000904', 'Stale')),
     ).resolves.toMatchObject({ ok: false, error: { code: 'REVISION_CONFLICT', currentRevision: 1 } });
+  });
+
+  it('validates image signatures and binds one-use private attachments to messages', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0x01, 0x02]);
+    const stored = service.storeAttachment(BUYER, SELLER, 'image/jpeg', bytes);
+    expect(stored).toMatchObject({
+      ok: true,
+      attachment: {
+        senderPubky: BUYER,
+        recipientPubky: SELLER,
+        mimeType: 'image/jpeg',
+        byteSize: 5,
+      },
+    });
+    if (!stored.ok) return;
+    const command = messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000000906', 'Photo attached');
+    command.payload.attachmentIds = [stored.attachment.id];
+
+    await expect(service.execute(BUYER, command)).resolves.toMatchObject({
+      ok: true,
+      result: {
+        kind: 'message',
+        message: {
+          attachments: [{ id: stored.attachment.id, contentHash: expect.stringMatching(/^[a-f0-9]{64}$/) }],
+        },
+      },
+    });
+    expect(service.getAttachment(BUYER, stored.attachment.id)?.bytes).toEqual(bytes);
+    expect(service.getAttachment(SELLER, stored.attachment.id)?.bytes).toEqual(bytes);
+    expect(service.getAttachment(OTHER_BUYER, stored.attachment.id)).toBeNull();
+
+    const reused = messageCommand(BUYER, SELLER, 1, '00000000-0000-4000-8000-000000000907', 'Reuse');
+    reused.payload.attachmentIds = [stored.attachment.id];
+    await expect(service.execute(BUYER, reused)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_COMMAND' },
+    });
+  });
+
+  it('rejects spoofed and oversized attachment payloads', () => {
+    const { service } = createService();
+
+    expect(service.storeAttachment(BUYER, SELLER, 'image/jpeg', new Uint8Array([1, 2, 3]))).toMatchObject({
+      ok: false,
+      code: 'INVALID_ATTACHMENT',
+    });
+    expect(
+      service.storeAttachment(BUYER, SELLER, 'image/svg+xml', new Uint8Array([0x3c, 0x73, 0x76, 0x67])),
+    ).toMatchObject({
+      ok: false,
+      code: 'INVALID_ATTACHMENT',
+    });
+    expect(service.storeAttachment(BUYER, SELLER, 'image/png', new Uint8Array(5 * 1024 * 1024 + 1))).toMatchObject({
+      ok: false,
+      code: 'INVALID_ATTACHMENT',
+    });
   });
 
   it('emits role-scoped message, offer, and outbid notifications', async () => {

@@ -62,6 +62,7 @@ describe('useMarketplaceMessages', () => {
           listingAggregateId: `listing:${SELLER}_boots_01`,
           recipientPubky: SELLER,
           text: 'Is this still available?',
+          attachmentIds: [],
         },
       }),
     );

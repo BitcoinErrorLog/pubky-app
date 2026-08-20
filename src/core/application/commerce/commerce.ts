@@ -99,6 +99,14 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getNotificationPreferences(actorPubky);
   }
 
+  static async uploadMarketplaceAttachment(actorPubky: string, recipientPubky: string, file: File) {
+    return await MarketplaceGatewayService.uploadAttachment(actorPubky, recipientPubky, file);
+  }
+
+  static async fetchMarketplaceAttachment(actorPubky: string, attachmentId: string) {
+    return await MarketplaceGatewayService.fetchAttachment(actorPubky, attachmentId);
+  }
+
   static async isFavorite(ownerPubky: string, listingId: string): Promise<boolean> {
     return await LocalCommerceService.isFavorite(ownerPubky, listingId);
   }

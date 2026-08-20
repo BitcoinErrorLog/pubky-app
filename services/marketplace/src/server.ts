@@ -23,7 +23,7 @@ export function createMarketplaceHttpServer({
       if (mode === 'sandbox') {
         response.setHeader('access-control-allow-origin', allowedOrigin);
         response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
-        response.setHeader('access-control-allow-headers', 'content-type, x-pubky-actor');
+        response.setHeader('access-control-allow-headers', 'content-type, x-pubky-actor, x-recipient-pubky');
       }
       if (request.method === 'OPTIONS') {
         response.writeHead(204);
@@ -77,6 +77,63 @@ export function createMarketplaceHttpServer({
         const result = await service.execute(actor, body);
         const status = result.ok ? 200 : statusForFailure(result.error.code);
         writeJson(response, status, result, mode);
+        return;
+      }
+
+      if (request.method === 'POST' && request.url === '/v1/attachments') {
+        if (mode !== 'sandbox') {
+          writeJson(
+            response,
+            503,
+            { error: { code: 'UNAVAILABLE', message: 'Marketplace attachments are disabled.' } },
+            mode,
+          );
+          return;
+        }
+        const actor = request.headers['x-pubky-actor'];
+        const recipient = request.headers['x-recipient-pubky'];
+        const mimeType = request.headers['content-type']?.split(';')[0] ?? '';
+        if (Array.isArray(actor) || Array.isArray(recipient) || !actor || !recipient) {
+          writeJson(
+            response,
+            401,
+            { error: { code: 'UNAUTHORIZED', message: 'Attachment participants are required.' } },
+            mode,
+          );
+          return;
+        }
+        const bytes = await readBytesBody(request, 5 * 1024 * 1024);
+        const result = service.storeAttachment(actor, recipient, mimeType, bytes);
+        writeJson(
+          response,
+          result.ok ? 201 : result.code === 'UNAUTHORIZED' ? 401 : 400,
+          result.ok ? result.attachment : { error: { code: result.code, message: result.message } },
+          mode,
+        );
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/attachments/')) {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        const attachmentId = request.url.slice('/v1/attachments/'.length);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Attachment actor is required.' } }, mode);
+          return;
+        }
+        const attachment = service.getAttachment(actorResult.data, attachmentId);
+        if (!attachment) {
+          writeJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Attachment not found.' } }, mode);
+          return;
+        }
+        response.writeHead(200, {
+          'content-type': attachment.mimeType,
+          'content-length': attachment.byteSize,
+          'cache-control': 'private, no-store',
+          'x-content-hash': attachment.contentHash,
+          'x-marketplace-mode': mode,
+        });
+        response.end(attachment.bytes);
         return;
       }
 
@@ -199,6 +256,15 @@ class RequestBodyError extends Error {
 }
 
 async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Promise<unknown> {
+  const bytes = await readBytesBody(request, maxBodyBytes);
+  try {
+    return JSON.parse(Buffer.from(bytes).toString('utf8'));
+  } catch {
+    throw new RequestBodyError('INVALID_JSON', 400, 'Request body must be valid JSON.');
+  }
+}
+
+async function readBytesBody(request: IncomingMessage, maxBodyBytes: number): Promise<Uint8Array> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
@@ -209,12 +275,7 @@ async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Pro
     }
     chunks.push(buffer);
   }
-
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    throw new RequestBodyError('INVALID_JSON', 400, 'Request body must be valid JSON.');
-  }
+  return new Uint8Array(Buffer.concat(chunks));
 }
 
 function writeJson(response: ServerResponse, status: number, body: object, mode: MarketplaceServerMode): void {

@@ -129,6 +129,7 @@ export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
       listingAggregateId: z.string().min(1),
       recipientPubky: commercePubkySchema,
       text: z.string().trim().min(1).max(2_000),
+      attachmentIds: z.array(z.uuid()).max(4).default([]),
     })
     .strict(),
 );

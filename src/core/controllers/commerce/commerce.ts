@@ -90,6 +90,30 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceNotificationPreferences(this.getCurrentUserPubky());
   }
 
+  static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
+    const recipient = CommerceRecordNormalizer.pubky(recipientPubky);
+    if (
+      !(file instanceof File) ||
+      !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+      file.size === 0 ||
+      file.size > IMAGE_MAX_UPLOAD_SIZE
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Message attachment is missing, unsafe, or too large.', {
+        service: ErrorService.Local,
+        operation: 'uploadMarketplaceAttachment',
+        context: { mimeType: file?.type, byteSize: file?.size ?? 0 },
+      });
+    }
+    return await CommerceApplication.uploadMarketplaceAttachment(this.getCurrentUserPubky(), recipient, file);
+  }
+
+  static async fetchMarketplaceAttachment(attachmentId: unknown) {
+    return await CommerceApplication.fetchMarketplaceAttachment(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(attachmentId),
+    );
+  }
+
   static async getListingDrafts() {
     return await CommerceApplication.getListingDrafts(this.getCurrentUserPubky());
   }

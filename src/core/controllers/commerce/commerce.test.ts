@@ -143,4 +143,27 @@ describe('CommerceController', () => {
       CommerceController.executeMarketplaceCommand({ ...command, privateData: 'leak' }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
+
+  it('validates private message attachments before gateway upload', async () => {
+    const upload = vi.spyOn(CommerceApplication, 'uploadMarketplaceAttachment').mockResolvedValue({
+      id: '00000000-0000-4000-8000-000000000996',
+      senderPubky: COMMERCE_FIXTURE_SELLER,
+      recipientPubky: COMMERCE_FIXTURE_BUYER,
+      mimeType: 'image/jpeg',
+      byteSize: 5,
+      contentHash: 'a'.repeat(64),
+      createdAt: '2026-08-19T23:00:00.000Z',
+    });
+    const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 1, 2])], 'proof.jpg', { type: 'image/jpeg' });
+
+    await CommerceController.uploadMarketplaceAttachment(COMMERCE_FIXTURE_BUYER, file);
+
+    expect(upload).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER, file);
+    await expect(
+      CommerceController.uploadMarketplaceAttachment(
+        COMMERCE_FIXTURE_BUYER,
+        new File(['<svg/>'], 'unsafe.svg', { type: 'image/svg+xml' }),
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
 });

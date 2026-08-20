@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { blake3 } from '@noble/hashes/blake3.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { MarketplaceGatewayService } from './marketplace';
 
@@ -101,6 +103,7 @@ describe('MarketplaceGatewayService', () => {
                   senderPubky: 'b'.repeat(52),
                   recipientPubky: SELLER,
                   text: 'Hello',
+                  attachments: [],
                   createdAt: '2026-08-19T23:00:00.000Z',
                 },
               ],
@@ -146,5 +149,36 @@ describe('MarketplaceGatewayService', () => {
       revision: 2,
       offers: false,
     });
+  });
+
+  it('uploads and integrity-checks participant attachments', async () => {
+    const recipient = 'b'.repeat(52);
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0x01, 0x02]);
+    const contentHash = bytesToHex(blake3(bytes));
+    const file = new File([bytes], 'proof.jpg', { type: 'image/jpeg' });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          id: '00000000-0000-4000-8000-000000000990',
+          senderPubky: SELLER,
+          recipientPubky: recipient,
+          mimeType: 'image/jpeg',
+          byteSize: bytes.byteLength,
+          contentHash,
+          createdAt: '2026-08-19T23:00:00.000Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(bytes, {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg', 'x-content-hash': contentHash },
+        }),
+      );
+
+    await expect(MarketplaceGatewayService.uploadAttachment(SELLER, recipient, file)).resolves.toMatchObject({
+      contentHash,
+    });
+    const downloaded = await MarketplaceGatewayService.fetchAttachment(SELLER, '00000000-0000-4000-8000-000000000990');
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(bytes);
   });
 });

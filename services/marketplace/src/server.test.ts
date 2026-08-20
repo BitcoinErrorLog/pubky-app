@@ -106,6 +106,36 @@ describe('marketplace HTTP server', () => {
     });
   });
 
+  it('uploads and participant-authorizes private image attachments', async () => {
+    await withServer('sandbox', async (baseUrl) => {
+      const recipient = 'b'.repeat(52);
+      const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0x01, 0x02]);
+      const upload = await realFetch(`${baseUrl}/v1/attachments`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/jpeg',
+          'x-pubky-actor': SELLER,
+          'x-recipient-pubky': recipient,
+        },
+        body: bytes,
+      });
+      expect(upload.status).toBe(201);
+      const metadata = (await upload.json()) as { id: string; contentHash: string };
+      expect(metadata.contentHash).toMatch(/^[a-f0-9]{64}$/);
+
+      const download = await realFetch(`${baseUrl}/v1/attachments/${metadata.id}`, {
+        headers: { 'x-pubky-actor': recipient },
+      });
+      expect(download.status).toBe(200);
+      expect(new Uint8Array(await download.arrayBuffer())).toEqual(bytes);
+
+      const unrelated = await realFetch(`${baseUrl}/v1/attachments/${metadata.id}`, {
+        headers: { 'x-pubky-actor': 'n'.repeat(52) },
+      });
+      expect(unrelated.status).toBe(404);
+    });
+  });
+
   it('returns a coarse error for malformed JSON without echoing the body', async () => {
     await withServer('sandbox', async (baseUrl) => {
       const response = await realFetch(`${baseUrl}/v1/commands`, {

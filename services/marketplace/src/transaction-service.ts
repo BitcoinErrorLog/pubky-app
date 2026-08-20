@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { blake3 } from '@noble/hashes/blake3.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
@@ -101,6 +103,21 @@ export interface MarketplaceBid {
   createdAt: string;
 }
 
+export interface MarketplaceAttachmentMetadata {
+  id: string;
+  senderPubky: string;
+  recipientPubky: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  byteSize: number;
+  contentHash: string;
+  createdAt: string;
+}
+
+interface MarketplaceStoredAttachment extends MarketplaceAttachmentMetadata {
+  bytes: Uint8Array;
+  messageId: string | null;
+}
+
 export interface MarketplaceMessage {
   id: string;
   conversationId: string;
@@ -108,6 +125,7 @@ export interface MarketplaceMessage {
   senderPubky: string;
   recipientPubky: string;
   text: string;
+  attachments: MarketplaceAttachmentMetadata[];
   createdAt: string;
 }
 
@@ -234,6 +252,10 @@ export type MarketplaceCommandFailure = {
 
 export type MarketplaceCommandResult = MarketplaceCommandSuccess | MarketplaceCommandFailure;
 
+export type MarketplaceAttachmentStoreResult =
+  | { ok: true; attachment: MarketplaceAttachmentMetadata }
+  | { ok: false; code: 'INVALID_ATTACHMENT' | 'UNAUTHORIZED'; message: string };
+
 type StoredCommand = {
   requestHash: string;
   result: MarketplaceCommandSuccess;
@@ -247,6 +269,7 @@ export class InMemoryMarketplaceRepository {
   private conversations = new Map<string, MarketplaceConversation>();
   private notifications: MarketplaceNotification[] = [];
   private notificationPreferences = new Map<string, MarketplaceNotificationPreferences>();
+  private attachments = new Map<string, MarketplaceStoredAttachment>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -344,6 +367,14 @@ export class InMemoryMarketplaceRepository {
     this.notificationPreferences.set(preferences.ownerPubky, preferences);
   }
 
+  putAttachment(attachment: MarketplaceStoredAttachment): void {
+    this.attachments.set(attachment.id, attachment);
+  }
+
+  getAttachment(id: string): MarketplaceStoredAttachment | undefined {
+    return this.attachments.get(id);
+  }
+
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
     return this.commands.get(`${actorPubky}:${commandId}`);
   }
@@ -401,6 +432,42 @@ export class MarketplaceTransactionService {
         updatedAt: this.now().toISOString(),
       }
     );
+  }
+
+  storeAttachment(
+    actorPubky: string,
+    recipientPubky: string,
+    mimeType: string,
+    bytes: Uint8Array,
+  ): MarketplaceAttachmentStoreResult {
+    if (!commercePubkySchema.safeParse(actorPubky).success || !commercePubkySchema.safeParse(recipientPubky).success) {
+      return { ok: false, code: 'UNAUTHORIZED', message: 'Valid attachment participants are required.' };
+    }
+    if (actorPubky === recipientPubky) {
+      return { ok: false, code: 'UNAUTHORIZED', message: 'Attachment participants must differ.' };
+    }
+    if (bytes.byteLength === 0 || bytes.byteLength > 5 * 1024 * 1024 || !hasImageSignature(mimeType, bytes)) {
+      return { ok: false, code: 'INVALID_ATTACHMENT', message: 'Attachment must be a valid JPEG, PNG, or WebP.' };
+    }
+    const attachment: MarketplaceStoredAttachment = {
+      id: randomUUID(),
+      senderPubky: actorPubky,
+      recipientPubky,
+      mimeType: mimeType as MarketplaceAttachmentMetadata['mimeType'],
+      byteSize: bytes.byteLength,
+      contentHash: bytesToHex(blake3(bytes)),
+      createdAt: this.now().toISOString(),
+      bytes,
+      messageId: null,
+    };
+    this.repository.putAttachment(attachment);
+    return { ok: true, attachment: toAttachmentMetadata(attachment) };
+  }
+
+  getAttachment(actorPubky: string, attachmentId: string): MarketplaceStoredAttachment | null {
+    const attachment = this.repository.getAttachment(attachmentId);
+    if (!attachment) return null;
+    return attachment.senderPubky === actorPubky || attachment.recipientPubky === actorPubky ? attachment : null;
   }
 
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
@@ -1066,6 +1133,18 @@ export class MarketplaceTransactionService {
     if (command.expectedRevision !== currentRevision) {
       return failure('REVISION_CONFLICT', 'The conversation revision is stale.', { currentRevision });
     }
+    const attachments = command.payload.attachmentIds.map((id) => this.repository.getAttachment(id));
+    if (
+      attachments.some(
+        (attachment) =>
+          !attachment ||
+          attachment.senderPubky !== actorPubky ||
+          attachment.recipientPubky !== command.payload.recipientPubky ||
+          attachment.messageId !== null,
+      )
+    ) {
+      return failure('INVALID_COMMAND', 'Message attachments are invalid, reused, or owned by another participant.');
+    }
 
     const occurredAt = this.now().toISOString();
     const message: MarketplaceMessage = {
@@ -1075,6 +1154,7 @@ export class MarketplaceTransactionService {
       senderPubky: actorPubky,
       recipientPubky: command.payload.recipientPubky,
       text: command.payload.text,
+      attachments: attachments.map((attachment) => toAttachmentMetadata(attachment!)),
       createdAt: occurredAt,
     };
     const conversation: MarketplaceConversation = {
@@ -1088,6 +1168,9 @@ export class MarketplaceTransactionService {
     };
     const event = this.createEvent(actorPubky, command, conversation.revision, 'message.sent', occurredAt);
     this.repository.putConversation(conversation);
+    for (const attachment of attachments) {
+      this.repository.putAttachment({ ...attachment!, messageId: message.id });
+    }
     this.repository.appendEvent(event);
     this.notify(message.recipientPubky, actorPubky, 'message_received', conversation.id, occurredAt);
     return success(command, conversation.revision, event.id, { kind: 'message', conversation, message });
@@ -1253,4 +1336,34 @@ function latestBidderMaximums(bids: MarketplaceBid[]): Map<string, MarketplaceBi
     }
   }
   return latest;
+}
+
+function hasImageSignature(mimeType: string, bytes: Uint8Array): boolean {
+  if (mimeType === 'image/jpeg') {
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (mimeType === 'image/png') {
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    return bytes.length >= signature.length && signature.every((value, index) => bytes[index] === value);
+  }
+  if (mimeType === 'image/webp') {
+    return (
+      bytes.length >= 12 &&
+      String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' &&
+      String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP'
+    );
+  }
+  return false;
+}
+
+function toAttachmentMetadata(attachment: MarketplaceStoredAttachment): MarketplaceAttachmentMetadata {
+  return {
+    id: attachment.id,
+    senderPubky: attachment.senderPubky,
+    recipientPubky: attachment.recipientPubky,
+    mimeType: attachment.mimeType,
+    byteSize: attachment.byteSize,
+    contentHash: attachment.contentHash,
+    createdAt: attachment.createdAt,
+  };
 }
