@@ -14,6 +14,8 @@ const eslintConfig = [
       '**/node_modules/**',
       // Local tooling worktrees checked out under .claude/ are not part of the app
       '**/.claude/**',
+      // macOS AppleDouble resource-fork files on external drives
+      '**/._*',
       '**/.next/**',
       '**/out/**',
       '**/build/**',
