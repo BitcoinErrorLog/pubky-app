@@ -31,6 +31,7 @@
     "marketplace:start": "tsx services/marketplace/src/server.ts",
     "test:marketplace": "vitest run --project unit services/marketplace",
     "test:marketplace:service": "vitest run --config vitest.integration.config.ts",
+    "test:marketplace:locks": "vitest run --config vitest.locks.config.ts",
     "vrt:gallery": "node scripts/vrt-gallery.mjs"
   },
   "lint-staged": {

@@ -87,3 +87,4 @@ public/sw.js.map
 
 # VRT baseline gallery (generated)
 .vrt-gallery.html
+.live-out/
