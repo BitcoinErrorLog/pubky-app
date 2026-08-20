@@ -22,6 +22,7 @@ const ordersState = vi.hoisted(() => ({
   orders: [] as unknown[],
   isLoading: false,
   error: null as string | null,
+  adapterMode: 'sandbox' as string,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -41,6 +42,7 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
     orders: ordersState.orders,
     isLoading: ordersState.isLoading,
     error: ordersState.error,
+    adapterMode: ordersState.adapterMode,
     advancePayment: vi.fn(),
     actOnOrder: vi.fn(),
     refresh: vi.fn(),
@@ -107,5 +109,30 @@ describe('Marketplace orders — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-error-desktop');
+  });
+
+  // Durable transaction-service mode: no simulate-payment buttons, no cancel
+  // affordances (unported command), and the honest awaiting-payment note.
+  it('renders durable-mode payment states without simulate affordances at desktop viewport', async () => {
+    const { everyPaymentState } = await fixtures;
+    ordersState.orders = everyPaymentState;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+    ordersState.adapterMode = 'transaction-service';
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-durable-payment-states-desktop');
+    ordersState.adapterMode = 'sandbox';
+  });
+
+  it('renders the no-backend state at desktop viewport', async () => {
+    ordersState.orders = [];
+    ordersState.isLoading = false;
+    ordersState.error = null;
+    ordersState.adapterMode = 'unavailable';
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-no-backend-desktop');
+    ordersState.adapterMode = 'sandbox';
   });
 });

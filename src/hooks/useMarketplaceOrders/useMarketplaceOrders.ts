@@ -1,10 +1,10 @@
 'use client';
 
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
-import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
+import { getCommerceAdapterMode, getCommercePollIntervalMs, isTransactionalCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
-import { buildMarketplaceOrderAggregateId } from '@/libs/commerce/transaction-commands';
+import { buildMarketplaceOrderAggregateId, isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOrder, MarketplacePayment, MarketplaceReceipt } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -16,24 +16,30 @@ export interface MarketplaceOrderView {
 }
 
 /**
- * Order timelines are a SANDBOX-ONLY surface: the order/payment/receipt query
- * projections exist only on the in-memory sandbox service, and the
- * `payment.sandbox_advance` simulate affordance must never be reachable
- * against the durable transaction service. In any other adapter mode this hook
- * loads nothing and refuses to advance payments.
+ * Order timelines against whichever transactional backend the mode selects:
+ * the in-memory sandbox or the durable transaction service. Post-purchase
+ * commands source `expected_revision` from the freshly-loaded order, and a
+ * `REVISION_CONFLICT` refetches the timeline and asks the user to retry
+ * against what actually changed.
+ *
+ * `payment.sandbox_advance` remains SANDBOX-ONLY: the durable service still
+ * models payments with its sandbox adapter (no funds move anywhere), and this
+ * client refuses to simulate payment progress against the authority — so in
+ * `transaction-service` mode a payment can only advance if some other actor
+ * (e.g. a test harness) drives it.
  */
 export function useMarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const adapterMode = getCommerceAdapterMode();
-  const isSandbox = adapterMode === 'sandbox';
+  const isTransactional = isTransactionalCommerceMode(adapterMode);
   const [orders, setOrders] = useState<MarketplaceOrderView[]>([]);
-  const [isLoading, setIsLoading] = useState(isSandbox && Boolean(currentUserPubky));
+  const [isLoading, setIsLoading] = useState(isTransactional && Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
 
   const refresh = () => loadOrders(currentUserPubky, setOrders, setIsLoading, setError);
 
   useEffect(() => {
-    if (!currentUserPubky || !isSandbox) {
+    if (!currentUserPubky || !isTransactional) {
       setIsLoading(false);
       return;
     }
@@ -46,7 +52,7 @@ export function useMarketplaceOrders() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [currentUserPubky, isSandbox]);
+  }, [currentUserPubky, isTransactional]);
 
   const advancePayment = async (
     payment: MarketplacePayment,
@@ -69,6 +75,14 @@ export function useMarketplaceOrders() {
         payload: { paymentId: payment.id, target, confirmations },
       });
       if (!response.ok) {
+        if (isMarketplaceRevisionConflict(response)) {
+          await refresh();
+          toast({
+            variant: 'error',
+            description: 'This payment changed since you loaded it. The latest state was reloaded — retry from there.',
+          });
+          return false;
+        }
         toast({ variant: 'error', description: response.error.message });
         return false;
       }
@@ -92,6 +106,14 @@ export function useMarketplaceOrders() {
         payload: { orderId: order.id, ...payload },
       });
       if (!response.ok) {
+        if (isMarketplaceRevisionConflict(response)) {
+          await refresh();
+          toast({
+            variant: 'error',
+            description: 'This order changed since you loaded it. The latest state was reloaded — retry from there.',
+          });
+          return false;
+        }
         toast({ variant: 'error', description: response.error.message });
         return false;
       }
@@ -112,20 +134,29 @@ async function loadOrders(
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
 ): Promise<void> {
-  if (!currentUserPubky || getCommerceAdapterMode() !== 'sandbox') return;
+  if (!currentUserPubky || !isTransactionalCommerceMode(getCommerceAdapterMode())) return;
   try {
     const orders = await CommerceController.getMarketplaceOrders();
     const views = await Promise.all(
       orders.map(async (order) => {
-        const payment = await CommerceController.getMarketplacePayment(order.paymentId);
+        // The durable service embeds the payment projection in the order
+        // read; the sandbox serves it from its own endpoint.
+        const payment = order.payment ?? (await CommerceController.getMarketplacePayment(order.paymentId));
         const receipt = order.receiptId ? await CommerceController.getMarketplaceReceipt(order.receiptId) : null;
         return { order, payment, receipt };
       }),
     );
     setOrders(views);
     setError(null);
-  } catch {
-    setError('Marketplace orders are unavailable.');
+  } catch (loadError) {
+    // A missing/expired marketplace session carries actionable guidance
+    // (approve the connection on your signer) — surface it instead of a
+    // generic failure.
+    setError(
+      loadError instanceof Error && loadError.name === 'AppError'
+        ? loadError.message
+        : 'Marketplace orders are unavailable.',
+    );
   } finally {
     setIsLoading(false);
   }

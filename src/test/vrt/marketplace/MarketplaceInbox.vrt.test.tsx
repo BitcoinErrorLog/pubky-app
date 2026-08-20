@@ -18,6 +18,7 @@ const view = vi.hoisted(() => ({
   conversations: [] as unknown[],
   isLoading: false,
   error: null as string | null,
+  isSandbox: true,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -37,6 +38,7 @@ vi.mock('@/hooks/useMarketplaceInbox/useMarketplaceInbox', () => ({
     conversations: view.conversations,
     isLoading: view.isLoading,
     error: view.error,
+    isSandbox: view.isSandbox,
   }),
 }));
 
@@ -90,5 +92,18 @@ describe('Marketplace inbox — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('inbox-loading-desktop');
+  });
+
+  // Durable transaction-service mode: the service has no message tables, so
+  // the inbox states that messaging is sandbox-only instead of looking usable.
+  it('renders the sandbox-only notice outside sandbox mode at desktop viewport', async () => {
+    view.conversations = [];
+    view.isLoading = false;
+    view.error = null;
+    view.isSandbox = false;
+
+    const screen = await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('inbox-sandbox-only-desktop');
+    view.isSandbox = true;
   });
 });

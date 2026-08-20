@@ -13,10 +13,18 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 export function MarketplaceOrderActions({
   order,
   isBuyer,
+  canCancel,
   actOnOrder,
 }: {
   order: MarketplaceOrder;
   isBuyer: boolean;
+  /**
+   * Order cancellation (`order.cancel_request`/`order.cancel_approve`) only
+   * exists on the sandbox: the durable service declares those commands in its
+   * contract but has not ported them, so the affordance is withheld there
+   * instead of failing after a click.
+   */
+  canCancel: boolean;
   actOnOrder: (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
@@ -34,7 +42,7 @@ export function MarketplaceOrderActions({
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        {isBuyer && ['pending_payment', 'paid', 'processing'].includes(order.state) && (
+        {canCancel && isBuyer && ['pending_payment', 'paid', 'processing'].includes(order.state) && (
           <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('cancel')}>
             Cancel order
           </Button>
@@ -58,7 +66,7 @@ export function MarketplaceOrderActions({
             Request return
           </Button>
         )}
-        {!isBuyer && order.state === 'cancel_requested' && (
+        {canCancel && !isBuyer && order.state === 'cancel_requested' && (
           <Button size="sm" className="rounded-full" onClick={() => void actOnOrder(order, 'order.cancel_approve', {})}>
             Approve cancellation
           </Button>

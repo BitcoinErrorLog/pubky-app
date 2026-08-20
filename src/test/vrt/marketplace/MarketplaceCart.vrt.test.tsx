@@ -77,12 +77,18 @@ interface CartItemLike {
 const view = vi.hoisted(() => ({
   items: [] as unknown[],
   isLoading: false,
+  adapterMode: 'sandbox' as string,
 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace/cart',
 }));
+
+vi.mock('@/config/commerce', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/config/commerce')>();
+  return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
+});
 
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   useMarketplaceCart: () => {
@@ -172,5 +178,18 @@ describe('Marketplace cart — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-loading-desktop');
+  });
+
+  // Durable transaction-service mode: no "sandbox" wording on the guarantee
+  // label, tax note, or submit button — the copy states what is actually true.
+  it('renders the durable-mode checkout labels at desktop viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.adapterMode = 'transaction-service';
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-durable-desktop');
+    view.adapterMode = 'sandbox';
   });
 });

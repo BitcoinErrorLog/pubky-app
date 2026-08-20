@@ -15,7 +15,7 @@ import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 
 export function MarketplaceNotifications() {
-  const { notifications, preferences, unreadCount, isLoading, error, markAllRead, updatePreferences } =
+  const { notifications, preferences, unreadCount, isLoading, error, canMarkRead, markAllRead, updatePreferences } =
     useMarketplaceNotifications();
 
   const setPreference = (key: 'messages' | 'offers' | 'bids' | 'auctions', checked: boolean) => {
@@ -56,9 +56,16 @@ export function MarketplaceNotifications() {
               {unreadCount} unread transaction {unreadCount === 1 ? 'update' : 'updates'}.
             </Typography>
           </div>
-          <Button variant="secondary" className="rounded-full" disabled={unreadCount === 0} onClick={markAllRead}>
-            Mark all read
-          </Button>
+          {canMarkRead ? (
+            <Button variant="secondary" className="rounded-full" disabled={unreadCount === 0} onClick={markAllRead}>
+              Mark all read
+            </Button>
+          ) : (
+            <Typography as="p" className="max-w-64 text-right text-xs text-muted-foreground">
+              The durable marketplace service delivers notifications but does not store read state or preferences yet,
+              so they cannot be marked read or filtered here.
+            </Typography>
+          )}
         </div>
 
         {preferences && (

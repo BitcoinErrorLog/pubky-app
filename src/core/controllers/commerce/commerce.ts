@@ -92,7 +92,13 @@ export class CommerceController {
   static async getMarketplaceListingProjection(ownerPubky: unknown, listingId: unknown) {
     const owner = CommerceRecordNormalizer.pubky(ownerPubky);
     const id = CommerceRecordNormalizer.entityId(listingId);
-    return await CommerceApplication.getMarketplaceListingProjection(buildMarketplaceListingAggregateId(owner, id));
+    // Nullable on purpose: the sandbox serves this projection to signed-out
+    // visitors, while the durable transport requires the signed-in pubky to
+    // bind its bearer session and degrades with session guidance otherwise.
+    return await CommerceApplication.getMarketplaceListingProjection(
+      useAuthStore.getState().currentUserPubky,
+      buildMarketplaceListingAggregateId(owner, id),
+    );
   }
 
   static async getMarketplaceConversations() {

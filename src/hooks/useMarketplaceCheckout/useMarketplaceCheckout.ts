@@ -2,9 +2,13 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
+import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
-import { buildMarketplaceCheckoutAggregateId } from '@/libs/commerce/transaction-commands';
+import {
+  buildMarketplaceCheckoutAggregateId,
+  isMarketplaceRevisionConflict,
+} from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import {
   type MarketplaceCheckoutData,
@@ -72,12 +76,27 @@ export function useMarketplaceCheckout(
           },
         });
         if (!response.ok) {
+          if (isMarketplaceRevisionConflict(response)) {
+            // The revisions were read at submit time, so a conflict means a
+            // listing moved mid-checkout; the next submit re-reads them all.
+            toast({
+              variant: 'error',
+              description: 'A listing changed while you were checking out. Review your cart and place the order again.',
+            });
+            return;
+          }
           toast({ variant: 'error', description: response.error.message });
           return;
         }
         await clearCart();
         succeeded = true;
-        toast({ title: 'Order created', description: 'Complete the sandbox payment to continue.' });
+        toast({
+          title: 'Order created',
+          description:
+            getCommerceAdapterMode() === 'sandbox'
+              ? 'Complete the sandbox payment to continue.'
+              : 'Recorded by the transaction service. Payments are not yet live, so it will stay awaiting payment.',
+        });
       } catch {
         toast({ variant: 'error', description: 'Checkout could not be completed.' });
       }

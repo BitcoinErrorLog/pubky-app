@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import {
   type MarketplaceOfferData,
@@ -16,7 +17,11 @@ export interface UseMarketplaceOfferResult {
   reset: () => void;
 }
 
-export function useMarketplaceOffer(aggregateId: string, expectedRevision: number | null): UseMarketplaceOfferResult {
+export function useMarketplaceOffer(
+  aggregateId: string,
+  expectedRevision: number | null,
+  onConflict: () => void | Promise<void>,
+): UseMarketplaceOfferResult {
   const form = useForm<MarketplaceOfferData>({
     resolver: zodResolver(marketplaceOfferSchema),
     defaultValues: marketplaceOfferDefaults,
@@ -43,6 +48,14 @@ export function useMarketplaceOffer(aggregateId: string, expectedRevision: numbe
           },
         });
         if (!response.ok) {
+          if (isMarketplaceRevisionConflict(response)) {
+            await onConflict();
+            toast({
+              variant: 'error',
+              description: 'This listing changed since you loaded it. The latest terms were reloaded — offer again.',
+            });
+            return;
+          }
           toast({ variant: 'error', description: response.error.message });
           return;
         }

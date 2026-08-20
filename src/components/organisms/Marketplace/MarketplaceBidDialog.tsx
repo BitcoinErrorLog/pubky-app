@@ -21,7 +21,9 @@ export function MarketplaceBidDialog({
   onAccepted: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const bid = useMarketplaceBid(aggregateId, projection?.serverRevision ?? null);
+  // `onAccepted` refreshes the projection, which is exactly the recovery a
+  // revision conflict needs: reload the price/revision, then the user rebids.
+  const bid = useMarketplaceBid(aggregateId, projection?.serverRevision ?? null, onAccepted);
   const { requireAuth } = useRequireAuth();
 
   const submit = async () => {

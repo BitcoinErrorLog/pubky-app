@@ -14,7 +14,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const { conversations, isLoading, error } = useMarketplaceInbox();
+  const { conversations, isLoading, error, isSandbox } = useMarketplaceInbox();
 
   return (
     <ContentLayout
@@ -43,7 +43,18 @@ export function MarketplaceInbox() {
           </Typography>
         </div>
 
-        {isLoading ? (
+        {!isSandbox ? (
+          <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed px-6 text-center">
+            <MessageCircle className="mb-3 size-10 text-muted-foreground" />
+            <Heading level={2} size="md">
+              Messaging is sandbox-only
+            </Heading>
+            <Typography as="p" className="mt-2 max-w-lg text-sm text-muted-foreground">
+              The durable marketplace service stores no conversations or messages, so there is nothing real to show
+              here. Marketplace messaging needs an encrypted transport before it leaves the sandbox.
+            </Typography>
+          </div>
+        ) : isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">

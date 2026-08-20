@@ -99,8 +99,8 @@ export class CommerceApplication {
     MarketplaceSessionService.clearSession();
   }
 
-  static async getMarketplaceListingProjection(aggregateId: string) {
-    return await MarketplaceGatewayService.getListing(aggregateId);
+  static async getMarketplaceListingProjection(actorPubky: string | null, aggregateId: string) {
+    return await MarketplaceGatewayService.getListing(actorPubky, aggregateId);
   }
 
   static async getMarketplaceConversations(actorPubky: string) {
@@ -359,7 +359,7 @@ export class CommerceApplication {
 
   private static async registerListing(listing: CommerceListingRecord): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
-    const existing = await MarketplaceGatewayService.getListing(aggregateId);
+    const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
     if (existing?.serverRevision) return;
     const unitPrice = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
     const command = CommerceRecordNormalizer.marketplaceCommand({

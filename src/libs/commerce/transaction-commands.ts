@@ -376,6 +376,17 @@ export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceRep
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 
+/**
+ * True when a command was refused because the caller's `expected_revision`
+ * went stale (both services answer 409 `REVISION_CONFLICT` with the current
+ * revision). The correct reaction is to refetch the projection the revision
+ * came from and let the user retry against fresh state — never to resubmit
+ * blindly and never to swallow the failure.
+ */
+export function isMarketplaceRevisionConflict(response: MarketplaceCommandResponse): boolean {
+  return !response.ok && response.error.code === 'REVISION_CONFLICT';
+}
+
 export function buildMarketplaceListingAggregateId(sellerPubky: string, listingId: string): string {
   return `listing:${sellerPubky}_${listingId}`;
 }

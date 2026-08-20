@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { type MarketplaceBidData, marketplaceBidDefaults, marketplaceBidSchema } from './useMarketplaceBid.types';
 
@@ -12,7 +13,11 @@ export interface UseMarketplaceBidResult {
   reset: () => void;
 }
 
-export function useMarketplaceBid(aggregateId: string, expectedRevision: number | null): UseMarketplaceBidResult {
+export function useMarketplaceBid(
+  aggregateId: string,
+  expectedRevision: number | null,
+  onConflict: () => void | Promise<void>,
+): UseMarketplaceBidResult {
   const form = useForm<MarketplaceBidData>({
     resolver: zodResolver(marketplaceBidSchema),
     defaultValues: marketplaceBidDefaults,
@@ -40,6 +45,14 @@ export function useMarketplaceBid(aggregateId: string, expectedRevision: number 
           },
         });
         if (!response.ok) {
+          if (isMarketplaceRevisionConflict(response)) {
+            await onConflict();
+            toast({
+              variant: 'error',
+              description: 'The auction moved since you loaded it. The latest price was reloaded — bid again.',
+            });
+            return;
+          }
           toast({ variant: 'error', description: response.error.message });
           return;
         }

@@ -10,6 +10,7 @@ import {
   marketplaceOfferDefaults,
   marketplaceOfferSchema,
 } from '@/hooks/useMarketplaceOffer/useMarketplaceOffer.types';
+import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -55,6 +56,14 @@ export function useMarketplaceOffers() {
         payload: { offerId: offer.id },
       });
       if (!response.ok) {
+        if (isMarketplaceRevisionConflict(response)) {
+          await refresh();
+          toast({
+            variant: 'error',
+            description: 'This offer changed since you loaded it. The latest state was reloaded — retry from there.',
+          });
+          return false;
+        }
         toast({ variant: 'error', description: response.error.message });
         return false;
       }
@@ -86,6 +95,14 @@ export function useMarketplaceOffers() {
           },
         });
         if (!response.ok) {
+          if (isMarketplaceRevisionConflict(response)) {
+            await refresh();
+            toast({
+              variant: 'error',
+              description: 'This offer changed since you loaded it. The latest state was reloaded — retry from there.',
+            });
+            return;
+          }
           toast({ variant: 'error', description: response.error.message });
           return;
         }
@@ -112,8 +129,12 @@ async function loadOffers(
   try {
     setOffers(await CommerceController.getMarketplaceOffers());
     setError(null);
-  } catch {
-    setError('Marketplace offers are unavailable.');
+  } catch (loadError) {
+    setError(
+      loadError instanceof Error && loadError.name === 'AppError'
+        ? loadError.message
+        : 'Marketplace offers are unavailable.',
+    );
   } finally {
     setIsLoading(false);
   }

@@ -134,6 +134,7 @@ vi.mock('@/hooks/useMarketplaceMessages/useMarketplaceMessages', async () => {
       conversation: null,
       isLoading: false,
       error: null,
+      isSandbox: view.adapterMode === 'sandbox',
       attachment: {
         file: null,
         previewUrl: null,

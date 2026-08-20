@@ -16,6 +16,16 @@ export {
   getPaykitSetupUrl,
 };
 
+/**
+ * True when the mode has a marketplace transaction backend the interactive
+ * flows can operate against: the in-memory sandbox (simulated outcomes) or
+ * the durable Rust transaction service (authoritative outcomes). The other
+ * modes have no command/read surface and the shopping UI must say so.
+ */
+export function isTransactionalCommerceMode(mode: CommerceAdapterMode): boolean {
+  return mode === 'sandbox' || mode === 'transaction-service';
+}
+
 export const COMMERCE_CONTRACT_VERSION = 1 as const;
 export const COMMERCE_TAXONOMY_VERSION = 1 as const;
 

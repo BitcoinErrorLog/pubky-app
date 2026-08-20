@@ -110,20 +110,81 @@ describe('useMarketplaceOrders', () => {
     );
   });
 
-  it.each(['transaction-service', 'unavailable', 'locks-paykit'])(
-    'loads nothing and never queries sandbox projections in %s mode',
-    async (mode) => {
-      config.mode = mode;
+  it.each(['unavailable', 'locks-paykit'])('loads nothing and never queries projections in %s mode', async (mode) => {
+    config.mode = mode;
 
-      const { result } = renderHook(() => useMarketplaceOrders());
+    const { result } = renderHook(() => useMarketplaceOrders());
 
-      await waitFor(() => expect(result.current.isLoading).toBe(false));
-      expect(result.current.orders).toHaveLength(0);
-      expect(result.current.adapterMode).toBe(mode);
-      expect(CommerceController.getMarketplaceOrders).not.toHaveBeenCalled();
-      expect(CommerceController.getMarketplacePayment).not.toHaveBeenCalled();
-    },
-  );
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.orders).toHaveLength(0);
+    expect(result.current.adapterMode).toBe(mode);
+    expect(CommerceController.getMarketplaceOrders).not.toHaveBeenCalled();
+    expect(CommerceController.getMarketplacePayment).not.toHaveBeenCalled();
+  });
+
+  it('loads durable orders from their embedded payment projection in transaction-service mode', async () => {
+    config.mode = 'transaction-service';
+    const [sandboxOrder] = await CommerceController.getMarketplaceOrders();
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
+      {
+        ...sandboxOrder,
+        // The durable read embeds the payment (without locksBundleId, per
+        // ADR-0019 §8) instead of serving it from a separate endpoint.
+        payment: {
+          id: PAYMENT_ID,
+          orderId: sandboxOrder.id,
+          buyerPubky: BUYER,
+          sellerPubky: SELLER,
+          revision: 1,
+          adapter: 'sandbox',
+          state: 'awaiting_entitlement',
+          confirmations: 0,
+          amount: { amountMinor: 12_096, currency: 'USD', exponent: 2 },
+          createdAt: '2026-08-19T23:00:00.000Z',
+          updatedAt: '2026-08-19T23:00:00.000Z',
+        },
+      },
+    ]);
+
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+
+    expect(result.current.orders[0].payment).toMatchObject({ id: PAYMENT_ID, state: 'awaiting_entitlement' });
+    expect(CommerceController.getMarketplacePayment).not.toHaveBeenCalled();
+    // receiptId is null until payment confirmation issues the receipt.
+    expect(CommerceController.getMarketplaceReceipt).not.toHaveBeenCalled();
+  });
+
+  it('sources expected_revision from the loaded order and refetches on a revision conflict', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const order = result.current.orders[0].order;
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 3 },
+    });
+    vi.mocked(CommerceController.getMarketplaceOrders).mockClear();
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.actOnOrder(order, 'fulfillment.confirm_delivery', {});
+    });
+
+    expect(succeeded).toBe(false);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aggregateId: `order:${order.id}`,
+        expectedRevision: order.revision,
+        kind: 'fulfillment.confirm_delivery',
+      }),
+    );
+    // The conflict refetched the timeline so the retry starts from truth.
+    expect(CommerceController.getMarketplaceOrders).toHaveBeenCalled();
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringContaining('reloaded') }),
+    );
+  });
 
   it('refuses to advance a payment outside sandbox mode', async () => {
     const { result } = renderHook(() => useMarketplaceOrders());

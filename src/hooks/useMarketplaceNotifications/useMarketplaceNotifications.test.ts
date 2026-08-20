@@ -7,9 +7,13 @@ const OWNER = 'y'.repeat(52);
 const ACTOR = 'b'.repeat(52);
 const NOTIFICATION_ID = '00000000-0000-4000-8000-000000000980';
 
+const config = vi.hoisted(() => ({
+  mode: 'sandbox' as string,
+}));
+
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
-  return { ...actual, getCommercePollIntervalMs: () => 60_000 };
+  return { ...actual, getCommercePollIntervalMs: () => 60_000, getCommerceAdapterMode: () => config.mode };
 });
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -31,6 +35,7 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 describe('useMarketplaceNotifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    config.mode = 'sandbox';
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000981');
     vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
       {
@@ -101,5 +106,39 @@ describe('useMarketplaceNotifications', () => {
         payload: { messages: false, offers: true, bids: true, auctions: true },
       }),
     );
+  });
+
+  it('reads notifications but never preferences in transaction-service mode', async () => {
+    config.mode = 'transaction-service';
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
+      {
+        // Durable notifications are immutable outbox rows: no revision.
+        id: NOTIFICATION_ID,
+        recipientPubky: OWNER,
+        actorPubky: ACTOR,
+        type: 'order_shipped',
+        aggregateId: 'order:00000000-0000-4000-8000-000000000983',
+        createdAt: '2026-08-19T23:00:00.000Z',
+        readAt: null,
+      },
+    ]);
+
+    const { result } = renderHook(() => useMarketplaceNotifications());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.notifications).toHaveLength(1);
+    expect(result.current.preferences).toBeNull();
+    expect(result.current.canMarkRead).toBe(false);
+    expect(CommerceController.getMarketplaceNotificationPreferences).not.toHaveBeenCalled();
+  });
+
+  it('refuses to mark read in transaction-service mode — the service has no read state', async () => {
+    config.mode = 'transaction-service';
+    const { result } = renderHook(() => useMarketplaceNotifications());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(() => result.current.markAllRead());
+
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
 });

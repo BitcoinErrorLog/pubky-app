@@ -23,13 +23,14 @@ describe('listing state machine', () => {
     ['available', 'reserved'],
     ['reserved', 'available'],
     ['reserved', 'sold'],
+    // Approving a paid order's cancellation returns its quantity to stock.
+    ['sold', 'available'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionListing(from, to)).toBe(true);
   });
 
   it.each<[ListingState, ListingState]>([
     ['available', 'sold'],
-    ['sold', 'available'],
     ['sold', 'reserved'],
     ['available', 'available'],
   ])('rejects %s -> %s', (from, to) => {
