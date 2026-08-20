@@ -10,11 +10,13 @@ import {
   type CreateOfferCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
+  type MarkMarketplaceNotificationReadCommand,
   type PlaceBidCommand,
   type RegisterListingCommand,
   type RejectOfferCommand,
   type ReserveInventoryCommand,
   type SendMarketplaceMessageCommand,
+  type UpdateMarketplaceNotificationPreferencesCommand,
   type WithdrawOfferCommand,
 } from './contracts';
 
@@ -121,6 +123,7 @@ export interface MarketplaceConversation {
 
 export interface MarketplaceNotification {
   id: string;
+  revision: number;
   recipientPubky: string;
   actorPubky: string;
   type:
@@ -135,6 +138,16 @@ export interface MarketplaceNotification {
   aggregateId: string;
   createdAt: string;
   readAt: string | null;
+}
+
+export interface MarketplaceNotificationPreferences {
+  ownerPubky: string;
+  revision: number;
+  messages: boolean;
+  offers: boolean;
+  bids: boolean;
+  auctions: boolean;
+  updatedAt: string;
 }
 
 export interface MarketplaceEvent {
@@ -154,7 +167,9 @@ export interface MarketplaceEvent {
     | 'auction.bid_placed'
     | 'message.sent'
     | 'auction.closed_sold'
-    | 'auction.closed_unsold';
+    | 'auction.closed_unsold'
+    | 'notification.read'
+    | 'notification.preferences_updated';
   occurredAt: string;
 }
 
@@ -191,7 +206,9 @@ export type MarketplaceCommandSuccess = {
         winnerPubky: string | null;
         listing: MarketplaceListingAggregate;
         reservation: MarketplaceReservation | null;
-      };
+      }
+    | { kind: 'notification'; notification: MarketplaceNotification }
+    | { kind: 'notification_preferences'; preferences: MarketplaceNotificationPreferences };
 };
 
 export type MarketplaceCommandFailure = {
@@ -229,6 +246,7 @@ export class InMemoryMarketplaceRepository {
   private bids = new Map<string, MarketplaceBid[]>();
   private conversations = new Map<string, MarketplaceConversation>();
   private notifications: MarketplaceNotification[] = [];
+  private notificationPreferences = new Map<string, MarketplaceNotificationPreferences>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -304,10 +322,26 @@ export class InMemoryMarketplaceRepository {
     this.notifications.push(notification);
   }
 
+  getNotification(id: string): MarketplaceNotification | undefined {
+    return this.notifications.find((notification) => notification.id === id);
+  }
+
+  putNotification(notification: MarketplaceNotification): void {
+    this.notifications = this.notifications.map((current) => (current.id === notification.id ? notification : current));
+  }
+
   getNotificationsForActor(actorPubky: string): MarketplaceNotification[] {
     return this.notifications
       .filter(({ recipientPubky }) => recipientPubky === actorPubky)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  getNotificationPreferences(actorPubky: string): MarketplaceNotificationPreferences | undefined {
+    return this.notificationPreferences.get(actorPubky);
+  }
+
+  putNotificationPreferences(preferences: MarketplaceNotificationPreferences): void {
+    this.notificationPreferences.set(preferences.ownerPubky, preferences);
   }
 
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
@@ -353,6 +387,20 @@ export class MarketplaceTransactionService {
 
   getNotifications(actorPubky: string): MarketplaceNotification[] {
     return this.repository.getNotificationsForActor(actorPubky);
+  }
+
+  getNotificationPreferences(actorPubky: string): MarketplaceNotificationPreferences {
+    return (
+      this.repository.getNotificationPreferences(actorPubky) ?? {
+        ownerPubky: actorPubky,
+        revision: 0,
+        messages: true,
+        offers: true,
+        bids: true,
+        auctions: true,
+        updatedAt: this.now().toISOString(),
+      }
+    );
   }
 
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
@@ -413,6 +461,10 @@ export class MarketplaceTransactionService {
         return this.sendMessage(actorPubky, command);
       case 'auction.close':
         return this.closeAuction(actorPubky, command);
+      case 'notification.mark_read':
+        return this.markNotificationRead(actorPubky, command);
+      case 'notification.preferences.update':
+        return this.updateNotificationPreferences(actorPubky, command);
     }
   }
 
@@ -1037,16 +1089,70 @@ export class MarketplaceTransactionService {
     const event = this.createEvent(actorPubky, command, conversation.revision, 'message.sent', occurredAt);
     this.repository.putConversation(conversation);
     this.repository.appendEvent(event);
-    this.repository.appendNotification({
-      id: randomUUID(),
-      recipientPubky: message.recipientPubky,
-      actorPubky,
-      type: 'message_received',
-      aggregateId: conversation.id,
-      createdAt: occurredAt,
-      readAt: null,
-    });
+    this.notify(message.recipientPubky, actorPubky, 'message_received', conversation.id, occurredAt);
     return success(command, conversation.revision, event.id, { kind: 'message', conversation, message });
+  }
+
+  private markNotificationRead(
+    actorPubky: string,
+    command: MarkMarketplaceNotificationReadCommand,
+  ): MarketplaceCommandResult {
+    const notification = this.repository.getNotification(command.payload.notificationId);
+    if (!notification) return failure('NOT_FOUND', 'The notification was not found.');
+    if (notification.recipientPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the notification recipient may mark it read.');
+    }
+    if (command.aggregateId !== `notification:${notification.id}`) {
+      return failure('INVALID_COMMAND', 'The notification aggregate id is invalid.');
+    }
+    if (command.expectedRevision !== notification.revision) {
+      return failure('REVISION_CONFLICT', 'The notification revision is stale.', {
+        currentRevision: notification.revision,
+      });
+    }
+    if (notification.readAt) return failure('INVALID_STATE', 'The notification is already read.');
+
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceNotification = {
+      ...notification,
+      revision: notification.revision + 1,
+      readAt: occurredAt,
+    };
+    const event = this.createEvent(actorPubky, command, updated.revision, 'notification.read', occurredAt);
+    this.repository.putNotification(updated);
+    this.repository.appendEvent(event);
+    return success(command, updated.revision, event.id, { kind: 'notification', notification: updated });
+  }
+
+  private updateNotificationPreferences(
+    actorPubky: string,
+    command: UpdateMarketplaceNotificationPreferencesCommand,
+  ): MarketplaceCommandResult {
+    if (command.aggregateId !== `notification_preferences:${actorPubky}`) {
+      return failure('INVALID_COMMAND', 'The notification preferences aggregate id is invalid.');
+    }
+    const current = this.repository.getNotificationPreferences(actorPubky);
+    const currentRevision = current?.revision ?? 0;
+    if (command.expectedRevision !== currentRevision) {
+      return failure('REVISION_CONFLICT', 'The notification preferences revision is stale.', { currentRevision });
+    }
+    const occurredAt = this.now().toISOString();
+    const preferences: MarketplaceNotificationPreferences = {
+      ownerPubky: actorPubky,
+      revision: currentRevision + 1,
+      ...command.payload,
+      updatedAt: occurredAt,
+    };
+    const event = this.createEvent(
+      actorPubky,
+      command,
+      preferences.revision,
+      'notification.preferences_updated',
+      occurredAt,
+    );
+    this.repository.putNotificationPreferences(preferences);
+    this.repository.appendEvent(event);
+    return success(command, preferences.revision, event.id, { kind: 'notification_preferences', preferences });
   }
 
   private notify(
@@ -1056,8 +1162,19 @@ export class MarketplaceTransactionService {
     aggregateId: string,
     createdAt: string,
   ): void {
+    const preferences = this.getNotificationPreferences(recipientPubky);
+    const enabled =
+      type === 'message_received'
+        ? preferences.messages
+        : type === 'outbid'
+          ? preferences.bids
+          : type === 'auction_won' || type === 'auction_ended'
+            ? preferences.auctions
+            : preferences.offers;
+    if (!enabled) return;
     this.repository.appendNotification({
       id: randomUUID(),
+      revision: 1,
       recipientPubky,
       actorPubky,
       type,

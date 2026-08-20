@@ -105,6 +105,23 @@ export const placeBidCommandSchema = createCommerceCommandSchema(
 
 export const closeAuctionCommandSchema = createCommerceCommandSchema('auction.close', z.object({}).strict());
 
+export const markMarketplaceNotificationReadCommandSchema = createCommerceCommandSchema(
+  'notification.mark_read',
+  z.object({ notificationId: z.uuid() }).strict(),
+);
+
+export const updateMarketplaceNotificationPreferencesCommandSchema = createCommerceCommandSchema(
+  'notification.preferences.update',
+  z
+    .object({
+      messages: z.boolean(),
+      offers: z.boolean(),
+      bids: z.boolean(),
+      auctions: z.boolean(),
+    })
+    .strict(),
+);
+
 export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
   'message.send',
   z
@@ -127,6 +144,8 @@ export const marketplaceCommandSchema = z.union([
   placeBidCommandSchema,
   closeAuctionCommandSchema,
   sendMarketplaceMessageCommandSchema,
+  markMarketplaceNotificationReadCommandSchema,
+  updateMarketplaceNotificationPreferencesCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -140,7 +159,17 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
       eventIds: z.array(z.uuid()),
       result: z
         .object({
-          kind: z.enum(['listing', 'reservation', 'offer', 'accepted_offer', 'bid', 'message', 'auction_result']),
+          kind: z.enum([
+            'listing',
+            'reservation',
+            'offer',
+            'accepted_offer',
+            'bid',
+            'message',
+            'auction_result',
+            'notification',
+            'notification_preferences',
+          ]),
         })
         .passthrough(),
     })
@@ -169,6 +198,10 @@ export type WithdrawOfferCommand = z.infer<typeof withdrawOfferCommandSchema>;
 export type PlaceBidCommand = z.infer<typeof placeBidCommandSchema>;
 export type CloseAuctionCommand = z.infer<typeof closeAuctionCommandSchema>;
 export type SendMarketplaceMessageCommand = z.infer<typeof sendMarketplaceMessageCommandSchema>;
+export type MarkMarketplaceNotificationReadCommand = z.infer<typeof markMarketplaceNotificationReadCommandSchema>;
+export type UpdateMarketplaceNotificationPreferencesCommand = z.infer<
+  typeof updateMarketplaceNotificationPreferencesCommandSchema
+>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 

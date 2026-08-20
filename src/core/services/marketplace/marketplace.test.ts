@@ -113,6 +113,7 @@ describe('MarketplaceGatewayService', () => {
           notifications: [
             {
               id: '00000000-0000-4000-8000-000000000931',
+              revision: 1,
               recipientPubky: SELLER,
               actorPubky: 'b'.repeat(52),
               type: 'message_received',
@@ -126,5 +127,24 @@ describe('MarketplaceGatewayService', () => {
 
     await expect(MarketplaceGatewayService.getConversations(SELLER)).resolves.toHaveLength(1);
     await expect(MarketplaceGatewayService.getNotifications(SELLER)).resolves.toHaveLength(1);
+  });
+
+  it('validates revisioned notification preferences', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        ownerPubky: SELLER,
+        revision: 2,
+        messages: true,
+        offers: false,
+        bids: true,
+        auctions: true,
+        updatedAt: '2026-08-19T23:00:00.000Z',
+      }),
+    );
+
+    await expect(MarketplaceGatewayService.getNotificationPreferences(SELLER)).resolves.toMatchObject({
+      revision: 2,
+      offers: false,
+    });
   });
 });

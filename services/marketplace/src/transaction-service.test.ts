@@ -164,6 +164,18 @@ function closeAuctionCommand(expectedRevision: number, commandNumber = 950) {
   };
 }
 
+function notificationPreferencesCommand(expectedRevision: number, messages: boolean) {
+  return {
+    version: 1,
+    commandId: `00000000-0000-4000-8000-${(960 + expectedRevision).toString().padStart(12, '0')}`,
+    aggregateId: `notification_preferences:${SELLER}`,
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind: 'notification.preferences.update',
+    payload: { messages, offers: true, bids: true, auctions: true },
+  };
+}
+
 function createService() {
   const repository = new InMemoryMarketplaceRepository();
   return {
@@ -625,6 +637,59 @@ describe('MarketplaceTransactionService', () => {
         listing: { state: 'available', auction: { status: 'unsold' } },
         reservation: null,
       },
+    });
+  });
+
+  it('applies revisioned notification preferences before delivery', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await service.execute(SELLER, notificationPreferencesCommand(0, false));
+    await service.execute(
+      BUYER,
+      messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000000970', 'Muted message'),
+    );
+    await service.execute(BUYER, createOfferCommand());
+
+    expect(service.getNotificationPreferences(SELLER)).toMatchObject({ revision: 1, messages: false, offers: true });
+    expect(service.getNotifications(SELLER).map(({ type }) => type)).toEqual(['offer_received']);
+    await expect(service.execute(SELLER, notificationPreferencesCommand(0, true))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', currentRevision: 1 },
+    });
+  });
+
+  it('allows only a notification recipient to mark it read once', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await service.execute(BUYER, createOfferCommand());
+    const notification = service.getNotifications(SELLER)[0];
+    const command = {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000971',
+      aggregateId: `notification:${notification.id}`,
+      expectedRevision: notification.revision,
+      issuedAt: NOW.toISOString(),
+      kind: 'notification.mark_read',
+      payload: { notificationId: notification.id },
+    };
+
+    await expect(service.execute(BUYER, command)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+    await expect(service.execute(SELLER, command)).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'notification', notification: { revision: 2, readAt: NOW.toISOString() } },
+    });
+    await expect(
+      service.execute(SELLER, {
+        ...command,
+        commandId: '00000000-0000-4000-8000-000000000972',
+        expectedRevision: 2,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_STATE' },
     });
   });
 });

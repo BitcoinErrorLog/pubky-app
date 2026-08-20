@@ -95,6 +95,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getNotifications(actorPubky);
   }
 
+  static async getMarketplaceNotificationPreferences(actorPubky: string) {
+    return await MarketplaceGatewayService.getNotificationPreferences(actorPubky);
+  }
+
   static async isFavorite(ownerPubky: string, listingId: string): Promise<boolean> {
     return await LocalCommerceService.isFavorite(ownerPubky, listingId);
   }

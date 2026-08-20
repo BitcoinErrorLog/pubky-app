@@ -61,6 +61,7 @@ const conversationSchema = z
 const notificationSchema = z
   .object({
     id: z.uuid(),
+    revision: z.number().int().positive(),
     recipientPubky: commercePubkySchema,
     actorPubky: commercePubkySchema,
     type: z.enum([
@@ -78,6 +79,16 @@ const notificationSchema = z
     readAt: z.string().nullable(),
   })
   .passthrough();
+
+const notificationPreferencesSchema = z.object({
+  ownerPubky: commercePubkySchema,
+  revision: z.number().int().nonnegative(),
+  messages: z.boolean(),
+  offers: z.boolean(),
+  bids: z.boolean(),
+  auctions: z.boolean(),
+  updatedAt: z.string(),
+});
 
 const offerSchema = z
   .object({
@@ -101,6 +112,7 @@ export type MarketplaceListingProjection = z.infer<typeof listingProjectionSchem
 export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotification = z.infer<typeof notificationSchema>;
 export type MarketplaceOffer = z.infer<typeof offerSchema>;
+export type MarketplaceNotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -211,6 +223,32 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data.notifications;
+  }
+
+  static async getNotificationPreferences(actor: string): Promise<MarketplaceNotificationPreferences> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/notification-preferences`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getNotificationPreferences',
+    );
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getNotificationPreferences',
+      url,
+    );
+    const parsed = notificationPreferencesSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid notification preferences.', {
+        service: ErrorService.Marketplace,
+        operation: 'getNotificationPreferences',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
   }
 
   private static assertSandbox(): void {

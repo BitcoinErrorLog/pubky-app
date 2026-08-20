@@ -2,18 +2,32 @@
 
 import { ArrowLeft, Bell, Gavel, HandCoins, MessageCircle } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
+import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
+import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications/useMarketplaceNotifications';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 
 export function MarketplaceNotifications() {
-  const { notifications, unreadCount, isLoading, error } = useMarketplaceNotifications();
+  const { notifications, preferences, unreadCount, isLoading, error, markAllRead, updatePreferences } =
+    useMarketplaceNotifications();
+
+  const setPreference = (key: 'messages' | 'offers' | 'bids' | 'auctions', checked: boolean) => {
+    if (!preferences) return;
+    void updatePreferences({
+      messages: preferences.messages,
+      offers: preferences.offers,
+      bids: preferences.bids,
+      auctions: preferences.auctions,
+      [key]: checked,
+    });
+  };
 
   return (
     <ContentLayout
@@ -33,14 +47,43 @@ export function MarketplaceNotifications() {
           <ArrowLeft className="size-4" />
           Marketplace
         </Link>
-        <div>
-          <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
-            Commerce activity
-          </Heading>
-          <Typography as="p" className="mt-2 text-muted-foreground">
-            {unreadCount} unread transaction {unreadCount === 1 ? 'update' : 'updates'}.
-          </Typography>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
+              Commerce activity
+            </Heading>
+            <Typography as="p" className="mt-2 text-muted-foreground">
+              {unreadCount} unread transaction {unreadCount === 1 ? 'update' : 'updates'}.
+            </Typography>
+          </div>
+          <Button variant="secondary" className="rounded-full" disabled={unreadCount === 0} onClick={markAllRead}>
+            Mark all read
+          </Button>
         </div>
+
+        {preferences && (
+          <Card className="border py-4">
+            <CardContent className="grid gap-4 px-5 sm:grid-cols-2">
+              {(
+                [
+                  ['messages', 'Messages'],
+                  ['offers', 'Offers'],
+                  ['bids', 'Bid updates'],
+                  ['auctions', 'Auction results'],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="flex items-center justify-between gap-4 text-sm">
+                  {label}
+                  <Switch
+                    checked={preferences[key]}
+                    onCheckedChange={(checked) => setPreference(key, checked)}
+                    aria-label={`${label} notifications`}
+                  />
+                </label>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
