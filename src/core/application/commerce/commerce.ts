@@ -72,7 +72,7 @@ export class CommerceApplication {
     if (getCommerceAdapterMode() !== 'sandbox') return false;
     const catalog = createCommerceSandboxCatalog();
     const seeded = await LocalCommerceService.seedSandboxCatalog(catalog);
-    await Promise.allSettled(catalog.listings.map((listing) => this.registerSandboxListing(listing)));
+    await Promise.allSettled(catalog.listings.map((listing) => this.registerListing(listing)));
     return seeded;
   }
 
@@ -253,19 +253,11 @@ export class CommerceApplication {
     await LocalCommerceService.upsertListing(record, 'synced');
     await LocalCommerceService.completeSyncJob(publishJob.id);
 
-    await LocalCommerceService.enqueueSyncJob(
-      this.createSyncJob({
-        ownerId: record.ownerPubky,
-        entityType: 'listing',
-        entityId: record.listingId,
-        operation: 'register',
-        payload: {
-          url,
-          listingRevision: record.revision,
-        },
-        now: Date.now(),
-      }),
-    );
+    // Registration is idempotent (skipped when the aggregate already has a server
+    // revision), so retrying the whole commit after a failure here is safe.
+    if (getCommerceAdapterMode() === 'sandbox') {
+      await this.registerListing(record);
+    }
   }
 
   static async commitCreateMedia(ownerPubky: string, mediaId: string, bytes: Uint8Array): Promise<string> {
@@ -274,7 +266,7 @@ export class CommerceApplication {
     return url;
   }
 
-  private static async registerSandboxListing(listing: CommerceListingRecord): Promise<void> {
+  private static async registerListing(listing: CommerceListingRecord): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     const existing = await MarketplaceGatewayService.getListing(aggregateId);
     if (existing?.serverRevision) return;

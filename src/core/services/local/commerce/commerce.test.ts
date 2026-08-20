@@ -185,53 +185,13 @@ describe('LocalCommerceService', () => {
     expect(await CommerceListingDraftModel.table.count()).toBe(0);
   });
 
-  it('claims due jobs once and increments attempts atomically', async () => {
-    await LocalCommerceService.enqueueSyncJob(createCommerceSyncJobFixture());
-
-    const firstClaim = await LocalCommerceService.claimReadySyncJobs(COMMERCE_FIXTURE_SELLER, 2_000, 10);
-    const secondClaim = await LocalCommerceService.claimReadySyncJobs(COMMERCE_FIXTURE_SELLER, 2_000, 10);
-
-    expect(firstClaim).toHaveLength(1);
-    expect(firstClaim[0]).toMatchObject({ status: 'running', attempts: 1, updated_at: 2_000 });
-    expect(secondClaim).toEqual([]);
-  });
-
-  it('reschedules, terminally fails, resets, and completes jobs explicitly', async () => {
+  it('completes a staged sync job by removing it', async () => {
     const job = createCommerceSyncJobFixture();
-    await LocalCommerceService.enqueueSyncJob(job);
-    await LocalCommerceService.claimReadySyncJobs(COMMERCE_FIXTURE_SELLER, 2_000, 1);
-
-    await LocalCommerceService.rescheduleSyncJob({
-      id: job.id,
-      errorCode: 'NETWORK_ERROR',
-      nextAttemptAt: 5_000,
-      now: 2_100,
-    });
-    expect(await LocalCommerceService.claimReadySyncJobs(COMMERCE_FIXTURE_SELLER, 4_999, 1)).toEqual([]);
-
-    const retried = await LocalCommerceService.claimReadySyncJobs(COMMERCE_FIXTURE_SELLER, 5_000, 1);
-    expect(retried[0]).toMatchObject({ attempts: 2, last_error_code: 'NETWORK_ERROR' });
-
-    await LocalCommerceService.resetRunningSyncJobs(COMMERCE_FIXTURE_SELLER, 6_000);
-    const reset = await CommerceSyncJobModel.findById(job.id);
-    expect(reset).toMatchObject({ status: 'pending', next_attempt_at: 6_000 });
-
-    await LocalCommerceService.failSyncJob(job.id, 'VALIDATION_ERROR', 7_000);
-    expect(await CommerceSyncJobModel.findById(job.id)).toMatchObject({
-      status: 'failed',
-      last_error_code: 'VALIDATION_ERROR',
-    });
+    await LocalCommerceService.stageListingSync(createCommerceListingFixture(), job);
+    expect(await CommerceSyncJobModel.findById(job.id)).toMatchObject({ status: 'pending' });
 
     await LocalCommerceService.completeSyncJob(job.id);
     expect(await CommerceSyncJobModel.findById(job.id)).toBeNull();
-  });
-
-  it('rejects invalid sync claim limits', async () => {
-    await expect(LocalCommerceService.claimReadySyncJobs(COMMERCE_FIXTURE_SELLER, 2_000, 0)).rejects.toMatchObject({
-      name: 'AppError',
-      code: 'INVALID_INPUT',
-      category: 'validation',
-    });
   });
 
   it('persists idempotent favorites and shop follows per owner', async () => {

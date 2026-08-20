@@ -363,87 +363,8 @@ export class LocalCommerceService {
     await CommerceListingDraftModel.deleteById(compositeListingId);
   }
 
-  static async enqueueSyncJob(job: CommerceSyncJobModelSchema): Promise<void> {
-    await CommerceSyncJobModel.upsert(job);
-  }
-
-  static async claimReadySyncJobs(ownerId: string, now: number, limit: number): Promise<CommerceSyncJobModelSchema[]> {
-    if (!Number.isSafeInteger(limit) || limit <= 0) {
-      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Sync job claim limit must be a positive safe integer.', {
-        service: ErrorService.Local,
-        operation: 'claimReadySyncJobs',
-        context: { limit },
-      });
-    }
-
-    try {
-      return await db.transaction('rw', CommerceSyncJobModel.table, async () => {
-        const jobs = await CommerceSyncJobModel.findReady(ownerId, now, limit);
-        const claimed = jobs.map((job) => ({
-          ...job,
-          status: 'running' as const,
-          attempts: job.attempts + 1,
-          updated_at: now,
-        }));
-        await CommerceSyncJobModel.bulkSave(claimed);
-        return claimed;
-      });
-    } catch (error) {
-      if (isAppError(error)) throw error;
-      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to claim commerce sync jobs', {
-        service: ErrorService.Local,
-        operation: 'claimReadySyncJobs',
-        context: { table: CommerceSyncJobModel.table.name, limit },
-        cause: error,
-      });
-    }
-  }
-
-  static async rescheduleSyncJob({
-    id,
-    errorCode,
-    nextAttemptAt,
-    now,
-  }: {
-    id: string;
-    errorCode: string;
-    nextAttemptAt: number;
-    now: number;
-  }): Promise<void> {
-    await CommerceSyncJobModel.update(id, {
-      status: 'pending',
-      last_error_code: errorCode,
-      next_attempt_at: nextAttemptAt,
-      updated_at: now,
-    });
-  }
-
-  static async failSyncJob(id: string, errorCode: string, now: number): Promise<void> {
-    await CommerceSyncJobModel.update(id, {
-      status: 'failed',
-      last_error_code: errorCode,
-      updated_at: now,
-    });
-  }
-
   static async completeSyncJob(id: string): Promise<void> {
     await CommerceSyncJobModel.deleteById(id);
-  }
-
-  static async resetRunningSyncJobs(ownerId: string, now: number): Promise<void> {
-    try {
-      await CommerceSyncJobModel.table
-        .where('[owner_id+status]')
-        .equals([ownerId, 'running'])
-        .modify({ status: 'pending', next_attempt_at: now, updated_at: now });
-    } catch (error) {
-      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to reset interrupted commerce sync jobs', {
-        service: ErrorService.Local,
-        operation: 'resetRunningSyncJobs',
-        context: { table: CommerceSyncJobModel.table.name },
-        cause: error,
-      });
-    }
   }
 
   private static toListingModel(

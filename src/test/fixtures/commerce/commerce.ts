@@ -323,7 +323,7 @@ export function createCommerceSyncJobFixture(
     owner_id: COMMERCE_FIXTURE_SELLER,
     entity_type: 'listing',
     entity_id: 'boots_01',
-    operation: 'register',
+    operation: 'publish',
     status: 'pending',
     attempts: 0,
     next_attempt_at: 1_000,

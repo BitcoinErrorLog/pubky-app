@@ -78,7 +78,6 @@ vi.mock('@/app/routes', async () => {
       HOME: '/home',
       SEARCH: '/search',
       HOT: '/hot',
-      MARKETPLACE: '/marketplace',
       COLLECTIONS: '/collections',
       SETTINGS: '/settings',
       PROFILE: '/profile',
@@ -187,7 +186,6 @@ describe('MobileFooter', () => {
       { href: '/home', iconClass: '.lucide-house', label: 'Home' },
       { href: '/search', iconClass: '.lucide-search', label: 'Search' },
       { href: '/hot', iconClass: '.lucide-flame', label: 'Hot' },
-      { href: '/marketplace', iconClass: '.lucide-store', label: 'Marketplace' },
       { href: '/collections', iconClass: '.lucide-library', label: 'Collections' },
       { href: '/settings/account', iconClass: '.lucide-settings', label: 'Settings' },
     ];
@@ -493,7 +491,6 @@ describe('MobileFooter', () => {
       '/home',
       '/search',
       '/hot',
-      '/marketplace',
       '/collections',
       '/settings/account',
     ]);

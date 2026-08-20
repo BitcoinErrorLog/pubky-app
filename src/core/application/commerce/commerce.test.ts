@@ -3,6 +3,7 @@ import * as commerceConfig from '@/config/commerce';
 import { CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import {
   COMMERCE_FIXTURE_SELLER,
   createCommerceListingFixture,
@@ -108,27 +109,60 @@ describe('CommerceApplication', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it('publishes a listing and queues transaction-service registration', async () => {
+  it('publishes a listing and registers it with the transaction service in sandbox mode', async () => {
     const record = createCommerceListingFixture();
-    vi.spyOn(globalThis.crypto, 'randomUUID')
-      .mockReturnValueOnce('018f47d2-6a27-7c23-a49d-6b21bb770120')
-      .mockReturnValueOnce('018f47d2-6a27-7c23-a49d-6b21bb770121');
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
     const stage = vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
-    const enqueue = vi.spyOn(LocalCommerceService, 'enqueueSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({} as never);
 
     await CommerceApplication.commitUpsertListing(record);
 
     expect(stage).toHaveBeenCalledWith(record, expect.objectContaining({ operation: 'publish' }));
-    expect(enqueue).toHaveBeenCalledWith(
+    expect(execute).toHaveBeenCalledWith(
+      record.ownerPubky,
       expect.objectContaining({
-        id: '018f47d2-6a27-7c23-a49d-6b21bb770121',
-        operation: 'register',
-        payload: { url: LISTING_URL, listingRevision: 1 },
+        kind: 'listing.register',
+        payload: expect.objectContaining({
+          sellerPubky: record.ownerPubky,
+          listingId: record.listingId,
+          listingRevision: record.revision,
+        }),
       }),
     );
+  });
+
+  it('skips transaction-service registration when the listing is already registered', async () => {
+    const record = createCommerceListingFixture();
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue({ serverRevision: 4 } as never);
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    await CommerceApplication.commitUpsertListing(record);
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('publishes a listing without registration when the marketplace adapter is unavailable', async () => {
+    const record = createCommerceListingFixture();
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    await CommerceApplication.commitUpsertListing(record);
+
+    expect(put).toHaveBeenCalledWith(LISTING_URL, record);
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('returns an existing listing projection without fetching', async () => {

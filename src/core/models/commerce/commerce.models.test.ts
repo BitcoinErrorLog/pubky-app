@@ -144,7 +144,7 @@ function makeSyncJob(overrides: Partial<CommerceSyncJobModelSchema> = {}): Comme
     owner_id: SELLER_PUBKY,
     entity_type: 'listing',
     entity_id: 'boots_01',
-    operation: 'register',
+    operation: 'publish',
     status: 'pending',
     attempts: 0,
     next_attempt_at: 1_000,
@@ -257,36 +257,17 @@ describe('commerce Dexie models', () => {
     });
   });
 
-  it('returns only due pending sync jobs for the active owner and respects the limit', async () => {
-    await CommerceSyncJobModel.bulkSave([
-      makeSyncJob(),
-      makeSyncJob({
-        id: '018f47d2-6a27-7c23-a49d-6b21bb770121',
-        entity_id: 'second',
-        next_attempt_at: 2_000,
-      }),
-      makeSyncJob({
-        id: '018f47d2-6a27-7c23-a49d-6b21bb770122',
-        entity_id: 'future',
-        next_attempt_at: 10_000,
-      }),
-      makeSyncJob({
-        id: '018f47d2-6a27-7c23-a49d-6b21bb770123',
-        entity_id: 'running',
-        status: 'running',
-      }),
-      makeSyncJob({
-        id: '018f47d2-6a27-7c23-a49d-6b21bb770124',
-        owner_id: OTHER_SELLER_PUBKY,
-        entity_id: 'other-owner',
-      }),
-    ]);
+  it('stores and removes pending sync jobs by id', async () => {
+    const job = makeSyncJob();
+    await CommerceSyncJobModel.upsert(job);
+    expect(await CommerceSyncJobModel.findById(job.id)).toMatchObject({
+      entity_id: 'boots_01',
+      operation: 'publish',
+      status: 'pending',
+    });
 
-    const oneJob = await CommerceSyncJobModel.findReady(SELLER_PUBKY, 5_000, 1);
-    const allDueJobs = await CommerceSyncJobModel.findReady(SELLER_PUBKY, 5_000, 10);
-
-    expect(oneJob.map(({ entity_id }) => entity_id)).toEqual(['boots_01']);
-    expect(allDueJobs.map(({ entity_id }) => entity_id)).toEqual(['boots_01', 'second']);
+    await CommerceSyncJobModel.deleteById(job.id);
+    expect(await CommerceSyncJobModel.findById(job.id)).toBeNull();
   });
 
   it('stores favorites and shop follows under the active owner', async () => {

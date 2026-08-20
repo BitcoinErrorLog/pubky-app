@@ -97,7 +97,7 @@ export const commerceListingProjectionTableSchema = [
   '[seller_id+state]',
 ].join(', ');
 
-export type CommerceSyncJobOperation = 'publish' | 'register' | 'update' | 'remove';
+export type CommerceSyncJobOperation = 'publish' | 'update' | 'remove';
 export type CommerceSyncJobStatus = 'pending' | 'running' | 'failed';
 
 export interface CommerceSyncJobModelSchema {

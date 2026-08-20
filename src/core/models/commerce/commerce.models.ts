@@ -223,23 +223,6 @@ export class CommerceSyncJobModel
     this.created_at = job.created_at;
     this.updated_at = job.updated_at;
   }
-
-  static async findReady(ownerId: string, now: number, limit: number): Promise<CommerceSyncJobModelSchema[]> {
-    try {
-      const jobs = await this.table.where('[owner_id+status]').equals([ownerId, 'pending']).toArray();
-      return jobs
-        .filter(({ next_attempt_at }) => next_attempt_at <= now)
-        .sort((left, right) => left.next_attempt_at - right.next_attempt_at)
-        .slice(0, limit);
-    } catch (error) {
-      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read ready jobs from ${this.table.name}`, {
-        service: ErrorService.Local,
-        operation: 'findReady',
-        context: { table: this.table.name, limit },
-        cause: error,
-      });
-    }
-  }
 }
 
 export class CommerceFavoriteModel
