@@ -39,6 +39,11 @@ const APP_ENV_INPUT = {
   moderationId: VALID_MODERATION_ID,
   moderatedTags: '["spam","nudity"]',
   exchangeRateApi: 'https://rates.example.com/btc',
+  marketplaceUrl: 'https://marketplace.example.com',
+  locksUrl: 'https://locks.example.com',
+  paykitSetupUrl: 'https://paykit.example.com/setup',
+  commerceAdapterMode: 'locks-paykit',
+  commercePollIntervalMs: '1500',
   plausibleDomain: 'example.com',
   plausibleScriptUrl: 'https://analytics.example.com/script.js',
   siteName: 'Example App',
@@ -144,6 +149,11 @@ describe('runtimeEnvInputSchema', () => {
     expect(parsed.moderationId).toBe(VALID_MODERATION_ID);
     expect(parsed.moderatedTags).toEqual(['spam', 'nudity']);
     expect(parsed.exchangeRateApi).toBe('https://rates.example.com/btc');
+    expect(parsed.marketplaceUrl).toBe('https://marketplace.example.com');
+    expect(parsed.locksUrl).toBe('https://locks.example.com');
+    expect(parsed.paykitSetupUrl).toBe('https://paykit.example.com/setup');
+    expect(parsed.commerceAdapterMode).toBe('locks-paykit');
+    expect(parsed.commercePollIntervalMs).toBe(1_500);
     expect(parsed.siteName).toBe('Example App');
     expect(parsed.defaultUrl).toBe('https://app.example.com');
   });
@@ -172,6 +182,11 @@ describe('runtimeEnvInputSchema', () => {
   it('throws on invalid optional integer values', () => {
     expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, ttlPostMs: '123abc' })).toThrow();
     expect(() => runtimeEnvInputSchemaWithDefaults.parse({ maxStreamTags: '0' })).toThrow();
+  });
+
+  it('fails closed on unsupported commerce adapter modes', () => {
+    expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, commerceAdapterMode: 'live' })).toThrow();
+    expect(runtimeEnvInputSchema.parse(VALID_ENV_INPUT).commerceAdapterMode).toBe('unavailable');
   });
 
   it('rejects an invalid configured moderation Pubky', () => {

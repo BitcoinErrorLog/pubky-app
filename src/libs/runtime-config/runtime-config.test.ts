@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   escapeForInlineScript,
+  getCommerceAdapterMode,
+  getCommercePollIntervalMs,
+  getLocksUrl,
+  getMarketplaceUrl,
+  getPaykitSetupUrl,
   getRuntimeConfig,
   getSentryDsn,
   getSentryEnvironment,
@@ -36,6 +41,11 @@ const RUNTIME_ENV_VALUES: Partial<Record<keyof RuntimeConfig, string>> = {
   sentryTracesSampleRate: '0.5',
   sentryReplaysSessionSampleRate: '0.25',
   sentryReplaysOnErrorSampleRate: '1',
+  marketplaceUrl: 'https://marketplace.runtime.example.com',
+  locksUrl: 'https://locks.runtime.example.com',
+  paykitSetupUrl: 'https://paykit.runtime.example.com/setup',
+  commerceAdapterMode: 'locks-paykit',
+  commercePollIntervalMs: '1500',
 };
 
 function setAllRuntimeEnv(): void {
@@ -109,6 +119,11 @@ describe('runtime-config resolver', () => {
       expect(config.sentryDsn).toBe('https://abc123@o123.ingest.runtime.example.com/456');
       expect(config.sentryEnvironment).toBe('staging');
       expect(config.sentryTracesSampleRate).toBe(0.5);
+      expect(getMarketplaceUrl()).toBe('https://marketplace.runtime.example.com');
+      expect(getLocksUrl()).toBe('https://locks.runtime.example.com');
+      expect(getPaykitSetupUrl()).toBe('https://paykit.runtime.example.com/setup');
+      expect(getCommerceAdapterMode()).toBe('locks-paykit');
+      expect(getCommercePollIntervalMs()).toBe(1_500);
     });
 
     it('parses without the optional Sentry tier (disabled DSN, defaulted rates)', () => {
