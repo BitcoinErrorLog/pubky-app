@@ -38,7 +38,48 @@ const listingProjectionSchema = z
   })
   .passthrough();
 
+const conversationSchema = z
+  .object({
+    id: z.string(),
+    listingAggregateId: z.string(),
+    sellerPubky: commercePubkySchema,
+    buyerPubky: commercePubkySchema,
+    revision: z.number().int().positive(),
+    lastMessageAt: z.string(),
+    messages: z.array(
+      z.object({
+        id: z.uuid(),
+        senderPubky: commercePubkySchema,
+        recipientPubky: commercePubkySchema,
+        text: z.string(),
+        createdAt: z.string(),
+      }),
+    ),
+  })
+  .passthrough();
+
+const notificationSchema = z
+  .object({
+    id: z.uuid(),
+    recipientPubky: commercePubkySchema,
+    actorPubky: commercePubkySchema,
+    type: z.enum([
+      'message_received',
+      'offer_received',
+      'offer_countered',
+      'offer_accepted',
+      'offer_rejected',
+      'outbid',
+    ]),
+    aggregateId: z.string(),
+    createdAt: z.string(),
+    readAt: z.string().nullable(),
+  })
+  .passthrough();
+
 export type MarketplaceListingProjection = z.infer<typeof listingProjectionSchema>;
+export type MarketplaceConversation = z.infer<typeof conversationSchema>;
+export type MarketplaceNotification = z.infer<typeof notificationSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -86,6 +127,48 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data;
+  }
+
+  static async getConversations(actor: string): Promise<MarketplaceConversation[]> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/conversations`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getConversations',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getConversations', url);
+    const parsed = z.object({ conversations: z.array(conversationSchema) }).safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid conversations.', {
+        service: ErrorService.Marketplace,
+        operation: 'getConversations',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data.conversations;
+  }
+
+  static async getNotifications(actor: string): Promise<MarketplaceNotification[]> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/notifications`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getNotifications',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getNotifications', url);
+    const parsed = z.object({ notifications: z.array(notificationSchema) }).safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid notifications.', {
+        service: ErrorService.Marketplace,
+        operation: 'getNotifications',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data.notifications;
   }
 
   private static assertSandbox(): void {

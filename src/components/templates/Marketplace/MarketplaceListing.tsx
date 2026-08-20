@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Gavel, Heart, MapPin, PackageCheck, ShieldCheck, Store } from 'lucide-react';
+import { ArrowLeft, Bell, Gavel, Heart, MapPin, PackageCheck, ShieldCheck, Store } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceShopRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -21,6 +21,7 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { toast } from '@/molecules/Toaster/use-toast';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
+import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -176,6 +177,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 </Button>
               </CardContent>
             </Card>
+            <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
 
             <Typography as="p" className="text-base leading-7 text-muted-foreground">
               {record.description}
@@ -253,12 +255,24 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 size="lg"
                 variant="secondary"
                 className="rounded-full"
-                aria-label={favorite.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                aria-label={
+                  record.sale.format === 'auction'
+                    ? favorite.isFavorite
+                      ? 'Remove from watchlist'
+                      : 'Add to watchlist'
+                    : favorite.isFavorite
+                      ? 'Remove from favorites'
+                      : 'Add to favorites'
+                }
                 aria-pressed={favorite.isFavorite}
                 disabled={favorite.isMutating}
                 onClick={favorite.toggle}
               >
-                <Heart className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
+                {record.sale.format === 'auction' ? (
+                  <Bell className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
+                ) : (
+                  <Heart className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
+                )}
               </Button>
             </div>
             {adapterMode === 'unavailable' && (

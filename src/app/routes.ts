@@ -40,6 +40,8 @@ export enum MARKETPLACE_ROUTES {
   DASHBOARD = '/marketplace/dashboard',
   ORDERS = '/marketplace/orders',
   MESSAGES = '/marketplace/messages',
+  OFFERS = '/marketplace/offers',
+  NOTIFICATIONS = '/marketplace/notifications',
   SETTINGS = '/marketplace/settings',
 }
 

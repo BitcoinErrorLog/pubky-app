@@ -83,6 +83,14 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getListing(aggregateId);
   }
 
+  static async getMarketplaceConversations(actorPubky: string) {
+    return await MarketplaceGatewayService.getConversations(actorPubky);
+  }
+
+  static async getMarketplaceNotifications(actorPubky: string) {
+    return await MarketplaceGatewayService.getNotifications(actorPubky);
+  }
+
   static async isFavorite(ownerPubky: string, listingId: string): Promise<boolean> {
     return await LocalCommerceService.isFavorite(ownerPubky, listingId);
   }

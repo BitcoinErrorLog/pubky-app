@@ -82,4 +82,49 @@ describe('MarketplaceGatewayService', () => {
 
     await expect(MarketplaceGatewayService.getListing(AGGREGATE_ID)).resolves.toBeNull();
   });
+
+  it('validates private conversation and notification query projections', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          conversations: [
+            {
+              id: `conversation:${SELLER}_${'b'.repeat(52)}_boots_01`,
+              listingAggregateId: AGGREGATE_ID,
+              sellerPubky: SELLER,
+              buyerPubky: 'b'.repeat(52),
+              revision: 1,
+              lastMessageAt: '2026-08-19T23:00:00.000Z',
+              messages: [
+                {
+                  id: '00000000-0000-4000-8000-000000000930',
+                  senderPubky: 'b'.repeat(52),
+                  recipientPubky: SELLER,
+                  text: 'Hello',
+                  createdAt: '2026-08-19T23:00:00.000Z',
+                },
+              ],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          notifications: [
+            {
+              id: '00000000-0000-4000-8000-000000000931',
+              recipientPubky: SELLER,
+              actorPubky: 'b'.repeat(52),
+              type: 'message_received',
+              aggregateId: `conversation:${SELLER}_${'b'.repeat(52)}_boots_01`,
+              createdAt: '2026-08-19T23:00:00.000Z',
+              readAt: null,
+            },
+          ],
+        }),
+      );
+
+    await expect(MarketplaceGatewayService.getConversations(SELLER)).resolves.toHaveLength(1);
+    await expect(MarketplaceGatewayService.getNotifications(SELLER)).resolves.toHaveLength(1);
+  });
 });

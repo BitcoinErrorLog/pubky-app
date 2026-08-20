@@ -74,6 +74,14 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceListingProjection(buildMarketplaceListingAggregateId(owner, id));
   }
 
+  static async getMarketplaceConversations() {
+    return await CommerceApplication.getMarketplaceConversations(this.getCurrentUserPubky());
+  }
+
+  static async getMarketplaceNotifications() {
+    return await CommerceApplication.getMarketplaceNotifications(this.getCurrentUserPubky());
+  }
+
   static async getListingDrafts() {
     return await CommerceApplication.getListingDrafts(this.getCurrentUserPubky());
   }

@@ -151,6 +151,8 @@ describe('isDynamicPublicRoute', () => {
       expect(isDynamicPublicRoute('/marketplace/sell')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/dashboard')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/orders')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/messages')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/notifications')).toBe(false);
     });
   });
 
