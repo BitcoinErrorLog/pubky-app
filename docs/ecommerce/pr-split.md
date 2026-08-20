@@ -21,3 +21,22 @@ Parallel tracks outside this repo:
 - `pubky-nexus`: marketplace record indexing — prerequisite for public-discovery launch, not for PRs 1–9.
 
 Rules: no slice ships stubs or dead code; nav baselines for existing surfaces stay byte-identical until launch; every UI slice carries its own VRT baselines in the same PR.
+
+## Known reconciliation required when specs land
+
+The marketplace objects now implemented in `pubky-app-specs` follow the canonical `pubky.app` conventions, which differ from the prototype paths currently shipped in the client. Both differences must be resolved in the specs-consumption slice, and both are breaking for any record written before that slice:
+
+| Concern      | Client today (prototype)            | Specs (canonical)                                 | Resolution                                                                                                                                 |
+| ------------ | ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Listing path | `marketplace/v1/listings/{id}.json` | `marketplace/v1/listings/{id}`                    | Drop the `.json` suffix. Existing `pubky.app` objects (`posts/{id}`, `tags/{id}`) carry no suffix; only the shop singleton is `shop.json`. |
+| Review path  | `marketplace/v1/reviews/{id}.json`  | `marketplace/v1/reviews/{id}`                     | Same.                                                                                                                                      |
+| Listing ID   | free-form (`boots_01`)              | Timestamp ID (13-char Crockford Base32)           | Generate timestamp IDs for new listings, matching posts. Update fixtures.                                                                  |
+| Review ID    | free-form                           | Hash ID of `{listing_uri}:{subject_pubky}:{role}` | Derive the ID from content, matching tags/bookmarks.                                                                                       |
+
+Consequences to plan for:
+
+- The client's hand-rolled URI builders in `src/core/pipes/commerce/commerce.normalizer.ts` are replaced by the specs package builders, so these changes arrive together.
+- Commerce fixtures and any test asserting a `.json` listing/review URL change with them.
+- Nexus indexing must target the suffix-free paths.
+
+No records exist in production yet (commerce ships disabled), so no migration of live data is required — but any sandbox or staging records written before this slice become unreadable and should be re-seeded.
