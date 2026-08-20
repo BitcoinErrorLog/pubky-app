@@ -1,4 +1,4 @@
-import type { Capabilities, PublicKey, Session } from '@synonymdev/pubky';
+import type { AuthToken, Capabilities, PublicKey, Session } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
 import { HttpMethod } from '@/libs/http/http.types';
 
@@ -25,6 +25,12 @@ export type THomeserverSessionResult = {
 export type TGenerateAuthUrlResult = {
   authorizationUrl: string;
   awaitApproval: Promise<Session>;
+  cancelAuthFlow: () => void;
+};
+
+export type TGenerateAuthTokenFlowResult = {
+  authorizationUrl: string;
+  awaitToken: () => Promise<AuthToken>;
   cancelAuthFlow: () => void;
 };
 

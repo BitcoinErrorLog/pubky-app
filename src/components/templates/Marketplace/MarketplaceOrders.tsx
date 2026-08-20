@@ -18,7 +18,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const { orders, isLoading, error, advancePayment, actOnOrder } = useMarketplaceOrders();
+  const { orders, isLoading, error, advancePayment, actOnOrder, adapterMode } = useMarketplaceOrders();
 
   return (
     <ContentLayout
@@ -43,11 +43,24 @@ export function MarketplaceOrders() {
             Orders
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            Buyer and seller timelines with sandbox payment facts.
+            {adapterMode === 'sandbox'
+              ? 'Buyer and seller timelines with sandbox payment facts.'
+              : 'Buyer and seller timelines.'}
           </Typography>
         </div>
 
-        {isLoading ? (
+        {adapterMode !== 'sandbox' ? (
+          <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed px-6 text-center">
+            <ReceiptText className="mb-3 size-10 text-muted-foreground" />
+            <Heading level={2} size="md">
+              Order timelines are not available here
+            </Heading>
+            <Typography as="p" className="mt-2 max-w-lg text-sm text-muted-foreground">
+              This deployment does not run the sandbox marketplace, and the durable transaction service does not expose
+              order queries yet — so there is no order history to show, simulated or otherwise.
+            </Typography>
+          </div>
+        ) : isLoading ? (
           <Skeleton className="h-48 w-full" />
         ) : error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">

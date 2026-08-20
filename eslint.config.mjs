@@ -119,8 +119,9 @@ const eslintConfig = [
   },
   {
     // The runtime-config resolver is the only place allowed to read PUBKY_RUNTIME_* directly.
-    // src/config/test.ts assigns PUBKY_RUNTIME_* test defaults (assignment, not a read).
-    files: ['src/libs/runtime-config/**/*.{ts,tsx}', 'src/config/test.ts'],
+    // src/config/test.ts and the integration entry points assign PUBKY_RUNTIME_* test
+    // defaults before app modules load (assignment, not a read).
+    files: ['src/libs/runtime-config/**/*.{ts,tsx}', 'src/config/test.ts', 'src/test/integration/**/*.ts'],
     rules: {
       'no-restricted-syntax': 'off',
     },

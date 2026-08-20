@@ -1,7 +1,7 @@
 'use client';
 
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
-import { getCommercePollIntervalMs } from '@/config/commerce';
+import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
 import { buildMarketplaceOrderAggregateId } from '@/libs/commerce/transaction-commands';
@@ -15,16 +15,25 @@ export interface MarketplaceOrderView {
   receipt: MarketplaceReceipt | null;
 }
 
+/**
+ * Order timelines are a SANDBOX-ONLY surface: the order/payment/receipt query
+ * projections exist only on the in-memory sandbox service, and the
+ * `payment.sandbox_advance` simulate affordance must never be reachable
+ * against the durable transaction service. In any other adapter mode this hook
+ * loads nothing and refuses to advance payments.
+ */
 export function useMarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const adapterMode = getCommerceAdapterMode();
+  const isSandbox = adapterMode === 'sandbox';
   const [orders, setOrders] = useState<MarketplaceOrderView[]>([]);
-  const [isLoading, setIsLoading] = useState(Boolean(currentUserPubky));
+  const [isLoading, setIsLoading] = useState(isSandbox && Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
 
   const refresh = () => loadOrders(currentUserPubky, setOrders, setIsLoading, setError);
 
   useEffect(() => {
-    if (!currentUserPubky) {
+    if (!currentUserPubky || !isSandbox) {
       setIsLoading(false);
       return;
     }
@@ -37,13 +46,18 @@ export function useMarketplaceOrders() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [currentUserPubky]);
+  }, [currentUserPubky, isSandbox]);
 
   const advancePayment = async (
     payment: MarketplacePayment,
     target: 'detected' | 'confirmed' | 'expired' | 'manual_review',
     confirmations: number,
   ) => {
+    // Re-checked at call time: the render-time flag can go stale if the mode changes.
+    if (getCommerceAdapterMode() !== 'sandbox') {
+      toast({ variant: 'error', description: 'Simulated payments only exist on the sandbox service.' });
+      return false;
+    }
     try {
       const response = await CommerceController.executeMarketplaceCommand({
         version: 1,
@@ -89,7 +103,7 @@ export function useMarketplaceOrders() {
     }
   };
 
-  return { orders, isLoading, error, refresh, advancePayment, actOnOrder };
+  return { orders, isLoading, error, refresh, advancePayment, actOnOrder, adapterMode };
 }
 
 async function loadOrders(
@@ -98,7 +112,7 @@ async function loadOrders(
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
 ): Promise<void> {
-  if (!currentUserPubky) return;
+  if (!currentUserPubky || getCommerceAdapterMode() !== 'sandbox') return;
   try {
     const orders = await CommerceController.getMarketplaceOrders();
     const views = await Promise.all(

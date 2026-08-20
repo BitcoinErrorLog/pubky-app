@@ -1,6 +1,7 @@
 import { AuthApplication } from '@/application/auth/auth';
 import type { TKeypairParams } from '@/application/auth/auth.types';
 import { BootstrapApplication, type BootstrapProgressCallback } from '@/application/bootstrap/bootstrap';
+import { CommerceApplication } from '@/application/commerce/commerce';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { TagApplication } from '@/application/tag/tag';
@@ -308,6 +309,8 @@ export class AuthController {
 
     // Reset singletons
     PubkySpecsSingleton.reset();
+    // The marketplace transaction-service bearer token lives in memory only; drop it with the user.
+    CommerceApplication.clearMarketplaceSession();
     TtlCoordinator.resetInstance();
     StreamCoordinator.resetInstance();
     NotificationCoordinator.resetInstance();

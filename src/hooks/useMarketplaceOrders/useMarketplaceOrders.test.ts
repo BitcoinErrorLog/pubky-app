@@ -7,9 +7,13 @@ const BUYER = 'b'.repeat(52);
 const SELLER = 'y'.repeat(52);
 const PAYMENT_ID = '00000000-0000-4000-8000-000000001110';
 
+const config = vi.hoisted(() => ({
+  mode: 'sandbox' as string,
+}));
+
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
-  return { ...actual, getCommercePollIntervalMs: () => 60_000 };
+  return { ...actual, getCommercePollIntervalMs: () => 60_000, getCommerceAdapterMode: () => config.mode };
 });
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -32,6 +36,7 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 describe('useMarketplaceOrders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    config.mode = 'sandbox';
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000001111');
     vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
       {
@@ -103,5 +108,35 @@ describe('useMarketplaceOrders', () => {
         payload: { paymentId: PAYMENT_ID, target: 'confirmed', confirmations: 1 },
       }),
     );
+  });
+
+  it.each(['transaction-service', 'unavailable', 'locks-paykit'])(
+    'loads nothing and never queries sandbox projections in %s mode',
+    async (mode) => {
+      config.mode = mode;
+
+      const { result } = renderHook(() => useMarketplaceOrders());
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.orders).toHaveLength(0);
+      expect(result.current.adapterMode).toBe(mode);
+      expect(CommerceController.getMarketplaceOrders).not.toHaveBeenCalled();
+      expect(CommerceController.getMarketplacePayment).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses to advance a payment outside sandbox mode', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const payment = result.current.orders[0].payment!;
+
+    config.mode = 'transaction-service';
+    let advanced: boolean | undefined;
+    await act(async () => {
+      advanced = await result.current.advancePayment(payment, 'confirmed', 1);
+    });
+
+    expect(advanced).toBe(false);
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,11 @@ import { MarketplaceGatewayService } from './marketplace';
 const SELLER = 'y'.repeat(52);
 const AGGREGATE_ID = buildMarketplaceListingAggregateId(SELLER, 'boots_01');
 const config = vi.hoisted(() => ({
-  mode: 'sandbox' as 'sandbox' | 'unavailable',
+  mode: 'sandbox' as string,
+}));
+
+vi.mock('@/services/homeserver/homeserver', () => ({
+  HomeserverService: { generateAuthTokenFlow: vi.fn() },
 }));
 
 vi.mock('@/config/commerce', async () => {
@@ -74,6 +78,31 @@ describe('MarketplaceGatewayService', () => {
 
     await expect(MarketplaceGatewayService.execute(SELLER, command())).rejects.toMatchObject({
       name: 'AppError',
+      code: 'BAD_REQUEST',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('routes command execution to the transaction-service transport in transaction-service mode', async () => {
+    config.mode = 'transaction-service';
+
+    // The real transport authenticates with a bearer session, never with the
+    // sandbox actor header — with no session established it must refuse to send.
+    await expect(MarketplaceGatewayService.execute(SELLER, command())).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'SESSION_EXPIRED',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps sandbox-only query projections unavailable in transaction-service mode', async () => {
+    config.mode = 'transaction-service';
+
+    await expect(MarketplaceGatewayService.getListing(AGGREGATE_ID)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(MarketplaceGatewayService.getOrders(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(MarketplaceGatewayService.getConversations(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(MarketplaceGatewayService.getNotifications(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(MarketplaceGatewayService.getPayment(SELLER, 'payment-id')).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
     expect(fetch).not.toHaveBeenCalled();

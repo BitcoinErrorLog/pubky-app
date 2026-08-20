@@ -42,7 +42,15 @@ const testnetValue = z.boolean();
 const sampleRateValue = z.number().min(0).max(1);
 const positiveIntValue = z.number().int().positive();
 const nonEmptyStringValue = z.string().min(1);
-const commerceAdapterModeValue = z.enum(['unavailable', 'sandbox', 'locks-paykit']);
+/**
+ * Commerce transport selection:
+ *  - `unavailable`: browse-only, no transactional commands (fails closed).
+ *  - `sandbox`: the in-memory prototype service (`services/marketplace/`); simulated outcomes.
+ *  - `transaction-service`: the durable Rust Marketplace Transaction Service (Pubky AuthToken
+ *    sessions, snake_case wire per ADR-0019); authoritative outcomes, sandbox-only payments.
+ *  - `locks-paykit`: reserved for real Locks/Paykit payments; not usable yet.
+ */
+const commerceAdapterModeValue = z.enum(['unavailable', 'sandbox', 'transaction-service', 'locks-paykit']);
 export type CommerceAdapterMode = z.infer<typeof commerceAdapterModeValue>;
 const pubkyValue = z
   .string()

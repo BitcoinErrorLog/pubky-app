@@ -13,6 +13,11 @@ import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import {
+  type MarketplaceReport,
+  marketplaceReportSchema,
+  MarketplaceTransactionService,
+} from './marketplace-transaction';
 
 const listingProjectionSchema = z
   .object({
@@ -265,17 +270,6 @@ const receiptSchema = z.object({
   issuedAt: z.string(),
 });
 
-const reportSchema = z.object({
-  id: z.uuid(),
-  reporterPubky: commercePubkySchema,
-  targetType: z.enum(['listing', 'user', 'message', 'review']),
-  targetId: z.string(),
-  reason: z.enum(['prohibited_item', 'counterfeit', 'scam', 'harassment', 'unsafe', 'other']),
-  details: z.string(),
-  state: z.literal('open'),
-  createdAt: z.string(),
-});
-
 export type MarketplaceListingProjection = z.infer<typeof listingProjectionSchema>;
 export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotification = z.infer<typeof notificationSchema>;
@@ -285,12 +279,29 @@ export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSch
 export type MarketplaceOrder = z.infer<typeof orderSchema>;
 export type MarketplacePayment = z.infer<typeof paymentSchema>;
 export type MarketplaceReceipt = z.infer<typeof receiptSchema>;
-export type MarketplaceReport = z.infer<typeof reportSchema>;
+export type { MarketplaceReport } from './marketplace-transaction';
 
+/**
+ * Facade over the two marketplace transports, selected by `commerceAdapterMode`:
+ *
+ * - `sandbox`: the in-memory prototype service. Trust-me `x-pubky-actor`
+ *   header, camelCase wire, full query surface. Simulated outcomes.
+ * - `transaction-service`: the durable Rust service (see
+ *   `MarketplaceTransactionService`). Bearer sessions from Pubky AuthTokens,
+ *   snake_case wire, commands and reports only. Authoritative outcomes.
+ * - anything else fails closed before any bytes leave the client.
+ *
+ * The sandbox-only query projections (listings, conversations, offers,
+ * notifications, orders, payments, receipts, attachments) have no counterpart
+ * on the durable service and keep their explicit sandbox assertion.
+ */
 export class MarketplaceGatewayService {
   private constructor() {}
 
   static async execute(actor: string, command: MarketplaceCommand): Promise<MarketplaceCommandResponse> {
+    if (getCommerceAdapterMode() === 'transaction-service') {
+      return await MarketplaceTransactionService.execute(actor, command);
+    }
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/commands`;
     const response = await safeFetch(
@@ -490,6 +501,9 @@ export class MarketplaceGatewayService {
   }
 
   static async getReports(actor: string): Promise<MarketplaceReport[]> {
+    if (getCommerceAdapterMode() === 'transaction-service') {
+      return await MarketplaceTransactionService.getReports(actor);
+    }
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/reports`;
     const response = await safeFetch(
@@ -499,7 +513,7 @@ export class MarketplaceGatewayService {
       'getReports',
     );
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getReports', url);
-    const parsed = z.object({ reports: z.array(reportSchema) }).safeParse(raw);
+    const parsed = z.object({ reports: z.array(marketplaceReportSchema) }).safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid moderation reports.', {
         service: ErrorService.Marketplace,

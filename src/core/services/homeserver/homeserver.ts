@@ -29,6 +29,7 @@ import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import type { Pubky as TPubkyModel } from '@/models/models.types';
 import type {
+  TGenerateAuthTokenFlowResult,
   TGenerateAuthUrlResult,
   THomeserverRestoreSessionParams,
   THomeserverSessionResult,
@@ -317,6 +318,45 @@ export class HomeserverService {
       };
     } catch (error) {
       return handleError({ error, additionalContext: { capabilities, relay: getDefaultHttpRelay() } });
+    }
+  }
+
+  /**
+   * Starts an authentication-only Pubky auth flow whose approval yields an `AuthToken` —
+   * a signed, time-bound proof of key ownership — instead of a homeserver session.
+   *
+   * Used to authenticate the user to external Pubky-verified services (e.g. the
+   * Marketplace Transaction Service, which verifies the token bytes with `pubky-common`).
+   * The capability set is empty on purpose: the token proves identity only and grants
+   * no homeserver access.
+   *
+   * @returns The authorization URL to show the signer, a lazy `awaitToken`, and a cancel
+   */
+  static generateAuthTokenFlow(): TGenerateAuthTokenFlowResult {
+    try {
+      const pubkySdk = this.getPubkySdk();
+      const flow = pubkySdk.startAuthFlow('', AuthFlowKind.signin(), getDefaultHttpRelay());
+      const authorizationUrl = flow.authorizationUrl;
+      let freed = false;
+      const free = () => {
+        if (freed) return;
+        freed = true;
+        try {
+          flow.free();
+        } catch {
+          // Ignore double-free or already-finalized WASM objects.
+        }
+      };
+      const awaitToken = async () => {
+        try {
+          return await flow.awaitToken();
+        } finally {
+          free();
+        }
+      };
+      return { authorizationUrl, awaitToken, cancelAuthFlow: free };
+    } catch (error) {
+      return handleError({ error, additionalContext: { relay: getDefaultHttpRelay() } });
     }
   }
 

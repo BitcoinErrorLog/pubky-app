@@ -2,6 +2,7 @@ import { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
 import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
+import { CommerceApplication } from '@/application/commerce/commerce';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
@@ -1400,6 +1401,7 @@ describe('AuthController', () => {
       const clearCookiesSpy = await spyOnClearCookies();
       const clearAllQueryClientsSpy = await spyOnClearAllQueryClients();
       const resetSpy = vi.spyOn(PubkySpecsSingleton, 'reset');
+      const clearMarketplaceSessionSpy = vi.spyOn(CommerceApplication, 'clearMarketplaceSession');
       const resetTtlSpy = vi.spyOn(TtlCoordinator, 'resetInstance');
       const resetStreamSpy = vi.spyOn(StreamCoordinator, 'resetInstance');
       const resetNotifCoordSpy = vi.spyOn(NotificationCoordinator, 'resetInstance');
@@ -1444,6 +1446,7 @@ describe('AuthController', () => {
 
       // Singletons
       expect(resetSpy).toHaveBeenCalledOnce();
+      expect(clearMarketplaceSessionSpy).toHaveBeenCalledOnce();
       expect(resetTtlSpy).toHaveBeenCalledOnce();
       expect(resetStreamSpy).toHaveBeenCalledOnce();
       expect(resetNotifCoordSpy).toHaveBeenCalledOnce();

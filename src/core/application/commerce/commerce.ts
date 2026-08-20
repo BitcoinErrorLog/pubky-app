@@ -9,6 +9,7 @@ import { CommerceHomeserverService } from '@/services/homeserver/commerce/commer
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { LocksGatewayService } from '@/services/locks/locks';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 
 export class CommerceApplication {
   private constructor() {}
@@ -78,6 +79,15 @@ export class CommerceApplication {
 
   static async executeMarketplaceCommand(actorPubky: string, command: MarketplaceCommand) {
     return await MarketplaceGatewayService.execute(actorPubky, command);
+  }
+
+  /**
+   * Drops the in-memory Marketplace Transaction Service session. Part of the
+   * sign-out teardown: the bearer token must not survive the user it was
+   * minted for (it lives only in memory, so this is the single cleanup point).
+   */
+  static clearMarketplaceSession(): void {
+    MarketplaceSessionService.clearSession();
   }
 
   static async getMarketplaceListingProjection(aggregateId: string) {
