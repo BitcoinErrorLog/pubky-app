@@ -62,6 +62,8 @@ export default defineConfig({
             'react/jsx-runtime',
             'react/jsx-dev-runtime',
             'next/font/google',
+            '@noble/hashes/blake3.js',
+            '@noble/hashes/utils.js',
           ],
         },
         test: {
