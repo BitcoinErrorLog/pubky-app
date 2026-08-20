@@ -3,6 +3,7 @@ import {
   getNotificationKindBucket,
   getUserIdFromNotification,
 } from '@/organisms/NotificationItem/NotificationItem.utils';
+import type { MarketplaceFeedNotification } from '@/pipes/marketplaceNotification/marketplaceNotification.types';
 import type { GroupableNotification, NotificationListEntry } from './NotificationsList.types';
 
 /** A run shorter than this renders as ungrouped NotificationItem rows. */
@@ -79,4 +80,55 @@ export function groupNotifications(notifications: FlatNotification[]): Notificat
   flush();
 
   return entries;
+}
+
+/** Timestamp a row sorts by: the head (newest) member for grouped runs. */
+function getEntryTimestamp(entry: NotificationListEntry): number {
+  if (entry.kind === 'group') return entry.notifications[0].timestamp;
+  return entry.notification.timestamp;
+}
+
+/**
+ * Interleaves marketplace notifications into the grouped social entries by
+ * timestamp, newest first.
+ *
+ * The social list paginates by timestamp cursor while the marketplace feed
+ * arrives whole, so while older social pages remain unloaded
+ * (`hasMoreSocial`), marketplace rows older than the oldest loaded social
+ * row are withheld — otherwise they would pin to the bottom of the list and
+ * then jump upward as each social page loads under them. They surface in
+ * order once pagination reaches their timestamps or the social history is
+ * exhausted. An empty social list shows every marketplace row: there is no
+ * cursor to respect.
+ */
+export function mergeMarketplaceNotifications(
+  socialEntries: NotificationListEntry[],
+  marketplaceItems: MarketplaceFeedNotification[],
+  { hasMoreSocial }: { hasMoreSocial: boolean },
+): NotificationListEntry[] {
+  if (marketplaceItems.length === 0) return socialEntries;
+
+  const sortedItems = [...marketplaceItems].sort((a, b) => b.timestamp - a.timestamp);
+  const oldestSocialTimestamp =
+    socialEntries.length > 0 ? getEntryTimestamp(socialEntries[socialEntries.length - 1]) : undefined;
+  const visibleItems =
+    hasMoreSocial && oldestSocialTimestamp !== undefined
+      ? sortedItems.filter((item) => item.timestamp >= oldestSocialTimestamp)
+      : sortedItems;
+
+  const merged: NotificationListEntry[] = [];
+  let itemIndex = 0;
+  for (const entry of socialEntries) {
+    const entryTimestamp = getEntryTimestamp(entry);
+    while (itemIndex < visibleItems.length && visibleItems[itemIndex].timestamp > entryTimestamp) {
+      merged.push({ kind: 'marketplace', notification: visibleItems[itemIndex] });
+      itemIndex += 1;
+    }
+    merged.push(entry);
+  }
+  while (itemIndex < visibleItems.length) {
+    merged.push({ kind: 'marketplace', notification: visibleItems[itemIndex] });
+    itemIndex += 1;
+  }
+  return merged;
 }

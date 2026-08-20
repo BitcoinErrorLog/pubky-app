@@ -121,6 +121,7 @@ vi.mock('@/stores/migration/migration.store', () => ({
 vi.mock('@/stores/notification/notification.store', () => ({
   useNotificationStore: createZustandLikeHook({
     selectUnread: () => 0,
+    selectTotalUnread: () => 0,
   }),
 }));
 

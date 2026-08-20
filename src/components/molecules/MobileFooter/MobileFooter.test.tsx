@@ -141,8 +141,9 @@ vi.mock('@/stores/localFiles/localFiles.store', () => ({
   useLocalFilesStore: vi.fn((selector: (state: { profile: string | null }) => unknown) => selector({ profile: null })),
 }));
 vi.mock('@/stores/notification/notification.store', () => ({
-  useNotificationStore: vi.fn((selector: (state: { selectUnread: () => number }) => unknown) =>
-    selector({ selectUnread: mockSelectUnread }),
+  useNotificationStore: vi.fn(
+    (selector: (state: { selectUnread: () => number; selectTotalUnread: () => number }) => unknown) =>
+      selector({ selectUnread: mockSelectUnread, selectTotalUnread: mockSelectUnread }),
   ),
 }));
 

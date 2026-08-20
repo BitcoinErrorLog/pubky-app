@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { type FlatNotification, NotificationType, PostChangedSource } from '@/models/notification/notification.types';
 import { getNotificationKindBucket } from '@/organisms/NotificationItem/NotificationItem.utils';
-import type { GroupableNotification } from './NotificationsList.types';
-import { groupNotifications } from './NotificationsList.utils';
+import type { MarketplaceFeedNotification } from '@/pipes/marketplaceNotification/marketplaceNotification.types';
+import type { GroupableNotification, NotificationListEntry } from './NotificationsList.types';
+import { groupNotifications, mergeMarketplaceNotifications } from './NotificationsList.utils';
 
 let nextTimestamp = 100_000;
 
@@ -59,9 +60,35 @@ function reply(actor: string): FlatNotification {
   };
 }
 
-/** Flattens entries back to their notifications, in render order. */
+/** Flattens entries back to their notifications, in render order. Marketplace
+ *  entries never appear here: `groupNotifications` only ever produces social rows. */
 const flatten = (entries: ReturnType<typeof groupNotifications>): FlatNotification[] =>
-  entries.flatMap((entry) => (entry.kind === 'group' ? entry.notifications : [entry.notification]));
+  entries.flatMap((entry) =>
+    entry.kind === 'group' ? entry.notifications : entry.kind === 'single' ? [entry.notification] : [],
+  );
+
+function marketplaceItem(timestamp: number, id = `marketplace:item-${timestamp}`): MarketplaceFeedNotification {
+  return {
+    id,
+    source: 'marketplace',
+    type: 'offer_received',
+    actorPubky: 's'.repeat(52),
+    aggregateId: 'offer:018f47d2-6a27-7c23-a62f-000000000001',
+    timestamp,
+    isUnread: true,
+    href: '/marketplace/offers',
+  };
+}
+
+/** Render-order identity of a merged list: business key / id per row. */
+const mergedOrder = (entries: NotificationListEntry[]): string[] =>
+  entries.map((entry) =>
+    entry.kind === 'group'
+      ? `group:${entry.notifications[0].timestamp}`
+      : entry.kind === 'marketplace'
+        ? entry.notification.id
+        : `social:${entry.notification.timestamp}`,
+  );
 
 describe('groupNotifications', () => {
   it('returns no entries for an empty list', () => {
@@ -229,5 +256,88 @@ describe('groupNotifications', () => {
     expect(flatten(entries)).toEqual(input);
     // The head is whatever came first in the input; grouping never reorders.
     expect(entries[0].kind === 'group' && entries[0].notifications[0]).toBe(older);
+  });
+});
+
+describe('mergeMarketplaceNotifications', () => {
+  function followAt(timestamp: number): FlatNotification {
+    return { id: `follow:${timestamp}:alice`, type: NotificationType.Follow, timestamp, followed_by: 'alice' };
+  }
+  const singleAt = (timestamp: number): NotificationListEntry => ({
+    kind: 'single',
+    notification: followAt(timestamp),
+  });
+
+  it('returns the social entries untouched when there is nothing to merge', () => {
+    const entries = [singleAt(3000), singleAt(1000)];
+
+    expect(mergeMarketplaceNotifications(entries, [], { hasMoreSocial: true })).toBe(entries);
+  });
+
+  it('interleaves marketplace rows among social entries by timestamp, newest first', () => {
+    const entries = [singleAt(5000), singleAt(3000), singleAt(1000)];
+    const items = [marketplaceItem(4000), marketplaceItem(6000), marketplaceItem(2000)];
+
+    const merged = mergeMarketplaceNotifications(entries, items, { hasMoreSocial: false });
+
+    expect(mergedOrder(merged)).toEqual([
+      'marketplace:item-6000',
+      'social:5000',
+      'marketplace:item-4000',
+      'social:3000',
+      'marketplace:item-2000',
+      'social:1000',
+    ]);
+  });
+
+  it('withholds marketplace rows older than the oldest loaded social row while more social pages remain', () => {
+    const entries = [singleAt(5000), singleAt(3000)];
+    const items = [marketplaceItem(4000), marketplaceItem(2000)];
+
+    const merged = mergeMarketplaceNotifications(entries, items, { hasMoreSocial: true });
+
+    // item-2000 stays hidden: rendering it now would pin it to the bottom and
+    // make it jump upward when the next social page loads beneath it.
+    expect(mergedOrder(merged)).toEqual(['social:5000', 'marketplace:item-4000', 'social:3000']);
+  });
+
+  it('appends older marketplace rows once the social history is exhausted', () => {
+    const entries = [singleAt(5000), singleAt(3000)];
+    const items = [marketplaceItem(4000), marketplaceItem(2000)];
+
+    const merged = mergeMarketplaceNotifications(entries, items, { hasMoreSocial: false });
+
+    expect(mergedOrder(merged)).toEqual([
+      'social:5000',
+      'marketplace:item-4000',
+      'social:3000',
+      'marketplace:item-2000',
+    ]);
+  });
+
+  it('shows every marketplace row when the social list is empty: there is no cursor to respect', () => {
+    const items = [marketplaceItem(2000), marketplaceItem(4000)];
+
+    const merged = mergeMarketplaceNotifications([], items, { hasMoreSocial: true });
+
+    expect(mergedOrder(merged)).toEqual(['marketplace:item-4000', 'marketplace:item-2000']);
+  });
+
+  it('sorts against a group entry by its newest member', () => {
+    const groupHead = deleted('alice');
+    const groupTail = deleted('alice');
+    groupHead.timestamp = 5000;
+    groupTail.timestamp = 3000;
+    const entries: NotificationListEntry[] = [{ kind: 'group', notifications: [groupHead, groupTail] }, singleAt(1000)];
+    const items = [marketplaceItem(6000), marketplaceItem(4000)];
+
+    const merged = mergeMarketplaceNotifications(entries, items, { hasMoreSocial: false });
+
+    expect(mergedOrder(merged)).toEqual([
+      'marketplace:item-6000',
+      'group:5000',
+      'marketplace:item-4000',
+      'social:1000',
+    ]);
   });
 });

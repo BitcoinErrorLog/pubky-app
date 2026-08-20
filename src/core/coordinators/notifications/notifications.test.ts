@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_ROUTES, AUTH_ROUTES, ONBOARDING_ROUTES, PROFILE_ROUTES } from '@/app/routes';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationController } from '@/controllers/notification/notification';
 import type { PollingServiceConfig } from '@/coordinators/base/coordinators.types';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
@@ -1257,6 +1258,47 @@ describe('NotificationCoordinator', () => {
     coordinator.stop();
     vi.advanceTimersByTime(5_000);
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  describe('Marketplace badge refresh', () => {
+    it('refreshes the marketplace badge on every poll', async () => {
+      const badgeSpy = vi.spyOn(CommerceController, 'refreshMarketplaceNotificationBadge').mockResolvedValue(undefined);
+      const { spy, coordinator } = setupAuthenticatedTest();
+      coordinator.configure({ pollOnStart: true, intervalMs: 1_000 } as Partial<CoordinatorConfigWithBase>);
+      coordinator.start();
+
+      await flushPromises();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(badgeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('still fetches social notifications when the marketplace refresh rejects', async () => {
+      vi.spyOn(CommerceController, 'refreshMarketplaceNotificationBadge').mockRejectedValue(
+        new Error('commerce backend down'),
+      );
+      const { spy, coordinator } = setupAuthenticatedTest();
+      coordinator.configure({ pollOnStart: true, intervalMs: 1_000 } as Partial<CoordinatorConfigWithBase>);
+      coordinator.start();
+
+      await flushPromises();
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      // The failure is contained: the next poll still runs both.
+      vi.advanceTimersByTime(1_000);
+      await flushPromises();
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    it('still refreshes the marketplace badge when the social fetch rejects', async () => {
+      const badgeSpy = vi.spyOn(CommerceController, 'refreshMarketplaceNotificationBadge').mockResolvedValue(undefined);
+      const { spy, coordinator } = setupAuthenticatedTest();
+      spy.mockRejectedValue(new Error('nexus down'));
+      coordinator.configure({ pollOnStart: true, intervalMs: 1_000 } as Partial<CoordinatorConfigWithBase>);
+      coordinator.start();
+
+      await flushPromises();
+      expect(badgeSpy).toHaveBeenCalledTimes(1);
+    });
   });
 
   afterEach(() => {

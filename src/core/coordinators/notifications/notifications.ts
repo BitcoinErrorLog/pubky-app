@@ -1,4 +1,5 @@
 import { AUTH_ROUTES } from '@/app/routes';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationController } from '@/controllers/notification/notification';
 import { Coordinator } from '@/coordinators/base/coordinator';
 import { routeToRegex } from '@/coordinators/base/coordinators.utils';
@@ -100,6 +101,16 @@ export class NotificationCoordinator extends Coordinator<NotificationCoordinator
     } catch (error) {
       Logger.error('Error polling notifications', { error });
       // Don't stop polling on error - just log and continue
+    }
+
+    // Marketplace badge refresh is isolated in its own try/catch so a commerce
+    // backend failure can never break social notification polling (and vice
+    // versa) — the general surface is shared by the whole app. The controller
+    // itself no-ops outside sandbox mode and for signed-out sessions.
+    try {
+      await CommerceController.refreshMarketplaceNotificationBadge();
+    } catch (error) {
+      Logger.error('Error polling marketplace notifications', { error });
     }
   }
 
