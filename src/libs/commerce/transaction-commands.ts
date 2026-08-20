@@ -227,6 +227,19 @@ export const openDisputeCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+/**
+ * `dispute.evidence` exists only on the durable service (the sandbox
+ * prototype had no evidence records). The body is stored append-only and is
+ * NEVER echoed back in the command result or any general projection — it is
+ * readable solely through the scoped case-file read
+ * `GET /v1/orders/{id}/evidence` (the two dispute participants plus
+ * configured moderators, with moderator reads audited).
+ */
+export const submitDisputeEvidenceCommandSchema = createCommerceCommandSchema(
+  'dispute.evidence',
+  orderIdPayload.extend({ body: z.string().trim().min(1).max(2_000) }).strict(),
+);
+
 export const resolveDisputeCommandSchema = createCommerceCommandSchema(
   'dispute.resolve',
   orderIdPayload
@@ -295,6 +308,7 @@ export const marketplaceCommandSchema = z.union([
   receiveReturnCommandSchema,
   recordExternalRefundCommandSchema,
   openDisputeCommandSchema,
+  submitDisputeEvidenceCommandSchema,
   resolveDisputeCommandSchema,
   createReviewCommandSchema,
   createMarketplaceReportCommandSchema,
@@ -370,6 +384,7 @@ export type ApproveReturnCommand = z.infer<typeof approveReturnCommandSchema>;
 export type ReceiveReturnCommand = z.infer<typeof receiveReturnCommandSchema>;
 export type RecordExternalRefundCommand = z.infer<typeof recordExternalRefundCommandSchema>;
 export type OpenDisputeCommand = z.infer<typeof openDisputeCommandSchema>;
+export type SubmitDisputeEvidenceCommand = z.infer<typeof submitDisputeEvidenceCommandSchema>;
 export type ResolveDisputeCommand = z.infer<typeof resolveDisputeCommandSchema>;
 export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
 export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceReportCommandSchema>;

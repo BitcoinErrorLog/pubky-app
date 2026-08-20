@@ -13,12 +13,13 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const { orders, isLoading, error, advancePayment, actOnOrder, adapterMode } = useMarketplaceOrders();
+  const { orders, isLoading, error, refresh, advancePayment, actOnOrder, adapterMode } = useMarketplaceOrders();
   const isSandbox = adapterMode === 'sandbox';
   const hasTransactionBackend = adapterMode === 'sandbox' || adapterMode === 'transaction-service';
 
@@ -110,17 +111,24 @@ export function MarketplaceOrders() {
                         </Typography>
                       )}
                       {order.dispute && (
-                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
-                          Dispute {order.dispute.state}: {order.dispute.reason}
-                          {order.dispute.resolution
-                            ? ` · resolved as ${order.dispute.resolution.replaceAll('_', ' ')}`
-                            : ''}
-                          {/* Evidence bodies are service-private (ADR-0019 §8) — nobody,
-                              including the submitter, can read them back. */}
-                          {order.dispute.evidenceCount
-                            ? ` · ${order.dispute.evidenceCount} sealed evidence item(s)`
-                            : ''}
-                        </Typography>
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <Typography as="p" className="text-sm text-muted-foreground">
+                            Dispute {order.dispute.state}: {order.dispute.reason}
+                            {order.dispute.resolution
+                              ? ` · resolved as ${order.dispute.resolution.replaceAll('_', ' ')}`
+                              : ''}
+                            {/* The count comes from the projection; the bodies do not.
+                                Evidence bodies are readable ONLY through the scoped
+                                case-file read (ADR-0019 §8), served to the two dispute
+                                participants and configured moderators — the dialog below
+                                is that read. The sandbox has no evidence store, so the
+                                case file only exists against the durable service. */}
+                            {order.dispute.evidenceCount ? ` · ${order.dispute.evidenceCount} evidence item(s)` : ''}
+                          </Typography>
+                          {!isSandbox && (
+                            <MarketplaceDisputeCaseDialog orderId={order.id} canResolve={false} onChanged={refresh} />
+                          )}
+                        </div>
                       )}
                       {order.externalRefund && (
                         <Typography as="p" className="mt-2 text-sm text-brand">

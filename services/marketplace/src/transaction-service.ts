@@ -809,6 +809,11 @@ export class MarketplaceTransactionService {
         return this.recordExternalRefund(actorPubky, command);
       case 'dispute.open':
         return this.openDispute(actorPubky, command);
+      case 'dispute.evidence':
+        // The sandbox prototype keeps no evidence records — the command
+        // exists only on the durable service. Refuse honestly rather than
+        // accept a body this service could neither store nor serve.
+        return failure('INVALID_COMMAND', 'The sandbox marketplace does not store dispute evidence.');
       case 'dispute.resolve':
         return this.resolveDispute(actorPubky, command);
       case 'review.create':
