@@ -823,6 +823,11 @@ export class MarketplaceTransactionService {
         return this.resolveDispute(actorPubky, command);
       case 'review.create':
         return this.createReview(actorPubky, command);
+      case 'review.update':
+        // The sandbox prototype has no review editing — the command exists
+        // only on the durable service (24-hour edit window). Refuse honestly
+        // rather than mutate a review this service never allowed editing.
+        return failure('INVALID_COMMAND', 'The sandbox marketplace does not support review editing.');
       case 'trust.report':
         return this.createReport(actorPubky, command);
     }

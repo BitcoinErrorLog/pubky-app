@@ -6,10 +6,16 @@ import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 
 /**
- * Card-level scenarios for catalog cards rendered purely from Nexus index
- * entries (no hydrated homeserver record, no live bid state). The full
- * Marketplace template keeps its hero above the fold, so these render the
- * bare grid to keep every card term visible in the capture.
+ * Card-level scenarios for catalog cards rendered from Nexus index entries.
+ * The full Marketplace template keeps its hero above the fold, so these
+ * render the bare grid to keep every card term visible in the capture.
+ *
+ * Live bid state does not come from the index: in `transaction-service`
+ * mode each visible auction card lazily reads the service's public listing
+ * projection (`useMarketplaceLiveBid`). That hook is mocked below — per
+ * listing id — so the live-bid scenario captures the exact states the
+ * service can produce (bids placed / zero bids / unreachable) without a
+ * network dependency in VRT.
  */
 const fixtures = vi.hoisted(async () => {
   const { catalogItemFromCatalogEntry, filterMarketplaceCatalog } =
@@ -82,10 +88,37 @@ const fixtures = vi.hoisted(async () => {
     }),
   );
 
+  // Same terms as the rangefinder above, but under the listing id the mocked
+  // live-bid hook answers for — so ONLY the live-bid scenario shows a current
+  // bid and the other scenarios keep their baselines (terms only).
+  const auctionWithLiveBid = catalogItemFromCatalogEntry(
+    createCommerceCatalogEntryFixture({
+      id: `${'n'.repeat(52)}:live_bid_rangefinder`,
+      seller_id: 'n'.repeat(52),
+      listing_id: 'live_bid_rangefinder',
+      title: '35mm rangefinder camera',
+      description: 'Recently serviced mechanical rangefinder with bright optics.',
+      category_id: 'electronics-cameras-film',
+      condition: 'excellent',
+      tags: ['film', 'camera'],
+      sale_format: 'auction',
+      price: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      auction: {
+        startsAt: '2026-08-19T20:00:00.000Z',
+        endsAt: '2026-08-29T20:00:00.000Z',
+        reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
+        buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      },
+      updated_at: Date.parse('2026-08-19T21:02:00.000Z'),
+    }),
+  );
+
   const fixedPrice = catalogItemFromCatalogEntry(createCommerceCatalogEntryFixture());
 
   return {
     termStates: [auctionWithTerms, auctionMissingTerms, fixedPrice],
+    liveBidStates: [auctionWithLiveBid, auctionMissingTerms, fixedPrice],
     endingSoon: filterMarketplaceCatalog([fixedPrice, auctionWithTerms, auctionMissingTerms, auctionEndingSooner], {
       query: '',
       categoryId: null,
@@ -108,6 +141,23 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace',
 }));
 
+// Only the dedicated live-bid fixture gets an answer; every other card
+// resolves to `null`, which is also what the terms-only scenarios (no
+// durable backend reachable) render with.
+vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
+  useMarketplaceLiveBid: (_sellerPubky: string, listingId: string) => ({
+    ref: () => {},
+    bid:
+      listingId === 'live_bid_rangefinder'
+        ? {
+            currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 },
+            bidCount: 4,
+            reserveMet: true,
+          }
+        : null,
+  }),
+}));
+
 describe('Marketplace listing cards — visual regression', () => {
   it('renders index-entry auction cards with terms, missing terms, and a fixed-price control at desktop viewport', async () => {
     const { termStates, shopNames } = await fixtures;
@@ -120,6 +170,22 @@ describe('Marketplace listing cards — visual regression', () => {
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-auction-terms-desktop');
+  });
+
+  it('renders a live current bid with bid count next to bid-less and fixed-price controls at desktop viewport', async () => {
+    const { liveBidStates, shopNames } = await fixtures;
+    // The rangefinder card is the one the mocked hook answers for, so it
+    // relabels to "Current bid" with a bid count while its term-less and
+    // fixed-price neighbours stay unchanged.
+    const screen = await renderForVRT(
+      <div className="grid grid-cols-4 gap-5 p-6">
+        {liveBidStates.map((listing) => (
+          <MarketplaceListingCard key={listing.id} listing={listing} shopName={shopNames.get(listing.sellerId)} />
+        ))}
+      </div>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-live-bid-desktop');
   });
 
   it('renders the ending-soon ordering with a term-less auction after known end times at desktop viewport', async () => {

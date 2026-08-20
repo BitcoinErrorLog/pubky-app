@@ -21,6 +21,7 @@ export const useNotificationStore = create<NotificationStore>()(
           lastRead: state.lastRead,
           lastPolledTimestamp: state.lastPolledTimestamp,
           unread: state.unread,
+          marketplaceUnread: state.marketplaceUnread,
         }),
       },
     ),

@@ -953,6 +953,11 @@ describe('MarketplaceTransactionService', () => {
     await expect(
       service.execute(BUYER, orderCommand('review.create', order.id, 6, { rating: 4, text: 'Duplicate.' }, 1_205)),
     ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
+    // Review editing exists only on the durable service (24-hour window); the
+    // sandbox prototype refuses instead of silently mutating a review.
+    await expect(
+      service.execute(BUYER, orderCommand('review.update', order.id, 6, { rating: 3, text: 'Edited.' }, 1_206)),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_COMMAND' } });
   });
 
   it('runs return approval, receipt, and externally verified refund without claiming custody', async () => {

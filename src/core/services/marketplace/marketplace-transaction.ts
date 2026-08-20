@@ -71,6 +71,7 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'dispute.evidence',
   'dispute.resolve',
   'review.create',
+  'review.update',
   'trust.report',
 ] satisfies MarketplaceCommand['kind'][]);
 

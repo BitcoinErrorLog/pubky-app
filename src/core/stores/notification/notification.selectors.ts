@@ -14,4 +14,12 @@ export const createNotificationSelectors = (get: ZustandGet<NotificationStore>) 
   selectUnread: () => {
     return get().unread;
   },
+
+  selectMarketplaceUnread: () => {
+    return get().marketplaceUnread;
+  },
+
+  selectTotalUnread: () => {
+    return get().unread + get().marketplaceUnread;
+  },
 });

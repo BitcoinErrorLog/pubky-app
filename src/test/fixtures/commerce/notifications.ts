@@ -34,7 +34,8 @@ export const NOTIFICATION_TYPES = Object.keys(NOTIFICATION_TYPE_UNREAD) as reado
 
 function uuid(seed: number): string {
   const hex = seed.toString(16).padStart(12, '0');
-  return `018f47d2-6a27-7c23-c62f-${hex}`;
+  // The variant nibble must be 8–b for `z.uuid()` to accept the id.
+  return `018f47d2-6a27-7c23-a62f-${hex}`;
 }
 
 export function createNotificationFixture(

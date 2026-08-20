@@ -35,7 +35,13 @@ describe('Marketplace order action dialogs — visual regression', () => {
 
     const screen = await renderForVRT(
       <ActionsHarness>
-        <MarketplaceOrderActions order={deliveredOrder} isBuyer canCancel actOnOrder={async () => false} />
+        <MarketplaceOrderActions
+          order={deliveredOrder}
+          isBuyer
+          canCancel
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -48,7 +54,13 @@ describe('Marketplace order action dialogs — visual regression', () => {
 
     const screen = await renderForVRT(
       <ActionsHarness>
-        <MarketplaceOrderActions order={deliveredOrder} isBuyer canCancel actOnOrder={async () => false} />
+        <MarketplaceOrderActions
+          order={deliveredOrder}
+          isBuyer
+          canCancel
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_MOBILE },
     );
@@ -61,7 +73,13 @@ describe('Marketplace order action dialogs — visual regression', () => {
 
     const screen = await renderForVRT(
       <ActionsHarness>
-        <MarketplaceOrderActions order={deliveredOrder} isBuyer canCancel actOnOrder={async () => false} />
+        <MarketplaceOrderActions
+          order={deliveredOrder}
+          isBuyer
+          canCancel
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -74,7 +92,13 @@ describe('Marketplace order action dialogs — visual regression', () => {
 
     const screen = await renderForVRT(
       <ActionsHarness>
-        <MarketplaceOrderActions order={deliveredOrder} isBuyer canCancel actOnOrder={async () => false} />
+        <MarketplaceOrderActions
+          order={deliveredOrder}
+          isBuyer
+          canCancel
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -87,7 +111,13 @@ describe('Marketplace order action dialogs — visual regression', () => {
 
     const screen = await renderForVRT(
       <ActionsHarness>
-        <MarketplaceOrderActions order={paidOrder} isBuyer={false} canCancel actOnOrder={async () => false} />
+        <MarketplaceOrderActions
+          order={paidOrder}
+          isBuyer={false}
+          canCancel
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -100,7 +130,13 @@ describe('Marketplace order action dialogs — visual regression', () => {
 
     const screen = await renderForVRT(
       <ActionsHarness>
-        <MarketplaceOrderActions order={returnReceivedOrder} isBuyer={false} canCancel actOnOrder={async () => false} />
+        <MarketplaceOrderActions
+          order={returnReceivedOrder}
+          isBuyer={false}
+          canCancel
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );

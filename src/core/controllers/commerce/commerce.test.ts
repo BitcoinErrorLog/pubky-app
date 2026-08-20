@@ -1,20 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
+import type { CommerceAdapterMode } from '@/config/commerce';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import { useNotificationStore } from '@/stores/notification/notification.store';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
   createCommerceListingFixture,
   createCommerceShopFixture,
 } from '@/test/fixtures/commerce/commerce';
+import { createNotificationFixture } from '@/test/fixtures/commerce/notifications';
 import { CommerceController } from './commerce';
+
+const commerceConfig = vi.hoisted(() => ({ mode: 'sandbox' as string }));
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommerceAdapterMode: () => commerceConfig.mode as CommerceAdapterMode };
+});
 
 describe('CommerceController', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    commerceConfig.mode = 'sandbox';
     useAuthStore.setState({ currentUserPubky: COMMERCE_FIXTURE_SELLER });
     useCommerceStore.getState().reset();
+    useNotificationStore.getState().reset();
   });
 
   it('maps catalog filters onto the server-side filters Nexus supports', async () => {
@@ -191,5 +202,159 @@ describe('CommerceController', () => {
         new File(['<svg/>'], 'unsafe.svg', { type: 'image/svg+xml' }),
       ),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
+  describe('getMarketplaceFeedNotifications', () => {
+    it('normalizes projections to the redacted feed shape for the general surface', async () => {
+      vi.spyOn(CommerceApplication, 'getMarketplaceNotifications').mockResolvedValue([
+        createNotificationFixture('order_shipped', { readAt: null }),
+      ]);
+
+      const items = await CommerceController.getMarketplaceFeedNotifications();
+
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ source: 'marketplace', type: 'order_shipped', isUnread: true });
+    });
+
+    it('never returns unread rows in transaction-service mode: durable rows carry no read state', async () => {
+      commerceConfig.mode = 'transaction-service';
+      vi.spyOn(CommerceApplication, 'getMarketplaceNotifications').mockResolvedValue([
+        createNotificationFixture('order_shipped', { readAt: null, revision: undefined }),
+      ]);
+
+      const items = await CommerceController.getMarketplaceFeedNotifications();
+
+      expect(items).toHaveLength(1);
+      expect(items[0].isUnread).toBe(false);
+    });
+
+    it('returns nothing without fetching when no transactional backend is configured', async () => {
+      commerceConfig.mode = 'unavailable';
+      const fetchNotifications = vi.spyOn(CommerceApplication, 'getMarketplaceNotifications');
+
+      await expect(CommerceController.getMarketplaceFeedNotifications()).resolves.toEqual([]);
+      expect(fetchNotifications).not.toHaveBeenCalled();
+    });
+
+    it('returns nothing without fetching for signed-out sessions', async () => {
+      useAuthStore.setState({ currentUserPubky: null });
+      const fetchNotifications = vi.spyOn(CommerceApplication, 'getMarketplaceNotifications');
+
+      await expect(CommerceController.getMarketplaceFeedNotifications()).resolves.toEqual([]);
+      expect(fetchNotifications).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('refreshMarketplaceNotificationBadge', () => {
+    it('counts unread sandbox notifications into the notification store', async () => {
+      vi.spyOn(CommerceApplication, 'getMarketplaceNotifications').mockResolvedValue([
+        createNotificationFixture('offer_received', { readAt: null }),
+        createNotificationFixture('outbid', { readAt: null }),
+        createNotificationFixture('order_shipped', { readAt: '2026-08-19T18:00:00.000Z' }),
+      ]);
+
+      await CommerceController.refreshMarketplaceNotificationBadge();
+
+      expect(useNotificationStore.getState().selectMarketplaceUnread()).toBe(2);
+    });
+
+    it('keeps the badge at 0 without fetching in transaction-service mode: no read state means no actionable count', async () => {
+      commerceConfig.mode = 'transaction-service';
+      useNotificationStore.getState().setMarketplaceUnread(4);
+      const fetchNotifications = vi.spyOn(CommerceApplication, 'getMarketplaceNotifications');
+
+      await CommerceController.refreshMarketplaceNotificationBadge();
+
+      expect(useNotificationStore.getState().selectMarketplaceUnread()).toBe(0);
+      expect(fetchNotifications).not.toHaveBeenCalled();
+    });
+
+    it('clears the badge without fetching for signed-out sessions', async () => {
+      useAuthStore.setState({ currentUserPubky: null });
+      useNotificationStore.getState().setMarketplaceUnread(4);
+      const fetchNotifications = vi.spyOn(CommerceApplication, 'getMarketplaceNotifications');
+
+      await CommerceController.refreshMarketplaceNotificationBadge();
+
+      expect(useNotificationStore.getState().selectMarketplaceUnread()).toBe(0);
+      expect(fetchNotifications).not.toHaveBeenCalled();
+    });
+
+    it('never fetches marketplace notification preferences: the badge only needs the rows', async () => {
+      vi.spyOn(CommerceApplication, 'getMarketplaceNotifications').mockResolvedValue([]);
+      const fetchPreferences = vi.spyOn(CommerceApplication, 'getMarketplaceNotificationPreferences');
+
+      await CommerceController.refreshMarketplaceNotificationBadge();
+
+      expect(fetchPreferences).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('markAllMarketplaceNotificationsRead', () => {
+    it('sends one mark_read command per unread sandbox row and clears the badge after all succeed', async () => {
+      const unreadA = createNotificationFixture('offer_received', { readAt: null });
+      const unreadB = createNotificationFixture('outbid', { readAt: null });
+      const read = createNotificationFixture('order_shipped', { readAt: '2026-08-19T18:00:00.000Z' });
+      vi.spyOn(CommerceApplication, 'getMarketplaceNotifications').mockResolvedValue([unreadA, unreadB, read]);
+      const execute = vi
+        .spyOn(CommerceApplication, 'executeMarketplaceCommand')
+        .mockResolvedValue({ ok: true } as never);
+      useNotificationStore.getState().setMarketplaceUnread(2);
+
+      await CommerceController.markAllMarketplaceNotificationsRead();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+      for (const notification of [unreadA, unreadB]) {
+        expect(execute).toHaveBeenCalledWith(
+          COMMERCE_FIXTURE_SELLER,
+          expect.objectContaining({
+            aggregateId: `notification:${notification.id}`,
+            expectedRevision: notification.revision,
+            kind: 'notification.mark_read',
+            payload: { notificationId: notification.id },
+          }),
+        );
+      }
+      expect(useNotificationStore.getState().selectMarketplaceUnread()).toBe(0);
+    });
+
+    it('keeps the badge when any mark_read command fails, so unread rows are never hidden by a failed write', async () => {
+      vi.spyOn(CommerceApplication, 'getMarketplaceNotifications').mockResolvedValue([
+        createNotificationFixture('offer_received', { readAt: null }),
+        createNotificationFixture('outbid', { readAt: null }),
+      ]);
+      vi.spyOn(CommerceApplication, 'executeMarketplaceCommand')
+        .mockResolvedValueOnce({ ok: true } as never)
+        .mockResolvedValueOnce({ ok: false, error: { code: 'NOT_FOUND', message: 'gone' } } as never);
+      useNotificationStore.getState().setMarketplaceUnread(2);
+
+      await CommerceController.markAllMarketplaceNotificationsRead();
+
+      expect(useNotificationStore.getState().selectMarketplaceUnread()).toBe(2);
+    });
+
+    it('writes nothing in transaction-service mode: the durable service has no mark_read command', async () => {
+      commerceConfig.mode = 'transaction-service';
+      const fetchNotifications = vi.spyOn(CommerceApplication, 'getMarketplaceNotifications');
+      const execute = vi.spyOn(CommerceApplication, 'executeMarketplaceCommand');
+
+      await CommerceController.markAllMarketplaceNotificationsRead();
+
+      expect(fetchNotifications).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('clears the badge without commands when nothing is unread', async () => {
+      vi.spyOn(CommerceApplication, 'getMarketplaceNotifications').mockResolvedValue([
+        createNotificationFixture('order_shipped', { readAt: '2026-08-19T18:00:00.000Z' }),
+      ]);
+      const execute = vi.spyOn(CommerceApplication, 'executeMarketplaceCommand');
+      useNotificationStore.getState().setMarketplaceUnread(1);
+
+      await CommerceController.markAllMarketplaceNotificationsRead();
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(useNotificationStore.getState().selectMarketplaceUnread()).toBe(0);
+    });
   });
 });

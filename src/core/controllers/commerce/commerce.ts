@@ -1,4 +1,5 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { getCommerceAdapterMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
@@ -6,10 +7,12 @@ import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
+import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import type { CommerceConditionFilter, CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
+import { useNotificationStore } from '@/stores/notification/notification.store';
 
 export class CommerceController {
   private constructor() {}
@@ -128,6 +131,84 @@ export class CommerceController {
 
   static async getMarketplaceNotificationPreferences() {
     return await CommerceApplication.getMarketplaceNotificationPreferences(this.getCurrentUserPubky());
+  }
+
+  /**
+   * Marketplace notifications shaped for the app's general notification
+   * surface: normalized to the redacted feed shape (type, actor, aggregate
+   * reference, timestamp, deep link — ADR-0019 §8 allows nothing more), with
+   * `isUnread` honest per adapter mode. Returns [] when signed out or when
+   * the mode has no transactional backend, so the shared surface renders
+   * exactly what it renders today for those sessions.
+   */
+  static async getMarketplaceFeedNotifications() {
+    const adapterMode = getCommerceAdapterMode();
+    if (!isTransactionalCommerceMode(adapterMode) || !useAuthStore.getState().currentUserPubky) {
+      return [];
+    }
+    const notifications = await CommerceApplication.getMarketplaceNotifications(this.getCurrentUserPubky());
+    return notifications.map((notification) =>
+      MarketplaceNotificationNormalizer.toFeedNotification(notification, adapterMode),
+    );
+  }
+
+  /**
+   * Recounts unread marketplace notifications into the notification store so
+   * the app-wide badge (header/footer avatar) includes commerce activity.
+   *
+   * Only the sandbox stores read state (`readAt` + `notification.mark_read`),
+   * so only sandbox rows can contribute: in `transaction-service` mode the
+   * durable service delivers immutable outbox rows the user could never mark
+   * read, and a badge count that can never be cleared is a count the user
+   * cannot act on — it stays 0 there (and in the modes with no backend at
+   * all) without even fetching. Signed-out sessions also clear to 0.
+   */
+  static async refreshMarketplaceNotificationBadge(): Promise<void> {
+    const notificationStore = useNotificationStore.getState();
+    if (getCommerceAdapterMode() !== 'sandbox' || !useAuthStore.getState().currentUserPubky) {
+      notificationStore.setMarketplaceUnread(0);
+      return;
+    }
+    const notifications = await CommerceApplication.getMarketplaceNotifications(this.getCurrentUserPubky());
+    notificationStore.setMarketplaceUnread(notifications.filter(({ readAt }) => !readAt).length);
+  }
+
+  /**
+   * Marks every unread marketplace notification read, mirroring what opening
+   * the general notifications page does for social notifications. Sandbox
+   * only: the durable service has no `notification.mark_read` command
+   * (delivered notifications are immutable outbox rows), so in
+   * `transaction-service` mode this is a no-op instead of a fake write — the
+   * badge there is already 0 because durable rows never count as unread.
+   *
+   * The store's marketplace badge is cleared only after every mark-read
+   * command succeeds, so a failed write never hides notifications the
+   * backend still reports unread (same rule as the social `markAllAsRead`).
+   */
+  static async markAllMarketplaceNotificationsRead(): Promise<void> {
+    if (getCommerceAdapterMode() !== 'sandbox' || !useAuthStore.getState().currentUserPubky) return;
+    const notifications = await CommerceApplication.getMarketplaceNotifications(this.getCurrentUserPubky());
+    const unread = notifications.filter(({ readAt }) => !readAt);
+    if (unread.length === 0) {
+      useNotificationStore.getState().setMarketplaceUnread(0);
+      return;
+    }
+    const results = await Promise.all(
+      unread.map((notification) =>
+        this.executeMarketplaceCommand({
+          version: 1,
+          commandId: crypto.randomUUID(),
+          aggregateId: `notification:${notification.id}`,
+          expectedRevision: notification.revision,
+          issuedAt: new Date().toISOString(),
+          kind: 'notification.mark_read',
+          payload: { notificationId: notification.id },
+        }),
+      ),
+    );
+    if (results.every((result) => result.ok)) {
+      useNotificationStore.getState().setMarketplaceUnread(0);
+    }
   }
 
   static async getMarketplaceOrders() {

@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/atoms/Card/Card';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { cn } from '@/libs/utils/utils';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
@@ -31,15 +32,22 @@ export interface MarketplaceListingCardProps {
  *
  * Truthfulness constraint: live auction state (current bid, bid count) is
  * not part of the listing record or its index projection — it lives in the
- * transaction service and is only fetched on the listing detail page. The
- * card therefore shows only the seller's auction terms: the starting bid
- * (labeled as such, never as a current price), the optional buy-now price,
- * and the end date. An auction whose index row predates the term fields
- * (`auction === null`) simply omits the term badges instead of guessing.
+ * transaction service. In `transaction-service` mode the card lazily reads
+ * the service's public listing projection once it scrolls into view (see
+ * `useMarketplaceLiveBid` for the cost model) and, only when at least one
+ * bid actually exists, relabels the price as the current bid. In every
+ * other case — no bids yet, service unreachable, sandbox or read-only
+ * modes — the card shows only the seller's terms from the index: the
+ * starting bid (labeled as such, never as a current price), the optional
+ * buy-now price, and the end date. An auction whose index row predates the
+ * term fields (`auction === null`) simply omits the term badges instead of
+ * guessing.
  */
 export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: MarketplaceListingCardProps) {
   const background = MEDIA_BACKGROUNDS[colorIndex(listing.listingId)];
   const isAuction = listing.saleFormat === 'auction';
+  const { ref: liveBidRef, bid } = useMarketplaceLiveBid(listing.sellerId, listing.listingId, isAuction);
+  const hasLiveBid = isAuction && bid !== null && bid.bidCount > 0;
 
   return (
     <Link
@@ -49,6 +57,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
       aria-label={`View ${listing.title}`}
     >
       <Card
+        ref={liveBidRef}
         className={cn(
           'h-full gap-0 overflow-hidden border border-border/60 py-0 transition-all group-hover:-translate-y-0.5 group-hover:border-brand/40 group-hover:shadow-lg',
           layout === 'list' && 'flex-row',
@@ -80,12 +89,17 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
             <div className="flex shrink-0 flex-col items-end">
               {isAuction && (
                 <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                  Starting bid
+                  {hasLiveBid ? 'Current bid' : 'Starting bid'}
                 </Typography>
               )}
               <Typography as="p" className="text-base font-bold text-brand">
-                {formatCommerceMoney(listing.price)}
+                {formatCommerceMoney(hasLiveBid ? bid.currentPrice : listing.price)}
               </Typography>
+              {hasLiveBid && (
+                <Typography as="span" className="text-xs text-muted-foreground">
+                  {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}
+                </Typography>
+              )}
               {listing.auction?.buyNowPrice && (
                 <Typography as="span" className="text-xs text-muted-foreground">
                   Buy now {formatCommerceMoney(listing.auction.buyNowPrice)}

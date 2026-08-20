@@ -154,6 +154,7 @@ export function MarketplaceOrders() {
                       order={order}
                       isBuyer={isBuyer}
                       canCancel={isSandbox}
+                      canEditReview={adapterMode === 'transaction-service'}
                       actOnOrder={actOnOrder}
                     />
                   </CardContent>

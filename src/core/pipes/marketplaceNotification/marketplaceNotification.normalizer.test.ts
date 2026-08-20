@@ -1,0 +1,115 @@
+import { describe, expect, it } from 'vitest';
+import { getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+import { createNotificationFixture, NOTIFICATION_TYPES } from '@/test/fixtures/commerce/notifications';
+import { MarketplaceNotificationNormalizer } from './marketplaceNotification.normalizer';
+import { MARKETPLACE_FEED_NOTIFICATION_KEYS } from './marketplaceNotification.types';
+
+const SELLER = 's'.repeat(52);
+
+describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
+  it('maps the projection onto the redacted feed shape', () => {
+    const notification = createNotificationFixture('offer_received', {
+      createdAt: '2026-08-19T12:00:00.000Z',
+      readAt: null,
+    });
+
+    const item = MarketplaceNotificationNormalizer.toFeedNotification(notification, 'sandbox');
+
+    expect(item).toEqual({
+      id: `marketplace:${notification.id}`,
+      source: 'marketplace',
+      type: 'offer_received',
+      actorPubky: notification.actorPubky,
+      aggregateId: notification.aggregateId,
+      timestamp: Date.parse('2026-08-19T12:00:00.000Z'),
+      isUnread: true,
+      href: MARKETPLACE_ROUTES.OFFERS,
+    });
+  });
+
+  it('drops every field beyond the redacted set, even ones smuggled through the passthrough schema', () => {
+    // The projection schema is passthrough, so a backend could attach more.
+    // ADR-0019 §8 bars order/payment detail, delivery info, message bodies,
+    // evidence, and bearer material from notification payloads — the feed
+    // shape must not let any of it survive into the shared surface.
+    const smuggled = {
+      ...createNotificationFixture('order_shipped'),
+      deliveryAddress: { line1: '1 Secret Lane' },
+      paymentAddress: 'bc1qsecret',
+      messageBody: 'private message text',
+      evidenceBody: 'dispute evidence text',
+      bundleId: 'bearer-bundle',
+    } as MarketplaceNotification;
+
+    const item = MarketplaceNotificationNormalizer.toFeedNotification(smuggled, 'sandbox');
+
+    expect(Object.keys(item).sort()).toEqual([...MARKETPLACE_FEED_NOTIFICATION_KEYS].sort());
+    const serialized = JSON.stringify(item);
+    for (const leaked of [
+      '1 Secret Lane',
+      'bc1qsecret',
+      'private message text',
+      'dispute evidence text',
+      'bearer-bundle',
+    ]) {
+      expect(serialized).not.toContain(leaked);
+    }
+  });
+
+  it('treats a sandbox row with null readAt as unread and a read row as read', () => {
+    const unread = createNotificationFixture('outbid', { readAt: null });
+    const read = createNotificationFixture('outbid', { readAt: '2026-08-19T18:00:00.000Z' });
+
+    expect(MarketplaceNotificationNormalizer.toFeedNotification(unread, 'sandbox').isUnread).toBe(true);
+    expect(MarketplaceNotificationNormalizer.toFeedNotification(read, 'sandbox').isUnread).toBe(false);
+  });
+
+  it('never marks a durable-service row unread: the service stores no read state to clear', () => {
+    const row = createNotificationFixture('outbid', { readAt: null });
+
+    expect(MarketplaceNotificationNormalizer.toFeedNotification(row, 'transaction-service').isUnread).toBe(false);
+  });
+});
+
+describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
+  const expectedRoutes: Record<MarketplaceNotification['type'], string> = {
+    message_received: MARKETPLACE_ROUTES.MESSAGES,
+    offer_received: MARKETPLACE_ROUTES.OFFERS,
+    offer_countered: MARKETPLACE_ROUTES.OFFERS,
+    offer_accepted: MARKETPLACE_ROUTES.OFFERS,
+    offer_rejected: MARKETPLACE_ROUTES.OFFERS,
+    outbid: getMarketplaceListingRoute(SELLER, 'boots_01'),
+    auction_won: getMarketplaceListingRoute(SELLER, 'boots_01'),
+    auction_ended: getMarketplaceListingRoute(SELLER, 'boots_01'),
+    order_created: MARKETPLACE_ROUTES.ORDERS,
+    payment_confirmed: MARKETPLACE_ROUTES.ORDERS,
+    order_cancelled: MARKETPLACE_ROUTES.ORDERS,
+    order_shipped: MARKETPLACE_ROUTES.ORDERS,
+    order_delivered: MARKETPLACE_ROUTES.ORDERS,
+    return_updated: MARKETPLACE_ROUTES.ORDERS,
+    refund_recorded: MARKETPLACE_ROUTES.ORDERS,
+    dispute_updated: MARKETPLACE_ROUTES.ORDERS,
+    review_received: MARKETPLACE_ROUTES.ORDERS,
+  };
+
+  it.each(NOTIFICATION_TYPES)('routes %s to its marketplace surface', (type) => {
+    const aggregateId =
+      type === 'outbid' || type === 'auction_won' || type === 'auction_ended'
+        ? `listing:${SELLER}_boots_01`
+        : type === 'message_received'
+          ? `conversation:${SELLER}_${'b'.repeat(52)}_boots_01`
+          : type.startsWith('offer')
+            ? 'offer:018f47d2-6a27-7c23-c62f-000000000001'
+            : 'order:018f47d2-6a27-7c23-c62f-000000000002';
+
+    expect(MarketplaceNotificationNormalizer.toDeepLink(type, aggregateId)).toBe(expectedRoutes[type]);
+  });
+
+  it.each(['order:018f47d2-6a27-7c23-c62f-000000000002', 'listing:', 'listing:_x', 'listing:noseparator'])(
+    'falls back to the catalog for auction activity when the aggregate reference is not a listing id (%s)',
+    (aggregateId) => {
+      expect(MarketplaceNotificationNormalizer.toDeepLink('outbid', aggregateId)).toBe('/marketplace');
+    },
+  );
+});

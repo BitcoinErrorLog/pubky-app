@@ -69,6 +69,15 @@ export const COMMERCE_LISTING_MAX_TAGS = 10;
 export const COMMERCE_LISTING_MAX_QUANTITY = 1_000_000;
 
 export const COMMERCE_REVIEW_TEXT_MAX_CHARS = 5_000;
+/**
+ * How long a reviewer may edit their review after creating it, mirroring the
+ * durable service's `REVIEW_EDIT_WINDOW_SECONDS`. `review.update` exists
+ * only on the durable service (the sandbox has no review editing), and the
+ * service enforces the window against the review's `created_at` — the client
+ * uses this constant purely to withhold the edit affordance once the window
+ * has closed instead of failing on submit.
+ */
+export const COMMERCE_REVIEW_EDIT_WINDOW_SECONDS = 24 * 60 * 60;
 export const COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS = 300;
 export const COMMERCE_CATALOG_SKELETON_COUNT = 8;
 

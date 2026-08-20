@@ -9,12 +9,41 @@ import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
 // transaction contract, so a state that only appears after a timeout, a return, or
 // a reconciliation still has a reviewable rendering.
 const fixtures = vi.hoisted(async () => {
-  const { createOrderViewsForEveryState, createOrderViewsForEveryPaymentState, ORDER_FIXTURE_BUYER } =
-    await import('@/test/fixtures/commerce/orders');
+  const {
+    createOrderFixture,
+    createOrderViewsForEveryState,
+    createOrderViewsForEveryPaymentState,
+    createPaymentFixture,
+    ORDER_FIXTURE_BUYER,
+    ORDER_FIXTURE_SELLER,
+  } = await import('@/test/fixtures/commerce/orders');
+  const { VRT_FROZEN_NOW_MS, HOUR_MS } = await import('@/test-utils/vrt.clock');
+
+  // A completed order the buyer already reviewed; the review's age relative
+  // to the frozen clock decides whether the durable-only 24h edit window is
+  // still open when the screenshot is taken.
+  const reviewedOrderView = (reviewAgeHours: number) => {
+    const order = createOrderFixture('completed', {
+      reviews: [
+        {
+          id: '018f47d2-6a27-7c23-a62f-000000000601',
+          reviewerPubky: ORDER_FIXTURE_BUYER,
+          subjectPubky: ORDER_FIXTURE_SELLER,
+          rating: 5,
+          text: 'Accurate and fast.',
+          createdAt: new Date(VRT_FROZEN_NOW_MS - reviewAgeHours * HOUR_MS).toISOString(),
+        },
+      ],
+    });
+    return { order, payment: createPaymentFixture('confirmed'), receipt: null };
+  };
+
   return {
     buyer: ORDER_FIXTURE_BUYER,
     everyOrderState: createOrderViewsForEveryState(),
     everyPaymentState: createOrderViewsForEveryPaymentState(),
+    reviewedInWindow: [reviewedOrderView(23)],
+    reviewedOutOfWindow: [reviewedOrderView(25)],
   };
 });
 
@@ -155,6 +184,34 @@ describe('Marketplace orders — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-dispute-resolved-durable-desktop');
+    ordersState.adapterMode = 'sandbox';
+  });
+
+  // `review.update` is durable-only with a 24-hour window from the review's
+  // creation: inside the window the reviewer gets an Edit review affordance;
+  // once the window closes the affordance is absent instead of failing on
+  // submit.
+  it('offers review editing inside the 24-hour window in transaction-service mode at desktop viewport', async () => {
+    const { reviewedInWindow } = await fixtures;
+    ordersState.orders = reviewedInWindow;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+    ordersState.adapterMode = 'transaction-service';
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-review-edit-in-window-desktop');
+    ordersState.adapterMode = 'sandbox';
+  });
+
+  it('withholds review editing once the 24-hour window has closed at desktop viewport', async () => {
+    const { reviewedOutOfWindow } = await fixtures;
+    ordersState.orders = reviewedOutOfWindow;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+    ordersState.adapterMode = 'transaction-service';
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-review-edit-out-of-window-desktop');
     ordersState.adapterMode = 'sandbox';
   });
 

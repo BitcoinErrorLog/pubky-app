@@ -56,12 +56,14 @@ export class BootstrapApplication {
    * @param params.pubky, The user's public key identifier
    * @param params.lastReadUrl, URL to fetch user's last read timestamp from homeserver
    * @param onProgress, Optional callback to report progress to the Controller layer
-   * @returns Promise resolving to notification state with preference-filtered unread count
+   * @returns Promise resolving to notification state with preference-filtered unread count.
+   *          Only the social (Nexus-backed) fields: the marketplace unread count is owned
+   *          by the commerce badge poll, so bootstrap never touches it.
    */
   static async initialize(
     params: TBootstrapParams & { allowedTypes: NotificationType[] },
     onProgress?: BootstrapProgressCallback,
-  ): Promise<NotificationState> {
+  ): Promise<Omit<NotificationState, 'marketplaceUnread'>> {
     this.cancelModerationFollow();
     const moderationFollowController = new AbortController();
     this.moderationFollowAbortController = moderationFollowController;
