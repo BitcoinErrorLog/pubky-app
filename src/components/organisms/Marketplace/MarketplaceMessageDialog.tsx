@@ -65,6 +65,10 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
         <DialogHeader>
           <DialogTitle>Listing conversation</DialogTitle>
         </DialogHeader>
+        <Typography as="p" className="text-xs text-muted-foreground">
+          Sandbox messages are not encrypted: they are stored in plaintext in the sandbox service&apos;s memory and are
+          readable by whoever runs it. Do not share anything private.
+        </Typography>
         <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border bg-card/50 p-4">
           {messages.conversation?.messages.length ? (
             messages.conversation.messages.map((message) => {

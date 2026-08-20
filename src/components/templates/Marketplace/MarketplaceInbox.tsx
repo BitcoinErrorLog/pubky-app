@@ -62,6 +62,10 @@ export function MarketplaceInbox() {
           </div>
         ) : conversations.length ? (
           <div className="flex flex-col gap-3">
+            <Typography as="p" className="text-xs text-muted-foreground">
+              Sandbox messages are not encrypted: they are stored in plaintext in the sandbox service&apos;s memory and
+              are readable by whoever runs it. Do not share anything private.
+            </Typography>
             {conversations.map((conversation) => {
               const last = conversation.messages.at(-1);
               const counterpart =
