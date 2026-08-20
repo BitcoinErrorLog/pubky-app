@@ -2,6 +2,8 @@
 
 Date: 2026-08-20. Research-first evaluation; **no product code was implemented** — the decisive choice is an architecture/product decision that is not the implementer's to make. This repo contains the evaluation, the recommendation, and a handoff-ready plan.
 
+> **Update, same day:** the recommended topology was chosen and its first milestone exists. An experiment-grade browser WASM binding of the paykit-rs encrypted-link messaging surface lives at `BitcoinErrorLog/paykit-rs-official`, branch `feat/wasm-binding` (pinned to the audited upstream commit `c8892f6`). All four wasm32 build blockers were packaging-class and fixed additively (getrandom backends, a one-line vendored fix for snow 0.10.0's spurious ring activation, uuid RNG feature, pubky 0.8.0's missing `reqwest/stream` on wasm). Real-crypto smoke checks pass in Node (Noise XX handshake, both-direction encrypted roundtrip, AEAD tamper rejection, nonce sequencing, 1000-byte limit); native paykit-lib tests are unaffected (241 pass). Remaining before messaging leaves the sandbox: live browser e2e of the homeserver-backed paths (sessions, markers, handshake transport, outbox polling), the backup-key decision, and the Ring grant UX. The upstream issue is drafted in that repo at `docs/upstream-issue-draft.md`, deliberately not filed.
+
 - [`evaluation.md`](evaluation.md) — candidate-by-candidate evaluation with source evidence
 - [`implementation-plan.md`](implementation-plan.md) — concrete plan, gated on the decisions below
 - `reference/` (gitignored) — clones of official `pubky/paykit-rs` @ `c8892f6` (the marketplace's audited commit) and `pubky/pubky-noise` @ `5ab90b6`, read during this evaluation
