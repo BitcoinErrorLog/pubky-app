@@ -110,16 +110,32 @@ describe('useMarketplaceOrders', () => {
     );
   });
 
-  it.each(['unavailable', 'locks-paykit'])('loads nothing and never queries projections in %s mode', async (mode) => {
-    config.mode = mode;
+  it('loads nothing and never queries projections in unavailable mode', async () => {
+    config.mode = 'unavailable';
 
     const { result } = renderHook(() => useMarketplaceOrders());
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.orders).toHaveLength(0);
-    expect(result.current.adapterMode).toBe(mode);
+    expect(result.current.adapterMode).toBe('unavailable');
     expect(CommerceController.getMarketplaceOrders).not.toHaveBeenCalled();
     expect(CommerceController.getMarketplacePayment).not.toHaveBeenCalled();
+  });
+
+  // locks-paykit composes with the durable transport, so order timelines load
+  // there — but simulated payment advancement stays refused exactly as in
+  // transaction-service mode.
+  it('loads orders in locks-paykit mode and still refuses simulated advancement', async () => {
+    config.mode = 'locks-paykit';
+
+    const { result } = renderHook(() => useMarketplaceOrders());
+
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const payment = result.current.orders[0].payment!;
+
+    await act(() => result.current.advancePayment(payment, 'confirmed', 1));
+
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
 
   it('loads durable orders from their embedded payment projection in transaction-service mode', async () => {
