@@ -26,12 +26,12 @@ Then sign in (the seed page is auth-gated on top of the adapter-mode gate), open
 
 The four modes:
 
-| Mode                    | Behavior                                                                                                                                                                                                                                  |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unavailable` (default) | Browse-only. No commands. No nav entry. Fails closed.                                                                                                                                                                                     |
-| `sandbox`               | Full click-through against the in-memory service. Everything transactional is simulated and labeled.                                                                                                                                      |
-| `transaction-service`   | Commands and reads go to the durable Rust service with real Pubky AuthToken sessions. Authoritative outcomes and an interactive shopping UI — but establishing the session still needs a signer approval with no in-app UX, so see below. |
-| `locks-paykit`          | Real payments. Not usable yet — see [`status.md`](status.md).                                                                                                                                                                             |
+| Mode                    | Behavior                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unavailable` (default) | Browse-only. No commands. No nav entry. Fails closed.                                                                                                                                                                                                                                                                                                                                    |
+| `sandbox`               | Full click-through against the in-memory service. Everything transactional is simulated and labeled.                                                                                                                                                                                                                                                                                     |
+| `transaction-service`   | Commands and reads go to the durable Rust service with real Pubky AuthToken sessions. Authoritative outcomes and an interactive shopping UI — but establishing the session still needs a signer approval with no in-app UX, so see below.                                                                                                                                                |
+| `locks-paykit`          | Everything `transaction-service` does, PLUS the real Locks/Paykit payment rails. The modes compose rather than exclude: the durable service stays the transactional authority (its worker independently verifies the Locks lifecycle and confirms payments); the client additionally submits the buyer's proof bundle and registers the correlation. See "Running a real payment" below. |
 
 ## Verifying the service is up
 
@@ -76,6 +76,7 @@ npm run lint
 npm run test -- src/core src/components src/hooks   # unit
 npm run test:marketplace                            # sandbox service (47 tests)
 npm run test:marketplace:service                    # durable Rust service transport, needs it running (see below)
+npm run test:marketplace:locks                      # LIVE real-payment purchase, needs the composed stack (see below)
 npm run test:vrt                                    # visual regression, needs browsers
 ```
 
@@ -159,6 +160,44 @@ npm run test:marketplace:service
 This integration suite uses no mocks: it runs a genuine Pubky auth flow (acting as the signer with a throwaway keypair), needs the service on `127.0.0.1:8080` (override with `MARKETPLACE_SERVICE_URL`) and network access to the Pubky HTTP relay. It is intentionally not part of the unit gates.
 
 The client's state tables are held in lockstep with the service's canonical contract: `contracts/state-machines.json` from the service repo is vendored at `src/libs/commerce/contracts/state-machines.json`, and `src/libs/commerce/state-machines.contract.test.ts` fails CI on any drift. When the service contract changes, re-vendor the file and reconcile the TypeScript — the service is canonical.
+
+## Running a real Locks/Paykit payment (`locks-paykit` mode)
+
+Real payments work end to end on regtest, with the wallet's protocol role exercised by the composed environment's real tooling (`paykit-companion-auth` approves the watch-only companion claim; `paykit-reader-demo` receives the private Paykit Payment Request). Only the real Bitkit app UX remains unproven — see [`status.md`](status.md).
+
+Three pieces must run:
+
+1. **The composed payments environment** (Lock Server, Paykit Server, Bitcoin regtest, Fulcrum, pinned Pubky testnet). It lives in its own repo checkout (`payments-env`); `./scripts/up.sh` brings it up with Lock Server on `13000` and Paykit Server on `13001`, and its own `verify.sh` re-proves the protocol leg independently.
+2. **The durable transaction service, with Locks verification enabled.** The three `LOCKS_*` values are all-or-nothing; the service fails closed at startup on a partial configuration and refuses `payment.register_locks` entirely when they are absent:
+
+```bash
+DATABASE_URL='postgres://marketplace:marketplace@localhost:55432/marketplace' \
+LOCKS_SERVER_URL='http://localhost:13000' \
+LOCKS_BUNDLE_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+LOCKS_LOOKUP_HMAC_KEY="$(openssl rand -hex 32)" \
+cargo run -p marketplace-service
+```
+
+3. **The app in `locks-paykit` mode.** Activation is validated fail-closed: every payment-rail URL must be EXPLICITLY set or the runtime config parse throws — the mode never activates on defaulted localhost URLs:
+
+```bash
+PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=locks-paykit \
+PUBKY_RUNTIME_MARKETPLACE_URL=http://127.0.0.1:8080 \
+PUBKY_RUNTIME_LOCKS_URL=http://localhost:13000 \
+PUBKY_RUNTIME_PAYKIT_SETUP_URL=http://localhost:13001/setup \
+npm run dev
+```
+
+What the buyer flow does (and deliberately does not do): after checkout creates an order with an `awaiting_entitlement` payment, the buyer's "Request payment in your wallet" action submits a proof bundle to the Lock Server (which signs and sends the real invoice request to Paykit Server) and registers the correlation with the transaction service via `payment.register_locks`, sourcing `expected_revision` from a fresh projection read. Registration flips the payment to the `locks` adapter — permanently refusing sandbox advancement — and **never advances the payment**: the service's worker independently verifies the Locks lifecycle and confirms exactly once. The buyer-visible status is limited to awaiting payment, confirmed, window expired, and manual review; detection and confirmation counts stay internal per the upstream contract. Status polling is bounded by the registration's payment window, abortable, and resumable after reload (the correlation — including the bearer bundle id — is persisted in the buyer's account-scoped local database). After confirmation, a digital order unlocks its content through a short-lived Locks access credential and the delivered bytes are BLAKE3-verified against the listing record before being offered.
+
+To prove the whole path live — proof bundle, `payment.register_locks`, private Payment Request receipt, on-chain regtest payment, worker confirmation, order `paid` with a durable receipt, and a hash-verified guarded read:
+
+```bash
+# expects payments-env checked out as a sibling directory (override: PAYMENTS_ENV_DIR)
+npm run test:marketplace:locks
+```
+
+This live suite uses no mocks and fails loudly when a dependency is missing. It orchestrates the environment's own tooling over `docker compose` for the seller-side setup and the wallet-simulation roles, and exercises the client's own services (`LocksGatewayService`, `MarketplaceGatewayService`, `CommerceApplication`) for every marketplace-side step. Each run creates a fresh buyer identity (an invoice binds to its reader, so exactly one Payment Request must be actionable) and writes its observed facts to `.live-out/`.
 
 ## Troubleshooting
 

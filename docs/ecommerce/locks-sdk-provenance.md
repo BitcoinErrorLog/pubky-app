@@ -59,6 +59,9 @@ This confirms the client should call Locks through this SDK rather than hand-rol
 ## Remaining work before the SDK can be used in the app
 
 1. Vendor the generated `pkg/` (or publish it to a controlled immutable registry) and wire the smoke test into CI ahead of `next build`.
-2. Replace `LocksGatewayService`'s hand-rolled HTTP calls with the SDK's `Viewer` methods.
-3. Stand up the composed integration environment (Lock Server, Paykit Server, Bitcoin regtest, Electrum) — `pubky/paykit-server` has no releases, so it must also be built from a pinned commit.
-4. Exercise the buyer flow end to end, which requires a Bitkit wallet to receive the Paykit payment request and execute payment on regtest.
+2. Replace `LocksGatewayService`'s hand-rolled HTTP calls with the SDK's `Viewer` methods. Until then the client speaks the Lock Server's documented viewer routes directly; that surface (proof-bundle submission, lifecycle lookups, credential issuance, guarded proxy reads, frontend sessions) is live-verified against the pinned Lock Server revision by `npm run test:marketplace:locks`, which bounds the drift risk the SDK would eliminate.
+
+Done since this file was first written:
+
+- ~~Stand up the composed integration environment (Lock Server, Paykit Server, Bitcoin regtest, Electrum)~~ — done: the `payments-env` composed stack builds paykit-server from its pinned commit and proves the protocol leg with its own `verify.sh`.
+- ~~Exercise the buyer flow end to end~~ — done on regtest with the wallet's protocol role simulated by the environment's real tooling (`paykit-companion-auth`, `paykit-reader-demo`); only the real Bitkit app UX remains unproven. See [`status.md`](status.md) and [`RUNNING.md`](RUNNING.md).
