@@ -158,5 +158,23 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'You won the auction';
     case 'auction_ended':
       return 'Auction ended';
+    case 'order_created':
+      return 'New order created';
+    case 'payment_confirmed':
+      return 'Payment confirmed';
+    case 'order_cancelled':
+      return 'Order cancelled';
+    case 'order_shipped':
+      return 'Order shipped';
+    case 'order_delivered':
+      return 'Delivery confirmed';
+    case 'return_updated':
+      return 'Return updated';
+    case 'refund_recorded':
+      return 'External refund recorded';
+    case 'dispute_updated':
+      return 'Dispute updated';
+    case 'review_received':
+      return 'New review received';
   }
 }

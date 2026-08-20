@@ -24,6 +24,7 @@ import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDial
 import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
+import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceListingProps {
@@ -188,6 +189,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </CardContent>
             </Card>
             <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
+            <MarketplaceReportDialog targetId={aggregateId} />
 
             <Typography as="p" className="text-base leading-7 text-muted-foreground">
               {record.description}

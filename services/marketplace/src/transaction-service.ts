@@ -5,23 +5,36 @@ import { commercePubkySchema } from '../../../src/libs/commerce/transaction-cont
 import {
   type AcceptOfferCommand,
   type AdvanceSandboxPaymentCommand,
+  type ApproveOrderCancellationCommand,
+  type ApproveReturnCommand,
   buildMarketplaceCheckoutAggregateId,
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
+  buildMarketplaceOrderAggregateId,
   buildMarketplaceOfferAggregateId,
   buildMarketplacePaymentAggregateId,
   type CloseAuctionCommand,
+  type ConfirmOrderDeliveryCommand,
   type CounterOfferCommand,
   type CreateMarketplaceCheckoutCommand,
+  type CreateMarketplaceReportCommand,
   type CreateOfferCommand,
+  type CreateReviewCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
   type MarkMarketplaceNotificationReadCommand,
+  type OpenDisputeCommand,
   type PlaceBidCommand,
   type RegisterListingCommand,
+  type RecordExternalRefundCommand,
   type RejectOfferCommand,
   type ReserveInventoryCommand,
+  type RequestOrderCancellationCommand,
+  type RequestReturnCommand,
+  type ResolveDisputeCommand,
+  type ReceiveReturnCommand,
   type SendMarketplaceMessageCommand,
+  type ShipOrderCommand,
   type UpdateMarketplaceNotificationPreferencesCommand,
   type WithdrawOfferCommand,
 } from './contracts';
@@ -159,7 +172,14 @@ export interface MarketplaceNotification {
     | 'auction_won'
     | 'auction_ended'
     | 'order_created'
-    | 'payment_confirmed';
+    | 'payment_confirmed'
+    | 'order_cancelled'
+    | 'order_shipped'
+    | 'order_delivered'
+    | 'return_updated'
+    | 'refund_recorded'
+    | 'dispute_updated'
+    | 'review_received';
   aggregateId: string;
   createdAt: string;
   readAt: string | null;
@@ -195,12 +215,79 @@ export interface MarketplaceDeliveryAddress {
   countryCode: string;
 }
 
+export interface MarketplaceShipment {
+  carrier: string;
+  trackingNumber: string;
+  state: 'shipped' | 'delivered';
+  shippedAt: string;
+  deliveredAt: string | null;
+}
+
+export interface MarketplaceReturn {
+  state: 'requested' | 'approved' | 'received' | 'refunded';
+  reason: string;
+  requestedAmountMinor: number;
+  requestedAt: string;
+  updatedAt: string;
+}
+
+export interface MarketplaceDispute {
+  state: 'open' | 'resolved';
+  openedBy: string;
+  reason: string;
+  requestedRemedy: 'refund' | 'partial_refund' | 'replacement' | 'other';
+  resolution: 'buyer_refund' | 'partial_refund' | 'seller_favor' | 'replacement' | null;
+  rationale: string | null;
+  openedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface MarketplaceReview {
+  id: string;
+  reviewerPubky: string;
+  subjectPubky: string;
+  rating: number;
+  text: string;
+  createdAt: string;
+}
+
+export interface MarketplaceExternalRefund {
+  amountMinor: number;
+  transactionId: string;
+  recordedAt: string;
+}
+
+export interface MarketplaceReport {
+  id: string;
+  reporterPubky: string;
+  targetType: 'listing' | 'user' | 'message' | 'review';
+  targetId: string;
+  reason: 'prohibited_item' | 'counterfeit' | 'scam' | 'harassment' | 'unsafe' | 'other';
+  details: string;
+  state: 'open';
+  createdAt: string;
+}
+
 export interface MarketplaceOrder {
   id: string;
   buyerPubky: string;
   sellerPubky: string;
   revision: number;
-  state: 'pending_payment' | 'paid' | 'cancelled';
+  state:
+    | 'pending_payment'
+    | 'paid'
+    | 'processing'
+    | 'shipped'
+    | 'delivered'
+    | 'completed'
+    | 'cancel_requested'
+    | 'cancelled'
+    | 'return_requested'
+    | 'return_approved'
+    | 'return_received'
+    | 'disputed'
+    | 'refunded_external'
+    | 'closed';
   lines: MarketplaceOrderLine[];
   deliveryAddress: MarketplaceDeliveryAddress;
   subtotal: MarketplaceListingAggregate['unitPrice'];
@@ -210,6 +297,12 @@ export interface MarketplaceOrder {
   guaranteePolicyVersion: 1;
   paymentId: string;
   receiptId: string | null;
+  cancellationReason: string | null;
+  shipment: MarketplaceShipment | null;
+  returnRequest: MarketplaceReturn | null;
+  dispute: MarketplaceDispute | null;
+  externalRefund: MarketplaceExternalRefund | null;
+  reviews: MarketplaceReview[];
   createdAt: string;
   updatedAt: string;
 }
@@ -265,7 +358,19 @@ export interface MarketplaceEvent {
     | 'payment.confirmed'
     | 'payment.expired'
     | 'payment.manual_review'
-    | 'receipt.issued';
+    | 'receipt.issued'
+    | 'order.cancel_requested'
+    | 'order.cancelled'
+    | 'fulfillment.shipped'
+    | 'fulfillment.delivered'
+    | 'return.requested'
+    | 'return.approved'
+    | 'return.received'
+    | 'refund.recorded_external'
+    | 'dispute.opened'
+    | 'dispute.resolved'
+    | 'review.created'
+    | 'trust.reported';
   occurredAt: string;
 }
 
@@ -311,7 +416,10 @@ export type MarketplaceCommandSuccess = {
         payment: MarketplacePayment;
         order: MarketplaceOrder;
         receipt: MarketplaceReceipt | null;
-      };
+      }
+    | { kind: 'order'; order: MarketplaceOrder }
+    | { kind: 'review'; order: MarketplaceOrder; review: MarketplaceReview }
+    | { kind: 'report'; report: MarketplaceReport };
 };
 
 export type MarketplaceCommandFailure = {
@@ -341,6 +449,8 @@ export type MarketplaceAttachmentStoreResult =
   | { ok: true; attachment: MarketplaceAttachmentMetadata }
   | { ok: false; code: 'INVALID_ATTACHMENT' | 'UNAUTHORIZED'; message: string };
 
+export const MARKETPLACE_SANDBOX_MODERATOR = 'm'.repeat(52);
+
 type StoredCommand = {
   requestHash: string;
   result: MarketplaceCommandSuccess;
@@ -358,6 +468,7 @@ export class InMemoryMarketplaceRepository {
   private orders = new Map<string, MarketplaceOrder>();
   private payments = new Map<string, MarketplacePayment>();
   private receipts = new Map<string, MarketplaceReceipt>();
+  private reports = new Map<string, MarketplaceReport>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -493,6 +604,14 @@ export class InMemoryMarketplaceRepository {
     return this.receipts.get(id);
   }
 
+  putReport(report: MarketplaceReport): void {
+    this.reports.set(report.id, report);
+  }
+
+  getReports(): MarketplaceReport[] {
+    return [...this.reports.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
     return this.commands.get(`${actorPubky}:${commandId}`);
   }
@@ -602,6 +721,10 @@ export class MarketplaceTransactionService {
     return receipt && (receipt.recipientPubky === actorPubky || receipt.issuerPubky === actorPubky) ? receipt : null;
   }
 
+  getReports(actorPubky: string): MarketplaceReport[] {
+    return actorPubky === MARKETPLACE_SANDBOX_MODERATOR ? this.repository.getReports() : [];
+  }
+
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
     const commandResult = marketplaceCommandSchema.safeParse(commandInput);
@@ -668,6 +791,30 @@ export class MarketplaceTransactionService {
         return this.createCheckout(actorPubky, command);
       case 'payment.sandbox_advance':
         return this.advanceSandboxPayment(actorPubky, command);
+      case 'order.cancel_request':
+        return this.requestCancellation(actorPubky, command);
+      case 'order.cancel_approve':
+        return this.approveCancellation(actorPubky, command);
+      case 'fulfillment.ship':
+        return this.shipOrder(actorPubky, command);
+      case 'fulfillment.confirm_delivery':
+        return this.confirmDelivery(actorPubky, command);
+      case 'return.request':
+        return this.requestReturn(actorPubky, command);
+      case 'return.approve':
+        return this.approveReturn(actorPubky, command);
+      case 'return.receive':
+        return this.receiveReturn(actorPubky, command);
+      case 'refund.record_external':
+        return this.recordExternalRefund(actorPubky, command);
+      case 'dispute.open':
+        return this.openDispute(actorPubky, command);
+      case 'dispute.resolve':
+        return this.resolveDispute(actorPubky, command);
+      case 'review.create':
+        return this.createReview(actorPubky, command);
+      case 'trust.report':
+        return this.createReport(actorPubky, command);
     }
   }
 
@@ -1460,6 +1607,12 @@ export class MarketplaceTransactionService {
         guaranteePolicyVersion: command.payload.guaranteePolicyVersion,
         paymentId,
         receiptId: null,
+        cancellationReason: null,
+        shipment: null,
+        returnRequest: null,
+        dispute: null,
+        externalRefund: null,
+        reviews: [],
         createdAt: occurredAt,
         updatedAt: occurredAt,
       };
@@ -1589,6 +1742,442 @@ export class MarketplaceTransactionService {
     });
   }
 
+  private requestCancellation(actorPubky: string, command: RequestOrderCancellationCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.buyerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the buyer may request cancellation.');
+    if (!['pending_payment', 'paid', 'processing'].includes(order.state)) {
+      return failure('INVALID_STATE', 'This order can no longer be cancelled.');
+    }
+    const occurredAt = this.now().toISOString();
+    const immediate = order.state === 'pending_payment';
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: immediate ? 'cancelled' : 'cancel_requested',
+      cancellationReason: command.payload.reason,
+      updatedAt: occurredAt,
+    };
+    if (immediate) this.releaseOrderInventory(order, occurredAt);
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      immediate ? 'order.cancelled' : 'order.cancel_requested',
+      order.sellerPubky,
+      'order_cancelled',
+      occurredAt,
+    );
+  }
+
+  private approveCancellation(actorPubky: string, command: ApproveOrderCancellationCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may approve cancellation.');
+    if (order.state !== 'cancel_requested') return failure('INVALID_STATE', 'No cancellation is pending.');
+    const occurredAt = this.now().toISOString();
+    const updated = { ...order, revision: order.revision + 1, state: 'cancelled' as const, updatedAt: occurredAt };
+    this.releaseOrderInventory(order, occurredAt);
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'order.cancelled',
+      order.buyerPubky,
+      'order_cancelled',
+      occurredAt,
+    );
+  }
+
+  private shipOrder(actorPubky: string, command: ShipOrderCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may ship this order.');
+    if (!['paid', 'processing'].includes(order.state))
+      return failure('INVALID_STATE', 'The order is not ready to ship.');
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'shipped',
+      shipment: {
+        carrier: command.payload.carrier,
+        trackingNumber: command.payload.trackingNumber,
+        state: 'shipped',
+        shippedAt: occurredAt,
+        deliveredAt: null,
+      },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'fulfillment.shipped',
+      order.buyerPubky,
+      'order_shipped',
+      occurredAt,
+    );
+  }
+
+  private confirmDelivery(actorPubky: string, command: ConfirmOrderDeliveryCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.buyerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the buyer may confirm delivery.');
+    if (order.state !== 'shipped' || !order.shipment) {
+      return failure('INVALID_STATE', 'The order is not awaiting delivery confirmation.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'delivered',
+      shipment: { ...order.shipment, state: 'delivered', deliveredAt: occurredAt },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'fulfillment.delivered',
+      order.sellerPubky,
+      'order_delivered',
+      occurredAt,
+    );
+  }
+
+  private requestReturn(actorPubky: string, command: RequestReturnCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.buyerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the buyer may request a return.');
+    if (
+      !['delivered', 'completed'].includes(order.state) ||
+      command.payload.requestedAmountMinor > order.total.amountMinor
+    ) {
+      return failure('INVALID_STATE', 'The order is not eligible for this return amount.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'return_requested',
+      returnRequest: {
+        state: 'requested',
+        reason: command.payload.reason,
+        requestedAmountMinor: command.payload.requestedAmountMinor,
+        requestedAt: occurredAt,
+        updatedAt: occurredAt,
+      },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'return.requested',
+      order.sellerPubky,
+      'return_updated',
+      occurredAt,
+    );
+  }
+
+  private approveReturn(actorPubky: string, command: ApproveReturnCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may approve this return.');
+    if (order.state !== 'return_requested' || !order.returnRequest) {
+      return failure('INVALID_STATE', 'No return is pending approval.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'return_approved',
+      returnRequest: { ...order.returnRequest, state: 'approved', updatedAt: occurredAt },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'return.approved',
+      order.buyerPubky,
+      'return_updated',
+      occurredAt,
+    );
+  }
+
+  private receiveReturn(actorPubky: string, command: ReceiveReturnCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may receive this return.');
+    if (order.state !== 'return_approved' || !order.returnRequest) {
+      return failure('INVALID_STATE', 'The return is not approved.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'return_received',
+      returnRequest: { ...order.returnRequest, state: 'received', updatedAt: occurredAt },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'return.received',
+      order.buyerPubky,
+      'return_updated',
+      occurredAt,
+    );
+  }
+
+  private recordExternalRefund(actorPubky: string, command: RecordExternalRefundCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may record a refund.');
+    if (
+      !['return_received', 'disputed', 'cancelled'].includes(order.state) ||
+      command.payload.amountMinor > order.total.amountMinor ||
+      order.externalRefund
+    ) {
+      return failure('INVALID_STATE', 'The external refund cannot be recorded.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'refunded_external',
+      externalRefund: {
+        amountMinor: command.payload.amountMinor,
+        transactionId: command.payload.transactionId,
+        recordedAt: occurredAt,
+      },
+      returnRequest: order.returnRequest
+        ? { ...order.returnRequest, state: 'refunded', updatedAt: occurredAt }
+        : order.returnRequest,
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'refund.recorded_external',
+      order.buyerPubky,
+      'refund_recorded',
+      occurredAt,
+    );
+  }
+
+  private openDispute(actorPubky: string, command: OpenDisputeCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (
+      !['paid', 'processing', 'shipped', 'delivered', 'completed', 'return_requested', 'return_approved'].includes(
+        order.state,
+      )
+    ) {
+      return failure('INVALID_STATE', 'This order cannot enter dispute.');
+    }
+    if (order.dispute) return failure('INVALID_STATE', 'A dispute already exists.');
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'disputed',
+      dispute: {
+        state: 'open',
+        openedBy: actorPubky,
+        reason: command.payload.reason,
+        requestedRemedy: command.payload.requestedRemedy,
+        resolution: null,
+        rationale: null,
+        openedAt: occurredAt,
+        resolvedAt: null,
+      },
+      updatedAt: occurredAt,
+    };
+    const recipient = actorPubky === order.buyerPubky ? order.sellerPubky : order.buyerPubky;
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'dispute.opened',
+      recipient,
+      'dispute_updated',
+      occurredAt,
+    );
+  }
+
+  private resolveDispute(actorPubky: string, command: ResolveDisputeCommand): MarketplaceCommandResult {
+    const order = this.repository.getOrder(command.payload.orderId);
+    if (!order) return failure('NOT_FOUND', 'The dispute order was not found.');
+    if (actorPubky !== MARKETPLACE_SANDBOX_MODERATOR) {
+      return failure('UNAUTHORIZED', 'Only the sandbox moderator may resolve disputes.');
+    }
+    if (
+      command.aggregateId !== buildMarketplaceOrderAggregateId(order.id) ||
+      command.expectedRevision !== order.revision
+    ) {
+      return failure('REVISION_CONFLICT', 'The dispute order revision is stale.', { currentRevision: order.revision });
+    }
+    if (order.state !== 'disputed' || !order.dispute || order.dispute.state !== 'open') {
+      return failure('INVALID_STATE', 'No open dispute can be resolved.');
+    }
+    const occurredAt = this.now().toISOString();
+    const buyerRemedy =
+      command.payload.resolution === 'buyer_refund' || command.payload.resolution === 'partial_refund';
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: buyerRemedy ? 'disputed' : 'completed',
+      dispute: {
+        ...order.dispute,
+        state: 'resolved',
+        resolution: command.payload.resolution,
+        rationale: command.payload.rationale,
+        resolvedAt: occurredAt,
+      },
+      updatedAt: occurredAt,
+    };
+    this.repository.putOrder(updated);
+    const event = this.createEvent(
+      actorPubky,
+      command,
+      updated.revision,
+      'dispute.resolved',
+      occurredAt,
+      buildMarketplaceOrderAggregateId(order.id),
+    );
+    this.repository.appendEvent(event);
+    this.notify(order.buyerPubky, actorPubky, 'dispute_updated', `order:${order.id}`, occurredAt);
+    this.notify(order.sellerPubky, actorPubky, 'dispute_updated', `order:${order.id}`, occurredAt);
+    return success(command, updated.revision, event.id, { kind: 'order', order: updated });
+  }
+
+  private createReview(actorPubky: string, command: CreateReviewCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (!['delivered', 'completed', 'closed'].includes(order.state)) {
+      return failure('INVALID_STATE', 'The order is not eligible for review.');
+    }
+    if (order.reviews.some(({ reviewerPubky }) => reviewerPubky === actorPubky)) {
+      return failure('INVALID_STATE', 'This participant already reviewed the order.');
+    }
+    const occurredAt = this.now().toISOString();
+    const review: MarketplaceReview = {
+      id: command.commandId,
+      reviewerPubky: actorPubky,
+      subjectPubky: actorPubky === order.buyerPubky ? order.sellerPubky : order.buyerPubky,
+      rating: command.payload.rating,
+      text: command.payload.text,
+      createdAt: occurredAt,
+    };
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: order.state === 'delivered' ? 'completed' : order.state,
+      reviews: [...order.reviews, review],
+      updatedAt: occurredAt,
+    };
+    this.repository.putOrder(updated);
+    const event = this.createEvent(actorPubky, command, updated.revision, 'review.created', occurredAt);
+    this.repository.appendEvent(event);
+    this.notify(review.subjectPubky, actorPubky, 'review_received', `order:${order.id}`, occurredAt);
+    return success(command, updated.revision, event.id, { kind: 'review', order: updated, review });
+  }
+
+  private createReport(actorPubky: string, command: CreateMarketplaceReportCommand): MarketplaceCommandResult {
+    if (command.aggregateId !== `report:${command.commandId}` || command.expectedRevision !== 0) {
+      return failure('INVALID_COMMAND', 'The report aggregate identity is invalid.');
+    }
+    const report: MarketplaceReport = {
+      id: command.commandId,
+      reporterPubky: actorPubky,
+      targetType: command.payload.targetType,
+      targetId: command.payload.targetId,
+      reason: command.payload.reason,
+      details: command.payload.details,
+      state: 'open',
+      createdAt: this.now().toISOString(),
+    };
+    this.repository.putReport(report);
+    const event = this.createEvent(actorPubky, command, 1, 'trust.reported', report.createdAt);
+    this.repository.appendEvent(event);
+    return success(command, 1, event.id, { kind: 'report', report });
+  }
+
+  private getOrderAction(
+    actorPubky: string,
+    orderId: string,
+    command: MarketplaceCommand,
+  ): { ok: true; order: MarketplaceOrder } | { ok: false; failure: MarketplaceCommandFailure } {
+    const order = this.repository.getOrder(orderId);
+    if (!order) return { ok: false, failure: failure('NOT_FOUND', 'The order was not found.') };
+    if (actorPubky !== order.buyerPubky && actorPubky !== order.sellerPubky) {
+      return { ok: false, failure: failure('UNAUTHORIZED', 'Only order participants may act on it.') };
+    }
+    if (command.aggregateId !== buildMarketplaceOrderAggregateId(order.id)) {
+      return { ok: false, failure: failure('INVALID_COMMAND', 'The order aggregate id is invalid.') };
+    }
+    if (command.expectedRevision !== order.revision) {
+      return {
+        ok: false,
+        failure: failure('REVISION_CONFLICT', 'The order revision is stale.', { currentRevision: order.revision }),
+      };
+    }
+    return { ok: true, order };
+  }
+
+  private persistOrderAction(
+    actorPubky: string,
+    command: MarketplaceCommand,
+    order: MarketplaceOrder,
+    eventKind: MarketplaceEvent['kind'],
+    notificationRecipient: string,
+    notificationType: MarketplaceNotification['type'],
+    occurredAt: string,
+  ): MarketplaceCommandResult {
+    this.repository.putOrder(order);
+    const event = this.createEvent(
+      actorPubky,
+      command,
+      order.revision,
+      eventKind,
+      occurredAt,
+      buildMarketplaceOrderAggregateId(order.id),
+    );
+    this.repository.appendEvent(event);
+    this.notify(notificationRecipient, actorPubky, notificationType, `order:${order.id}`, occurredAt);
+    return success(command, order.revision, event.id, { kind: 'order', order });
+  }
+
+  private releaseOrderInventory(order: MarketplaceOrder, occurredAt: string): void {
+    for (const line of order.lines) {
+      const listing = this.repository.getListing(line.listingAggregateId);
+      if (!listing) continue;
+      this.repository.putListing({
+        ...listing,
+        serverRevision: listing.serverRevision + 1,
+        state: 'available',
+        availableQuantity: listing.availableQuantity + line.quantity,
+        reservedQuantity: Math.max(0, listing.reservedQuantity - line.quantity),
+        updatedAt: occurredAt,
+      });
+    }
+  }
+
   private notify(
     recipientPubky: string,
     actorPubky: string,
@@ -1597,16 +2186,25 @@ export class MarketplaceTransactionService {
     createdAt: string,
   ): void {
     const preferences = this.getNotificationPreferences(recipientPubky);
-    const enabled =
-      type === 'order_created' || type === 'payment_confirmed'
-        ? true
-        : type === 'message_received'
-          ? preferences.messages
-          : type === 'outbid'
-            ? preferences.bids
-            : type === 'auction_won' || type === 'auction_ended'
-              ? preferences.auctions
-              : preferences.offers;
+    const enabled = [
+      'order_created',
+      'payment_confirmed',
+      'order_cancelled',
+      'order_shipped',
+      'order_delivered',
+      'return_updated',
+      'refund_recorded',
+      'dispute_updated',
+      'review_received',
+    ].includes(type)
+      ? true
+      : type === 'message_received'
+        ? preferences.messages
+        : type === 'outbid'
+          ? preferences.bids
+          : type === 'auction_won' || type === 'auction_ended'
+            ? preferences.auctions
+            : preferences.offers;
     if (!enabled) return;
     this.repository.appendNotification({
       id: randomUUID(),

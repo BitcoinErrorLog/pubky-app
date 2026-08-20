@@ -96,6 +96,15 @@ const notificationSchema = z
       'outbid',
       'auction_won',
       'auction_ended',
+      'order_created',
+      'payment_confirmed',
+      'order_cancelled',
+      'order_shipped',
+      'order_delivered',
+      'return_updated',
+      'refund_recorded',
+      'dispute_updated',
+      'review_received',
     ]),
     aggregateId: z.string(),
     createdAt: z.string(),
@@ -139,7 +148,22 @@ const orderSchema = z
     buyerPubky: commercePubkySchema,
     sellerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
-    state: z.enum(['pending_payment', 'paid', 'cancelled']),
+    state: z.enum([
+      'pending_payment',
+      'paid',
+      'processing',
+      'shipped',
+      'delivered',
+      'completed',
+      'cancel_requested',
+      'cancelled',
+      'return_requested',
+      'return_approved',
+      'return_received',
+      'disputed',
+      'refunded_external',
+      'closed',
+    ]),
     lines: z.array(
       z.object({
         listingAggregateId: z.string(),
@@ -158,6 +182,56 @@ const orderSchema = z
     guaranteePolicyVersion: z.literal(1),
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),
+    cancellationReason: z.string().nullable().optional(),
+    shipment: z
+      .object({
+        carrier: z.string(),
+        trackingNumber: z.string(),
+        state: z.enum(['shipped', 'delivered']),
+        shippedAt: z.string(),
+        deliveredAt: z.string().nullable(),
+      })
+      .nullable()
+      .optional(),
+    returnRequest: z
+      .object({
+        state: z.enum(['requested', 'approved', 'received', 'refunded']),
+        reason: z.string(),
+        requestedAmountMinor: z.number().int().positive(),
+        requestedAt: z.string(),
+        updatedAt: z.string(),
+      })
+      .nullable()
+      .optional(),
+    externalRefund: z
+      .object({ amountMinor: z.number().int().positive(), transactionId: z.string(), recordedAt: z.string() })
+      .nullable()
+      .optional(),
+    dispute: z
+      .object({
+        state: z.enum(['open', 'resolved']),
+        openedBy: commercePubkySchema,
+        reason: z.string(),
+        requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
+        resolution: z.enum(['buyer_refund', 'partial_refund', 'seller_favor', 'replacement']).nullable(),
+        rationale: z.string().nullable(),
+        openedAt: z.string(),
+        resolvedAt: z.string().nullable(),
+      })
+      .nullable()
+      .optional(),
+    reviews: z
+      .array(
+        z.object({
+          id: z.uuid(),
+          reviewerPubky: commercePubkySchema,
+          subjectPubky: commercePubkySchema,
+          rating: z.number().int().min(1).max(5),
+          text: z.string(),
+          createdAt: z.string(),
+        }),
+      )
+      .optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })

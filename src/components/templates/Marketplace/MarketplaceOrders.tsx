@@ -13,11 +13,12 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const { orders, isLoading, error, advancePayment } = useMarketplaceOrders();
+  const { orders, isLoading, error, advancePayment, actOnOrder } = useMarketplaceOrders();
 
   return (
     <ContentLayout
@@ -83,6 +84,21 @@ export function MarketplaceOrders() {
                           Receipt integrity {receipt.contentHash.slice(0, 12)}…
                         </div>
                       )}
+                      {order.shipment && (
+                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                          {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}
+                        </Typography>
+                      )}
+                      {order.returnRequest && (
+                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                          Return {order.returnRequest.state}: {order.returnRequest.reason}
+                        </Typography>
+                      )}
+                      {order.externalRefund && (
+                        <Typography as="p" className="mt-2 text-sm text-brand">
+                          External refund evidence: {order.externalRefund.transactionId}
+                        </Typography>
+                      )}
                     </div>
 
                     {isBuyer && payment && payment.state !== 'confirmed' && (
@@ -105,6 +121,7 @@ export function MarketplaceOrders() {
                         )}
                       </div>
                     )}
+                    <MarketplaceOrderActions order={order} isBuyer={isBuyer} actOnOrder={actOnOrder} />
                   </CardContent>
                 </Card>
               );

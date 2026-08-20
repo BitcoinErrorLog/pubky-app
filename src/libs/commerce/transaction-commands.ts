@@ -167,6 +167,98 @@ export const advanceSandboxPaymentCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+const orderIdPayload = z.object({ orderId: z.uuid() }).strict();
+
+export const requestOrderCancellationCommandSchema = createCommerceCommandSchema(
+  'order.cancel_request',
+  orderIdPayload.extend({ reason: z.string().trim().min(1).max(500) }).strict(),
+);
+
+export const approveOrderCancellationCommandSchema = createCommerceCommandSchema(
+  'order.cancel_approve',
+  orderIdPayload,
+);
+
+export const shipOrderCommandSchema = createCommerceCommandSchema(
+  'fulfillment.ship',
+  orderIdPayload
+    .extend({
+      carrier: z.string().trim().min(1).max(100),
+      trackingNumber: z.string().trim().min(1).max(200),
+    })
+    .strict(),
+);
+
+export const confirmOrderDeliveryCommandSchema = createCommerceCommandSchema(
+  'fulfillment.confirm_delivery',
+  orderIdPayload,
+);
+
+export const requestReturnCommandSchema = createCommerceCommandSchema(
+  'return.request',
+  orderIdPayload
+    .extend({
+      reason: z.string().trim().min(1).max(1_000),
+      requestedAmountMinor: z.number().int().positive(),
+    })
+    .strict(),
+);
+
+export const approveReturnCommandSchema = createCommerceCommandSchema('return.approve', orderIdPayload);
+export const receiveReturnCommandSchema = createCommerceCommandSchema('return.receive', orderIdPayload);
+
+export const recordExternalRefundCommandSchema = createCommerceCommandSchema(
+  'refund.record_external',
+  orderIdPayload
+    .extend({
+      amountMinor: z.number().int().positive(),
+      transactionId: z.string().trim().min(8).max(200),
+    })
+    .strict(),
+);
+
+export const openDisputeCommandSchema = createCommerceCommandSchema(
+  'dispute.open',
+  orderIdPayload
+    .extend({
+      reason: z.string().trim().min(1).max(2_000),
+      requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
+    })
+    .strict(),
+);
+
+export const resolveDisputeCommandSchema = createCommerceCommandSchema(
+  'dispute.resolve',
+  orderIdPayload
+    .extend({
+      resolution: z.enum(['buyer_refund', 'partial_refund', 'seller_favor', 'replacement']),
+      rationale: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
+export const createReviewCommandSchema = createCommerceCommandSchema(
+  'review.create',
+  orderIdPayload
+    .extend({
+      rating: z.number().int().min(1).max(5),
+      text: z.string().trim().min(1).max(5_000),
+    })
+    .strict(),
+);
+
+export const createMarketplaceReportCommandSchema = createCommerceCommandSchema(
+  'trust.report',
+  z
+    .object({
+      targetType: z.enum(['listing', 'user', 'message', 'review']),
+      targetId: z.string().min(1).max(300),
+      reason: z.enum(['prohibited_item', 'counterfeit', 'scam', 'harassment', 'unsafe', 'other']),
+      details: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
 export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
   'message.send',
   z
@@ -194,6 +286,18 @@ export const marketplaceCommandSchema = z.union([
   updateMarketplaceNotificationPreferencesCommandSchema,
   createMarketplaceCheckoutCommandSchema,
   advanceSandboxPaymentCommandSchema,
+  requestOrderCancellationCommandSchema,
+  approveOrderCancellationCommandSchema,
+  shipOrderCommandSchema,
+  confirmOrderDeliveryCommandSchema,
+  requestReturnCommandSchema,
+  approveReturnCommandSchema,
+  receiveReturnCommandSchema,
+  recordExternalRefundCommandSchema,
+  openDisputeCommandSchema,
+  resolveDisputeCommandSchema,
+  createReviewCommandSchema,
+  createMarketplaceReportCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -219,6 +323,9 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'notification_preferences',
             'checkout',
             'payment',
+            'order',
+            'review',
+            'report',
           ]),
         })
         .passthrough(),
@@ -254,6 +361,18 @@ export type UpdateMarketplaceNotificationPreferencesCommand = z.infer<
 >;
 export type CreateMarketplaceCheckoutCommand = z.infer<typeof createMarketplaceCheckoutCommandSchema>;
 export type AdvanceSandboxPaymentCommand = z.infer<typeof advanceSandboxPaymentCommandSchema>;
+export type RequestOrderCancellationCommand = z.infer<typeof requestOrderCancellationCommandSchema>;
+export type ApproveOrderCancellationCommand = z.infer<typeof approveOrderCancellationCommandSchema>;
+export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;
+export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCommandSchema>;
+export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
+export type ApproveReturnCommand = z.infer<typeof approveReturnCommandSchema>;
+export type ReceiveReturnCommand = z.infer<typeof receiveReturnCommandSchema>;
+export type RecordExternalRefundCommand = z.infer<typeof recordExternalRefundCommandSchema>;
+export type OpenDisputeCommand = z.infer<typeof openDisputeCommandSchema>;
+export type ResolveDisputeCommand = z.infer<typeof resolveDisputeCommandSchema>;
+export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
+export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceReportCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 
@@ -279,4 +398,12 @@ export function buildMarketplaceCheckoutAggregateId(commandId: string): string {
 
 export function buildMarketplacePaymentAggregateId(paymentId: string): string {
   return `payment:${paymentId}`;
+}
+
+export function buildMarketplaceOrderAggregateId(orderId: string): string {
+  return `order:${orderId}`;
+}
+
+export function buildMarketplaceReportAggregateId(commandId: string): string {
+  return `report:${commandId}`;
 }

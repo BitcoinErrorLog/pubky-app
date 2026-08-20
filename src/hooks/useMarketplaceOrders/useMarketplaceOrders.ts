@@ -4,6 +4,7 @@ import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
+import { buildMarketplaceOrderAggregateId } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOrder, MarketplacePayment, MarketplaceReceipt } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -65,7 +66,30 @@ export function useMarketplaceOrders() {
     }
   };
 
-  return { orders, isLoading, error, refresh, advancePayment };
+  const actOnOrder = async (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => {
+    try {
+      const response = await CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: buildMarketplaceOrderAggregateId(order.id),
+        expectedRevision: order.revision,
+        issuedAt: new Date().toISOString(),
+        kind,
+        payload: { orderId: order.id, ...payload },
+      });
+      if (!response.ok) {
+        toast({ variant: 'error', description: response.error.message });
+        return false;
+      }
+      await refresh();
+      return true;
+    } catch {
+      toast({ variant: 'error', description: 'Could not update this order.' });
+      return false;
+    }
+  };
+
+  return { orders, isLoading, error, refresh, advancePayment, actOnOrder };
 }
 
 async function loadOrders(

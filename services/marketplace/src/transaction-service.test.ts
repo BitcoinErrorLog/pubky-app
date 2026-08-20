@@ -6,7 +6,11 @@ import {
   buildMarketplaceOfferAggregateId,
   buildMarketplacePaymentAggregateId,
 } from './contracts';
-import { InMemoryMarketplaceRepository, MarketplaceTransactionService } from './transaction-service';
+import {
+  InMemoryMarketplaceRepository,
+  MARKETPLACE_SANDBOX_MODERATOR,
+  MarketplaceTransactionService,
+} from './transaction-service';
 
 const SELLER = 'y'.repeat(52);
 const BUYER = 'b'.repeat(52);
@@ -222,12 +226,40 @@ function paymentCommand(
   };
 }
 
+function orderCommand(
+  kind: string,
+  orderId: string,
+  expectedRevision: number,
+  payload: Record<string, unknown>,
+  commandNumber: number,
+) {
+  return {
+    version: 1,
+    commandId: `00000000-0000-4000-8000-${commandNumber.toString().padStart(12, '0')}`,
+    aggregateId: `order:${orderId}`,
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind,
+    payload: { orderId, ...payload },
+  };
+}
+
 function createService() {
   const repository = new InMemoryMarketplaceRepository();
   return {
     repository,
     service: new MarketplaceTransactionService(repository, () => new Date(NOW)),
   };
+}
+
+async function createPaidOrder(service: MarketplaceTransactionService) {
+  await service.execute(SELLER, registerCommand());
+  const checkout = await service.execute(BUYER, checkoutCommand());
+  if (!checkout.ok || checkout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+  const payment = checkout.result.payments[0];
+  const confirmed = await service.execute(BUYER, paymentCommand(payment.id, 1, 'confirmed', 1, 1_050));
+  if (!confirmed.ok || confirmed.result.kind !== 'payment') throw new Error('Payment fixture failed');
+  return confirmed.result.order;
 }
 
 describe('MarketplaceTransactionService', () => {
@@ -891,5 +923,162 @@ describe('MarketplaceTransactionService', () => {
       ok: false,
       error: { code: 'UNAUTHORIZED' },
     });
+  });
+
+  it('ships, confirms delivery, and allows one review per participant', async () => {
+    const { service } = createService();
+    const order = await createPaidOrder(service);
+
+    await expect(
+      service.execute(
+        SELLER,
+        orderCommand('fulfillment.ship', order.id, 2, { carrier: 'Sandbox Post', trackingNumber: 'TRACK-123' }, 1_201),
+      ),
+    ).resolves.toMatchObject({ ok: true, result: { order: { state: 'shipped', revision: 3 } } });
+    await expect(
+      service.execute(BUYER, orderCommand('fulfillment.confirm_delivery', order.id, 3, {}, 1_202)),
+    ).resolves.toMatchObject({ ok: true, result: { order: { state: 'delivered', revision: 4 } } });
+    await expect(
+      service.execute(
+        BUYER,
+        orderCommand('review.create', order.id, 4, { rating: 5, text: 'Accurate and fast.' }, 1_203),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'review', order: { state: 'completed', reviews: [{ rating: 5 }] } },
+    });
+    await expect(
+      service.execute(SELLER, orderCommand('review.create', order.id, 5, { rating: 5, text: 'Great buyer.' }, 1_204)),
+    ).resolves.toMatchObject({ ok: true, result: { order: { revision: 6, reviews: expect.any(Array) } } });
+    await expect(
+      service.execute(BUYER, orderCommand('review.create', order.id, 6, { rating: 4, text: 'Duplicate.' }, 1_205)),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
+  });
+
+  it('runs return approval, receipt, and externally verified refund without claiming custody', async () => {
+    const { service } = createService();
+    const order = await createPaidOrder(service);
+    await service.execute(
+      SELLER,
+      orderCommand('fulfillment.ship', order.id, 2, { carrier: 'Sandbox Post', trackingNumber: 'TRACK-RETURN' }, 1_210),
+    );
+    await service.execute(BUYER, orderCommand('fulfillment.confirm_delivery', order.id, 3, {}, 1_211));
+
+    await expect(
+      service.execute(
+        BUYER,
+        orderCommand(
+          'return.request',
+          order.id,
+          4,
+          { reason: 'Item differs from description', requestedAmountMinor: order.total.amountMinor },
+          1_212,
+        ),
+      ),
+    ).resolves.toMatchObject({ ok: true, result: { order: { state: 'return_requested', revision: 5 } } });
+    await service.execute(SELLER, orderCommand('return.approve', order.id, 5, {}, 1_213));
+    await service.execute(SELLER, orderCommand('return.receive', order.id, 6, {}, 1_214));
+    const refunded = await service.execute(
+      SELLER,
+      orderCommand(
+        'refund.record_external',
+        order.id,
+        7,
+        { amountMinor: order.total.amountMinor, transactionId: 'bitcoin-tx-evidence-123' },
+        1_215,
+      ),
+    );
+
+    expect(refunded).toMatchObject({
+      ok: true,
+      result: {
+        order: {
+          state: 'refunded_external',
+          externalRefund: { amountMinor: order.total.amountMinor, transactionId: 'bitcoin-tx-evidence-123' },
+        },
+      },
+    });
+  });
+
+  it('cancels unpaid checkout immediately and releases reserved inventory once', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') return;
+    const order = checkout.result.orders[0];
+
+    await expect(
+      service.execute(BUYER, orderCommand('order.cancel_request', order.id, 1, { reason: 'Changed mind' }, 1_220)),
+    ).resolves.toMatchObject({ ok: true, result: { order: { state: 'cancelled', revision: 2 } } });
+    expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
+      state: 'available',
+      availableQuantity: 1,
+      reservedQuantity: 0,
+    });
+  });
+
+  it('opens participant disputes and restricts resolution to the sandbox moderator', async () => {
+    const { service } = createService();
+    const order = await createPaidOrder(service);
+    await service.execute(
+      BUYER,
+      orderCommand(
+        'dispute.open',
+        order.id,
+        2,
+        { reason: 'Seller stopped responding', requestedRemedy: 'refund' },
+        1_230,
+      ),
+    );
+    await expect(
+      service.execute(
+        SELLER,
+        orderCommand(
+          'dispute.resolve',
+          order.id,
+          3,
+          { resolution: 'seller_favor', rationale: 'Self-resolution attempt' },
+          1_231,
+        ),
+      ),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+    await expect(
+      service.execute(
+        MARKETPLACE_SANDBOX_MODERATOR,
+        orderCommand(
+          'dispute.resolve',
+          order.id,
+          3,
+          { resolution: 'buyer_refund', rationale: 'Evidence supports the buyer.' },
+          1_232,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { order: { state: 'disputed', dispute: { state: 'resolved', resolution: 'buyer_refund' } } },
+    });
+  });
+
+  it('records structured trust reports without exposing them to ordinary users', async () => {
+    const { service } = createService();
+    const commandId = '00000000-0000-4000-8000-000000001240';
+    await expect(
+      service.execute(BUYER, {
+        version: 1,
+        commandId,
+        aggregateId: `report:${commandId}`,
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'trust.report',
+        payload: {
+          targetType: 'listing',
+          targetId: AGGREGATE_ID,
+          reason: 'counterfeit',
+          details: 'Brand markings appear inconsistent.',
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true, result: { kind: 'report', report: { state: 'open' } } });
+    expect(service.getReports(BUYER)).toEqual([]);
+    expect(service.getReports(MARKETPLACE_SANDBOX_MODERATOR)).toHaveLength(1);
   });
 });
