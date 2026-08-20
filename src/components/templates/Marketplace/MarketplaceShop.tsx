@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, MapPin, Store, UserCheck, UserPlus } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
@@ -19,10 +18,6 @@ import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
   const follow = useCommerceShopFollow(sellerPubky);
-
-  useEffect(() => {
-    CommerceController.initializeSandboxCatalog().catch(() => {});
-  }, []);
 
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
   const listings = useLiveQuery(() => CommerceController.getListingsBySeller(sellerPubky), [sellerPubky]);

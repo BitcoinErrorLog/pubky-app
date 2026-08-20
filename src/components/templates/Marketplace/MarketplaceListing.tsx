@@ -42,14 +42,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
 
   useEffect(() => {
+    if (adapterMode === 'sandbox') return;
     let active = true;
-    const initialize = async () => {
-      await CommerceController.initializeSandboxCatalog();
-      if (adapterMode !== 'sandbox') {
-        await CommerceController.getOrFetchListing(sellerPubky, listingId);
-      }
-    };
-    initialize().catch(() => {
+    CommerceController.getOrFetchListing(sellerPubky, listingId).catch(() => {
       if (active) setError('This listing could not be loaded.');
     });
     return () => {

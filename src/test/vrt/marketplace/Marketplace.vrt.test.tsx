@@ -47,7 +47,6 @@ vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
       listings: catalog.listings,
       shopsBySeller: catalog.shopsBySeller,
       isLoading: false,
-      initializationError: null,
       adapterMode: 'sandbox',
     }),
   };

@@ -22,7 +22,7 @@ export function Marketplace() {
   const { requireAuth } = useRequireAuth();
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
-  const { listings, shopsBySeller, isLoading, initializationError, adapterMode } = useMarketplaceCatalog();
+  const { listings, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
 
   return (
     <ContentLayout
@@ -133,11 +133,6 @@ export function Marketplace() {
           {adapterMode === 'unavailable' && (
             <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
               Marketplace transactions are unavailable in this deployment. Public browsing remains read-only.
-            </div>
-          )}
-          {initializationError && (
-            <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-foreground">
-              {initializationError}
             </div>
           )}
 

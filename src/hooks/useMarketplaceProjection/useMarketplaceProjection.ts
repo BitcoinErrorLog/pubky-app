@@ -18,11 +18,7 @@ export function useMarketplaceProjection(sellerPubky: string, listingId: string)
       return;
     }
     let active = true;
-    const initialize = async () => {
-      await CommerceController.initializeSandboxCatalog();
-      if (active) await loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError);
-    };
-    void initialize();
+    void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError);
     const timer = window.setInterval(() => {
       if (active) void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError);
     }, getCommercePollIntervalMs());

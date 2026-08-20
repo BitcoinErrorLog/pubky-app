@@ -10,7 +10,6 @@ vi.mock('@/config/commerce', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
-    initializeSandboxCatalog: vi.fn(),
     getMarketplaceListingProjection: vi.fn(),
   },
 }));
@@ -18,7 +17,6 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 describe('useMarketplaceProjection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(CommerceController.initializeSandboxCatalog).mockResolvedValue(true);
     vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue({
       aggregateId: 'listing:seller_item',
       sellerPubky: 'y'.repeat(52),
@@ -41,12 +39,12 @@ describe('useMarketplaceProjection', () => {
     });
   });
 
-  it('initializes and exposes the authoritative sandbox listing projection', async () => {
+  it('exposes the authoritative sandbox listing projection', async () => {
     const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(CommerceController.initializeSandboxCatalog).toHaveBeenCalled();
+    expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalled();
     expect(result.current.projection).toMatchObject({
       serverRevision: 2,
       auction: { currentPrice: { amountMinor: 4_500 }, bidCount: 0 },
