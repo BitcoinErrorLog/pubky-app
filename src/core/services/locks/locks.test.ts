@@ -1,0 +1,103 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LocksGatewayService } from './locks';
+
+const CREATOR = 'y'.repeat(52);
+const READER = 'b'.repeat(52);
+const BUNDLE_ID = '000G40R40M30E209185GR38E1W';
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return {
+    ...actual,
+    getLocksUrl: () => 'https://locks.example.com',
+    getPaykitSetupUrl: () => 'https://paykit.example.com/setup',
+  };
+});
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
+function lifecycle(status: 'pending' | 'completed' = 'pending') {
+  return {
+    creator: `pubky${CREATOR}`,
+    bundle_id: BUNDLE_ID,
+    status,
+    submitted_at: '2026-08-19T23:00:00.000Z',
+    started_at: null,
+    completed_at: status === 'completed' ? '2026-08-19T23:01:00.000Z' : null,
+    failure_message: null,
+  };
+}
+
+describe('LocksGatewayService', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('submits the canonical empty Paykit proof without invoice material', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(lifecycle()));
+
+    await LocksGatewayService.submitPaykitProof({
+      creatorPubky: CREATOR,
+      readerPubky: READER,
+      bundleId: BUNDLE_ID,
+      lockResource: `pubky://${CREATOR}/pub/locks.app/lock.json`,
+      criterionId: 'criterion-1',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://locks.example.com/proof-bundles',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          submitted_proof_bundle: {
+            version: 1,
+            bundle_id: BUNDLE_ID,
+            pubky_lock_resource: `pubky${CREATOR}/pub/locks.app/lock.json`,
+            reader_public_key: `pubky${READER}`,
+            proofs: [{ criterion_id: 'criterion-1', verifier_type: 'paykit-payment', payload: {} }],
+          },
+        }),
+      }),
+    );
+  });
+
+  it('looks up lifecycle and requests a credential without putting bearer ids in URLs', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(lifecycle('completed')))
+      .mockResolvedValueOnce(jsonResponse({ credential: 'opaque-secret', expires_at: '2026-08-20T00:00:00.000Z' }));
+
+    await expect(LocksGatewayService.lookupVerification(CREATOR, BUNDLE_ID)).resolves.toMatchObject({
+      status: 'completed',
+    });
+    await expect(LocksGatewayService.issueAccessCredential(CREATOR, BUNDLE_ID)).resolves.toMatchObject({
+      credential: 'opaque-secret',
+    });
+
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://locks.example.com/verification-task-lookups');
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe('https://locks.example.com/access-credentials');
+    expect(vi.mocked(fetch).mock.calls.flatMap((call) => String(call[0]))).not.toContain(BUNDLE_ID);
+  });
+
+  it('uses bearer authorization only for guarded content retrieval', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    );
+
+    await LocksGatewayService.fetchGuardedContent('orders/proof image.jpg', 'opaque-secret');
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://locks.example.com/priv-resources/content/orders/proof%20image.jpg',
+      expect.objectContaining({ headers: { authorization: 'Bearer opaque-secret' } }),
+    );
+  });
+
+  it('builds exact-origin Paykit setup callbacks', () => {
+    expect(
+      LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/marketplace/settings', 'opaque-state'),
+    ).toBe(
+      'https://paykit.example.com/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state',
+    );
+  });
+});
