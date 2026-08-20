@@ -174,6 +174,7 @@ describe('MarketplaceTransactionService.execute', () => {
     'return.receive',
     'refund.record_external',
     'dispute.open',
+    'dispute.evidence',
     'dispute.resolve',
     'review.create',
   ] as const)('sends the ported post-purchase command kind %s to the service', async (kind) => {
@@ -563,5 +564,158 @@ describe('MarketplaceTransactionService read projections', () => {
 
     await expect(MarketplaceTransactionService.getOrders(ACTOR)).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  describe('dispute adjudication reads', () => {
+    function disputedOrderWire() {
+      return orderWire({
+        state: 'disputed',
+        dispute: {
+          state: 'open',
+          opened_by: ACTOR,
+          reason: 'Item arrived damaged.',
+          requested_remedy: 'refund',
+          resolution: null,
+          rationale: null,
+          evidence_count: 2,
+          opened_at: '2026-08-20T13:00:00.000Z',
+          resolved_at: null,
+        },
+      });
+    }
+
+    it('reads the moderator dispute queue and camel-cases the order projections', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { disputes: [disputedOrderWire()] }));
+
+      const disputes = await MarketplaceTransactionService.getDisputes(ACTOR);
+
+      expect(disputes).toHaveLength(1);
+      expect(disputes![0]).toMatchObject({
+        id: ORDER_ID,
+        revision: 2,
+        state: 'disputed',
+        dispute: { state: 'open', reason: 'Item arrived damaged.', evidenceCount: 2 },
+      });
+      // The queue is an order projection: it carries only the content-free
+      // evidence count, never bodies.
+      expect(disputes![0].dispute).not.toHaveProperty('evidence');
+      const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('http://127.0.0.1:8080/v1/disputes');
+      expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
+    });
+
+    it('returns null when the service refuses the queue with 403 (not a configured moderator)', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(403, {
+          ok: false,
+          error: { code: 'UNAUTHORIZED', message: 'Only a configured moderator may read the dispute queue.' },
+        }),
+      );
+
+      // Null, not [] — the caller must keep the queue absent rather than
+      // render an empty-looking one for a non-moderator.
+      await expect(MarketplaceTransactionService.getDisputes(ACTOR)).resolves.toBeNull();
+    });
+
+    it('reads a single order projection by id', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, disputedOrderWire()));
+
+      const order = await MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID);
+
+      expect(order).toMatchObject({ id: ORDER_ID, revision: 2, state: 'disputed' });
+      const [url] = vi.mocked(fetch).mock.calls[0] as [string];
+      expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}`);
+    });
+
+    it('returns null for an absent or foreign order (service 404)', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The order was not found.' } }),
+      );
+
+      await expect(MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID)).resolves.toBeNull();
+    });
+
+    it('reads the evidence case file with bodies through the scoped endpoint', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          order_id: ORDER_ID,
+          evidence: [
+            {
+              id: '00000000-0000-4000-8000-000000000941',
+              submitter_pubky: ACTOR,
+              body: 'Photo hashes of the damaged parcel: abc123.',
+              body_bytes: 43,
+              created_at: '2026-08-20T14:00:00.000Z',
+            },
+            {
+              id: '00000000-0000-4000-8000-000000000940',
+              submitter_pubky: OTHER_ACTOR,
+              body: 'The parcel left our warehouse intact.',
+              body_bytes: 37,
+              created_at: '2026-08-20T13:30:00.000Z',
+            },
+          ],
+        }),
+      );
+
+      const caseFile = await MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID);
+
+      expect(caseFile).toMatchObject({ orderId: ORDER_ID });
+      expect(caseFile!.evidence).toEqual([
+        expect.objectContaining({
+          submitterPubky: ACTOR,
+          body: 'Photo hashes of the damaged parcel: abc123.',
+          bodyBytes: 43,
+        }),
+        expect.objectContaining({
+          submitterPubky: OTHER_ACTOR,
+          body: 'The parcel left our warehouse intact.',
+          bodyBytes: 37,
+        }),
+      ]);
+      const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}/evidence`);
+      expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
+    });
+
+    it('returns null for a stranger or absent order on the evidence read (indistinguishable 404)', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The order was not found.' } }),
+      );
+
+      await expect(MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID)).resolves.toBeNull();
+    });
+
+    it('requires a session for every adjudication read', async () => {
+      await expect(MarketplaceTransactionService.getDisputes(ACTOR)).rejects.toMatchObject({
+        code: 'SESSION_EXPIRED',
+      });
+      await expect(MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID)).rejects.toMatchObject({
+        code: 'SESSION_EXPIRED',
+      });
+      await expect(MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID)).rejects.toMatchObject({
+        code: 'SESSION_EXPIRED',
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('fails closed outside transaction-service mode', async () => {
+      config.mode = 'sandbox';
+
+      await expect(MarketplaceTransactionService.getDisputes(ACTOR)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      await expect(MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID)).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      await expect(MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID)).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 });

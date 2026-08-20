@@ -14,6 +14,7 @@ import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
+  type MarketplaceDisputeCaseFile,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
   type MarketplaceNotification,
@@ -88,6 +89,8 @@ export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
 export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSchema>;
 export type {
+  MarketplaceDisputeCaseFile,
+  MarketplaceDisputeEvidence,
   MarketplaceListingProjection,
   MarketplaceNotification,
   MarketplaceOffer,
@@ -113,6 +116,13 @@ export type { MarketplaceReport } from './marketplace-transaction';
  * sandbox assertion in every other mode: conversations/messages and
  * attachments (no durable tables; `message.*` commands unported) and
  * notification preferences (`notification.*` commands unported).
+ *
+ * The inverse also holds: dispute adjudication reads (the moderator queue,
+ * the single-order moderator branch, and the evidence case file) exist ONLY
+ * on the durable service — the sandbox prototype has no dispute queue and no
+ * evidence records — so those methods fail closed outside
+ * `transaction-service` mode and the UI gates on the mode instead of
+ * pretending a sandbox equivalent exists.
  */
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -343,6 +353,31 @@ export class MarketplaceGatewayService {
     return parsed.data;
   }
 
+  /** One order projection by id — durable service only (used to source a fresh `expected_revision`). */
+  static async getOrder(actor: string, orderId: string): Promise<MarketplaceOrder | null> {
+    this.assertTransactionServiceOnly('getOrder');
+    return await MarketplaceTransactionService.getOrder(actor, orderId);
+  }
+
+  /**
+   * The moderator dispute queue — durable service only. `null` means the
+   * service refused the read (403): the signed-in pubky is not a configured
+   * moderator, and the queue must stay absent rather than render empty.
+   */
+  static async getDisputes(actor: string): Promise<MarketplaceOrder[] | null> {
+    this.assertTransactionServiceOnly('getDisputes');
+    return await MarketplaceTransactionService.getDisputes(actor);
+  }
+
+  /**
+   * The dispute case file — durable service only. `null` covers absent and
+   * inaccessible orders indistinguishably (the service's deliberate 404).
+   */
+  static async getOrderEvidence(actor: string, orderId: string): Promise<MarketplaceDisputeCaseFile | null> {
+    this.assertTransactionServiceOnly('getOrderEvidence');
+    return await MarketplaceTransactionService.getOrderEvidence(actor, orderId);
+  }
+
   static async getReports(actor: string): Promise<MarketplaceReport[]> {
     if (getCommerceAdapterMode() === 'transaction-service') {
       return await MarketplaceTransactionService.getReports(actor);
@@ -429,6 +464,22 @@ export class MarketplaceGatewayService {
       'A marketplace session is required. Sign in and approve the marketplace connection on your signer.',
       { service: ErrorService.Marketplace, operation },
     );
+  }
+
+  /**
+   * Dispute adjudication reads have no sandbox counterpart (the prototype
+   * kept no evidence records and had no moderator queue), so they fail closed
+   * everywhere except `transaction-service` mode — the UI gates on the mode
+   * and states the limitation instead of relying on this throw.
+   */
+  private static assertTransactionServiceOnly(operation: string): void {
+    if (getCommerceAdapterMode() !== 'transaction-service') {
+      throw Err.client(
+        ClientErrorCode.BAD_REQUEST,
+        'Dispute adjudication reads exist only on the durable transaction service.',
+        { service: ErrorService.Marketplace, operation },
+      );
+    }
   }
 
   private static assertSandbox(): void {

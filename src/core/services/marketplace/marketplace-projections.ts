@@ -221,6 +221,33 @@ export const marketplaceOrderSchema = z
   })
   .passthrough();
 
+/**
+ * One dispute evidence item from the scoped case-file read
+ * `GET /v1/orders/{id}/evidence` — durable service only; the sandbox has no
+ * evidence records. This is the ONLY place an evidence body ever appears
+ * (ADR-0019 §8): general projections and command results carry a content-free
+ * `evidenceCount`, never bodies. The endpoint's audience is exactly the two
+ * dispute participants plus configured moderators, and moderator reads are
+ * audited server-side in the same transaction as the read.
+ */
+export const marketplaceDisputeEvidenceSchema = z
+  .object({
+    id: z.uuid(),
+    submitterPubky: commercePubkySchema,
+    body: z.string(),
+    bodyBytes: z.number().int().nonnegative(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+
+/** The dispute case file: evidence items newest-first for one order. */
+export const marketplaceDisputeCaseFileSchema = z
+  .object({
+    orderId: z.uuid(),
+    evidence: z.array(marketplaceDisputeEvidenceSchema),
+  })
+  .passthrough();
+
 export const marketplaceReceiptSchema = z.object({
   id: z.uuid(),
   orderId: z.uuid(),
@@ -232,6 +259,8 @@ export const marketplaceReceiptSchema = z.object({
   issuedAt: z.string(),
 });
 
+export type MarketplaceDisputeCaseFile = z.infer<typeof marketplaceDisputeCaseFileSchema>;
+export type MarketplaceDisputeEvidence = z.infer<typeof marketplaceDisputeEvidenceSchema>;
 export type MarketplaceListingProjection = z.infer<typeof marketplaceListingProjectionSchema>;
 export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSchema>;
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;

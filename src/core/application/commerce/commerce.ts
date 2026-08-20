@@ -141,12 +141,28 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getReports(actorPubky);
   }
 
+  static async getMarketplaceOrder(actorPubky: string, orderId: string) {
+    return await MarketplaceGatewayService.getOrder(actorPubky, orderId);
+  }
+
+  static async getMarketplaceDisputes(actorPubky: string) {
+    return await MarketplaceGatewayService.getDisputes(actorPubky);
+  }
+
+  static async getMarketplaceOrderEvidence(actorPubky: string, orderId: string) {
+    return await MarketplaceGatewayService.getOrderEvidence(actorPubky, orderId);
+  }
+
   static async uploadMarketplaceAttachment(actorPubky: string, recipientPubky: string, file: File) {
     return await MarketplaceGatewayService.uploadAttachment(actorPubky, recipientPubky, file);
   }
 
   static async fetchMarketplaceAttachment(actorPubky: string, attachmentId: string) {
     return await MarketplaceGatewayService.fetchAttachment(actorPubky, attachmentId);
+  }
+
+  static async generateLocksBundleId() {
+    return await LocksGatewayService.generateBundleId();
   }
 
   static async submitLocksPaykitProof(params: {
@@ -167,8 +183,13 @@ export class CommerceApplication {
     return await LocksGatewayService.issueAccessCredential(creatorPubky, bundleId);
   }
 
-  static async fetchLocksGuardedContent(relativePath: string, credential: string) {
-    return await LocksGatewayService.fetchGuardedContent(relativePath, credential);
+  static async fetchLocksGuardedContent(params: {
+    creatorPubky: string;
+    bundleId: string;
+    relativePath: string;
+    credential: string;
+  }) {
+    return await LocksGatewayService.fetchGuardedContent(params);
   }
 
   static getPaykitSetupUrl(returnTo: string, state: string) {

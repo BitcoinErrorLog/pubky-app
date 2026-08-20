@@ -150,6 +150,24 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceReports(this.getCurrentUserPubky());
   }
 
+  static async getMarketplaceOrder(orderId: unknown) {
+    return await CommerceApplication.getMarketplaceOrder(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  static async getMarketplaceDisputes() {
+    return await CommerceApplication.getMarketplaceDisputes(this.getCurrentUserPubky());
+  }
+
+  static async getMarketplaceOrderEvidence(orderId: unknown) {
+    return await CommerceApplication.getMarketplaceOrderEvidence(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
   static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
     const recipient = CommerceRecordNormalizer.pubky(recipientPubky);
     if (
@@ -172,6 +190,10 @@ export class CommerceController {
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.entityId(attachmentId),
     );
+  }
+
+  static async generateLocksBundleId() {
+    return await CommerceApplication.generateLocksBundleId();
   }
 
   static async submitLocksPaykitProof({
@@ -208,7 +230,12 @@ export class CommerceController {
     );
   }
 
-  static async fetchLocksGuardedContent(relativePath: unknown, credential: unknown) {
+  static async fetchLocksGuardedContent(
+    creatorPubky: unknown,
+    bundleId: unknown,
+    relativePath: unknown,
+    credential: unknown,
+  ) {
     if (
       typeof relativePath !== 'string' ||
       relativePath
@@ -224,7 +251,12 @@ export class CommerceController {
         operation: 'fetchLocksGuardedContent',
       });
     }
-    return await CommerceApplication.fetchLocksGuardedContent(relativePath, credential);
+    return await CommerceApplication.fetchLocksGuardedContent({
+      creatorPubky: CommerceRecordNormalizer.pubky(creatorPubky),
+      bundleId: CommerceRecordNormalizer.entityId(bundleId),
+      relativePath,
+      credential,
+    });
   }
 
   static getPaykitSetupUrl(returnTo: unknown, state: unknown): string {

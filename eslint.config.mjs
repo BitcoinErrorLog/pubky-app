@@ -31,6 +31,8 @@ const eslintConfig = [
       'next-env.d.ts',
       // PWA generated files (serwist)
       'public/sw.js',
+      // Vendored verbatim wasm-pack output (see docs/ecommerce/locks-sdk-provenance.md)
+      'vendor/locks-sdk-wasm/**',
     ],
   },
   {
