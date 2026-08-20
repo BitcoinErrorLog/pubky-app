@@ -131,12 +131,75 @@ const offerSchema = z
   })
   .passthrough();
 
+const moneySchema = z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() });
+
+const orderSchema = z
+  .object({
+    id: z.uuid(),
+    buyerPubky: commercePubkySchema,
+    sellerPubky: commercePubkySchema,
+    revision: z.number().int().positive(),
+    state: z.enum(['pending_payment', 'paid', 'cancelled']),
+    lines: z.array(
+      z.object({
+        listingAggregateId: z.string(),
+        listingRevision: z.number().int().positive(),
+        contentHash: z.string(),
+        title: z.string(),
+        quantity: z.number().int().positive(),
+        unitPrice: moneySchema,
+        subtotal: moneySchema,
+      }),
+    ),
+    subtotal: moneySchema,
+    shipping: moneySchema,
+    tax: moneySchema,
+    total: moneySchema,
+    guaranteePolicyVersion: z.literal(1),
+    paymentId: z.uuid(),
+    receiptId: z.uuid().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+const paymentSchema = z
+  .object({
+    id: z.uuid(),
+    orderId: z.uuid(),
+    buyerPubky: commercePubkySchema,
+    sellerPubky: commercePubkySchema,
+    revision: z.number().int().positive(),
+    adapter: z.literal('sandbox'),
+    state: z.enum(['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review']),
+    confirmations: z.number().int().min(0).max(6),
+    locksBundleId: z.uuid(),
+    amount: moneySchema,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+const receiptSchema = z.object({
+  id: z.uuid(),
+  orderId: z.uuid(),
+  paymentId: z.uuid(),
+  issuerPubky: commercePubkySchema,
+  recipientPubky: commercePubkySchema,
+  total: moneySchema,
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  issuedAt: z.string(),
+});
+
 export type MarketplaceListingProjection = z.infer<typeof listingProjectionSchema>;
 export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotification = z.infer<typeof notificationSchema>;
 export type MarketplaceOffer = z.infer<typeof offerSchema>;
 export type MarketplaceNotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
 export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSchema>;
+export type MarketplaceOrder = z.infer<typeof orderSchema>;
+export type MarketplacePayment = z.infer<typeof paymentSchema>;
+export type MarketplaceReceipt = z.infer<typeof receiptSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -269,6 +332,71 @@ export class MarketplaceGatewayService {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid notification preferences.', {
         service: ErrorService.Marketplace,
         operation: 'getNotificationPreferences',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  static async getOrders(actor: string): Promise<MarketplaceOrder[]> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/orders`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getOrders',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getOrders', url);
+    const parsed = z.object({ orders: z.array(orderSchema) }).safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid orders.', {
+        service: ErrorService.Marketplace,
+        operation: 'getOrders',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data.orders;
+  }
+
+  static async getPayment(actor: string, paymentId: string): Promise<MarketplacePayment | null> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/payments/${encodeURIComponent(paymentId)}`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getPayment',
+    );
+    if (response.status === 404) return null;
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getPayment', url);
+    const parsed = paymentSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid payment.', {
+        service: ErrorService.Marketplace,
+        operation: 'getPayment',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  static async getReceipt(actor: string, receiptId: string): Promise<MarketplaceReceipt | null> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/receipts/${encodeURIComponent(receiptId)}`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getReceipt',
+    );
+    if (response.status === 404) return null;
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getReceipt', url);
+    const parsed = receiptSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid receipt.', {
+        service: ErrorService.Marketplace,
+        operation: 'getReceipt',
         context: { statusCode: response.status },
       });
     }

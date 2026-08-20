@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Bell, Gavel, Heart, MapPin, PackageCheck, ShieldCheck, Store } from 'lucide-react';
+import { ArrowLeft, Bell, Gavel, Heart, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceShopRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -10,15 +10,15 @@ import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
+import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
-import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
-import { toast } from '@/molecules/Toaster/use-toast';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
@@ -31,11 +31,12 @@ export interface MarketplaceListingProps {
 }
 
 export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListingProps) {
-  const { requireAuth } = useRequireAuth();
   const [error, setError] = useState<string | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState('');
   const adapterMode = getCommerceAdapterMode();
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
   const negotiation = useMarketplaceProjection(sellerPubky, listingId);
+  const cart = useMarketplaceCart();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
 
   useEffect(() => {
@@ -56,6 +57,13 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const listing = useLiveQuery(() => CommerceController.getListing(sellerPubky, listingId), [sellerPubky, listingId]);
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
+
+  useEffect(() => {
+    const firstVariant = listing?.record.variants[0]?.id;
+    if (firstVariant && !listing?.record.variants.some(({ id }) => id === selectedVariantId)) {
+      setSelectedVariantId(firstVariant);
+    }
+  }, [listing, selectedVariantId]);
 
   if (listing === undefined || shop === undefined) {
     return (
@@ -99,6 +107,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   }
 
   const record = listing.record;
+  const selectedVariant = record.variants.find(({ id }) => id === selectedVariantId) ?? record.variants[0];
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
 
@@ -191,6 +200,31 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               ))}
             </div>
 
+            {record.variants.length > 1 && (
+              <div>
+                <Typography as="p" className="mb-2 text-sm font-semibold">
+                  Variant
+                </Typography>
+                <Select value={selectedVariant?.id} onValueChange={setSelectedVariantId}>
+                  <SelectTrigger className="h-11 w-full rounded-md border px-3" aria-label="Choose listing variant">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {record.variants.map((variant) => (
+                      <SelectItem
+                        key={variant.id}
+                        value={variant.id}
+                        disabled={!variant.enabled || variant.quantity === 0}
+                      >
+                        {Object.values(variant.options).join(' · ') || variant.sku || 'Default'} · {variant.quantity}{' '}
+                        left
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
                 <MapPin className="size-5 text-brand" />
@@ -229,18 +263,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   <Button
                     size="lg"
                     className="flex-1 rounded-full"
-                    disabled={adapterMode === 'unavailable'}
+                    disabled={adapterMode === 'unavailable' || !selectedVariant || selectedVariant.quantity === 0}
                     onClick={() =>
-                      requireAuth(() =>
-                        toast({
-                          variant: 'info',
-                          title: 'Sandbox checkout',
-                          description: 'Checkout opens in the transaction slice.',
-                        }),
-                      )
+                      selectedVariant &&
+                      void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1)
                     }
                   >
-                    Buy now
+                    <ShoppingCart className="mr-2 size-4" />
+                    Add to cart
                   </Button>
                   {record.sale.acceptsOffers && (
                     <MarketplaceOfferDialog

@@ -99,6 +99,18 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getNotificationPreferences(actorPubky);
   }
 
+  static async getMarketplaceOrders(actorPubky: string) {
+    return await MarketplaceGatewayService.getOrders(actorPubky);
+  }
+
+  static async getMarketplacePayment(actorPubky: string, paymentId: string) {
+    return await MarketplaceGatewayService.getPayment(actorPubky, paymentId);
+  }
+
+  static async getMarketplaceReceipt(actorPubky: string, receiptId: string) {
+    return await MarketplaceGatewayService.getReceipt(actorPubky, receiptId);
+  }
+
   static async uploadMarketplaceAttachment(actorPubky: string, recipientPubky: string, file: File) {
     return await MarketplaceGatewayService.uploadAttachment(actorPubky, recipientPubky, file);
   }

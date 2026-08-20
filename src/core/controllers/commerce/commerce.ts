@@ -90,6 +90,24 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceNotificationPreferences(this.getCurrentUserPubky());
   }
 
+  static async getMarketplaceOrders() {
+    return await CommerceApplication.getMarketplaceOrders(this.getCurrentUserPubky());
+  }
+
+  static async getMarketplacePayment(paymentId: unknown) {
+    return await CommerceApplication.getMarketplacePayment(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(paymentId),
+    );
+  }
+
+  static async getMarketplaceReceipt(receiptId: unknown) {
+    return await CommerceApplication.getMarketplaceReceipt(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(receiptId),
+    );
+  }
+
   static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
     const recipient = CommerceRecordNormalizer.pubky(recipientPubky);
     if (
