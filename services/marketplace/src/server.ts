@@ -102,12 +102,12 @@ export function createMarketplaceHttpServer({
         return;
       }
 
-      if (request.method === 'GET' && request.url?.startsWith('/v1/offers?')) {
+      if (request.method === 'GET' && request.url?.startsWith('/v1/offers')) {
         const actor = request.headers['x-pubky-actor'];
         const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
         const aggregateId = new URL(request.url, 'http://marketplace.local').searchParams.get('aggregateId');
-        const aggregateResult = commerceAggregateIdSchema.safeParse(aggregateId);
-        if (!actorResult.success || !aggregateResult.success) {
+        const aggregateResult = aggregateId === null ? null : commerceAggregateIdSchema.safeParse(aggregateId);
+        if (!actorResult.success || (aggregateResult !== null && !aggregateResult.success)) {
           writeJson(
             response,
             401,
@@ -119,7 +119,12 @@ export function createMarketplaceHttpServer({
         writeJson(
           response,
           200,
-          { offers: service.getParticipantOffers(actorResult.data, aggregateResult.data) },
+          {
+            offers:
+              aggregateResult?.success === true
+                ? service.getParticipantOffers(actorResult.data, aggregateResult.data)
+                : service.getOffers(actorResult.data),
+          },
           mode,
         );
         return;

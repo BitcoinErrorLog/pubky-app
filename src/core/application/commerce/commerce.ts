@@ -87,6 +87,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getConversations(actorPubky);
   }
 
+  static async getMarketplaceOffers(actorPubky: string) {
+    return await MarketplaceGatewayService.getOffers(actorPubky);
+  }
+
   static async getMarketplaceNotifications(actorPubky: string) {
     return await MarketplaceGatewayService.getNotifications(actorPubky);
   }

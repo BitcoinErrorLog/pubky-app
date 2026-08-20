@@ -77,9 +77,28 @@ const notificationSchema = z
   })
   .passthrough();
 
+const offerSchema = z
+  .object({
+    id: z.uuid(),
+    aggregateId: z.string(),
+    listingAggregateId: z.string(),
+    buyerPubky: commercePubkySchema,
+    sellerPubky: commercePubkySchema,
+    revision: z.number().int().positive(),
+    state: z.enum(['pending', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired']),
+    offeredBy: commercePubkySchema,
+    amount: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
+    quantity: z.number().int().positive(),
+    message: z.string(),
+    expiresAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
 export type MarketplaceListingProjection = z.infer<typeof listingProjectionSchema>;
 export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotification = z.infer<typeof notificationSchema>;
+export type MarketplaceOffer = z.infer<typeof offerSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -148,6 +167,27 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data.conversations;
+  }
+
+  static async getOffers(actor: string): Promise<MarketplaceOffer[]> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/offers`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getOffers',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getOffers', url);
+    const parsed = z.object({ offers: z.array(offerSchema) }).safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid offers.', {
+        service: ErrorService.Marketplace,
+        operation: 'getOffers',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data.offers;
   }
 
   static async getNotifications(actor: string): Promise<MarketplaceNotification[]> {

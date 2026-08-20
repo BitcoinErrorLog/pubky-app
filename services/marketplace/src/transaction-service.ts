@@ -252,6 +252,12 @@ export class InMemoryMarketplaceRepository {
     return [...this.offers.values()].filter((offer) => offer.listingAggregateId === listingAggregateId);
   }
 
+  getOffersForActor(actorPubky: string): MarketplaceOffer[] {
+    return [...this.offers.values()].filter(
+      (offer) => offer.buyerPubky === actorPubky || offer.sellerPubky === actorPubky,
+    );
+  }
+
   putBid(bid: MarketplaceBid): void {
     const current = this.bids.get(bid.listingAggregateId) ?? [];
     this.bids.set(bid.listingAggregateId, [...current, bid]);
@@ -316,6 +322,10 @@ export class MarketplaceTransactionService {
     return this.repository
       .getOffersForListing(listingAggregateId)
       .filter((offer) => offer.buyerPubky === actorPubky || offer.sellerPubky === actorPubky);
+  }
+
+  getOffers(actorPubky: string): MarketplaceOffer[] {
+    return this.repository.getOffersForActor(actorPubky);
   }
 
   getParticipantConversations(actorPubky: string): MarketplaceConversation[] {

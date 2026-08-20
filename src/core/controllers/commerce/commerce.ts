@@ -78,6 +78,10 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceConversations(this.getCurrentUserPubky());
   }
 
+  static async getMarketplaceOffers() {
+    return await CommerceApplication.getMarketplaceOffers(this.getCurrentUserPubky());
+  }
+
   static async getMarketplaceNotifications() {
     return await CommerceApplication.getMarketplaceNotifications(this.getCurrentUserPubky());
   }
