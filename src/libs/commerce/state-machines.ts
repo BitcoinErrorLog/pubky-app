@@ -1,11 +1,13 @@
 import type {
   AuctionState,
+  DisputeState,
   ListingState,
   OfferState,
   OrderState,
   PaymentState,
   ReportState,
   ReservationState,
+  ReturnState,
 } from './transaction-contracts';
 
 type TransitionMap<State extends string> = Readonly<Record<State, readonly State[]>>;
@@ -85,6 +87,18 @@ export const reportTransitions = {
   actioned: [],
 } as const satisfies TransitionMap<ReportState>;
 
+export const returnTransitions = {
+  requested: ['approved'],
+  approved: ['received'],
+  received: ['refunded'],
+  refunded: [],
+} as const satisfies TransitionMap<ReturnState>;
+
+export const disputeTransitions = {
+  open: ['resolved'],
+  resolved: [],
+} as const satisfies TransitionMap<DisputeState>;
+
 /**
  * Every aggregate machine, keyed exactly as in the service's contract artifact.
  * The contract-drift test iterates this registry against the vendored JSON, so
@@ -98,6 +112,8 @@ export const commerceAggregateMachines = {
   order: { initial: 'pending_payment', transitions: orderTransitions },
   payment: { initial: 'awaiting_entitlement', transitions: paymentTransitions },
   report: { initial: 'open', transitions: reportTransitions },
+  return: { initial: 'requested', transitions: returnTransitions },
+  dispute: { initial: 'open', transitions: disputeTransitions },
 } as const;
 
 export function canTransitionListing(from: ListingState, to: ListingState): boolean {

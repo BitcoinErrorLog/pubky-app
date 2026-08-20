@@ -3,12 +3,14 @@ import contractArtifact from './contracts/state-machines.json';
 import { commerceAggregateMachines } from './state-machines';
 import {
   auctionStateSchema,
+  disputeStateSchema,
   listingStateSchema,
   offerStateSchema,
   orderStateSchema,
   paymentStateSchema,
   reportStateSchema,
   reservationStateSchema,
+  returnStateSchema,
 } from './transaction-contracts';
 
 /**
@@ -49,6 +51,8 @@ const stateEnumsByAggregate = {
   order: orderStateSchema,
   payment: paymentStateSchema,
   report: reportStateSchema,
+  return: returnStateSchema,
+  dispute: disputeStateSchema,
 } as const;
 
 function clientEdges(transitions: Readonly<Record<string, readonly string[]>>): string[] {
