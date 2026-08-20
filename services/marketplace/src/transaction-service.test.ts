@@ -164,10 +164,10 @@ function closeAuctionCommand(expectedRevision: number, commandNumber = 950) {
   };
 }
 
-function notificationPreferencesCommand(expectedRevision: number, messages: boolean) {
+function notificationPreferencesCommand(expectedRevision: number, messages: boolean, commandNumber = 960) {
   return {
     version: 1,
-    commandId: `00000000-0000-4000-8000-${(960 + expectedRevision).toString().padStart(12, '0')}`,
+    commandId: `00000000-0000-4000-8000-${commandNumber.toString().padStart(12, '0')}`,
     aggregateId: `notification_preferences:${SELLER}`,
     expectedRevision,
     issuedAt: NOW.toISOString(),
@@ -652,7 +652,7 @@ describe('MarketplaceTransactionService', () => {
 
     expect(service.getNotificationPreferences(SELLER)).toMatchObject({ revision: 1, messages: false, offers: true });
     expect(service.getNotifications(SELLER).map(({ type }) => type)).toEqual(['offer_received']);
-    await expect(service.execute(SELLER, notificationPreferencesCommand(0, true))).resolves.toMatchObject({
+    await expect(service.execute(SELLER, notificationPreferencesCommand(0, true, 961))).resolves.toMatchObject({
       ok: false,
       error: { code: 'REVISION_CONFLICT', currentRevision: 1 },
     });
