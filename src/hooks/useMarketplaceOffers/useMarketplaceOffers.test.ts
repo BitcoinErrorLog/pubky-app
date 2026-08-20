@@ -95,4 +95,26 @@ describe('useMarketplaceOffers', () => {
       }),
     );
   });
+
+  it('refetches offers and asks for a retry on a revision conflict', async () => {
+    const { result } = renderHook(() => useMarketplaceOffers());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 2 },
+    });
+    vi.mocked(CommerceController.getMarketplaceOffers).mockClear();
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.act(offer, 'offer.accept');
+    });
+
+    expect(succeeded).toBe(false);
+    expect(CommerceController.getMarketplaceOffers).toHaveBeenCalled();
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringContaining('reloaded') }),
+    );
+  });
 });

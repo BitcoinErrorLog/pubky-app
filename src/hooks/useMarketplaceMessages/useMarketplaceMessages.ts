@@ -3,7 +3,7 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
-import { getCommercePollIntervalMs } from '@/config/commerce';
+import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMessageAttachmentPicker } from '@/hooks/useMessageAttachmentPicker/useMessageAttachmentPicker';
 import {
@@ -24,6 +24,12 @@ export interface UseMarketplaceMessagesResult {
   conversation: MarketplaceConversation | null;
   isLoading: boolean;
   error: string | null;
+  /**
+   * Messaging is SANDBOX-ONLY: the durable transaction service has no
+   * conversation/message tables and the `message.send` command was never
+   * ported. In any other mode this hook loads nothing and refuses to send.
+   */
+  isSandbox: boolean;
   attachment: ReturnType<typeof useMessageAttachmentPicker>;
   submit: () => Promise<boolean>;
   refresh: () => Promise<void>;
@@ -31,8 +37,9 @@ export interface UseMarketplaceMessagesResult {
 
 export function useMarketplaceMessages(sellerPubky: string, listingId: string): UseMarketplaceMessagesResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const isSandbox = getCommerceAdapterMode() === 'sandbox';
   const [conversation, setConversation] = useState<MarketplaceConversation | null>(null);
-  const [isLoading, setIsLoading] = useState(Boolean(currentUserPubky));
+  const [isLoading, setIsLoading] = useState(isSandbox && Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
   const attachment = useMessageAttachmentPicker();
   const form = useForm<MarketplaceMessageData>({
@@ -45,7 +52,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
     loadConversation(currentUserPubky, sellerPubky, listingId, setConversation, setIsLoading, setError);
 
   useEffect(() => {
-    if (!currentUserPubky) {
+    if (!currentUserPubky || !isSandbox) {
       setIsLoading(false);
       return;
     }
@@ -60,10 +67,15 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
       active = false;
       window.clearInterval(timer);
     };
-  }, [currentUserPubky, listingId, sellerPubky]);
+  }, [currentUserPubky, isSandbox, listingId, sellerPubky]);
 
   const submit = async (): Promise<boolean> => {
     if (!currentUserPubky || currentUserPubky === sellerPubky) return false;
+    // Re-checked at call time: `message.send` has no durable counterpart.
+    if (getCommerceAdapterMode() !== 'sandbox') {
+      toast({ variant: 'error', description: 'Messaging is sandbox-only; the durable service does not store it.' });
+      return false;
+    }
     let succeeded = false;
     await form.handleSubmit(async (data) => {
       try {
@@ -98,7 +110,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
     return succeeded;
   };
 
-  return { form, conversation, isLoading, error, attachment, submit, refresh };
+  return { form, conversation, isLoading, error, isSandbox, attachment, submit, refresh };
 }
 
 async function loadConversation(

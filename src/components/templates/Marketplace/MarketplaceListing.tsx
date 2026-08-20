@@ -316,7 +316,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 Transactions are disabled in this deployment.
               </Typography>
             )}
-            {adapterMode === 'sandbox' && negotiation.error && (
+            {(adapterMode === 'sandbox' || adapterMode === 'transaction-service') && negotiation.error && (
               <Typography as="p" className="text-center text-sm text-amber-300">
                 {negotiation.error}
               </Typography>

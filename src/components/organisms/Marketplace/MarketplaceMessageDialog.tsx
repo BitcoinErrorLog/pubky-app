@@ -23,6 +23,23 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
     await messages.submit();
   };
 
+  // Messaging has no durable backend (no conversation/message tables on the
+  // transaction service), so outside the sandbox the affordance is visibly
+  // disabled instead of pretending a conversation could exist.
+  if (!messages.isSandbox) {
+    return (
+      <div>
+        <Button variant="secondary" className="w-full rounded-full" disabled>
+          <MessageCircle className="mr-2 size-4" />
+          Message seller
+        </Button>
+        <Typography as="p" className="mt-2 text-center text-xs text-muted-foreground">
+          Messaging is sandbox-only — the durable marketplace service does not store messages.
+        </Typography>
+      </div>
+    );
+  }
+
   return (
     <Dialog
       open={open}

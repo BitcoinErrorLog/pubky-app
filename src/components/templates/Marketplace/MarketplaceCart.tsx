@@ -13,6 +13,7 @@ import { Label } from '@/atoms/Label/Label';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode } from '@/config/commerce';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { formatCommerceMoney } from '@/libs/commerce/format';
@@ -23,6 +24,7 @@ export function MarketplaceCart() {
   const router = useRouter();
   const cart = useMarketplaceCart();
   const checkout = useMarketplaceCheckout(cart.items, cart.clear);
+  const isSandbox = getCommerceAdapterMode() === 'sandbox';
 
   const submit = async () => {
     if (await checkout.submit()) router.push(MARKETPLACE_ROUTES.ORDERS);
@@ -142,7 +144,9 @@ export function MarketplaceCart() {
                     <Label className="items-start gap-3">
                       <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                       <span>
-                        I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.
+                        {isSandbox
+                          ? 'I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.'
+                          : 'I accept guarantee policy v1. This is not legal escrow, and no payment rails are live — no real funds move.'}
                       </span>
                     </Label>
                   )}
@@ -155,11 +159,13 @@ export function MarketplaceCart() {
                     </Typography>
                   </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
-                    Shipping and sandbox tax are calculated authoritatively at checkout.
+                    {isSandbox
+                      ? 'Shipping and sandbox tax are calculated authoritatively at checkout.'
+                      : 'Shipping and tax are calculated authoritatively by the transaction service at checkout.'}
                   </Typography>
                 </div>
                 <Button className="w-full rounded-full" onClick={submit}>
-                  Place sandbox order
+                  {isSandbox ? 'Place sandbox order' : 'Place order'}
                 </Button>
               </CardContent>
             </Card>

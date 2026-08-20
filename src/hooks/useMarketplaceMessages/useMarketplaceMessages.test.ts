@@ -6,9 +6,13 @@ import { useMarketplaceMessages } from './useMarketplaceMessages';
 const BUYER = 'b'.repeat(52);
 const SELLER = 'y'.repeat(52);
 
+const config = vi.hoisted(() => ({
+  mode: 'sandbox' as string,
+}));
+
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
-  return { ...actual, getCommercePollIntervalMs: () => 60_000 };
+  return { ...actual, getCommercePollIntervalMs: () => 60_000, getCommerceAdapterMode: () => config.mode };
 });
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -29,6 +33,7 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 describe('useMarketplaceMessages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    config.mode = 'sandbox';
     vi.mocked(CommerceController.getMarketplaceConversations).mockResolvedValue([]);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000920');
   });
@@ -66,5 +71,22 @@ describe('useMarketplaceMessages', () => {
         },
       }),
     );
+  });
+
+  it('never loads or sends outside sandbox mode — messaging has no durable backend', async () => {
+    config.mode = 'transaction-service';
+    const { result } = renderHook(() => useMarketplaceMessages(SELLER, 'boots_01'));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    act(() => result.current.form.setValue('text', 'Is this still available?'));
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(result.current.isSandbox).toBe(false);
+    expect(CommerceController.getMarketplaceConversations).not.toHaveBeenCalled();
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
 });

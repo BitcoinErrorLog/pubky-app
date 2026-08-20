@@ -19,6 +19,8 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { orders, isLoading, error, advancePayment, actOnOrder, adapterMode } = useMarketplaceOrders();
+  const isSandbox = adapterMode === 'sandbox';
+  const hasTransactionBackend = adapterMode === 'sandbox' || adapterMode === 'transaction-service';
 
   return (
     <ContentLayout
@@ -43,21 +45,21 @@ export function MarketplaceOrders() {
             Orders
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            {adapterMode === 'sandbox'
+            {isSandbox
               ? 'Buyer and seller timelines with sandbox payment facts.'
-              : 'Buyer and seller timelines.'}
+              : 'Buyer and seller timelines from the durable transaction service.'}
           </Typography>
         </div>
 
-        {adapterMode !== 'sandbox' ? (
+        {!hasTransactionBackend ? (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed px-6 text-center">
             <ReceiptText className="mb-3 size-10 text-muted-foreground" />
             <Heading level={2} size="md">
               Order timelines are not available here
             </Heading>
             <Typography as="p" className="mt-2 max-w-lg text-sm text-muted-foreground">
-              This deployment does not run the sandbox marketplace, and the durable transaction service does not expose
-              order queries yet — so there is no order history to show, simulated or otherwise.
+              This deployment runs no marketplace transaction backend — neither the sandbox nor the durable transaction
+              service — so there is no order history to show, simulated or otherwise.
             </Typography>
           </div>
         ) : isLoading ? (
@@ -107,6 +109,19 @@ export function MarketplaceOrders() {
                           Return {order.returnRequest.state}: {order.returnRequest.reason}
                         </Typography>
                       )}
+                      {order.dispute && (
+                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                          Dispute {order.dispute.state}: {order.dispute.reason}
+                          {order.dispute.resolution
+                            ? ` · resolved as ${order.dispute.resolution.replaceAll('_', ' ')}`
+                            : ''}
+                          {/* Evidence bodies are service-private (ADR-0019 §8) — nobody,
+                              including the submitter, can read them back. */}
+                          {order.dispute.evidenceCount
+                            ? ` · ${order.dispute.evidenceCount} sealed evidence item(s)`
+                            : ''}
+                        </Typography>
+                      )}
                       {order.externalRefund && (
                         <Typography as="p" className="mt-2 text-sm text-brand">
                           External refund evidence: {order.externalRefund.transactionId}
@@ -116,7 +131,10 @@ export function MarketplaceOrders() {
 
                     {isBuyer && payment && payment.state !== 'confirmed' && (
                       <div className="flex flex-wrap gap-2">
-                        {payment.state === 'awaiting_entitlement' && (
+                        {/* Simulate buttons are sandbox-only. The durable service still
+                            models payments with its sandbox adapter, and this client
+                            refuses to simulate payment progress against the authority. */}
+                        {isSandbox && payment.state === 'awaiting_entitlement' && (
                           <Button
                             variant="secondary"
                             className="rounded-full"
@@ -126,15 +144,26 @@ export function MarketplaceOrders() {
                             Simulate detected
                           </Button>
                         )}
-                        {(payment.state === 'awaiting_entitlement' || payment.state === 'detected') && (
+                        {isSandbox && (payment.state === 'awaiting_entitlement' || payment.state === 'detected') && (
                           <Button className="rounded-full" onClick={() => void advancePayment(payment, 'confirmed', 1)}>
                             <CheckCircle2 className="mr-2 size-4" />
                             Confirm payment
                           </Button>
                         )}
+                        {!isSandbox && (
+                          <Typography as="p" className="max-w-56 text-right text-xs text-muted-foreground">
+                            Real payments are not live yet, and this client does not simulate them against the durable
+                            service — the order stays {payment.state.replaceAll('_', ' ')}.
+                          </Typography>
+                        )}
                       </div>
                     )}
-                    <MarketplaceOrderActions order={order} isBuyer={isBuyer} actOnOrder={actOnOrder} />
+                    <MarketplaceOrderActions
+                      order={order}
+                      isBuyer={isBuyer}
+                      canCancel={isSandbox}
+                      actOnOrder={actOnOrder}
+                    />
                   </CardContent>
                 </Card>
               );

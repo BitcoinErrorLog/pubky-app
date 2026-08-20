@@ -34,6 +34,7 @@ const view = vi.hoisted(() => ({
   preferences: null as unknown,
   isLoading: false,
   error: null as string | null,
+  canMarkRead: true,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -48,6 +49,7 @@ vi.mock('@/hooks/useMarketplaceNotifications/useMarketplaceNotifications', () =>
     unreadCount: (view.notifications as NotificationLike[]).filter(({ readAt }) => !readAt).length,
     isLoading: view.isLoading,
     error: view.error,
+    canMarkRead: view.canMarkRead,
     markAllRead: vi.fn(async () => {}),
     updatePreferences: vi.fn(async () => false),
   }),
@@ -62,6 +64,7 @@ async function setView(overrides: Partial<typeof view>) {
   view.preferences = null;
   view.isLoading = false;
   view.error = null;
+  view.canMarkRead = true;
   Object.assign(view, overrides);
 }
 
@@ -126,5 +129,15 @@ describe('Marketplace notifications — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-loading-desktop');
+  });
+
+  // Durable transaction-service mode: real delivered notifications, but no
+  // mark-all-read button and no preferences card — the service stores neither.
+  it('renders the durable-mode read-state notice at desktop viewport', async () => {
+    const { kindsFirstThird } = await fixtures;
+    await setView({ notifications: kindsFirstThird, canMarkRead: false });
+
+    const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-durable-desktop');
   });
 });

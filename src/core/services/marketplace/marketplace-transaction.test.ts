@@ -150,17 +150,52 @@ describe('MarketplaceTransactionService.execute', () => {
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 
-  it.each(['payment.sandbox_advance', 'message.send', 'fulfillment.ship', 'order.cancel_request'] as const)(
-    'rejects the sandbox-only command kind %s before sending',
-    async (kind) => {
-      await establishSession();
+  it.each([
+    'payment.sandbox_advance',
+    'message.send',
+    'notification.mark_read',
+    'notification.preferences.update',
+    'order.cancel_request',
+    'order.cancel_approve',
+  ] as const)('rejects the sandbox-only command kind %s before sending', async (kind) => {
+    await establishSession();
 
-      await expect(
-        MarketplaceTransactionService.execute(ACTOR, { ...bidCommand(), kind } as never),
-      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-      expect(fetch).not.toHaveBeenCalled();
-    },
-  );
+    await expect(
+      MarketplaceTransactionService.execute(ACTOR, { ...bidCommand(), kind } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'fulfillment.ship',
+    'fulfillment.confirm_delivery',
+    'return.request',
+    'return.approve',
+    'return.receive',
+    'refund.record_external',
+    'dispute.open',
+    'dispute.resolve',
+    'review.create',
+  ] as const)('sends the ported post-purchase command kind %s to the service', async (kind) => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        ok: true,
+        version: 1,
+        command_id: COMMAND_ID,
+        aggregate_id: 'order:00000000-0000-4000-8000-000000000720',
+        revision: 3,
+        event_ids: ['00000000-0000-4000-8000-000000000721'],
+        result: { kind: 'order' },
+      }),
+    );
+
+    const response = await MarketplaceTransactionService.execute(ACTOR, { ...bidCommand(), kind } as never);
+
+    expect(response).toMatchObject({ ok: true, result: { kind: 'order' } });
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ kind });
+  });
 
   it('fails closed outside transaction-service mode', async () => {
     config.mode = 'sandbox';
@@ -218,5 +253,315 @@ describe('MarketplaceTransactionService.getReports', () => {
       code: 'SESSION_EXPIRED',
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('MarketplaceTransactionService read projections', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  const ORDER_ID = '00000000-0000-4000-8000-000000000910';
+  const PAYMENT_ID = '00000000-0000-4000-8000-000000000911';
+  const RECEIPT_ID = '00000000-0000-4000-8000-000000000912';
+
+  function orderWire(overrides: Record<string, unknown> = {}) {
+    return {
+      id: ORDER_ID,
+      buyer_pubky: ACTOR,
+      seller_pubky: OTHER_ACTOR,
+      revision: 2,
+      state: 'pending_payment',
+      lines: [
+        {
+          listing_aggregate_id: AGGREGATE_ID,
+          listing_revision: 1,
+          content_hash: 'a'.repeat(64),
+          title: 'Boots',
+          quantity: 1,
+          unit_price: { amount_minor: 12_500, currency: 'USD', exponent: 2 },
+          subtotal: { amount_minor: 12_500, currency: 'USD', exponent: 2 },
+        },
+      ],
+      subtotal: { amount_minor: 12_500, currency: 'USD', exponent: 2 },
+      shipping: { amount_minor: 1_200, currency: 'USD', exponent: 2 },
+      tax: { amount_minor: 1_096, currency: 'USD', exponent: 2 },
+      total: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+      guarantee_policy_version: 1,
+      payment_id: PAYMENT_ID,
+      receipt_id: null,
+      cancellation_reason: null,
+      shipment: null,
+      return_request: null,
+      dispute: null,
+      external_refund: null,
+      reviews: [],
+      created_at: '2026-08-20T10:00:00.000Z',
+      updated_at: '2026-08-20T10:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  // The wire payment deliberately has NO locks_bundle_id (ADR-0019 §8).
+  function paymentWire() {
+    return {
+      id: PAYMENT_ID,
+      order_id: ORDER_ID,
+      buyer_pubky: ACTOR,
+      seller_pubky: OTHER_ACTOR,
+      revision: 1,
+      adapter: 'sandbox',
+      state: 'awaiting_entitlement',
+      confirmations: 0,
+      amount: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+      created_at: '2026-08-20T10:00:00.000Z',
+      updated_at: '2026-08-20T10:00:00.000Z',
+    };
+  }
+
+  it('reads the listing projection with the bearer session and camel-cases the auction state', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        aggregate_id: AGGREGATE_ID,
+        seller_pubky: ACTOR,
+        listing_id: 'boots_01',
+        title: 'Boots',
+        listing_revision: 1,
+        content_hash: 'a'.repeat(64),
+        server_revision: 4,
+        state: 'available',
+        total_quantity: 5,
+        available_quantity: 4,
+        reserved_quantity: 1,
+        sold_quantity: 0,
+        unit_price: { amount_minor: 12_500, currency: 'USD', exponent: 2 },
+        sale_format: 'auction',
+        auction: {
+          starts_at: '2026-08-20T09:00:00.000Z',
+          ends_at: '2026-08-21T09:00:00.000Z',
+          minimum_increment: { amount_minor: 100, currency: 'USD', exponent: 2 },
+          reserve_price: null,
+          anti_sniping_window_seconds: 120,
+          anti_sniping_extension_seconds: 120,
+          status: 'active',
+          current_price: { amount_minor: 13_000, currency: 'USD', exponent: 2 },
+          leader_pubky: OTHER_ACTOR,
+          bid_count: 3,
+          reserve_met: true,
+        },
+        updated_at: '2026-08-20T10:00:00.000Z',
+      }),
+    );
+
+    const listing = await MarketplaceTransactionService.getListing(ACTOR, AGGREGATE_ID);
+
+    expect(listing).toMatchObject({
+      aggregateId: AGGREGATE_ID,
+      serverRevision: 4,
+      state: 'available',
+      auction: { currentPrice: { amountMinor: 13_000 }, leaderPubky: OTHER_ACTOR, bidCount: 3, reserveMet: true },
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/listings/${encodeURIComponent(AGGREGATE_ID)}`);
+    expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
+  });
+
+  it('returns null for an unregistered listing (service 404)', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The listing was not found.' } }),
+    );
+
+    await expect(MarketplaceTransactionService.getListing(ACTOR, AGGREGATE_ID)).resolves.toBeNull();
+  });
+
+  it('reads participant offers and maps the negotiation view', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        offers: [
+          {
+            id: '00000000-0000-4000-8000-000000000920',
+            aggregate_id: 'offer:00000000-0000-4000-8000-000000000920',
+            listing_aggregate_id: AGGREGATE_ID,
+            buyer_pubky: ACTOR,
+            seller_pubky: OTHER_ACTOR,
+            revision: 2,
+            state: 'countered',
+            offered_by: OTHER_ACTOR,
+            amount: { amount_minor: 11_000, currency: 'USD', exponent: 2 },
+            quantity: 1,
+            message: 'Meet in the middle?',
+            history: [],
+            expires_at: '2026-08-21T10:00:00.000Z',
+            created_at: '2026-08-20T10:00:00.000Z',
+            updated_at: '2026-08-20T11:00:00.000Z',
+          },
+        ],
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getOffers(ACTOR)).resolves.toEqual([
+      expect.objectContaining({
+        aggregateId: 'offer:00000000-0000-4000-8000-000000000920',
+        revision: 2,
+        state: 'countered',
+        offeredBy: OTHER_ACTOR,
+        amount: { amountMinor: 11_000, currency: 'USD', exponent: 2 },
+      }),
+    ]);
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string];
+    expect(url).toBe('http://127.0.0.1:8080/v1/offers');
+  });
+
+  it('reads orders with the embedded payment and post-purchase sub-objects, redactions honored', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        orders: [
+          orderWire({
+            state: 'disputed',
+            payment: paymentWire(),
+            shipment: {
+              carrier: 'DHL',
+              tracking_number: 'JD014600003RU',
+              state: 'delivered',
+              shipped_at: '2026-08-20T11:00:00.000Z',
+              delivered_at: '2026-08-20T12:00:00.000Z',
+            },
+            dispute: {
+              state: 'open',
+              opened_by: ACTOR,
+              reason: 'Item arrived damaged.',
+              requested_remedy: 'refund',
+              resolution: null,
+              rationale: null,
+              evidence_count: 2,
+              opened_at: '2026-08-20T13:00:00.000Z',
+              resolved_at: null,
+            },
+          }),
+        ],
+      }),
+    );
+
+    const orders = await MarketplaceTransactionService.getOrders(ACTOR);
+
+    expect(orders).toHaveLength(1);
+    expect(orders[0]).toMatchObject({
+      id: ORDER_ID,
+      revision: 2,
+      state: 'disputed',
+      payment: { id: PAYMENT_ID, state: 'awaiting_entitlement', adapter: 'sandbox' },
+      shipment: { carrier: 'DHL', trackingNumber: 'JD014600003RU', state: 'delivered' },
+      dispute: { state: 'open', requestedRemedy: 'refund', evidenceCount: 2 },
+      receiptId: null,
+    });
+    // Redactions: the service never serves these; the parsed view must not
+    // resurrect them.
+    expect(orders[0]).not.toHaveProperty('deliveryAddress');
+    expect(orders[0].payment).not.toHaveProperty('locksBundleId');
+    expect(orders[0].dispute).not.toHaveProperty('evidence');
+  });
+
+  it('reads a single payment and returns null for foreign/absent payments', async () => {
+    await establishSession();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, paymentWire()))
+      .mockResolvedValueOnce(
+        jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The payment was not found.' } }),
+      );
+
+    await expect(MarketplaceTransactionService.getPayment(ACTOR, PAYMENT_ID)).resolves.toMatchObject({
+      id: PAYMENT_ID,
+      orderId: ORDER_ID,
+      revision: 1,
+    });
+    await expect(MarketplaceTransactionService.getPayment(ACTOR, PAYMENT_ID)).resolves.toBeNull();
+  });
+
+  it('reads a receipt with its integrity hash', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        id: RECEIPT_ID,
+        order_id: ORDER_ID,
+        payment_id: PAYMENT_ID,
+        issuer_pubky: OTHER_ACTOR,
+        recipient_pubky: ACTOR,
+        total: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+        content_hash: 'b'.repeat(64),
+        issued_at: '2026-08-20T12:00:00.000Z',
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getReceipt(ACTOR, RECEIPT_ID)).resolves.toMatchObject({
+      id: RECEIPT_ID,
+      contentHash: 'b'.repeat(64),
+      total: { amountMinor: 14_796 },
+    });
+  });
+
+  it('reads recipient notifications that carry no revision', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [
+          {
+            id: '00000000-0000-4000-8000-000000000930',
+            recipient_pubky: ACTOR,
+            actor_pubky: OTHER_ACTOR,
+            type: 'order_shipped',
+            aggregate_id: `order:${ORDER_ID}`,
+            created_at: '2026-08-20T11:00:00.000Z',
+            read_at: null,
+          },
+        ],
+      }),
+    );
+
+    const notifications = await MarketplaceTransactionService.getNotifications(ACTOR);
+
+    expect(notifications).toEqual([
+      expect.objectContaining({ type: 'order_shipped', aggregateId: `order:${ORDER_ID}`, readAt: null }),
+    ]);
+    expect(notifications[0].revision).toBeUndefined();
+  });
+
+  it('requires a session for every projection read', async () => {
+    await expect(MarketplaceTransactionService.getListing(ACTOR, AGGREGATE_ID)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    await expect(MarketplaceTransactionService.getOffers(ACTOR)).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    await expect(MarketplaceTransactionService.getOrders(ACTOR)).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    await expect(MarketplaceTransactionService.getPayment(ACTOR, PAYMENT_ID)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    await expect(MarketplaceTransactionService.getReceipt(ACTOR, RECEIPT_ID)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    await expect(MarketplaceTransactionService.getNotifications(ACTOR)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed outside transaction-service mode', async () => {
+    config.mode = 'sandbox';
+
+    await expect(MarketplaceTransactionService.getOrders(ACTOR)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('drops the session when a projection read answers 401', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(401, { error: { message: 'The session is invalid or expired.' } }),
+    );
+
+    await expect(MarketplaceTransactionService.getOrders(ACTOR)).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 });

@@ -95,14 +95,48 @@ describe('MarketplaceGatewayService', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps sandbox-only query projections unavailable in transaction-service mode', async () => {
+  it('routes the durable read projections to the transaction-service transport in transaction-service mode', async () => {
     config.mode = 'transaction-service';
 
-    await expect(MarketplaceGatewayService.getListing(AGGREGATE_ID)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    await expect(MarketplaceGatewayService.getOrders(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    await expect(MarketplaceGatewayService.getConversations(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    await expect(MarketplaceGatewayService.getNotifications(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    // The transport authenticates every read with a bearer session — with no
+    // session established each read must refuse before any bytes leave.
+    await expect(MarketplaceGatewayService.getListing(SELLER, AGGREGATE_ID)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    await expect(MarketplaceGatewayService.getOffers(SELLER)).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    await expect(MarketplaceGatewayService.getOrders(SELLER)).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    await expect(MarketplaceGatewayService.getNotifications(SELLER)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
     await expect(MarketplaceGatewayService.getPayment(SELLER, 'payment-id')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    await expect(MarketplaceGatewayService.getReceipt(SELLER, 'receipt-id')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses durable listing reads without a signed-in actor to bind the session', async () => {
+    config.mode = 'transaction-service';
+
+    await expect(MarketplaceGatewayService.getListing(null, AGGREGATE_ID)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the projections without a durable counterpart sandbox-only in transaction-service mode', async () => {
+    config.mode = 'transaction-service';
+
+    await expect(MarketplaceGatewayService.getConversations(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(MarketplaceGatewayService.getNotificationPreferences(SELLER)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(
+      MarketplaceGatewayService.uploadAttachment(SELLER, 'b'.repeat(52), new File([], 'proof.jpg')),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(MarketplaceGatewayService.fetchAttachment(SELLER, 'attachment-id')).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
     expect(fetch).not.toHaveBeenCalled();
@@ -111,7 +145,8 @@ describe('MarketplaceGatewayService', () => {
   it('returns null for an unknown authoritative listing projection', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(404, { error: { code: 'NOT_FOUND' } }));
 
-    await expect(MarketplaceGatewayService.getListing(AGGREGATE_ID)).resolves.toBeNull();
+    // The sandbox projection is public: no actor is required to read it.
+    await expect(MarketplaceGatewayService.getListing(null, AGGREGATE_ID)).resolves.toBeNull();
   });
 
   it('validates private conversation and notification query projections', async () => {

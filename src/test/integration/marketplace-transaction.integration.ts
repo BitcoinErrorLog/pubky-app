@@ -189,4 +189,183 @@ describe('marketplace transaction service integration', () => {
       code: 'SESSION_EXPIRED',
     });
   });
+
+  /**
+   * The interactive-flow loop the UI depends on, against the real service:
+   * every `expected_revision` a command sends is sourced from a projection
+   * read moments earlier, and the mutated state is read back afterwards.
+   */
+  it('reads projections, commands with the read revisions, and reads the results back', async () => {
+    const { MarketplaceSessionService, MarketplaceGatewayService, sdk } = modules;
+
+    const envelope = (aggregateId: string, expectedRevision: number, kind: string, payload: unknown) =>
+      ({
+        version: 1 as const,
+        commandId: crypto.randomUUID(),
+        aggregateId,
+        expectedRevision,
+        issuedAt: new Date().toISOString(),
+        kind,
+        payload,
+      }) as never;
+
+    // --- Seller: register a listing, then read the projection back ---
+    const sellerKeypair = sdk.Keypair.random();
+    const seller = await establishSessionFor(sellerKeypair);
+    const listingId = `it_reads_${Date.now().toString(36)}`;
+    const aggregateId = `listing:${seller}_${listingId}`;
+    const registered = await MarketplaceGatewayService.execute(
+      seller,
+      envelope(aggregateId, 0, 'listing.register', {
+        sellerPubky: seller,
+        listingId,
+        title: 'Integration read-side listing',
+        listingRevision: 1,
+        contentHash: 'c'.repeat(64),
+        quantity: 5,
+        unitPrice: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+        saleFormat: 'fixed_price' as const,
+      }),
+    );
+    expect(registered).toMatchObject({ ok: true, revision: 1 });
+
+    const sellerView = await MarketplaceGatewayService.getListing(seller, aggregateId);
+    expect(sellerView).toMatchObject({
+      aggregateId,
+      sellerPubky: seller,
+      serverRevision: 1,
+      state: 'available',
+      availableQuantity: 5,
+      saleFormat: 'fixed_price',
+      auction: null,
+    });
+
+    // An aggregate that was never registered is null, not an invented shape.
+    await expect(
+      MarketplaceGatewayService.getListing(seller, `listing:${seller}_never_registered`),
+    ).resolves.toBeNull();
+
+    // --- Buyer: read the projection, reserve with the revision just read ---
+    const buyer = await establishSessionFor(sdk.Keypair.random());
+    const preReserve = await MarketplaceGatewayService.getListing(buyer, aggregateId);
+    expect(preReserve?.serverRevision).toBe(1);
+
+    const reserved = await MarketplaceGatewayService.execute(
+      buyer,
+      envelope(aggregateId, preReserve!.serverRevision, 'inventory.reserve', {
+        quantity: 2,
+        reservationTtlSeconds: 300,
+      }),
+    );
+    expect(reserved).toMatchObject({ ok: true, revision: 2, result: { kind: 'reservation' } });
+
+    // The mutation is visible on the next read: revision moved, stock held.
+    const postReserve = await MarketplaceGatewayService.getListing(buyer, aggregateId);
+    expect(postReserve).toMatchObject({ serverRevision: 2, availableQuantity: 3, reservedQuantity: 2 });
+
+    // --- Checkout with the freshly-read line revision, then read the order back ---
+    const checkoutCommandId = crypto.randomUUID();
+    const checkedOut = await MarketplaceGatewayService.execute(buyer, {
+      version: 1 as const,
+      commandId: checkoutCommandId,
+      aggregateId: `checkout:${checkoutCommandId}`,
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'checkout.create' as const,
+      payload: {
+        lines: [{ listingAggregateId: aggregateId, expectedRevision: postReserve!.serverRevision, quantity: 1 }],
+        deliveryAddress: {
+          name: 'Integration Buyer',
+          line1: '1 Read Side Way',
+          line2: '',
+          city: 'Lisbon',
+          region: 'Lisboa',
+          postalCode: '1000-001',
+          countryCode: 'PT',
+        },
+        guaranteePolicyVersion: 1 as const,
+      },
+    });
+    expect(checkedOut).toMatchObject({ ok: true, result: { kind: 'checkout' } });
+
+    const orders = await MarketplaceGatewayService.getOrders(buyer);
+    expect(orders).toHaveLength(1);
+    const order = orders[0];
+    expect(order).toMatchObject({
+      buyerPubky: buyer,
+      sellerPubky: seller,
+      state: 'pending_payment',
+      guaranteePolicyVersion: 1,
+      // No receipt until payment confirmation — which this client refuses to
+      // simulate against the durable service — so this is honestly null.
+      receiptId: null,
+    });
+    expect(order.lines).toEqual([expect.objectContaining({ listingAggregateId: aggregateId, quantity: 1 })]);
+    // Redactions hold on the wire, not just in the client schema.
+    expect(order).not.toHaveProperty('deliveryAddress');
+    expect(order.payment).toMatchObject({ orderId: order.id, adapter: 'sandbox', state: 'awaiting_entitlement' });
+    expect(order.payment).not.toHaveProperty('locksBundleId');
+
+    // The embedded payment is also individually readable by a participant.
+    const payment = await MarketplaceGatewayService.getPayment(buyer, order.paymentId);
+    expect(payment).toMatchObject({ id: order.paymentId, orderId: order.id, revision: order.payment!.revision });
+    // A payment id that is not yours (or does not exist) is a plain 404 -> null.
+    await expect(MarketplaceGatewayService.getPayment(buyer, crypto.randomUUID())).resolves.toBeNull();
+
+    // --- Offer: create against the current listing revision, read it back, act on the read revision ---
+    const preOffer = await MarketplaceGatewayService.getListing(buyer, aggregateId);
+    const offered = await MarketplaceGatewayService.execute(
+      buyer,
+      envelope(aggregateId, preOffer!.serverRevision, 'offer.create', {
+        amount: { amountMinor: 9_000, currency: 'USD', exponent: 2 },
+        quantity: 1,
+        expiresInSeconds: 3_600,
+        message: 'Read-side integration offer.',
+      }),
+    );
+    expect(offered).toMatchObject({ ok: true, result: { kind: 'offer' } });
+
+    const offers = await MarketplaceGatewayService.getOffers(buyer);
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toMatchObject({
+      listingAggregateId: aggregateId,
+      buyerPubky: buyer,
+      sellerPubky: seller,
+      state: 'pending',
+      amount: { amountMinor: 9_000, currency: 'USD', exponent: 2 },
+    });
+
+    const withdrawn = await MarketplaceGatewayService.execute(
+      buyer,
+      envelope(offers[0].aggregateId, offers[0].revision, 'offer.withdraw', { offerId: offers[0].id }),
+    );
+    expect(withdrawn).toMatchObject({ ok: true, result: { kind: 'offer' } });
+    const offersAfter = await MarketplaceGatewayService.getOffers(buyer);
+    expect(offersAfter[0]).toMatchObject({ state: 'withdrawn', revision: offers[0].revision + 1 });
+
+    // --- Role scoping: a bystander sees none of this ---
+    const bystander = await establishSessionFor(sdk.Keypair.random());
+    await expect(MarketplaceGatewayService.getOrders(bystander)).resolves.toEqual([]);
+    await expect(MarketplaceGatewayService.getOffers(bystander)).resolves.toEqual([]);
+    await expect(MarketplaceGatewayService.getPayment(bystander, order.paymentId)).resolves.toBeNull();
+
+    // --- Seller again: the same events land as recipient-scoped notifications,
+    // delivered at-least-once by the outbox worker (10s pass interval), so poll. ---
+    await establishSessionFor(sellerKeypair);
+    const sellerOrders = await MarketplaceGatewayService.getOrders(seller);
+    expect(sellerOrders.map(({ id }) => id)).toContain(order.id);
+
+    const deadline = Date.now() + 60_000;
+    let notificationTypes: string[] = [];
+    while (Date.now() < deadline) {
+      const notifications = await MarketplaceGatewayService.getNotifications(seller);
+      notificationTypes = notifications.map(({ type }) => type);
+      if (notificationTypes.includes('order_created') && notificationTypes.includes('offer_received')) break;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+    expect(notificationTypes).toContain('order_created');
+    expect(notificationTypes).toContain('offer_received');
+
+    MarketplaceSessionService.clearSession();
+  });
 });

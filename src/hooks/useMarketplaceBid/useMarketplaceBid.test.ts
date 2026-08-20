@@ -29,7 +29,7 @@ describe('useMarketplaceBid', () => {
       eventIds: ['00000000-0000-4000-8000-000000000811'],
       result: { kind: 'bid' },
     });
-    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3));
+    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, vi.fn()));
     act(() => result.current.form.setValue('maximumAmount', '150.00'));
 
     let succeeded = false;
@@ -47,6 +47,28 @@ describe('useMarketplaceBid', () => {
           maximumAmount: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
         },
       }),
+    );
+  });
+
+  it('refetches the projection and asks for a retry on a revision conflict', async () => {
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 5 },
+    });
+    const onConflict = vi.fn();
+    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, onConflict));
+    act(() => result.current.form.setValue('maximumAmount', '150.00'));
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(onConflict).toHaveBeenCalledTimes(1);
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringContaining('reloaded') }),
     );
   });
 });

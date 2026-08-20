@@ -1,14 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getCommercePollIntervalMs } from '@/config/commerce';
+import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceNotification, MarketplaceNotificationPreferences } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
+/**
+ * Commerce notifications from whichever transactional backend the mode
+ * selects. Read state and preferences are SANDBOX-ONLY and stay that way
+ * honestly: the durable service delivers notifications as immutable outbox
+ * rows with no `revision`, no `notification.mark_read` command, and no
+ * preference tables at all — so in `transaction-service` mode this hook
+ * never fetches preferences and refuses to mark anything read, and the UI
+ * must not pretend otherwise.
+ */
 export function useMarketplaceNotifications() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const adapterMode = getCommerceAdapterMode();
+  const canMarkRead = adapterMode === 'sandbox';
   const [notifications, setNotifications] = useState<MarketplaceNotification[]>([]);
   const [preferences, setPreferences] = useState<MarketplaceNotificationPreferences | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(currentUserPubky));
@@ -24,15 +35,21 @@ export function useMarketplaceNotifications() {
       try {
         const [next, nextPreferences] = await Promise.all([
           CommerceController.getMarketplaceNotifications(),
-          CommerceController.getMarketplaceNotificationPreferences(),
+          canMarkRead ? CommerceController.getMarketplaceNotificationPreferences() : Promise.resolve(null),
         ]);
         if (active) {
           setNotifications(next);
           setPreferences(nextPreferences);
           setError(null);
         }
-      } catch {
-        if (active) setError('Commerce notifications are unavailable.');
+      } catch (loadError) {
+        if (active) {
+          setError(
+            loadError instanceof Error && loadError.name === 'AppError'
+              ? loadError.message
+              : 'Commerce notifications are unavailable.',
+          );
+        }
       } finally {
         if (active) setIsLoading(false);
       }
@@ -43,9 +60,15 @@ export function useMarketplaceNotifications() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [currentUserPubky]);
+  }, [canMarkRead, currentUserPubky]);
 
   const markAllRead = async () => {
+    // Re-checked at call time: `notification.mark_read` does not exist on the
+    // durable service (delivered notifications are immutable outbox rows).
+    if (getCommerceAdapterMode() !== 'sandbox') {
+      toast({ variant: 'error', description: 'The durable marketplace service does not store read state yet.' });
+      return;
+    }
     const unread = notifications.filter(({ readAt }) => !readAt);
     try {
       const results = await Promise.all(
@@ -72,8 +95,6 @@ export function useMarketplaceNotifications() {
             ? notification
             : {
                 ...notification,
-                // Only the sandbox revisions notifications; durable ones are
-                // immutable outbox rows and carry no revision to advance.
                 ...(notification.revision === undefined ? {} : { revision: notification.revision + 1 }),
                 readAt: new Date().toISOString(),
               },
@@ -88,6 +109,15 @@ export function useMarketplaceNotifications() {
     changes: Pick<MarketplaceNotificationPreferences, 'messages' | 'offers' | 'bids' | 'auctions'>,
   ) => {
     if (!currentUserPubky || !preferences) return false;
+    // Re-checked at call time: `notification.preferences.update` has no
+    // durable counterpart — preference tables do not exist on the service.
+    if (getCommerceAdapterMode() !== 'sandbox') {
+      toast({
+        variant: 'error',
+        description: 'The durable marketplace service does not store notification preferences yet.',
+      });
+      return false;
+    }
     try {
       const response = await CommerceController.executeMarketplaceCommand({
         version: 1,
@@ -121,6 +151,7 @@ export function useMarketplaceNotifications() {
     unreadCount: notifications.filter(({ readAt }) => !readAt).length,
     isLoading,
     error,
+    canMarkRead,
     markAllRead,
     updatePreferences,
   };

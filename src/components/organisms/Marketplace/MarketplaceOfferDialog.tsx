@@ -19,7 +19,9 @@ export function MarketplaceOfferDialog({
   onAccepted: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const offer = useMarketplaceOffer(aggregateId, expectedRevision);
+  // `onAccepted` refreshes the projection, which is exactly the recovery a
+  // revision conflict needs: reload the terms/revision, then the user re-offers.
+  const offer = useMarketplaceOffer(aggregateId, expectedRevision, onAccepted);
   const { requireAuth } = useRequireAuth();
 
   const submit = async () => {

@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceProjection } from './useMarketplaceProjection';
 
-vi.mock('@/config/commerce', () => ({
-  getCommerceAdapterMode: () => 'sandbox',
-  getCommercePollIntervalMs: () => 60_000,
+const config = vi.hoisted(() => ({
+  mode: 'sandbox' as string,
 }));
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommerceAdapterMode: () => config.mode, getCommercePollIntervalMs: () => 60_000 };
+});
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
@@ -17,6 +21,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 describe('useMarketplaceProjection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    config.mode = 'sandbox';
     vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue({
       aggregateId: 'listing:seller_item',
       sellerPubky: 'y'.repeat(52),
@@ -50,5 +55,34 @@ describe('useMarketplaceProjection', () => {
       auction: { currentPrice: { amountMinor: 4_500 }, bidCount: 0 },
     });
     expect(result.current.error).toBeNull();
+  });
+
+  it('loads the projection in transaction-service mode — the revision source for every command', async () => {
+    config.mode = 'transaction-service';
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalled();
+    expect(result.current.projection).toMatchObject({ serverRevision: 2 });
+  });
+
+  it('surfaces the durable session requirement instead of a generic failure', async () => {
+    config.mode = 'transaction-service';
+    const sessionError = Object.assign(new Error('A marketplace session is required.'), { name: 'AppError' });
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockRejectedValue(sessionError);
+
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBe('A marketplace session is required.');
+  });
+
+  it('loads nothing in modes without a transaction backend', async () => {
+    config.mode = 'unavailable';
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(CommerceController.getMarketplaceListingProjection).not.toHaveBeenCalled();
   });
 });
