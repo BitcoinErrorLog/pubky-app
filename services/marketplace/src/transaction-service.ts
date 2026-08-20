@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
+  buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplaceOfferAggregateId,
   type CounterOfferCommand,
@@ -12,6 +13,7 @@ import {
   type RegisterListingCommand,
   type RejectOfferCommand,
   type ReserveInventoryCommand,
+  type SendMarketplaceMessageCommand,
   type WithdrawOfferCommand,
 } from './contracts';
 
@@ -95,6 +97,36 @@ export interface MarketplaceBid {
   createdAt: string;
 }
 
+export interface MarketplaceMessage {
+  id: string;
+  conversationId: string;
+  listingAggregateId: string;
+  senderPubky: string;
+  recipientPubky: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface MarketplaceConversation {
+  id: string;
+  listingAggregateId: string;
+  sellerPubky: string;
+  buyerPubky: string;
+  revision: number;
+  lastMessageAt: string;
+  messages: MarketplaceMessage[];
+}
+
+export interface MarketplaceNotification {
+  id: string;
+  recipientPubky: string;
+  actorPubky: string;
+  type: 'message_received' | 'offer_received' | 'offer_countered' | 'offer_accepted' | 'offer_rejected' | 'outbid';
+  aggregateId: string;
+  createdAt: string;
+  readAt: string | null;
+}
+
 export interface MarketplaceEvent {
   id: string;
   commandId: string;
@@ -109,7 +141,8 @@ export interface MarketplaceEvent {
     | 'offer.accepted'
     | 'offer.rejected'
     | 'offer.withdrawn'
-    | 'auction.bid_placed';
+    | 'auction.bid_placed'
+    | 'message.sent';
   occurredAt: string;
 }
 
@@ -128,6 +161,11 @@ export type MarketplaceCommandSuccess = {
         kind: 'bid';
         listing: MarketplaceListingAggregate;
         bid: MarketplaceBid;
+      }
+    | {
+        kind: 'message';
+        conversation: MarketplaceConversation;
+        message: MarketplaceMessage;
       }
     | {
         kind: 'accepted_offer';
@@ -170,6 +208,8 @@ export class InMemoryMarketplaceRepository {
   private reservations = new Map<string, MarketplaceReservation>();
   private offers = new Map<string, MarketplaceOffer>();
   private bids = new Map<string, MarketplaceBid[]>();
+  private conversations = new Map<string, MarketplaceConversation>();
+  private notifications: MarketplaceNotification[] = [];
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -221,6 +261,30 @@ export class InMemoryMarketplaceRepository {
     return [...(this.bids.get(listingAggregateId) ?? [])];
   }
 
+  getConversation(id: string): MarketplaceConversation | undefined {
+    return this.conversations.get(id);
+  }
+
+  putConversation(conversation: MarketplaceConversation): void {
+    this.conversations.set(conversation.id, conversation);
+  }
+
+  getConversationsForActor(actorPubky: string): MarketplaceConversation[] {
+    return [...this.conversations.values()].filter(
+      (conversation) => conversation.sellerPubky === actorPubky || conversation.buyerPubky === actorPubky,
+    );
+  }
+
+  appendNotification(notification: MarketplaceNotification): void {
+    this.notifications.push(notification);
+  }
+
+  getNotificationsForActor(actorPubky: string): MarketplaceNotification[] {
+    return this.notifications
+      .filter(({ recipientPubky }) => recipientPubky === actorPubky)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
     return this.commands.get(`${actorPubky}:${commandId}`);
   }
@@ -252,6 +316,14 @@ export class MarketplaceTransactionService {
     return this.repository
       .getOffersForListing(listingAggregateId)
       .filter((offer) => offer.buyerPubky === actorPubky || offer.sellerPubky === actorPubky);
+  }
+
+  getParticipantConversations(actorPubky: string): MarketplaceConversation[] {
+    return this.repository.getConversationsForActor(actorPubky);
+  }
+
+  getNotifications(actorPubky: string): MarketplaceNotification[] {
+    return this.repository.getNotificationsForActor(actorPubky);
   }
 
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
@@ -308,6 +380,8 @@ export class MarketplaceTransactionService {
         return this.withdrawOffer(actorPubky, command);
       case 'auction.place_bid':
         return this.placeBid(actorPubky, command);
+      case 'message.send':
+        return this.sendMessage(actorPubky, command);
     }
   }
 
@@ -479,6 +553,7 @@ export class MarketplaceTransactionService {
     const event = this.createEvent(actorPubky, command, offer.revision, 'offer.created', occurredAt);
     this.repository.putOffer(offer);
     this.repository.appendEvent(event);
+    this.notify(offer.sellerPubky, actorPubky, 'offer_received', offer.aggregateId, occurredAt);
     return success(command, offer.revision, event.id, { kind: 'offer', offer });
   }
 
@@ -532,6 +607,13 @@ export class MarketplaceTransactionService {
     const event = this.createEvent(actorPubky, command, updated.revision, 'offer.countered', occurredAt);
     this.repository.putOffer(updated);
     this.repository.appendEvent(event);
+    this.notify(
+      actorPubky === updated.sellerPubky ? updated.buyerPubky : updated.sellerPubky,
+      actorPubky,
+      'offer_countered',
+      updated.aggregateId,
+      occurredAt,
+    );
     return success(command, updated.revision, event.id, { kind: 'offer', offer: updated });
   }
 
@@ -588,6 +670,13 @@ export class MarketplaceTransactionService {
     this.repository.putReservation(reservation);
     this.repository.appendEvent(offerEvent);
     this.repository.appendEvent(inventoryEvent);
+    this.notify(
+      actorPubky === acceptedOffer.sellerPubky ? acceptedOffer.buyerPubky : acceptedOffer.sellerPubky,
+      actorPubky,
+      'offer_accepted',
+      acceptedOffer.aggregateId,
+      occurredAt,
+    );
     return success(command, acceptedOffer.revision, [offerEvent.id, inventoryEvent.id], {
       kind: 'accepted_offer',
       offer: acceptedOffer,
@@ -631,6 +720,15 @@ export class MarketplaceTransactionService {
     const event = this.createEvent(actorPubky, command, updated.revision, eventKind, occurredAt);
     this.repository.putOffer(updated);
     this.repository.appendEvent(event);
+    if (state === 'rejected') {
+      this.notify(
+        actorPubky === updated.sellerPubky ? updated.buyerPubky : updated.sellerPubky,
+        actorPubky,
+        'offer_rejected',
+        updated.aggregateId,
+        occurredAt,
+      );
+    }
     return success(command, updated.revision, event.id, { kind: 'offer', offer: updated });
   }
 
@@ -773,10 +871,95 @@ export class MarketplaceTransactionService {
     this.repository.putBid(bid);
     this.repository.putListing(updatedListing);
     this.repository.appendEvent(event);
+    if (
+      listing.auction.leaderPubky &&
+      listing.auction.leaderPubky !== updatedListing.auction?.leaderPubky &&
+      listing.auction.leaderPubky !== actorPubky
+    ) {
+      this.notify(listing.auction.leaderPubky, actorPubky, 'outbid', listing.aggregateId, occurredAt);
+    }
     return success(command, updatedListing.serverRevision, event.id, {
       kind: 'bid',
       listing: updatedListing,
       bid,
+    });
+  }
+
+  private sendMessage(actorPubky: string, command: SendMarketplaceMessageCommand): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.payload.listingAggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The message listing is unavailable.');
+    const actorIsSeller = actorPubky === listing.sellerPubky;
+    if (!actorIsSeller && command.payload.recipientPubky !== listing.sellerPubky) {
+      return failure('UNAUTHORIZED', 'A buyer may message only the listing seller.');
+    }
+    if (actorIsSeller && command.payload.recipientPubky === listing.sellerPubky) {
+      return failure('UNAUTHORIZED', 'A seller cannot message themselves.');
+    }
+
+    const buyerPubky = actorIsSeller ? command.payload.recipientPubky : actorPubky;
+    const expectedConversationId = buildMarketplaceConversationAggregateId(
+      listing.sellerPubky,
+      buyerPubky,
+      listing.listingId,
+    );
+    if (command.aggregateId !== expectedConversationId) {
+      return failure('INVALID_COMMAND', 'The conversation aggregate id is invalid.');
+    }
+    const current = this.repository.getConversation(command.aggregateId);
+    const currentRevision = current?.revision ?? 0;
+    if (command.expectedRevision !== currentRevision) {
+      return failure('REVISION_CONFLICT', 'The conversation revision is stale.', { currentRevision });
+    }
+
+    const occurredAt = this.now().toISOString();
+    const message: MarketplaceMessage = {
+      id: command.commandId,
+      conversationId: command.aggregateId,
+      listingAggregateId: listing.aggregateId,
+      senderPubky: actorPubky,
+      recipientPubky: command.payload.recipientPubky,
+      text: command.payload.text,
+      createdAt: occurredAt,
+    };
+    const conversation: MarketplaceConversation = {
+      id: command.aggregateId,
+      listingAggregateId: listing.aggregateId,
+      sellerPubky: listing.sellerPubky,
+      buyerPubky,
+      revision: currentRevision + 1,
+      lastMessageAt: occurredAt,
+      messages: [...(current?.messages ?? []), message],
+    };
+    const event = this.createEvent(actorPubky, command, conversation.revision, 'message.sent', occurredAt);
+    this.repository.putConversation(conversation);
+    this.repository.appendEvent(event);
+    this.repository.appendNotification({
+      id: randomUUID(),
+      recipientPubky: message.recipientPubky,
+      actorPubky,
+      type: 'message_received',
+      aggregateId: conversation.id,
+      createdAt: occurredAt,
+      readAt: null,
+    });
+    return success(command, conversation.revision, event.id, { kind: 'message', conversation, message });
+  }
+
+  private notify(
+    recipientPubky: string,
+    actorPubky: string,
+    type: MarketplaceNotification['type'],
+    aggregateId: string,
+    createdAt: string,
+  ): void {
+    this.repository.appendNotification({
+      id: randomUUID(),
+      recipientPubky,
+      actorPubky,
+      type,
+      aggregateId,
+      createdAt,
+      readAt: null,
     });
   }
 

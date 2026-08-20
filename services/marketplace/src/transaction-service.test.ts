@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildMarketplaceListingAggregateId, buildMarketplaceOfferAggregateId } from './contracts';
+import {
+  buildMarketplaceConversationAggregateId,
+  buildMarketplaceListingAggregateId,
+  buildMarketplaceOfferAggregateId,
+} from './contracts';
 import { InMemoryMarketplaceRepository, MarketplaceTransactionService } from './transaction-service';
 
 const SELLER = 'y'.repeat(52);
@@ -127,6 +131,23 @@ function placeBidCommand(actorIndex: number, maximumMinor: number, expectedRevis
     kind: 'auction.place_bid',
     payload: {
       maximumAmount: { amountMinor: maximumMinor, currency: 'USD', exponent: 2 },
+    },
+  };
+}
+
+function messageCommand(sender: string, recipient: string, expectedRevision: number, commandId: string, text: string) {
+  const buyer = sender === SELLER ? recipient : sender;
+  return {
+    version: 1,
+    commandId,
+    aggregateId: buildMarketplaceConversationAggregateId(SELLER, buyer, 'boots_01'),
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind: 'message.send',
+    payload: {
+      listingAggregateId: AGGREGATE_ID,
+      recipientPubky: recipient,
+      text,
     },
   };
 }
@@ -488,5 +509,62 @@ describe('MarketplaceTransactionService', () => {
     await service.execute(BUYER, placeBidCommand(1, 10_000, 1));
 
     expect(repository.getListing(AGGREGATE_ID)?.auction?.endsAt).toBe(new Date(now.getTime() + 120_000).toISOString());
+  });
+
+  it('stores participant-only listing messages with immutable revisions', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerCommand());
+
+    const first = await service.execute(
+      BUYER,
+      messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000000900', 'Is this still available?'),
+    );
+    const reply = await service.execute(
+      SELLER,
+      messageCommand(SELLER, BUYER, 1, '00000000-0000-4000-8000-000000000901', 'Yes, it is.'),
+    );
+
+    expect(first).toMatchObject({ ok: true, revision: 1, result: { kind: 'message' } });
+    expect(reply).toMatchObject({
+      ok: true,
+      revision: 2,
+      result: { conversation: { messages: [{ text: 'Is this still available?' }, { text: 'Yes, it is.' }] } },
+    });
+    expect(service.getParticipantConversations(BUYER)).toHaveLength(1);
+    expect(service.getParticipantConversations(SELLER)).toHaveLength(1);
+    expect(service.getParticipantConversations(OTHER_BUYER)).toEqual([]);
+    expect(repository.getEvents().filter(({ kind }) => kind === 'message.sent')).toHaveLength(2);
+  });
+
+  it('rejects unrelated message recipients and stale conversation revisions', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+
+    await expect(
+      service.execute(BUYER, messageCommand(BUYER, OTHER_BUYER, 0, '00000000-0000-4000-8000-000000000902', 'Private')),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+
+    await service.execute(BUYER, messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000000903', 'First'));
+    await expect(
+      service.execute(BUYER, messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000000904', 'Stale')),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'REVISION_CONFLICT', currentRevision: 1 } });
+  });
+
+  it('emits role-scoped message, offer, and outbid notifications', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000000905', 'Hello'));
+    await service.execute(BUYER, createOfferCommand());
+    await service.execute(BUYER, placeBidCommand(10, 10_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(11, 12_000, 2));
+
+    expect(
+      service
+        .getNotifications(SELLER)
+        .map(({ type }) => type)
+        .sort(),
+    ).toEqual(['message_received', 'offer_received']);
+    expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('outbid');
+    expect(service.getNotifications(OTHER_BUYER)).toEqual([]);
   });
 });

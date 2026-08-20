@@ -103,6 +103,17 @@ export const placeBidCommandSchema = createCommerceCommandSchema(
   z.object({ maximumAmount: commercePositiveMoneySchema }).strict(),
 );
 
+export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
+  'message.send',
+  z
+    .object({
+      listingAggregateId: z.string().min(1),
+      recipientPubky: commercePubkySchema,
+      text: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
 export const marketplaceCommandSchema = z.union([
   registerListingCommandSchema,
   reserveInventoryCommandSchema,
@@ -112,6 +123,7 @@ export const marketplaceCommandSchema = z.union([
   rejectOfferCommandSchema,
   withdrawOfferCommandSchema,
   placeBidCommandSchema,
+  sendMarketplaceMessageCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -125,7 +137,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
       eventIds: z.array(z.uuid()),
       result: z
         .object({
-          kind: z.enum(['listing', 'reservation', 'offer', 'accepted_offer', 'bid']),
+          kind: z.enum(['listing', 'reservation', 'offer', 'accepted_offer', 'bid', 'message']),
         })
         .passthrough(),
     })
@@ -152,6 +164,7 @@ export type AcceptOfferCommand = z.infer<typeof acceptOfferCommandSchema>;
 export type RejectOfferCommand = z.infer<typeof rejectOfferCommandSchema>;
 export type WithdrawOfferCommand = z.infer<typeof withdrawOfferCommandSchema>;
 export type PlaceBidCommand = z.infer<typeof placeBidCommandSchema>;
+export type SendMarketplaceMessageCommand = z.infer<typeof sendMarketplaceMessageCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 
@@ -161,4 +174,12 @@ export function buildMarketplaceListingAggregateId(sellerPubky: string, listingI
 
 export function buildMarketplaceOfferAggregateId(offerId: string): string {
   return `offer:${offerId}`;
+}
+
+export function buildMarketplaceConversationAggregateId(
+  sellerPubky: string,
+  buyerPubky: string,
+  listingId: string,
+): string {
+  return `conversation:${sellerPubky}_${buyerPubky}_${listingId}`;
 }
