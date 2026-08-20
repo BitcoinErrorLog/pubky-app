@@ -1,5 +1,5 @@
-import type { ChangeEvent } from 'react';
 import { act, renderHook } from '@testing-library/react';
+import type { ChangeEvent } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
