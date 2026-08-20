@@ -159,11 +159,21 @@ export function createOrderViewsForEveryState() {
   }));
 }
 
-/** One order view per payment state, so every payment label has a baseline. */
+/**
+ * One order view per payment state, so every payment label has a baseline.
+ * Each order carries a distinct id: most payment states pair with the same
+ * order state, which would otherwise produce duplicate React keys in a list.
+ */
 export function createOrderViewsForEveryPaymentState() {
-  return PAYMENT_STATES.map((state) => ({
-    order: createOrderFixture(state === 'confirmed' ? 'paid' : 'pending_payment'),
-    payment: createPaymentFixture(state),
-    receipt: null,
-  }));
+  return PAYMENT_STATES.map((state, index) => {
+    const payment = createPaymentFixture(state);
+    return {
+      order: createOrderFixture(state === 'confirmed' ? 'paid' : 'pending_payment', {
+        id: uuid(600 + index),
+        paymentId: payment.id,
+      }),
+      payment,
+      receipt: null,
+    };
+  });
 }
