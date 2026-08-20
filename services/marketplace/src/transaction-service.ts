@@ -5,8 +5,8 @@ import { commercePubkySchema } from '../../../src/libs/commerce/transaction-cont
 import {
   type AcceptOfferCommand,
   type AdvanceSandboxPaymentCommand,
-  buildMarketplaceConversationAggregateId,
   buildMarketplaceCheckoutAggregateId,
+  buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplaceOfferAggregateId,
   buildMarketplacePaymentAggregateId,
