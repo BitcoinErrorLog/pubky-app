@@ -89,6 +89,8 @@ function NotificationIcon({ type }: { type: MarketplaceNotification['type'] }) {
     case 'message_received':
       return <MessageCircle className="size-5" />;
     case 'outbid':
+    case 'auction_won':
+    case 'auction_ended':
       return <Gavel className="size-5" />;
     default:
       return <HandCoins className="size-5" />;
@@ -109,5 +111,9 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'Offer declined';
     case 'outbid':
       return 'You were outbid';
+    case 'auction_won':
+      return 'You won the auction';
+    case 'auction_ended':
+      return 'Auction ended';
   }
 }

@@ -152,6 +152,18 @@ function messageCommand(sender: string, recipient: string, expectedRevision: num
   };
 }
 
+function closeAuctionCommand(expectedRevision: number) {
+  return {
+    version: 1,
+    commandId: '00000000-0000-4000-8000-000000000950',
+    aggregateId: AGGREGATE_ID,
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind: 'auction.close',
+    payload: {},
+  };
+}
+
 function createService() {
   const repository = new InMemoryMarketplaceRepository();
   return {
@@ -566,5 +578,53 @@ describe('MarketplaceTransactionService', () => {
     ).toEqual(['message_received', 'offer_received']);
     expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('outbid');
     expect(service.getNotifications(OTHER_BUYER)).toEqual([]);
+  });
+
+  it('closes a reserve-met auction with one winner and reservation', async () => {
+    let now = new Date(NOW);
+    const repository = new InMemoryMarketplaceRepository();
+    const service = new MarketplaceTransactionService(repository, () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, placeBidCommand(20, 10_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(21, 8_000, 2));
+    now = new Date(NOW.getTime() + 11 * 60 * 1_000);
+
+    const result = await service.execute(SELLER, closeAuctionCommand(3));
+
+    expect(result).toMatchObject({
+      ok: true,
+      revision: 4,
+      result: {
+        kind: 'auction_result',
+        outcome: 'sold',
+        winnerPubky: BUYER,
+        listing: { state: 'reserved', auction: { status: 'sold' } },
+        reservation: { buyerPubky: BUYER, quantity: 1 },
+      },
+    });
+    expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('auction_won');
+    await expect(service.execute(SELLER, closeAuctionCommand(4))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_STATE' },
+    });
+  });
+
+  it('closes an auction without a reserve-met leader as unsold', async () => {
+    let now = new Date(NOW);
+    const repository = new InMemoryMarketplaceRepository();
+    const service = new MarketplaceTransactionService(repository, () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+    now = new Date(NOW.getTime() + 11 * 60 * 1_000);
+
+    await expect(service.execute(SELLER, closeAuctionCommand(1))).resolves.toMatchObject({
+      ok: true,
+      result: {
+        kind: 'auction_result',
+        outcome: 'unsold',
+        winnerPubky: null,
+        listing: { state: 'available', auction: { status: 'unsold' } },
+        reservation: null,
+      },
+    });
   });
 });

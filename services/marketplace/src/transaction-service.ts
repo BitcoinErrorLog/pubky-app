@@ -5,6 +5,7 @@ import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplaceOfferAggregateId,
+  type CloseAuctionCommand,
   type CounterOfferCommand,
   type CreateOfferCommand,
   type MarketplaceCommand,
@@ -36,6 +37,7 @@ export interface MarketplaceListingAggregate {
   };
   saleFormat: 'fixed_price' | 'auction';
   auction: {
+    status: 'scheduled' | 'active' | 'sold' | 'unsold' | 'cancelled';
     startsAt: string;
     endsAt: string;
     minimumIncrement: MarketplaceListingAggregate['unitPrice'];
@@ -121,7 +123,15 @@ export interface MarketplaceNotification {
   id: string;
   recipientPubky: string;
   actorPubky: string;
-  type: 'message_received' | 'offer_received' | 'offer_countered' | 'offer_accepted' | 'offer_rejected' | 'outbid';
+  type:
+    | 'message_received'
+    | 'offer_received'
+    | 'offer_countered'
+    | 'offer_accepted'
+    | 'offer_rejected'
+    | 'outbid'
+    | 'auction_won'
+    | 'auction_ended';
   aggregateId: string;
   createdAt: string;
   readAt: string | null;
@@ -142,7 +152,9 @@ export interface MarketplaceEvent {
     | 'offer.rejected'
     | 'offer.withdrawn'
     | 'auction.bid_placed'
-    | 'message.sent';
+    | 'message.sent'
+    | 'auction.closed_sold'
+    | 'auction.closed_unsold';
   occurredAt: string;
 }
 
@@ -172,6 +184,13 @@ export type MarketplaceCommandSuccess = {
         offer: MarketplaceOffer;
         listing: MarketplaceListingAggregate;
         reservation: MarketplaceReservation;
+      }
+    | {
+        kind: 'auction_result';
+        outcome: 'sold' | 'unsold';
+        winnerPubky: string | null;
+        listing: MarketplaceListingAggregate;
+        reservation: MarketplaceReservation | null;
       };
 };
 
@@ -392,6 +411,8 @@ export class MarketplaceTransactionService {
         return this.placeBid(actorPubky, command);
       case 'message.send':
         return this.sendMessage(actorPubky, command);
+      case 'auction.close':
+        return this.closeAuction(actorPubky, command);
     }
   }
 
@@ -440,6 +461,9 @@ export class MarketplaceTransactionService {
       auction: payload.auctionTerms
         ? {
             ...payload.auctionTerms,
+            status:
+              current?.auction?.status ??
+              (Date.parse(payload.auctionTerms.startsAt) > Date.parse(occurredAt) ? 'scheduled' : 'active'),
             currentPrice: current?.auction?.currentPrice ?? payload.unitPrice,
             leaderPubky: current?.auction?.leaderPubky ?? null,
             bidCount: current?.auction?.bidCount ?? 0,
@@ -800,6 +824,9 @@ export class MarketplaceTransactionService {
     if (listing.saleFormat !== 'auction' || !listing.auction) {
       return failure('INVALID_STATE', 'This listing is not an auction.');
     }
+    if (listing.auction.status !== 'active') {
+      return failure('AUCTION_CLOSED', 'The auction is not open for bidding.');
+    }
     if (command.expectedRevision !== listing.serverRevision) {
       return failure('REVISION_CONFLICT', 'The auction revision is stale.', {
         currentRevision: listing.serverRevision,
@@ -892,6 +919,73 @@ export class MarketplaceTransactionService {
       kind: 'bid',
       listing: updatedListing,
       bid,
+    });
+  }
+
+  private closeAuction(actorPubky: string, command: CloseAuctionCommand): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The auction listing is not registered.');
+    if (listing.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the seller may close this sandbox auction.');
+    }
+    if (!listing.auction || listing.saleFormat !== 'auction' || listing.auction.status !== 'active') {
+      return failure('INVALID_STATE', 'The auction is not active.');
+    }
+    if (command.expectedRevision !== listing.serverRevision) {
+      return failure('REVISION_CONFLICT', 'The auction revision is stale.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    const now = this.now();
+    if (now.getTime() < Date.parse(listing.auction.endsAt)) {
+      return failure('AUCTION_CLOSED', 'The auction has not ended yet.');
+    }
+
+    const sold = Boolean(listing.auction.leaderPubky && listing.auction.reserveMet);
+    const occurredAt = now.toISOString();
+    const reservation: MarketplaceReservation | null =
+      sold && listing.auction.leaderPubky
+        ? {
+            id: command.commandId,
+            aggregateId: listing.aggregateId,
+            buyerPubky: listing.auction.leaderPubky,
+            quantity: 1,
+            status: 'active',
+            expiresAt: new Date(now.getTime() + 30 * 60 * 1_000).toISOString(),
+            createdAt: occurredAt,
+          }
+        : null;
+    const updatedListing: MarketplaceListingAggregate = {
+      ...listing,
+      serverRevision: listing.serverRevision + 1,
+      state: sold ? 'reserved' : 'available',
+      availableQuantity: sold ? listing.availableQuantity - 1 : listing.availableQuantity,
+      reservedQuantity: sold ? listing.reservedQuantity + 1 : listing.reservedQuantity,
+      auction: {
+        ...listing.auction,
+        status: sold ? 'sold' : 'unsold',
+      },
+      updatedAt: occurredAt,
+    };
+    const event = this.createEvent(
+      actorPubky,
+      command,
+      updatedListing.serverRevision,
+      sold ? 'auction.closed_sold' : 'auction.closed_unsold',
+      occurredAt,
+    );
+    this.repository.putListing(updatedListing);
+    if (reservation) this.repository.putReservation(reservation);
+    this.repository.appendEvent(event);
+    if (reservation) {
+      this.notify(reservation.buyerPubky, actorPubky, 'auction_won', listing.aggregateId, occurredAt);
+    }
+    return success(command, updatedListing.serverRevision, event.id, {
+      kind: 'auction_result',
+      outcome: sold ? 'sold' : 'unsold',
+      winnerPubky: reservation?.buyerPubky ?? null,
+      listing: updatedListing,
+      reservation,
     });
   }
 

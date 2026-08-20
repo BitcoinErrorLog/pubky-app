@@ -70,6 +70,8 @@ const notificationSchema = z
       'offer_accepted',
       'offer_rejected',
       'outbid',
+      'auction_won',
+      'auction_ended',
     ]),
     aggregateId: z.string(),
     createdAt: z.string(),

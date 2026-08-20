@@ -103,6 +103,8 @@ export const placeBidCommandSchema = createCommerceCommandSchema(
   z.object({ maximumAmount: commercePositiveMoneySchema }).strict(),
 );
 
+export const closeAuctionCommandSchema = createCommerceCommandSchema('auction.close', z.object({}).strict());
+
 export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
   'message.send',
   z
@@ -123,6 +125,7 @@ export const marketplaceCommandSchema = z.union([
   rejectOfferCommandSchema,
   withdrawOfferCommandSchema,
   placeBidCommandSchema,
+  closeAuctionCommandSchema,
   sendMarketplaceMessageCommandSchema,
 ]);
 
@@ -137,7 +140,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
       eventIds: z.array(z.uuid()),
       result: z
         .object({
-          kind: z.enum(['listing', 'reservation', 'offer', 'accepted_offer', 'bid', 'message']),
+          kind: z.enum(['listing', 'reservation', 'offer', 'accepted_offer', 'bid', 'message', 'auction_result']),
         })
         .passthrough(),
     })
@@ -164,6 +167,7 @@ export type AcceptOfferCommand = z.infer<typeof acceptOfferCommandSchema>;
 export type RejectOfferCommand = z.infer<typeof rejectOfferCommandSchema>;
 export type WithdrawOfferCommand = z.infer<typeof withdrawOfferCommandSchema>;
 export type PlaceBidCommand = z.infer<typeof placeBidCommandSchema>;
+export type CloseAuctionCommand = z.infer<typeof closeAuctionCommandSchema>;
 export type SendMarketplaceMessageCommand = z.infer<typeof sendMarketplaceMessageCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
