@@ -14,6 +14,8 @@ import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
+  type MarketplaceDisputeCaseFile,
+  marketplaceDisputeCaseFileSchema,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
   type MarketplaceNotification,
@@ -61,6 +63,7 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'return.receive',
   'refund.record_external',
   'dispute.open',
+  'dispute.evidence',
   'dispute.resolve',
   'review.create',
   'trust.report',
@@ -104,10 +107,15 @@ export type MarketplaceReport = z.infer<typeof marketplaceReportSchema>;
  *   sub-objects), payments, receipts, notifications, and reports; every
  *   endpoint requires the same bearer session as `/v1/commands`, and
  *   participation is enforced server-side in SQL. Deliberate redactions
- *   (ADR-0019 §8): no `delivery_address`, no `locks_bundle_id`, no dispute
- *   evidence bodies (only `evidence_count`), and notifications carry no
- *   `revision`. Conversations and notification preferences have NO durable
- *   tables and are not served at all — those stay sandbox-only.
+ *   (ADR-0019 §8): no `delivery_address`, no `locks_bundle_id`, and
+ *   notifications carry no `revision`. Dispute evidence bodies never appear
+ *   in general projections or command results (only `evidence_count`) — the
+ *   single exposure path is the scoped case-file read
+ *   `GET /v1/orders/{id}/evidence`, served to exactly the two dispute
+ *   participants and configured moderators, with moderator reads audited
+ *   server-side in the same transaction as the read. Conversations and
+ *   notification preferences have NO durable tables and are not served at
+ *   all — those stay sandbox-only.
  */
 export class MarketplaceTransactionService {
   private constructor() {}
@@ -237,6 +245,62 @@ export class MarketplaceTransactionService {
   }
 
   /**
+   * `GET /v1/orders/{id}`: one order with the embedded projections. The
+   * service serves it to the two participants — and to configured moderators,
+   * but only when the order is under (or was previously under) dispute.
+   * 404 covers absent AND foreign orders indistinguishably, by design.
+   */
+  static async getOrder(actor: string, orderId: string): Promise<MarketplaceOrder | null> {
+    const raw = await this.readProjection('getOrder', actor, `/v1/orders/${encodeURIComponent(orderId)}`, {
+      nullOnNotFound: true,
+    });
+    if (raw === null) return null;
+    return this.parseProjection('getOrder', marketplaceOrderSchema, raw, 'Marketplace returned an invalid order.');
+  }
+
+  /**
+   * `GET /v1/disputes`: the moderator adjudication queue — the order
+   * projection of every order under (or previously under) dispute. The
+   * service refuses non-moderators with 403, never an empty list, so `null`
+   * here means "this account is not a configured moderator" and the caller
+   * must keep the queue absent rather than render it empty.
+   */
+  static async getDisputes(actor: string): Promise<MarketplaceOrder[] | null> {
+    const raw = await this.readProjection('getDisputes', actor, '/v1/disputes', { nullOnForbidden: true });
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getDisputes',
+      z.object({ disputes: z.array(marketplaceOrderSchema) }),
+      raw,
+      'Marketplace returned an invalid dispute queue.',
+    ).disputes;
+  }
+
+  /**
+   * `GET /v1/orders/{id}/evidence`: the dispute case file, newest-first. The
+   * audience is exactly the two dispute participants plus configured
+   * moderators; anyone else gets the same 404 an absent order returns, so
+   * `null` never reveals whether the order exists. A moderator-role read is
+   * recorded append-only by the service in the same transaction as the read —
+   * opening a case file as a moderator is a logged action.
+   */
+  static async getOrderEvidence(actor: string, orderId: string): Promise<MarketplaceDisputeCaseFile | null> {
+    const raw = await this.readProjection(
+      'getOrderEvidence',
+      actor,
+      `/v1/orders/${encodeURIComponent(orderId)}/evidence`,
+      { nullOnNotFound: true },
+    );
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getOrderEvidence',
+      marketplaceDisputeCaseFileSchema,
+      raw,
+      'Marketplace returned an invalid dispute case file.',
+    );
+  }
+
+  /**
    * `GET /v1/notifications`: recipient-scoped delivered outbox rows. They
    * carry no `revision` — there is no notification command surface on the
    * durable service, so nothing can mark them read.
@@ -255,13 +319,15 @@ export class MarketplaceTransactionService {
    * Performs one bearer-authenticated projection read and returns the
    * camelCased body. Returns null for a 404 only when the endpoint is a
    * single-object read (`nullOnNotFound`), where the service deliberately
-   * answers 404 for absent AND foreign aggregates.
+   * answers 404 for absent AND foreign aggregates; and for a 403 only when
+   * the endpoint is role-gated (`nullOnForbidden`), where 403 means "the
+   * session's pubky does not hold the required role".
    */
   private static async readProjection(
     operation: string,
     actor: string,
     path: string,
-    options: { nullOnNotFound?: boolean } = {},
+    options: { nullOnNotFound?: boolean; nullOnForbidden?: boolean } = {},
   ): Promise<unknown> {
     this.assertTransactionServiceMode(operation);
     const session = this.requireSession(operation, actor);
@@ -274,6 +340,7 @@ export class MarketplaceTransactionService {
     );
     this.throwIfSessionRejected(response.status, operation);
     if (options.nullOnNotFound && response.status === HttpStatusCode.NOT_FOUND) return null;
+    if (options.nullOnForbidden && response.status === HttpStatusCode.FORBIDDEN) return null;
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
     return toCamelCaseWire(raw);
   }

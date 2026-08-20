@@ -139,6 +139,24 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceReports(this.getCurrentUserPubky());
   }
 
+  static async getMarketplaceOrder(orderId: unknown) {
+    return await CommerceApplication.getMarketplaceOrder(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  static async getMarketplaceDisputes() {
+    return await CommerceApplication.getMarketplaceDisputes(this.getCurrentUserPubky());
+  }
+
+  static async getMarketplaceOrderEvidence(orderId: unknown) {
+    return await CommerceApplication.getMarketplaceOrderEvidence(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
   static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
     const recipient = CommerceRecordNormalizer.pubky(recipientPubky);
     if (
