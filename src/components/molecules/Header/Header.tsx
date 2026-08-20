@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Flame, Home, Library, Settings, UserRoundPlus } from 'lucide-react';
+import { Flame, Home, Library, Settings, Store, UserRoundPlus } from 'lucide-react';
 import { APP_ROUTES, isCoreExploreRoute, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -10,6 +10,7 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode } from '@/config/commerce';
 import { getGithubLink, getTelegramLink, getTwitterGetpubkyLink } from '@/config/externalLinks';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
@@ -97,7 +98,11 @@ type HeaderNavigationButtonsProps = {
   avatarSeed?: string;
   className?: string;
 };
-const NAVIGATION_ITEMS: NavigationItemConfig[] = [
+// Marketplace stays out of primary navigation until the commerce adapter is
+// explicitly configured; production defaults to 'unavailable' (ADR 0019).
+const isMarketplaceNavEnabled = () => getCommerceAdapterMode() !== 'unavailable';
+
+const getNavigationItems = (): NavigationItemConfig[] => [
   {
     href: APP_ROUTES.HOME,
     icon: Home,
@@ -111,6 +116,17 @@ const NAVIGATION_ITEMS: NavigationItemConfig[] = [
     label: 'Hot',
     dataCy: 'header-hot-btn',
   },
+  ...(isMarketplaceNavEnabled()
+    ? [
+        {
+          href: APP_ROUTES.MARKETPLACE,
+          icon: Store,
+          label: 'Marketplace',
+          dataCy: 'header-marketplace-btn',
+          activePrefix: APP_ROUTES.MARKETPLACE,
+        },
+      ]
+    : []),
   {
     href: APP_ROUTES.COLLECTIONS,
     icon: Library,
@@ -210,7 +226,7 @@ export function HeaderNavigationButtons({
   const counterString = counter > 21 ? '21+' : counter.toString();
   return (
     <Container className={cn('hidden w-auto flex-row items-center justify-start gap-3 lg:flex', className)}>
-      {NAVIGATION_ITEMS.map((item) => {
+      {getNavigationItems().map((item) => {
         const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
         return (
           <NavigationButton
@@ -270,7 +286,7 @@ export function HeaderExploreNavigationButtons({
   return (
     <Container className={cn('hidden min-w-0 flex-1 flex-row items-center justify-end gap-3 lg:flex', className)}>
       {showSearch && <SearchInput />}
-      {NAVIGATION_ITEMS.map((item) => {
+      {getNavigationItems().map((item) => {
         // Core explore routes navigate freely; Settings requires an account.
         const requiresAuth = !isCoreExploreRoute(item.href);
         return (

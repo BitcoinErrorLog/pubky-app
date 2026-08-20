@@ -2,6 +2,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { describe, expect, it, vi } from 'vitest';
+import * as commerceConfig from '@/config/commerce';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 import { HeaderButtonSignIn } from '../HeaderButtonSignIn/HeaderButtonSignIn';
@@ -524,6 +525,23 @@ describe('Header Components', () => {
       buttons.forEach((button) => {
         expect(button).toHaveClass('w-12', 'h-12');
       });
+    });
+
+    it('hides Marketplace from navigation by default', () => {
+      render(<HeaderNavigationButtons avatarName="TU" />);
+      const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+      expect(hrefs).not.toContain('/marketplace');
+    });
+
+    it('shows Marketplace in navigation when the commerce adapter is enabled', () => {
+      const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      try {
+        render(<HeaderNavigationButtons avatarName="TU" />);
+        const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+        expect(hrefs).toContain('/marketplace');
+      } finally {
+        adapterMode.mockRestore();
+      }
     });
   });
 

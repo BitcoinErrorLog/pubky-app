@@ -1,6 +1,7 @@
 import { usePathname } from 'next/navigation';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import * as commerceConfig from '@/config/commerce';
 import { FORCE_FEED_SCROLL_TOP_KEY } from '@/config/feed';
 import { FileController } from '@/controllers/file/file';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
@@ -78,6 +79,7 @@ vi.mock('@/app/routes', async () => {
       HOME: '/home',
       SEARCH: '/search',
       HOT: '/hot',
+      MARKETPLACE: '/marketplace',
       COLLECTIONS: '/collections',
       SETTINGS: '/settings',
       PROFILE: '/profile',
@@ -196,6 +198,21 @@ describe('MobileFooter', () => {
       expect(link).toHaveAttribute('href', item.href);
       expect(link).toHaveAttribute('aria-label', item.label);
     });
+  });
+
+  it('hides Marketplace from navigation by default', () => {
+    render(<MobileFooter />);
+    expect(screen.queryByRole('link', { name: 'Marketplace' })).not.toBeInTheDocument();
+  });
+
+  it('shows Marketplace in navigation when the commerce adapter is enabled', () => {
+    const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    try {
+      render(<MobileFooter />);
+      expect(screen.getByRole('link', { name: 'Marketplace' })).toHaveAttribute('href', '/marketplace');
+    } finally {
+      adapterMode.mockRestore();
+    }
   });
 
   it('renders profile link', () => {

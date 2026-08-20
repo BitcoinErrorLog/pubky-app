@@ -1,0 +1,52 @@
+import { act, renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import { useMarketplaceBid } from './useMarketplaceBid';
+
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    executeMarketplaceCommand: vi.fn(),
+  },
+}));
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({
+  toast: vi.fn(),
+}));
+
+describe('useMarketplaceBid', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000810');
+  });
+
+  it('submits a private proxy maximum at the authoritative auction revision', async () => {
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000810',
+      aggregateId: 'listing:seller_item',
+      revision: 4,
+      eventIds: ['00000000-0000-4000-8000-000000000811'],
+      result: { kind: 'bid' },
+    });
+    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3));
+    act(() => result.current.form.setValue('maximumAmount', '150.00'));
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(true);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aggregateId: 'listing:seller_item',
+        expectedRevision: 3,
+        kind: 'auction.place_bid',
+        payload: {
+          maximumAmount: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+        },
+      }),
+    );
+  });
+});
