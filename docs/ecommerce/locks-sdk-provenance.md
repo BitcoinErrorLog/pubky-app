@@ -56,6 +56,30 @@ Generated package size: ~1.2 MB. Note that `wasm-opt` output is not guaranteed b
 
 This confirms the client should call Locks through this SDK rather than hand-rolled HTTP requests, per the upstream guidance in `upstream-integration.md` ("do not create hand-written substitutes for Locks canonicalization, identifiers, proof payloads, credentials, or session handling").
 
+## The Locks flow itself is verified, minus the payment leg
+
+Building the SDK only proves the package compiles. To find out whether the guarded-content flow actually works, the upstream repository's own end-to-end test was run at the same pinned commit:
+
+```bash
+cargo test -p locks-e2e creator_publishing_http_flow -- --nocapture
+```
+
+It passes, and it exercises the whole contract the marketplace depends on:
+
+1. `POST /creator/lock-service-config`
+2. `PUT /creator/priv-resources/content/<path>` — guarded bytes registered
+3. `POST /creator/content-locks` — lock created
+4. `POST /proof-bundles` — proof submitted, lifecycle opened
+5. `POST /verification-task-completions` — **dev-only** completion gate
+6. `POST /access-credentials` — viewer credential issued
+7. `GET /priv-resources/content/<path>` — guarded bytes proxied back
+
+So creator publishing, proof submission, entitlement, credential issuance, and guarded reads are confirmed working, not assumed. Locks also ships its own `docker-compose.yml` (postgres, pubky-testnet, locks-server, creator and reader demos) with ports defaulting clear of the usual local collisions.
+
+**What step 5 substitutes for is the whole point.** In production that completion comes from a `paykit-payment` verifier: Lock Server requests an invoice from Paykit Server, Paykit Server watches Bitcoin via Electrum, and the lifecycle completes when payment confirms. Submitting a `paykit-payment` proof to a Lock Server with no `[paykit]` runtime section returns `422 paykit_not_configured` — the payment leg cannot be faked into existence, which is the correct behavior.
+
+That leaves the deferred scope precisely bounded: **the payment leg only.** Everything on either side of it is verified.
+
 ## Remaining work before the SDK can be used in the app
 
 1. Vendor the generated `pkg/` (or publish it to a controlled immutable registry) and wire the smoke test into CI ahead of `next build`.
