@@ -791,6 +791,11 @@ export class MarketplaceTransactionService {
         return this.createCheckout(actorPubky, command);
       case 'payment.sandbox_advance':
         return this.advanceSandboxPayment(actorPubky, command);
+      case 'payment.register_locks':
+        // The sandbox has no Lock Server and no verification worker, so it
+        // refuses the registration outright — mirroring the durable service's
+        // fail-closed behavior when Locks is not configured.
+        return failure('INVALID_COMMAND', 'Locks verification is not available on the sandbox service.');
       case 'order.cancel_request':
         return this.requestCancellation(actorPubky, command);
       case 'order.cancel_approve':

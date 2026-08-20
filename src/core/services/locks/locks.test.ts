@@ -93,6 +93,33 @@ describe('LocksGatewayService', () => {
     );
   });
 
+  it('exchanges a legacy-connect completion for a frontend session', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({ session_token: 'opaque-frontend-token', creator: `pubky${CREATOR}` }),
+    );
+
+    await expect(LocksGatewayService.createFrontendSession('one-time-code', 'opaque-state')).resolves.toEqual({
+      session_token: 'opaque-frontend-token',
+      creator: `pubky${CREATOR}`,
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://locks.example.com/frontend-sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: 'one-time-code', state: 'opaque-state' }),
+      }),
+    );
+  });
+
+  it('rejects a malformed frontend session response', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ token: 'wrong-shape' }));
+
+    await expect(LocksGatewayService.createFrontendSession('one-time-code', 'opaque-state')).rejects.toMatchObject({
+      name: 'AppError',
+    });
+  });
+
   it('builds exact-origin Paykit setup callbacks', () => {
     expect(
       LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/marketplace/settings', 'opaque-state'),

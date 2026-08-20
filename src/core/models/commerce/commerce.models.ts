@@ -11,6 +11,7 @@ import type {
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
+  CommerceLocksCorrelationModelSchema,
   CommerceShopFollowModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
@@ -381,6 +382,57 @@ export class CommerceCartItemModel
   }
 
   static async findByOwner(ownerId: string): Promise<CommerceCartItemModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceLocksCorrelationModel
+  extends RecordModelBase<string, CommerceLocksCorrelationModelSchema>
+  implements CommerceLocksCorrelationModelSchema
+{
+  static table: Table<CommerceLocksCorrelationModelSchema> = db.table('commerce_locks_correlations');
+
+  owner_id: string;
+  payment_id: string;
+  order_id: string;
+  seller_pubky: string;
+  bundle_id: string;
+  policy_uri: string;
+  criterion_id: string;
+  content_path: string;
+  resource_hash: string;
+  window_expires_at: string | null;
+  registered: boolean;
+  created_at: number;
+  updated_at: number;
+
+  constructor(correlation: CommerceLocksCorrelationModelSchema) {
+    super(correlation);
+    this.owner_id = correlation.owner_id;
+    this.payment_id = correlation.payment_id;
+    this.order_id = correlation.order_id;
+    this.seller_pubky = correlation.seller_pubky;
+    this.bundle_id = correlation.bundle_id;
+    this.policy_uri = correlation.policy_uri;
+    this.criterion_id = correlation.criterion_id;
+    this.content_path = correlation.content_path;
+    this.resource_hash = correlation.resource_hash;
+    this.window_expires_at = correlation.window_expires_at;
+    this.registered = correlation.registered;
+    this.created_at = correlation.created_at;
+    this.updated_at = correlation.updated_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceLocksCorrelationModelSchema[]> {
     try {
       return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
     } catch (error) {

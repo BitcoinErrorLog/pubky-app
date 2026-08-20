@@ -19,11 +19,35 @@ export {
 /**
  * True when the mode has a marketplace transaction backend the interactive
  * flows can operate against: the in-memory sandbox (simulated outcomes) or
- * the durable Rust transaction service (authoritative outcomes). The other
- * modes have no command/read surface and the shopping UI must say so.
+ * the durable Rust transaction service (authoritative outcomes, selected by
+ * both durable modes — see {@link isDurableCommerceMode}). `unavailable` has
+ * no command/read surface and the shopping UI must say so.
  */
 export function isTransactionalCommerceMode(mode: CommerceAdapterMode): boolean {
-  return mode === 'sandbox' || mode === 'transaction-service';
+  return mode === 'sandbox' || isDurableCommerceMode(mode);
+}
+
+/**
+ * True when marketplace commands and reads go to the durable Rust Marketplace
+ * Transaction Service (Pubky AuthToken sessions, snake_case wire, role-scoped
+ * projections). The two durable modes COMPOSE rather than exclude:
+ *
+ * - `transaction-service`: the durable authority alone; payments stay on its
+ *   sandbox adapter and this client refuses to simulate them, so orders
+ *   honestly sit awaiting payment.
+ * - `locks-paykit`: the same durable authority PLUS the real Locks/Paykit
+ *   payment rails. The client submits the buyer's proof bundle to the Lock
+ *   Server and registers the correlation via `payment.register_locks`; the
+ *   service's worker — never this client — verifies the Locks lifecycle and
+ *   confirms the payment.
+ */
+export function isDurableCommerceMode(mode: CommerceAdapterMode): boolean {
+  return mode === 'transaction-service' || mode === 'locks-paykit';
+}
+
+/** True when the real Locks/Paykit buyer payment rails are active. */
+export function isLocksPaykitCommerceMode(mode: CommerceAdapterMode): boolean {
+  return mode === 'locks-paykit';
 }
 
 export const COMMERCE_CONTRACT_VERSION = 1 as const;

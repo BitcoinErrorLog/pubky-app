@@ -48,7 +48,13 @@ const nonEmptyStringValue = z.string().min(1);
  *  - `sandbox`: the in-memory prototype service (`services/marketplace/`); simulated outcomes.
  *  - `transaction-service`: the durable Rust Marketplace Transaction Service (Pubky AuthToken
  *    sessions, snake_case wire per ADR-0019); authoritative outcomes, sandbox-only payments.
- *  - `locks-paykit`: reserved for real Locks/Paykit payments; not usable yet.
+ *  - `locks-paykit`: `transaction-service` PLUS real Locks/Paykit payment rails. The durable
+ *    service remains the transactional authority (its worker independently verifies the Locks
+ *    lifecycle and confirms payments); the client additionally submits proof bundles to the
+ *    Lock Server and registers the correlation via `payment.register_locks`. Activation is
+ *    validated: every payment-rail URL must be explicitly configured (see
+ *    `validateLocksPaykitEnvInput`), and the transaction service itself refuses
+ *    `payment.register_locks` unless its own `LOCKS_*` secrets are configured.
  */
 const commerceAdapterModeValue = z.enum(['unavailable', 'sandbox', 'transaction-service', 'locks-paykit']);
 export type CommerceAdapterMode = z.infer<typeof commerceAdapterModeValue>;
@@ -153,6 +159,44 @@ const sampleRateFromString = z
   .transform((val) => Number(val))
   .pipe(sampleRateValue)
   .optional();
+
+/**
+ * The runtime values `locks-paykit` mode depends on. The mode may only activate when every
+ * one of them is EXPLICITLY configured — the localhost defaults exist for local development
+ * of the other modes and must never silently become a real payment deployment's endpoints.
+ */
+export const LOCKS_PAYKIT_REQUIRED_CONFIG_KEYS = ['marketplaceUrl', 'locksUrl', 'paykitSetupUrl'] as const;
+
+/**
+ * Fail-closed activation gate for `locks-paykit` mode, applied to BOTH env-input schemas
+ * (strict deployed parse and lenient dev parse) BEFORE defaults are layered, so "explicitly
+ * set" is checkable. A partial payment-rail configuration makes the whole config parse fail
+ * loudly — the deployment refuses to start rather than pointing real-payment flows at
+ * defaulted URLs. `unavailable` remains the schema default when the mode is unset.
+ *
+ * Secrets are deliberately NOT part of the client config: the Locks verification keys
+ * (`LOCKS_BUNDLE_ENCRYPTION_KEY`, `LOCKS_LOOKUP_HMAC_KEY`) belong to the transaction
+ * service, which itself fails closed at startup on partial `LOCKS_*` configuration and
+ * refuses `payment.register_locks` when verification is not enabled.
+ */
+function validateLocksPaykitEnvInput(
+  input: Partial<Record<(typeof LOCKS_PAYKIT_REQUIRED_CONFIG_KEYS)[number], unknown>> & {
+    commerceAdapterMode?: CommerceAdapterMode;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (input.commerceAdapterMode !== 'locks-paykit') return;
+  for (const key of LOCKS_PAYKIT_REQUIRED_CONFIG_KEYS) {
+    const value = input[key];
+    if (typeof value !== 'string' || value.trim() === '') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [key],
+        message: `commerceAdapterMode=locks-paykit requires ${PUBKY_RUNTIME_ENV_NAMES[key]} to be explicitly set; real-payment mode never activates on defaulted URLs.`,
+      });
+    }
+  }
+}
 
 /**
  * Defaults for the optional Sentry sample rates (applied by `runtimeConfigValueSchema`, which
@@ -368,6 +412,7 @@ export const runtimeEnvInputSchema = z
     appStoreUrl: optionalUrlFromString,
     playStoreUrl: optionalUrlFromString,
   })
+  .superRefine(validateLocksPaykitEnvInput)
   .pipe(runtimeConfigValueSchema);
 
 /**
@@ -451,6 +496,7 @@ export const runtimeEnvInputSchemaWithDefaults = z
     appStoreUrl: optionalUrlFromString,
     playStoreUrl: optionalUrlFromString,
   })
+  .superRefine(validateLocksPaykitEnvInput)
   .pipe(lenientRuntimeConfigValueSchema);
 
 // ---------------------------------------------------------------------------

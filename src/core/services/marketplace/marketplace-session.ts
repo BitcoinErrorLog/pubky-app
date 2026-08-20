@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getCommerceAdapterMode, getMarketplaceUrl } from '@/config/commerce';
+import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
@@ -142,7 +142,7 @@ export class MarketplaceSessionService {
   }
 
   private static assertTransactionServiceMode(operation: string): void {
-    if (getCommerceAdapterMode() !== 'transaction-service') {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
       throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace transaction-service sessions are disabled.', {
         service: ErrorService.Marketplace,
         operation,

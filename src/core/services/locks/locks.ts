@@ -21,8 +21,20 @@ const accessCredentialSchema = z.object({
   expires_at: z.string(),
 });
 
+const frontendSessionSchema = z.object({
+  session_token: z.string().min(1),
+  creator: z.string().min(1),
+});
+
 export type LocksVerificationLifecycle = z.infer<typeof lifecycleSchema>;
 export type LocksAccessCredential = z.infer<typeof accessCredentialSchema>;
+
+/**
+ * A Lock Server creator frontend session, exchanged from the one-time `code`
+ * the hosted legacy-connect flow appends to `return_to`. The token is creator
+ * bearer material — callers keep it in memory only.
+ */
+export type LocksFrontendSession = z.infer<typeof frontendSessionSchema>;
 
 export class LocksGatewayService {
   private constructor() {}
@@ -113,6 +125,38 @@ export class LocksGatewayService {
     );
     if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'fetchGuardedContent', url);
     return await response.blob();
+  }
+
+  /**
+   * Exchanges the hosted legacy-connect completion (`code` + the caller's own
+   * `state`, delivered to `return_to`) for a creator frontend session. This is
+   * the client's proof that the Lock Server actually holds creator authority
+   * for the signed-in seller — the setup UI must not claim "connected" from
+   * anything weaker.
+   */
+  static async createFrontendSession(code: string, state: string): Promise<LocksFrontendSession> {
+    const url = `${getLocksUrl()}/frontend-sessions`;
+    const response = await safeFetch(
+      url,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, state }),
+      },
+      ErrorService.Locks,
+      'createFrontendSession',
+    );
+    if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'createFrontendSession', url);
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Locks, 'createFrontendSession', url);
+    const parsed = frontendSessionSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Locks returned an invalid frontend session response.', {
+        service: ErrorService.Locks,
+        operation: 'createFrontendSession',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
   }
 
   static buildPaykitSetupUrl(returnTo: string, state: string): string {

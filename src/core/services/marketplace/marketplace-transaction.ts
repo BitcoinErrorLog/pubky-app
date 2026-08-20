@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getCommerceAdapterMode, getMarketplaceUrl } from '@/config/commerce';
+import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
@@ -40,6 +40,10 @@ import { MarketplaceSessionService } from './marketplace-session';
  * - `payment.sandbox_advance` exists on the service (it drives the sandbox
  *   payment adapter end to end in its own tests), but this client refuses to
  *   send it as a matter of policy — simulate buttons are sandbox-only.
+ * - `payment.register_locks` IS sent: it registers the buyer's Locks
+ *   lifecycle correlation and never advances the payment — the service's
+ *   worker independently verifies the Locks lifecycle and confirms exactly
+ *   once (ADR-0019 §7). Deployments without Locks configured refuse it.
  * - `message.send` and `notification.*` have no durable tables; messaging
  *   and notification preferences remain sandbox-only.
  * - `order.cancel_request`/`order.cancel_approve` are declared in the
@@ -56,6 +60,7 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'offer.withdraw',
   'auction.place_bid',
   'auction.close',
+  'payment.register_locks',
   'fulfillment.ship',
   'fulfillment.confirm_delivery',
   'return.request',
@@ -396,7 +401,7 @@ export class MarketplaceTransactionService {
   }
 
   private static assertTransactionServiceMode(operation: string): void {
-    if (getCommerceAdapterMode() !== 'transaction-service') {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
       throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace transaction-service commands are disabled.', {
         service: ErrorService.Marketplace,
         operation,

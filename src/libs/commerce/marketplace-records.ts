@@ -218,6 +218,18 @@ export const commerceDigitalLockSchema = z
   .object({
     policyUri: locksPublicUriSchema,
     criterionId: commerceEntityIdSchema.default('criterion-1'),
+    /**
+     * Lock-Server-relative path of the guarded content under the creator's
+     * private content namespace (served by the guarded proxy read
+     * `GET /priv-resources/content/<contentPath>` with an access credential).
+     * A path, not a secret: access is enforced by the credential.
+     */
+    contentPath: z
+      .string()
+      .min(1)
+      .max(512)
+      .regex(/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/, 'Expected a relative guarded content path')
+      .refine((path) => !path.includes('..'), 'Guarded content paths cannot traverse directories'),
     resourceHash: z.string().regex(/^[a-f0-9]{64}$/, 'Expected a lowercase BLAKE3 hash'),
     minimumConfirmations: z.number().int().min(0).max(6),
   })
@@ -539,6 +551,7 @@ function validateAuction(auction: z.infer<typeof auctionSaleSchema>, context: z.
   }
 }
 
+export type CommerceDigitalLock = z.infer<typeof commerceDigitalLockSchema>;
 export type CommerceShopRecord = z.infer<typeof commerceShopRecordSchema>;
 export type CommerceListingRecord = z.infer<typeof commerceListingRecordSchema>;
 export type CommerceReviewRecord = z.infer<typeof commerceReviewRecordSchema>;

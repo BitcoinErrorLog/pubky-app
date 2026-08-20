@@ -1,7 +1,7 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
-import { getCommerceAdapterMode, getMarketplaceUrl } from '@/config/commerce';
+import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
@@ -128,7 +128,7 @@ export class MarketplaceGatewayService {
   private constructor() {}
 
   static async execute(actor: string, command: MarketplaceCommand): Promise<MarketplaceCommandResponse> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.execute(actor, command);
     }
     this.assertSandbox();
@@ -165,7 +165,7 @@ export class MarketplaceGatewayService {
    * endpoint is unauthenticated and ignores the actor.
    */
   static async getListing(actor: string | null, aggregateId: string): Promise<MarketplaceListingProjection | null> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getListing(this.requireActor('getListing', actor), aggregateId);
     }
     this.assertSandbox();
@@ -206,7 +206,7 @@ export class MarketplaceGatewayService {
   }
 
   static async getOffers(actor: string): Promise<MarketplaceOffer[]> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getOffers(actor);
     }
     this.assertSandbox();
@@ -230,7 +230,7 @@ export class MarketplaceGatewayService {
   }
 
   static async getNotifications(actor: string): Promise<MarketplaceNotification[]> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getNotifications(actor);
     }
     this.assertSandbox();
@@ -280,7 +280,7 @@ export class MarketplaceGatewayService {
   }
 
   static async getOrders(actor: string): Promise<MarketplaceOrder[]> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getOrders(actor);
     }
     this.assertSandbox();
@@ -304,7 +304,7 @@ export class MarketplaceGatewayService {
   }
 
   static async getPayment(actor: string, paymentId: string): Promise<MarketplacePayment | null> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getPayment(actor, paymentId);
     }
     this.assertSandbox();
@@ -329,7 +329,7 @@ export class MarketplaceGatewayService {
   }
 
   static async getReceipt(actor: string, receiptId: string): Promise<MarketplaceReceipt | null> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getReceipt(actor, receiptId);
     }
     this.assertSandbox();
@@ -379,7 +379,7 @@ export class MarketplaceGatewayService {
   }
 
   static async getReports(actor: string): Promise<MarketplaceReport[]> {
-    if (getCommerceAdapterMode() === 'transaction-service') {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getReports(actor);
     }
     this.assertSandbox();
@@ -473,7 +473,7 @@ export class MarketplaceGatewayService {
    * and states the limitation instead of relying on this throw.
    */
   private static assertTransactionServiceOnly(operation: string): void {
-    if (getCommerceAdapterMode() !== 'transaction-service') {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
       throw Err.client(
         ClientErrorCode.BAD_REQUEST,
         'Dispute adjudication reads exist only on the durable transaction service.',

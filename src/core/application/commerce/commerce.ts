@@ -1,16 +1,35 @@
+import { blake3 } from '@noble/hashes/blake3.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
-import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import { generateLocksBundleId, lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
+import type {
+  CommerceDigitalLock,
+  CommerceListingRecord,
+  CommerceShopRecord,
+} from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
-import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
+import {
+  buildMarketplaceListingAggregateId,
+  buildMarketplacePaymentAggregateId,
+  type MarketplaceCommand,
+  type MarketplaceCommandResponse,
+} from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
+import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { LocksGatewayService } from '@/services/locks/locks';
-import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import {
+  MarketplaceGatewayService,
+  type MarketplaceOrder,
+  type MarketplacePayment,
+} from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/nexus/marketplace/marketplace.types';
@@ -169,6 +188,157 @@ export class CommerceApplication {
     criterionId: string;
   }) {
     return await LocksGatewayService.submitPaykitProof(params);
+  }
+
+  /**
+   * The buyer's side of a real Locks/Paykit payment (`locks-paykit` mode):
+   *
+   * 1. Generate (or reuse a persisted, not-yet-registered) bundle id and
+   *    submit the proof bundle to the Lock Server, which requests the real
+   *    Paykit invoice and delivers the private Payment Request to the buyer's
+   *    wallet.
+   * 2. Register the correlation with the transaction service via
+   *    `payment.register_locks`, sourcing `expected_revision` from the fresh
+   *    payment projection the caller just read.
+   *
+   * This NEVER advances the payment: registration flips the payment to the
+   * `locks` adapter and the service's worker independently verifies the Locks
+   * lifecycle before confirming (ADR-0019 §7). Returns the raw command
+   * response so callers can apply the standard revision-conflict handling
+   * (refetch and retry). The correlation — including the bearer bundle id —
+   * is persisted in the buyer's account-scoped database so the flow survives
+   * a reload and the purchased content stays unlockable.
+   */
+  static async beginMarketplaceLocksPayment({
+    buyerPubky,
+    order,
+    payment,
+    digitalLock,
+  }: {
+    buyerPubky: string;
+    order: MarketplaceOrder;
+    payment: MarketplacePayment;
+    digitalLock: CommerceDigitalLock;
+  }): Promise<MarketplaceCommandResponse> {
+    if (getCommerceAdapterMode() !== 'locks-paykit') {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Real Locks/Paykit payments are not enabled in this deployment.', {
+        service: ErrorService.Locks,
+        operation: 'beginMarketplaceLocksPayment',
+      });
+    }
+    const creator = lockPolicyCreator(digitalLock.policyUri);
+    const bareLockResource = toBareLockResource(digitalLock.policyUri);
+    if (!creator || !bareLockResource) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The listing carries an invalid Locks policy URI.', {
+        service: ErrorService.Locks,
+        operation: 'beginMarketplaceLocksPayment',
+      });
+    }
+    if (creator !== order.sellerPubky) {
+      // The service enforces this too; refusing here keeps a mismatched lock
+      // from ever producing an upstream lifecycle.
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The lock creator is not this order\u2019s seller.', {
+        service: ErrorService.Locks,
+        operation: 'beginMarketplaceLocksPayment',
+      });
+    }
+
+    const existing = await LocalCommerceService.getLocksCorrelation(buyerPubky, payment.id);
+    let bundleId = existing?.bundle_id;
+    if (!existing) {
+      bundleId = generateLocksBundleId();
+      await LocksGatewayService.submitPaykitProof({
+        creatorPubky: creator,
+        readerPubky: buyerPubky,
+        bundleId,
+        lockResource: digitalLock.policyUri,
+        criterionId: digitalLock.criterionId,
+      });
+      // Persist BEFORE registration: the bundle id is the buyer's only handle
+      // on the upstream lifecycle, so losing it between the two steps would
+      // orphan the payment request.
+      await LocalCommerceService.upsertLocksCorrelation({
+        owner_id: buyerPubky,
+        payment_id: payment.id,
+        order_id: order.id,
+        seller_pubky: creator,
+        bundle_id: bundleId,
+        policy_uri: digitalLock.policyUri,
+        criterion_id: digitalLock.criterionId,
+        content_path: digitalLock.contentPath,
+        resource_hash: digitalLock.resourceHash,
+        window_expires_at: null,
+        registered: false,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      });
+    }
+
+    const response = await MarketplaceGatewayService.execute(buyerPubky, {
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplacePaymentAggregateId(payment.id),
+      expectedRevision: payment.revision,
+      issuedAt: new Date().toISOString(),
+      kind: 'payment.register_locks',
+      payload: { paymentId: payment.id, bundleId: bundleId!, pubkyLockResource: bareLockResource },
+    });
+    if (response.ok) {
+      const verification = (response.result as { verification?: { windowExpiresAt?: string } }).verification;
+      await LocalCommerceService.markLocksCorrelationRegistered(
+        buyerPubky,
+        payment.id,
+        verification?.windowExpiresAt ?? null,
+        Date.now(),
+      );
+    }
+    return response;
+  }
+
+  static async getMarketplaceLocksCorrelation(buyerPubky: string, paymentId: string) {
+    return await LocalCommerceService.getLocksCorrelation(buyerPubky, paymentId);
+  }
+
+  /**
+   * Redeems a confirmed Locks payment for the purchased digital content:
+   * issues the short-lived access credential from the persisted bundle id,
+   * reads the guarded bytes through the Lock Server proxy, and verifies their
+   * BLAKE3 hash against the hash the seller published in the listing record.
+   * A hash mismatch is a content-integrity failure and throws — the bytes are
+   * never returned as if they were the purchased content.
+   */
+  static async unlockMarketplaceLocksContent(
+    buyerPubky: string,
+    paymentId: string,
+  ): Promise<{ bytes: Uint8Array; contentPath: string }> {
+    const correlation = await LocalCommerceService.getLocksCorrelation(buyerPubky, paymentId);
+    if (!correlation) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'No Locks correlation is stored for this payment.', {
+        service: ErrorService.Locks,
+        operation: 'unlockMarketplaceLocksContent',
+      });
+    }
+    const credential = await LocksGatewayService.issueAccessCredential(correlation.seller_pubky, correlation.bundle_id);
+    const blob = await LocksGatewayService.fetchGuardedContent(correlation.content_path, credential.credential);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const digest = bytesToHex(blake3(bytes));
+    if (digest !== correlation.resource_hash) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The delivered content does not match the listed hash.', {
+        service: ErrorService.Locks,
+        operation: 'unlockMarketplaceLocksContent',
+        context: { contentPath: correlation.content_path },
+      });
+    }
+    return { bytes, contentPath: correlation.content_path };
+  }
+
+  /**
+   * Exchanges a Lock Server legacy-connect completion (`code`/`state` on the
+   * return URL) for a creator frontend session — the seller-setup "connected"
+   * proof. The bearer token stays with the caller, in memory.
+   */
+  static async createLocksFrontendSession(code: string, state: string) {
+    return await LocksGatewayService.createFrontendSession(code, state);
   }
 
   static async lookupLocksVerification(creatorPubky: string, bundleId: string) {

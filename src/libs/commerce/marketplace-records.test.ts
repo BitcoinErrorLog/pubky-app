@@ -218,6 +218,7 @@ describe('commerceListingRecordSchema', () => {
     unexpectedLock.digitalLock = {
       policyUri: LOCK_URL,
       criterionId: 'criterion-1',
+      contentPath: 'premium.txt',
       resourceHash: 'b'.repeat(64),
       minimumConfirmations: 1,
     };
@@ -234,6 +235,7 @@ describe('commerceListingRecordSchema', () => {
     listing.digitalLock = {
       policyUri: LOCK_URL,
       criterionId: 'criterion-1',
+      contentPath: 'premium.txt',
       resourceHash: 'b'.repeat(64),
       minimumConfirmations: 6,
     };
@@ -249,6 +251,7 @@ describe('commerceListingRecordSchema', () => {
     listing.digitalLock = {
       policyUri: LOCK_URL,
       criterionId: 'criterion-1',
+      contentPath: 'premium.txt',
       resourceHash: 'b'.repeat(64),
       minimumConfirmations: 7,
     };

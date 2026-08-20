@@ -189,6 +189,39 @@ describe('runtimeEnvInputSchema', () => {
     expect(runtimeEnvInputSchema.parse(VALID_ENV_INPUT).commerceAdapterMode).toBe('unavailable');
   });
 
+  it('refuses to activate locks-paykit mode unless every payment-rail URL is explicitly set', () => {
+    const rails = {
+      marketplaceUrl: 'https://marketplace.example.com',
+      locksUrl: 'https://locks.example.com',
+      paykitSetupUrl: 'https://paykit.example.com/setup',
+    };
+
+    // Fully configured: activates.
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, ...rails, commerceAdapterMode: 'locks-paykit' })
+        .commerceAdapterMode,
+    ).toBe('locks-paykit');
+
+    // Any missing or blank rail URL fails the whole parse — the deployment
+    // refuses to start rather than running real payments on defaulted URLs.
+    for (const key of ['marketplaceUrl', 'locksUrl', 'paykitSetupUrl'] as const) {
+      const withoutKey: Record<string, string> = { ...VALID_ENV_INPUT, ...rails, commerceAdapterMode: 'locks-paykit' };
+      delete withoutKey[key];
+      expect(() => runtimeEnvInputSchema.parse(withoutKey)).toThrow(/locks-paykit requires/);
+      expect(() => runtimeEnvInputSchema.parse({ ...withoutKey, [key]: '   ' })).toThrow(/locks-paykit requires/);
+      expect(() =>
+        runtimeEnvInputSchemaWithDefaults.parse({ ...rails, [key]: '', commerceAdapterMode: 'locks-paykit' }),
+      ).toThrow(/locks-paykit requires/);
+    }
+
+    // The other modes never require the rail URLs.
+    expect(runtimeEnvInputSchema.parse(VALID_ENV_INPUT).commerceAdapterMode).toBe('unavailable');
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, commerceAdapterMode: 'transaction-service' })
+        .commerceAdapterMode,
+    ).toBe('transaction-service');
+  });
+
   it('rejects an invalid configured moderation Pubky', () => {
     expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, moderationId: 'moderation-key' })).toThrow(
       'Expected a 52-character z-base-32 Pubky',

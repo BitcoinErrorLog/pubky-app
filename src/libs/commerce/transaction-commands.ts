@@ -167,6 +167,44 @@ export const advanceSandboxPaymentCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+/** Canonical 26-character uppercase Crockford-base32 Locks bundle id (the `BundleId` wire form). */
+export const locksBundleIdSchema = z
+  .string()
+  .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, 'Expected a canonical 26-character Crockford-base32 bundle id');
+
+/**
+ * The addressed public lock resource in the transaction service's bare form:
+ * `<z-base-32 creator>/pub/locks.app/<52-char Crockford lock id>.json` — no
+ * `pubky://` scheme and no `pubky` prefix.
+ */
+export const locksBareLockResourceSchema = z
+  .string()
+  .regex(
+    /^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/locks\.app\/[0-9A-HJKMNP-TV-Z]{52}\.json$/,
+    'Expected <creator>/pub/locks.app/<lock-id>.json',
+  );
+
+/**
+ * `payment.register_locks` (buyer only, payment `awaiting_entitlement`):
+ * registers the encrypted correlation between the payment and the buyer's
+ * Locks verification lifecycle `{creator, bundle_id}`. The bundle id is a
+ * bearer secret — the service stores it encrypted and never serializes it
+ * back. Registration flips the payment to the `locks` adapter (permanently
+ * refusing `payment.sandbox_advance`) and NEVER advances the payment state:
+ * only the service worker's independent verification of a completed Locks
+ * lifecycle confirms it (ADR-0019 §7).
+ */
+export const registerLocksPaymentCommandSchema = createCommerceCommandSchema(
+  'payment.register_locks',
+  z
+    .object({
+      paymentId: z.uuid(),
+      bundleId: locksBundleIdSchema,
+      pubkyLockResource: locksBareLockResourceSchema,
+    })
+    .strict(),
+);
+
 const orderIdPayload = z.object({ orderId: z.uuid() }).strict();
 
 export const requestOrderCancellationCommandSchema = createCommerceCommandSchema(
@@ -299,6 +337,7 @@ export const marketplaceCommandSchema = z.union([
   updateMarketplaceNotificationPreferencesCommandSchema,
   createMarketplaceCheckoutCommandSchema,
   advanceSandboxPaymentCommandSchema,
+  registerLocksPaymentCommandSchema,
   requestOrderCancellationCommandSchema,
   approveOrderCancellationCommandSchema,
   shipOrderCommandSchema,
@@ -375,6 +414,7 @@ export type UpdateMarketplaceNotificationPreferencesCommand = z.infer<
 >;
 export type CreateMarketplaceCheckoutCommand = z.infer<typeof createMarketplaceCheckoutCommandSchema>;
 export type AdvanceSandboxPaymentCommand = z.infer<typeof advanceSandboxPaymentCommandSchema>;
+export type RegisterLocksPaymentCommand = z.infer<typeof registerLocksPaymentCommandSchema>;
 export type RequestOrderCancellationCommand = z.infer<typeof requestOrderCancellationCommandSchema>;
 export type ApproveOrderCancellationCommand = z.infer<typeof approveOrderCancellationCommandSchema>;
 export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;

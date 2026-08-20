@@ -1,10 +1,12 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
+import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
+import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import type { CommerceConditionFilter, CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
@@ -210,6 +212,60 @@ export class CommerceController {
       lockResource: CommerceRecordNormalizer.lockResource(lockResource),
       criterionId: CommerceRecordNormalizer.entityId(criterionId),
     });
+  }
+
+  /**
+   * Starts (or retries) the real Locks/Paykit payment for one of the current
+   * user's orders. The order, payment, and digital lock come from projections
+   * and records already validated at their own boundaries; the buyer identity
+   * is always the signed-in user.
+   */
+  static async beginMarketplaceLocksPayment({
+    order,
+    payment,
+    digitalLock,
+  }: {
+    order: MarketplaceOrder;
+    payment: MarketplacePayment;
+    digitalLock: CommerceDigitalLock;
+  }) {
+    return await CommerceApplication.beginMarketplaceLocksPayment({
+      buyerPubky: this.getCurrentUserPubky(),
+      order,
+      payment,
+      digitalLock,
+    });
+  }
+
+  static async getMarketplaceLocksCorrelation(paymentId: unknown) {
+    return await CommerceApplication.getMarketplaceLocksCorrelation(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(paymentId),
+    );
+  }
+
+  static async unlockMarketplaceLocksContent(paymentId: unknown) {
+    return await CommerceApplication.unlockMarketplaceLocksContent(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(paymentId),
+    );
+  }
+
+  static async createLocksFrontendSession(code: unknown, state: unknown) {
+    if (
+      typeof code !== 'string' ||
+      code.length === 0 ||
+      code.length > 4_096 ||
+      typeof state !== 'string' ||
+      state.length === 0 ||
+      state.length > 256
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Locks connect completion is invalid.', {
+        service: ErrorService.Local,
+        operation: 'createLocksFrontendSession',
+      });
+    }
+    return await CommerceApplication.createLocksFrontendSession(code, state);
   }
 
   static async lookupLocksVerification(creatorPubky: unknown, bundleId: unknown) {

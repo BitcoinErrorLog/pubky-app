@@ -11,6 +11,7 @@ import {
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
+  CommerceLocksCorrelationModel,
   CommerceShopFollowModel,
   CommerceShopModel,
   CommerceSyncJobModel,
@@ -22,6 +23,7 @@ import type {
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
+  CommerceLocksCorrelationModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
 } from '@/models/commerce/commerce.schema';
@@ -422,6 +424,47 @@ export class LocalCommerceService {
         context: { ownerMatches, entityMatches, typeMatches },
       });
     }
+  }
+
+  /**
+   * The buyer's private Locks payment correlation (see
+   * `CommerceLocksCorrelationModelSchema` — the bundle id it carries is
+   * bearer material and stays in this account-scoped table only).
+   */
+  static async getLocksCorrelation(ownerId: string, paymentId: string) {
+    return await CommerceLocksCorrelationModel.findById(this.locksCorrelationId(ownerId, paymentId));
+  }
+
+  static async upsertLocksCorrelation(correlation: Omit<CommerceLocksCorrelationModelSchema, 'id'>): Promise<void> {
+    await CommerceLocksCorrelationModel.upsert({
+      ...correlation,
+      id: this.locksCorrelationId(correlation.owner_id, correlation.payment_id),
+    });
+  }
+
+  static async markLocksCorrelationRegistered(
+    ownerId: string,
+    paymentId: string,
+    windowExpiresAt: string | null,
+    now: number,
+  ): Promise<void> {
+    const current = await CommerceLocksCorrelationModel.findById(this.locksCorrelationId(ownerId, paymentId));
+    if (!current) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, 'No Locks correlation exists for this payment.', {
+        service: ErrorService.Local,
+        operation: 'markLocksCorrelationRegistered',
+      });
+    }
+    await CommerceLocksCorrelationModel.upsert({
+      ...current,
+      registered: true,
+      window_expires_at: windowExpiresAt,
+      updated_at: now,
+    });
+  }
+
+  private static locksCorrelationId(ownerId: string, paymentId: string): string {
+    return `${ownerId}|${paymentId}`;
   }
 
   private static favoriteId(ownerId: string, listingId: string): string {

@@ -214,3 +214,44 @@ export interface CommerceCartItemModelSchema {
 }
 
 export const commerceCartItemTableSchema = '&id, owner_id, listing_id, variant_id, updated_at, [owner_id+updated_at]';
+
+/**
+ * The buyer's private record of a real Locks payment: the correlation between
+ * a transaction-service payment and the Locks verification lifecycle the
+ * buyer opened for it (`locks-paykit` mode).
+ *
+ * `bundle_id` is BEARER MATERIAL — whoever holds it can look up the lifecycle
+ * and, once completed, obtain the content access credential. It therefore
+ * lives only in this account-scoped table (never in public records, command
+ * results, logs, or telemetry) and exists so the flow is resumable after a
+ * reload: the payment status itself is re-read from the transaction service,
+ * while the persisted bundle id lets the buyer retry a failed registration
+ * and unlock the purchased content after confirmation.
+ */
+export interface CommerceLocksCorrelationModelSchema {
+  /** `${owner_id}:${payment_id}` */
+  id: string;
+  owner_id: string;
+  payment_id: string;
+  order_id: string;
+  seller_pubky: string;
+  bundle_id: string;
+  /** Public Locks policy URI (`pubky://<creator>/pub/locks.app/<lock>.json`). */
+  policy_uri: string;
+  criterion_id: string;
+  /** Guarded content path for the Lock Server proxy read, from the listing record. */
+  content_path: string;
+  /** Expected lowercase BLAKE3 hash of the guarded bytes, from the listing record. */
+  resource_hash: string;
+  /**
+   * Marketplace payment window deadline reported by `payment.register_locks`,
+   * bounding the client's status polling. Null until registration succeeds.
+   */
+  window_expires_at: string | null;
+  /** True once `payment.register_locks` was accepted by the transaction service. */
+  registered: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export const commerceLocksCorrelationTableSchema = '&id, owner_id, payment_id, order_id, updated_at';

@@ -106,7 +106,10 @@ export const marketplacePaymentSchema = z
     buyerPubky: commercePubkySchema,
     sellerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
-    adapter: z.literal('sandbox'),
+    // `locks` after `payment.register_locks`: the payment permanently refuses
+    // sandbox advancement and only the service's independent Locks
+    // verification can confirm it.
+    adapter: z.enum(['sandbox', 'locks']),
     state: z.enum(['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review']),
     confirmations: z.number().int().min(0).max(6),
     // Withheld by the durable service: a bundle id is bearer material, so
