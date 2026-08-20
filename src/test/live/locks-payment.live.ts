@@ -210,6 +210,27 @@ describe('locks-paykit live purchase (composed environment)', () => {
     const sellerKeypair = sdk.Keypair.fromSecret(new Uint8Array(Buffer.from(creatorIdentity.secret, 'base64url')));
     const seller = sellerKeypair.publicKey.z32();
 
+    // The testnet DHT is in-memory: a creator identity created before the
+    // current testnet boot has no resolvable PKARR record until republished,
+    // and the demo helpers only republish on fresh signup. Force it so the
+    // legacy-connect signin below can resolve the creator's homeserver.
+    await compose([
+      'exec',
+      '-T',
+      'creator-demo',
+      'node',
+      '--input-type=module',
+      '-e',
+      [
+        "import { loadRoleKeypair, pubkyForConfig, homeserverPublicKey } from '/workspace/examples/js-sdk/scripts/lib/pubky.mjs';",
+        "import { readDemoConfig, withInternalServiceUrls } from '/workspace/examples/js-sdk/scripts/lib/config.mjs';",
+        'const config = withInternalServiceUrls(await readDemoConfig());',
+        "const keypair = await loadRoleKeypair('content-creator');",
+        'const signer = pubkyForConfig(config).signer(keypair);',
+        'await signer.pkdns.publishHomeserverForce(homeserverPublicKey(config));',
+      ].join('\n'),
+    ]);
+
     // --- 3. Locks creator authority via hosted legacy-connect ---------------
     // The connect approval happens on the seller's signer (the js-sdk demo
     // plays Pubky Ring); the completion code exchange happens through the
