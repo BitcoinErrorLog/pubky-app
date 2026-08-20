@@ -1,17 +1,24 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
-import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
+import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
-import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
+import {
+  createCommerceCatalogEntryFixture,
+  createCommerceListingFixture,
+  createCommerceShopFixture,
+} from '@/test/fixtures/commerce/commerce';
+import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import { useMarketplaceCatalog } from './useMarketplaceCatalog';
+import { catalogItemFromCatalogEntry, catalogItemFromListingModel } from './useMarketplaceCatalog.utils';
 
 const mockGetAllListings = vi.fn();
+const mockGetAllCatalogEntries = vi.fn();
 const mockGetAllShops = vi.fn();
 const mockFetchCatalogListings = vi.fn();
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getAllListings: () => mockGetAllListings(),
+    getAllCatalogEntries: () => mockGetAllCatalogEntries(),
     getAllShops: () => mockGetAllShops(),
     fetchCatalogListings: (filters: unknown) => mockFetchCatalogListings(filters),
   },
@@ -32,24 +39,6 @@ vi.mock('dexie-react-hooks', () => ({
   useLiveQuery: (queryFn: () => unknown) => queryFn(),
 }));
 
-function toListingModel(record: CommerceListingRecord): CommerceListingModelSchema {
-  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-  return {
-    id: `${record.ownerPubky}:${record.listingId}`,
-    seller_id: record.ownerPubky,
-    listing_id: record.listingId,
-    record,
-    revision: record.revision,
-    state: record.state,
-    category_id: record.categoryId,
-    format: record.sale.format,
-    currency: price.currency,
-    price_minor: price.amountMinor,
-    sync_status: 'synced',
-    updated_at: Date.parse(record.updatedAt),
-  };
-}
-
 function toShopModel(record: CommerceShopRecord) {
   return { id: record.ownerPubky, owner_id: record.ownerPubky, record };
 }
@@ -60,12 +49,13 @@ describe('useMarketplaceCatalog', () => {
     useCommerceStore.getState().reset();
     mockGetCommerceAdapterMode.mockReturnValue('unavailable');
     mockGetAllListings.mockReturnValue([]);
+    mockGetAllCatalogEntries.mockReturnValue([]);
     mockGetAllShops.mockReturnValue([]);
     mockFetchCatalogListings.mockResolvedValue(undefined);
   });
 
   it('renders cached listings immediately while the Nexus refresh is still in flight', async () => {
-    const cached = toListingModel(createCommerceListingFixture());
+    const cached = toCommerceListingModel(createCommerceListingFixture());
     mockGetAllListings.mockReturnValue([cached]);
     mockGetAllShops.mockReturnValue([toShopModel(createCommerceShopFixture())]);
     mockFetchCatalogListings.mockReturnValue(new Promise(() => {}));
@@ -73,9 +63,25 @@ describe('useMarketplaceCatalog', () => {
     const { result } = renderHook(() => useMarketplaceCatalog());
 
     expect(result.current.isLoading).toBe(false);
-    expect(result.current.listings).toEqual([cached]);
+    expect(result.current.listings).toEqual([catalogItemFromListingModel(cached)]);
     expect(result.current.shopsBySeller.get(cached.seller_id)?.name).toBe('Satoshi Vintage');
-    await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalledWith({ saleFormat: 'all', conditions: [] }));
+    await waitFor(() =>
+      expect(mockFetchCatalogListings).toHaveBeenCalledWith({
+        saleFormat: 'all',
+        conditions: [],
+        sort: 'recommended',
+      }),
+    );
+  });
+
+  it('renders index-discovered entries without any cached record', () => {
+    const entry = createCommerceCatalogEntryFixture();
+    mockGetAllCatalogEntries.mockReturnValue([entry]);
+
+    const { result } = renderHook(() => useMarketplaceCatalog());
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.listings).toEqual([catalogItemFromCatalogEntry(entry)]);
   });
 
   it('stays in the loading state over an empty cache until the first refresh settles', async () => {
@@ -97,7 +103,7 @@ describe('useMarketplaceCatalog', () => {
   });
 
   it('keeps rendering the cached catalog when the Nexus refresh fails', async () => {
-    const cached = toListingModel(createCommerceListingFixture());
+    const cached = toCommerceListingModel(createCommerceListingFixture());
     mockGetAllListings.mockReturnValue([cached]);
     mockFetchCatalogListings.mockRejectedValue(new Error('nexus unreachable'));
 
@@ -105,32 +111,58 @@ describe('useMarketplaceCatalog', () => {
 
     await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalled());
     expect(result.current.isLoading).toBe(false);
-    expect(result.current.listings).toEqual([cached]);
+    expect(result.current.listings).toEqual([catalogItemFromListingModel(cached)]);
   });
 
   it('never queries Nexus in sandbox mode and reads only the seeded cache', () => {
     mockGetCommerceAdapterMode.mockReturnValue('sandbox');
-    const cached = toListingModel(createCommerceListingFixture());
+    const cached = toCommerceListingModel(createCommerceListingFixture());
     mockGetAllListings.mockReturnValue([cached]);
 
     const { result } = renderHook(() => useMarketplaceCatalog());
 
     expect(mockFetchCatalogListings).not.toHaveBeenCalled();
     expect(result.current.isLoading).toBe(false);
-    expect(result.current.listings).toEqual([cached]);
+    expect(result.current.listings).toEqual([catalogItemFromListingModel(cached)]);
     expect(result.current.adapterMode).toBe('sandbox');
   });
 
   it('refetches from Nexus when server-side filters change', async () => {
     renderHook(() => useMarketplaceCatalog());
 
-    await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalledWith({ saleFormat: 'all', conditions: [] }));
+    await waitFor(() =>
+      expect(mockFetchCatalogListings).toHaveBeenCalledWith({
+        saleFormat: 'all',
+        conditions: [],
+        sort: 'recommended',
+      }),
+    );
 
     act(() => useCommerceStore.getState().setSaleFormat('auction'));
 
     await waitFor(() =>
-      expect(mockFetchCatalogListings).toHaveBeenLastCalledWith({ saleFormat: 'auction', conditions: [] }),
+      expect(mockFetchCatalogListings).toHaveBeenLastCalledWith({
+        saleFormat: 'auction',
+        conditions: [],
+        sort: 'recommended',
+      }),
     );
     expect(mockFetchCatalogListings).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetches from Nexus when the sort switches to ending soon', async () => {
+    renderHook(() => useMarketplaceCatalog());
+
+    await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalledTimes(1));
+
+    act(() => useCommerceStore.getState().setSort('ending_soon'));
+
+    await waitFor(() =>
+      expect(mockFetchCatalogListings).toHaveBeenLastCalledWith({
+        saleFormat: 'all',
+        conditions: [],
+        sort: 'ending_soon',
+      }),
+    );
   });
 });

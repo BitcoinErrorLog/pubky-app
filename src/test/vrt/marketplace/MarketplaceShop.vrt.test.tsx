@@ -70,6 +70,7 @@ const fixtures = vi.hoisted(async () => {
 const view = vi.hoisted(() => ({
   shop: undefined as unknown,
   listings: undefined as unknown,
+  catalogEntries: undefined as unknown,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -85,6 +86,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getShop: () => view.shop,
     getListingsBySeller: () => view.listings,
+    getCatalogEntriesBySeller: () => view.catalogEntries,
   },
 }));
 
@@ -101,6 +103,7 @@ describe('Marketplace shop — visual regression', () => {
     const { seller, shop, listings } = await fixtures;
     view.shop = shop;
     view.listings = listings;
+    view.catalogEntries = [];
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-populated-desktop');
@@ -110,6 +113,7 @@ describe('Marketplace shop — visual regression', () => {
     const { seller, shop, listings } = await fixtures;
     view.shop = shop;
     view.listings = listings;
+    view.catalogEntries = [];
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-populated-mobile');
@@ -119,6 +123,7 @@ describe('Marketplace shop — visual regression', () => {
     const { seller, vacationShop, listings } = await fixtures;
     view.shop = vacationShop;
     view.listings = listings;
+    view.catalogEntries = [];
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-vacation-mode-desktop');
@@ -128,6 +133,7 @@ describe('Marketplace shop — visual regression', () => {
     const { seller, shop } = await fixtures;
     view.shop = shop;
     view.listings = [];
+    view.catalogEntries = [];
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-no-listings-desktop');
@@ -137,6 +143,7 @@ describe('Marketplace shop — visual regression', () => {
     const { seller } = await fixtures;
     view.shop = undefined;
     view.listings = undefined;
+    view.catalogEntries = undefined;
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-loading-desktop');
@@ -146,6 +153,7 @@ describe('Marketplace shop — visual regression', () => {
     const { seller } = await fixtures;
     view.shop = null;
     view.listings = [];
+    view.catalogEntries = [];
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-unavailable-desktop');

@@ -6,7 +6,7 @@ import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/l
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import { Logger } from '@/libs/logger/logger';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
-import { type CommerceNexusListingKey, CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
+import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { LocksGatewayService } from '@/services/locks/locks';
@@ -18,6 +18,12 @@ import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/n
 export interface CommerceCatalogStreamFilters {
   saleFormat?: NexusListingSaleFormat;
   condition?: NexusListingCondition;
+  /**
+   * Ask Nexus for auctions ordered by soonest auction end
+   * (`sorting=ends_at&order=ascending`) instead of the indexing timeline.
+   * That stream contains only auction listings by definition.
+   */
+  endingSoonest?: boolean;
 }
 
 export class CommerceApplication {
@@ -222,20 +228,33 @@ export class CommerceApplication {
     await LocalCommerceService.deleteShopFollow(ownerPubky, sellerPubky);
   }
 
+  static async getAllCatalogEntries() {
+    return await LocalCommerceService.getAllCatalogEntries();
+  }
+
+  static async getCatalogEntriesBySeller(sellerPubky: string) {
+    return await LocalCommerceService.getCatalogEntriesBySeller(sellerPubky);
+  }
+
   /**
    * Populates the local catalog cache from the Nexus marketplace index.
    *
-   * Nexus serves lossy listing projections, so this method uses the index for
-   * discovery only: it collects `{seller, listing, revision}` keys and then
-   * hydrates full records from the canonical owner homeserver (ADR-0020),
-   * refetching cached listings whose revision fell behind the index.
+   * The index now carries everything a catalog card renders (including
+   * auction terms), so discovery validates the stream and stores the
+   * normalized entries directly — one request, no per-listing homeserver
+   * hydration. The canonical owner-signed record is fetched lazily, when a
+   * listing is actually opened (`getOrFetchListing`), keeping the homeserver
+   * canonical per ADR-0020. Shop profiles are the one card field the index
+   * cannot supply, so sellers without a locally cached shop record are still
+   * hydrated here (deduplicated, cache-first).
    *
    * Sandbox catalogs are seeded locally and stay self-contained: querying the
    * index there would blend real network listings into a demo catalog of
    * fictional sellers, so sandbox mode never reads from Nexus.
    *
-   * Per-record hydration failures are logged and skipped so one unreachable
-   * seller cannot block the rest of the catalog.
+   * Per-shop hydration failures are logged and skipped so one unreachable
+   * seller cannot block the rest of the catalog (cards fall back to the
+   * seller's pubky until the shop record is reachable).
    */
   static async fetchCatalogListings(filters: CommerceCatalogStreamFilters = {}): Promise<void> {
     if (getCommerceAdapterMode() === 'sandbox') return;
@@ -245,23 +264,14 @@ export class CommerceApplication {
       limit: NEXUS_LISTINGS_PER_PAGE,
       ...(filters.saleFormat ? { sale_format: filters.saleFormat } : {}),
       ...(filters.condition ? { condition: filters.condition } : {}),
+      ...(filters.endingSoonest ? { sorting: 'ends_at' as const, order: 'ascending' as const } : {}),
     });
-    const keys = CommerceRecordNormalizer.nexusListingStream(payload);
-    await this.hydrateDiscoveredListings(keys);
+    const entries = CommerceRecordNormalizer.nexusListingStream(payload);
+    await LocalCommerceService.bulkUpsertCatalogEntries(entries);
+    await this.hydrateDiscoveredShops([...new Set(entries.map(({ seller_id }) => seller_id))]);
   }
 
-  private static async hydrateDiscoveredListings(keys: CommerceNexusListingKey[]): Promise<void> {
-    const listingResults = await Promise.allSettled(keys.map((key) => this.hydrateDiscoveredListing(key)));
-    listingResults.forEach((result, index) => {
-      if (result.status === 'rejected') {
-        Logger.warn('Failed to hydrate a discovered marketplace listing', {
-          listing: `${keys[index].sellerId}:${keys[index].listingId}`,
-          error: result.reason,
-        });
-      }
-    });
-
-    const sellerIds = [...new Set(keys.map(({ sellerId }) => sellerId))];
+  private static async hydrateDiscoveredShops(sellerIds: string[]): Promise<void> {
     const shopResults = await Promise.allSettled(sellerIds.map((sellerId) => this.getOrFetchShop(sellerId)));
     shopResults.forEach((result, index) => {
       if (result.status === 'rejected') {
@@ -273,31 +283,39 @@ export class CommerceApplication {
     });
   }
 
-  private static async hydrateDiscoveredListing({
-    sellerId,
-    listingId,
-    revision,
-  }: CommerceNexusListingKey): Promise<void> {
-    const local = await LocalCommerceService.getListing(`${sellerId}:${listingId}`);
-    if (local && local.revision >= revision) return;
-
-    const record = await this.fetchListing(sellerId, listingId);
-    await LocalCommerceService.upsertListing(record, 'synced');
-  }
-
   static async fetchListing(ownerPubky: string, listingId: string): Promise<CommerceListingRecord> {
     const url = CommerceRecordNormalizer.listingUri(ownerPubky, listingId);
     return CommerceRecordNormalizer.listing(await CommerceHomeserverService.fetchJson(url));
   }
 
+  /**
+   * Returns the canonical listing record, fetching it from the owner
+   * homeserver when it is not cached — or when the Nexus index has seen a
+   * newer revision than the cache holds, so opening a listing always shows
+   * the freshest record the network can supply. When a refresh fails but a
+   * cached record exists, the cached record is returned (local-first
+   * degradation, mirroring the catalog's behavior when Nexus is down).
+   */
   static async getOrFetchListing(ownerPubky: string, listingId: string): Promise<CommerceListingRecord> {
     const compositeListingId = `${ownerPubky}:${listingId}`;
-    const local = await LocalCommerceService.getListing(compositeListingId);
-    if (local) return local.record;
+    const [local, indexed] = await Promise.all([
+      LocalCommerceService.getListing(compositeListingId),
+      LocalCommerceService.getCatalogEntry(compositeListingId),
+    ]);
+    if (local && (!indexed || local.revision >= indexed.revision)) return local.record;
 
-    const record = await this.fetchListing(ownerPubky, listingId);
-    await LocalCommerceService.upsertListing(record, 'synced');
-    return record;
+    try {
+      const record = await this.fetchListing(ownerPubky, listingId);
+      await LocalCommerceService.upsertListing(record, 'synced');
+      return record;
+    } catch (error) {
+      if (!local) throw error;
+      Logger.warn('Failed to refresh a stale marketplace listing; serving the cached record', {
+        listing: compositeListingId,
+        error,
+      });
+      return local.record;
+    }
   }
 
   static async commitUpsertShop(record: CommerceShopRecord): Promise<void> {

@@ -7,26 +7,12 @@ import { Marketplace } from '@/templates/Marketplace/Marketplace';
 
 const fixtures = vi.hoisted(async () => {
   const { createCommerceSandboxCatalog } = await import('@/libs/commerce/sandbox-catalog');
+  const { buildMarketplaceCatalogItems } = await import('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils');
+  const { toCommerceListingModel } = await import('@/test/fixtures/commerce/listing-models');
+
   const catalog = createCommerceSandboxCatalog();
-  const listings = catalog.listings.map((record) => {
-    const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-    return {
-      id: `${record.ownerPubky}:${record.listingId}`,
-      seller_id: record.ownerPubky,
-      listing_id: record.listingId,
-      record,
-      revision: record.revision,
-      state: record.state,
-      category_id: record.categoryId,
-      format: record.sale.format,
-      currency: price.currency,
-      price_minor: price.amountMinor,
-      sync_status: 'synced' as const,
-      updated_at: Date.parse(record.updatedAt),
-    };
-  });
   return {
-    listings,
+    listings: buildMarketplaceCatalogItems(catalog.listings.map(toCommerceListingModel), []),
     shopsBySeller: new Map(catalog.shops.map((shop) => [shop.ownerPubky, shop])),
   };
 });

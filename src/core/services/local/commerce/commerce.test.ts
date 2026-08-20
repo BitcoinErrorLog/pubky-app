@@ -3,6 +3,7 @@ import { db } from '@/database/franky/franky';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
   CommerceCartItemModel,
+  CommerceCatalogEntryModel,
   CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
@@ -14,6 +15,7 @@ import {
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
+  createCommerceCatalogEntryFixture,
   createCommerceListingFixture,
   createCommerceProjectionFixture,
   createCommerceShopFixture,
@@ -27,6 +29,7 @@ describe('LocalCommerceService', () => {
     await Promise.all([
       CommerceShopModel.table.clear(),
       CommerceListingModel.table.clear(),
+      CommerceCatalogEntryModel.table.clear(),
       CommerceListingDraftModel.table.clear(),
       CommerceListingProjectionModel.table.clear(),
       CommerceSyncJobModel.table.clear(),
@@ -70,6 +73,33 @@ describe('LocalCommerceService', () => {
       price_minor: 12_500,
       sync_status: 'synced',
     });
+  });
+
+  it('bulk-upserts discovered catalog entries and reads them back newest first, by seller, and by id', async () => {
+    const older = createCommerceCatalogEntryFixture({
+      updated_at: Date.parse('2026-08-19T20:00:00.000Z'),
+    });
+    const newerOtherSeller = createCommerceCatalogEntryFixture({
+      id: `${COMMERCE_FIXTURE_BUYER}:jacket_01`,
+      seller_id: COMMERCE_FIXTURE_BUYER,
+      listing_id: 'jacket_01',
+      title: 'Selvedge denim jacket',
+      updated_at: Date.parse('2026-08-19T22:00:00.000Z'),
+    });
+
+    await LocalCommerceService.bulkUpsertCatalogEntries([older, newerOtherSeller]);
+    // A rediscovery of the same listing replaces the row instead of duplicating it.
+    const reindexed = { ...older, revision: 2, title: 'Vintage leather boots (reindexed)' };
+    await LocalCommerceService.bulkUpsertCatalogEntries([reindexed]);
+
+    const all = await LocalCommerceService.getAllCatalogEntries();
+    expect(all.map(({ id }) => id)).toEqual([newerOtherSeller.id, older.id]);
+
+    const bySeller = await LocalCommerceService.getCatalogEntriesBySeller(COMMERCE_FIXTURE_SELLER);
+    expect(bySeller).toEqual([reindexed]);
+
+    const byId = await LocalCommerceService.getCatalogEntry(older.id);
+    expect(byId).toMatchObject({ revision: 2, title: 'Vintage leather boots (reindexed)' });
   });
 
   it('stages public records and their retry jobs in the same local transaction', async () => {

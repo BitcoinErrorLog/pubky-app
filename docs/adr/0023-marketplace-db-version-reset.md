@@ -16,6 +16,10 @@ Ship exactly **one** coordinated version bump, `NEXT_PUBLIC_DB_VERSION` 2→3, c
 
 No additive Dexie migration machinery is built for this release. Franky's existing recreate-on-mismatch behavior is the migration.
 
+## Amendment — 2026-08-20 (version 3→4)
+
+Consuming the Nexus auction-terms fields added a `commerce_catalog_entries` table (the index-projection cache the catalog grid renders from). Per the neutral consequence below, this is an explicit second reset decision, not silent churn: `NEXT_PUBLIC_DB_VERSION` moves 3→4 in the same PR that introduces the table, with the same cost profile (device-local drafts and unsent content are lost once; everything else re-syncs).
+
 ## Consequences
 
 ### Positive ✅

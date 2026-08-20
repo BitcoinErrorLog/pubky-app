@@ -7,11 +7,16 @@
  * Nexus; enum values follow the snake_case serde renames in `pubky-app-specs`.
  *
  * These are lossy read projections of the owner-signed homeserver records —
- * they carry no media metadata, variants, sale terms, shipping options, or
- * return policy, so they can never be written into the `commerce_listings` /
- * `commerce_shops` record caches directly. The homeserver stays canonical for
- * record content (ADR-0020); Nexus provides discovery, ordering, and revision
- * freshness.
+ * they carry no media metadata, variants, shipping options, or return policy,
+ * so they can never be written into the `commerce_listings` / `commerce_shops`
+ * record caches directly. The homeserver stays canonical for record content
+ * (ADR-0020); Nexus provides discovery, ordering, and revision freshness.
+ *
+ * The projection does carry the sale terms a catalog card needs: the primary
+ * price (the unit price for fixed-price listings, the starting price for
+ * auctions) and, for auctions, the `auction_*` term fields. It never carries
+ * live auction state (current bid, bid count) — bids live in the transaction
+ * service's listing projection, not in the listing record Nexus indexes.
  */
 
 export type NexusListingState = 'active' | 'paused' | 'ended' | 'removed';
@@ -24,7 +29,23 @@ export type NexusFulfillmentMethod = 'physical' | 'digital' | 'pickup';
 
 export type NexusSortOrder = 'ascending' | 'descending';
 
-/** One indexed listing as returned by `GET v0/stream/listings` and `GET v0/listing/{seller_id}/{listing_id}`. */
+/**
+ * Property the listing stream is sorted by. `timeline` (the server default)
+ * orders by indexing time; `ends_at` orders auction listings by auction end
+ * time and excludes fixed-price listings entirely.
+ */
+export type NexusListingStreamSorting = 'timeline' | 'ends_at';
+
+/**
+ * One indexed listing as returned by `GET v0/stream/listings` and `GET v0/listing/{seller_id}/{listing_id}`.
+ *
+ * The five `auction_*` fields are the auction sale terms and are all `null`
+ * for fixed-price listings. The `*_minor` amounts are minor units of the
+ * listing's primary asset (`price_currency` / `price_exponent`). Auction
+ * listings indexed before Nexus carried these fields serve `null` for all
+ * five until re-indexed, so an auction row with null terms is a legal stale
+ * state, not a protocol violation.
+ */
 export type NexusListingDetails = {
   id: string;
   uri: string;
@@ -43,6 +64,11 @@ export type NexusListingDetails = {
   price_amount_minor: number;
   price_currency: string;
   price_exponent: number;
+  auction_starts_at: string | null;
+  auction_ends_at: string | null;
+  auction_reserve_price_minor: number | null;
+  auction_buy_now_price_minor: number | null;
+  auction_minimum_increment_minor: number | null;
   fulfillment_methods: NexusFulfillmentMethod[];
   adult_only: boolean;
   created_at: string;
@@ -56,6 +82,8 @@ export type NexusListingDetails = {
  * `min_price` / `max_price` are expressed in major units and Nexus rejects
  * them unless `currency` is also provided. `category` is an exact match on
  * the kebab-case category id. `limit` is capped server-side at 30.
+ * `sorting=ends_at` returns only auction listings; combine with
+ * `order=ascending` for an "ending soon" stream.
  */
 export type TListingStreamParams = {
   seller_id?: string;
@@ -67,6 +95,7 @@ export type TListingStreamParams = {
   max_price?: number;
   currency?: string;
   order?: NexusSortOrder;
+  sorting?: NexusListingStreamSorting;
   skip?: number;
   limit?: number;
   start?: number;

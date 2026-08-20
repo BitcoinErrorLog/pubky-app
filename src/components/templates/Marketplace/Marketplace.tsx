@@ -150,7 +150,7 @@ export function Marketplace() {
                 <MarketplaceListingCard
                   key={listing.id}
                   listing={listing}
-                  shopName={shopsBySeller.get(listing.seller_id)?.name}
+                  shopName={shopsBySeller.get(listing.sellerId)?.name}
                   layout={layout}
                 />
               ))}

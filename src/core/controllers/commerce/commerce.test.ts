@@ -20,19 +20,27 @@ describe('CommerceController', () => {
   it('maps catalog filters onto the server-side filters Nexus supports', async () => {
     const fetchCatalog = vi.spyOn(CommerceApplication, 'fetchCatalogListings').mockResolvedValue(undefined);
 
-    await CommerceController.fetchCatalogListings({ saleFormat: 'auction', conditions: ['like_new'] });
+    await CommerceController.fetchCatalogListings({ saleFormat: 'auction', conditions: ['like_new'], sort: 'newest' });
     expect(fetchCatalog).toHaveBeenCalledWith({ saleFormat: 'auction', condition: 'like_new' });
 
-    await CommerceController.fetchCatalogListings({ saleFormat: 'all', conditions: [] });
+    await CommerceController.fetchCatalogListings({ saleFormat: 'all', conditions: [], sort: 'recommended' });
     expect(fetchCatalog).toHaveBeenLastCalledWith({});
   });
 
   it('keeps multi-condition filtering client-side because Nexus accepts one condition', async () => {
     const fetchCatalog = vi.spyOn(CommerceApplication, 'fetchCatalogListings').mockResolvedValue(undefined);
 
-    await CommerceController.fetchCatalogListings({ saleFormat: 'all', conditions: ['new', 'good'] });
+    await CommerceController.fetchCatalogListings({ saleFormat: 'all', conditions: ['new', 'good'], sort: 'newest' });
 
     expect(fetchCatalog).toHaveBeenCalledWith({});
+  });
+
+  it('maps the ending-soon sort onto the auction end-time stream', async () => {
+    const fetchCatalog = vi.spyOn(CommerceApplication, 'fetchCatalogListings').mockResolvedValue(undefined);
+
+    await CommerceController.fetchCatalogListings({ saleFormat: 'all', conditions: [], sort: 'ending_soon' });
+
+    expect(fetchCatalog).toHaveBeenCalledWith({ endingSoonest: true });
   });
 
   it('validates local listing lookup identity before calling application', async () => {

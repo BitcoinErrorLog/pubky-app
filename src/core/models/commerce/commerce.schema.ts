@@ -45,6 +45,64 @@ export const commerceListingTableSchema = [
   '[category_id+state]',
 ].join(', ');
 
+/**
+ * Auction sale terms as carried by the Nexus listing index. Money terms are
+ * denominated in the listing's primary asset. `reservePrice` and
+ * `buyNowPrice` are optional terms of the auction itself; the other three
+ * are always present when the index knows the terms at all.
+ */
+export interface CommerceCatalogAuctionTerms {
+  startsAt: string;
+  endsAt: string;
+  reservePrice: CommerceMoney | null;
+  buyNowPrice: CommerceMoney | null;
+  minimumIncrement: CommerceMoney;
+}
+
+/**
+ * One discovered listing as projected by the Nexus marketplace index
+ * (`GET v0/stream/listings`), cached locally so the catalog grid can render
+ * without hydrating the owner-signed record from the seller's homeserver.
+ *
+ * This is a lossy discovery projection, never a substitute for the canonical
+ * record (ADR-0020): it has no media metadata, variants, shipping options,
+ * or return policy, and it carries no live auction state (current bid, bid
+ * count) because bids are not part of the listing record Nexus indexes.
+ *
+ * `auction` is `null` for fixed-price listings — and for auction listings
+ * that Nexus indexed before it carried auction terms (stale index rows serve
+ * null terms until re-indexed), so `sale_format === 'auction'` with a null
+ * `auction` is a legal state the UI must render sanely.
+ */
+export interface CommerceCatalogEntryModelSchema {
+  id: string;
+  seller_id: string;
+  listing_id: string;
+  state: CommerceListingRecord['state'];
+  title: string;
+  description: string;
+  category_id: string;
+  condition: CommerceListingRecord['condition'];
+  tags: string[];
+  country_code: string;
+  region: string | null;
+  sale_format: CommerceListingRecord['sale']['format'];
+  price: CommerceMoney;
+  auction: CommerceCatalogAuctionTerms | null;
+  revision: number;
+  updated_at: number;
+}
+
+export const commerceCatalogEntryTableSchema = [
+  '&id',
+  'seller_id',
+  'state',
+  'sale_format',
+  'revision',
+  'updated_at',
+  '[seller_id+state]',
+].join(', ');
+
 export type CommerceListingDraftData = Pick<CommerceListingRecord, 'listingId' | 'ownerPubky'> &
   Partial<
     Omit<

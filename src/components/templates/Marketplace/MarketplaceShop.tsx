@@ -12,6 +12,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
+import { buildMarketplaceCatalogItems } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
@@ -20,7 +21,14 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
   const follow = useCommerceShopFollow(sellerPubky);
 
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
-  const listings = useLiveQuery(() => CommerceController.getListingsBySeller(sellerPubky), [sellerPubky]);
+  // Same two catalog sources as the home grid: hydrated canonical records
+  // plus Nexus index projections discovered for this seller.
+  const sellerListings = useLiveQuery(() => CommerceController.getListingsBySeller(sellerPubky), [sellerPubky]);
+  const sellerEntries = useLiveQuery(() => CommerceController.getCatalogEntriesBySeller(sellerPubky), [sellerPubky]);
+  const listings =
+    sellerListings === undefined || sellerEntries === undefined
+      ? undefined
+      : buildMarketplaceCatalogItems(sellerListings, sellerEntries);
 
   return (
     <ContentLayout

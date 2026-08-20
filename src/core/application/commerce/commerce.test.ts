@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
-import { CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
+import { CommerceCatalogEntryModel, CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import {
   COMMERCE_FIXTURE_SELLER,
+  createCommerceCatalogEntryFixture,
   createCommerceListingFixture,
   createCommerceShopFixture,
+  createNexusAuctionListingDetailsFixture,
   createNexusListingDetailsFixture,
 } from '@/test/fixtures/commerce/commerce';
 import { CommerceApplication } from './commerce';
@@ -169,44 +171,7 @@ describe('CommerceApplication', () => {
 
   describe('fetchCatalogListings', () => {
     const SELLER_B = 'b'.repeat(52);
-    const JACKET_URL = `pubky://${SELLER_B}/pub/pubky.app/marketplace/v1/listings/jacket_01`;
     const SELLER_B_SHOP_URL = `pubky://${SELLER_B}/pub/pubky.app/marketplace/v1/shop.json`;
-
-    const jacketRecord = createCommerceListingFixture({
-      ownerPubky: SELLER_B,
-      listingId: 'jacket_01',
-      media: [
-        {
-          id: 'image_01',
-          type: 'image',
-          url: `pubky://${SELLER_B}/pub/pubky.app/marketplace/v1/media/image_01`,
-          contentHash: 'a'.repeat(64),
-          mimeType: 'image/jpeg',
-          byteSize: 10_000,
-          width: 1_200,
-          height: 1_600,
-          altText: 'Selvedge denim jacket',
-        },
-      ],
-    });
-
-    function cachedListingModel(revision: number) {
-      const record = createCommerceListingFixture({ revision });
-      return new CommerceListingModel({
-        id: `${COMMERCE_FIXTURE_SELLER}:boots_01`,
-        seller_id: COMMERCE_FIXTURE_SELLER,
-        listing_id: 'boots_01',
-        record,
-        revision,
-        state: 'active',
-        category_id: 'fashion-shoes-boots',
-        format: 'fixed_price',
-        currency: 'USD',
-        price_minor: 12_500,
-        sync_status: 'synced',
-        updated_at: Date.parse(record.updatedAt),
-      });
-    }
 
     it('never reads from Nexus in sandbox mode', async () => {
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
@@ -231,15 +196,62 @@ describe('CommerceApplication', () => {
       });
     });
 
-    it('hydrates discovered listings and shops from the canonical homeserver, skipping fresh cache entries', async () => {
+    it('requests the auction end-time stream for the ending-soonest catalog', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+      const stream = vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([]);
+
+      await CommerceApplication.fetchCatalogListings({ endingSoonest: true });
+
+      expect(stream).toHaveBeenCalledWith({
+        state: 'active',
+        limit: 30,
+        sorting: 'ends_at',
+        order: 'ascending',
+      });
+    });
+
+    it('caches the validated index projections without hydrating listings from homeservers', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([
+        createNexusListingDetailsFixture(),
+        createNexusAuctionListingDetailsFixture(),
+      ]);
+      vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(
+        new CommerceShopModel({
+          id: COMMERCE_FIXTURE_SELLER,
+          owner_id: COMMERCE_FIXTURE_SELLER,
+          record: createCommerceShopFixture(),
+          revision: 1,
+          sync_status: 'synced',
+          updated_at: 1_000,
+        }),
+      );
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries').mockResolvedValue(undefined);
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson');
+      const upsertListing = vi.spyOn(LocalCommerceService, 'upsertListing');
+
+      await CommerceApplication.fetchCatalogListings();
+
+      expect(bulkUpsert).toHaveBeenCalledExactlyOnceWith([
+        expect.objectContaining({ id: `${COMMERCE_FIXTURE_SELLER}:boots_01`, sale_format: 'fixed_price' }),
+        expect.objectContaining({
+          id: `${COMMERCE_FIXTURE_SELLER}:rangefinder_camera`,
+          sale_format: 'auction',
+          auction: expect.objectContaining({ endsAt: '2026-08-29T20:00:00.000Z' }),
+        }),
+      ]);
+      expect(fetchJson).not.toHaveBeenCalled();
+      expect(upsertListing).not.toHaveBeenCalled();
+    });
+
+    it('hydrates only shop records the cache is missing, deduplicated per seller', async () => {
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
       vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([
         createNexusListingDetailsFixture(),
         createNexusListingDetailsFixture({ owner_id: SELLER_B, id: 'jacket_01' }),
+        createNexusListingDetailsFixture({ owner_id: SELLER_B, id: 'scarf_01' }),
       ]);
-      vi.spyOn(LocalCommerceService, 'getListing').mockImplementation(async (id) =>
-        id === `${COMMERCE_FIXTURE_SELLER}:boots_01` ? cachedListingModel(1) : null,
-      );
+      vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries').mockResolvedValue(undefined);
       vi.spyOn(LocalCommerceService, 'getShop').mockImplementation(async (ownerId) =>
         ownerId === COMMERCE_FIXTURE_SELLER
           ? new CommerceShopModel({
@@ -253,90 +265,68 @@ describe('CommerceApplication', () => {
           : null,
       );
       const sellerBShop = createCommerceShopFixture({ ownerPubky: SELLER_B, name: 'Block 9 Archive' });
-      const fetchJson = vi
-        .spyOn(CommerceHomeserverService, 'fetchJson')
-        .mockImplementation(async (url) => (url === JACKET_URL ? jacketRecord : sellerBShop));
-      const upsertListing = vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(sellerBShop);
       const upsertShop = vi.spyOn(LocalCommerceService, 'upsertShop').mockResolvedValue(undefined);
 
       await CommerceApplication.fetchCatalogListings();
 
-      expect(fetchJson).toHaveBeenCalledWith(JACKET_URL);
-      expect(fetchJson).toHaveBeenCalledWith(SELLER_B_SHOP_URL);
-      expect(fetchJson).toHaveBeenCalledTimes(2);
-      expect(upsertListing).toHaveBeenCalledExactlyOnceWith(jacketRecord, 'synced');
+      expect(fetchJson).toHaveBeenCalledExactlyOnceWith(SELLER_B_SHOP_URL);
       expect(upsertShop).toHaveBeenCalledExactlyOnceWith(sellerBShop, 'synced');
     });
 
-    it('refetches a cached listing whose revision fell behind the index', async () => {
+    it('keeps the discovered catalog when one seller shop is unreachable', async () => {
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
       vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([
-        createNexusListingDetailsFixture({ revision: 2 }),
-      ]);
-      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(cachedListingModel(1));
-      vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(
-        new CommerceShopModel({
-          id: COMMERCE_FIXTURE_SELLER,
-          owner_id: COMMERCE_FIXTURE_SELLER,
-          record: createCommerceShopFixture(),
-          revision: 1,
-          sync_status: 'synced',
-          updated_at: 1_000,
-        }),
-      );
-      const refreshedRecord = createCommerceListingFixture({ revision: 2 });
-      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(refreshedRecord);
-      const upsertListing = vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
-
-      await CommerceApplication.fetchCatalogListings();
-
-      expect(upsertListing).toHaveBeenCalledExactlyOnceWith(refreshedRecord, 'synced');
-    });
-
-    it('keeps hydrating the rest of the catalog when one seller is unreachable', async () => {
-      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
-      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([
+        createNexusListingDetailsFixture(),
         createNexusListingDetailsFixture({ owner_id: SELLER_B, id: 'jacket_01' }),
-        createNexusListingDetailsFixture({ revision: 2 }),
       ]);
-      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(null);
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries').mockResolvedValue(undefined);
       vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(null);
-      const bootsRecord = createCommerceListingFixture({ revision: 2 });
       const sellerAShop = createCommerceShopFixture();
       vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async (url) => {
         if (url.startsWith(`pubky://${SELLER_B}/`)) throw new TypeError('seller homeserver unreachable');
-        return url.endsWith('shop.json') ? sellerAShop : bootsRecord;
+        return sellerAShop;
       });
-      const upsertListing = vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
       const upsertShop = vi.spyOn(LocalCommerceService, 'upsertShop').mockResolvedValue(undefined);
 
       await expect(CommerceApplication.fetchCatalogListings()).resolves.toBeUndefined();
 
-      expect(upsertListing).toHaveBeenCalledExactlyOnceWith(bootsRecord, 'synced');
+      expect(bulkUpsert).toHaveBeenCalledOnce();
       expect(upsertShop).toHaveBeenCalledExactlyOnceWith(sellerAShop, 'synced');
     });
 
     it('propagates a Nexus failure without touching the cache', async () => {
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
       vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockRejectedValue(new Error('nexus unreachable'));
-      const upsertListing = vi.spyOn(LocalCommerceService, 'upsertListing');
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries');
       const upsertShop = vi.spyOn(LocalCommerceService, 'upsertShop');
 
       await expect(CommerceApplication.fetchCatalogListings()).rejects.toThrow('nexus unreachable');
-      expect(upsertListing).not.toHaveBeenCalled();
+      expect(bulkUpsert).not.toHaveBeenCalled();
       expect(upsertShop).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid stream payload before caching anything', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([
+        createNexusAuctionListingDetailsFixture({ auction_ends_at: null }),
+      ]);
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries');
+
+      await expect(CommerceApplication.fetchCatalogListings()).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      expect(bulkUpsert).not.toHaveBeenCalled();
     });
   });
 
-  it('returns an existing listing projection without fetching', async () => {
-    const record = createCommerceListingFixture();
-    vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(
-      new CommerceListingModel({
+  describe('getOrFetchListing revision freshness', () => {
+    function cachedListingModel(revision: number) {
+      const record = createCommerceListingFixture({ revision });
+      return new CommerceListingModel({
         id: `${COMMERCE_FIXTURE_SELLER}:boots_01`,
         seller_id: COMMERCE_FIXTURE_SELLER,
         listing_id: 'boots_01',
         record,
-        revision: 1,
+        revision,
         state: 'active',
         category_id: 'fashion-shoes-boots',
         format: 'fixed_price',
@@ -344,11 +334,59 @@ describe('CommerceApplication', () => {
         price_minor: 12_500,
         sync_status: 'synced',
         updated_at: Date.parse(record.updatedAt),
-      }),
-    );
-    const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson');
+      });
+    }
 
-    await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).resolves.toEqual(record);
-    expect(fetchJson).not.toHaveBeenCalled();
+    it('returns a cached listing without fetching when the index has seen nothing newer', async () => {
+      const cached = cachedListingModel(1);
+      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(cached);
+      vi.spyOn(LocalCommerceService, 'getCatalogEntry').mockResolvedValue(
+        new CommerceCatalogEntryModel(createCommerceCatalogEntryFixture({ revision: 1 })),
+      );
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson');
+
+      await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).resolves.toEqual(
+        cached.record,
+      );
+      expect(fetchJson).not.toHaveBeenCalled();
+    });
+
+    it('refetches the canonical record when the index revision moved past the cache', async () => {
+      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(cachedListingModel(1));
+      vi.spyOn(LocalCommerceService, 'getCatalogEntry').mockResolvedValue(
+        new CommerceCatalogEntryModel(createCommerceCatalogEntryFixture({ revision: 2 })),
+      );
+      const refreshedRecord = createCommerceListingFixture({ revision: 2 });
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(refreshedRecord);
+      const upsertListing = vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+
+      await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).resolves.toEqual(
+        refreshedRecord,
+      );
+      expect(upsertListing).toHaveBeenCalledExactlyOnceWith(refreshedRecord, 'synced');
+    });
+
+    it('serves the cached record when a staleness refresh fails', async () => {
+      const cached = cachedListingModel(1);
+      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(cached);
+      vi.spyOn(LocalCommerceService, 'getCatalogEntry').mockResolvedValue(
+        new CommerceCatalogEntryModel(createCommerceCatalogEntryFixture({ revision: 2 })),
+      );
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(new TypeError('homeserver unreachable'));
+
+      await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).resolves.toEqual(
+        cached.record,
+      );
+    });
+
+    it('propagates a fetch failure when no cached record exists', async () => {
+      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(null);
+      vi.spyOn(LocalCommerceService, 'getCatalogEntry').mockResolvedValue(null);
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(new TypeError('homeserver unreachable'));
+
+      await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).rejects.toThrow(
+        'homeserver unreachable',
+      );
+    });
   });
 });

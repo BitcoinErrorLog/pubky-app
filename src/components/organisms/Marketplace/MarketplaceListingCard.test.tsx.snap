@@ -1,5 +1,124 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapshot rendered from an index entry 1`] = `
+<a
+  aria-label="View 35mm rangefinder camera"
+  class="group block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  href="/marketplace/listing/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/rangefinder_camera"
+>
+  <div
+    class="flex flex-col rounded-xl bg-card text-card-foreground shadow-sm h-full gap-0 overflow-hidden border border-border/60 py-0 transition-all group-hover:-translate-y-0.5 group-hover:border-brand/40 group-hover:shadow-lg"
+    data-slot="card"
+    data-testid="card"
+  >
+    <div
+      class="relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-linear-to-br from-emerald-500/40 via-teal-500/20 to-background"
+    >
+      <div
+        class="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.16),transparent_32%)]"
+      />
+      <svg
+        aria-hidden="true"
+        class="lucide lucide-camera size-20 text-foreground/75 drop-shadow-xl transition-transform group-hover:scale-105"
+        fill="none"
+        height="24"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"
+        />
+        <circle
+          cx="12"
+          cy="13"
+          r="3"
+        />
+      </svg>
+      <div
+        class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent [a&]:hover:bg-primary/90 absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md"
+        data-slot="badge"
+      >
+        Auction
+      </div>
+      <div
+        class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent text-secondary-foreground [a&]:hover:bg-secondary/90 absolute right-3 bottom-3 bg-background/85 backdrop-blur-md"
+        data-slot="badge"
+        data-variant="secondary"
+      >
+        Ends 
+        Aug 29
+      </div>
+    </div>
+    <div
+      class="flex flex-1 flex-col gap-2 p-4"
+      data-slot="card-content"
+    >
+      <div
+        class="flex items-start justify-between gap-3"
+      >
+        <h2
+          class="line-clamp-2 text-base leading-5 font-semibold text-foreground"
+          data-testid="typography"
+        >
+          35mm rangefinder camera
+        </h2>
+        <div
+          class="flex shrink-0 flex-col items-end"
+        >
+          <span
+            class="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+            data-testid="typography"
+          >
+            Starting bid
+          </span>
+          <p
+            class="text-base font-bold text-brand"
+            data-testid="typography"
+          >
+            $45.00
+          </p>
+          <span
+            class="font-medium text-xs text-muted-foreground"
+            data-testid="typography"
+          >
+            Buy now 
+            $125.00
+          </span>
+        </div>
+      </div>
+      <p
+        class="font-medium truncate text-sm text-muted-foreground"
+        data-testid="typography"
+      >
+        Proof of Film
+      </p>
+      <div
+        class="mt-auto flex items-center justify-between gap-2 pt-1"
+      >
+        <span
+          class="font-medium text-xs text-muted-foreground"
+          data-testid="typography"
+        >
+          Excellent
+        </span>
+        <span
+          class="font-medium text-xs text-muted-foreground"
+          data-testid="typography"
+        >
+          NY, 
+          US
+        </span>
+      </div>
+    </div>
+  </div>
+</a>
+`;
+
 exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing snapshot 1`] = `
 <a
   aria-label="View Vintage leather boots"
@@ -12,7 +131,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
     data-testid="card"
   >
     <div
-      class="relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-linear-to-br from-rose-500/40 via-pink-500/20 to-background"
+      class="relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-linear-to-br from-cyan-500/40 via-blue-500/20 to-background"
     >
       <div
         class="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.16),transparent_32%)]"
@@ -63,12 +182,16 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
         >
           Vintage leather boots
         </h2>
-        <p
-          class="shrink-0 text-base font-bold text-brand"
-          data-testid="typography"
+        <div
+          class="flex shrink-0 flex-col items-end"
         >
-          $125.00
-        </p>
+          <p
+            class="text-base font-bold text-brand"
+            data-testid="typography"
+          >
+            $125.00
+          </p>
+        </div>
       </div>
       <p
         class="font-medium truncate text-sm text-muted-foreground"
