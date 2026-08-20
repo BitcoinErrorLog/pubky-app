@@ -63,7 +63,10 @@ export const paymentTransitions = {
   awaiting_entitlement: ['detected', 'confirmed', 'expired', 'manual_review'],
   detected: ['confirmed', 'manual_review'],
   confirmed: [],
-  expired: [],
+  // A Locks entitlement that completes after the marketplace payment window
+  // has elapsed is reconciled rather than discarded: the service moves the
+  // expired payment to manual_review instead of confirming it late.
+  expired: ['manual_review'],
   manual_review: [],
 } as const satisfies TransitionMap<PaymentState>;
 
