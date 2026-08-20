@@ -114,7 +114,7 @@ export function MarketplaceNotifications() {
                       From {notification.actorPubky.slice(0, 10)}…
                     </Typography>
                   </div>
-                  <time className="text-xs text-muted-foreground">
+                  <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
                     {new Date(notification.createdAt).toLocaleDateString('en-US')}
                   </time>
                 </CardContent>

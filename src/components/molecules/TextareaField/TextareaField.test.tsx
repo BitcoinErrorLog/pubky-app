@@ -57,8 +57,8 @@ vi.mock('@/atoms/Textarea/Textarea', () => {
 
 vi.mock('@/atoms/Typography/Typography', () => {
   return {
-    Typography: ({ children, className }: { children: React.ReactNode; className?: string }) => (
-      <div data-testid="typography" className={className}>
+    Typography: ({ children, className, id }: { children: React.ReactNode; className?: string; id?: string }) => (
+      <div data-testid="typography" className={className} id={id}>
         {children}
       </div>
     ),
@@ -66,6 +66,15 @@ vi.mock('@/atoms/Typography/Typography', () => {
 });
 
 describe('TextareaField', () => {
+  it('associates the validation message with the textarea for assistive technology', () => {
+    render(<TextareaField id="details" value="" status="error" message="Details are required." messageType="error" />);
+
+    const textarea = screen.getByTestId('textarea');
+    expect(textarea).toHaveAttribute('aria-invalid', 'true');
+    expect(textarea).toHaveAttribute('aria-describedby', 'details-message');
+    expect(screen.getByTestId('typography')).toHaveAttribute('id', 'details-message');
+  });
+
   it('renders with required value prop', () => {
     render(<TextareaField value="Test content" />);
     expect(screen.getByTestId('container')).toBeInTheDocument();

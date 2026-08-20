@@ -40,6 +40,23 @@ describe('InputField', () => {
 
     expect(handlePaste).toHaveBeenCalled();
   });
+
+  it('associates the validation message with the input for assistive technology', () => {
+    render(<InputField id="amount" value="" status="error" message="Enter a valid amount." messageType="error" />);
+
+    const input = screen.getByTestId('input');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', 'amount-message');
+    expect(input).toHaveAccessibleDescription('Enter a valid amount.');
+  });
+
+  it('sets no describedby without a message or without an id', () => {
+    const { rerender } = render(<InputField id="amount" value="" />);
+    expect(screen.getByTestId('input')).not.toHaveAttribute('aria-describedby');
+
+    rerender(<InputField value="" status="error" message="Enter a valid amount." messageType="error" />);
+    expect(screen.getByTestId('input')).not.toHaveAttribute('aria-describedby');
+  });
 });
 
 describe('InputField - Snapshots', () => {

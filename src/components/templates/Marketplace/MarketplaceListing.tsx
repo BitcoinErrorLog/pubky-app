@@ -317,7 +317,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </Typography>
             )}
             {(adapterMode === 'sandbox' || adapterMode === 'transaction-service') && negotiation.error && (
-              <Typography as="p" className="text-center text-sm text-amber-300">
+              <Typography as="p" role="alert" className="text-center text-sm text-amber-300">
                 {negotiation.error}
               </Typography>
             )}

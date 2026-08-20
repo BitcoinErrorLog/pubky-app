@@ -51,7 +51,7 @@ export function MarketplaceLocksPayment({
         )}
 
         {payment.error && (
-          <Typography as="p" role="status" className="text-sm text-amber-300">
+          <Typography as="p" role="alert" className="text-sm text-amber-300">
             {payment.error}
           </Typography>
         )}

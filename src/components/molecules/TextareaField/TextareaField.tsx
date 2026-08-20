@@ -83,10 +83,16 @@ export function TextareaField({
           maxLength={maxLength}
           rows={rows}
           aria-invalid={status === 'error'}
+          aria-describedby={message && id ? `${id}-message` : undefined}
         />
       </Container>
       {message && (
-        <Typography as="small" size="sm" className={cn('ml-1', messageClasses[messageType])}>
+        <Typography
+          id={id ? `${id}-message` : undefined}
+          as="small"
+          size="sm"
+          className={cn('ml-1', messageClasses[messageType])}
+        >
           {message}
         </Typography>
       )}

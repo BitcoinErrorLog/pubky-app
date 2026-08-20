@@ -69,7 +69,11 @@ export function MarketplaceFilters({ resultCount }: MarketplaceFiltersProps) {
             </SelectContent>
           </Select>
 
-          <div className="hidden items-center rounded-full border bg-card p-1 sm:flex" aria-label="Listing layout">
+          <div
+            role="group"
+            className="hidden items-center rounded-full border bg-card p-1 sm:flex"
+            aria-label="Listing layout"
+          >
             <Button
               variant={layout === 'grid' ? 'secondary' : 'ghost'}
               size="icon"
@@ -99,6 +103,7 @@ export function MarketplaceFilters({ resultCount }: MarketplaceFiltersProps) {
           size="sm"
           variant={categoryId === null ? 'default' : 'secondary'}
           className="shrink-0 rounded-full"
+          aria-pressed={categoryId === null}
           onClick={() => setCategoryId(null)}
         >
           All
@@ -109,6 +114,7 @@ export function MarketplaceFilters({ resultCount }: MarketplaceFiltersProps) {
             size="sm"
             variant={categoryId === category.id ? 'default' : 'secondary'}
             className="shrink-0 rounded-full"
+            aria-pressed={categoryId === category.id}
             onClick={() => setCategoryId(category.id)}
           >
             {category.label}

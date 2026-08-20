@@ -125,6 +125,7 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
       <div
         aria-label="Listing layout"
         class="hidden items-center rounded-full border bg-card p-1 sm:flex"
+        role="group"
       >
         <button
           aria-label="Grid view"
@@ -210,6 +211,7 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
     class="flex items-center gap-2 overflow-x-auto pb-1"
   >
     <button
+      aria-pressed="true"
       class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-brand/16 text-brand hover:!bg-brand/30 border-brand h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
       data-size="sm"
       data-slot="button"
@@ -218,6 +220,7 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
       All
     </button>
     <button
+      aria-pressed="false"
       class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
       data-size="sm"
       data-slot="button"
@@ -226,6 +229,7 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
       Fashion
     </button>
     <button
+      aria-pressed="false"
       class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
       data-size="sm"
       data-slot="button"
@@ -234,6 +238,7 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
       Electronics
     </button>
     <button
+      aria-pressed="false"
       class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
       data-size="sm"
       data-slot="button"
@@ -242,6 +247,7 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
       Home
     </button>
     <button
+      aria-pressed="false"
       class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
       data-size="sm"
       data-slot="button"

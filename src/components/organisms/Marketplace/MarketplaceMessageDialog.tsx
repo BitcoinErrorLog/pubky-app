@@ -65,7 +65,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
         <DialogHeader>
           <DialogTitle>Listing conversation</DialogTitle>
         </DialogHeader>
-        <div className="max-h-80 space-y-3 overflow-y-auto rounded-xl border bg-card/50 p-4">
+        <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border bg-card/50 p-4">
           {messages.conversation?.messages.length ? (
             messages.conversation.messages.map((message) => {
               const mine = message.senderPubky === currentUserPubky;
@@ -105,6 +105,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
         <div className="flex items-center gap-3">
           {previewUrl ? (
             <div
+              role="img"
               className="h-20 w-24 rounded-lg bg-cover bg-center"
               style={{ backgroundImage: `url(${previewUrl})` }}
               aria-label="Selected private image attachment"

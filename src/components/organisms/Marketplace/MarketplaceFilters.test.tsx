@@ -25,6 +25,21 @@ describe('MarketplaceFilters', () => {
     expect(screen.getByText('8 items')).toHaveAttribute('aria-live', 'polite');
   });
 
+  it('exposes the active category and layout as pressed toggles', async () => {
+    const user = userEvent.setup();
+    render(<MarketplaceFilters resultCount={8} />);
+
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Fashion' }));
+    expect(screen.getByRole('button', { name: 'Fashion' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+
+    expect(screen.getByRole('group', { name: 'Listing layout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Grid view' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'List view' }));
+    expect(screen.getByRole('button', { name: 'List view' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('clears active discovery filters without changing layout', async () => {
     const user = userEvent.setup();
     useCommerceStore.getState().setLayout('list');
