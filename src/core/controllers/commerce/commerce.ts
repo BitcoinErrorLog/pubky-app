@@ -132,6 +132,70 @@ export class CommerceController {
     );
   }
 
+  static async submitLocksPaykitProof({
+    creatorPubky,
+    bundleId,
+    lockResource,
+    criterionId,
+  }: {
+    creatorPubky: unknown;
+    bundleId: unknown;
+    lockResource: unknown;
+    criterionId: unknown;
+  }) {
+    return await CommerceApplication.submitLocksPaykitProof({
+      creatorPubky: CommerceRecordNormalizer.pubky(creatorPubky),
+      readerPubky: this.getCurrentUserPubky(),
+      bundleId: CommerceRecordNormalizer.entityId(bundleId),
+      lockResource: CommerceRecordNormalizer.lockResource(lockResource),
+      criterionId: CommerceRecordNormalizer.entityId(criterionId),
+    });
+  }
+
+  static async lookupLocksVerification(creatorPubky: unknown, bundleId: unknown) {
+    return await CommerceApplication.lookupLocksVerification(
+      CommerceRecordNormalizer.pubky(creatorPubky),
+      CommerceRecordNormalizer.entityId(bundleId),
+    );
+  }
+
+  static async issueLocksAccessCredential(creatorPubky: unknown, bundleId: unknown) {
+    return await CommerceApplication.issueLocksAccessCredential(
+      CommerceRecordNormalizer.pubky(creatorPubky),
+      CommerceRecordNormalizer.entityId(bundleId),
+    );
+  }
+
+  static async fetchLocksGuardedContent(relativePath: unknown, credential: unknown) {
+    if (
+      typeof relativePath !== 'string' ||
+      relativePath
+        .split('/')
+        .filter(Boolean)
+        .some((segment) => !/^[A-Za-z0-9_.-]+$/.test(segment)) ||
+      typeof credential !== 'string' ||
+      credential.length === 0 ||
+      credential.length > 4_096
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Locks content request is invalid.', {
+        service: ErrorService.Local,
+        operation: 'fetchLocksGuardedContent',
+      });
+    }
+    return await CommerceApplication.fetchLocksGuardedContent(relativePath, credential);
+  }
+
+  static getPaykitSetupUrl(returnTo: unknown, state: unknown): string {
+    const parsedReturnTo = typeof returnTo === 'string' ? URL.parse(returnTo) : null;
+    if (!parsedReturnTo || !['http:', 'https:'].includes(parsedReturnTo.protocol)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Paykit setup return URL is invalid.', {
+        service: ErrorService.Local,
+        operation: 'getPaykitSetupUrl',
+      });
+    }
+    return CommerceApplication.getPaykitSetupUrl(parsedReturnTo.toString(), CommerceRecordNormalizer.entityId(state));
+  }
+
   static async getListingDrafts() {
     return await CommerceApplication.getListingDrafts(this.getCurrentUserPubky());
   }

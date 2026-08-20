@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
@@ -62,6 +62,9 @@ export function MarketplaceSell() {
             <ShieldCheck className="size-4 text-brand" />
             Drafts autosave locally. Images are sanitized and BLAKE3 hashed before upload.
           </div>
+          <Link href={MARKETPLACE_ROUTES.SETTINGS} className="mt-2 inline-flex">
+            Configure Paykit and Locks for digital delivery
+          </Link>
         </div>
 
         <MarketplaceListingForm

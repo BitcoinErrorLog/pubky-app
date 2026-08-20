@@ -6,6 +6,7 @@ import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { LocksGatewayService } from '@/services/locks/locks';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 
@@ -117,6 +118,32 @@ export class CommerceApplication {
 
   static async fetchMarketplaceAttachment(actorPubky: string, attachmentId: string) {
     return await MarketplaceGatewayService.fetchAttachment(actorPubky, attachmentId);
+  }
+
+  static async submitLocksPaykitProof(params: {
+    creatorPubky: string;
+    readerPubky: string;
+    bundleId: string;
+    lockResource: string;
+    criterionId: string;
+  }) {
+    return await LocksGatewayService.submitPaykitProof(params);
+  }
+
+  static async lookupLocksVerification(creatorPubky: string, bundleId: string) {
+    return await LocksGatewayService.lookupVerification(creatorPubky, bundleId);
+  }
+
+  static async issueLocksAccessCredential(creatorPubky: string, bundleId: string) {
+    return await LocksGatewayService.issueAccessCredential(creatorPubky, bundleId);
+  }
+
+  static async fetchLocksGuardedContent(relativePath: string, credential: string) {
+    return await LocksGatewayService.fetchGuardedContent(relativePath, credential);
+  }
+
+  static getPaykitSetupUrl(returnTo: string, state: string) {
+    return LocksGatewayService.buildPaykitSetupUrl(returnTo, state);
   }
 
   static async isFavorite(ownerPubky: string, listingId: string): Promise<boolean> {

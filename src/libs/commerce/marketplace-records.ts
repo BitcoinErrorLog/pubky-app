@@ -217,6 +217,7 @@ export const commerceReturnPolicySchema = z
 export const commerceDigitalLockSchema = z
   .object({
     policyUri: locksPublicUriSchema,
+    criterionId: commerceEntityIdSchema.default('criterion-1'),
     resourceHash: z.string().regex(/^[a-f0-9]{64}$/, 'Expected a lowercase BLAKE3 hash'),
     minimumConfirmations: z.number().int().min(0).max(6),
   })

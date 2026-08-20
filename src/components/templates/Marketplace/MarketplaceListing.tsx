@@ -21,6 +21,7 @@ import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/fo
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
+import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
@@ -250,6 +251,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 </div>
               </div>
             </div>
+
+            {record.digitalLock && (
+              <MarketplaceLocksPayment
+                creatorPubky={record.ownerPubky}
+                lockResource={record.digitalLock.policyUri}
+                criterionId={record.digitalLock.criterionId}
+              />
+            )}
 
             <div className="mt-auto flex gap-3">
               {record.sale.format === 'auction' ? (

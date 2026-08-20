@@ -10,6 +10,7 @@ import {
   commerceShopRecordSchema,
   type CommerceTombstoneRecord,
   commerceTombstoneRecordSchema,
+  locksPublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
 import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
@@ -75,6 +76,10 @@ export class CommerceRecordNormalizer {
 
   static aggregateId(input: unknown): string {
     return this.parse(commerceAggregateIdSchema, input, 'aggregateId');
+  }
+
+  static lockResource(input: unknown): string {
+    return this.parse(locksPublicUriSchema, input, 'lockResource');
   }
 
   static shopUri(ownerPubky: unknown): string {

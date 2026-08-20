@@ -28,6 +28,8 @@ export enum ErrorService {
   Exchangerate = 'exchangerate',
   Chatwoot = 'chatwoot',
   Marketplace = 'marketplace',
+  Locks = 'locks',
+  Paykit = 'paykit',
   PubkyAppSpecs = 'pubky-app-specs',
   Local = 'local', // Client-side operations
   NextJsServer = 'nextjs-server', // Server-side operations
