@@ -71,9 +71,9 @@ export function MarketplaceInbox() {
                           {last?.text ?? 'Conversation started'}
                         </Typography>
                       </div>
-                      <Typography as="time" className="text-xs text-muted-foreground">
+                      <time className="text-xs text-muted-foreground">
                         {last ? new Date(last.createdAt).toLocaleDateString('en-US') : ''}
-                      </Typography>
+                      </time>
                     </CardContent>
                   </Card>
                 </Link>

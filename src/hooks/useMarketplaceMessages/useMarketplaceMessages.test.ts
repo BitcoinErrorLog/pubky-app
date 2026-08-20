@@ -6,9 +6,10 @@ import { useMarketplaceMessages } from './useMarketplaceMessages';
 const BUYER = 'b'.repeat(52);
 const SELLER = 'y'.repeat(52);
 
-vi.mock('@/config/commerce', () => ({
-  getCommercePollIntervalMs: () => 60_000,
-}));
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommercePollIntervalMs: () => 60_000 };
+});
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: BUYER }),
