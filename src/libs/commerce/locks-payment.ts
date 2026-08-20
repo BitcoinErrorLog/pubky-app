@@ -4,43 +4,14 @@ import type { MarketplacePayment } from '@/services/marketplace/marketplace-proj
  * Helpers for the real Locks/Paykit buyer payment flow (`locks-paykit` mode).
  *
  * The buyer's side of a real payment is deliberately small: generate a
- * lifecycle handle (the bundle id), submit a proof bundle to the Lock Server,
- * and register the correlation with the transaction service. Everything that
- * ADVANCES the payment happens server-side — the service worker independently
- * verifies the Locks lifecycle and confirms exactly once — so nothing in this
- * module (or anywhere else in the client) moves a payment forward.
+ * lifecycle handle (the bundle id, via the vendored Locks SDK's
+ * `BundleId.generate()` — see `LocksGatewayService.generateBundleId`), submit
+ * a proof bundle to the Lock Server, and register the correlation with the
+ * transaction service. Everything that ADVANCES the payment happens
+ * server-side — the service worker independently verifies the Locks lifecycle
+ * and confirms exactly once — so nothing in this module (or anywhere else in
+ * the client) moves a payment forward.
  */
-
-/** Crockford base32 alphabet (uppercase, no I/L/O/U) — the Locks `BundleId` wire encoding. */
-const CROCKFORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-
-/**
- * Encodes bytes as unpadded uppercase Crockford base32 (5 bits per character,
- * final group zero-padded), matching the upstream Locks identifier encoding.
- */
-export function encodeCrockfordBase32(bytes: Uint8Array): string {
-  let bits = '';
-  for (const byte of bytes) {
-    bits += byte.toString(2).padStart(8, '0');
-  }
-  let encoded = '';
-  for (let index = 0; index < bits.length; index += 5) {
-    encoded += CROCKFORD_ALPHABET[parseInt(bits.slice(index, index + 5).padEnd(5, '0'), 2)];
-  }
-  return encoded;
-}
-
-/**
- * Generates a fresh Locks bundle id: the canonical 26-character Crockford
- * base32 encoding of 128 cryptographically random bits. The bundle id is the
- * buyer's bearer handle for the verification lifecycle — whoever holds it can
- * look the lifecycle up and, once completed, obtain the access credential —
- * so it is stored only in the buyer's account-scoped private database and
- * never appears in public records, logs, or telemetry.
- */
-export function generateLocksBundleId(): string {
-  return encodeCrockfordBase32(crypto.getRandomValues(new Uint8Array(16)));
-}
 
 const POLICY_URI_PATTERN =
   /^pubky:\/\/([ybndrfg8ejkmcpqxot1uwisza345h769]{52})\/(pub\/locks\.app\/[A-Za-z0-9_./-]+\.json)$/;

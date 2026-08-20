@@ -5,6 +5,16 @@ const CREATOR = 'y'.repeat(52);
 const READER = 'b'.repeat(52);
 const BUNDLE_ID = '000G40R40M30E209185GR38E1W';
 
+const sdkMocks = vi.hoisted(() => ({
+  init: vi.fn(),
+  generateBundleId: vi.fn(),
+}));
+
+vi.mock('locks-sdk-wasm', () => ({
+  default: sdkMocks.init,
+  BundleId: { generate: sdkMocks.generateBundleId },
+}));
+
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
   return {
@@ -33,6 +43,18 @@ function lifecycle(status: 'pending' | 'completed' = 'pending') {
 describe('LocksGatewayService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sdkMocks.init.mockResolvedValue(undefined);
+    sdkMocks.generateBundleId.mockReturnValue({ toString: () => BUNDLE_ID });
+  });
+
+  it('generates bundle ids through the vendored SDK and initializes the WASM module once', async () => {
+    await expect(LocksGatewayService.generateBundleId()).resolves.toBe(BUNDLE_ID);
+    await expect(LocksGatewayService.generateBundleId()).resolves.toBe(BUNDLE_ID);
+
+    expect(sdkMocks.init).toHaveBeenCalledTimes(1);
+    expect(sdkMocks.generateBundleId).toHaveBeenCalledTimes(2);
+    // Identifier generation is local WASM — no Lock Server round trip.
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('submits the canonical empty Paykit proof without invoice material', async () => {
@@ -63,6 +85,19 @@ describe('LocksGatewayService', () => {
     );
   });
 
+  it('rejects a lock resource that is not owned by the creator without any network call', async () => {
+    await expect(
+      LocksGatewayService.submitPaykitProof({
+        creatorPubky: CREATOR,
+        readerPubky: READER,
+        bundleId: BUNDLE_ID,
+        lockResource: `pubky://${READER}/pub/locks.app/lock.json`,
+        criterionId: 'criterion-1',
+      }),
+    ).rejects.toMatchObject({ name: 'AppError', code: 'INVALID_INPUT' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('looks up lifecycle and requests a credential without putting bearer ids in URLs', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse(lifecycle('completed')))
@@ -78,6 +113,21 @@ describe('LocksGatewayService', () => {
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://locks.example.com/verification-task-lookups');
     expect(vi.mocked(fetch).mock.calls[1][0]).toBe('https://locks.example.com/access-credentials');
     expect(vi.mocked(fetch).mock.calls.flatMap((call) => String(call[0]))).not.toContain(BUNDLE_ID);
+  });
+
+  it('rejects malformed lifecycle and credential responses as INVALID_RESPONSE', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ ...lifecycle(), status: 'not-a-status' }))
+      .mockResolvedValueOnce(jsonResponse({ credential: '' }));
+
+    await expect(LocksGatewayService.lookupVerification(CREATOR, BUNDLE_ID)).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'INVALID_RESPONSE',
+    });
+    await expect(LocksGatewayService.issueAccessCredential(CREATOR, BUNDLE_ID)).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'INVALID_RESPONSE',
+    });
   });
 
   it('uses bearer authorization only for guarded content retrieval', async () => {

@@ -2,7 +2,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
-import { generateLocksBundleId, lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
+import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import type {
   CommerceDigitalLock,
   CommerceListingRecord,
@@ -246,7 +246,7 @@ export class CommerceApplication {
     const existing = await LocalCommerceService.getLocksCorrelation(buyerPubky, payment.id);
     let bundleId = existing?.bundle_id;
     if (!existing) {
-      bundleId = generateLocksBundleId();
+      bundleId = await LocksGatewayService.generateBundleId();
       await LocksGatewayService.submitPaykitProof({
         creatorPubky: creator,
         readerPubky: buyerPubky,

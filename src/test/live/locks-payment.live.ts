@@ -162,6 +162,15 @@ describe('locks-paykit live purchase (composed environment)', () => {
           'see docs/ecommerce/RUNNING.md.',
       );
     }
+    // The Locks SDK is wasm-pack `--target web`: its default init fetches the
+    // .wasm by URL, which Node's fetch cannot do. Pre-initialize it here with
+    // the vendored bytes; init is idempotent, so the service's own lazy
+    // `sdk.default()` becomes a no-op against the same module instance.
+    const { readFile } = await import('node:fs/promises');
+    const locksSdk = await import('locks-sdk-wasm');
+    await locksSdk.default({
+      module_or_path: await readFile(new URL('../../../vendor/locks-sdk-wasm/locks_sdk_wasm_bg.wasm', import.meta.url)),
+    });
     const [
       { CommerceApplication },
       { LocksGatewayService },
