@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getLocksUrl, getPaykitSetupUrl } from '@/config/commerce';
-import { ServerErrorCode } from '@/libs/error/error.codes';
+import { ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
@@ -40,6 +40,13 @@ export class LocksGatewayService {
     lockResource: string;
     criterionId: string;
   }): Promise<LocksVerificationLifecycle> {
+    if (!lockResource.startsWith(`pubky://${creatorPubky}/`)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Locks resource owner does not match the creator.', {
+        service: ErrorService.Locks,
+        operation: 'submitPaykitProof',
+        context: { ownerMatches: false },
+      });
+    }
     const url = `${getLocksUrl()}/proof-bundles`;
     return await this.postLifecycle(url, {
       submitted_proof_bundle: {

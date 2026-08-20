@@ -217,6 +217,7 @@ describe('commerceListingRecordSchema', () => {
     const unexpectedLock = makeFixedListing();
     unexpectedLock.digitalLock = {
       policyUri: LOCK_URL,
+      criterionId: 'criterion-1',
       resourceHash: 'b'.repeat(64),
       minimumConfirmations: 1,
     };
@@ -232,6 +233,7 @@ describe('commerceListingRecordSchema', () => {
     listing.shippingOptions = [];
     listing.digitalLock = {
       policyUri: LOCK_URL,
+      criterionId: 'criterion-1',
       resourceHash: 'b'.repeat(64),
       minimumConfirmations: 6,
     };
@@ -246,6 +248,7 @@ describe('commerceListingRecordSchema', () => {
     listing.shippingOptions = [];
     listing.digitalLock = {
       policyUri: LOCK_URL,
+      criterionId: 'criterion-1',
       resourceHash: 'b'.repeat(64),
       minimumConfirmations: 7,
     };

@@ -6,8 +6,8 @@ import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
-import { LocksGatewayService } from '@/services/locks/locks';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { LocksGatewayService } from '@/services/locks/locks';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 
 export class CommerceApplication {
