@@ -346,7 +346,11 @@ describe('AuthController', () => {
     });
 
     it('should wait 5 seconds, initialize bootstrap, and setState notification store', async () => {
-      const notification: NotificationState = { unread: 2, lastRead: 123, lastPolledTimestamp: undefined };
+      const notification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 2,
+        lastRead: 123,
+        lastPolledTimestamp: undefined,
+      };
       const initializeSpy = vi.spyOn(BootstrapApplication, 'initialize').mockResolvedValue(notification);
       const sleepSpy = await spyOnSleep();
 
@@ -408,7 +412,11 @@ describe('AuthController', () => {
       vi.spyOn(NotificationNormalizer, 'toEnabledTypes').mockReturnValue(remoteAllowedTypes);
       vi.spyOn(SettingsNormalizer, 'extractState').mockReturnValue(createMockSettingsState());
 
-      const notification: NotificationState = { unread: 5, lastRead: 999, lastPolledTimestamp: undefined };
+      const notification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 5,
+        lastRead: 999,
+        lastPolledTimestamp: undefined,
+      };
       const initializeSpy = vi.spyOn(BootstrapApplication, 'initialize').mockResolvedValue(notification);
       await spyOnSleep();
 
@@ -446,7 +454,11 @@ describe('AuthController', () => {
       vi.spyOn(SettingsApplication, 'initializeSettings').mockRejectedValue(appError);
       vi.spyOn(SettingsNormalizer, 'extractState').mockReturnValue(createMockSettingsState());
 
-      const notification: NotificationState = { unread: 0, lastRead: 0, lastPolledTimestamp: undefined };
+      const notification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 0,
+        lastRead: 0,
+        lastPolledTimestamp: undefined,
+      };
       const initializeSpy = vi.spyOn(BootstrapApplication, 'initialize').mockResolvedValue(notification);
       await spyOnSleep();
 
@@ -558,7 +570,11 @@ describe('AuthController', () => {
       const mockSession = buildMockSession();
       const mockPubky = 'test-pubky' as Pubky;
       const mockData = { session: mockSession };
-      const mockNotification: NotificationState = { unread: 0, lastRead: 123, lastPolledTimestamp: 0 };
+      const mockNotification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 0,
+        lastRead: 123,
+        lastPolledTimestamp: 0,
+      };
 
       const keypairSpy = vi.spyOn(Identity, 'keypairFromMnemonic').mockReturnValue(mockKeypair);
       const signInSpy = vi.spyOn(AuthApplication, 'signIn').mockResolvedValue(mockData);
@@ -685,7 +701,11 @@ describe('AuthController', () => {
       const mockSession = buildMockSession();
       const mockPubky = 'test-pubky' as Pubky;
       const mockData = { session: mockSession };
-      const mockNotification: NotificationState = { unread: 0, lastRead: 123, lastPolledTimestamp: 0 };
+      const mockNotification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 0,
+        lastRead: 123,
+        lastPolledTimestamp: 0,
+      };
 
       const decryptSpy = vi.spyOn(Identity, 'decryptRecoveryFile').mockResolvedValue(mockKeypair);
       const signInSpy = vi.spyOn(AuthApplication, 'signIn').mockResolvedValue(mockData);
@@ -1144,7 +1164,11 @@ describe('AuthController', () => {
     it('should initialize session and bootstrap if user is signed up', async () => {
       const mockSession = buildMockSession();
       const mockPubky = TEST_PUBKY as Pubky;
-      const notification: NotificationState = { unread: 0, lastRead: 456, lastPolledTimestamp: 0 };
+      const notification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 0,
+        lastRead: 456,
+        lastPolledTimestamp: 0,
+      };
 
       const z32FromSessionSpy = vi.spyOn(Identity, 'z32FromSession').mockReturnValue(mockPubky);
       const userIsSignedUpSpy = vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(true);
@@ -1230,7 +1254,11 @@ describe('AuthController', () => {
         notifications: remoteNotificationPrefs,
       });
       const remoteAllowedTypes = [NotificationType.Reply, NotificationType.Mention];
-      const notification: NotificationState = { unread: 3, lastRead: 789, lastPolledTimestamp: 0 };
+      const notification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 3,
+        lastRead: 789,
+        lastPolledTimestamp: 0,
+      };
 
       vi.spyOn(Identity, 'z32FromSession').mockReturnValue(mockPubky);
       vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(true);
@@ -1279,7 +1307,11 @@ describe('AuthController', () => {
       );
       vi.spyOn(SettingsNormalizer, 'extractState').mockReturnValue(localSettings);
 
-      const notification: NotificationState = { unread: 0, lastRead: 0, lastPolledTimestamp: 0 };
+      const notification: Omit<NotificationState, 'marketplaceUnread'> = {
+        unread: 0,
+        lastRead: 0,
+        lastPolledTimestamp: 0,
+      };
       const initializeSpy = vi.spyOn(BootstrapApplication, 'initialize').mockResolvedValue(notification);
 
       const loadFromHomeserverSpy = vi.fn();

@@ -21,18 +21,19 @@ export function useLocksPayment({
   const [isStarting, setIsStarting] = useState(false);
 
   const start = async () => {
-    const nextBundleId = crypto.randomUUID().replaceAll('-', '');
     setIsStarting(true);
     setCredential(null);
     setError(null);
     try {
+      // Bundle ids are canonical Locks identifiers; the SDK generates them.
+      const nextBundleId = await CommerceController.generateLocksBundleId();
       const next = await CommerceController.submitLocksPaykitProof({
         creatorPubky,
         bundleId: nextBundleId,
         lockResource,
         criterionId,
       });
-      setBundleId(nextBundleId);
+      setBundleId(next.bundle_id);
       setLifecycle(next);
       return true;
     } catch {
@@ -44,7 +45,8 @@ export function useLocksPayment({
   };
 
   useEffect(() => {
-    if (!bundleId || !lifecycle || lifecycle.status === 'completed' || lifecycle.status === 'failed') return;
+    if (!bundleId || !lifecycle) return;
+    if (lifecycle.status === 'completed' || lifecycle.status === 'failed' || lifecycle.status === 'expired') return;
     let active = true;
     const poll = async () => {
       try {

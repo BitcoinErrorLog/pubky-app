@@ -19,8 +19,16 @@ export function useMarketplaceOrderAction(
     mode: 'onChange',
   });
 
-  const setAction = (action: MarketplaceOrderActionData['action']) => {
-    form.reset({ ...marketplaceOrderActionDefaults, action, amount: (order.total.amountMinor / 100).toFixed(2) });
+  const setAction = (
+    action: MarketplaceOrderActionData['action'],
+    overrides: Partial<MarketplaceOrderActionData> = {},
+  ) => {
+    form.reset({
+      ...marketplaceOrderActionDefaults,
+      action,
+      amount: (order.total.amountMinor / 100).toFixed(2),
+      ...overrides,
+    });
   };
 
   const submit = async (): Promise<boolean> => {
@@ -56,6 +64,15 @@ export function useMarketplaceOrderAction(
           break;
         case 'review':
           succeeded = await actOnOrder(order, 'review.create', {
+            rating: Number(data.rating),
+            text: data.text,
+          });
+          break;
+        case 'review_edit':
+          // Durable service only (24h edit window); `actOnOrder` sources
+          // `expected_revision` from the freshly loaded order and handles
+          // REVISION_CONFLICT with the refetch-and-retry pattern.
+          succeeded = await actOnOrder(order, 'review.update', {
             rating: Number(data.rating),
             text: data.text,
           });

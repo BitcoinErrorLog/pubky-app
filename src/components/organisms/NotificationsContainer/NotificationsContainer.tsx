@@ -5,11 +5,12 @@ import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll/useInfiniteScroll';
+import { useMarketplaceNotificationFeed } from '@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed';
 import { useNotifications } from '@/hooks/useNotifications/useNotifications';
 import { NotificationsEmpty } from '@/molecules/NotificationsEmpty/NotificationsEmpty';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { NotificationsList } from '../NotificationsList/NotificationsList';
-import { groupNotifications } from '../NotificationsList/NotificationsList.utils';
+import { groupNotifications, mergeMarketplaceNotifications } from '../NotificationsList/NotificationsList.utils';
 import { NotificationsContainerSkeleton, NotificationsLoadMoreSkeleton } from './NotificationsContainer.skeleton';
 
 /** Consecutive automatic loads allowed without the rendered list getting any longer. */
@@ -35,7 +36,16 @@ export function NotificationsContainer() {
     markAllAsRead,
   } = useNotifications();
 
-  const entries = groupNotifications(notifications);
+  // Marketplace notifications from the transactional backend, interleaved by
+  // timestamp so commerce activity shows up here instead of only on the
+  // separate marketplace page. Empty when signed out or when no marketplace
+  // backend is configured, leaving the social-only surface untouched.
+  const marketplaceFeed = useMarketplaceNotificationFeed();
+
+  const entries = mergeMarketplaceNotifications(groupNotifications(notifications), marketplaceFeed.items, {
+    hasMoreSocial: hasMore,
+  });
+  const unreadMarketplaceCount = marketplaceFeed.items.filter((item) => item.isUnread).length;
 
   // Grouping collapses many notifications into few rows, so a page can leave the scroll
   // sentinel on screen and immediately trigger the next one. A page that merges entirely
@@ -54,11 +64,16 @@ export function NotificationsContainer() {
   const isAuthenticated = useAuthStore((state) => state.session !== null);
 
   // Mark all notifications as read when entering the page (once authenticated), so the
-  // tab counter shows 0 while viewing.
+  // tab counter shows 0 while viewing. Marketplace mark-read is sandbox-only (the
+  // durable service stores no read state), which the controller enforces — in
+  // transaction-service mode the call writes nothing and the marketplace badge
+  // contribution is already 0.
+  const markAllMarketplaceRead = marketplaceFeed.markAllRead;
   useEffect(() => {
     if (!isAuthenticated) return;
     markAllAsRead();
-  }, [markAllAsRead, isAuthenticated]);
+    void markAllMarketplaceRead();
+  }, [markAllAsRead, markAllMarketplaceRead, isAuthenticated]);
 
   if (isLoading) {
     return <NotificationsContainerSkeleton />;
@@ -66,7 +81,9 @@ export function NotificationsContainer() {
 
   // A failure with nothing loaded yet is a dead end, so it owns the page. A failure
   // with rows on screen must not throw them away — it renders inline below the list.
-  if (error && notifications.length === 0) {
+  // Marketplace rows count as "on screen": a social fetch failure must not blank
+  // out commerce activity that already rendered.
+  if (error && entries.length === 0) {
     return (
       <Container overrideDefaults={true} className="flex flex-col items-center justify-center gap-4 py-12">
         <p className="text-muted-foreground">{error}</p>
@@ -77,15 +94,18 @@ export function NotificationsContainer() {
     );
   }
 
-  // Empty state
-  if (notifications.length === 0) {
+  // Empty state — only when neither the social feed nor the marketplace feed
+  // has anything to show.
+  if (entries.length === 0) {
     return <NotificationsEmpty />;
   }
+
+  const totalUnreadCount = unreadNotifications.length + unreadMarketplaceCount;
 
   return (
     <>
       <Heading level={5} size="lg" className="leading-normal font-light text-muted-foreground lg:hidden">
-        Notifications {unreadNotifications.length > 0 && `(${unreadNotifications.length})`}
+        Notifications {totalUnreadCount > 0 && `(${totalUnreadCount})`}
       </Heading>
       <NotificationsList entries={entries} unreadNotifications={unreadNotifications} />
 

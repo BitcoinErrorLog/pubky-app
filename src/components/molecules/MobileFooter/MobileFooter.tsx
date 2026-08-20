@@ -37,7 +37,8 @@ export function MobileFooter({ className }: MobileFooterProps) {
   const setShowSignInDialog = useAuthStore((state) => state.setShowSignInDialog);
   const { isPublicExploreRoute } = usePublicRoute();
   const { userDetails, currentUserPubky } = useCurrentUserProfile();
-  const unreadNotifications = useNotificationStore((state) => state.selectUnread());
+  // Social unread plus marketplace unread — one badge for the whole surface.
+  const unreadNotifications = useNotificationStore((state) => state.selectTotalUnread());
   const localAvatarUrl = useLocalFilesStore((state) => state.profile);
   const { isKeyboardVisible, keyboardOffset } = useKeyboardOffset();
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();

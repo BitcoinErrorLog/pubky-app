@@ -250,15 +250,32 @@ export const resolveDisputeCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
-export const createReviewCommandSchema = createCommerceCommandSchema(
-  'review.create',
-  orderIdPayload
-    .extend({
-      rating: z.number().int().min(1).max(5),
-      text: z.string().trim().min(1).max(5_000),
-    })
-    .strict(),
-);
+/**
+ * Review terms shared by `review.create` and `review.update`, mirroring the
+ * service's single `ReviewTermsPayload` validator: an integer rating 1–5 and
+ * trimmed text of 1–5,000 characters against the reviewed order.
+ */
+const reviewTermsPayloadSchema = orderIdPayload
+  .extend({
+    rating: z.number().int().min(1).max(5),
+    text: z.string().trim().min(1).max(5_000),
+  })
+  .strict();
+
+export const createReviewCommandSchema = createCommerceCommandSchema('review.create', reviewTermsPayloadSchema);
+
+/**
+ * `review.update` exists only on the durable service (the sandbox prototype
+ * had no review editing): the reviewer may revise their own review's rating
+ * and text within `COMMERCE_REVIEW_EDIT_WINDOW_SECONDS` (24 hours, the
+ * service's `REVIEW_EDIT_WINDOW_SECONDS`) of the review's creation. Outside
+ * the window the service answers `INVALID_STATE` ("The review edit window
+ * has closed."), so the UI withholds the affordance instead of failing on
+ * submit. `expected_revision` is the ORDER's revision — the service bumps
+ * the order on every review edit — and a stale value gets the standard 409
+ * `REVISION_CONFLICT` refetch-and-retry treatment.
+ */
+export const updateReviewCommandSchema = createCommerceCommandSchema('review.update', reviewTermsPayloadSchema);
 
 export const createMarketplaceReportCommandSchema = createCommerceCommandSchema(
   'trust.report',
@@ -311,6 +328,7 @@ export const marketplaceCommandSchema = z.union([
   submitDisputeEvidenceCommandSchema,
   resolveDisputeCommandSchema,
   createReviewCommandSchema,
+  updateReviewCommandSchema,
   createMarketplaceReportCommandSchema,
 ]);
 
@@ -387,6 +405,7 @@ export type OpenDisputeCommand = z.infer<typeof openDisputeCommandSchema>;
 export type SubmitDisputeEvidenceCommand = z.infer<typeof submitDisputeEvidenceCommandSchema>;
 export type ResolveDisputeCommand = z.infer<typeof resolveDisputeCommandSchema>;
 export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
+export type UpdateReviewCommand = z.infer<typeof updateReviewCommandSchema>;
 export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceReportCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;

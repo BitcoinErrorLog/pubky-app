@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Container } from '@/atoms/Container/Container';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { getBusinessKey } from '@/models/notification/notification.helpers';
+import { MarketplaceNotificationItem } from '@/organisms/MarketplaceNotificationItem/MarketplaceNotificationItem';
 import { NotificationGroupItem } from '../NotificationGroupItem/NotificationGroupItem';
 import { NotificationItem } from '../NotificationItem/NotificationItem';
 import type { NotificationsListProps } from './NotificationsList.types';
@@ -50,6 +51,18 @@ export function NotificationsList({ entries, unreadNotifications }: Notification
               isMobile={isMobile}
               isExpanded={isExpanded}
               onExpandedChange={handleExpandedChange}
+            />
+          );
+        }
+
+        if (entry.kind === 'marketplace') {
+          // Read/unread is carried on the row itself (per adapter mode),
+          // not derived from the social lastRead boundary.
+          return (
+            <MarketplaceNotificationItem
+              key={entry.notification.id}
+              notification={entry.notification}
+              isMobile={isMobile}
             />
           );
         }

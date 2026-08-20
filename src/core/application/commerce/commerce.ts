@@ -161,6 +161,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.fetchAttachment(actorPubky, attachmentId);
   }
 
+  static async generateLocksBundleId() {
+    return await LocksGatewayService.generateBundleId();
+  }
+
   static async submitLocksPaykitProof(params: {
     creatorPubky: string;
     readerPubky: string;
@@ -179,8 +183,13 @@ export class CommerceApplication {
     return await LocksGatewayService.issueAccessCredential(creatorPubky, bundleId);
   }
 
-  static async fetchLocksGuardedContent(relativePath: string, credential: string) {
-    return await LocksGatewayService.fetchGuardedContent(relativePath, credential);
+  static async fetchLocksGuardedContent(params: {
+    creatorPubky: string;
+    bundleId: string;
+    relativePath: string;
+    credential: string;
+  }) {
+    return await LocksGatewayService.fetchGuardedContent(params);
   }
 
   static getPaykitSetupUrl(returnTo: string, state: string) {
