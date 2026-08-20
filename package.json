@@ -29,7 +29,8 @@
     "prepare": "husky",
     "marketplace:dev": "MARKETPLACE_MODE=sandbox tsx watch services/marketplace/src/server.ts",
     "marketplace:start": "tsx services/marketplace/src/server.ts",
-    "test:marketplace": "vitest run --project unit services/marketplace"
+    "test:marketplace": "vitest run --project unit services/marketplace",
+    "vrt:gallery": "node scripts/vrt-gallery.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

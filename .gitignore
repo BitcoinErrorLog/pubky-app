@@ -84,3 +84,6 @@ public/sw.js.map
 
 # AI PR Descriptions
 .prs
+
+# VRT baseline gallery (generated)
+.vrt-gallery.html
