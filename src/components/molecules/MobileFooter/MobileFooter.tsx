@@ -8,6 +8,7 @@ import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode } from '@/config/commerce';
 import { FileController } from '@/controllers/file/file';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
@@ -67,12 +68,18 @@ export function MobileFooter({ className }: MobileFooterProps) {
       icon: Flame,
       label: 'Hot',
     },
-    {
-      href: APP_ROUTES.MARKETPLACE,
-      activePrefix: APP_ROUTES.MARKETPLACE,
-      icon: Store,
-      label: 'Marketplace',
-    },
+    // Marketplace stays out of primary navigation until the commerce adapter is
+    // explicitly configured; production defaults to 'unavailable' (ADR 0019).
+    ...(getCommerceAdapterMode() !== 'unavailable'
+      ? [
+          {
+            href: APP_ROUTES.MARKETPLACE,
+            activePrefix: APP_ROUTES.MARKETPLACE,
+            icon: Store,
+            label: 'Marketplace',
+          },
+        ]
+      : []),
     {
       href: APP_ROUTES.COLLECTIONS,
       activePrefix: APP_ROUTES.COLLECTIONS,
