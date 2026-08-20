@@ -21,6 +21,7 @@ const registerListingPayloadSchema = z
   .object({
     sellerPubky: commercePubkySchema,
     listingId: commerceEntityIdSchema,
+    title: z.string().trim().min(1).max(80).default('Marketplace item'),
     listingRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
     quantity: z.number().int().positive().max(1_000_000),
@@ -122,6 +123,50 @@ export const updateMarketplaceNotificationPreferencesCommandSchema = createComme
     .strict(),
 );
 
+const checkoutLineSchema = z.object({
+  listingAggregateId: z.string().min(1),
+  expectedRevision: z.number().int().positive(),
+  quantity: z.number().int().positive().max(1_000_000),
+});
+
+export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchema(
+  'checkout.create',
+  z
+    .object({
+      lines: z.array(checkoutLineSchema).min(1).max(50),
+      deliveryAddress: z
+        .object({
+          name: z.string().trim().min(1).max(100),
+          line1: z.string().trim().min(1).max(200),
+          line2: z.string().trim().max(200),
+          city: z.string().trim().min(1).max(100),
+          region: z.string().trim().min(1).max(100),
+          postalCode: z.string().trim().min(1).max(32),
+          countryCode: z.string().regex(/^[A-Z]{2}$/),
+        })
+        .strict(),
+      guaranteePolicyVersion: z.literal(1),
+    })
+    .strict()
+    .superRefine((payload, context) => {
+      const ids = payload.lines.map(({ listingAggregateId }) => listingAggregateId);
+      if (new Set(ids).size !== ids.length) {
+        context.addIssue({ code: 'custom', path: ['lines'], message: 'Checkout listing lines must be unique.' });
+      }
+    }),
+);
+
+export const advanceSandboxPaymentCommandSchema = createCommerceCommandSchema(
+  'payment.sandbox_advance',
+  z
+    .object({
+      paymentId: z.uuid(),
+      target: z.enum(['detected', 'confirmed', 'expired', 'manual_review']),
+      confirmations: z.number().int().min(0).max(6),
+    })
+    .strict(),
+);
+
 export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
   'message.send',
   z
@@ -147,6 +192,8 @@ export const marketplaceCommandSchema = z.union([
   sendMarketplaceMessageCommandSchema,
   markMarketplaceNotificationReadCommandSchema,
   updateMarketplaceNotificationPreferencesCommandSchema,
+  createMarketplaceCheckoutCommandSchema,
+  advanceSandboxPaymentCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -170,6 +217,8 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'auction_result',
             'notification',
             'notification_preferences',
+            'checkout',
+            'payment',
           ]),
         })
         .passthrough(),
@@ -203,6 +252,8 @@ export type MarkMarketplaceNotificationReadCommand = z.infer<typeof markMarketpl
 export type UpdateMarketplaceNotificationPreferencesCommand = z.infer<
   typeof updateMarketplaceNotificationPreferencesCommandSchema
 >;
+export type CreateMarketplaceCheckoutCommand = z.infer<typeof createMarketplaceCheckoutCommandSchema>;
+export type AdvanceSandboxPaymentCommand = z.infer<typeof advanceSandboxPaymentCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 
@@ -220,4 +271,12 @@ export function buildMarketplaceConversationAggregateId(
   listingId: string,
 ): string {
   return `conversation:${sellerPubky}_${buyerPubky}_${listingId}`;
+}
+
+export function buildMarketplaceCheckoutAggregateId(commandId: string): string {
+  return `checkout:${commandId}`;
+}
+
+export function buildMarketplacePaymentAggregateId(paymentId: string): string {
+  return `payment:${paymentId}`;
 }

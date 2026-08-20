@@ -225,6 +225,7 @@ export class CommerceApplication {
       payload: {
         sellerPubky: listing.ownerPubky,
         listingId: listing.listingId,
+        title: listing.title,
         listingRevision: listing.revision,
         contentHash: listing.media[0].contentHash,
         quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),

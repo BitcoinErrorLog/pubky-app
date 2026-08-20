@@ -235,6 +235,49 @@ export function createMarketplaceHttpServer({
         return;
       }
 
+      if (request.method === 'GET' && request.url === '/v1/orders') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Order actor is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, { orders: service.getOrders(actorResult.data) }, mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/payments/')) {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        const paymentId = request.url.slice('/v1/payments/'.length);
+        const payment = actorResult.success ? service.getPayment(actorResult.data, paymentId) : null;
+        writeJson(
+          response,
+          payment ? 200 : actorResult.success ? 404 : 401,
+          payment ?? {
+            error: { code: actorResult.success ? 'NOT_FOUND' : 'UNAUTHORIZED', message: 'Payment unavailable.' },
+          },
+          mode,
+        );
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/receipts/')) {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        const receiptId = request.url.slice('/v1/receipts/'.length);
+        const receipt = actorResult.success ? service.getReceipt(actorResult.data, receiptId) : null;
+        writeJson(
+          response,
+          receipt ? 200 : actorResult.success ? 404 : 401,
+          receipt ?? {
+            error: { code: actorResult.success ? 'NOT_FOUND' : 'UNAUTHORIZED', message: 'Receipt unavailable.' },
+          },
+          mode,
+        );
+        return;
+      }
+
       writeJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Route not found.' } }, mode);
     } catch (error) {
       const code = error instanceof RequestBodyError ? error.code : 'INTERNAL_ERROR';

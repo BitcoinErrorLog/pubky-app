@@ -4,11 +4,15 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
+  type AdvanceSandboxPaymentCommand,
   buildMarketplaceConversationAggregateId,
+  buildMarketplaceCheckoutAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplaceOfferAggregateId,
+  buildMarketplacePaymentAggregateId,
   type CloseAuctionCommand,
   type CounterOfferCommand,
+  type CreateMarketplaceCheckoutCommand,
   type CreateOfferCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
@@ -26,6 +30,7 @@ export interface MarketplaceListingAggregate {
   aggregateId: string;
   sellerPubky: string;
   listingId: string;
+  title: string;
   listingRevision: number;
   contentHash: string;
   serverRevision: number;
@@ -152,7 +157,9 @@ export interface MarketplaceNotification {
     | 'offer_rejected'
     | 'outbid'
     | 'auction_won'
-    | 'auction_ended';
+    | 'auction_ended'
+    | 'order_created'
+    | 'payment_confirmed';
   aggregateId: string;
   createdAt: string;
   readAt: string | null;
@@ -166,6 +173,71 @@ export interface MarketplaceNotificationPreferences {
   bids: boolean;
   auctions: boolean;
   updatedAt: string;
+}
+
+export interface MarketplaceOrderLine {
+  listingAggregateId: string;
+  listingRevision: number;
+  contentHash: string;
+  title: string;
+  quantity: number;
+  unitPrice: MarketplaceListingAggregate['unitPrice'];
+  subtotal: MarketplaceListingAggregate['unitPrice'];
+}
+
+export interface MarketplaceDeliveryAddress {
+  name: string;
+  line1: string;
+  line2: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  countryCode: string;
+}
+
+export interface MarketplaceOrder {
+  id: string;
+  buyerPubky: string;
+  sellerPubky: string;
+  revision: number;
+  state: 'pending_payment' | 'paid' | 'cancelled';
+  lines: MarketplaceOrderLine[];
+  deliveryAddress: MarketplaceDeliveryAddress;
+  subtotal: MarketplaceListingAggregate['unitPrice'];
+  shipping: MarketplaceListingAggregate['unitPrice'];
+  tax: MarketplaceListingAggregate['unitPrice'];
+  total: MarketplaceListingAggregate['unitPrice'];
+  guaranteePolicyVersion: 1;
+  paymentId: string;
+  receiptId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketplacePayment {
+  id: string;
+  orderId: string;
+  buyerPubky: string;
+  sellerPubky: string;
+  revision: number;
+  adapter: 'sandbox';
+  state: 'awaiting_entitlement' | 'detected' | 'confirmed' | 'expired' | 'manual_review';
+  confirmations: number;
+  locksBundleId: string;
+  amount: MarketplaceListingAggregate['unitPrice'];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketplaceReceipt {
+  id: string;
+  orderId: string;
+  paymentId: string;
+  issuerPubky: string;
+  recipientPubky: string;
+  total: MarketplaceListingAggregate['unitPrice'];
+  contentHash: string;
+  issuedAt: string;
 }
 
 export interface MarketplaceEvent {
@@ -187,7 +259,13 @@ export interface MarketplaceEvent {
     | 'auction.closed_sold'
     | 'auction.closed_unsold'
     | 'notification.read'
-    | 'notification.preferences_updated';
+    | 'notification.preferences_updated'
+    | 'order.created'
+    | 'payment.detected'
+    | 'payment.confirmed'
+    | 'payment.expired'
+    | 'payment.manual_review'
+    | 'receipt.issued';
   occurredAt: string;
 }
 
@@ -226,7 +304,14 @@ export type MarketplaceCommandSuccess = {
         reservation: MarketplaceReservation | null;
       }
     | { kind: 'notification'; notification: MarketplaceNotification }
-    | { kind: 'notification_preferences'; preferences: MarketplaceNotificationPreferences };
+    | { kind: 'notification_preferences'; preferences: MarketplaceNotificationPreferences }
+    | { kind: 'checkout'; orders: MarketplaceOrder[]; payments: MarketplacePayment[] }
+    | {
+        kind: 'payment';
+        payment: MarketplacePayment;
+        order: MarketplaceOrder;
+        receipt: MarketplaceReceipt | null;
+      };
 };
 
 export type MarketplaceCommandFailure = {
@@ -270,6 +355,9 @@ export class InMemoryMarketplaceRepository {
   private notifications: MarketplaceNotification[] = [];
   private notificationPreferences = new Map<string, MarketplaceNotificationPreferences>();
   private attachments = new Map<string, MarketplaceStoredAttachment>();
+  private orders = new Map<string, MarketplaceOrder>();
+  private payments = new Map<string, MarketplacePayment>();
+  private receipts = new Map<string, MarketplaceReceipt>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -375,6 +463,36 @@ export class InMemoryMarketplaceRepository {
     return this.attachments.get(id);
   }
 
+  putOrder(order: MarketplaceOrder): void {
+    this.orders.set(order.id, order);
+  }
+
+  getOrder(id: string): MarketplaceOrder | undefined {
+    return this.orders.get(id);
+  }
+
+  getOrdersForActor(actorPubky: string): MarketplaceOrder[] {
+    return [...this.orders.values()]
+      .filter((order) => order.buyerPubky === actorPubky || order.sellerPubky === actorPubky)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  putPayment(payment: MarketplacePayment): void {
+    this.payments.set(payment.id, payment);
+  }
+
+  getPayment(id: string): MarketplacePayment | undefined {
+    return this.payments.get(id);
+  }
+
+  putReceipt(receipt: MarketplaceReceipt): void {
+    this.receipts.set(receipt.id, receipt);
+  }
+
+  getReceipt(id: string): MarketplaceReceipt | undefined {
+    return this.receipts.get(id);
+  }
+
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
     return this.commands.get(`${actorPubky}:${commandId}`);
   }
@@ -470,6 +588,20 @@ export class MarketplaceTransactionService {
     return attachment.senderPubky === actorPubky || attachment.recipientPubky === actorPubky ? attachment : null;
   }
 
+  getOrders(actorPubky: string): MarketplaceOrder[] {
+    return this.repository.getOrdersForActor(actorPubky);
+  }
+
+  getPayment(actorPubky: string, paymentId: string): MarketplacePayment | null {
+    const payment = this.repository.getPayment(paymentId);
+    return payment && (payment.buyerPubky === actorPubky || payment.sellerPubky === actorPubky) ? payment : null;
+  }
+
+  getReceipt(actorPubky: string, receiptId: string): MarketplaceReceipt | null {
+    const receipt = this.repository.getReceipt(receiptId);
+    return receipt && (receipt.recipientPubky === actorPubky || receipt.issuerPubky === actorPubky) ? receipt : null;
+  }
+
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
     const commandResult = marketplaceCommandSchema.safeParse(commandInput);
@@ -532,6 +664,10 @@ export class MarketplaceTransactionService {
         return this.markNotificationRead(actorPubky, command);
       case 'notification.preferences.update':
         return this.updateNotificationPreferences(actorPubky, command);
+      case 'checkout.create':
+        return this.createCheckout(actorPubky, command);
+      case 'payment.sandbox_advance':
+        return this.advanceSandboxPayment(actorPubky, command);
     }
   }
 
@@ -567,6 +703,7 @@ export class MarketplaceTransactionService {
       aggregateId: command.aggregateId,
       sellerPubky: payload.sellerPubky,
       listingId: payload.listingId,
+      title: payload.title,
       listingRevision: payload.listingRevision,
       contentHash: payload.contentHash,
       serverRevision: currentRevision + 1,
@@ -1238,6 +1375,220 @@ export class MarketplaceTransactionService {
     return success(command, preferences.revision, event.id, { kind: 'notification_preferences', preferences });
   }
 
+  private createCheckout(actorPubky: string, command: CreateMarketplaceCheckoutCommand): MarketplaceCommandResult {
+    if (
+      command.aggregateId !== buildMarketplaceCheckoutAggregateId(command.commandId) ||
+      command.expectedRevision !== 0
+    ) {
+      return failure('INVALID_COMMAND', 'Checkout aggregate identity or revision is invalid.');
+    }
+    const resolved = command.payload.lines.map((line) => ({
+      requested: line,
+      listing: this.repository.getListing(line.listingAggregateId),
+    }));
+    if (resolved.some(({ listing }) => !listing)) {
+      return failure('NOT_FOUND', 'A checkout listing is unavailable.');
+    }
+    for (const { requested, listing } of resolved) {
+      if (!listing) continue;
+      if (listing.sellerPubky === actorPubky) {
+        return failure('UNAUTHORIZED', 'A buyer cannot purchase their own listing.');
+      }
+      if (listing.saleFormat !== 'fixed_price' || listing.state !== 'available') {
+        return failure('INVALID_STATE', 'Only available fixed-price listings can enter checkout.');
+      }
+      if (requested.expectedRevision !== listing.serverRevision) {
+        return failure('REVISION_CONFLICT', 'A checkout listing revision is stale.', {
+          currentRevision: listing.serverRevision,
+        });
+      }
+      if (requested.quantity > listing.availableQuantity) {
+        return failure('INSUFFICIENT_INVENTORY', 'Checkout quantity is unavailable.', {
+          currentRevision: listing.serverRevision,
+        });
+      }
+    }
+    const listings = resolved.map(({ listing }) => listing!);
+    const asset = listings[0].unitPrice;
+    if (listings.some((listing) => !sameAsset(asset, listing.unitPrice))) {
+      return failure('INVALID_COMMAND', 'One checkout may contain only one asset and exponent.');
+    }
+
+    const now = this.now();
+    const occurredAt = now.toISOString();
+    const sellerGroups = new Map<
+      string,
+      Array<{ requested: (typeof resolved)[number]['requested']; listing: MarketplaceListingAggregate }>
+    >();
+    for (const item of resolved) {
+      const listing = item.listing!;
+      const group = sellerGroups.get(listing.sellerPubky) ?? [];
+      group.push({ requested: item.requested, listing });
+      sellerGroups.set(listing.sellerPubky, group);
+    }
+
+    const orders: MarketplaceOrder[] = [];
+    const payments: MarketplacePayment[] = [];
+    const eventIds: string[] = [];
+    for (const [sellerPubky, items] of sellerGroups) {
+      const lines: MarketplaceOrderLine[] = items.map(({ requested, listing }) => ({
+        listingAggregateId: listing.aggregateId,
+        listingRevision: listing.listingRevision,
+        contentHash: listing.contentHash,
+        title: listing.title,
+        quantity: requested.quantity,
+        unitPrice: listing.unitPrice,
+        subtotal: { ...listing.unitPrice, amountMinor: listing.unitPrice.amountMinor * requested.quantity },
+      }));
+      const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
+      const shippingMinor = 1_200;
+      const taxMinor = Math.round((subtotalMinor + shippingMinor) * 0.08);
+      const orderId = randomUUID();
+      const paymentId = randomUUID();
+      const order: MarketplaceOrder = {
+        id: orderId,
+        buyerPubky: actorPubky,
+        sellerPubky,
+        revision: 1,
+        state: 'pending_payment',
+        lines,
+        deliveryAddress: command.payload.deliveryAddress,
+        subtotal: { ...asset, amountMinor: subtotalMinor },
+        shipping: { ...asset, amountMinor: shippingMinor },
+        tax: { ...asset, amountMinor: taxMinor },
+        total: { ...asset, amountMinor: subtotalMinor + shippingMinor + taxMinor },
+        guaranteePolicyVersion: command.payload.guaranteePolicyVersion,
+        paymentId,
+        receiptId: null,
+        createdAt: occurredAt,
+        updatedAt: occurredAt,
+      };
+      const payment: MarketplacePayment = {
+        id: paymentId,
+        orderId,
+        buyerPubky: actorPubky,
+        sellerPubky,
+        revision: 1,
+        adapter: 'sandbox',
+        state: 'awaiting_entitlement',
+        confirmations: 0,
+        locksBundleId: randomUUID(),
+        amount: order.total,
+        createdAt: occurredAt,
+        updatedAt: occurredAt,
+      };
+      this.repository.putOrder(order);
+      this.repository.putPayment(payment);
+      orders.push(order);
+      payments.push(payment);
+      const event = this.createEvent(actorPubky, command, 1, 'order.created', occurredAt, `order:${orderId}`);
+      this.repository.appendEvent(event);
+      eventIds.push(event.id);
+      this.notify(sellerPubky, actorPubky, 'order_created', `order:${orderId}`, occurredAt);
+    }
+
+    for (const { requested, listing } of resolved) {
+      this.repository.putListing({
+        ...listing!,
+        serverRevision: listing!.serverRevision + 1,
+        state: listing!.availableQuantity === requested.quantity ? 'reserved' : 'available',
+        availableQuantity: listing!.availableQuantity - requested.quantity,
+        reservedQuantity: listing!.reservedQuantity + requested.quantity,
+        updatedAt: occurredAt,
+      });
+    }
+    return success(command, 1, eventIds, { kind: 'checkout', orders, payments });
+  }
+
+  private advanceSandboxPayment(actorPubky: string, command: AdvanceSandboxPaymentCommand): MarketplaceCommandResult {
+    const payment = this.repository.getPayment(command.payload.paymentId);
+    if (!payment) return failure('NOT_FOUND', 'The sandbox payment was not found.');
+    if (payment.buyerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the buyer may advance a sandbox payment.');
+    }
+    if (command.aggregateId !== buildMarketplacePaymentAggregateId(payment.id)) {
+      return failure('INVALID_COMMAND', 'The payment aggregate id is invalid.');
+    }
+    if (command.expectedRevision !== payment.revision) {
+      return failure('REVISION_CONFLICT', 'The payment revision is stale.', { currentRevision: payment.revision });
+    }
+    const allowed =
+      payment.state === 'awaiting_entitlement'
+        ? ['detected', 'confirmed', 'expired', 'manual_review']
+        : payment.state === 'detected'
+          ? ['confirmed', 'manual_review']
+          : [];
+    if (!allowed.includes(command.payload.target)) {
+      return failure('INVALID_STATE', 'The sandbox payment transition is invalid.');
+    }
+    if (command.payload.target === 'confirmed' && command.payload.confirmations < 1) {
+      return failure('INVALID_COMMAND', 'Confirmed payment requires at least one confirmation.');
+    }
+
+    const order = this.repository.getOrder(payment.orderId);
+    if (!order) return failure('INVARIANT_VIOLATION', 'Payment order is missing.');
+    const occurredAt = this.now().toISOString();
+    const updatedPayment: MarketplacePayment = {
+      ...payment,
+      revision: payment.revision + 1,
+      state: command.payload.target,
+      confirmations: command.payload.confirmations,
+      updatedAt: occurredAt,
+    };
+    const eventKind = `payment.${command.payload.target}` as MarketplaceEvent['kind'];
+    const paymentEvent = this.createEvent(actorPubky, command, updatedPayment.revision, eventKind, occurredAt);
+    let updatedOrder = order;
+    let receipt: MarketplaceReceipt | null = null;
+    const eventIds = [paymentEvent.id];
+    if (updatedPayment.state === 'confirmed') {
+      const receiptId = randomUUID();
+      updatedOrder = {
+        ...order,
+        revision: order.revision + 1,
+        state: 'paid',
+        receiptId,
+        updatedAt: occurredAt,
+      };
+      const receiptPayload = JSON.stringify({
+        orderId: order.id,
+        paymentId: payment.id,
+        total: order.total,
+        issuedAt: occurredAt,
+      });
+      receipt = {
+        id: receiptId,
+        orderId: order.id,
+        paymentId: payment.id,
+        issuerPubky: order.sellerPubky,
+        recipientPubky: order.buyerPubky,
+        total: order.total,
+        contentHash: bytesToHex(blake3(new TextEncoder().encode(receiptPayload))),
+        issuedAt: occurredAt,
+      };
+      const receiptEvent = this.createEvent(
+        actorPubky,
+        command,
+        updatedOrder.revision,
+        'receipt.issued',
+        occurredAt,
+        `order:${order.id}`,
+      );
+      eventIds.push(receiptEvent.id);
+      this.repository.putReceipt(receipt);
+      this.repository.appendEvent(receiptEvent);
+      this.notify(order.sellerPubky, actorPubky, 'payment_confirmed', `order:${order.id}`, occurredAt);
+    }
+    this.repository.putPayment(updatedPayment);
+    this.repository.putOrder(updatedOrder);
+    this.repository.appendEvent(paymentEvent);
+    return success(command, updatedPayment.revision, eventIds, {
+      kind: 'payment',
+      payment: updatedPayment,
+      order: updatedOrder,
+      receipt,
+    });
+  }
+
   private notify(
     recipientPubky: string,
     actorPubky: string,
@@ -1247,13 +1598,15 @@ export class MarketplaceTransactionService {
   ): void {
     const preferences = this.getNotificationPreferences(recipientPubky);
     const enabled =
-      type === 'message_received'
-        ? preferences.messages
-        : type === 'outbid'
-          ? preferences.bids
-          : type === 'auction_won' || type === 'auction_ended'
-            ? preferences.auctions
-            : preferences.offers;
+      type === 'order_created' || type === 'payment_confirmed'
+        ? true
+        : type === 'message_received'
+          ? preferences.messages
+          : type === 'outbid'
+            ? preferences.bids
+            : type === 'auction_won' || type === 'auction_ended'
+              ? preferences.auctions
+              : preferences.offers;
     if (!enabled) return;
     this.repository.appendNotification({
       id: randomUUID(),

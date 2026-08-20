@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildMarketplaceCheckoutAggregateId,
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplaceOfferAggregateId,
+  buildMarketplacePaymentAggregateId,
 } from './contracts';
 import { InMemoryMarketplaceRepository, MarketplaceTransactionService } from './transaction-service';
 
@@ -174,6 +176,49 @@ function notificationPreferencesCommand(expectedRevision: number, messages: bool
     issuedAt: NOW.toISOString(),
     kind: 'notification.preferences.update',
     payload: { messages, offers: true, bids: true, auctions: true },
+  };
+}
+
+function checkoutCommand() {
+  const commandId = '00000000-0000-4000-8000-000000001000';
+  return {
+    version: 1,
+    commandId,
+    aggregateId: buildMarketplaceCheckoutAggregateId(commandId),
+    expectedRevision: 0,
+    issuedAt: NOW.toISOString(),
+    kind: 'checkout.create',
+    payload: {
+      lines: [{ listingAggregateId: AGGREGATE_ID, expectedRevision: 1, quantity: 1 }],
+      deliveryAddress: {
+        name: 'Alice Buyer',
+        line1: '1 Market Street',
+        line2: '',
+        city: 'New York',
+        region: 'NY',
+        postalCode: '10001',
+        countryCode: 'US',
+      },
+      guaranteePolicyVersion: 1,
+    },
+  };
+}
+
+function paymentCommand(
+  paymentId: string,
+  expectedRevision: number,
+  target: 'detected' | 'confirmed' | 'expired' | 'manual_review',
+  confirmations: number,
+  commandNumber: number,
+) {
+  return {
+    version: 1,
+    commandId: `00000000-0000-4000-8000-${commandNumber.toString().padStart(12, '0')}`,
+    aggregateId: buildMarketplacePaymentAggregateId(paymentId),
+    expectedRevision,
+    issuedAt: NOW.toISOString(),
+    kind: 'payment.sandbox_advance',
+    payload: { paymentId, target, confirmations },
   };
 }
 
@@ -749,6 +794,102 @@ describe('MarketplaceTransactionService', () => {
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'INVALID_STATE' },
+    });
+  });
+
+  it('creates an immutable checkout snapshot, reservation, order, and sandbox payment', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerCommand());
+
+    const result = await service.execute(BUYER, checkoutCommand());
+
+    expect(result).toMatchObject({
+      ok: true,
+      revision: 1,
+      result: {
+        kind: 'checkout',
+        orders: [
+          {
+            buyerPubky: BUYER,
+            sellerPubky: SELLER,
+            state: 'pending_payment',
+            subtotal: { amountMinor: 12_500 },
+            shipping: { amountMinor: 1_200 },
+            tax: { amountMinor: 1_096 },
+            total: { amountMinor: 14_796 },
+            guaranteePolicyVersion: 1,
+            lines: [{ listingRevision: 1, contentHash: 'a'.repeat(64), quantity: 1 }],
+          },
+        ],
+        payments: [{ state: 'awaiting_entitlement', adapter: 'sandbox', amount: { amountMinor: 14_796 } }],
+      },
+    });
+    expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
+      state: 'reserved',
+      availableQuantity: 0,
+      reservedQuantity: 1,
+      serverRevision: 2,
+    });
+    expect(service.getOrders(BUYER)).toHaveLength(1);
+    expect(service.getOrders(SELLER)).toHaveLength(1);
+    expect(service.getOrders(OTHER_BUYER)).toEqual([]);
+    expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('order_created');
+  });
+
+  it('advances sandbox payment through detection to confirmation and issues a receipt', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') return;
+    const payment = checkout.result.payments[0];
+
+    await expect(service.execute(BUYER, paymentCommand(payment.id, 1, 'detected', 0, 1_001))).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'payment', payment: { state: 'detected', revision: 2 }, receipt: null },
+    });
+    const confirmed = await service.execute(BUYER, paymentCommand(payment.id, 2, 'confirmed', 1, 1_002));
+
+    expect(confirmed).toMatchObject({
+      ok: true,
+      result: {
+        kind: 'payment',
+        payment: { state: 'confirmed', confirmations: 1, revision: 3 },
+        order: { state: 'paid', revision: 2, receiptId: expect.any(String) },
+        receipt: { contentHash: expect.stringMatching(/^[a-f0-9]{64}$/), total: { amountMinor: 14_796 } },
+      },
+    });
+    if (!confirmed.ok || confirmed.result.kind !== 'payment' || !confirmed.result.receipt) return;
+    expect(service.getReceipt(BUYER, confirmed.result.receipt.id)).toEqual(confirmed.result.receipt);
+    expect(service.getReceipt(OTHER_BUYER, confirmed.result.receipt.id)).toBeNull();
+    expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('payment_confirmed');
+  });
+
+  it('rejects duplicate checkout lines, stale stock, self-purchase, and invalid payment transitions', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const duplicate = checkoutCommand();
+    duplicate.payload.lines.push({ ...duplicate.payload.lines[0] });
+    await expect(service.execute(BUYER, duplicate)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_COMMAND' },
+    });
+    await expect(service.execute(SELLER, checkoutCommand())).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') return;
+    const payment = checkout.result.payments[0];
+    await expect(service.execute(BUYER, paymentCommand(payment.id, 1, 'confirmed', 0, 1_003))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_COMMAND' },
+    });
+    await expect(
+      service.execute(OTHER_BUYER, paymentCommand(payment.id, 1, 'detected', 0, 1_004)),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
     });
   });
 });
