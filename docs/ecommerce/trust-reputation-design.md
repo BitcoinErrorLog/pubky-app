@@ -135,7 +135,7 @@ Payload claims (closed-world; verifiers must reject unknown versions, tolerate n
 
 - `order_ref` is an opaque, attestor-salted hash of the private order UUID. It exists so annotations (§5.6) and repeat-purchase attestations can reference a specific order without exposing service identifiers (ADR 0019 §8 forbids payment/order correlation leakage). The salt is held by the attestor; nobody else can link `order_ref` back to an order.
 - `completed_on` is **day-granularity**, deliberately: a full timestamp plus an amount band could correlate a review with an on-chain payment. Day granularity plus log-scale banding keeps the correlation weak. This residual correlation risk is real and disclosed here rather than denied.
-- `amount_band` is `"{CURRENCY}:{floor(log10(total_minor))}"` — e.g. an 850,000-sat order is `SAT:5`. Optional claim; the attestor may omit it for currencies/policies where even a decade band is sensitive. **No exact amounts, no addresses, no payment IDs, no `bundle_id`** — the ADR 0019 §8 redaction list applies verbatim to attestation claims.
+- `amount_band` is `"{CURRENCY}:{floor(log10(total_minor))}"` — e.g. an 850,000-sat order is `SAT:5`. Optional claim, gated by **both-sides consent (ratified D2)**: the band is included only when the seller's standing band-consent preference (a per-seller setting stored by the transaction service, off by default, revisable at any time; it applies at issuance time) allows it **and** the buyer opted in at review time (a per-review choice in the review flow, off by default, surfaced only when the seller side has already consented). Either side silent or opposed → no band. **No exact amounts, no addresses, no payment IDs, no `bundle_id`** — the ADR 0019 §8 redaction list applies verbatim to attestation claims.
 - No `exp`. Portable reputation that evaporates on an attestor-chosen schedule is not portable. Bad outcomes are handled by annotation (§5.6), not expiry.
 
 Size check: header (~46 chars b64) + payload (~450 chars b64) + Ed25519 signature (86 chars b64) ≈ 590 chars — comfortably inside the spec's 4,096 ceiling and above its 32 floor.
@@ -153,7 +153,7 @@ The attestor's signing key is an Ed25519 key that **is itself a pubky** (z-base-
 ### 5.5 Issuance flow
 
 1. Buyer confirms delivery; order reaches a reviewable state (`delivered`/`completed`/`closed` — the existing service table).
-2. Client sends `review.create` exactly as today. On success the service — inside the same transaction that inserts the review row — issues the attestation and returns it in the command result. A new authenticated read (`GET /v1/orders/{id}/review-attestation`, participant-scoped) allows re-fetch for retry/re-publication; issuance is deterministic per order+reviewer, so re-fetching returns the same attestation (idempotent, no consumption semantics).
+2. Client sends `review.create` as today, plus an optional per-review amount-band opt-in flag (ratified D2; the flag is meaningful only when the seller's standing consent also allows the band). On success the service — inside the same transaction that inserts the review row — issues the attestation and returns it in the command result. A new authenticated read (`GET /v1/orders/{id}/review-attestation`, participant-scoped) allows re-fetch for retry/re-publication; issuance is deterministic per order+reviewer, so re-fetching returns the same attestation (idempotent, no consumption semantics).
 3. Client builds the `PubkyAppMarketplaceReview` record (schema already in the client), embeds the JWS in `eligibilityAttestation`, and publishes to the reviewer's homeserver. Publication failure leaves a visible retryable outbox item — the exact pattern ADR 0020 §3 established for listing publication. No new distributed-transaction claim: the service copy and the public record converge, and until they do the review simply isn't publicly visible.
 4. `review.update` within the 24h window re-publishes the record with `revision + 1`; the attestation is unchanged (it attests the purchase, §5.1).
 
@@ -295,20 +295,20 @@ What a third party — another client, another indexer, a seller migrating away,
 - **Cross-role bootstrap**: a new seller with buyer-side attested history can show it ("member since…, ✓ verified buyer history") — the topology's two-directional records make this free.
 - **Ranking policy**: default catalog sorts stay recency/relevance — reputation is a *filter and display facet*, not a default sort key in v1, so zero-history sellers appear in normal browsing. A "top rated" sort is explicit user intent. (Open decision D4 covers whether reputation ever enters default ranking.)
 
-## 11. Open decisions for the product owner
+## 11. Decisions — ratified 2026-08-21
 
-Separated from the resolved design; each has a default so no decision blocks Phase 1.
+All eight decisions were ratified by the product owner on 2026-08-21. The table records the ratified position; D2 departs from the drafted default and §5.3 has been revised to match.
 
-| # | Decision | Options | Default if undecided |
-| --- | --- | --- | --- |
-| D1 | One living review per (listing, subject, role) vs. per-order reviews | Keep spec (revise-in-place; repeat orders refresh attestation) / break spec, add order to ID hash | Keep spec (§6.1) |
-| D2 | Amount bands in attestations | Include log-decade band / omit entirely (max privacy) / make per-seller opt-out | Include, attestor-optional (§5.3) |
-| D3 | Stat attestation cadence and stat set | Weekly + {ship-time, dispute, completion} / add more (return rate…) | Weekly, minimal set (§7.2) |
-| D4 | Does reputation enter default catalog ranking? | Never / after N reviews / immediately | Never in v1 (§10.3) |
-| D5 | Unverified reviews on marketplace surfaces | Show with "unverified" label / hide entirely, keep indexable | Show labeled — hiding contradicts the openness story, but brand risk is real |
-| D6 | Attestor identity operations | Same process as service w/ KMS key / separate signer service | Same process + KMS for v1; revisit before real funds (§5.4) |
-| D7 | Who may respond to a review | Subject only (this design) / subject + reviewer threaded exchange | Subject only, one revisable response (§6.3) |
-| D8 | Buyer reputation surfacing prominence | Seller-visible in negotiation contexts only / public buyer profiles | Negotiation contexts only — public buyer scores invite harassment |
+| # | Decision | Ratified position |
+| --- | --- | --- |
+| D1 | One living review per (listing, subject, role) vs. per-order reviews | **Keep spec** (§6.1): one living review per listing per role, revised in place; repeat orders refresh the attestation; Nexus counts distinct attested orders via `order_ref` |
+| D2 | Amount bands in attestations | **Custom — both-sides consent.** A band is included only when both the buyer and the seller have allowed it: the seller holds a standing band-consent preference on the shop/service side, the buyer opts in per review at review time. Default on both sides is *not included*. Consent mechanics: §5.3 |
+| D3 | Stat attestation cadence and stat set | **Weekly**, minimal set {ship-time, dispute rate, completion rate} (§7.2) |
+| D4 | Does reputation enter default catalog ranking? | **Never in v1** (§10.3) — reputation is a filter/display facet only |
+| D5 | Unverified reviews on marketplace surfaces | **Show with "unverified" label** — hiding contradicts the openness story |
+| D6 | Attestor identity operations | **Same process as the service**, key held in KMS/env; revisit before real funds move (§5.4) |
+| D7 | Who may respond to a review | **Subject only**, one revisable response (§6.3) |
+| D8 | Buyer reputation surfacing prominence | **Negotiation contexts only** — no public buyer profiles; public buyer scores invite harassment |
 
 ## 12. Alternatives considered and rejected
 

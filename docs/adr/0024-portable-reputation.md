@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed — 2026-08-21
+Accepted — 2026-08-21 (proposed and ratified the same day; open decisions D1–D8 resolved, see design doc §11)
 
-> Draft for review. Nothing in this ADR is implemented. The full design, threat model, and UX treatment live in [trust-reputation-design.md](../ecommerce/trust-reputation-design.md); this ADR records the decisions that bind other components.
+> The full design, threat model, and UX treatment live in [trust-reputation-design.md](../ecommerce/trust-reputation-design.md); this ADR records the decisions that bind other components. D2 was ratified as a custom position (both-sides consent for amount bands) and §2 below reflects it.
 
 ## Context
 
@@ -28,6 +28,8 @@ This ADR **revises ADR 0020 §5**: the attestation embedded in a published revie
 ### 2. Format: compact JWS, EdDSA (Ed25519), closed claim set
 
 The attestation is a compact JWS (RFC 7515, `alg: EdDSA` per RFC 8037) — it fits the spec field's charset exactly and is verifiable with audited libraries in every target ecosystem. Claims (version `v: 1`, closed-world): `iss` (attestor pubky), `sub` (reviewer pubky), `cpk` (counterparty pubky), `role`, `listing` (canonical listing URI), `order_ref` (attestor-salted Blake3 of the private order UUID), `completed_on` (**day granularity**), optional `amount_band` (log-decade band with currency code, e.g. `SAT:5`), `iat`. Exact amounts, timestamps finer than a day, addresses, payment IDs, and `bundle_id` are prohibited in claims — the ADR 0019 §8 redaction list applies verbatim.
+
+**Amount bands require both-sides consent (ratified D2).** The band claim is emitted only when the seller's standing band-consent preference — a per-seller setting stored by the transaction service, off by default, evaluated at issuance time — allows it **and** the reviewer opted in for that specific review at review time. Either side silent or opposed means the claim is omitted. The buyer-side opt-in control is surfaced only when the seller has already consented.
 
 ### 3. The attestor is a Pubky identity
 
