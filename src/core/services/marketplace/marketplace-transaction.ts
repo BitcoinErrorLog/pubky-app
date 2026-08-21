@@ -307,6 +307,50 @@ export class MarketplaceTransactionService {
   }
 
   /**
+   * `GET /v1/sellers/{pubky}/band-consent`: the seller's standing
+   * amount-band consent (ratified D2, ADR 0024). Readable by any
+   * authenticated session — it is a disclosure preference, not private
+   * order data — so a buyer's review dialog can honestly decide whether to
+   * surface the per-review band opt-in. Absent row means false.
+   */
+  static async getBandConsent(actor: string, sellerPubky: string): Promise<boolean> {
+    const raw = await this.readProjection(
+      'getBandConsent',
+      actor,
+      `/v1/sellers/${encodeURIComponent(sellerPubky)}/band-consent`,
+    );
+    return this.parseProjection(
+      'getBandConsent',
+      z.object({ sellerPubky: commercePubkySchema, allowsAmountBand: z.boolean() }),
+      raw,
+      'Marketplace returned an invalid band-consent read.',
+    ).allowsAmountBand;
+  }
+
+  /**
+   * `GET /v1/orders/{id}/review-attestation`: the caller's own stored
+   * purchase attestation for the order — idempotent re-fetch for
+   * re-publication (issuance is deterministic per order+reviewer). Null when
+   * the caller has not reviewed the order or the deployment issues no
+   * attestations.
+   */
+  static async getReviewAttestation(actor: string, orderId: string): Promise<unknown | null> {
+    const raw = await this.readProjection(
+      'getReviewAttestation',
+      actor,
+      `/v1/orders/${encodeURIComponent(orderId)}/review-attestation`,
+      { nullOnNotFound: true },
+    );
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getReviewAttestation',
+      z.object({ attestation: z.object({ jws: z.string().min(32) }).passthrough() }),
+      raw,
+      'Marketplace returned an invalid review attestation.',
+    ).attestation;
+  }
+
+  /**
    * `GET /v1/notifications`: recipient-scoped delivered outbox rows. They
    * carry no `revision` — there is no notification command surface on the
    * durable service, so nothing can mark them read.

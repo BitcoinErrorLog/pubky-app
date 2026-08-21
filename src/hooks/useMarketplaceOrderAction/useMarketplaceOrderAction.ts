@@ -66,6 +66,9 @@ export function useMarketplaceOrderAction(
           succeeded = await actOnOrder(order, 'review.create', {
             rating: Number(data.rating),
             text: data.text,
+            // D2 both-sides consent: this is only half the gate — the
+            // service includes a band only when the seller also consented.
+            allowAmountBand: data.allowAmountBand,
           });
           break;
         case 'review_edit':

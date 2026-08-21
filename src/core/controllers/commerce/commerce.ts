@@ -183,6 +183,47 @@ export class CommerceController {
     );
   }
 
+  /**
+   * The seller's standing amount-band consent (ratified D2). `null` means
+   * the backend has no attestation support (sandbox) and the opt-in must not
+   * be rendered at all.
+   */
+  static async getMarketplaceBandConsent(sellerPubky: unknown) {
+    return await CommerceApplication.getMarketplaceBandConsent(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.pubky(sellerPubky),
+    );
+  }
+
+  /** The current user's own published review row for one order, or null. */
+  static async getOwnMarketplaceReview(orderId: unknown) {
+    if (typeof orderId !== 'string' || orderId.length === 0) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'An order id is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'getOwnMarketplaceReview',
+      });
+    }
+    return await CommerceApplication.getOwnMarketplaceReview(this.getCurrentUserPubky(), orderId);
+  }
+
+  /**
+   * Publishes the current user's review record (with its embedded purchase
+   * attestation) to their homeserver after a successful review command.
+   * Returns null when the command result carried no attestation.
+   */
+  static async publishOwnMarketplaceReview(order: MarketplaceOrder, result: Record<string, unknown>) {
+    return await CommerceApplication.commitPublishOwnReview({
+      actorPubky: this.getCurrentUserPubky(),
+      order,
+      result,
+    });
+  }
+
+  /** Retries own-review records whose homeserver publication never landed. */
+  static async resumeOwnReviewPublications() {
+    return await CommerceApplication.resumeOwnReviewPublications(this.getCurrentUserPubky());
+  }
+
   static async getMarketplaceListingProjection(ownerPubky: unknown, listingId: unknown) {
     const owner = CommerceRecordNormalizer.pubky(ownerPubky);
     const id = CommerceRecordNormalizer.entityId(listingId);

@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWatch } from 'react-hook-form';
+import { Controller, useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
+import { Checkbox } from '@/atoms/Checkbox/Checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
 import { COMMERCE_REVIEW_EDIT_WINDOW_SECONDS } from '@/config/commerce';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
+import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
@@ -47,6 +50,46 @@ export function MarketplaceOrderActions({
   }, []);
   const action = useMarketplaceOrderAction(order, actOnOrder);
   const actionType = useWatch({ control: action.form.control, name: 'action' });
+
+  // Seller-side half of the D2 amount-band consent, read honestly from the
+  // service when the buyer opens the review dialog: `true` renders the
+  // opt-in, `false` renders the truthful "seller has not enabled" note, and
+  // `null` (sandbox / read failed) renders nothing — never a dead checkbox.
+  const [sellerBandConsent, setSellerBandConsent] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!open || actionType !== 'review' || !isBuyer) return;
+    let active = true;
+    CommerceController.getMarketplaceBandConsent(order.sellerPubky)
+      .then((consent) => {
+        if (active) setSellerBandConsent(consent);
+      })
+      .catch(() => {
+        if (active) setSellerBandConsent(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, actionType, isBuyer, order.sellerPubky]);
+
+  // The local-first copy of the user's own published review record: its
+  // publication + attestation state backs the verified-status line below.
+  const [ownReviewRecord, setOwnReviewRecord] = useState<CommerceReviewModelSchema | null>(null);
+  const ownReviewerPubkyForRecord = isBuyer ? order.buyerPubky : order.sellerPubky;
+  const hasOwnReview = order.reviews?.some(({ reviewerPubky }) => reviewerPubky === ownReviewerPubkyForRecord);
+  useEffect(() => {
+    if (!hasOwnReview) return;
+    let active = true;
+    CommerceController.getOwnMarketplaceReview(order.id)
+      .then((record) => {
+        if (active) setOwnReviewRecord(record);
+      })
+      .catch(() => {
+        if (active) setOwnReviewRecord(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [hasOwnReview, order.id, order.revision]);
 
   const begin = (next: MarketplaceOrderActionData['action'], overrides?: Partial<MarketplaceOrderActionData>) => {
     action.setAction(next, overrides);
@@ -140,6 +183,12 @@ export function MarketplaceOrderActions({
         )}
       </div>
 
+      {ownReview && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="own-review-status">
+          {reviewRecordStatus(ownReviewRecord)}
+        </p>
+      )}
+
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="border-border bg-popover">
           <DialogHeader>
@@ -175,6 +224,26 @@ export function MarketplaceOrderActions({
               <ControlledTextareaField name="text" control={action.form.control} label="Review" />
             </>
           )}
+          {actionType === 'review' && isBuyer && sellerBandConsent === true && (
+            <Controller
+              name="allowAmountBand"
+              control={action.form.control}
+              render={({ field }) => (
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={(checked) => field.onChange(checked === true)}
+                  label="Include an approximate price range"
+                  description="Your review's purchase attestation will carry a coarse order-of-magnitude band (never the exact amount). This seller has allowed it; it is included only if you opt in too."
+                />
+              )}
+            />
+          )}
+          {actionType === 'review' && isBuyer && sellerBandConsent === false && (
+            <p className="text-xs text-muted-foreground">
+              This seller has not enabled price-range sharing, so your review&apos;s attestation will not carry an
+              amount band.
+            </p>
+          )}
           <DialogFooter>
             <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
               Cancel
@@ -187,6 +256,25 @@ export function MarketplaceOrderActions({
       </Dialog>
     </>
   );
+}
+
+/**
+ * The truthful publication/verification state of the user's own review.
+ * "Verified" means exactly: the published record embeds a purchase
+ * attestation whose Ed25519 signature verifies against its issuer pubky and
+ * whose claims bind to this record — nothing more.
+ */
+function reviewRecordStatus(record: CommerceReviewModelSchema | null): string {
+  if (record === null) {
+    return 'Your review is saved with the marketplace service. No public record was published (this deployment issued no purchase attestation).';
+  }
+  if (record.sync_status === 'pending') {
+    return 'Your review is saved; publishing the public record to your homeserver is still pending and will retry.';
+  }
+  if (record.attestation_verified && record.attestation_iss !== null) {
+    return `Verified purchase — your published review embeds a purchase attestation signed by attestor ${record.attestation_iss.slice(0, 8)}….`;
+  }
+  return 'Your review record is published, but its embedded attestation did not verify.';
 }
 
 function actionTitle(action: MarketplaceOrderActionData['action']): string {

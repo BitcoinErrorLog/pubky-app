@@ -12,6 +12,7 @@ import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
+  CommerceReviewModelSchema,
   CommerceShopFollowModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
@@ -45,6 +46,66 @@ export class CommerceShopModel
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read sorted records from ${this.table.name}`, {
         service: ErrorService.Local,
         operation: 'findAllSorted',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceReviewModel
+  extends RecordModelBase<string, CommerceReviewModelSchema>
+  implements CommerceReviewModelSchema
+{
+  static table: Table<CommerceReviewModelSchema> = db.table('commerce_reviews');
+
+  owner_id: string;
+  review_id: string;
+  order_id: string;
+  subject_id: string;
+  record: CommerceReviewModelSchema['record'];
+  attestation_verified: boolean;
+  attestation_iss: string | null;
+  sync_status: CommerceReviewModelSchema['sync_status'];
+  updated_at: number;
+
+  constructor(review: CommerceReviewModelSchema) {
+    super(review);
+    this.owner_id = review.owner_id;
+    this.review_id = review.review_id;
+    this.order_id = review.order_id;
+    this.subject_id = review.subject_id;
+    this.record = review.record;
+    this.attestation_verified = review.attestation_verified;
+    this.attestation_iss = review.attestation_iss;
+    this.sync_status = review.sync_status;
+    this.updated_at = review.updated_at;
+  }
+
+  static async findByOwnerAndOrder(ownerId: string, orderId: string): Promise<CommerceReviewModelSchema | undefined> {
+    try {
+      return await this.table.where('[owner_id+order_id]').equals([ownerId, orderId]).first();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read own review from ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findByOwnerAndOrder',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+
+  static async findPendingByOwner(ownerId: string): Promise<CommerceReviewModelSchema[]> {
+    try {
+      return await this.table
+        .where('owner_id')
+        .equals(ownerId)
+        .and((row) => row.sync_status === 'pending')
+        .toArray();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read pending reviews from ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findPendingByOwner',
         context: { table: this.table.name },
         cause: error,
       });

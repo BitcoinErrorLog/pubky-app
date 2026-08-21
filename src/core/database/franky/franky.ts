@@ -20,6 +20,8 @@ import {
   commerceListingTableSchema,
   type CommerceLocksCorrelationModelSchema,
   commerceLocksCorrelationTableSchema,
+  type CommerceReviewModelSchema,
+  commerceReviewTableSchema,
   type CommerceShopFollowModelSchema,
   commerceShopFollowTableSchema,
   type CommerceShopModelSchema,
@@ -143,6 +145,8 @@ export class AppDatabase extends Dexie {
   commerce_listing_drafts!: Dexie.Table<CommerceListingDraftModelSchema>;
   commerce_listing_projections!: Dexie.Table<CommerceListingProjectionModelSchema>;
   commerce_sync_jobs!: Dexie.Table<CommerceSyncJobModelSchema>;
+  // Own published marketplace reviews (local-first copy + publication state)
+  commerce_reviews!: Dexie.Table<CommerceReviewModelSchema>;
   commerce_favorites!: Dexie.Table<CommerceFavoriteModelSchema>;
   commerce_shop_follows!: Dexie.Table<CommerceShopFollowModelSchema>;
   commerce_cart_items!: Dexie.Table<CommerceCartItemModelSchema>;
@@ -197,6 +201,7 @@ export class AppDatabase extends Dexie {
         commerce_listing_drafts: commerceListingDraftTableSchema,
         commerce_listing_projections: commerceListingProjectionTableSchema,
         commerce_sync_jobs: commerceSyncJobTableSchema,
+        commerce_reviews: commerceReviewTableSchema,
         commerce_favorites: commerceFavoriteTableSchema,
         commerce_shop_follows: commerceShopFollowTableSchema,
         commerce_cart_items: commerceCartItemTableSchema,

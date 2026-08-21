@@ -131,6 +131,9 @@ export function useMarketplaceOrders() {
         toast({ variant: 'error', description: response.error.message });
         return false;
       }
+      if (kind === 'review.create' || kind === 'review.update') {
+        await publishReviewRecord(order, response.result);
+      }
       await refresh();
       return true;
     } catch (actionError) {
@@ -148,6 +151,29 @@ export function useMarketplaceOrders() {
   return { orders, isLoading, error, needsSession, refresh, advancePayment, actOnOrder, adapterMode };
 }
 
+/**
+ * Publishes the reviewer-owned public review record (with the embedded
+ * purchase attestation) after the service accepted the review. The review
+ * itself already succeeded; a publication failure is reported honestly and
+ * the staged record retries when the orders surface next loads.
+ */
+async function publishReviewRecord(order: MarketplaceOrder, result: unknown): Promise<void> {
+  try {
+    const published = await CommerceController.publishOwnMarketplaceReview(
+      order,
+      (result ?? {}) as Record<string, unknown>,
+    );
+    if (published === null) return; // No attestation issued: review stays service-only.
+    toast({ description: 'Review published to your homeserver with its purchase attestation.' });
+  } catch {
+    toast({
+      variant: 'error',
+      description:
+        'Your review was saved, but publishing the public record to your homeserver failed. It will retry when your orders next load.',
+    });
+  }
+}
+
 async function loadOrders(
   currentUserPubky: string | null,
   setOrders: Dispatch<SetStateAction<MarketplaceOrderView[]>>,
@@ -156,6 +182,10 @@ async function loadOrders(
   setNeedsSession: Dispatch<SetStateAction<boolean>>,
 ): Promise<void> {
   if (!currentUserPubky || !isTransactionalCommerceMode(getCommerceAdapterMode())) return;
+  // Retryable outbox for own-review records: any publication that failed
+  // mid-flight is retried whenever this surface loads. Best-effort — a
+  // failure keeps the row pending and is logged inside the application.
+  void CommerceController.resumeOwnReviewPublications().catch(() => undefined);
   try {
     const orders = await CommerceController.getMarketplaceOrders();
     const views = await Promise.all(

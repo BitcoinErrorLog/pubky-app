@@ -1,13 +1,16 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { z } from 'zod';
 import { TagKind } from '@/application/tag/tag.types';
 import { getCommerceAdapterMode, MARKETPLACE_FOLLOWED_SHELF_MAX_SELLER_FETCHES } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
+import { extractReviewAttestation, verifyOwnReviewAttestation } from '@/libs/commerce/attestation';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
-import type {
-  CommerceDigitalLock,
-  CommerceListingRecord,
-  CommerceShopRecord,
+import {
+  type CommerceDigitalLock,
+  type CommerceListingRecord,
+  commerceReviewRecordSchema,
+  type CommerceShopRecord,
 } from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
@@ -22,7 +25,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
-import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
+import type { CommerceReviewModelSchema, CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { selectFollowedSellersToRefresh } from '@/pipes/commerce/commerce.discovery';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
@@ -42,6 +45,22 @@ import { MarketplaceSessionService } from '@/services/marketplace/marketplace-se
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/nexus/marketplace/marketplace.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
+
+/**
+ * The `review` view inside a successful review command result (camelCased
+ * by the wire boundary) — exactly the fields record publication needs.
+ */
+const reviewResultSchema = z
+  .object({
+    reviewerPubky: z.string().length(52),
+    reviewerRole: z.enum(['buyer', 'seller']),
+    subjectPubky: z.string().length(52),
+    rating: z.number().int().min(1).max(5),
+    text: z.string().min(1),
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+  })
+  .passthrough();
 
 export interface CommerceCatalogStreamFilters {
   saleFormat?: NexusListingSaleFormat;
@@ -693,6 +712,144 @@ export class CommerceApplication {
       });
       return local.record;
     }
+  }
+
+  /**
+   * The seller's standing amount-band consent (ratified D2, ADR 0024).
+   * `null` means the running backend has no attestation support at all
+   * (sandbox) — callers render absence, never a fake false.
+   */
+  static async getMarketplaceBandConsent(actorPubky: string, sellerPubky: string): Promise<boolean | null> {
+    return await MarketplaceGatewayService.getBandConsent(actorPubky, sellerPubky);
+  }
+
+  static async getOwnMarketplaceReview(actorPubky: string, orderId: string): Promise<CommerceReviewModelSchema | null> {
+    return (await LocalCommerceService.getOwnReviewByOrder(actorPubky, orderId)) ?? null;
+  }
+
+  /**
+   * Publishes the reviewer-owned public review record after a successful
+   * `review.create`/`review.update` (trust & reputation plan P1.6): builds
+   * the `PubkyAppMarketplaceReview` via the specs builder (deterministic
+   * hash ID), embeds the service-issued purchase attestation verbatim in
+   * `eligibilityAttestation`, and PUTs it to the reviewer's homeserver with
+   * the staged-job outbox pattern listing publication established — a failed
+   * PUT leaves a visible pending row that
+   * {@link resumeOwnReviewPublications} retries.
+   *
+   * Returns `null` (publishing nothing) when the command result carries no
+   * attestation: the record's `eligibilityAttestation` is required, so a
+   * deployment without an attestor keeps reviews service-only — an honest
+   * absence, not a failure.
+   */
+  static async commitPublishOwnReview(input: {
+    actorPubky: string;
+    order: MarketplaceOrder;
+    result: Record<string, unknown>;
+  }): Promise<CommerceReviewModelSchema | null> {
+    const { actorPubky, order, result } = input;
+    const attestation = extractReviewAttestation(result);
+    if (attestation === null) return null;
+    const review = reviewResultSchema.parse(result.review);
+
+    const listingPrefix = `listing:${order.sellerPubky}_`;
+    const listingAggregateId = order.lines[0]?.listingAggregateId ?? '';
+    if (!listingAggregateId.startsWith(listingPrefix)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Order lines carry no parseable listing identity.', {
+        service: ErrorService.Marketplace,
+        operation: 'commitPublishOwnReview',
+        context: { orderId: order.id },
+      });
+    }
+    const listingId = listingAggregateId.slice(listingPrefix.length);
+    const role = review.reviewerRole === 'buyer' ? 'buyer_reviewing_seller' : 'seller_reviewing_buyer';
+
+    const build = async (revision: number, createdAt: string) => {
+      const { PubkySpecsBuilder } = await import('pubky-app-specs');
+      const built = new PubkySpecsBuilder(actorPubky).createMarketplaceReview({
+        schemaVersion: 1,
+        recordType: 'review',
+        ownerPubky: actorPubky,
+        revision,
+        createdAt,
+        updatedAt: review.updatedAt,
+        reviewId: '',
+        subjectPubky: review.subjectPubky,
+        listingOwnerPubky: order.sellerPubky,
+        listingId,
+        role,
+        ratings: { overall: review.rating },
+        text: review.text,
+        eligibilityAttestation: attestation.jws,
+      });
+      return {
+        record: commerceReviewRecordSchema.parse(built.marketplace_review.toJson()),
+        reviewId: built.meta.id,
+      };
+    };
+
+    // The hash ID is deterministic per (listing, subject, role): a revision
+    // of the living record — an edit, or a repeat purchase refreshing the
+    // attestation — bumps `revision` and keeps the original `createdAt`.
+    const probe = await build(1, review.createdAt);
+    const prior = await LocalCommerceService.getOwnReviewById(`${actorPubky}:${probe.reviewId}`);
+    const { record, reviewId } =
+      prior === undefined ? probe : await build(prior.record.revision + 1, prior.record.createdAt);
+
+    const verifiedIss = verifyOwnReviewAttestation(record);
+    const model: CommerceReviewModelSchema = {
+      id: `${actorPubky}:${reviewId}`,
+      owner_id: actorPubky,
+      review_id: reviewId,
+      order_id: order.id,
+      subject_id: record.subjectPubky,
+      record,
+      attestation_verified: verifiedIss !== null,
+      attestation_iss: verifiedIss,
+      sync_status: 'pending',
+      updated_at: Date.now(),
+    };
+    const url = CommerceRecordNormalizer.reviewUri(actorPubky, reviewId);
+    const job = this.createSyncJob({
+      ownerId: actorPubky,
+      entityType: 'review',
+      entityId: reviewId,
+      operation: 'publish',
+      payload: { url },
+      now: Date.now(),
+    });
+
+    await LocalCommerceService.stageOwnReviewSync(model, job);
+    await CommerceHomeserverService.putJson(url, { ...record });
+    const synced: CommerceReviewModelSchema = { ...model, sync_status: 'synced', updated_at: Date.now() };
+    await LocalCommerceService.upsertOwnReview(synced);
+    await LocalCommerceService.completeSyncJob(job.id);
+    return synced;
+  }
+
+  /**
+   * Retries every own-review record whose homeserver PUT never landed (the
+   * visible retryable outbox): re-publishes the staged record verbatim and
+   * marks it synced. Called when the orders surface loads, so a failed
+   * publication heals on the next visit instead of rotting silently.
+   */
+  static async resumeOwnReviewPublications(actorPubky: string): Promise<number> {
+    const pending = await LocalCommerceService.getPendingOwnReviews(actorPubky);
+    let published = 0;
+    for (const row of pending) {
+      const url = CommerceRecordNormalizer.reviewUri(row.owner_id, row.review_id);
+      try {
+        await CommerceHomeserverService.putJson(url, { ...row.record });
+        await LocalCommerceService.upsertOwnReview({ ...row, sync_status: 'synced', updated_at: Date.now() });
+        published += 1;
+      } catch (error) {
+        Logger.warn('Own review publication retry failed; the row stays pending', {
+          reviewId: row.review_id,
+          error,
+        });
+      }
+    }
+    return published;
   }
 
   static async commitUpsertShop(record: CommerceShopRecord): Promise<void> {
