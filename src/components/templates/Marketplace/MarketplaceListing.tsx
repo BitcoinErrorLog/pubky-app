@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Bell, Heart, MapPin, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceShopRoute } from '@/app/routes';
+import { ArrowLeft, Bell, Heart, MapPin, PlaneTakeoff, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
+import { APP_ROUTES, getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -22,11 +22,13 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceDigitalDeliveryNotice } from '@/organisms/Marketplace/MarketplaceDigitalDeliveryNotice';
+import { MarketplaceListingOwnerPanel } from '@/organisms/Marketplace/MarketplaceListingOwnerPanel';
 import { MarketplaceMediaGallery } from '@/organisms/Marketplace/MarketplaceMediaGallery';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceListingProps {
@@ -38,6 +40,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const [error, setError] = useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const adapterMode = getCommerceAdapterMode();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const isOwner = currentUserPubky === sellerPubky;
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
   const negotiation = useMarketplaceProjection(sellerPubky, listingId);
   const cart = useMarketplaceCart();
@@ -109,6 +113,16 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const selectedVariant = record.variants.find(({ id }) => id === selectedVariantId) ?? record.variants[0];
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
+  const isSoldOut = !record.variants.some(({ enabled, quantity }) => enabled && quantity > 0);
+  const isPurchasable = record.state === 'active';
+  const stateNotice =
+    record.state === 'paused'
+      ? 'The seller has unlisted this item. It cannot be purchased right now.'
+      : record.state === 'ended'
+        ? 'This listing has ended.'
+        : record.state === 'removed'
+          ? 'This listing was removed.'
+          : null;
 
   return (
     <ContentLayout
@@ -133,9 +147,25 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
           <MarketplaceMediaGallery media={record.media} saleFormat={record.sale.format} />
 
           <div className="flex flex-col gap-5">
+            {isOwner && <MarketplaceListingOwnerPanel record={record} />}
+            {stateNotice && (
+              <div
+                role="status"
+                className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200"
+              >
+                {stateNotice}
+              </div>
+            )}
             <div>
               <div className="mb-3 flex flex-wrap gap-2">
                 <Badge variant="secondary">{formatCommerceCondition(record.condition)}</Badge>
+                {isSoldOut && record.sale.format === 'fixed_price' && <Badge variant="outline">Sold out</Badge>}
+                {shop?.record.vacationMode && (
+                  <Badge variant="outline" className="border-amber-500/50 bg-amber-500/10 text-amber-300">
+                    <PlaneTakeoff className="mr-1 size-3" />
+                    Seller on vacation
+                  </Badge>
+                )}
                 {adapterMode === 'sandbox' && <Badge variant="outline">Sandbox · no real funds</Badge>}
               </div>
               <Heading level={1} size="xl" className="text-3xl leading-tight sm:text-5xl">
@@ -167,12 +197,25 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   <Typography as="p" className="font-semibold">
                     {shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`}
                   </Typography>
+                  {isOwner && !shop && (
+                    <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                      You haven&apos;t created a shop yet — buyers only see your key.
+                    </Typography>
+                  )}
                 </div>
-                <Button asChild variant="secondary" size="sm" className="rounded-full">
-                  <Link href={getMarketplaceShopRoute(sellerPubky)} overrideDefaults>
-                    View shop
-                  </Link>
-                </Button>
+                {isOwner && !shop ? (
+                  <Button asChild size="sm" className="rounded-full">
+                    <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                      Set up your shop
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button asChild variant="secondary" size="sm" className="rounded-full">
+                    <Link href={getMarketplaceShopRoute(sellerPubky)} overrideDefaults>
+                      View shop
+                    </Link>
+                  </Button>
+                )}
               </CardContent>
             </Card>
             <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
@@ -255,16 +298,21 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   <Button
                     size="lg"
                     className="flex-1 rounded-full"
-                    disabled={adapterMode === 'unavailable' || !selectedVariant || selectedVariant.quantity === 0}
+                    disabled={
+                      adapterMode === 'unavailable' ||
+                      !isPurchasable ||
+                      !selectedVariant ||
+                      selectedVariant.quantity === 0
+                    }
                     onClick={() =>
                       selectedVariant &&
                       void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1)
                     }
                   >
                     <ShoppingCart className="mr-2 size-4" />
-                    Add to cart
+                    {isSoldOut ? 'Sold out' : isPurchasable ? 'Add to cart' : 'Unavailable'}
                   </Button>
-                  {record.sale.acceptsOffers && (
+                  {record.sale.acceptsOffers && isPurchasable && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}

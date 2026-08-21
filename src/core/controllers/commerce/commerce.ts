@@ -94,6 +94,10 @@ export class CommerceController {
     });
   }
 
+  static async fetchSellerCatalogListings(sellerPubky: unknown): Promise<void> {
+    await CommerceApplication.fetchSellerCatalogListings(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
   static async initializeSandboxCatalog(): Promise<boolean> {
     return await CommerceApplication.initializeSandboxCatalog();
   }
@@ -528,6 +532,13 @@ export class CommerceController {
     await this.withPending(`${record.ownerPubky}:${record.listingId}`, () =>
       CommerceApplication.commitUpsertListing(record),
     );
+  }
+
+  static async commitDeleteListing(ownerPubky: unknown, listingId: unknown): Promise<void> {
+    const owner = CommerceRecordNormalizer.pubky(ownerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    this.assertCurrentUserOwns(owner);
+    await this.withPending(`${owner}:${id}`, () => CommerceApplication.commitDeleteListing(owner, id));
   }
 
   static async commitCreateMedia(mediaId: unknown, bytes: Uint8Array): Promise<string> {

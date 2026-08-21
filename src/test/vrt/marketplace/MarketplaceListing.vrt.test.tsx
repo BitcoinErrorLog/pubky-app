@@ -94,6 +94,8 @@ const fixtures = vi.hoisted(async () => {
         },
       }),
     ),
+    pausedListing: toCommerceListingModel(createCommerceListingFixture({ state: 'paused' })),
+    vacationShop: toCommerceShopModel(createCommerceShopFixture({ vacationMode: true })),
     fixedPriceProjection: createListingProjectionFixture(),
     auctionProjection: createAuctionProjectionFixture(),
   };
@@ -105,6 +107,7 @@ const view = vi.hoisted(() => ({
   shop: undefined as unknown,
   projection: null as unknown,
   fetchFails: false,
+  currentUserPubky: 'u'.repeat(52),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -118,7 +121,7 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 'u'.repeat(52) }),
+    selector({ currentUserPubky: view.currentUserPubky }),
 }));
 
 vi.mock('@/config/commerce', async (importOriginal) => {
@@ -232,6 +235,7 @@ async function setView(overrides: Partial<typeof view>) {
   view.shop = shop;
   view.projection = null;
   view.fetchFails = false;
+  view.currentUserPubky = 'u'.repeat(52);
   Object.assign(view, overrides);
 }
 
@@ -307,6 +311,51 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-sold-out-desktop');
+  });
+
+  it('renders the seller-owned listing with the management panel at desktop viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    await setView({ listing: fixedPriceListing, projection: fixedPriceProjection, currentUserPubky: seller });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-owner-panel-desktop');
+  });
+
+  it('renders the owner set-up-your-shop prompt when no shop record exists at desktop viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      projection: fixedPriceProjection,
+      currentUserPubky: seller,
+      shop: null,
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-owner-no-shop-desktop');
+  });
+
+  it('renders an unlisted (paused) listing for a visitor at desktop viewport', async () => {
+    const { seller, pausedListing, fixedPriceProjection } = await fixtures;
+    await setView({ listing: pausedListing, projection: fixedPriceProjection });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-unlisted-desktop');
+  });
+
+  it('renders the seller-on-vacation badge at desktop viewport', async () => {
+    const { seller, fixedPriceListing, vacationShop, fixedPriceProjection } = await fixtures;
+    await setView({ listing: fixedPriceListing, projection: fixedPriceProjection, shop: vacationShop });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-vacation-desktop');
   });
 
   it('renders the unavailable state at desktop viewport', async () => {

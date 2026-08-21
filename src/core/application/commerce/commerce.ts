@@ -474,6 +474,25 @@ export class CommerceApplication {
     await this.hydrateDiscoveredShops([...new Set(entries.map(({ seller_id }) => seller_id))]);
   }
 
+  /**
+   * Populates the local catalog cache with one seller's active listings from
+   * the Nexus index — what a direct visit to a shop page needs when the
+   * visitor never browsed the main catalog. Sandbox catalogs are seeded
+   * locally, so (as with {@link fetchCatalogListings}) sandbox mode never
+   * reads from Nexus.
+   */
+  static async fetchSellerCatalogListings(sellerPubky: string): Promise<void> {
+    if (getCommerceAdapterMode() === 'sandbox') return;
+
+    const payload = await NexusMarketplaceService.fetchListingStream({
+      seller_id: sellerPubky,
+      state: 'active',
+      limit: NEXUS_LISTINGS_PER_PAGE,
+    });
+    const entries = CommerceRecordNormalizer.nexusListingStream(payload);
+    await LocalCommerceService.bulkUpsertCatalogEntries(entries);
+  }
+
   private static async hydrateDiscoveredShops(sellerIds: string[]): Promise<void> {
     const shopResults = await Promise.allSettled(sellerIds.map((sellerId) => this.getOrFetchShop(sellerId)));
     shopResults.forEach((result, index) => {
@@ -560,6 +579,46 @@ export class CommerceApplication {
     // revision), so retrying the whole commit after a failure here is safe.
     if (getCommerceAdapterMode() === 'sandbox') {
       await this.registerListing(record);
+    }
+  }
+
+  /**
+   * Deletes a listing the current user owns: removes the owner-signed record
+   * from the homeserver (the canonical copy indexers read), then clears every
+   * local cache of it. Media files are deleted afterwards as best-effort
+   * cleanup — a media file that outlives its record is unreferenced bytes,
+   * not a live listing, so media failures never block the deletion.
+   */
+  static async commitDeleteListing(ownerPubky: string, listingId: string): Promise<void> {
+    const compositeListingId = `${ownerPubky}:${listingId}`;
+    const local = await LocalCommerceService.getListing(compositeListingId);
+    const url = CommerceRecordNormalizer.listingUri(ownerPubky, listingId);
+    const job = this.createSyncJob({
+      ownerId: ownerPubky,
+      entityType: 'listing',
+      entityId: listingId,
+      operation: 'remove',
+      payload: { url },
+      now: Date.now(),
+    });
+
+    await LocalCommerceService.upsertSyncJob(job);
+    await CommerceHomeserverService.delete(url);
+    await LocalCommerceService.deleteListing(compositeListingId);
+    await LocalCommerceService.completeSyncJob(job.id);
+
+    if (local) {
+      const mediaResults = await Promise.allSettled(
+        local.record.media.map((media) => CommerceHomeserverService.delete(media.url)),
+      );
+      mediaResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          Logger.warn('Failed to delete an orphaned listing media file', {
+            mediaUrl: local.record.media[index].url,
+            error: result.reason,
+          });
+        }
+      });
     }
   }
 

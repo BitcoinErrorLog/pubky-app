@@ -36,6 +36,7 @@ export enum COLLECTION_ROUTES {
 export enum MARKETPLACE_ROUTES {
   LISTING = '/marketplace/listing',
   SHOP = '/marketplace/shop',
+  MY_SHOP = '/marketplace/my-shop',
   SELL = '/marketplace/sell',
   DASHBOARD = '/marketplace/dashboard',
   CART = '/marketplace/cart',
@@ -338,6 +339,10 @@ export function matchMarketplaceListingRoute(pathname: string): { sellerPubky: s
     return null;
   }
   return { sellerPubky: segments[2], listingId: segments[3] };
+}
+
+export function getMarketplaceListingEditRoute(sellerPubky: string, listingId: string): string {
+  return `${MARKETPLACE_ROUTES.LISTING}/${sellerPubky}/${listingId}/edit`;
 }
 
 export function getMarketplaceShopRoute(sellerPubky: string): string {

@@ -169,6 +169,85 @@ describe('CommerceApplication', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it('deletes a listing from the homeserver, then every local cache, then its media', async () => {
+    const record = createCommerceListingFixture();
+    const compositeId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770122');
+    vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(
+      new CommerceListingModel({
+        id: compositeId,
+        seller_id: record.ownerPubky,
+        listing_id: record.listingId,
+        record,
+        revision: record.revision,
+        state: record.state,
+        category_id: record.categoryId,
+        format: record.sale.format,
+        currency: 'USD',
+        price_minor: 12_500,
+        sync_status: 'synced',
+        updated_at: Date.parse(record.updatedAt),
+      }),
+    );
+    const upsertJob = vi.spyOn(LocalCommerceService, 'upsertSyncJob').mockResolvedValue(undefined);
+    const remove = vi.spyOn(CommerceHomeserverService, 'delete').mockResolvedValue(undefined);
+    const deleteLocal = vi.spyOn(LocalCommerceService, 'deleteListing').mockResolvedValue(undefined);
+    const complete = vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+
+    await CommerceApplication.commitDeleteListing(record.ownerPubky, record.listingId);
+
+    expect(upsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({ entity_type: 'listing', entity_id: record.listingId, operation: 'remove' }),
+    );
+    expect(remove).toHaveBeenNthCalledWith(1, LISTING_URL);
+    expect(deleteLocal).toHaveBeenCalledWith(compositeId);
+    expect(complete).toHaveBeenCalledWith('018f47d2-6a27-7c23-a49d-6b21bb770122');
+    // Media cleanup follows the record deletion, one call per media file.
+    record.media.forEach((media) => expect(remove).toHaveBeenCalledWith(media.url));
+    expect(remove.mock.invocationCallOrder[0]).toBeLessThan(deleteLocal.mock.invocationCallOrder[0]);
+  });
+
+  it('keeps the local listing when the homeserver record deletion fails', async () => {
+    const record = createCommerceListingFixture();
+    vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(null);
+    vi.spyOn(LocalCommerceService, 'upsertSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'delete').mockRejectedValue(new TypeError('network unavailable'));
+    const deleteLocal = vi.spyOn(LocalCommerceService, 'deleteListing');
+    const complete = vi.spyOn(LocalCommerceService, 'completeSyncJob');
+
+    await expect(CommerceApplication.commitDeleteListing(record.ownerPubky, record.listingId)).rejects.toThrow(
+      'network unavailable',
+    );
+    expect(deleteLocal).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  describe('fetchSellerCatalogListings', () => {
+    it('hydrates one seller from the Nexus index outside sandbox mode', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      const stream = vi
+        .spyOn(NexusMarketplaceService, 'fetchListingStream')
+        .mockResolvedValue([createNexusListingDetailsFixture()]);
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries').mockResolvedValue(undefined);
+
+      await CommerceApplication.fetchSellerCatalogListings(COMMERCE_FIXTURE_SELLER);
+
+      expect(stream).toHaveBeenCalledWith(
+        expect.objectContaining({ seller_id: COMMERCE_FIXTURE_SELLER, state: 'active' }),
+      );
+      expect(bulkUpsert).toHaveBeenCalledOnce();
+    });
+
+    it('never reads from Nexus in sandbox mode', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      const stream = vi.spyOn(NexusMarketplaceService, 'fetchListingStream');
+
+      await CommerceApplication.fetchSellerCatalogListings(COMMERCE_FIXTURE_SELLER);
+
+      expect(stream).not.toHaveBeenCalled();
+    });
+  });
+
   describe('fetchCatalogListings', () => {
     const SELLER_B = 'b'.repeat(52);
     const SELLER_B_SHOP_URL = `pubky://${SELLER_B}/pub/pubky.app/marketplace/v1/shop.json`;

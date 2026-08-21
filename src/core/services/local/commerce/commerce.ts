@@ -212,6 +212,42 @@ export class LocalCommerceService {
     await CommerceListingModel.upsert(this.toListingModel(record, syncStatus));
   }
 
+  /**
+   * Removes a listing from every local surface at once: the canonical record
+   * cache, the transaction-service projection cache, and the Nexus discovery
+   * cache — so a seller's deleted listing disappears from the catalog grid
+   * immediately instead of waiting for the index to re-sync.
+   */
+  static async deleteListing(compositeListingId: string): Promise<void> {
+    try {
+      await db.transaction(
+        'rw',
+        CommerceListingModel.table,
+        CommerceListingProjectionModel.table,
+        CommerceCatalogEntryModel.table,
+        async () => {
+          await CommerceListingModel.table.delete(compositeListingId);
+          await CommerceListingProjectionModel.table.delete(compositeListingId);
+          await CommerceCatalogEntryModel.table.delete(compositeListingId);
+        },
+      );
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.DELETE_FAILED, 'Failed to delete the local listing caches', {
+        service: ErrorService.Local,
+        operation: 'deleteListing',
+        context: {
+          tables: [
+            CommerceListingModel.table.name,
+            CommerceListingProjectionModel.table.name,
+            CommerceCatalogEntryModel.table.name,
+          ],
+        },
+        cause: error,
+      });
+    }
+  }
+
   static async stageListingSync(record: CommerceListingRecord, job: CommerceSyncJobModelSchema): Promise<void> {
     this.assertSyncJobIdentity(job, record.ownerPubky, record.listingId, 'listing');
     const listing = this.toListingModel(record, 'pending');
@@ -381,6 +417,10 @@ export class LocalCommerceService {
 
   static async deleteDraft(compositeListingId: string): Promise<void> {
     await CommerceListingDraftModel.deleteById(compositeListingId);
+  }
+
+  static async upsertSyncJob(job: CommerceSyncJobModelSchema): Promise<void> {
+    await CommerceSyncJobModel.upsert(job);
   }
 
   static async completeSyncJob(id: string): Promise<void> {

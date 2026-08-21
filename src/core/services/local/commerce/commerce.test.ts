@@ -75,6 +75,20 @@ describe('LocalCommerceService', () => {
     });
   });
 
+  it('deletes a listing from the record, projection, and catalog caches at once', async () => {
+    const listing = createCommerceListingFixture();
+    const compositeId = `${COMMERCE_FIXTURE_SELLER}:boots_01`;
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    await CommerceListingProjectionModel.upsert(createCommerceProjectionFixture());
+    await LocalCommerceService.bulkUpsertCatalogEntries([createCommerceCatalogEntryFixture()]);
+
+    await LocalCommerceService.deleteListing(compositeId);
+
+    expect(await LocalCommerceService.getListing(compositeId)).toBeNull();
+    expect(await LocalCommerceService.getListingProjection(compositeId)).toBeNull();
+    expect(await LocalCommerceService.getCatalogEntry(compositeId)).toBeNull();
+  });
+
   it('bulk-upserts discovered catalog entries and reads them back newest first, by seller, and by id', async () => {
     const older = createCommerceCatalogEntryFixture({
       updated_at: Date.parse('2026-08-19T20:00:00.000Z'),
