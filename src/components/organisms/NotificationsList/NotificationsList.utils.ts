@@ -4,6 +4,7 @@ import {
   getUserIdFromNotification,
 } from '@/organisms/NotificationItem/NotificationItem.utils';
 import type { MarketplaceFeedNotification } from '@/pipes/marketplaceNotification/marketplaceNotification.types';
+import type { MarketplaceWatchAlertFeedItem } from '@/pipes/marketplaceWatch/marketplaceWatchAlert.types';
 import type { GroupableNotification, NotificationListEntry } from './NotificationsList.types';
 
 /** A run shorter than this renders as ungrouped NotificationItem rows. */
@@ -85,6 +86,7 @@ export function groupNotifications(notifications: FlatNotification[]): Notificat
 /** Timestamp a row sorts by: the head (newest) member for grouped runs. */
 function getEntryTimestamp(entry: NotificationListEntry): number {
   if (entry.kind === 'group') return entry.notifications[0].timestamp;
+  if (entry.kind === 'watch-alert') return entry.item.timestamp;
   return entry.notification.timestamp;
 }
 
@@ -106,28 +108,55 @@ export function mergeMarketplaceNotifications(
   marketplaceItems: MarketplaceFeedNotification[],
   { hasMoreSocial }: { hasMoreSocial: boolean },
 ): NotificationListEntry[] {
-  if (marketplaceItems.length === 0) return socialEntries;
+  return interleaveEntries(
+    socialEntries,
+    marketplaceItems,
+    (item) => ({ kind: 'marketplace', notification: item }),
+    hasMoreSocial,
+  );
+}
 
-  const sortedItems = [...marketplaceItems].sort((a, b) => b.timestamp - a.timestamp);
-  const oldestSocialTimestamp =
-    socialEntries.length > 0 ? getEntryTimestamp(socialEntries[socialEntries.length - 1]) : undefined;
+/**
+ * Interleaves device-local watchlist alerts by timestamp, under the same
+ * withholding rule as {@link mergeMarketplaceNotifications} (the alert store
+ * also arrives whole while social pages load incrementally). Runs after the
+ * marketplace merge, so `entries` may already contain marketplace rows.
+ */
+export function mergeWatchAlerts(
+  entries: NotificationListEntry[],
+  alertItems: MarketplaceWatchAlertFeedItem[],
+  { hasMoreSocial }: { hasMoreSocial: boolean },
+): NotificationListEntry[] {
+  return interleaveEntries(entries, alertItems, (item) => ({ kind: 'watch-alert', item }), hasMoreSocial);
+}
+
+function interleaveEntries<T extends { timestamp: number }>(
+  entries: NotificationListEntry[],
+  items: T[],
+  toEntry: (item: T) => NotificationListEntry,
+  hasMoreOlderEntries: boolean,
+): NotificationListEntry[] {
+  if (items.length === 0) return entries;
+
+  const sortedItems = [...items].sort((a, b) => b.timestamp - a.timestamp);
+  const oldestEntryTimestamp = entries.length > 0 ? getEntryTimestamp(entries[entries.length - 1]) : undefined;
   const visibleItems =
-    hasMoreSocial && oldestSocialTimestamp !== undefined
-      ? sortedItems.filter((item) => item.timestamp >= oldestSocialTimestamp)
+    hasMoreOlderEntries && oldestEntryTimestamp !== undefined
+      ? sortedItems.filter((item) => item.timestamp >= oldestEntryTimestamp)
       : sortedItems;
 
   const merged: NotificationListEntry[] = [];
   let itemIndex = 0;
-  for (const entry of socialEntries) {
+  for (const entry of entries) {
     const entryTimestamp = getEntryTimestamp(entry);
     while (itemIndex < visibleItems.length && visibleItems[itemIndex].timestamp > entryTimestamp) {
-      merged.push({ kind: 'marketplace', notification: visibleItems[itemIndex] });
+      merged.push(toEntry(visibleItems[itemIndex]));
       itemIndex += 1;
     }
     merged.push(entry);
   }
   while (itemIndex < visibleItems.length) {
-    merged.push({ kind: 'marketplace', notification: visibleItems[itemIndex] });
+    merged.push(toEntry(visibleItems[itemIndex]));
     itemIndex += 1;
   }
   return merged;

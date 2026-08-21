@@ -1,7 +1,13 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { TagKind } from '@/application/tag/tag.types';
-import { getCommerceAdapterMode } from '@/config/commerce';
+import {
+  COMMERCE_SAVED_SEARCH_MAX_PER_OWNER,
+  COMMERCE_WATCH_CHECK_MAX_ITEMS,
+  COMMERCE_WATCH_ENDING_SOON_THRESHOLD_MS,
+  getCommerceAdapterMode,
+  isTransactionalCommerceMode,
+} from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import type {
@@ -22,8 +28,21 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
-import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
+import type {
+  CommerceCatalogEntryModelSchema,
+  CommerceSavedSearchModelSchema,
+  CommerceSavedSearchParams,
+  CommerceSyncJobModelSchema,
+  CommerceWatchAlertModelSchema,
+  CommerceWatchSnapshotModelSchema,
+} from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
+import {
+  detectWatchAlerts,
+  type WatchIndexObservation,
+  type WatchObservation,
+  type WatchProjectionObservation,
+} from '@/pipes/marketplaceWatch/marketplaceWatch.detector';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
@@ -499,6 +518,255 @@ export class CommerceApplication {
 
   static async commitDeleteFavorite(ownerPubky: string, listingId: string): Promise<void> {
     await LocalCommerceService.deleteFavorite(ownerPubky, listingId);
+    // The watch baseline shadows the favorite row; an unwatched item must not
+    // keep producing alerts. Already-created alerts stay — they were real
+    // observations made while the item was watched.
+    await LocalCommerceService.deleteWatchSnapshot(ownerPubky, listingId);
+  }
+
+  static async getWatchAlerts(ownerPubky: string): Promise<CommerceWatchAlertModelSchema[]> {
+    return await LocalCommerceService.getWatchAlerts(ownerPubky);
+  }
+
+  static async getWatchSnapshots(ownerPubky: string): Promise<CommerceWatchSnapshotModelSchema[]> {
+    return await LocalCommerceService.getWatchSnapshots(ownerPubky);
+  }
+
+  static async markWatchAlertsSeen(ownerPubky: string): Promise<void> {
+    await LocalCommerceService.markWatchAlertsSeen(ownerPubky, Date.now());
+  }
+
+  /**
+   * One bounded watchlist detection pass: re-observes the most recently
+   * watched items and derives alerts from what actually changed against the
+   * persisted per-item baselines (see `detectWatchAlerts` for the honesty
+   * rules).
+   *
+   * Observation sources, per item:
+   *
+   * - Index: a per-listing Nexus read (`v0/listing/{seller}/{listing}`) —
+   *   revision, price, state, auction deadline. Sandbox mode reads the
+   *   locally seeded catalog instead (the sandbox never queries Nexus).
+   *   Fresh Nexus rows are folded into the catalog cache, so the watchlist
+   *   page renders the same freshness the detection observed.
+   * - Projection: the transaction service's public listing projection —
+   *   current bid, bid count, leader, sale state. Transactional modes only;
+   *   a missing session or unreachable service yields no observation, never
+   *   a fabricated one.
+   *
+   * An item where both reads failed is skipped entirely: no observation, no
+   * claim, and the baseline stays where it was. The whole pass is bounded to
+   * {@link COMMERCE_WATCH_CHECK_MAX_ITEMS} items and the caller enforces
+   * spacing between passes — there is no background daemon.
+   */
+  static async runWatchlistDetection(ownerPubky: string): Promise<{ alertCount: number }> {
+    const adapterMode = getCommerceAdapterMode();
+    const favorites = await LocalCommerceService.getFavorites(ownerPubky);
+    const watched = favorites.slice(-COMMERCE_WATCH_CHECK_MAX_ITEMS).reverse();
+    if (watched.length === 0) return { alertCount: 0 };
+
+    const baselines = new Map(
+      (await LocalCommerceService.getWatchSnapshots(ownerPubky)).map((snapshot) => [snapshot.listing_id, snapshot]),
+    );
+    const now = Date.now();
+    const freshEntries: CommerceCatalogEntryModelSchema[] = [];
+
+    const observations = await Promise.all(
+      watched.map(async (favorite): Promise<WatchObservation> => {
+        const listingId = favorite.listing_id;
+        const separator = listingId.indexOf(':');
+        const sellerId = listingId.slice(0, separator);
+        const id = listingId.slice(separator + 1);
+
+        const [index, projection] = await Promise.all([
+          this.observeWatchIndex(adapterMode, sellerId, id, listingId, freshEntries),
+          this.observeWatchProjection(adapterMode, ownerPubky, sellerId, id),
+        ]);
+        return { ownerId: ownerPubky, listingId, sellerId, observedAt: now, index, projection };
+      }),
+    );
+
+    const snapshots: CommerceWatchSnapshotModelSchema[] = [];
+    const alerts: CommerceWatchAlertModelSchema[] = [];
+    for (const observation of observations) {
+      if (!observation.index && !observation.projection) continue;
+      const result = detectWatchAlerts(baselines.get(observation.listingId) ?? null, observation, {
+        endingSoonThresholdMs: COMMERCE_WATCH_ENDING_SOON_THRESHOLD_MS,
+      });
+      snapshots.push(result.snapshot);
+      alerts.push(...result.alerts);
+    }
+
+    if (freshEntries.length > 0) {
+      await LocalCommerceService.bulkUpsertCatalogEntries(freshEntries);
+    }
+    await LocalCommerceService.saveWatchDetection(ownerPubky, snapshots, alerts);
+    return { alertCount: alerts.length };
+  }
+
+  private static async observeWatchIndex(
+    adapterMode: ReturnType<typeof getCommerceAdapterMode>,
+    sellerId: string,
+    id: string,
+    listingId: string,
+    freshEntries: CommerceCatalogEntryModelSchema[],
+  ): Promise<WatchIndexObservation | null> {
+    if (adapterMode === 'sandbox') {
+      // The sandbox catalog is seeded locally and never queries Nexus; its
+      // local rows are the only index-shaped source that exists in this mode.
+      const entry = await LocalCommerceService.getCatalogEntry(listingId);
+      if (entry) {
+        return {
+          revision: entry.revision,
+          state: entry.state,
+          priceMinor: entry.price.amountMinor,
+          currency: entry.price.currency,
+          exponent: entry.price.exponent,
+          auctionEndsAt: entry.auction?.endsAt ?? null,
+          title: entry.title,
+        };
+      }
+      const listing = await LocalCommerceService.getListing(listingId);
+      if (!listing) return null;
+      const record = listing.record;
+      const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+      return {
+        revision: listing.revision,
+        state: listing.state,
+        priceMinor: price.amountMinor,
+        currency: price.currency,
+        exponent: price.exponent,
+        auctionEndsAt: record.sale.format === 'auction' ? record.sale.endsAt : null,
+        title: record.title,
+      };
+    }
+
+    try {
+      const entry = CommerceRecordNormalizer.nexusListingDetails(
+        await NexusMarketplaceService.fetchListingDetails({ seller_id: sellerId, listing_id: id }),
+      );
+      freshEntries.push(entry);
+      return {
+        revision: entry.revision,
+        state: entry.state,
+        priceMinor: entry.price.amountMinor,
+        currency: entry.price.currency,
+        exponent: entry.price.exponent,
+        auctionEndsAt: entry.auction?.endsAt ?? null,
+        title: entry.title,
+      };
+    } catch (error) {
+      if (!(isAppError(error) && isNotFound(error))) {
+        Logger.warn('Failed to observe a watched listing on the Nexus index', { listing: listingId, error });
+      }
+      // 404 (never/no-longer indexed) and transport failures alike: nothing
+      // was observed, so nothing may be claimed.
+      return null;
+    }
+  }
+
+  private static async observeWatchProjection(
+    adapterMode: ReturnType<typeof getCommerceAdapterMode>,
+    ownerPubky: string,
+    sellerId: string,
+    id: string,
+  ): Promise<WatchProjectionObservation | null> {
+    if (!isTransactionalCommerceMode(adapterMode)) return null;
+    try {
+      const projection = await MarketplaceGatewayService.getListing(
+        ownerPubky,
+        buildMarketplaceListingAggregateId(sellerId, id),
+      );
+      if (!projection) return null;
+      return {
+        serverRevision: projection.serverRevision,
+        state: projection.state,
+        auction: projection.auction
+          ? {
+              endsAt: projection.auction.endsAt,
+              currentPriceMinor: projection.auction.currentPrice.amountMinor,
+              currency: projection.auction.currentPrice.currency,
+              exponent: projection.auction.currentPrice.exponent,
+              bidCount: projection.auction.bidCount,
+              leaderPubky: projection.auction.leaderPubky,
+            }
+          : null,
+      };
+    } catch {
+      // No session yet, service unreachable, or listing unregistered — not an
+      // error at watch level, and never a fabricated observation.
+      return null;
+    }
+  }
+
+  static async getSavedSearches(ownerPubky: string): Promise<CommerceSavedSearchModelSchema[]> {
+    return await LocalCommerceService.getSavedSearches(ownerPubky);
+  }
+
+  /**
+   * Saves the current catalog filter/search combination. The initial
+   * watermark must be the newest `updated_at` among the search's CURRENT
+   * matches (the caller just rendered them), so nothing that already existed
+   * at save time can ever be counted as NEW.
+   */
+  static async commitCreateSavedSearch(
+    ownerPubky: string,
+    name: string,
+    params: CommerceSavedSearchParams,
+    initialWatermarkUpdatedAt: number,
+  ): Promise<void> {
+    const existing = await LocalCommerceService.getSavedSearches(ownerPubky);
+    if (existing.length >= COMMERCE_SAVED_SEARCH_MAX_PER_OWNER) {
+      throw Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        `You can keep up to ${COMMERCE_SAVED_SEARCH_MAX_PER_OWNER} saved searches.`,
+        {
+          service: ErrorService.Local,
+          operation: 'commitCreateSavedSearch',
+        },
+      );
+    }
+    const now = Date.now();
+    await LocalCommerceService.createSavedSearch({
+      id: crypto.randomUUID(),
+      owner_id: ownerPubky,
+      name,
+      params,
+      watermark_updated_at: initialWatermarkUpdatedAt,
+      latest_match_updated_at: initialWatermarkUpdatedAt,
+      new_count: 0,
+      last_checked_at: now,
+      created_at: now,
+    });
+  }
+
+  static async commitDeleteSavedSearch(ownerPubky: string, id: string): Promise<void> {
+    await this.assertSavedSearchOwner(ownerPubky, id);
+    await LocalCommerceService.deleteSavedSearch(id);
+  }
+
+  static async recordSavedSearchCheck(
+    ownerPubky: string,
+    id: string,
+    result: { newCount: number; latestMatchUpdatedAt: number; checkedAt: number },
+  ): Promise<void> {
+    await this.assertSavedSearchOwner(ownerPubky, id);
+    await LocalCommerceService.recordSavedSearchCheck(id, result);
+  }
+
+  static async acknowledgeSavedSearch(ownerPubky: string, id: string): Promise<void> {
+    await this.assertSavedSearchOwner(ownerPubky, id);
+    await LocalCommerceService.acknowledgeSavedSearch(id);
+  }
+
+  private static async assertSavedSearchOwner(ownerPubky: string, id: string): Promise<void> {
+    const searches = await LocalCommerceService.getSavedSearches(ownerPubky);
+    if (!searches.some((search) => search.id === id)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Saved search does not belong to this account.', {
+        service: ErrorService.Local,
+        operation: 'assertSavedSearchOwner',
+      });
+    }
   }
 
   static async isShopFollowed(ownerPubky: string, sellerPubky: string): Promise<boolean> {

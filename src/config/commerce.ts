@@ -89,6 +89,35 @@ export const COMMERCE_REVIEW_EDIT_WINDOW_SECONDS = 24 * 60 * 60;
 export const COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS = 300;
 export const COMMERCE_CATALOG_SKELETON_COUNT = 8;
 
+/**
+ * How close an observed auction deadline must be before a watched item raises
+ * an "ending soon" alert.
+ */
+export const COMMERCE_WATCH_ENDING_SOON_THRESHOLD_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * Most-recently-watched items refreshed per detection pass. The Nexus
+ * per-listing read and the service's public listing projection are both
+ * per-item requests, so this bounds one pass to at most 2×N requests.
+ */
+export const COMMERCE_WATCH_CHECK_MAX_ITEMS = 24;
+
+/**
+ * Minimum spacing between detection passes for the same account. Passes run
+ * on marketplace/watchlist visit and window focus — not on a background
+ * timer — and this keeps rapid tab switching from fanning out repeated
+ * per-item reads.
+ */
+export const COMMERCE_WATCH_CHECK_MIN_INTERVAL_MS = 60 * 1_000;
+
+/** Saved searches re-run per check pass (each is one Nexus stream request). */
+export const COMMERCE_SAVED_SEARCH_CHECK_MAX = 10;
+
+export const COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS = 60;
+
+/** Saved searches storable per account. */
+export const COMMERCE_SAVED_SEARCH_MAX_PER_OWNER = 20;
+
 export const COMMERCE_CATEGORIES = [
   { id: 'fashion', label: 'Fashion' },
   { id: 'electronics', label: 'Electronics' },

@@ -6,11 +6,16 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll/useInfiniteScroll';
 import { useMarketplaceNotificationFeed } from '@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed';
+import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useNotifications } from '@/hooks/useNotifications/useNotifications';
 import { NotificationsEmpty } from '@/molecules/NotificationsEmpty/NotificationsEmpty';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { NotificationsList } from '../NotificationsList/NotificationsList';
-import { groupNotifications, mergeMarketplaceNotifications } from '../NotificationsList/NotificationsList.utils';
+import {
+  groupNotifications,
+  mergeMarketplaceNotifications,
+  mergeWatchAlerts,
+} from '../NotificationsList/NotificationsList.utils';
 import { NotificationsContainerSkeleton, NotificationsLoadMoreSkeleton } from './NotificationsContainer.skeleton';
 
 /** Consecutive automatic loads allowed without the rendered list getting any longer. */
@@ -42,10 +47,21 @@ export function NotificationsContainer() {
   // backend is configured, leaving the social-only surface untouched.
   const marketplaceFeed = useMarketplaceNotificationFeed();
 
-  const entries = mergeMarketplaceNotifications(groupNotifications(notifications), marketplaceFeed.items, {
-    hasMoreSocial: hasMore,
-  });
-  const unreadMarketplaceCount = marketplaceFeed.items.filter((item) => item.isUnread).length;
+  // Device-local watchlist alerts — rows this device's own checks produced,
+  // interleaved after the marketplace merge and visibly labeled as local
+  // checks by their row component.
+  const watchAlertFeed = useMarketplaceWatchAlertFeed();
+
+  const entries = mergeWatchAlerts(
+    mergeMarketplaceNotifications(groupNotifications(notifications), marketplaceFeed.items, {
+      hasMoreSocial: hasMore,
+    }),
+    watchAlertFeed.items,
+    { hasMoreSocial: hasMore },
+  );
+  const unreadMarketplaceCount =
+    marketplaceFeed.items.filter((item) => item.isUnread).length +
+    watchAlertFeed.items.filter((item) => item.isUnseen).length;
 
   // Grouping collapses many notifications into few rows, so a page can leave the scroll
   // sentinel on screen and immediately trigger the next one. A page that merges entirely
@@ -69,11 +85,15 @@ export function NotificationsContainer() {
   // transaction-service mode the call writes nothing and the marketplace badge
   // contribution is already 0.
   const markAllMarketplaceRead = marketplaceFeed.markAllRead;
+  // Watch alerts live only on this device, so their read state is real and
+  // clears here exactly like the social list's.
+  const markAllWatchAlertsSeen = watchAlertFeed.markAllSeen;
   useEffect(() => {
     if (!isAuthenticated) return;
     markAllAsRead();
     void markAllMarketplaceRead();
-  }, [markAllAsRead, markAllMarketplaceRead, isAuthenticated]);
+    void markAllWatchAlertsSeen();
+  }, [markAllAsRead, markAllMarketplaceRead, markAllWatchAlertsSeen, isAuthenticated]);
 
   if (isLoading) {
     return <NotificationsContainerSkeleton />;

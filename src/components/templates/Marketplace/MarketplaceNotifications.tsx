@@ -1,7 +1,7 @@
 'use client';
 
-import { ArrowLeft, Bell, Gavel, HandCoins, MessageCircle } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { ArrowLeft, Bell, Eye, Gavel, HandCoins, MessageCircle } from 'lucide-react';
+import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
@@ -11,9 +11,19 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications/useMarketplaceNotifications';
+import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
+import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
+import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import {
+  getWatchAlertDetail,
+  getWatchAlertHeadline,
+} from '@/organisms/MarketplaceWatchAlertItem/MarketplaceWatchAlertItem.utils';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+
+/** Device-local alerts shown on this page before the service-delivered list. */
+const WATCH_ALERTS_SECTION_LIMIT = 6;
 
 export function MarketplaceNotifications() {
   const {
@@ -27,6 +37,9 @@ export function MarketplaceNotifications() {
     markAllRead,
     updatePreferences,
   } = useMarketplaceNotifications();
+  const watchAlerts = useMarketplaceWatchAlertFeed();
+  // Opening the commerce activity page also runs the bounded watchlist check.
+  useMarketplaceWatchDetection();
 
   const setPreference = (key: 'messages' | 'offers' | 'bids' | 'auctions', checked: boolean) => {
     if (!preferences) return;
@@ -102,6 +115,34 @@ export function MarketplaceNotifications() {
           </Card>
         )}
 
+        {watchAlerts.items.length > 0 && (
+          <section aria-label="Watchlist alerts" className="flex flex-col gap-3" data-cy="notifications-watch-alerts">
+            <div className="flex flex-wrap items-center gap-2">
+              <Eye className="size-4 text-brand" />
+              <Heading level={2} size="sm" className="text-lg">
+                Watchlist alerts
+              </Heading>
+              <Typography as="span" className="text-xs text-muted-foreground">
+                Detected by checks this device runs when you visit — not server events.
+              </Typography>
+            </div>
+            <Card className="border py-2">
+              <CardContent className="flex flex-col gap-1 px-4 py-2">
+                {watchAlerts.items.slice(0, WATCH_ALERTS_SECTION_LIMIT).map((alert) => (
+                  <WatchAlertRow key={alert.id} alert={alert} />
+                ))}
+                <Link
+                  href={MARKETPLACE_ROUTES.WATCHLIST}
+                  overrideDefaults
+                  className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  View the full watchlist
+                </Link>
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : needsSession && error ? (
@@ -143,6 +184,28 @@ export function MarketplaceNotifications() {
         )}
       </Container>
     </ContentLayout>
+  );
+}
+
+function WatchAlertRow({ alert }: { alert: ReturnType<typeof useMarketplaceWatchAlertFeed>['items'][number] }) {
+  const { formatRelativeTime } = useRelativeTime();
+  const detail = getWatchAlertDetail(alert);
+  return (
+    <Link
+      href={alert.href}
+      overrideDefaults
+      className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 hover:bg-background/60"
+    >
+      <div className="min-w-0">
+        <Typography as="p" className="truncate text-sm font-medium">
+          {getWatchAlertHeadline(alert)}: {alert.title}
+        </Typography>
+        <Typography as="p" className="truncate text-xs text-muted-foreground">
+          {detail ? `${detail} · ` : ''}Observed {formatRelativeTime(new Date(alert.timestamp))} by this device
+        </Typography>
+      </div>
+      {alert.isUnseen && <span className="size-2 shrink-0 rounded-full bg-brand" aria-hidden />}
+    </Link>
   );
 }
 

@@ -12,6 +12,13 @@ vi.mock('@/stores/auth/auth.store', () => ({
     selector ? selector(authStoreState) : authStoreState,
 }));
 
+// Device-local watch alerts come from a Dexie live query; mocking it keeps
+// these tests free of the async re-render the real hook schedules (several
+// scenarios use mockReturnValueOnce and must not re-render past it).
+vi.mock('@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed', () => ({
+  useMarketplaceWatchAlertFeed: () => ({ items: [], markAllSeen: vi.fn(async () => {}) }),
+}));
+
 // Mock useNotifications hook
 vi.mock('@/hooks/useNotifications/useNotifications', () => ({
   useNotifications: vi.fn(() => ({

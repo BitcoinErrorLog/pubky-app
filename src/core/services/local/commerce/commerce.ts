@@ -12,9 +12,12 @@ import {
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceLocksCorrelationModel,
+  CommerceSavedSearchModel,
   CommerceShopFollowModel,
   CommerceShopModel,
   CommerceSyncJobModel,
+  CommerceWatchAlertModel,
+  CommerceWatchSnapshotModel,
 } from '@/models/commerce/commerce.models';
 import type {
   CommerceCacheStatus,
@@ -24,9 +27,15 @@ import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
+  CommerceSavedSearchModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
+  CommerceWatchAlertModelSchema,
+  CommerceWatchSnapshotModelSchema,
 } from '@/models/commerce/commerce.schema';
+
+/** Alert rows kept per account; older rows are pruned when new alerts land. */
+export const COMMERCE_WATCH_ALERTS_MAX_PER_OWNER = 100;
 
 export class LocalCommerceService {
   private constructor() {}
@@ -115,6 +124,120 @@ export class LocalCommerceService {
 
   static async deleteFavorite(ownerId: string, listingId: string): Promise<void> {
     await CommerceFavoriteModel.deleteById(this.favoriteId(ownerId, listingId));
+  }
+
+  static async getWatchSnapshots(ownerId: string): Promise<CommerceWatchSnapshotModelSchema[]> {
+    return await CommerceWatchSnapshotModel.findByOwner(ownerId);
+  }
+
+  static async deleteWatchSnapshot(ownerId: string, listingId: string): Promise<void> {
+    await CommerceWatchSnapshotModel.deleteById(this.favoriteId(ownerId, listingId));
+  }
+
+  static async getWatchAlerts(ownerId: string): Promise<CommerceWatchAlertModelSchema[]> {
+    return await CommerceWatchAlertModel.findByOwnerNewestFirst(ownerId);
+  }
+
+  /**
+   * Persists one detection pass atomically: the advanced snapshots and the
+   * alerts they produced. Alert ids are deterministic, and an id that already
+   * exists is skipped rather than re-put so a re-detection can never reset an
+   * alert's `seen_at`. Old alerts beyond {@link COMMERCE_WATCH_ALERTS_MAX_PER_OWNER}
+   * are pruned oldest-first in the same transaction.
+   */
+  static async saveWatchDetection(
+    ownerId: string,
+    snapshots: CommerceWatchSnapshotModelSchema[],
+    alerts: CommerceWatchAlertModelSchema[],
+  ): Promise<void> {
+    try {
+      await db.transaction('rw', CommerceWatchSnapshotModel.table, CommerceWatchAlertModel.table, async () => {
+        if (snapshots.length > 0) {
+          await CommerceWatchSnapshotModel.bulkSave(snapshots);
+        }
+        if (alerts.length > 0) {
+          const existing = new Set(
+            await CommerceWatchAlertModel.table
+              .where('id')
+              .anyOf(alerts.map(({ id }) => id))
+              .primaryKeys(),
+          );
+          const fresh = alerts.filter(({ id }) => !existing.has(id));
+          if (fresh.length > 0) {
+            await CommerceWatchAlertModel.bulkSave(fresh);
+          }
+        }
+        const all = await CommerceWatchAlertModel.table.where('owner_id').equals(ownerId).sortBy('created_at');
+        const excess = all.length - COMMERCE_WATCH_ALERTS_MAX_PER_OWNER;
+        if (excess > 0) {
+          await CommerceWatchAlertModel.table.bulkDelete(all.slice(0, excess).map(({ id }) => id));
+        }
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to persist a watchlist detection pass', {
+        service: ErrorService.Local,
+        operation: 'saveWatchDetection',
+        context: { tables: [CommerceWatchSnapshotModel.table.name, CommerceWatchAlertModel.table.name] },
+        cause: error,
+      });
+    }
+  }
+
+  static async markWatchAlertsSeen(ownerId: string, now: number): Promise<void> {
+    try {
+      await CommerceWatchAlertModel.table
+        .where('owner_id')
+        .equals(ownerId)
+        .filter(({ seen_at }) => seen_at === null)
+        .modify({ seen_at: now });
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to mark watchlist alerts seen', {
+        service: ErrorService.Local,
+        operation: 'markWatchAlertsSeen',
+        context: { table: CommerceWatchAlertModel.table.name },
+        cause: error,
+      });
+    }
+  }
+
+  static async getSavedSearches(ownerId: string): Promise<CommerceSavedSearchModelSchema[]> {
+    return await CommerceSavedSearchModel.findByOwner(ownerId);
+  }
+
+  static async createSavedSearch(search: CommerceSavedSearchModelSchema): Promise<void> {
+    await CommerceSavedSearchModel.upsert(search);
+  }
+
+  static async deleteSavedSearch(id: string): Promise<void> {
+    await CommerceSavedSearchModel.deleteById(id);
+  }
+
+  /**
+   * Records a completed saved-search check: how many matches exceeded the
+   * acknowledged watermark and the newest match timestamp the watermark can
+   * advance to when the user opens the search. Never moves the watermark
+   * itself — only {@link acknowledgeSavedSearch} does that.
+   */
+  static async recordSavedSearchCheck(
+    id: string,
+    result: { newCount: number; latestMatchUpdatedAt: number; checkedAt: number },
+  ): Promise<void> {
+    await CommerceSavedSearchModel.update(id, {
+      new_count: result.newCount,
+      latest_match_updated_at: result.latestMatchUpdatedAt,
+      last_checked_at: result.checkedAt,
+    });
+  }
+
+  /** Advances the watermark to the newest checked match and clears the NEW count. */
+  static async acknowledgeSavedSearch(id: string): Promise<void> {
+    const search = await CommerceSavedSearchModel.findById(id);
+    if (!search) return;
+    await CommerceSavedSearchModel.update(id, {
+      watermark_updated_at: Math.max(search.watermark_updated_at, search.latest_match_updated_at),
+      new_count: 0,
+    });
   }
 
   static async isShopFollowed(ownerId: string, sellerId: string): Promise<boolean> {

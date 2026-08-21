@@ -12,9 +12,12 @@ import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
+  CommerceSavedSearchModelSchema,
   CommerceShopFollowModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
+  CommerceWatchAlertModelSchema,
+  CommerceWatchSnapshotModelSchema,
 } from './commerce.schema';
 
 export class CommerceShopModel
@@ -386,6 +389,164 @@ export class CommerceCartItemModel
   static async findByOwner(ownerId: string): Promise<CommerceCartItemModelSchema[]> {
     try {
       return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceWatchSnapshotModel
+  extends RecordModelBase<string, CommerceWatchSnapshotModelSchema>
+  implements CommerceWatchSnapshotModelSchema
+{
+  static table: Table<CommerceWatchSnapshotModelSchema> = db.table('commerce_watch_snapshots');
+
+  owner_id: string;
+  listing_id: string;
+  title: string;
+  index_revision: number | null;
+  index_state: CommerceWatchSnapshotModelSchema['index_state'];
+  price_minor: number | null;
+  price_currency: string | null;
+  price_exponent: number | null;
+  auction_ends_at: string | null;
+  server_revision: number | null;
+  projection_state: CommerceWatchSnapshotModelSchema['projection_state'];
+  bid_count: number | null;
+  bid_amount_minor: number | null;
+  leader_pubky: string | null;
+  ending_soon_alerted_ends_at: string | null;
+  checked_at: number;
+
+  constructor(snapshot: CommerceWatchSnapshotModelSchema) {
+    super(snapshot);
+    this.owner_id = snapshot.owner_id;
+    this.listing_id = snapshot.listing_id;
+    this.title = snapshot.title;
+    this.index_revision = snapshot.index_revision;
+    this.index_state = snapshot.index_state;
+    this.price_minor = snapshot.price_minor;
+    this.price_currency = snapshot.price_currency;
+    this.price_exponent = snapshot.price_exponent;
+    this.auction_ends_at = snapshot.auction_ends_at;
+    this.server_revision = snapshot.server_revision;
+    this.projection_state = snapshot.projection_state;
+    this.bid_count = snapshot.bid_count;
+    this.bid_amount_minor = snapshot.bid_amount_minor;
+    this.leader_pubky = snapshot.leader_pubky;
+    this.ending_soon_alerted_ends_at = snapshot.ending_soon_alerted_ends_at;
+    this.checked_at = snapshot.checked_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceWatchSnapshotModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).toArray();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceWatchAlertModel
+  extends RecordModelBase<string, CommerceWatchAlertModelSchema>
+  implements CommerceWatchAlertModelSchema
+{
+  static table: Table<CommerceWatchAlertModelSchema> = db.table('commerce_watch_alerts');
+
+  owner_id: string;
+  listing_id: string;
+  seller_id: string;
+  kind: CommerceWatchAlertModelSchema['kind'];
+  title: string;
+  source: CommerceWatchAlertModelSchema['source'];
+  observed_revision: number;
+  ends_at: string | null;
+  previous_amount_minor: number | null;
+  current_amount_minor: number | null;
+  currency: string | null;
+  exponent: number | null;
+  bid_count: number | null;
+  previous_state: string | null;
+  next_state: string | null;
+  created_at: number;
+  seen_at: number | null;
+
+  constructor(alert: CommerceWatchAlertModelSchema) {
+    super(alert);
+    this.owner_id = alert.owner_id;
+    this.listing_id = alert.listing_id;
+    this.seller_id = alert.seller_id;
+    this.kind = alert.kind;
+    this.title = alert.title;
+    this.source = alert.source;
+    this.observed_revision = alert.observed_revision;
+    this.ends_at = alert.ends_at;
+    this.previous_amount_minor = alert.previous_amount_minor;
+    this.current_amount_minor = alert.current_amount_minor;
+    this.currency = alert.currency;
+    this.exponent = alert.exponent;
+    this.bid_count = alert.bid_count;
+    this.previous_state = alert.previous_state;
+    this.next_state = alert.next_state;
+    this.created_at = alert.created_at;
+    this.seen_at = alert.seen_at;
+  }
+
+  static async findByOwnerNewestFirst(ownerId: string): Promise<CommerceWatchAlertModelSchema[]> {
+    try {
+      const alerts = await this.table.where('owner_id').equals(ownerId).sortBy('created_at');
+      return alerts.reverse();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwnerNewestFirst',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceSavedSearchModel
+  extends RecordModelBase<string, CommerceSavedSearchModelSchema>
+  implements CommerceSavedSearchModelSchema
+{
+  static table: Table<CommerceSavedSearchModelSchema> = db.table('commerce_saved_searches');
+
+  owner_id: string;
+  name: string;
+  params: CommerceSavedSearchModelSchema['params'];
+  watermark_updated_at: number;
+  latest_match_updated_at: number;
+  new_count: number;
+  last_checked_at: number | null;
+  created_at: number;
+
+  constructor(search: CommerceSavedSearchModelSchema) {
+    super(search);
+    this.owner_id = search.owner_id;
+    this.name = search.name;
+    this.params = search.params;
+    this.watermark_updated_at = search.watermark_updated_at;
+    this.latest_match_updated_at = search.latest_match_updated_at;
+    this.new_count = search.new_count;
+    this.last_checked_at = search.last_checked_at;
+    this.created_at = search.created_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceSavedSearchModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('created_at');
     } catch (error) {
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
         service: ErrorService.Local,

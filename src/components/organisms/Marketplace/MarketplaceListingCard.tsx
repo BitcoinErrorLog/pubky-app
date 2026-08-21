@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Camera, Disc3, Footprints, Gem, House, Keyboard, Package, Shirt } from 'lucide-react';
+import { Bell, Camera, Disc3, Footprints, Gem, Heart, House, Keyboard, Package, Shirt } from 'lucide-react';
 import { getMarketplaceListingRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
@@ -51,6 +52,9 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
   const isAuction = listing.saleFormat === 'auction';
   const { ref: liveBidRef, bid } = useMarketplaceLiveBid(listing.sellerId, listing.listingId, isAuction);
   const hasLiveBid = isAuction && bid !== null && bid.bidCount > 0;
+  // The card's watch toggle IS the favorite — one concept, presented as the
+  // watchlist (favorites are the account-scoped store the watchlist reads).
+  const watch = useCommerceFavorite(listing.id);
   // The gradient+icon stays rendered UNDER the image, so it is also the
   // loading state; a failed load unmounts the image instead of showing a
   // broken-image icon.
@@ -93,6 +97,26 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           <Badge className="absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
             {isAuction ? 'Auction' : 'Buy now'}
           </Badge>
+          <button
+            type="button"
+            aria-label={watch.isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
+            aria-pressed={watch.isFavorite}
+            disabled={watch.isMutating}
+            data-cy="marketplace-card-watch-toggle"
+            className="absolute top-2.5 right-2.5 z-10 flex size-8 items-center justify-center rounded-full bg-background/85 text-foreground shadow-sm backdrop-blur-md transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={(event) => {
+              // The whole card is a link to the listing; watching must not navigate.
+              event.preventDefault();
+              event.stopPropagation();
+              void watch.toggle();
+            }}
+          >
+            {isAuction ? (
+              <Bell className={cn('size-4', watch.isFavorite && 'fill-brand text-brand')} />
+            ) : (
+              <Heart className={cn('size-4', watch.isFavorite && 'fill-brand text-brand')} />
+            )}
+          </button>
           {listing.auction && (
             <Badge variant="secondary" className="absolute right-3 bottom-3 bg-background/85 backdrop-blur-md">
               Ends {formatAuctionEnd(listing.auction.endsAt)}
