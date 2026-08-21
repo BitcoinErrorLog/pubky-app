@@ -2,8 +2,11 @@ import { getMarketplaceNexusUrl } from '@/config/nexus';
 import {
   MARKETPLACE_TAGS_PATH_PARAMS,
   type TListingDetailsParams,
+  type TListingReviewsParams,
   type TListingStreamParams,
   type TListingTagsParams,
+  type TShopReputationParams,
+  type TShopReviewsParams,
   type TShopTagsParams,
 } from '@/services/nexus/marketplace/marketplace.types';
 import { buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.utils';
@@ -60,6 +63,34 @@ export const marketplaceApi = {
     const seller = encodePathSegment(params.seller_id);
     return buildUrlWithQuery({
       baseRoute: `${SHOP_PREFIX}/${seller}/tags`,
+      params,
+      excludeKeys: MARKETPLACE_TAGS_PATH_PARAMS,
+      baseUrl: getMarketplaceNexusUrl(),
+    });
+  },
+  shopReviews: (params: TShopReviewsParams) => {
+    const seller = encodePathSegment(params.seller_id);
+    return buildUrlWithQuery({
+      baseRoute: `${SHOP_PREFIX}/${seller}/reviews`,
+      params,
+      excludeKeys: MARKETPLACE_TAGS_PATH_PARAMS,
+      baseUrl: getMarketplaceNexusUrl(),
+    });
+  },
+  shopReputation: (params: TShopReputationParams) => {
+    const seller = encodePathSegment(params.seller_id);
+    return buildUrlWithQuery({
+      baseRoute: `${SHOP_PREFIX}/${seller}/reputation`,
+      params,
+      excludeKeys: MARKETPLACE_TAGS_PATH_PARAMS,
+      baseUrl: getMarketplaceNexusUrl(),
+    });
+  },
+  listingReviews: (params: TListingReviewsParams) => {
+    const seller = encodePathSegment(params.seller_id);
+    const listing = encodePathSegment(params.listing_id);
+    return buildUrlWithQuery({
+      baseRoute: `${LISTING_PREFIX}/${seller}/${listing}/reviews`,
       params,
       excludeKeys: MARKETPLACE_TAGS_PATH_PARAMS,
       baseUrl: getMarketplaceNexusUrl(),

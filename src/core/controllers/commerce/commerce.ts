@@ -11,6 +11,7 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import type { CommerceIndexedReview } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
@@ -235,6 +236,69 @@ export class CommerceController {
    */
   static async ensureListingRegistered(record: unknown) {
     return await CommerceApplication.ensureListingRegistered(CommerceRecordNormalizer.listing(record));
+  }
+
+  /**
+   * A seller's public reputation overview (`rated` / `new_seller` /
+   * `unavailable`) for rating headers. Network-only: reputation is index
+   * data, never cached as a record.
+   */
+  static async fetchSellerReputation(sellerPubky: unknown) {
+    return await CommerceApplication.fetchSellerReputationOverview(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
+  /** A page of indexed reviews about a seller, with joined responses. */
+  static async fetchSellerReviews(sellerPubky: unknown, page: { skip?: number; limit?: number } = {}) {
+    return await CommerceApplication.fetchSellerReviews(CommerceRecordNormalizer.pubky(sellerPubky), page);
+  }
+
+  /** A page of indexed buyer reviews of one listing, with joined responses. */
+  static async fetchListingReviews(
+    sellerPubky: unknown,
+    listingId: unknown,
+    page: { skip?: number; limit?: number } = {},
+  ) {
+    return await CommerceApplication.fetchListingReviews(
+      CommerceRecordNormalizer.pubky(sellerPubky),
+      CommerceRecordNormalizer.entityId(listingId),
+      page,
+    );
+  }
+
+  /** The current user's own published review rows, newest update first (local-first). */
+  static async getOwnMarketplaceReviews() {
+    return await CommerceApplication.getOwnReviews(this.getCurrentUserPubky());
+  }
+
+  /** The current user's own response row for one review, or null. */
+  static async getOwnMarketplaceReviewResponse(reviewId: unknown) {
+    return await CommerceApplication.getOwnReviewResponse(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(reviewId),
+    );
+  }
+
+  /**
+   * Publishes (or revises) the current user's response to a review they are
+   * the subject of — a homeserver record on the user's OWN homeserver
+   * (subject-only, one revisable response per review; there is no service
+   * command for responses).
+   */
+  static async publishMarketplaceReviewResponse(input: {
+    review: CommerceIndexedReview;
+    text: string;
+    priorRevision?: number | null;
+    priorCreatedAt?: string | null;
+  }) {
+    return await CommerceApplication.commitPublishReviewResponse({
+      actorPubky: this.getCurrentUserPubky(),
+      ...input,
+    });
+  }
+
+  /** Retries own review-response records whose homeserver publication never landed. */
+  static async resumeOwnReviewResponsePublications() {
+    return await CommerceApplication.resumeOwnReviewResponsePublications(this.getCurrentUserPubky());
   }
 
   static async getMarketplaceListingProjection(ownerPubky: unknown, listingId: unknown) {

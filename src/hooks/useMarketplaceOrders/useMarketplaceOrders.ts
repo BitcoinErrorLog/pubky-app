@@ -186,6 +186,9 @@ async function loadOrders(
   // mid-flight is retried whenever this surface loads. Best-effort — a
   // failure keeps the row pending and is logged inside the application.
   void CommerceController.resumeOwnReviewPublications().catch(() => undefined);
+  // Same outbox semantics for own review-RESPONSE records (subject-only
+  // responses published to the responder's homeserver).
+  void CommerceController.resumeOwnReviewResponsePublications().catch(() => undefined);
   try {
     const orders = await CommerceController.getMarketplaceOrders();
     const views = await Promise.all(

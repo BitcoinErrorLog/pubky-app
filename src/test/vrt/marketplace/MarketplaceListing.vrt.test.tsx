@@ -194,6 +194,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     // The owner panel self-heals listing registration on mount; VRT renders
     // the visual outcome only, so the call resolves without side effects.
     ensureListingRegistered: () => Promise.resolve(false),
+    // No reputation-aware index in these scenarios: the rating header and the
+    // reviews section render nothing, keeping the existing baselines. The
+    // review surfaces have their own VRT file (MarketplaceReviewsPublic).
+    fetchSellerReputation: () => Promise.resolve({ status: 'unavailable' }),
+    fetchSellerReviews: () => Promise.resolve({ status: 'unavailable' }),
+    fetchListingReviews: () => Promise.resolve({ status: 'unavailable' }),
   },
 }));
 

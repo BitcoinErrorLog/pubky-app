@@ -23,6 +23,8 @@ import {
   type CommerceLocksCorrelationModelSchema,
   commerceLocksCorrelationTableSchema,
   type CommerceReviewModelSchema,
+  type CommerceReviewResponseModelSchema,
+  commerceReviewResponseTableSchema,
   commerceReviewTableSchema,
   type CommerceSavedSearchModelSchema,
   commerceSavedSearchTableSchema,
@@ -157,6 +159,8 @@ export class AppDatabase extends Dexie {
   commerce_sync_jobs!: Dexie.Table<CommerceSyncJobModelSchema>;
   // Own published marketplace reviews (local-first copy + publication state)
   commerce_reviews!: Dexie.Table<CommerceReviewModelSchema>;
+  // Own published review responses (subject-only, one revisable per review)
+  commerce_review_responses!: Dexie.Table<CommerceReviewResponseModelSchema>;
   commerce_favorites!: Dexie.Table<CommerceFavoriteModelSchema>;
   commerce_shop_follows!: Dexie.Table<CommerceShopFollowModelSchema>;
   commerce_cart_items!: Dexie.Table<CommerceCartItemModelSchema>;
@@ -221,6 +225,10 @@ export class AppDatabase extends Dexie {
         commerce_listing_projections: commerceListingProjectionTableSchema,
         commerce_sync_jobs: commerceSyncJobTableSchema,
         commerce_reviews: commerceReviewTableSchema,
+        // Own review responses — folded into the current (unreleased) DB
+        // version rather than bumping it: version 3 has never shipped, so
+        // there is no upgrade path to preserve.
+        commerce_review_responses: commerceReviewResponseTableSchema,
         commerce_favorites: commerceFavoriteTableSchema,
         commerce_shop_follows: commerceShopFollowTableSchema,
         commerce_cart_items: commerceCartItemTableSchema,

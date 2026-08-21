@@ -164,6 +164,8 @@ export function createCommerceCatalogEntryFixture(
     sale_format: 'fixed_price',
     price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
     auction: null,
+    reputation: null,
+    listing_reputation: null,
     revision: 1,
     updated_at: Date.parse(COMMERCE_FIXTURE_UPDATED_AT),
     ...overrides,

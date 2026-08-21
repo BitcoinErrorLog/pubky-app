@@ -506,6 +506,30 @@ const commerceReviewRecordSchemaInner = commercePublicRecordBaseSchema
   .strict()
   .superRefine(validateRecordDates);
 
+/**
+ * The subject's response to a marketplace review (`PubkyAppReviewResponse`,
+ * specs fork v0.6.2-marketplace.3), published on the SUBJECT's homeserver at
+ * `/pub/pubky.app/marketplace/v1/review_responses/{review_id}` — the path ID
+ * equals the subject review's ID, structurally capping responses at one
+ * revisable response per review (ratified D7). Authorization is structural:
+ * indexers accept the record only when its owner equals the review's
+ * `subjectPubky`; there is no attestation and no service command.
+ */
+const commerceReviewResponseRecordSchemaInner = commercePublicRecordBaseSchema
+  .extend({
+    recordType: z.literal('review_response'),
+    reviewId: commerceEntityIdSchema,
+    reviewUri: z
+      .string()
+      .regex(
+        /^pubky:\/\/[a-z0-9]{52}\/pub\/pubky\.app\/marketplace\/v1\/reviews\/[0-9A-HJKMNP-TV-Z]+$/,
+        'reviewUri must be a canonical marketplace review URI',
+      ),
+    text: z.string().trim().min(1).max(COMMERCE_REVIEW_TEXT_MAX_CHARS),
+  })
+  .strict()
+  .superRefine(validateRecordDates);
+
 const commerceCollectionRecordSchemaInner = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('collection'),
@@ -630,11 +654,16 @@ function stripSerializedNulls(input: unknown): unknown {
 export const commerceShopRecordSchema = z.preprocess(stripSerializedNulls, commerceShopRecordSchemaInner);
 export const commerceListingRecordSchema = z.preprocess(stripSerializedNulls, commerceListingRecordSchemaInner);
 export const commerceReviewRecordSchema = z.preprocess(stripSerializedNulls, commerceReviewRecordSchemaInner);
+export const commerceReviewResponseRecordSchema = z.preprocess(
+  stripSerializedNulls,
+  commerceReviewResponseRecordSchemaInner,
+);
 export const commerceCollectionRecordSchema = z.preprocess(stripSerializedNulls, commerceCollectionRecordSchemaInner);
 
 export type CommerceShopRecord = z.infer<typeof commerceShopRecordSchema>;
 export type CommerceListingRecord = z.infer<typeof commerceListingRecordSchema>;
 export type CommerceReviewRecord = z.infer<typeof commerceReviewRecordSchema>;
+export type CommerceReviewResponseRecord = z.infer<typeof commerceReviewResponseRecordSchema>;
 export type CommerceCollectionRecord = z.infer<typeof commerceCollectionRecordSchema>;
 export type CommerceTombstoneRecord = z.infer<typeof commerceTombstoneRecordSchema>;
 export type CommercePublicRecord = z.infer<typeof commercePublicRecordSchema>;

@@ -14,6 +14,7 @@ import {
   CommerceListingProjectionModel,
   CommerceLocksCorrelationModel,
   CommerceReviewModel,
+  CommerceReviewResponseModel,
   CommerceSavedSearchModel,
   CommerceShippingPresetModel,
   CommerceShopFollowModel,
@@ -32,6 +33,7 @@ import type {
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
   CommerceReviewModelSchema,
+  CommerceReviewResponseModelSchema,
   CommerceSavedSearchModelSchema,
   CommerceShippingPresetModelSchema,
   CommerceShopModelSchema,
@@ -433,6 +435,52 @@ export class LocalCommerceService {
         service: ErrorService.Local,
         operation: 'stageOwnReviewSync',
         context: { tables: [CommerceReviewModel.table.name, CommerceSyncJobModel.table.name] },
+        cause: error,
+      });
+    }
+  }
+
+  /** All of the user's own published review rows, newest update first. */
+  static async getOwnReviews(ownerId: string): Promise<CommerceReviewModelSchema[]> {
+    return await CommerceReviewModel.findByOwner(ownerId);
+  }
+
+  static async getOwnReviewResponse(
+    ownerId: string,
+    reviewId: string,
+  ): Promise<CommerceReviewResponseModelSchema | undefined> {
+    return (await CommerceReviewResponseModel.findById(`${ownerId}:${reviewId}`)) ?? undefined;
+  }
+
+  static async getPendingOwnReviewResponses(ownerId: string): Promise<CommerceReviewResponseModelSchema[]> {
+    return await CommerceReviewResponseModel.findPendingByOwner(ownerId);
+  }
+
+  static async upsertOwnReviewResponse(response: CommerceReviewResponseModelSchema): Promise<void> {
+    await CommerceReviewResponseModel.upsert(response);
+  }
+
+  /**
+   * Stages an own review-response publication: local-first row plus sync job
+   * in one transaction — the same visible retryable-outbox pattern reviews
+   * and listings use.
+   */
+  static async stageOwnReviewResponseSync(
+    response: CommerceReviewResponseModelSchema,
+    job: CommerceSyncJobModelSchema,
+  ): Promise<void> {
+    this.assertSyncJobIdentity(job, response.owner_id, response.review_id, 'review_response');
+    try {
+      await db.transaction('rw', CommerceReviewResponseModel.table, CommerceSyncJobModel.table, async () => {
+        await CommerceReviewResponseModel.upsert(response);
+        await CommerceSyncJobModel.upsert(job);
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to stage review response synchronization', {
+        service: ErrorService.Local,
+        operation: 'stageOwnReviewResponseSync',
+        context: { tables: [CommerceReviewResponseModel.table.name, CommerceSyncJobModel.table.name] },
         cause: error,
       });
     }

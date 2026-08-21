@@ -34,7 +34,10 @@ import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import type {
   CommerceCatalogEntryModelSchema,
+  CommerceIndexedReview,
+  CommerceReputationSummary,
   CommerceReviewModelSchema,
+  CommerceReviewResponseModelSchema,
   CommerceSavedSearchModelSchema,
   CommerceSavedSearchParams,
   CommerceSyncJobModelSchema,
@@ -98,6 +101,23 @@ export interface CommerceCatalogStreamFilters {
    */
   endingSoonest?: boolean;
 }
+
+/**
+ * The three honest states a rating header can be in: `rated` (the index
+ * holds reviews), `new_seller` (a reputation-aware index confirmed zero
+ * reviews — the explicit cold-start state, ratified in the design's §10.3),
+ * or `unavailable` (no reputation-aware index reachable — render nothing,
+ * never a fabricated state).
+ */
+export type CommerceSellerReputationOverview =
+  | { status: 'rated'; summary: CommerceReputationSummary }
+  | { status: 'new_seller' }
+  | { status: 'unavailable' };
+
+/** A review-list page, or the honest signal that no review index serves this deployment. */
+export type CommerceIndexedReviewsResult =
+  | { status: 'ok'; reviews: CommerceIndexedReview[] }
+  | { status: 'unavailable' };
 
 export class CommerceApplication {
   private constructor() {}
@@ -1169,6 +1189,194 @@ export class CommerceApplication {
         published += 1;
       } catch (error) {
         Logger.warn('Own review publication retry failed; the row stays pending', {
+          reviewId: row.review_id,
+          error,
+        });
+      }
+    }
+    return published;
+  }
+
+  /**
+   * The seller's public reputation overview for rating headers, with the
+   * old-deployment ambiguity resolved honestly: the reputation endpoint
+   * answers 404 both when the subject has no indexed reviews AND when the
+   * Nexus deployment predates reputation indexing (unknown route). Claiming
+   * "New seller" against an old index would be a fabrication, so a 404 is
+   * only trusted as the New-seller state after the review-list endpoint
+   * answers 200 (proving the deployment indexes reviews at all). Anything
+   * else degrades to `unavailable`, which renders NO reputation surface —
+   * absence, never a fake state.
+   */
+  static async fetchSellerReputationOverview(sellerPubky: string): Promise<CommerceSellerReputationOverview> {
+    if (getCommerceAdapterMode() === 'sandbox') return { status: 'unavailable' };
+
+    try {
+      const payload = await NexusMarketplaceService.fetchShopReputation({ seller_id: sellerPubky });
+      return { status: 'rated', summary: CommerceRecordNormalizer.nexusReputationSummary(payload) };
+    } catch (error) {
+      if (!(isAppError(error) && isNotFound(error))) {
+        Logger.warn('Seller reputation fetch failed; rendering no reputation surface', { sellerPubky, error });
+        return { status: 'unavailable' };
+      }
+    }
+
+    try {
+      await NexusMarketplaceService.fetchShopReviews({ seller_id: sellerPubky, limit: 1 });
+      return { status: 'new_seller' };
+    } catch (error) {
+      Logger.warn('Review index probe failed; rendering no reputation surface', { sellerPubky, error });
+      return { status: 'unavailable' };
+    }
+  }
+
+  /**
+   * A page of indexed reviews about a seller (with joined seller responses),
+   * newest-indexed first. `unavailable` means the index does not serve
+   * review routes (old deployment or unreachable) — callers render no
+   * review section rather than an empty one.
+   */
+  static async fetchSellerReviews(
+    sellerPubky: string,
+    page: { skip?: number; limit?: number } = {},
+  ): Promise<CommerceIndexedReviewsResult> {
+    if (getCommerceAdapterMode() === 'sandbox') return { status: 'unavailable' };
+    try {
+      const payload = await NexusMarketplaceService.fetchShopReviews({ seller_id: sellerPubky, ...page });
+      return { status: 'ok', reviews: CommerceRecordNormalizer.nexusReviewStream(payload) };
+    } catch (error) {
+      Logger.warn('Seller reviews fetch failed; rendering no review section', { sellerPubky, error });
+      return { status: 'unavailable' };
+    }
+  }
+
+  /** A page of indexed buyer reviews of one listing (with joined seller responses). */
+  static async fetchListingReviews(
+    sellerPubky: string,
+    listingId: string,
+    page: { skip?: number; limit?: number } = {},
+  ): Promise<CommerceIndexedReviewsResult> {
+    if (getCommerceAdapterMode() === 'sandbox') return { status: 'unavailable' };
+    try {
+      const payload = await NexusMarketplaceService.fetchListingReviews({
+        seller_id: sellerPubky,
+        listing_id: listingId,
+        ...page,
+      });
+      return { status: 'ok', reviews: CommerceRecordNormalizer.nexusReviewStream(payload) };
+    } catch (error) {
+      Logger.warn('Listing reviews fetch failed; rendering no review section', { sellerPubky, listingId, error });
+      return { status: 'unavailable' };
+    }
+  }
+
+  /**
+   * The current user's own published review rows (local-first: the user owns
+   * these records, so the list renders from the local copies with their
+   * publication + verification state — no index round-trip).
+   */
+  static async getOwnReviews(actorPubky: string): Promise<CommerceReviewModelSchema[]> {
+    return await LocalCommerceService.getOwnReviews(actorPubky);
+  }
+
+  /** The current user's own response row for one review, or null. */
+  static async getOwnReviewResponse(
+    actorPubky: string,
+    reviewId: string,
+  ): Promise<CommerceReviewResponseModelSchema | null> {
+    return (await LocalCommerceService.getOwnReviewResponse(actorPubky, reviewId)) ?? null;
+  }
+
+  /**
+   * Publishes (or revises) the current user's response to a review they are
+   * the subject of — a `PubkyAppReviewResponse` record on the user's OWN
+   * homeserver (ratified D7: subject-only, one revisable response per
+   * review; the path ID equals the review's ID). There is no service
+   * command for responses: the record is the whole mechanism, and Nexus
+   * indexes it with the structural `owner == subjectPubky` check. Publication
+   * uses the same staged-job retryable outbox as reviews and listings.
+   *
+   * `priorRevision` carries the newest revision the caller has seen from the
+   * index (a response written on another device); the new revision always
+   * moves past both it and the local copy.
+   */
+  static async commitPublishReviewResponse(input: {
+    actorPubky: string;
+    review: CommerceIndexedReview;
+    text: string;
+    priorRevision?: number | null;
+    priorCreatedAt?: string | null;
+  }): Promise<CommerceReviewResponseModelSchema> {
+    const { actorPubky, review, text } = input;
+    if (review.subjectId !== actorPubky) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Only the review subject may respond to a review.', {
+        service: ErrorService.Local,
+        operation: 'commitPublishReviewResponse',
+        context: { reviewId: review.reviewId },
+      });
+    }
+
+    const prior = await LocalCommerceService.getOwnReviewResponse(actorPubky, review.reviewId);
+    const baseRevision = Math.max(prior?.record.revision ?? 0, input.priorRevision ?? 0);
+    const nowIso = new Date().toISOString();
+    const createdAt = prior?.record.createdAt ?? input.priorCreatedAt ?? nowIso;
+
+    const { PubkySpecsBuilder } = await import('pubky-app-specs');
+    const built = new PubkySpecsBuilder(actorPubky).createReviewResponse({
+      schemaVersion: 1,
+      recordType: 'review_response',
+      ownerPubky: actorPubky,
+      revision: baseRevision + 1,
+      createdAt,
+      updatedAt: nowIso,
+      reviewId: review.reviewId,
+      reviewUri: CommerceRecordNormalizer.reviewUri(review.reviewerId, review.reviewId),
+      text,
+    });
+    const record = CommerceRecordNormalizer.reviewResponse(built.review_response.toJson());
+
+    const model: CommerceReviewResponseModelSchema = {
+      id: `${actorPubky}:${review.reviewId}`,
+      owner_id: actorPubky,
+      review_id: review.reviewId,
+      reviewer_id: review.reviewerId,
+      record,
+      sync_status: 'pending',
+      updated_at: Date.now(),
+    };
+    const url = CommerceRecordNormalizer.reviewResponseUri(actorPubky, review.reviewId);
+    const job = this.createSyncJob({
+      ownerId: actorPubky,
+      entityType: 'review_response',
+      entityId: review.reviewId,
+      operation: 'publish',
+      payload: { url },
+      now: Date.now(),
+    });
+
+    await LocalCommerceService.stageOwnReviewResponseSync(model, job);
+    await CommerceHomeserverService.putJson(url, { ...record });
+    const synced: CommerceReviewResponseModelSchema = { ...model, sync_status: 'synced', updated_at: Date.now() };
+    await LocalCommerceService.upsertOwnReviewResponse(synced);
+    await LocalCommerceService.completeSyncJob(job.id);
+    return synced;
+  }
+
+  /**
+   * Retries every own review-response record whose homeserver PUT never
+   * landed — the same visible retryable outbox reviews use.
+   */
+  static async resumeOwnReviewResponsePublications(actorPubky: string): Promise<number> {
+    const pending = await LocalCommerceService.getPendingOwnReviewResponses(actorPubky);
+    let published = 0;
+    for (const row of pending) {
+      const url = CommerceRecordNormalizer.reviewResponseUri(row.owner_id, row.review_id);
+      try {
+        await CommerceHomeserverService.putJson(url, { ...row.record });
+        await LocalCommerceService.upsertOwnReviewResponse({ ...row, sync_status: 'synced', updated_at: Date.now() });
+        published += 1;
+      } catch (error) {
+        Logger.warn('Own review response publication retry failed; the row stays pending', {
           reviewId: row.review_id,
           error,
         });

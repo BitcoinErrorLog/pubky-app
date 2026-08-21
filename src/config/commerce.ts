@@ -97,6 +97,26 @@ export const COMMERCE_REVIEW_TEXT_MAX_CHARS = 5_000;
  * has closed instead of failing on submit.
  */
 export const COMMERCE_REVIEW_EDIT_WINDOW_SECONDS = 24 * 60 * 60;
+
+/**
+ * The attestor pubkys this client TRUSTS for the "Verified purchase" label
+ * (ADR 0024 §3: the signature proves key possession, never legitimacy —
+ * verifiers pin attestor identities out of band, and this list is that
+ * pinning). Nexus indexes every cryptographically verified review and names
+ * its attestor; display trust is decided here. The sole entry is the
+ * attestor identity of the deployed marketplace transaction service.
+ */
+export const MARKETPLACE_TRUSTED_ATTESTORS: readonly string[] = [
+  'ws343aqzmcahagojhmhkbri8odqz9iqg61woxbkh9fd3bxhqomdy',
+];
+
+/** Whether an attestor pubky is on this client's pinned trust list. */
+export function isTrustedMarketplaceAttestor(attestorId: string | null): boolean {
+  return attestorId !== null && MARKETPLACE_TRUSTED_ATTESTORS.includes(attestorId);
+}
+
+/** Page size for marketplace review lists (listing and shop surfaces). */
+export const MARKETPLACE_REVIEWS_PAGE_SIZE = 10;
 export const COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS = 300;
 export const COMMERCE_CATALOG_SKELETON_COUNT = 8;
 

@@ -15,6 +15,7 @@ import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketpl
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { cn } from '@/libs/utils/utils';
+import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
 
@@ -157,6 +158,18 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
             {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
           </Typography>
           <CardTopAttributes listing={listing} />
+          {/* Seller reputation from the stream projection (zero extra requests).
+              Rendered only when the index actually reported reviews — absence
+              stays absence, never a fabricated 0.0 (ratified D5; display only
+              per D4, never a ranking input). */}
+          {listing.reputation !== null && listing.reputation.count > 0 && (
+            <MarketplaceStarRating
+              rating={listing.reputation.avg}
+              count={listing.reputation.count}
+              verifiedCount={listing.reputation.verifiedCount}
+              size="sm"
+            />
+          )}
           <div className="mt-auto flex items-center justify-between gap-2 pt-1">
             <Typography as="span" className="text-xs text-muted-foreground">
               {formatCommerceCondition(listing.condition)}

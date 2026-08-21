@@ -99,6 +99,10 @@ describe('CommerceRecordNormalizer', () => {
           auction: null,
           revision: 1,
           updated_at: Date.parse('2026-08-19T21:00:00.000Z'),
+          // No reputation snippets in the projection: absence normalizes to
+          // null, never a fabricated zero aggregate (ratified D5).
+          reputation: null,
+          listing_reputation: null,
         },
       ]);
     });

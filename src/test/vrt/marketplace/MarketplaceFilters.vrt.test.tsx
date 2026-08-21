@@ -29,6 +29,7 @@ const facetItem: MarketplaceCatalogItem = {
   attributes: { size: 'L', brand: 'Champion', color: ['grey', 'navy'] },
   location: { countryCode: 'US', region: null },
   mediaUrls: [],
+  reputation: null,
   revision: 1,
   updatedAt: 1_000,
 };

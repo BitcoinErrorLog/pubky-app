@@ -35,6 +35,7 @@
     "test:marketplace:messaging": "vitest run --config vitest.messaging.config.ts",
     "test:marketplace:messaging:staging": "vitest run --config vitest.messaging.staging.config.ts",
     "test:marketplace:cross-account": "vitest run --config vitest.cross-account.staging.config.ts",
+    "test:marketplace:reviews": "vitest run --config vitest.reviews.config.ts",
     "vrt:gallery": "node scripts/vrt-gallery.mjs"
   },
   "lint-staged": {
