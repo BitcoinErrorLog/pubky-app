@@ -57,6 +57,7 @@ vi.mock('@/hooks/useMarketplaceDisputeCase/useMarketplaceDisputeCase', async () 
       caseFile: view.caseFile,
       isLoading: view.isLoading,
       error: view.error,
+      needsSession: false,
       refresh: vi.fn(async () => {}),
       evidenceForm: useForm({ defaultValues: marketplaceDisputeEvidenceFormDefaults }),
       resolveForm: useForm({ defaultValues: marketplaceDisputeResolveFormDefaults }),
