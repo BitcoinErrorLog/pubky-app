@@ -259,3 +259,60 @@ export interface CommerceLocksCorrelationModelSchema {
 }
 
 export const commerceLocksCorrelationTableSchema = '&id, owner_id, payment_id, order_id, updated_at';
+
+/**
+ * One saved delivery address in the buyer's private address book.
+ *
+ * Addresses are PRIVATE DELIVERY DETAILS and live only in this account-scoped
+ * table — never on the homeserver, never in public records, and never
+ * readable back from the transaction service (its read projections withhold
+ * `delivery_address` by design, ADR-0019 §8). The only place an address ever
+ * travels is inside the buyer's own `checkout.create` command.
+ *
+ * Field limits mirror the checkout command contract exactly, so anything
+ * saved here is guaranteed submittable.
+ */
+export interface CommerceDeliveryAddressModelSchema {
+  /** `${owner_id}:${addressId}` */
+  id: string;
+  owner_id: string;
+  /** Short user-facing name for the picker, e.g. "Home". */
+  label: string;
+  name: string;
+  line1: string;
+  line2: string;
+  city: string;
+  region: string;
+  postal_code: string;
+  /** ISO 3166-1 alpha-2, uppercase. */
+  country_code: string;
+  is_default: boolean;
+  /** Set when an order was placed with this address; drives "last used" ordering. */
+  last_used_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export const commerceDeliveryAddressTableSchema = '&id, owner_id, updated_at, [owner_id+updated_at]';
+
+/**
+ * A seller's reusable shipping option template. Pure authoring convenience:
+ * applying a preset only fills the sell studio's shipping fields — the
+ * published listing record keeps its existing single flat-rate
+ * `shippingOptions` shape, and nothing about a preset is ever published.
+ */
+export interface CommerceShippingPresetModelSchema {
+  /** `${owner_id}:${presetId}` */
+  id: string;
+  owner_id: string;
+  /** Shipping option label, doubles as the preset's display name. */
+  label: string;
+  price_minor: number;
+  currency: string;
+  estimated_min_days: number;
+  estimated_max_days: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export const commerceShippingPresetTableSchema = '&id, owner_id, updated_at, [owner_id+updated_at]';

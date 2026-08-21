@@ -49,7 +49,38 @@ interface MockMediaItem {
 const view = vi.hoisted(() => ({
   drafts: [] as unknown[],
   mediaItems: [] as unknown[],
+  shippingPresets: [] as unknown[],
 }));
+
+// Two device-local shipping presets so the shipping section's apply-preset
+// picker renders (shape mirrors CommerceShippingPresetModelSchema).
+const presetFixtures = vi.hoisted(() => {
+  const owner = 'y'.repeat(52);
+  return [
+    {
+      id: `${owner}:preset_standard`,
+      owner_id: owner,
+      label: 'Standard shipping',
+      price_minor: 1_200,
+      currency: 'USD',
+      estimated_min_days: 3,
+      estimated_max_days: 7,
+      created_at: 1_754_000_000_000,
+      updated_at: 1_755_000_000_000,
+    },
+    {
+      id: `${owner}:preset_express`,
+      owner_id: owner,
+      label: 'Express courier',
+      price_minor: 2_500,
+      currency: 'USD',
+      estimated_min_days: 1,
+      estimated_max_days: 2,
+      created_at: 1_754_100_000_000,
+      updated_at: 1_754_100_000_000,
+    },
+  ];
+});
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -68,6 +99,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitDeleteListingDraft: () => Promise.resolve(),
     commitCreateMedia: () => Promise.resolve(),
     commitUpsertListing: () => Promise.resolve(),
+    getShippingPresets: () => Promise.resolve(view.shippingPresets),
+    commitUpsertShippingPreset: () => Promise.resolve(),
   },
 }));
 
@@ -111,6 +144,23 @@ describe('Marketplace sell studio — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-empty-form-mobile');
+  });
+
+  // The shipping section with saved presets: the apply-preset picker renders
+  // next to "Save as preset" once the seller has presets on this device.
+  it('renders the shipping section with the preset picker at desktop viewport', async () => {
+    view.drafts = [];
+    view.mediaItems = [];
+    view.shippingPresets = presetFixtures;
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('#listing-shipping-preset')) {
+        throw new Error('The preset picker has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-shipping-presets-desktop');
+    view.shippingPresets = [];
   });
 
   it('renders the form with an autosaved draft restored at desktop viewport', async () => {

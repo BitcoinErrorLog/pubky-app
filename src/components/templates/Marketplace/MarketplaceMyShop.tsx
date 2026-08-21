@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, ExternalLink, LayoutDashboard } from 'lucide-react';
+import { ArrowLeft, ExternalLink, LayoutDashboard, Package } from 'lucide-react';
 import { getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -53,6 +53,12 @@ export function MarketplaceMyShop() {
                 </Link>
               </Button>
             )}
+            <Button asChild variant="ghost" className="rounded-full">
+              <Link href={MARKETPLACE_ROUTES.SETTINGS_SHIPPING} overrideDefaults>
+                <Package className="mr-2 size-4" />
+                Shipping presets
+              </Link>
+            </Button>
             <Button asChild variant="ghost" className="rounded-full">
               <Link href={MARKETPLACE_ROUTES.DASHBOARD} overrideDefaults>
                 <LayoutDashboard className="mr-2 size-4" />

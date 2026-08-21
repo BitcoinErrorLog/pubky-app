@@ -16,7 +16,10 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   PRICE: 'price',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
+  SHIPPING_LABEL: 'shippingLabel',
   SHIPPING_PRICE: 'shippingPrice',
+  SHIPPING_MIN_DAYS: 'shippingMinDays',
+  SHIPPING_MAX_DAYS: 'shippingMaxDays',
   WEIGHT_GRAMS: 'weightGrams',
   LENGTH_MM: 'lengthMillimeters',
   WIDTH_MM: 'widthMillimeters',
@@ -76,7 +79,10 @@ export const createMarketplaceListingSchema = z
     price: moneyInputSchema,
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical']),
+    shippingLabel: z.string().trim().max(100, 'Keep the shipping label under 100 characters.'),
     shippingPrice: z.string().trim(),
+    shippingMinDays: z.string().trim(),
+    shippingMaxDays: z.string().trim(),
     weightGrams: z.string().trim(),
     lengthMillimeters: z.string().trim(),
     widthMillimeters: z.string().trim(),
@@ -91,6 +97,36 @@ export const createMarketplaceListingSchema = z
           code: 'custom',
           path: ['shippingPrice'],
           message: shipping.error.issues[0]?.message ?? 'Shipping price is required.',
+        });
+      }
+      if (!data.shippingLabel) {
+        context.addIssue({
+          code: 'custom',
+          path: ['shippingLabel'],
+          message: 'Give the shipping option a label buyers will see.',
+        });
+      }
+      const minDaysValid = /^\d+$/.test(data.shippingMinDays) && Number(data.shippingMinDays) <= 365;
+      const maxDaysValid = /^\d+$/.test(data.shippingMaxDays) && Number(data.shippingMaxDays) <= 365;
+      if (!minDaysValid) {
+        context.addIssue({
+          code: 'custom',
+          path: ['shippingMinDays'],
+          message: 'Enter an estimate in whole days (0–365).',
+        });
+      }
+      if (!maxDaysValid) {
+        context.addIssue({
+          code: 'custom',
+          path: ['shippingMaxDays'],
+          message: 'Enter an estimate in whole days (0–365).',
+        });
+      }
+      if (minDaysValid && maxDaysValid && Number(data.shippingMaxDays) < Number(data.shippingMinDays)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['shippingMaxDays'],
+          message: 'The maximum estimate cannot precede the minimum.',
         });
       }
       if (!/^[1-9]\d*$/.test(data.weightGrams) || Number(data.weightGrams) > 1_000_000) {
@@ -148,7 +184,10 @@ export const createMarketplaceListingDraftSchema = z
       }),
     ),
     fulfillment: z.enum(['pickup', 'physical']),
+    shippingLabel: z.string(),
     shippingPrice: z.string(),
+    shippingMinDays: z.string(),
+    shippingMaxDays: z.string(),
     weightGrams: z.string(),
     lengthMillimeters: z.string(),
     widthMillimeters: z.string(),
@@ -173,7 +212,10 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   price: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
   fulfillment: 'physical',
+  shippingLabel: 'Seller shipping',
   shippingPrice: '',
+  shippingMinDays: '3',
+  shippingMaxDays: '7',
   weightGrams: '',
   lengthMillimeters: '',
   widthMillimeters: '',

@@ -46,6 +46,8 @@ export enum MARKETPLACE_ROUTES {
   NOTIFICATIONS = '/marketplace/notifications',
   MODERATION = '/marketplace/moderation',
   SETTINGS = '/marketplace/settings',
+  SETTINGS_ADDRESSES = '/marketplace/settings/addresses',
+  SETTINGS_SHIPPING = '/marketplace/settings/shipping',
 }
 
 export enum PROFILE_ROUTES {

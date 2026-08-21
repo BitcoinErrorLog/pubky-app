@@ -863,8 +863,54 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
         </div>
       </div>
       <div
+        class="flex flex-wrap items-end gap-3 rounded-xl border bg-card/60 p-3"
+      >
+        <button
+          class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 rounded-full"
+          data-size="sm"
+          data-slot="button"
+          data-variant="secondary"
+          type="button"
+        >
+          Save as preset
+        </button>
+        <p
+          class="font-medium text-sm text-muted-foreground"
+          data-testid="typography"
+        >
+          Presets store these shipping fields on this device so future listings start pre-filled.
+        </p>
+      </div>
+      <div
         class="grid gap-5 sm:grid-cols-2"
       >
+        <div
+          class="mx-auto w-full flex-col flex gap-2"
+          data-testid="container"
+        >
+          <label
+            class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+            data-slot="label"
+            for="shippingLabel"
+          >
+            Shipping label
+          </label>
+          <div
+            class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
+            data-testid="container"
+          >
+            <input
+              aria-invalid="false"
+              class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
+              data-testid="input"
+              id="shippingLabel"
+              name="shippingLabel"
+              placeholder="Standard shipping"
+              type="text"
+              value="Seller shipping"
+            />
+          </div>
+        </div>
         <div
           class="mx-auto w-full flex-col flex gap-2"
           data-testid="container"
@@ -889,6 +935,60 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               placeholder="12.00"
               type="text"
               value=""
+            />
+          </div>
+        </div>
+        <div
+          class="mx-auto w-full flex-col flex gap-2"
+          data-testid="container"
+        >
+          <label
+            class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+            data-slot="label"
+            for="shippingMinDays"
+          >
+            Delivery estimate min (days)
+          </label>
+          <div
+            class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
+            data-testid="container"
+          >
+            <input
+              aria-invalid="false"
+              class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
+              data-testid="input"
+              id="shippingMinDays"
+              name="shippingMinDays"
+              placeholder="3"
+              type="text"
+              value="3"
+            />
+          </div>
+        </div>
+        <div
+          class="mx-auto w-full flex-col flex gap-2"
+          data-testid="container"
+        >
+          <label
+            class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+            data-slot="label"
+            for="shippingMaxDays"
+          >
+            Delivery estimate max (days)
+          </label>
+          <div
+            class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
+            data-testid="container"
+          >
+            <input
+              aria-invalid="false"
+              class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
+              data-testid="input"
+              id="shippingMaxDays"
+              name="shippingMaxDays"
+              placeholder="7"
+              type="text"
+              value="7"
             />
           </div>
         </div>

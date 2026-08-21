@@ -23,7 +23,11 @@ import { ErrorService } from '@/libs/error/error.types';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
-import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
+import {
+  type CommerceDeliveryAddressInput,
+  CommerceRecordNormalizer,
+  type CommerceShippingPresetInput,
+} from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
@@ -487,6 +491,46 @@ export class CommerceApplication {
 
   static async commitClearCart(ownerPubky: string): Promise<void> {
     await LocalCommerceService.clearCart(ownerPubky);
+  }
+
+  static async getDeliveryAddresses(ownerPubky: string) {
+    return await LocalCommerceService.getDeliveryAddresses(ownerPubky);
+  }
+
+  static async commitUpsertDeliveryAddress(
+    ownerPubky: string,
+    addressId: string,
+    input: CommerceDeliveryAddressInput,
+  ): Promise<void> {
+    await LocalCommerceService.upsertDeliveryAddress(ownerPubky, addressId, input, Date.now());
+  }
+
+  static async commitDeleteDeliveryAddress(ownerPubky: string, addressId: string): Promise<void> {
+    await LocalCommerceService.deleteDeliveryAddress(ownerPubky, addressId);
+  }
+
+  static async commitSetDefaultDeliveryAddress(ownerPubky: string, addressId: string): Promise<void> {
+    await LocalCommerceService.setDefaultDeliveryAddress(ownerPubky, addressId, Date.now());
+  }
+
+  static async commitMarkDeliveryAddressUsed(ownerPubky: string, addressId: string): Promise<void> {
+    await LocalCommerceService.markDeliveryAddressUsed(ownerPubky, addressId, Date.now());
+  }
+
+  static async getShippingPresets(ownerPubky: string) {
+    return await LocalCommerceService.getShippingPresets(ownerPubky);
+  }
+
+  static async commitUpsertShippingPreset(
+    ownerPubky: string,
+    presetId: string,
+    input: CommerceShippingPresetInput,
+  ): Promise<void> {
+    await LocalCommerceService.upsertShippingPreset(ownerPubky, presetId, input, Date.now());
+  }
+
+  static async commitDeleteShippingPreset(ownerPubky: string, presetId: string): Promise<void> {
+    await LocalCommerceService.deleteShippingPreset(ownerPubky, presetId);
   }
 
   static async getFavorites(ownerPubky: string) {

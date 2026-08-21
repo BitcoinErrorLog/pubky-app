@@ -152,7 +152,14 @@ function formDataFromRecord(record: CommerceListingRecord): CreateMarketplaceLis
       priceOverride: variant.priceOverride ? minorToInput(variant.priceOverride.amountMinor) : '',
     })),
     fulfillment: isPhysical ? 'physical' : 'pickup',
+    shippingLabel: flatShipping ? flatShipping.label : createMarketplaceListingDefaults.shippingLabel,
     shippingPrice: flatShipping ? minorToInput(flatShipping.price.amountMinor) : '',
+    shippingMinDays: flatShipping
+      ? String(flatShipping.estimatedMinDays)
+      : createMarketplaceListingDefaults.shippingMinDays,
+    shippingMaxDays: flatShipping
+      ? String(flatShipping.estimatedMaxDays)
+      : createMarketplaceListingDefaults.shippingMaxDays,
     weightGrams: record.package ? String(record.package.weightGrams) : '',
     lengthMillimeters: record.package ? String(record.package.lengthMillimeters) : '',
     widthMillimeters: record.package ? String(record.package.widthMillimeters) : '',
@@ -208,10 +215,10 @@ function buildUpdatedRecord(
           {
             id: 'seller_flat_rate',
             pricing: 'flat',
-            label: 'Seller shipping',
+            label: data.shippingLabel,
             price: { amountMinor: Math.round(Number(data.shippingPrice) * 100), currency: 'USD', exponent: 2 },
-            estimatedMinDays: 3,
-            estimatedMaxDays: 7,
+            estimatedMinDays: Number(data.shippingMinDays),
+            estimatedMaxDays: Number(data.shippingMaxDays),
           },
         ]
       : [],
