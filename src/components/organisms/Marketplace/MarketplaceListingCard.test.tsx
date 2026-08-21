@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildMarketplaceCatalogItems,
@@ -67,6 +67,31 @@ describe('MarketplaceListingCard', () => {
     expect(screen.getByText('$125.00')).toBeInTheDocument();
     expect(screen.queryByText(/^Ends /)).not.toBeInTheDocument();
     expect(screen.queryByText(/Buy now/)).not.toBeInTheDocument();
+  });
+
+  it('renders the first listing image as the card cover, resolved to the homeserver public URL', () => {
+    const listing = catalogItem();
+    render(<MarketplaceListingCard listing={listing} shopName="Satoshi Vintage" />);
+
+    const cover = screen.getByAltText(listing.title);
+    expect(cover).toHaveAttribute('src', expect.stringContaining('/pub/pubky.app/marketplace/v1/media/'));
+    expect(cover).toHaveAttribute('src', expect.stringContaining(`pubky-host=${listing.sellerId}`));
+  });
+
+  it('falls back to the gradient rendering when the cover image fails to load', () => {
+    const listing = catalogItem();
+    render(<MarketplaceListingCard listing={listing} shopName="Satoshi Vintage" />);
+
+    fireEvent.error(screen.getByAltText(listing.title));
+
+    expect(screen.queryByAltText(listing.title)).not.toBeInTheDocument();
+  });
+
+  it('renders no image element at all for a media-less catalog entry', () => {
+    const listing = catalogItemFromCatalogEntry(createCommerceCatalogEntryFixture({ media_urls: [] }));
+    render(<MarketplaceListingCard listing={listing} shopName="Satoshi Vintage" />);
+
+    expect(screen.queryByAltText(listing.title)).not.toBeInTheDocument();
   });
 
   it('renders the horizontal card variant for list layout', () => {

@@ -94,6 +94,14 @@ vi.mock('@/hooks/useCommerceShopFollow/useCommerceShopFollow', () => ({
   useCommerceShopFollow: () => ({ isFollowing: false, isMutating: false, toggle: vi.fn() }),
 }));
 
+// Fixture media URIs have no fetchable bytes in VRT; null keeps the honest
+// gradient fallback deterministic (loaded-image cards are captured in
+// MarketplaceListingCards.vrt.test.tsx via a data URI).
+vi.mock('@/libs/commerce/media-url', () => ({
+  resolveMarketplaceMediaUrl: () => null,
+  resolveFirstMarketplaceMediaUrl: () => null,
+}));
+
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));

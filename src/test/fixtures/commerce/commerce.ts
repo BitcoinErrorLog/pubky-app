@@ -160,6 +160,7 @@ export function createCommerceCatalogEntryFixture(
     tags: ['vintage'],
     country_code: 'US',
     region: 'NY',
+    media_urls: [`pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/image_01`],
     sale_format: 'fixed_price',
     price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
     auction: null,

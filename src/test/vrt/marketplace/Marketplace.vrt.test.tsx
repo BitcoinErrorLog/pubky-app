@@ -38,6 +38,16 @@ vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
   };
 });
 
+// The sandbox records carry pubky:// media URIs whose bytes exist nowhere a
+// VRT browser could fetch them. Resolving to null renders the deterministic
+// gradient fallback (the same honest state a failed load ends in) instead of
+// racing a doomed network request during the screenshot. Cards WITH loaded
+// images are captured in MarketplaceListingCards.vrt.test.tsx via a data URI.
+vi.mock('@/libs/commerce/media-url', () => ({
+  resolveMarketplaceMediaUrl: () => null,
+  resolveFirstMarketplaceMediaUrl: () => null,
+}));
+
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));

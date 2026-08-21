@@ -16,7 +16,22 @@ import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListi
  * listing id — so the live-bid scenario captures the exact states the
  * service can produce (bids placed / zero bids / unreachable) without a
  * network dependency in VRT.
+ *
+ * Card media: the fixed-price control keeps its index `media_urls` and the
+ * URL resolver is mocked to a deterministic data-URI image (no network in
+ * VRT), so every scenario shows one card WITH a loaded cover image; the
+ * auction fixtures set `media_urls: []` and render the honest media-less
+ * gradient.
  */
+const CARD_IMAGE_DATA_URL = vi.hoisted(
+  () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=',
+);
+
+vi.mock('@/libs/commerce/media-url', () => ({
+  resolveMarketplaceMediaUrl: (uri: string) => (uri ? CARD_IMAGE_DATA_URL : null),
+  resolveFirstMarketplaceMediaUrl: (uris: readonly string[]) => (uris.length > 0 ? CARD_IMAGE_DATA_URL : null),
+}));
 const fixtures = vi.hoisted(async () => {
   const { catalogItemFromCatalogEntry, filterMarketplaceCatalog } =
     await import('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils');
@@ -33,6 +48,7 @@ const fixtures = vi.hoisted(async () => {
       condition: 'excellent',
       tags: ['film', 'camera'],
       sale_format: 'auction',
+      media_urls: [],
       price: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
       auction: {
         startsAt: '2026-08-19T20:00:00.000Z',
@@ -59,6 +75,7 @@ const fixtures = vi.hoisted(async () => {
       condition: 'fair',
       tags: ['estate', 'lot'],
       sale_format: 'auction',
+      media_urls: [],
       price: { amountMinor: 2_500, currency: 'USD', exponent: 2 },
       auction: null,
       updated_at: Date.parse('2026-08-19T21:30:00.000Z'),
@@ -76,6 +93,7 @@ const fixtures = vi.hoisted(async () => {
       condition: 'new',
       tags: ['silver', 'handmade'],
       sale_format: 'auction',
+      media_urls: [],
       price: { amountMinor: 12_000, currency: 'USD', exponent: 2 },
       auction: {
         startsAt: '2026-08-19T20:00:00.000Z',
@@ -102,6 +120,7 @@ const fixtures = vi.hoisted(async () => {
       condition: 'excellent',
       tags: ['film', 'camera'],
       sale_format: 'auction',
+      media_urls: [],
       price: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
       auction: {
         startsAt: '2026-08-19T20:00:00.000Z',

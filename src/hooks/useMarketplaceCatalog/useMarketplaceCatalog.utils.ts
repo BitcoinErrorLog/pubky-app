@@ -34,6 +34,13 @@ export interface MarketplaceCatalogItem {
   price: CommerceMoney;
   auction: CommerceCatalogAuctionTerms | null;
   location: { countryCode: string; region: string | null };
+  /**
+   * Media URIs for the card image, in display order: the record's image media
+   * (videos excluded — a card cover is an image) or the index projection's
+   * `media_urls`. Resolve with `resolveMarketplaceMediaUrl`; empty when the
+   * source carried none, which keeps the gradient fallback.
+   */
+  mediaUrls: string[];
   revision: number;
   updatedAt: number;
 }
@@ -74,6 +81,7 @@ export function catalogItemFromListingModel(listing: CommerceListingModelSchema)
     price: record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice,
     auction,
     location: { countryCode: record.location.countryCode, region: record.location.region ?? null },
+    mediaUrls: record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
     revision: listing.revision,
     updatedAt: listing.updated_at,
   };
@@ -94,6 +102,8 @@ export function catalogItemFromCatalogEntry(entry: CommerceCatalogEntryModelSche
     price: entry.price,
     auction: entry.auction,
     location: { countryCode: entry.country_code, region: entry.region },
+    // Nullish fallback: entries cached before the model carried media_urls.
+    mediaUrls: entry.media_urls ?? [],
     revision: entry.revision,
     updatedAt: entry.updated_at,
   };

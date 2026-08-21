@@ -39,6 +39,15 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
           r="3"
         />
       </svg>
+      <img
+        alt="35mm rangefinder camera"
+        class="h-auto max-w-full absolute inset-0 object-cover"
+        data-nimg="fill"
+        decoding="async"
+        loading="lazy"
+        src="http://localhost:6286/pub/pubky.app/marketplace/v1/media/image_01?pubky-host=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+        style="position: absolute; height: 100%; width: 100%; left: 0px; top: 0px; right: 0px; bottom: 0px; color: transparent;"
+      />
       <div
         class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent [a&]:hover:bg-primary/90 absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md"
         data-slot="badge"
@@ -162,6 +171,15 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
           d="M4 13h4"
         />
       </svg>
+      <img
+        alt="Vintage leather boots"
+        class="h-auto max-w-full absolute inset-0 object-cover"
+        data-nimg="fill"
+        decoding="async"
+        loading="lazy"
+        src="http://localhost:6286/pub/pubky.app/marketplace/v1/media/leather_boots_image?pubky-host=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+        style="position: absolute; height: 100%; width: 100%; left: 0px; top: 0px; right: 0px; bottom: 0px; color: transparent;"
+      />
       <div
         class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent [a&]:hover:bg-primary/90 absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md"
         data-slot="badge"

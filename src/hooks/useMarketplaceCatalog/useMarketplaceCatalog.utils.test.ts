@@ -82,6 +82,40 @@ describe('buildMarketplaceCatalogItems', () => {
     expect(items.map(({ listingId }) => listingId).sort()).toEqual(['boots_01', 'jacket_01']);
   });
 
+  it('carries index media_urls onto the card item and tolerates entries cached before the field existed', () => {
+    const [fresh] = buildMarketplaceCatalogItems([], [createCommerceCatalogEntryFixture()]);
+    expect(fresh.mediaUrls).toEqual([`pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/image_01`]);
+
+    const legacyEntry = createCommerceCatalogEntryFixture();
+    // Simulate a Dexie row written before the projection carried media_urls.
+    delete (legacyEntry as Partial<typeof legacyEntry>).media_urls;
+    const [legacy] = buildMarketplaceCatalogItems([], [legacyEntry]);
+    expect(legacy.mediaUrls).toEqual([]);
+  });
+
+  it('uses only image media from a hydrated record for the card cover', () => {
+    const record = createCommerceListingFixture();
+    record.media = [
+      {
+        id: 'clip_01',
+        type: 'video',
+        url: `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/clip_01`,
+        contentHash: 'b'.repeat(64),
+        mimeType: 'video/mp4',
+        byteSize: 20_000,
+        width: 1_280,
+        height: 720,
+        durationMs: 4_000,
+        altText: 'Boots walkthrough clip',
+      },
+      ...record.media,
+    ];
+
+    const [item] = buildMarketplaceCatalogItems([toCommerceListingModel(record)], []);
+
+    expect(item.mediaUrls).toEqual([`pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/image_01`]);
+  });
+
   it('keeps auction terms null for an auction entry indexed before Nexus carried them', () => {
     const item = catalogItemFromCatalogEntry(
       createCommerceCatalogEntryFixture({ sale_format: 'auction', auction: null }),

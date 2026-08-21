@@ -65,9 +65,11 @@ export interface CommerceCatalogAuctionTerms {
  * without hydrating the owner-signed record from the seller's homeserver.
  *
  * This is a lossy discovery projection, never a substitute for the canonical
- * record (ADR-0020): it has no media metadata, variants, shipping options,
- * or return policy, and it carries no live auction state (current bid, bid
- * count) because bids are not part of the listing record Nexus indexes.
+ * record (ADR-0020): it carries the record's media URIs (`media_urls`, enough
+ * to render card images) but none of the per-media metadata (type, dimensions,
+ * alt text), no variants, shipping options, or return policy, and no live
+ * auction state (current bid, bid count) because bids are not part of the
+ * listing record Nexus indexes.
  *
  * `auction` is `null` for fixed-price listings — and for auction listings
  * that Nexus indexed before it carried auction terms (stale index rows serve
@@ -86,6 +88,8 @@ export interface CommerceCatalogEntryModelSchema {
   tags: string[];
   country_code: string;
   region: string | null;
+  /** `pubky://.../marketplace/v1/media/<id>` URIs in record order (see `resolveMarketplaceMediaUrl`). */
+  media_urls: string[];
   sale_format: CommerceListingRecord['sale']['format'];
   price: CommerceMoney;
   auction: CommerceCatalogAuctionTerms | null;

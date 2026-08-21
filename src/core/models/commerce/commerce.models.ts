@@ -137,6 +137,7 @@ export class CommerceCatalogEntryModel
   tags: string[];
   country_code: string;
   region: string | null;
+  media_urls: string[];
   sale_format: CommerceCatalogEntryModelSchema['sale_format'];
   price: CommerceCatalogEntryModelSchema['price'];
   auction: CommerceCatalogEntryModelSchema['auction'];
@@ -155,6 +156,7 @@ export class CommerceCatalogEntryModel
     this.tags = entry.tags;
     this.country_code = entry.country_code;
     this.region = entry.region;
+    this.media_urls = entry.media_urls;
     this.sale_format = entry.sale_format;
     this.price = entry.price;
     this.auction = entry.auction;

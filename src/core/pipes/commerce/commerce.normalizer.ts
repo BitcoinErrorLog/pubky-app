@@ -41,9 +41,9 @@ const NEXUS_AUCTION_TERM_FIELDS = [
  * Wire schema for one Nexus listing projection (`NexusListingDetails`).
  *
  * This intentionally does NOT reuse `commerceListingRecordSchema`: the Nexus
- * projection is lossy (no media metadata, variants, shipping options, or
- * return policy), so it can never reconstruct a `CommerceListingRecord`
- * without fabricating fields. Identity fields reuse the shared record
+ * projection is lossy (bare `media_urls` without per-media metadata, no
+ * variants, shipping options, or return policy), so it can never reconstruct
+ * a `CommerceListingRecord` without fabricating fields. Identity fields reuse the shared record
  * schemas; the remaining fields are validated for type agreement with the
  * real Nexus response shape. Unknown extra keys are tolerated so additive
  * Nexus changes do not break discovery.
@@ -189,6 +189,7 @@ export class CommerceRecordNormalizer {
       tags: listing.tags,
       country_code: listing.country_code,
       region: listing.region,
+      media_urls: listing.media_urls,
       sale_format: listing.sale_format,
       price: this.toCatalogMoney(listing, listing.price_amount_minor),
       auction: this.toCatalogAuctionTerms(listing),

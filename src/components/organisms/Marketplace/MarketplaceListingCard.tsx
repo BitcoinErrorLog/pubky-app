@@ -1,14 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import { Camera, Disc3, Footprints, Gem, House, Keyboard, Package, Shirt } from 'lucide-react';
 import { getMarketplaceListingRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
+import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
+import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { cn } from '@/libs/utils/utils';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
 
@@ -48,6 +51,12 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
   const isAuction = listing.saleFormat === 'auction';
   const { ref: liveBidRef, bid } = useMarketplaceLiveBid(listing.sellerId, listing.listingId, isAuction);
   const hasLiveBid = isAuction && bid !== null && bid.bidCount > 0;
+  // The gradient+icon stays rendered UNDER the image, so it is also the
+  // loading state; a failed load unmounts the image instead of showing a
+  // broken-image icon.
+  const [mediaFailed, setMediaFailed] = useState(false);
+  const mediaUrl = resolveFirstMarketplaceMediaUrl(listing.mediaUrls);
+  const showMedia = mediaUrl !== null && !mediaFailed;
 
   return (
     <Link
@@ -71,6 +80,16 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
         >
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.16),transparent_32%)]" />
           <MarketplaceCategoryIcon categoryId={listing.categoryId} />
+          {showMedia && (
+            <Image
+              src={mediaUrl}
+              alt={listing.title}
+              fill
+              sizes="(max-width: 640px) 50vw, 300px"
+              className="absolute inset-0 object-cover"
+              onError={() => setMediaFailed(true)}
+            />
+          )}
           <Badge className="absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
             {isAuction ? 'Auction' : 'Buy now'}
           </Badge>
@@ -127,7 +146,8 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
 
 // Deterministic per-listing gradient, seeded by the listing id so the card
 // keeps its color whether it rendered from the index projection or from the
-// hydrated record (the two sources share no media metadata to seed from).
+// hydrated record. It is the loading/error backdrop for cards with media and
+// the honest permanent rendering for cards without any.
 function colorIndex(listingId: string): number {
   let sum = 0;
   for (let index = 0; index < listingId.length; index++) {

@@ -7,9 +7,10 @@
  * Nexus; enum values follow the snake_case serde renames in `pubky-app-specs`.
  *
  * These are lossy read projections of the owner-signed homeserver records —
- * they carry no media metadata, variants, shipping options, or return policy,
- * so they can never be written into the `commerce_listings` / `commerce_shops`
- * record caches directly. The homeserver stays canonical for record content
+ * they carry the record's media URIs (`media_urls`) but none of the per-media
+ * metadata (type, dimensions, alt text), no variants, shipping options, or
+ * return policy, so they can never be written into the `commerce_listings` /
+ * `commerce_shops` record caches directly. The homeserver stays canonical for record content
  * (ADR-0020); Nexus provides discovery, ordering, and revision freshness.
  *
  * The projection does carry the sale terms a catalog card needs: the primary

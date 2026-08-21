@@ -5,6 +5,19 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceListing } from '@/templates/Marketplace/MarketplaceListing';
 
+// Record media resolves to a deterministic data-URI image so the gallery
+// captures a REAL loaded image (main viewer + thumbnails) without any network
+// fetch — the fixture pubky:// URIs have no fetchable bytes in VRT.
+const MEDIA_DATA_URL = vi.hoisted(
+  () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=',
+);
+
+vi.mock('@/libs/commerce/media-url', () => ({
+  resolveMarketplaceMediaUrl: (uri: string) => (uri ? MEDIA_DATA_URL : null),
+  resolveFirstMarketplaceMediaUrl: (uris: readonly string[]) => (uris.length > 0 ? MEDIA_DATA_URL : null),
+}));
+
 const fixtures = vi.hoisted(async () => {
   const { createCommerceListingFixture, createCommerceShopFixture, COMMERCE_FIXTURE_SELLER } =
     await import('@/test/fixtures/commerce/commerce');
@@ -17,8 +30,28 @@ const fixtures = vi.hoisted(async () => {
     { id: 'variant_42', options: { size: '42' }, quantity, mediaIds: ['image_01'], enabled: true },
     { id: 'variant_43', options: { size: '43' }, quantity, mediaIds: ['image_01'], enabled: true },
   ];
+  const galleryImage = (id: string, altText: string) => ({
+    id,
+    type: 'image' as const,
+    url: `pubky://${seller}/pub/pubky.app/marketplace/v1/media/${id}`,
+    contentHash: 'c'.repeat(64),
+    mimeType: 'image/jpeg',
+    byteSize: 10_000,
+    width: 1_200,
+    height: 1_600,
+    altText,
+  });
 
   return {
+    galleryListing: toCommerceListingModel(
+      createCommerceListingFixture({
+        media: [
+          galleryImage('image_01', 'Front view'),
+          galleryImage('image_02', 'Sole view'),
+          galleryImage('image_03', 'Detail view'),
+        ],
+      }),
+    ),
     seller,
     shop: toCommerceShopModel(createCommerceShopFixture()),
     fixedPriceListing: toCommerceListingModel(createCommerceListingFixture({ variants: twoVariants(2) })),
@@ -211,6 +244,16 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-fixed-price-desktop');
+  });
+
+  it('renders the media gallery with a main image and thumbnail strip at desktop viewport', async () => {
+    const { seller, galleryListing, fixedPriceProjection } = await fixtures;
+    await setView({ listing: galleryListing, projection: fixedPriceProjection });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-media-gallery-desktop');
   });
 
   it('renders a fixed-price listing at mobile viewport', async () => {
