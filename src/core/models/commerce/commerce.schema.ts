@@ -198,6 +198,124 @@ export interface CommerceFavoriteModelSchema {
 
 export const commerceFavoriteTableSchema = '&id, owner_id, listing_id, created_at, [owner_id+created_at]';
 
+/**
+ * The last state of a watched listing this device actually observed — the
+ * baseline every watch alert is computed against. One row per watched
+ * listing per account, written only from real reads: the `index_*` fields
+ * come from a Nexus listing projection (or, in sandbox mode, the locally
+ * seeded catalog), the `projection_*`/bid fields from the transaction
+ * service's public listing projection. A field is `null` when that source
+ * has never been observed for this listing, and detection treats a null
+ * baseline as "no claim possible", never as a change.
+ */
+export interface CommerceWatchSnapshotModelSchema {
+  /** `${owner_id}|${listing_id}` — same identity as the favorite row it shadows. */
+  id: string;
+  owner_id: string;
+  /** Composite `seller:listingId`. */
+  listing_id: string;
+  /** Listing title at last observation, so alerts can name the item without a join. */
+  title: string;
+  index_revision: number | null;
+  index_state: CommerceListingRecord['state'] | null;
+  price_minor: number | null;
+  price_currency: string | null;
+  price_exponent: number | null;
+  auction_ends_at: string | null;
+  server_revision: number | null;
+  projection_state: CommerceListingProjectionState | null;
+  bid_count: number | null;
+  bid_amount_minor: number | null;
+  leader_pubky: string | null;
+  /**
+   * The `ends_at` value an "ending soon" alert was already raised for, so the
+   * same deadline never alerts twice (anti-sniping extensions produce a new
+   * `ends_at` and may legitimately alert again).
+   */
+  ending_soon_alerted_ends_at: string | null;
+  checked_at: number;
+}
+
+export const commerceWatchSnapshotTableSchema = '&id, owner_id, listing_id, checked_at, [owner_id+checked_at]';
+
+export type CommerceWatchAlertKind = 'ending_soon' | 'new_bid' | 'outbid' | 'price_change' | 'state_change';
+
+/** Which real read produced the alert's observation. */
+export type CommerceWatchAlertSource = 'index' | 'projection';
+
+/**
+ * A device-local watchlist alert. Every row states something this device
+ * actually observed — a Nexus index revision change or a transaction-service
+ * projection read — compared against the persisted snapshot baseline.
+ * Deliberately NOT a server notification and never presented as one: the UI
+ * must label these as local checks ("checked on this device"). Read state
+ * (`seen_at`) is honest here precisely because it is local.
+ */
+export interface CommerceWatchAlertModelSchema {
+  /** `${owner_id}|${listing_id}|${kind}|${dedupeKey}` — deterministic, so re-detection is idempotent. */
+  id: string;
+  owner_id: string;
+  /** Composite `seller:listingId`. */
+  listing_id: string;
+  seller_id: string;
+  kind: CommerceWatchAlertKind;
+  /** Listing title at observation time. */
+  title: string;
+  source: CommerceWatchAlertSource;
+  /** The index revision or server revision the observation carried. */
+  observed_revision: number;
+  /** `ending_soon`: the observed auction deadline. */
+  ends_at: string | null;
+  /** `price_change`/`new_bid`/`outbid`: money context in minor units. */
+  previous_amount_minor: number | null;
+  current_amount_minor: number | null;
+  currency: string | null;
+  exponent: number | null;
+  /** `new_bid`/`outbid`: observed bid count. */
+  bid_count: number | null;
+  /** `state_change`: transition endpoints. */
+  previous_state: string | null;
+  next_state: string | null;
+  created_at: number;
+  seen_at: number | null;
+}
+
+export const commerceWatchAlertTableSchema =
+  '&id, owner_id, listing_id, kind, created_at, seen_at, [owner_id+created_at]';
+
+/** The catalog filter/search combination a saved search replays. */
+export interface CommerceSavedSearchParams {
+  query: string;
+  categoryId: string | null;
+  saleFormat: 'all' | 'fixed_price' | 'auction';
+  conditions: ('new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'for_parts')[];
+  minimumPriceMinor: number | null;
+  maximumPriceMinor: number | null;
+  sort: 'recommended' | 'newest' | 'price_low' | 'price_high' | 'ending_soon';
+}
+
+/**
+ * A named catalog search saved for re-running. `watermark_updated_at` is the
+ * newest catalog `updated_at` the user has acknowledged for this search;
+ * `new_count` is how many current matches exceeded it at the last check —
+ * counted from a real Nexus stream read (or the locally seeded sandbox
+ * catalog), never estimated. `latest_match_updated_at` is where the
+ * watermark moves when the user opens the search.
+ */
+export interface CommerceSavedSearchModelSchema {
+  id: string;
+  owner_id: string;
+  name: string;
+  params: CommerceSavedSearchParams;
+  watermark_updated_at: number;
+  latest_match_updated_at: number;
+  new_count: number;
+  last_checked_at: number | null;
+  created_at: number;
+}
+
+export const commerceSavedSearchTableSchema = '&id, owner_id, created_at, [owner_id+created_at]';
+
 export interface CommerceShopFollowModelSchema {
   id: string;
   owner_id: string;

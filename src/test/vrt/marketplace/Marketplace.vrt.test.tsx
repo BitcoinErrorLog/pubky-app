@@ -46,6 +46,66 @@ vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
   };
 });
 
+// The card watch toggle reads live favorite state; VRT keeps every card at
+// the unwatched baseline (toggle states are captured in the watchlist VRT).
+vi.mock('@/hooks/useCommerceFavorite/useCommerceFavorite', () => ({
+  useCommerceFavorite: () => ({ isFavorite: false, isLoading: false, isMutating: false, toggle: vi.fn() }),
+}));
+
+// Detection is a visit-triggered network/Dexie pass — a no-op for screenshots.
+vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () => ({
+  useMarketplaceWatchDetection: () => {},
+}));
+
+vi.mock('@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches', () => ({
+  useMarketplaceSavedSearches: () => ({
+    searches: [
+      {
+        id: 'saved-1',
+        owner_id: VRT_USER_PUBKY,
+        name: 'Film cameras under $200',
+        params: {
+          query: 'camera',
+          categoryId: null,
+          saleFormat: 'all',
+          conditions: [],
+          minimumPriceMinor: null,
+          maximumPriceMinor: 20_000,
+          sort: 'newest',
+        },
+        watermark_updated_at: 1_000,
+        latest_match_updated_at: 5_000,
+        new_count: 3,
+        last_checked_at: 6_000,
+        created_at: 100,
+      },
+      {
+        id: 'saved-2',
+        owner_id: VRT_USER_PUBKY,
+        name: 'Ending-soon auctions',
+        params: {
+          query: '',
+          categoryId: null,
+          saleFormat: 'auction',
+          conditions: [],
+          minimumPriceMinor: null,
+          maximumPriceMinor: null,
+          sort: 'ending_soon',
+        },
+        watermark_updated_at: 5_000,
+        latest_match_updated_at: 5_000,
+        new_count: 0,
+        last_checked_at: 6_000,
+        created_at: 200,
+      },
+    ],
+    isSignedIn: true,
+    saveCurrentSearch: vi.fn(async () => true),
+    applySearch: vi.fn(async () => {}),
+    deleteSearch: vi.fn(async () => {}),
+  }),
+}));
+
 // The sandbox records carry pubky:// media URIs whose bytes exist nowhere a
 // VRT browser could fetch them. Resolving to null renders the deterministic
 // gradient fallback (the same honest state a failed load ends in) instead of

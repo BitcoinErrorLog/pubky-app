@@ -1,6 +1,10 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { TagKind } from '@/application/tag/tag.types';
-import { getCommerceAdapterMode, isTransactionalCommerceMode } from '@/config/commerce';
+import {
+  COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS,
+  getCommerceAdapterMode,
+  isTransactionalCommerceMode,
+} from '@/config/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
@@ -540,6 +544,102 @@ export class CommerceController {
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
     );
+  }
+
+  /**
+   * Runs one bounded watchlist detection pass for the signed-in user (see
+   * `CommerceApplication.runWatchlistDetection`). Returns without doing
+   * anything when signed out or when no marketplace surface exists.
+   */
+  static async runWatchlistDetection(): Promise<{ alertCount: number }> {
+    if (!useAuthStore.getState().currentUserPubky) return { alertCount: 0 };
+    return await CommerceApplication.runWatchlistDetection(this.getCurrentUserPubky());
+  }
+
+  static async getWatchAlerts() {
+    if (!useAuthStore.getState().currentUserPubky) return [];
+    return await CommerceApplication.getWatchAlerts(this.getCurrentUserPubky());
+  }
+
+  static async getWatchSnapshots() {
+    if (!useAuthStore.getState().currentUserPubky) return [];
+    return await CommerceApplication.getWatchSnapshots(this.getCurrentUserPubky());
+  }
+
+  /**
+   * Marks the signed-in user's device-local watch alerts seen. Unlike the
+   * durable service's notifications, these rows live only in this browser,
+   * so their read state is real and honest to clear.
+   */
+  static async markWatchAlertsSeen(): Promise<void> {
+    if (!useAuthStore.getState().currentUserPubky) return;
+    await CommerceApplication.markWatchAlertsSeen(this.getCurrentUserPubky());
+  }
+
+  static async getSavedSearches() {
+    if (!useAuthStore.getState().currentUserPubky) return [];
+    return await CommerceApplication.getSavedSearches(this.getCurrentUserPubky());
+  }
+
+  static async commitCreateSavedSearch(name: unknown, params: unknown, initialWatermarkUpdatedAt: unknown) {
+    const trimmedName = typeof name === 'string' ? name.trim() : '';
+    if (trimmedName.length === 0 || trimmedName.length > COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS) {
+      throw Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        `A saved search needs a name of 1–${COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS} characters.`,
+        {
+          service: ErrorService.Local,
+          operation: 'commitCreateSavedSearch',
+        },
+      );
+    }
+    const watermark =
+      typeof initialWatermarkUpdatedAt === 'number' &&
+      Number.isSafeInteger(initialWatermarkUpdatedAt) &&
+      initialWatermarkUpdatedAt >= 0
+        ? initialWatermarkUpdatedAt
+        : Number.NaN;
+    if (Number.isNaN(watermark)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Saved search watermark must be a timestamp.', {
+        service: ErrorService.Local,
+        operation: 'commitCreateSavedSearch',
+      });
+    }
+    await CommerceApplication.commitCreateSavedSearch(
+      this.getCurrentUserPubky(),
+      trimmedName,
+      CommerceRecordNormalizer.savedSearchParams(params),
+      watermark,
+    );
+  }
+
+  static async commitDeleteSavedSearch(id: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteSavedSearch(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(id),
+    );
+  }
+
+  static async recordSavedSearchCheck(
+    id: unknown,
+    result: { newCount: number; latestMatchUpdatedAt: number; checkedAt: number },
+  ): Promise<void> {
+    const values = [result.newCount, result.latestMatchUpdatedAt, result.checkedAt];
+    if (!values.every((value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Saved search check result is invalid.', {
+        service: ErrorService.Local,
+        operation: 'recordSavedSearchCheck',
+      });
+    }
+    await CommerceApplication.recordSavedSearchCheck(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(id),
+      result,
+    );
+  }
+
+  static async acknowledgeSavedSearch(id: unknown): Promise<void> {
+    await CommerceApplication.acknowledgeSavedSearch(this.getCurrentUserPubky(), CommerceRecordNormalizer.entityId(id));
   }
 
   static async isShopFollowed(sellerPubky: unknown): Promise<boolean> {

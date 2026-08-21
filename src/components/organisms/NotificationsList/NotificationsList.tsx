@@ -5,6 +5,7 @@ import { Container } from '@/atoms/Container/Container';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { getBusinessKey } from '@/models/notification/notification.helpers';
 import { MarketplaceNotificationItem } from '@/organisms/MarketplaceNotificationItem/MarketplaceNotificationItem';
+import { MarketplaceWatchAlertItem } from '@/organisms/MarketplaceWatchAlertItem/MarketplaceWatchAlertItem';
 import { NotificationGroupItem } from '../NotificationGroupItem/NotificationGroupItem';
 import { NotificationItem } from '../NotificationItem/NotificationItem';
 import type { NotificationsListProps } from './NotificationsList.types';
@@ -65,6 +66,12 @@ export function NotificationsList({ entries, unreadNotifications }: Notification
               isMobile={isMobile}
             />
           );
+        }
+
+        if (entry.kind === 'watch-alert') {
+          // Device-local watchlist alert; the row itself carries its honest
+          // local read state and labels its device-check origin.
+          return <MarketplaceWatchAlertItem key={entry.item.id} item={entry.item} isMobile={isMobile} />;
         }
 
         const businessKey = getBusinessKey(entry.notification);

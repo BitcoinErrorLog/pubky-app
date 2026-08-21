@@ -124,6 +124,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getCatalogEntriesBySeller: () => view.catalogEntries,
     getShopTags: () => view.shopTags,
     fetchShopTags: () => Promise.resolve([]),
+    // Cards carry a watch toggle; VRT keeps them at the unwatched baseline.
+    isFavorite: () => false,
   },
 }));
 

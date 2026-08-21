@@ -103,6 +103,12 @@ vi.mock('@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed',
   }),
 }));
 
+// Device-local watch alerts are captured in GeneralNotificationsWatchAlerts.vrt;
+// this suite pins the service-notification interleaving without them.
+vi.mock('@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed', () => ({
+  useMarketplaceWatchAlertFeed: () => ({ items: [], markAllSeen: vi.fn(async () => {}) }),
+}));
+
 vi.mock('@/hooks/useUserProfile/useUserProfile', () => ({
   useUserProfile: (userId: string) => ({
     profile: {

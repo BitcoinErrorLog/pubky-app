@@ -87,7 +87,9 @@ const mergedOrder = (entries: NotificationListEntry[]): string[] =>
       ? `group:${entry.notifications[0].timestamp}`
       : entry.kind === 'marketplace'
         ? entry.notification.id
-        : `social:${entry.notification.timestamp}`,
+        : entry.kind === 'watch-alert'
+          ? entry.item.id
+          : `social:${entry.notification.timestamp}`,
   );
 
 describe('groupNotifications', () => {

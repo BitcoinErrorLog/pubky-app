@@ -1,6 +1,7 @@
 import { marketplaceApi } from '@/services/nexus/marketplace/marketplace.api';
 import type {
   NexusListingDetails,
+  TListingDetailsParams,
   TListingStreamParams,
   TListingTagsParams,
   TShopTagsParams,
@@ -26,6 +27,18 @@ export class NexusMarketplaceService {
    */
   static async fetchListingStream(params: TListingStreamParams = {}): Promise<NexusListingDetails[]> {
     return await queryNexus<NexusListingDetails[]>({ url: marketplaceApi.listingStream(params) });
+  }
+
+  /**
+   * Fetches one indexed listing's projection — the watchlist's bounded
+   * per-item freshness read (revision, price, state, auction deadline).
+   * 404s propagate; the caller decides whether "not indexed" is meaningful.
+   *
+   * @param params - Seller/listing path params
+   * @returns The listing projection as currently indexed by Nexus
+   */
+  static async fetchListingDetails(params: TListingDetailsParams): Promise<NexusListingDetails> {
+    return await queryNexus<NexusListingDetails>({ url: marketplaceApi.listingDetails(params) });
   }
 
   /**

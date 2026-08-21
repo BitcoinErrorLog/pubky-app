@@ -366,15 +366,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 size="lg"
                 variant="secondary"
                 className="rounded-full"
-                aria-label={
-                  record.sale.format === 'auction'
-                    ? favorite.isFavorite
-                      ? 'Remove from watchlist'
-                      : 'Add to watchlist'
-                    : favorite.isFavorite
-                      ? 'Remove from favorites'
-                      : 'Add to favorites'
-                }
+                aria-label={favorite.isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
                 aria-pressed={favorite.isFavorite}
                 disabled={favorite.isMutating}
                 onClick={favorite.toggle}

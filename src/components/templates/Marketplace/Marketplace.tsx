@@ -6,6 +6,7 @@ import {
   Bell,
   Gavel,
   HandCoins,
+  Heart,
   LayoutDashboard,
   MessageCircle,
   ShieldCheck,
@@ -21,11 +22,13 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
 import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismissal/useMarketplacePromoDismissal';
+import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceFilters } from '@/organisms/Marketplace/MarketplaceFilters';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+import { MarketplaceSavedSearches } from '@/organisms/Marketplace/MarketplaceSavedSearches';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -36,6 +39,9 @@ export function Marketplace() {
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const { listings, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
+  // Visiting the marketplace (or refocusing its tab) runs the bounded
+  // watchlist detection pass — the app has no background daemon.
+  useMarketplaceWatchDetection();
 
   return (
     <ContentLayout
@@ -89,6 +95,14 @@ export function Marketplace() {
             >
               <HandCoins className="mr-2 size-4" />
               Offers
+            </Button>
+            <Button
+              variant="ghost"
+              className="rounded-full"
+              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.WATCHLIST))}
+            >
+              <Heart className="mr-2 size-4" />
+              Watchlist
             </Button>
             <Button
               variant="ghost"
@@ -170,6 +184,8 @@ export function Marketplace() {
             </div>
           </section>
         )}
+
+        <MarketplaceSavedSearches />
 
         <section id="marketplace-catalog" className="flex scroll-mt-28 flex-col gap-5">
           <MarketplaceFilters resultCount={listings.length} />

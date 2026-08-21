@@ -1,6 +1,7 @@
 import { getMarketplaceNexusUrl } from '@/config/nexus';
 import {
   MARKETPLACE_TAGS_PATH_PARAMS,
+  type TListingDetailsParams,
   type TListingStreamParams,
   type TListingTagsParams,
   type TShopTagsParams,
@@ -12,9 +13,11 @@ import { buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.uti
  *
  * URL builders for the Nexus marketplace index. The listing stream feeds the
  * catalog grid from its projections, while canonical record content is
- * hydrated from the owner homeserver on demand (ADR-0020), so the per-entity
- * projection endpoints (`v0/shop/{seller_id}`,
- * `v0/listing/{seller_id}/{listing_id}`) have no client consumer yet.
+ * hydrated from the owner homeserver on demand (ADR-0020). The per-listing
+ * projection endpoint (`v0/listing/{seller_id}/{listing_id}`) serves the
+ * watchlist's bounded freshness checks (revision, price, state, auction
+ * deadline for one watched listing); `v0/shop/{seller_id}` still has no
+ * client consumer.
  *
  * Every builder here MUST route through `getMarketplaceNexusUrl()`: the
  * marketplace index endpoints may live on a dedicated Nexus deployment
@@ -33,6 +36,16 @@ const SHOP_PREFIX = 'v0/shop';
 export const marketplaceApi = {
   listingStream: (params: TListingStreamParams) =>
     buildUrlWithQuery({ baseRoute: STREAM_LISTINGS_ROUTE, params, baseUrl: getMarketplaceNexusUrl() }),
+  listingDetails: (params: TListingDetailsParams) => {
+    const seller = encodePathSegment(params.seller_id);
+    const listing = encodePathSegment(params.listing_id);
+    return buildUrlWithQuery({
+      baseRoute: `${LISTING_PREFIX}/${seller}/${listing}`,
+      params,
+      excludeKeys: MARKETPLACE_TAGS_PATH_PARAMS,
+      baseUrl: getMarketplaceNexusUrl(),
+    });
+  },
   listingTags: (params: TListingTagsParams) => {
     const seller = encodePathSegment(params.seller_id);
     const listing = encodePathSegment(params.listing_id);

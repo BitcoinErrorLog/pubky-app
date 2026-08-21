@@ -35,6 +35,7 @@ const view = vi.hoisted(() => ({
   isLoading: false,
   error: null as string | null,
   canMarkRead: true,
+  watchAlerts: [] as unknown[],
 }));
 
 vi.mock('next/navigation', () => ({
@@ -59,12 +60,29 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
 
+// Device-local watch alerts, view-driven per scenario; detection itself is a
+// visit-triggered Dexie/network pass and stays a no-op in screenshots.
+vi.mock('@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed', () => ({
+  useMarketplaceWatchAlertFeed: () => ({ items: view.watchAlerts, markAllSeen: vi.fn(async () => {}) }),
+}));
+
+vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () => ({
+  useMarketplaceWatchDetection: () => {},
+}));
+
+vi.mock('@/hooks/useRelativeTime/useRelativeTime', async () => {
+  const { formatStableRelative } = await import('@/test-utils/vrt.clock');
+  const result = { formatRelativeTime: (date: Date) => formatStableRelative(date.getTime()) };
+  return { useRelativeTime: () => result };
+});
+
 async function setView(overrides: Partial<typeof view>) {
   view.notifications = [];
   view.preferences = null;
   view.isLoading = false;
   view.error = null;
   view.canMarkRead = true;
+  view.watchAlerts = [];
   Object.assign(view, overrides);
 }
 
@@ -129,6 +147,22 @@ describe('Marketplace notifications — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-loading-desktop');
+  });
+
+  it('renders the device-local watchlist alerts section above the service list at desktop viewport', async () => {
+    const { kindsFirstThird } = await fixtures;
+    const { createWatchAlertFeedItemFixture } = await import('@/test/fixtures/commerce/watch-alerts');
+    await setView({
+      notifications: kindsFirstThird.slice(0, 2),
+      watchAlerts: [
+        createWatchAlertFeedItemFixture('outbid', { isUnseen: true }),
+        createWatchAlertFeedItemFixture('ending_soon'),
+        createWatchAlertFeedItemFixture('price_change'),
+      ],
+    });
+
+    const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-watch-alerts-desktop');
   });
 
   // Durable transaction-service mode: real delivered notifications, but no

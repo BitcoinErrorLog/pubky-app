@@ -20,12 +20,18 @@ import {
   commerceListingTableSchema,
   type CommerceLocksCorrelationModelSchema,
   commerceLocksCorrelationTableSchema,
+  type CommerceSavedSearchModelSchema,
+  commerceSavedSearchTableSchema,
   type CommerceShopFollowModelSchema,
   commerceShopFollowTableSchema,
   type CommerceShopModelSchema,
   commerceShopTableSchema,
   type CommerceSyncJobModelSchema,
   commerceSyncJobTableSchema,
+  type CommerceWatchAlertModelSchema,
+  commerceWatchAlertTableSchema,
+  type CommerceWatchSnapshotModelSchema,
+  commerceWatchSnapshotTableSchema,
 } from '@/models/commerce/commerce.schema';
 import { type FeedModelSchema, feedTableSchema } from '@/models/feed/feed.schema';
 import { type FileDetailsModelSchema, fileDetailsTableSchema } from '@/models/file/fileDetails.schema';
@@ -147,6 +153,11 @@ export class AppDatabase extends Dexie {
   commerce_shop_follows!: Dexie.Table<CommerceShopFollowModelSchema>;
   commerce_cart_items!: Dexie.Table<CommerceCartItemModelSchema>;
   commerce_locks_correlations!: Dexie.Table<CommerceLocksCorrelationModelSchema>;
+  // Watchlist alerting — device-local observation baselines, detected alerts,
+  // and saved catalog searches (see commerce.schema.ts headers).
+  commerce_watch_snapshots!: Dexie.Table<CommerceWatchSnapshotModelSchema>;
+  commerce_watch_alerts!: Dexie.Table<CommerceWatchAlertModelSchema>;
+  commerce_saved_searches!: Dexie.Table<CommerceSavedSearchModelSchema>;
   // Encrypted messaging (Paykit Encrypted Links) — rows carry key material
   // and device-local plaintext history; see messaging.schema.ts header.
   commerce_messaging_receivers!: Dexie.Table<CommerceMessagingReceiverModelSchema>;
@@ -201,6 +212,12 @@ export class AppDatabase extends Dexie {
         commerce_shop_follows: commerceShopFollowTableSchema,
         commerce_cart_items: commerceCartItemTableSchema,
         commerce_locks_correlations: commerceLocksCorrelationTableSchema,
+        // Watchlist alerting — folded into the current (unreleased) DB
+        // version rather than bumping it: version 3 has never shipped, so
+        // there is no upgrade path to preserve.
+        commerce_watch_snapshots: commerceWatchSnapshotTableSchema,
+        commerce_watch_alerts: commerceWatchAlertTableSchema,
+        commerce_saved_searches: commerceSavedSearchTableSchema,
         // Encrypted messaging — folded into the current (unreleased) DB
         // version rather than bumping it: version 3 has never shipped, so
         // there is no upgrade path to preserve.

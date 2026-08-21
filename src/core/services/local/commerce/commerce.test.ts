@@ -8,10 +8,17 @@ import {
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
+  CommerceSavedSearchModel,
   CommerceShopFollowModel,
   CommerceShopModel,
   CommerceSyncJobModel,
+  CommerceWatchAlertModel,
+  CommerceWatchSnapshotModel,
 } from '@/models/commerce/commerce.models';
+import type {
+  CommerceWatchAlertModelSchema,
+  CommerceWatchSnapshotModelSchema,
+} from '@/models/commerce/commerce.schema';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
@@ -36,6 +43,9 @@ describe('LocalCommerceService', () => {
       CommerceFavoriteModel.table.clear(),
       CommerceShopFollowModel.table.clear(),
       CommerceCartItemModel.table.clear(),
+      CommerceWatchSnapshotModel.table.clear(),
+      CommerceWatchAlertModel.table.clear(),
+      CommerceSavedSearchModel.table.clear(),
     ]);
   });
 
@@ -274,5 +284,136 @@ describe('LocalCommerceService', () => {
 
     await LocalCommerceService.clearCart(COMMERCE_FIXTURE_BUYER);
     expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+  });
+
+  const watchListingId = `${COMMERCE_FIXTURE_SELLER}:boots_01`;
+
+  function watchSnapshotFixture(
+    overrides: Partial<CommerceWatchSnapshotModelSchema> = {},
+  ): CommerceWatchSnapshotModelSchema {
+    return {
+      id: `${COMMERCE_FIXTURE_BUYER}|${watchListingId}`,
+      owner_id: COMMERCE_FIXTURE_BUYER,
+      listing_id: watchListingId,
+      title: 'Vintage boots',
+      index_revision: 3,
+      index_state: 'active',
+      price_minor: 12_000,
+      price_currency: 'USD',
+      price_exponent: 2,
+      auction_ends_at: null,
+      server_revision: null,
+      projection_state: null,
+      bid_count: null,
+      bid_amount_minor: null,
+      leader_pubky: null,
+      ending_soon_alerted_ends_at: null,
+      checked_at: 100,
+      ...overrides,
+    };
+  }
+
+  function watchAlertFixture(overrides: Partial<CommerceWatchAlertModelSchema> = {}): CommerceWatchAlertModelSchema {
+    const kind = overrides.kind ?? 'price_change';
+    const dedupe = overrides.observed_revision ?? 4;
+    return {
+      id: `${COMMERCE_FIXTURE_BUYER}|${watchListingId}|${kind}|${dedupe}`,
+      owner_id: COMMERCE_FIXTURE_BUYER,
+      listing_id: watchListingId,
+      seller_id: COMMERCE_FIXTURE_SELLER,
+      kind,
+      title: 'Vintage boots',
+      source: 'index',
+      observed_revision: 4,
+      ends_at: null,
+      previous_amount_minor: 12_000,
+      current_amount_minor: 9_000,
+      currency: 'USD',
+      exponent: 2,
+      bid_count: null,
+      previous_state: null,
+      next_state: null,
+      created_at: 200,
+      seen_at: null,
+      ...overrides,
+    };
+  }
+
+  it('persists a detection pass atomically and never resets seen state on re-detection', async () => {
+    const snapshot = watchSnapshotFixture();
+    const alert = watchAlertFixture();
+
+    await LocalCommerceService.saveWatchDetection(COMMERCE_FIXTURE_BUYER, [snapshot], [alert]);
+    await LocalCommerceService.markWatchAlertsSeen(COMMERCE_FIXTURE_BUYER, 999);
+
+    // A re-detection producing the same deterministic alert id must not
+    // overwrite the row (that would resurrect it as unseen).
+    await LocalCommerceService.saveWatchDetection(
+      COMMERCE_FIXTURE_BUYER,
+      [watchSnapshotFixture({ checked_at: 300 })],
+      [watchAlertFixture()],
+    );
+
+    const alerts = await LocalCommerceService.getWatchAlerts(COMMERCE_FIXTURE_BUYER);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].seen_at).toBe(999);
+    expect(await LocalCommerceService.getWatchSnapshots(COMMERCE_FIXTURE_BUYER)).toEqual([
+      expect.objectContaining({ checked_at: 300 }),
+    ]);
+  });
+
+  it('prunes the oldest watch alerts beyond the per-owner cap', async () => {
+    const { COMMERCE_WATCH_ALERTS_MAX_PER_OWNER } = await import('./commerce');
+    const alerts = Array.from({ length: COMMERCE_WATCH_ALERTS_MAX_PER_OWNER + 5 }, (_, index) =>
+      watchAlertFixture({
+        id: `${COMMERCE_FIXTURE_BUYER}|${watchListingId}|price_change|${index}`,
+        observed_revision: index,
+        created_at: index,
+      }),
+    );
+
+    await LocalCommerceService.saveWatchDetection(COMMERCE_FIXTURE_BUYER, [], alerts);
+
+    const stored = await LocalCommerceService.getWatchAlerts(COMMERCE_FIXTURE_BUYER);
+    expect(stored).toHaveLength(COMMERCE_WATCH_ALERTS_MAX_PER_OWNER);
+    // Newest-first read; the oldest five were pruned.
+    expect(stored[stored.length - 1].created_at).toBe(5);
+  });
+
+  it('advances a saved search watermark only on acknowledgement', async () => {
+    await LocalCommerceService.createSavedSearch({
+      id: 'search-1',
+      owner_id: COMMERCE_FIXTURE_BUYER,
+      name: 'Boots under $150',
+      params: {
+        query: 'boots',
+        categoryId: null,
+        saleFormat: 'all',
+        conditions: [],
+        minimumPriceMinor: null,
+        maximumPriceMinor: 15_000,
+        sort: 'newest',
+      },
+      watermark_updated_at: 1_000,
+      latest_match_updated_at: 1_000,
+      new_count: 0,
+      last_checked_at: null,
+      created_at: 100,
+    });
+
+    await LocalCommerceService.recordSavedSearchCheck('search-1', {
+      newCount: 3,
+      latestMatchUpdatedAt: 5_000,
+      checkedAt: 6_000,
+    });
+    let [search] = await LocalCommerceService.getSavedSearches(COMMERCE_FIXTURE_BUYER);
+    expect(search).toMatchObject({ new_count: 3, latest_match_updated_at: 5_000, watermark_updated_at: 1_000 });
+
+    await LocalCommerceService.acknowledgeSavedSearch('search-1');
+    [search] = await LocalCommerceService.getSavedSearches(COMMERCE_FIXTURE_BUYER);
+    expect(search).toMatchObject({ new_count: 0, watermark_updated_at: 5_000 });
+
+    await LocalCommerceService.deleteSavedSearch('search-1');
+    expect(await LocalCommerceService.getSavedSearches(COMMERCE_FIXTURE_BUYER)).toEqual([]);
   });
 });

@@ -24,7 +24,11 @@ import {
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import type { CommerceCatalogAuctionTerms, CommerceCatalogEntryModelSchema } from '@/models/commerce/commerce.schema';
+import type {
+  CommerceCatalogAuctionTerms,
+  CommerceCatalogEntryModelSchema,
+  CommerceSavedSearchParams,
+} from '@/models/commerce/commerce.schema';
 import type { NexusListingDetails } from '@/services/nexus/marketplace/marketplace.types';
 
 const MARKETPLACE_BASE_PATH = '/pub/pubky.app/marketplace/v1';
@@ -116,6 +120,17 @@ const nexusListingDetailsSchema: z.ZodType<NexusListingDetails> = z
 
 const nexusListingStreamSchema = z.array(nexusListingDetailsSchema);
 
+/** The catalog filter state a saved search persists — mirrors the commerce store's filter fields. */
+const commerceSavedSearchParamsSchema: z.ZodType<CommerceSavedSearchParams> = z.object({
+  query: z.string().max(200),
+  categoryId: z.string().min(1).max(100).nullable(),
+  saleFormat: z.enum(['all', 'fixed_price', 'auction']),
+  conditions: z.array(z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts'])).max(6),
+  minimumPriceMinor: z.number().int().nonnegative().nullable(),
+  maximumPriceMinor: z.number().int().nonnegative().nullable(),
+  sort: z.enum(['recommended', 'newest', 'price_low', 'price_high', 'ending_soon']),
+});
+
 export class CommerceRecordNormalizer {
   private constructor() {}
 
@@ -178,6 +193,19 @@ export class CommerceRecordNormalizer {
   static nexusListingStream(input: unknown): CommerceCatalogEntryModelSchema[] {
     const listings = this.parse(nexusListingStreamSchema, input, 'nexusListingStream');
     return listings.map((listing) => this.toCatalogEntry(listing));
+  }
+
+  /**
+   * Validates a single Nexus `v0/listing/{seller}/{listing}` payload — the
+   * watchlist's per-item freshness read — and normalizes it into the same
+   * catalog entry shape the stream produces.
+   */
+  static nexusListingDetails(input: unknown): CommerceCatalogEntryModelSchema {
+    return this.toCatalogEntry(this.parse(nexusListingDetailsSchema, input, 'nexusListingDetails'));
+  }
+
+  static savedSearchParams(input: unknown): CommerceSavedSearchParams {
+    return this.parse(commerceSavedSearchParamsSchema, input, 'savedSearchParams');
   }
 
   private static toCatalogEntry(listing: NexusListingDetails): CommerceCatalogEntryModelSchema {

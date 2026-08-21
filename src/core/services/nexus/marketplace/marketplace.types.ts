@@ -103,6 +103,12 @@ export type TListingStreamParams = {
   end?: number;
 };
 
+/** Path params for `GET v0/listing/{seller_id}/{listing_id}` (single indexed listing). */
+export type TListingDetailsParams = {
+  seller_id: string;
+  listing_id: string;
+};
+
 /**
  * Query parameters for `GET v0/listing/{seller_id}/{listing_id}/tags`.
  * Mirrors the post tag endpoint's pagination/viewer contract
