@@ -20,9 +20,9 @@ import { toast } from '@/molecules/Toaster/use-toast';
  *
  * `reconnect` switches the copy for the returning case: the receiver key
  * already exists on this device, but the messaging session could not be
- * restored (it expired, was revoked, or this is a new tab — sessions restore
- * automatically only within the tab that created them), so a new approval is
- * needed to send or receive.
+ * restored (the homeserver cookie expired or was revoked — sessions persist
+ * in localStorage and restore across tabs and reloads while the cookie
+ * holds), so a new approval is needed to send or receive.
  */
 export function MarketplaceMessagingEnablePanel({
   reconnect,

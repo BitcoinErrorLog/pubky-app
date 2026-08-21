@@ -6,12 +6,12 @@ import type { CommerceMessagingMessageModelSchema } from '@/models/messaging/mes
  * has not happened:
  *
  * - `loading`               — resolving local status; nothing known yet.
- * - `needs-enable`          — no live `/pub/paykit/:rw` session in this tab
- *                             and silent restore failed. Either messaging was
- *                             never enabled, the session expired or was
- *                             revoked, or this is a new tab (a session
- *                             restores automatically only in the tab that
- *                             created it) — a fresh Ring approval is required.
+ * - `needs-enable`          — no live `/pub/paykit/:rw` session here and
+ *                             silent restore failed. Either messaging was
+ *                             never enabled, or the homeserver cookie expired
+ *                             or was revoked (sessions persist in localStorage
+ *                             and restore across tabs and reloads while the
+ *                             cookie holds) — a fresh Ring approval is needed.
  * - `not-enrolled`          — the counterparty has published no receiver
  *                             marker: encrypted messaging cannot reach them,
  *                             and the UI says so instead of faking delivery.

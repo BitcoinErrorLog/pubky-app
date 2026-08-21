@@ -26,7 +26,7 @@ const SESSION_EXPIRY_MARGIN_MS = 30_000;
  */
 export const SESSION_FLOW_TIMEOUT_MS = 120_000;
 
-/** `sessionStorage` key for the persisted session (see the class docs for the storage contract). */
+/** `localStorage` key for the persisted session (see the class docs for the storage contract). */
 export const MARKETPLACE_SESSION_STORAGE_KEY = 'pubky.marketplace.session.v1';
 
 const sessionResponseSchema = z.object({
@@ -59,16 +59,19 @@ type StoredMarketplaceSession = {
 
 /**
  * Holds the Marketplace Transaction Service session for the signed-in browser
- * session: in memory for request use, mirrored to `sessionStorage` so a page
- * reload does not force a fresh signer approval.
+ * session: in memory for request use, mirrored to `localStorage` so reloads,
+ * new tabs, and browser restarts do not force a fresh signer approval.
  *
  * Storage contract (a deliberate, documented loosening of the original
- * memory-only rule — see `docs/ecommerce/service-auth.md`):
+ * memory-only rule — see `docs/ecommerce/service-auth.md`; widened from
+ * per-tab `sessionStorage` to `localStorage` on user decision: signer
+ * approval is a rare ceremony, and the service-side TTL — not tab lifetime —
+ * bounds the token):
  *  - The opaque bearer token plus its facts (pubky, capabilities, expiry) are
- *    written ONLY to `sessionStorage` under {@link MARKETPLACE_SESSION_STORAGE_KEY}.
- *    `sessionStorage` is per-tab and dies with the browsing session; a new tab
- *    still requires a fresh approval.
- *  - Never IndexedDB, never localStorage, never cookies, never logged.
+ *    written ONLY to `localStorage` under {@link MARKETPLACE_SESSION_STORAGE_KEY}.
+ *    It survives tabs and restarts until the service TTL expires or the user
+ *    signs out.
+ *  - Never IndexedDB, never cookies, never logged.
  *  - Restore is account-scoped: {@link restorePersistedSession} validates the
  *    stored blob and drops it unless its pubky matches the account whose app
  *    session was just restored. Sign-out (and account switch, which funnels
@@ -179,7 +182,7 @@ export class MarketplaceSessionService {
   }
 
   /**
-   * Restores a persisted session from `sessionStorage` for the given account.
+   * Restores a persisted session from `localStorage` for the given account.
    * Called once the app's own session restore has identified who is signed in
    * (`AuthController.restorePersistedSession`). Anything that does not
    * validate — malformed blob, wrong account, already past the expiry margin,
@@ -227,13 +230,13 @@ export class MarketplaceSessionService {
     this.removePersistedSession();
   }
 
-  // sessionStorage access is wrapped because browsers can refuse it (disabled
+  // localStorage access is wrapped because browsers can refuse it (disabled
   // storage, private-mode quirks); a session that cannot persist is still a
   // working in-memory session, so persistence failures only log.
   private static writePersistedSession(session: z.infer<typeof sessionResponseSchema>): void {
     if (typeof window === 'undefined') return;
     try {
-      window.sessionStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, JSON.stringify(session));
+      window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, JSON.stringify(session));
     } catch {
       Logger.warn('Could not persist the marketplace session; it will last until the next reload only.');
     }
@@ -242,7 +245,7 @@ export class MarketplaceSessionService {
   private static removePersistedSession(): void {
     if (typeof window === 'undefined') return;
     try {
-      window.sessionStorage.removeItem(MARKETPLACE_SESSION_STORAGE_KEY);
+      window.localStorage.removeItem(MARKETPLACE_SESSION_STORAGE_KEY);
     } catch {
       // Removal failing means storage is unavailable, so nothing persisted either.
     }
@@ -251,7 +254,7 @@ export class MarketplaceSessionService {
   private static readStorage(): string | null {
     if (typeof window === 'undefined') return null;
     try {
-      return window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
+      return window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
     } catch {
       return null;
     }

@@ -13,7 +13,7 @@ import {
 } from '@/services/paykit/paykit-messaging';
 
 export type MessagingStatus = {
-  /** A Ring-approved `/pub/paykit/:rw` session is live in this tab. */
+  /** A Ring-approved `/pub/paykit/:rw` session is live (restores across tabs/reloads). */
   sessionActive: boolean;
   /** A receiver Noise key exists on this device and its marker was published. */
   receiverProvisioned: boolean;

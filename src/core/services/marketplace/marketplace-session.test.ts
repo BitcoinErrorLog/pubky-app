@@ -47,12 +47,12 @@ function inOneDay(): string {
   return new Date(Date.now() + 86_400_000).toISOString();
 }
 
-/** Simulates a page reload: the in-memory session dies, sessionStorage survives. */
+/** Simulates a page reload: the in-memory session dies, localStorage survives. */
 function dropMemoryOnly() {
-  const persisted = window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
+  const persisted = window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
   MarketplaceSessionService.clearSession();
   if (persisted !== null) {
-    window.sessionStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, persisted);
+    window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, persisted);
   }
 }
 
@@ -95,19 +95,19 @@ describe('MarketplaceSessionService', () => {
     expect(JSON.stringify(info)).not.toContain(TOKEN);
   });
 
-  it('persists the session to sessionStorage only — never localStorage or IndexedDB', async () => {
-    const localSetItemSpy = vi.spyOn(window.localStorage, 'setItem');
+  it('persists the session to localStorage only — never sessionStorage or IndexedDB', async () => {
+    const sessionSetItemSpy = vi.spyOn(window.sessionStorage, 'setItem');
     const indexedDbOpenSpy = vi.spyOn(indexedDB, 'open');
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
 
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
 
-    const persisted = window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
+    const persisted = window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
     expect(persisted).not.toBeNull();
     expect(JSON.parse(persisted!)).toMatchObject({ token: TOKEN, pubky: PUBKY });
-    expect(localSetItemSpy).not.toHaveBeenCalled();
+    expect(sessionSetItemSpy).not.toHaveBeenCalled();
     expect(indexedDbOpenSpy).not.toHaveBeenCalled();
-    localSetItemSpy.mockRestore();
+    sessionSetItemSpy.mockRestore();
     indexedDbOpenSpy.mockRestore();
   });
 
@@ -131,7 +131,7 @@ describe('MarketplaceSessionService', () => {
     dropMemoryOnly();
 
     expect(MarketplaceSessionService.restorePersistedSession('z'.repeat(52))).toBeNull();
-    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 
@@ -144,11 +144,11 @@ describe('MarketplaceSessionService', () => {
 
     vi.setSystemTime(new Date('2026-08-20T12:59:31.000Z'));
     expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toBeNull();
-    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
 
-    window.sessionStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, 'not json');
+    window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, 'not json');
     expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toBeNull();
-    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
   });
 
   it('refuses to restore outside durable modes even when a blob is persisted', async () => {
@@ -177,15 +177,15 @@ describe('MarketplaceSessionService', () => {
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: 'second-token' });
   });
 
-  it('clears the session from memory AND sessionStorage on demand', async () => {
+  it('clears the session from memory AND localStorage on demand', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
-    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).not.toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).not.toBeNull();
 
     MarketplaceSessionService.clearSession();
 
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
-    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
   });
 
   it('times out an unapproved flow with a retryable error and frees the underlying auth flow', async () => {

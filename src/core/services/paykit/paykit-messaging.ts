@@ -121,15 +121,16 @@ type ActiveSession = { handle: SessionHandle; pubky: string };
 type ActiveHandshake = { handle: LinkHandshakeHandle; role: 'initiator' | 'responder' };
 
 /**
- * `sessionStorage` key for the persisted messaging-session metadata. The
+ * `localStorage` key for the persisted messaging-session metadata. The
  * stored value is the binding's `exportSession()` string — base64 public
  * `SessionInfo` (pubky, capabilities), NO secrets. The actual credential is
  * the homeserver's HTTP-only session cookie, which the BROWSER holds and
  * attaches (`credentials: include`); this app can neither read nor persist
  * it. Storage contract mirrors the marketplace transaction session
- * (`marketplace-session.ts`): per-tab `sessionStorage`, account-scoped
- * validation on restore, cleared on sign-out/account switch, and a restore
- * the homeserver rejects surfaces the honest reconnect state.
+ * (`marketplace-session.ts`): `localStorage` (survives tabs and restarts —
+ * the cookie, which the browser shares across tabs, is the real credential),
+ * account-scoped validation on restore, cleared on sign-out/account switch,
+ * and a restore the homeserver rejects surfaces the honest reconnect state.
  */
 export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
 
@@ -153,10 +154,10 @@ export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
  *   transaction-service session, and the Pubky identity secret never enters
  *   this runtime. The credential is an HTTP-only homeserver cookie the
  *   BROWSER holds; this code persists only secret-free session metadata to
- *   per-tab `sessionStorage` ({@link MESSAGING_SESSION_STORAGE_KEY}) so a
- *   page reload resumes silently via {@link restorePersistedSession}. A new
- *   tab or a cookie the homeserver no longer accepts requires a fresh
- *   signer approval.
+ *   `localStorage` ({@link MESSAGING_SESSION_STORAGE_KEY}) so reloads and
+ *   new tabs resume silently via {@link restorePersistedSession} for as long
+ *   as the browser still holds a cookie the homeserver accepts. Only a
+ *   rejected/expired cookie requires a fresh signer approval.
  * - Link crypto uses a receiver-scoped Noise key generated here and persisted
  *   in account-scoped IndexedDB (`commerce_messaging_receivers`); snapshots
  *   are persisted as produced — unencrypted, containing key material — with
@@ -935,13 +936,13 @@ export class PaykitMessagingService {
     this.writePersistedSession(session);
   }
 
-  // sessionStorage access is wrapped because browsers can refuse it; a
+  // localStorage access is wrapped because browsers can refuse it; a
   // session that cannot persist is still a working in-memory session, so
   // persistence failures only log (same posture as the marketplace session).
   private static writePersistedSession(session: ActiveSession): void {
     if (typeof window === 'undefined') return;
     try {
-      window.sessionStorage.setItem(
+      window.localStorage.setItem(
         MESSAGING_SESSION_STORAGE_KEY,
         JSON.stringify({ pubky: session.pubky, exported: session.handle.exportSession() }),
       );
@@ -953,7 +954,7 @@ export class PaykitMessagingService {
   private static removePersistedSession(): void {
     if (typeof window === 'undefined') return;
     try {
-      window.sessionStorage.removeItem(MESSAGING_SESSION_STORAGE_KEY);
+      window.localStorage.removeItem(MESSAGING_SESSION_STORAGE_KEY);
     } catch {
       // Removal failing means storage is unavailable, so nothing persisted either.
     }
@@ -962,7 +963,7 @@ export class PaykitMessagingService {
   private static readSessionStorage(): string | null {
     if (typeof window === 'undefined') return null;
     try {
-      return window.sessionStorage.getItem(MESSAGING_SESSION_STORAGE_KEY);
+      return window.localStorage.getItem(MESSAGING_SESSION_STORAGE_KEY);
     } catch {
       return null;
     }

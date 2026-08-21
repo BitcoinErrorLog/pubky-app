@@ -546,15 +546,15 @@ describe('PaykitMessagingService', () => {
   });
 
   describe('session persistence across reloads', () => {
-    const storedValue = () => window.sessionStorage.getItem('pubky.messaging.session.v1');
+    const storedValue = () => window.localStorage.getItem('pubky.messaging.session.v1');
 
-    // A reload keeps sessionStorage and the browser cookie jar but wipes all
+    // A reload keeps localStorage and the browser cookie jar but wipes all
     // in-memory wasm state. clearSession() deliberately wipes BOTH, so the
     // simulation re-seeds storage after dropping memory.
     const simulateReload = () => {
       const persisted = storedValue();
       PaykitMessagingService.clearSession();
-      if (persisted !== null) window.sessionStorage.setItem('pubky.messaging.session.v1', persisted);
+      if (persisted !== null) window.localStorage.setItem('pubky.messaging.session.v1', persisted);
     };
 
     it('persists secret-free session metadata on enable', async () => {
@@ -589,7 +589,7 @@ describe('PaykitMessagingService', () => {
     it('drops another account\u2019s persisted blob without touching the network', async () => {
       await enableMessaging(world);
       simulateReload();
-      window.sessionStorage.setItem(
+      window.localStorage.setItem(
         'pubky.messaging.session.v1',
         JSON.stringify({ pubky: COUNTERPARTY, exported: `exported-session:${COUNTERPARTY}` }),
       );
@@ -600,7 +600,7 @@ describe('PaykitMessagingService', () => {
     });
 
     it('drops a malformed persisted blob', async () => {
-      window.sessionStorage.setItem('pubky.messaging.session.v1', 'not json');
+      window.localStorage.setItem('pubky.messaging.session.v1', 'not json');
       await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
       expect(storedValue()).toBeNull();
     });
