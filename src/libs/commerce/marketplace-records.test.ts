@@ -123,6 +123,24 @@ describe('commerceListingRecordSchema', () => {
     expect(commerceListingRecordSchema.parse(makeFixedListing())).toEqual(makeFixedListing());
   });
 
+  it('accepts explicit nulls for optional fields, as the sell studio serializes them', () => {
+    // Regression: real published records carry `region: null`, `sku: null`,
+    // and `priceOverride: null` (JSON.stringify of undefined-less form state).
+    // The specs crate accepts them; a stricter read schema made every such
+    // listing unloadable for anyone but its cached seller.
+    const listing = makeFixedListing() as Record<string, unknown>;
+    const location = { ...(listing.location as Record<string, unknown>), region: null };
+    const variants = (listing.variants as Record<string, unknown>[]).map((variant) => ({
+      ...variant,
+      sku: null,
+      priceOverride: null,
+    }));
+    const parsed = commerceListingRecordSchema.parse({ ...listing, location, variants });
+    expect(parsed.location.region).toBeUndefined();
+    expect(parsed.variants[0]?.sku).toBeUndefined();
+    expect(parsed.variants[0]?.priceOverride).toBeUndefined();
+  });
+
   it('rejects unknown fields so private data cannot hitchhike on public records', () => {
     const listing = {
       ...makeFixedListing(),

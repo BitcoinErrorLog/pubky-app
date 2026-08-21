@@ -41,7 +41,7 @@ export const commerceCountryCodeSchema = z.string().regex(/^[A-Z]{2}$/, 'Expecte
 export const commercePublicLocationSchema = z
   .object({
     countryCode: commerceCountryCodeSchema,
-    region: z.string().trim().min(1).max(100).optional(),
+    region: z.preprocess((value) => value ?? undefined, z.string().trim().min(1).max(100).optional()),
   })
   .strict();
 
@@ -93,9 +93,9 @@ export const commerceMediaSchema = z
 export const commerceVariantSchema = z
   .object({
     id: commerceEntityIdSchema,
-    sku: z.string().trim().min(1).max(64).optional(),
+    sku: z.preprocess((value) => value ?? undefined, z.string().trim().min(1).max(64).optional()),
     options: z.record(z.string().trim().min(1).max(40), z.string().trim().min(1).max(80)),
-    priceOverride: commercePositiveMoneySchema.optional(),
+    priceOverride: z.preprocess((value) => value ?? undefined, commercePositiveMoneySchema.optional()),
     quantity: z.number().int().min(0).max(COMMERCE_LISTING_MAX_QUANTITY),
     mediaIds: z.array(commerceEntityIdSchema).max(COMMERCE_LISTING_MAX_MEDIA).default([]),
     enabled: z.boolean().default(true),
