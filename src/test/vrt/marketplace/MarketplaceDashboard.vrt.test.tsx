@@ -6,8 +6,9 @@ import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.view
 import { MarketplaceDashboard } from '@/templates/Marketplace/MarketplaceDashboard';
 
 const fixtures = vi.hoisted(async () => {
-  const { createCommerceListingFixture } = await import('@/test/fixtures/commerce/commerce');
-  const { toCommerceListingModel } = await import('@/test/fixtures/commerce/listing-models');
+  const { createCommerceListingFixture, createCommerceShopFixture, COMMERCE_FIXTURE_SELLER } =
+    await import('@/test/fixtures/commerce/commerce');
+  const { toCommerceListingModel, toCommerceShopModel } = await import('@/test/fixtures/commerce/listing-models');
 
   const listings = [
     toCommerceListingModel(
@@ -50,6 +51,8 @@ const fixtures = vi.hoisted(async () => {
   ];
 
   return {
+    seller: COMMERCE_FIXTURE_SELLER,
+    shop: toCommerceShopModel(createCommerceShopFixture()),
     listings,
     populatedMetrics: {
       activeListings: 3,
@@ -74,11 +77,49 @@ const view = vi.hoisted(() => ({
   listings: [] as unknown[],
   metrics: {} as unknown,
   isLoading: false,
+  shop: null as unknown,
 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace/dashboard',
+}));
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: 'y'.repeat(52) }),
+}));
+
+// The dashboard's shop query is async (it normalizes "no record" to null), so
+// this mock unwraps promises into state instead of passing them through.
+vi.mock('dexie-react-hooks', async () => {
+  const { useEffect, useState } = await import('react');
+  return {
+    useLiveQuery: (querier: () => unknown, deps: unknown[] = []) => {
+      const [value, setValue] = useState<unknown>(undefined);
+      useEffect(() => {
+        let active = true;
+        Promise.resolve(querier()).then((resolved) => {
+          if (active) setValue(resolved);
+        });
+        return () => {
+          active = false;
+        };
+        // The querier identity changes every render; the deps array is the contract.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, deps);
+      return value;
+    },
+  };
+});
+
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    getShop: () => Promise.resolve(view.shop),
+    getOrFetchShop: () =>
+      view.shop ? Promise.resolve((view.shop as { record: unknown }).record) : Promise.reject(new Error('no shop')),
+    getListingsBySeller: () => Promise.resolve(view.listings),
+  },
 }));
 
 vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', () => ({
@@ -87,6 +128,8 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     sellerOrders: [],
     offers: [],
     isLoading: view.isLoading,
+    needsSession: false,
+    sessionError: null,
     metrics: view.metrics,
     updateListingState: vi.fn(async () => false),
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
@@ -98,41 +141,63 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('Marketplace seller dashboard — visual regression', () => {
-  it('renders populated metrics and inventory at desktop viewport', async () => {
-    const { listings, populatedMetrics } = await fixtures;
+  it('renders populated metrics and inventory with row actions at desktop viewport', async () => {
+    const { listings, populatedMetrics, shop } = await fixtures;
     view.listings = listings;
     view.metrics = populatedMetrics;
     view.isLoading = false;
+    view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-populated-desktop');
   });
 
   it('renders populated metrics and inventory at mobile viewport', async () => {
-    const { listings, populatedMetrics } = await fixtures;
+    const { listings, populatedMetrics, shop } = await fixtures;
     view.listings = listings;
     view.metrics = populatedMetrics;
     view.isLoading = false;
+    view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-populated-mobile');
   });
 
+  // A seller with published listings but NO shop record dead-ends buyers on
+  // their shop link — the dashboard must say so and offer the setup path.
+  it('renders the set-up-your-shop prompt when listings exist without a shop at desktop viewport', async () => {
+    const { listings, populatedMetrics } = await fixtures;
+    view.listings = listings;
+    view.metrics = populatedMetrics;
+    view.isLoading = false;
+    view.shop = null;
+
+    const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!screen.container.textContent?.includes('Your shop page is not set up')) {
+        throw new Error('The shop prompt has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-no-shop-prompt-desktop');
+  });
+
   it('renders the new-seller empty state at desktop viewport', async () => {
-    const { emptyMetrics } = await fixtures;
+    const { emptyMetrics, shop } = await fixtures;
     view.listings = [];
     view.metrics = emptyMetrics;
     view.isLoading = false;
+    view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-empty-desktop');
   });
 
   it('renders the loading state at desktop viewport', async () => {
-    const { emptyMetrics } = await fixtures;
+    const { emptyMetrics, shop } = await fixtures;
     view.listings = [];
     view.metrics = emptyMetrics;
     view.isLoading = true;
+    view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-loading-desktop');

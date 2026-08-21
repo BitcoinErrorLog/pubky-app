@@ -1,8 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, MapPin, Store, UserCheck, UserPlus } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { ArrowLeft, MapPin, Store, User, UserCheck, UserPlus } from 'lucide-react';
+import { APP_ROUTES, getProfileRoute, MARKETPLACE_ROUTES, PROFILE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -12,13 +13,39 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
-import { buildMarketplaceCatalogItems } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import {
+  buildMarketplaceCatalogItems,
+  type MarketplaceCatalogItem,
+} from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
   const follow = useCommerceShopFollow(sellerPubky);
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const isOwner = currentUserPubky === sellerPubky;
+  // The shop record lives on the seller's homeserver; a visitor's local cache
+  // may not hold it yet, so resolve network-first and only then treat a
+  // missing record as "this seller has no shop".
+  const [shopFetchSettled, setShopFetchSettled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setShopFetchSettled(false);
+    CommerceController.getOrFetchShop(sellerPubky)
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setShopFetchSettled(true);
+      });
+    // Best-effort: hydrate this seller's listings from the Nexus index so a
+    // direct shop visit is not limited to what this device already cached.
+    void CommerceController.fetchSellerCatalogListings(sellerPubky).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [sellerPubky]);
 
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
   // Same two catalog sources as the home grid: hydrated canonical records
@@ -29,6 +56,8 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
     sellerListings === undefined || sellerEntries === undefined
       ? undefined
       : buildMarketplaceCatalogItems(sellerListings, sellerEntries);
+
+  const isLoading = listings === undefined || shop === undefined || (!shop && !shopFetchSettled);
 
   return (
     <ContentLayout
@@ -49,7 +78,7 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
           Marketplace
         </Link>
 
-        {shop === undefined || listings === undefined ? (
+        {isLoading ? (
           <MarketplaceSkeleton count={4} />
         ) : shop ? (
           <>
@@ -76,16 +105,36 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                   </Typography>
                 </div>
                 <div className="flex flex-col items-start gap-4 sm:items-end">
-                  <Button
-                    variant={follow.isFollowing ? 'default' : 'secondary'}
-                    className="rounded-full"
-                    aria-pressed={follow.isFollowing}
-                    disabled={follow.isMutating}
-                    onClick={follow.toggle}
-                  >
-                    {follow.isFollowing ? <UserCheck className="mr-2 size-4" /> : <UserPlus className="mr-2 size-4" />}
-                    {follow.isFollowing ? 'Following' : 'Follow shop'}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {isOwner ? (
+                      <Button asChild className="rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                          Edit shop
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant={follow.isFollowing ? 'default' : 'secondary'}
+                        className="rounded-full"
+                        aria-pressed={follow.isFollowing}
+                        disabled={follow.isMutating}
+                        onClick={follow.toggle}
+                      >
+                        {follow.isFollowing ? (
+                          <UserCheck className="mr-2 size-4" />
+                        ) : (
+                          <UserPlus className="mr-2 size-4" />
+                        )}
+                        {follow.isFollowing ? 'Following' : 'Follow shop'}
+                      </Button>
+                    )}
+                    <Button asChild variant="secondary" className="rounded-full">
+                      <Link href={getProfileRoute(PROFILE_ROUTES.PROFILE, sellerPubky)} overrideDefaults>
+                        <User className="mr-2 size-4" />
+                        {isOwner ? 'My profile' : 'Contact seller'}
+                      </Link>
+                    </Button>
+                  </div>
                   <div className="flex gap-6 text-sm">
                     <div>
                       <Typography as="p" className="text-2xl font-bold">
@@ -108,21 +157,87 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
-              {listings.map((listing) => (
-                <MarketplaceListingCard key={listing.id} listing={listing} shopName={shop.record.name} />
-              ))}
-            </div>
+            <ShopListingsGrid listings={listings} shopName={shop.record.name} isOwner={isOwner} />
           </>
         ) : (
-          <div className="flex min-h-96 flex-col items-center justify-center rounded-xl border border-dashed text-center">
-            <Store className="mb-4 size-10 text-muted-foreground" />
-            <Heading level={1} size="lg">
-              Shop unavailable
-            </Heading>
-          </div>
+          <>
+            <Card className="overflow-hidden border py-0">
+              <div className="h-28 bg-linear-to-r from-muted/60 via-card to-card sm:h-40" />
+              <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-end sm:justify-between">
+                <div className="-mt-16">
+                  <div className="mb-4 flex size-20 items-center justify-center rounded-2xl border-4 border-card bg-muted text-muted-foreground shadow-lg">
+                    <User className="size-9" />
+                  </div>
+                  <Heading level={1} size="xl" className="text-3xl break-all sm:text-5xl">
+                    {sellerPubky.slice(0, 10)}…
+                  </Heading>
+                  <Typography as="p" className="mt-2 max-w-2xl text-muted-foreground">
+                    {isOwner
+                      ? 'You haven\u2019t set up a shop yet. Buyers who open your listings land here and only see your key.'
+                      : 'This seller hasn\u2019t set up a shop profile yet. Their owner-signed listings are below.'}
+                  </Typography>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {isOwner ? (
+                    <Button asChild className="rounded-full">
+                      <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                        <Store className="mr-2 size-4" />
+                        Set up your shop
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button asChild variant="secondary" className="rounded-full">
+                      <Link href={getProfileRoute(PROFILE_ROUTES.PROFILE, sellerPubky)} overrideDefaults>
+                        <User className="mr-2 size-4" />
+                        View seller profile
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <ShopListingsGrid listings={listings} isOwner={isOwner} />
+          </>
         )}
       </Container>
     </ContentLayout>
+  );
+}
+
+function ShopListingsGrid({
+  listings,
+  shopName,
+  isOwner,
+}: {
+  listings: MarketplaceCatalogItem[];
+  shopName?: string;
+  isOwner: boolean;
+}) {
+  if (listings.length === 0) {
+    return (
+      <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed bg-card/40 p-8 text-center">
+        <Store className="mb-4 size-10 text-muted-foreground" />
+        <Heading level={2} size="md">
+          {isOwner ? 'No listings yet' : 'No listings from this seller yet'}
+        </Heading>
+        <Typography as="p" className="mt-2 text-muted-foreground">
+          {isOwner ? 'Publish your first item to fill this page.' : 'Check back later or browse the marketplace.'}
+        </Typography>
+        <Button asChild className="mt-6 rounded-full">
+          <Link href={isOwner ? MARKETPLACE_ROUTES.SELL : APP_ROUTES.MARKETPLACE} overrideDefaults>
+            {isOwner ? 'Sell an item' : 'Browse the marketplace'}
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+      {listings.map((listing) => (
+        <MarketplaceListingCard key={listing.id} listing={listing} shopName={shopName} />
+      ))}
+    </div>
   );
 }

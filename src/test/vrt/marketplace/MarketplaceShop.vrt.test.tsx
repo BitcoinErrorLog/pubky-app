@@ -71,11 +71,17 @@ const view = vi.hoisted(() => ({
   shop: undefined as unknown,
   listings: undefined as unknown,
   catalogEntries: undefined as unknown,
+  currentUserPubky: 'u'.repeat(52),
 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace',
+}));
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: view.currentUserPubky }),
 }));
 
 vi.mock('dexie-react-hooks', () => ({
@@ -85,6 +91,9 @@ vi.mock('dexie-react-hooks', () => ({
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getShop: () => view.shop,
+    getOrFetchShop: () =>
+      view.shop ? Promise.resolve((view.shop as { record: unknown }).record) : Promise.reject(new Error('no shop')),
+    fetchSellerCatalogListings: () => Promise.resolve(),
     getListingsBySeller: () => view.listings,
     getCatalogEntriesBySeller: () => view.catalogEntries,
   },
@@ -109,6 +118,7 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 describe('Marketplace shop — visual regression', () => {
   it('renders a populated shop at desktop viewport', async () => {
     const { seller, shop, listings } = await fixtures;
+    view.currentUserPubky = 'u'.repeat(52);
     view.shop = shop;
     view.listings = listings;
     view.catalogEntries = [];
@@ -157,13 +167,53 @@ describe('Marketplace shop — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-loading-desktop');
   });
 
-  it('renders the unavailable state at desktop viewport', async () => {
-    const { seller } = await fixtures;
+  // A seller who never created a shop record must NOT dead-end visitors:
+  // the page shows the seller identity and their listings instead.
+  it('renders the no-shop fallback with listings for a visitor at desktop viewport', async () => {
+    const { seller, listings } = await fixtures;
+    view.currentUserPubky = 'u'.repeat(52);
     view.shop = null;
-    view.listings = [];
+    view.listings = listings;
     view.catalogEntries = [];
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-unavailable-desktop');
+    await vi.waitFor(() => {
+      if (!screen.container.textContent?.includes('hasn’t set up a shop profile yet')) {
+        throw new Error('The no-shop fallback has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-no-record-visitor-desktop');
+  });
+
+  it('renders the no-shop fallback with the set-up prompt for the owner at desktop viewport', async () => {
+    const { seller, listings } = await fixtures;
+    view.currentUserPubky = seller;
+    view.shop = null;
+    view.listings = listings;
+    view.catalogEntries = [];
+
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!screen.container.textContent?.includes('Set up your shop')) {
+        throw new Error('The owner set-up prompt has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-no-record-owner-desktop');
+  });
+
+  it('renders the no-shop fallback for a visitor at mobile viewport', async () => {
+    const { seller, listings } = await fixtures;
+    view.currentUserPubky = 'u'.repeat(52);
+    view.shop = null;
+    view.listings = listings;
+    view.catalogEntries = [];
+
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
+    await vi.waitFor(() => {
+      if (!screen.container.textContent?.includes('hasn’t set up a shop profile yet')) {
+        throw new Error('The no-shop fallback has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-no-record-visitor-mobile');
   });
 });

@@ -17,6 +17,7 @@ export function useMarketplaceShopSettings() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const [revision, setRevision] = useState(0);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const form = useForm<MarketplaceShopSettingsData>({
     resolver: zodResolver(marketplaceShopSettingsSchema),
     defaultValues: marketplaceShopSettingsDefaults,
@@ -25,22 +26,46 @@ export function useMarketplaceShopSettings() {
 
   useEffect(() => {
     if (!currentUserPubky) return;
-    CommerceController.getShop(currentUserPubky)
-      .then((shop) => {
-        if (!shop) return;
-        setRevision(shop.record.revision);
-        setCreatedAt(shop.record.createdAt);
-        form.reset({
-          name: shop.record.name,
-          bio: shop.record.bio,
-          countryCode: shop.record.location.countryCode,
-          region: shop.record.location.region ?? '',
-          shippingPolicy: shop.record.shippingPolicy,
-          returnPolicy: shop.record.returnPolicy,
-          vacationMode: shop.record.vacationMode,
-        });
-      })
-      .catch(() => {});
+    let active = true;
+    // Network-first so a seller on a fresh device edits their published shop
+    // instead of unknowingly starting a competing revision-1 record; the
+    // local cache remains the fallback when the homeserver is unreachable.
+    CommerceController.getOrFetchShop(currentUserPubky)
+      .then((record) => (active ? hydrate(record) : undefined))
+      .catch(async () => {
+        const cached = await CommerceController.getShop(currentUserPubky).catch(() => null);
+        if (!active) return;
+        if (cached) hydrate(cached.record);
+        else setIsLoading(false);
+      });
+
+    function hydrate(record: {
+      revision: number;
+      createdAt: string;
+      name: string;
+      bio: string;
+      location: { countryCode: string; region?: string };
+      shippingPolicy: string;
+      returnPolicy: string;
+      vacationMode: boolean;
+    }) {
+      setRevision(record.revision);
+      setCreatedAt(record.createdAt);
+      form.reset({
+        name: record.name,
+        bio: record.bio,
+        countryCode: record.location.countryCode,
+        region: record.location.region ?? '',
+        shippingPolicy: record.shippingPolicy,
+        returnPolicy: record.returnPolicy,
+        vacationMode: record.vacationMode,
+      });
+      setIsLoading(false);
+    }
+
+    return () => {
+      active = false;
+    };
   }, [currentUserPubky, form]);
 
   const submit = async () => {
@@ -48,6 +73,7 @@ export function useMarketplaceShopSettings() {
     let succeeded = false;
     await form.handleSubmit(async (data) => {
       const now = new Date().toISOString();
+      const isFirstSave = revision === 0;
       try {
         await CommerceController.commitUpsertShop({
           schemaVersion: COMMERCE_CONTRACT_VERSION,
@@ -66,7 +92,11 @@ export function useMarketplaceShopSettings() {
         setRevision((current) => current + 1);
         setCreatedAt((current) => current ?? now);
         succeeded = true;
-        toast({ title: 'Shop settings saved' });
+        toast(
+          isFirstSave
+            ? { title: 'Shop created', description: 'Your shop page is now live for buyers.' }
+            : { title: 'Shop settings saved' },
+        );
       } catch {
         toast({ variant: 'error', description: 'Could not save shop settings.' });
       }
@@ -74,5 +104,12 @@ export function useMarketplaceShopSettings() {
     return succeeded;
   };
 
-  return { form, revision, submit };
+  return {
+    form,
+    revision,
+    isLoading,
+    /** True once an owner-signed shop record exists (locally cached or just saved). */
+    hasShop: revision > 0,
+    submit,
+  };
 }

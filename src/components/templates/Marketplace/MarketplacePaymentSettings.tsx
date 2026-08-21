@@ -1,7 +1,7 @@
 'use client';
 
-import { ArrowLeft, CheckCircle2, ExternalLink, KeyRound, LoaderCircle, WalletCards } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { ArrowLeft, CheckCircle2, ExternalLink, KeyRound, LoaderCircle, Store, WalletCards } from 'lucide-react';
+import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -12,7 +12,6 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksConnect } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
-import { MarketplaceShopSettingsForm } from '@/organisms/Marketplace/MarketplaceShopSettingsForm';
 
 export function MarketplacePaymentSettings() {
   const locksConnect = useMarketplaceLocksConnect();
@@ -50,7 +49,26 @@ export function MarketplacePaymentSettings() {
           </Typography>
         </div>
 
-        <MarketplaceShopSettingsForm />
+        <Card className="border">
+          <CardContent className="flex flex-col gap-3 px-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <Store className="mt-1 size-5 text-brand" />
+              <div>
+                <Typography as="h2" className="font-semibold">
+                  Looking for your shop name and policies?
+                </Typography>
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  Storefront settings live under My shop, next to your listings.
+                </Typography>
+              </div>
+            </div>
+            <Button asChild variant="secondary" className="shrink-0 rounded-full">
+              <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                Open My shop
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
 
         <Card className="border">
           <CardContent className="grid gap-4 px-6 sm:grid-cols-[1fr_auto] sm:items-center">

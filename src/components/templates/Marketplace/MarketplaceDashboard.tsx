@@ -1,8 +1,14 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowLeft, Download, Package, Pause, Play, ShoppingBag, TrendingUp } from 'lucide-react';
-import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
+import { useEffect, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { ArrowLeft, Download, Package, Pause, PencilLine, Play, ShoppingBag, Store, TrendingUp } from 'lucide-react';
+import {
+  APP_ROUTES,
+  getMarketplaceListingEditRoute,
+  getMarketplaceListingRoute,
+  MARKETPLACE_ROUTES,
+} from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -12,14 +18,38 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode } from '@/config/commerce';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceDashboard() {
   const dashboard = useMarketplaceSellerDashboard();
   const [selected, setSelected] = useState<string[]>([]);
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  // Normalize "no record" to null so `undefined` keeps meaning "still loading".
+  const shop = useLiveQuery(
+    () => (currentUserPubky ? CommerceController.getShop(currentUserPubky).then((found) => found ?? null) : null),
+    [currentUserPubky],
+  );
+  const [shopFetchSettled, setShopFetchSettled] = useState(false);
+
+  useEffect(() => {
+    if (!currentUserPubky) return;
+    let active = true;
+    setShopFetchSettled(false);
+    CommerceController.getOrFetchShop(currentUserPubky)
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setShopFetchSettled(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUserPubky]);
 
   const exportCsv = () => {
     const url = URL.createObjectURL(new Blob([dashboard.exportCsv()], { type: 'text/csv;charset=utf-8' }));
@@ -54,10 +84,21 @@ export function MarketplaceDashboard() {
               Seller dashboard
             </Heading>
             <Typography as="p" className="mt-2 text-muted-foreground">
-              Inventory, order work queues, offers, and local sandbox analytics.
+              Your listings, shop, order work queues, and offers.
             </Typography>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button asChild className="rounded-full">
+              <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
+                Sell an item
+              </Link>
+            </Button>
+            <Button asChild variant="secondary" className="rounded-full">
+              <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                <Store className="mr-2 size-4" />
+                My shop
+              </Link>
+            </Button>
             <Button asChild variant="secondary" className="rounded-full">
               <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
                 Orders
@@ -68,7 +109,7 @@ export function MarketplaceDashboard() {
                 Offers
               </Link>
             </Button>
-            <Button asChild className="rounded-full">
+            <Button asChild variant="ghost" className="rounded-full">
               <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
                 Payment settings
               </Link>
@@ -80,6 +121,29 @@ export function MarketplaceDashboard() {
           <Skeleton className="h-48 w-full" />
         ) : (
           <>
+            {/* A seller with published listings but no shop record dead-ends
+                every buyer who taps "View shop" — surface that here, where
+                sellers actually work. */}
+            {shopFetchSettled && shop === null && dashboard.listings.length > 0 && (
+              <Card className="border border-brand/40 bg-brand/5">
+                <CardContent className="flex flex-col gap-3 px-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <Typography as="h2" className="font-semibold">
+                      Your shop page is not set up
+                    </Typography>
+                    <Typography as="p" className="text-sm text-muted-foreground">
+                      Buyers who open your listings see only your key. Add a shop name, bio, and policies.
+                    </Typography>
+                  </div>
+                  <Button asChild className="shrink-0 rounded-full">
+                    <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                      <Store className="mr-2 size-4" />
+                      Set up your shop
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
             {/* Local listings stay real without a session, but orders/offers
                 come from the durable service — without a session the work
                 queues and revenue below would silently read as zero, so say
@@ -94,7 +158,9 @@ export function MarketplaceDashboard() {
                 { label: 'Low stock', value: dashboard.metrics.lowStock, icon: Package },
                 { label: 'Paid orders', value: dashboard.metrics.paidOrders, icon: TrendingUp },
                 {
-                  label: 'Sandbox revenue',
+                  // In sandbox mode this number is simulated and must say so;
+                  // in the durable modes it reflects real orders.
+                  label: getCommerceAdapterMode() === 'sandbox' ? 'Sandbox revenue' : 'Revenue',
                   value: formatCommerceMoney({
                     amountMinor: dashboard.metrics.revenueMinor,
                     currency: 'USD',
@@ -122,7 +188,7 @@ export function MarketplaceDashboard() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <Typography as="h2" className="text-xl font-semibold">
-                      Inventory
+                      My listings
                     </Typography>
                     <Typography as="p" className="text-sm text-muted-foreground">
                       {dashboard.metrics.openOffers} open offers need attention.
@@ -156,57 +222,96 @@ export function MarketplaceDashboard() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-2xl text-left text-sm">
-                    <thead className="text-muted-foreground">
-                      <tr className="border-b">
-                        <th className="p-3">
-                          <span className="sr-only">Select</span>
-                        </th>
-                        <th className="p-3">Listing</th>
-                        <th className="p-3">State</th>
-                        <th className="p-3">Format</th>
-                        <th className="p-3">Inventory</th>
-                        <th className="p-3">Price</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dashboard.listings.map((listing) => {
-                        const checked = selected.includes(listing.id);
-                        return (
-                          <tr key={listing.id} className="border-b last:border-0">
-                            <td className="p-3">
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={(next) =>
-                                  setSelected((current) =>
-                                    next ? [...current, listing.id] : current.filter((id) => id !== listing.id),
-                                  )
-                                }
-                                aria-label={`Select ${listing.record.title}`}
-                              />
-                            </td>
-                            <td className="p-3 font-semibold">{listing.record.title}</td>
-                            <td className="p-3">
-                              <Badge variant="secondary">{listing.state}</Badge>
-                            </td>
-                            <td className="p-3">{listing.format.replace('_', ' ')}</td>
-                            <td className="p-3">
-                              {listing.record.variants.reduce((total, variant) => total + variant.quantity, 0)}
-                            </td>
-                            <td className="p-3">
-                              {formatCommerceMoney({
-                                amountMinor: listing.price_minor,
-                                currency: listing.currency,
-                                exponent: 2,
-                              })}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                {dashboard.listings.length === 0 ? (
+                  <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed bg-card/40 p-8 text-center">
+                    <ShoppingBag className="mb-4 size-10 text-muted-foreground" />
+                    <Heading level={3} size="md">
+                      You have no listings yet
+                    </Heading>
+                    <Typography as="p" className="mt-2 text-muted-foreground">
+                      Publish your first item — it appears here with its state, inventory, and actions.
+                    </Typography>
+                    <Button asChild className="mt-6 rounded-full">
+                      <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
+                        Sell an item
+                      </Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-2xl text-left text-sm">
+                      <thead className="text-muted-foreground">
+                        <tr className="border-b">
+                          <th className="p-3">
+                            <span className="sr-only">Select</span>
+                          </th>
+                          <th className="p-3">Listing</th>
+                          <th className="p-3">State</th>
+                          <th className="p-3">Format</th>
+                          <th className="p-3">Inventory</th>
+                          <th className="p-3">Price</th>
+                          <th className="p-3">
+                            <span className="sr-only">Actions</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboard.listings.map((listing) => {
+                          const checked = selected.includes(listing.id);
+                          return (
+                            <tr key={listing.id} className="border-b last:border-0">
+                              <td className="p-3">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(next) =>
+                                    setSelected((current) =>
+                                      next ? [...current, listing.id] : current.filter((id) => id !== listing.id),
+                                    )
+                                  }
+                                  aria-label={`Select ${listing.record.title}`}
+                                />
+                              </td>
+                              <td className="p-3 font-semibold">
+                                <Link
+                                  href={getMarketplaceListingRoute(listing.seller_id, listing.listing_id)}
+                                  overrideDefaults
+                                  className="hover:text-brand hover:underline"
+                                >
+                                  {listing.record.title}
+                                </Link>
+                              </td>
+                              <td className="p-3">
+                                <Badge variant="secondary">{listing.state}</Badge>
+                              </td>
+                              <td className="p-3">{listing.format.replace('_', ' ')}</td>
+                              <td className="p-3">
+                                {listing.record.variants.reduce((total, variant) => total + variant.quantity, 0)}
+                              </td>
+                              <td className="p-3">
+                                {formatCommerceMoney({
+                                  amountMinor: listing.price_minor,
+                                  currency: listing.currency,
+                                  exponent: 2,
+                                })}
+                              </td>
+                              <td className="p-3">
+                                <Button asChild size="sm" variant="ghost" className="rounded-full">
+                                  <Link
+                                    href={getMarketplaceListingEditRoute(listing.seller_id, listing.listing_id)}
+                                    overrideDefaults
+                                  >
+                                    <PencilLine className="mr-2 size-4" />
+                                    Edit
+                                  </Link>
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>
