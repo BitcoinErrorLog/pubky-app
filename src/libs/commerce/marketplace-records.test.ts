@@ -130,13 +130,19 @@ describe('commerceListingRecordSchema', () => {
     // listing unloadable for anyone but its cached seller.
     const listing = makeFixedListing() as Record<string, unknown>;
     const location = { ...(listing.location as Record<string, unknown>), region: null };
+    const returnPolicy = {
+      ...(listing.returnPolicy as Record<string, unknown>),
+      acceptsReturns: false,
+      returnWindowDays: null,
+    };
     const variants = (listing.variants as Record<string, unknown>[]).map((variant) => ({
       ...variant,
       sku: null,
       priceOverride: null,
     }));
-    const parsed = commerceListingRecordSchema.parse({ ...listing, location, variants });
+    const parsed = commerceListingRecordSchema.parse({ ...listing, location, returnPolicy, variants });
     expect(parsed.location.region).toBeUndefined();
+    expect(parsed.returnPolicy.returnWindowDays).toBeUndefined();
     expect(parsed.variants[0]?.sku).toBeUndefined();
     expect(parsed.variants[0]?.priceOverride).toBeUndefined();
   });

@@ -41,7 +41,7 @@ export const commerceCountryCodeSchema = z.string().regex(/^[A-Z]{2}$/, 'Expecte
 export const commercePublicLocationSchema = z
   .object({
     countryCode: commerceCountryCodeSchema,
-    region: z.preprocess((value) => value ?? undefined, z.string().trim().min(1).max(100).optional()),
+    region: z.string().trim().min(1).max(100).optional(),
   })
   .strict();
 
@@ -93,9 +93,9 @@ export const commerceMediaSchema = z
 export const commerceVariantSchema = z
   .object({
     id: commerceEntityIdSchema,
-    sku: z.preprocess((value) => value ?? undefined, z.string().trim().min(1).max(64).optional()),
+    sku: z.string().trim().min(1).max(64).optional(),
     options: z.record(z.string().trim().min(1).max(40), z.string().trim().min(1).max(80)),
-    priceOverride: z.preprocess((value) => value ?? undefined, commercePositiveMoneySchema.optional()),
+    priceOverride: commercePositiveMoneySchema.optional(),
     quantity: z.number().int().min(0).max(COMMERCE_LISTING_MAX_QUANTITY),
     mediaIds: z.array(commerceEntityIdSchema).max(COMMERCE_LISTING_MAX_MEDIA).default([]),
     enabled: z.boolean().default(true),
@@ -235,7 +235,7 @@ export const commerceDigitalLockSchema = z
   })
   .strict();
 
-export const commerceShopRecordSchema = commercePublicRecordBaseSchema
+const commerceShopRecordSchemaInner = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('shop'),
     name: z.string().trim().min(1).max(COMMERCE_SHOP_NAME_MAX_CHARS),
@@ -252,7 +252,7 @@ export const commerceShopRecordSchema = commercePublicRecordBaseSchema
   .strict()
   .superRefine(validateRecordDates);
 
-export const commerceListingRecordSchema = commercePublicRecordBaseSchema
+const commerceListingRecordSchemaInner = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('listing'),
     listingId: commerceEntityIdSchema,
@@ -429,7 +429,7 @@ export const commerceListingRecordSchema = commercePublicRecordBaseSchema
     });
   });
 
-export const commerceReviewRecordSchema = commercePublicRecordBaseSchema
+const commerceReviewRecordSchemaInner = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('review'),
     reviewId: commerceEntityIdSchema,
@@ -455,7 +455,7 @@ export const commerceReviewRecordSchema = commercePublicRecordBaseSchema
   .strict()
   .superRefine(validateRecordDates);
 
-export const commerceCollectionRecordSchema = commercePublicRecordBaseSchema
+const commerceCollectionRecordSchemaInner = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('collection'),
     collectionId: commerceEntityIdSchema,
@@ -480,13 +480,16 @@ export const commerceTombstoneRecordSchema = commercePublicRecordBaseSchema
   .strict()
   .superRefine(validateRecordDates);
 
-export const commercePublicRecordSchema = z.union([
-  commerceShopRecordSchema,
-  commerceListingRecordSchema,
-  commerceReviewRecordSchema,
-  commerceCollectionRecordSchema,
-  commerceTombstoneRecordSchema,
-]);
+export const commercePublicRecordSchema = z.preprocess(
+  stripSerializedNulls,
+  z.union([
+    commerceShopRecordSchemaInner,
+    commerceListingRecordSchemaInner,
+    commerceReviewRecordSchemaInner,
+    commerceCollectionRecordSchemaInner,
+    commerceTombstoneRecordSchema,
+  ]),
+);
 
 function validateRecordDates(record: { createdAt: string; updatedAt: string }, context: z.RefinementCtx): void {
   if (Date.parse(record.updatedAt) < Date.parse(record.createdAt)) {
@@ -552,6 +555,32 @@ function validateAuction(auction: z.infer<typeof auctionSaleSchema>, context: z.
 }
 
 export type CommerceDigitalLock = z.infer<typeof commerceDigitalLockSchema>;
+/**
+ * The studios serialize unset optional form fields as explicit `null`s, and
+ * published records keep them forever. The specs crate accepts those nulls,
+ * so canonical records on homeservers legitimately contain them — but every
+ * optional field in these schemas means "absent", never "meaningfully null",
+ * so reads normalize `null` to absent before validation. Without this, a
+ * record becomes unloadable for everyone except the seller whose local cache
+ * already holds it.
+ */
+function stripSerializedNulls(input: unknown): unknown {
+  if (Array.isArray(input)) return input.map(stripSerializedNulls);
+  if (input !== null && typeof input === 'object') {
+    return Object.fromEntries(
+      Object.entries(input as Record<string, unknown>)
+        .filter(([, value]) => value !== null)
+        .map(([key, value]) => [key, stripSerializedNulls(value)]),
+    );
+  }
+  return input;
+}
+
+export const commerceShopRecordSchema = z.preprocess(stripSerializedNulls, commerceShopRecordSchemaInner);
+export const commerceListingRecordSchema = z.preprocess(stripSerializedNulls, commerceListingRecordSchemaInner);
+export const commerceReviewRecordSchema = z.preprocess(stripSerializedNulls, commerceReviewRecordSchemaInner);
+export const commerceCollectionRecordSchema = z.preprocess(stripSerializedNulls, commerceCollectionRecordSchemaInner);
+
 export type CommerceShopRecord = z.infer<typeof commerceShopRecordSchema>;
 export type CommerceListingRecord = z.infer<typeof commerceListingRecordSchema>;
 export type CommerceReviewRecord = z.infer<typeof commerceReviewRecordSchema>;
