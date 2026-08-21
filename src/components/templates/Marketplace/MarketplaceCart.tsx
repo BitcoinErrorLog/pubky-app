@@ -3,12 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { Controller } from 'react-hook-form';
-import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Checkbox } from '@/atoms/Checkbox/Checkbox';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { Image } from '@/atoms/Image/Image';
 import { Label } from '@/atoms/Label/Label';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
@@ -17,6 +18,7 @@ import { getCommerceAdapterMode, isLocksPaykitCommerceMode } from '@/config/comm
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
@@ -69,15 +71,37 @@ export function MarketplaceCart() {
                 const price =
                   variant?.priceOverride ??
                   (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+                // The record's media order is authoritative: the first image
+                // is the cover here just as on cards and the detail gallery.
+                const coverUrl = resolveFirstMarketplaceMediaUrl(
+                  item.listing.record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
+                );
+                const listingRoute = getMarketplaceListingRoute(
+                  item.listing.record.ownerPubky,
+                  item.listing.listing_id,
+                );
                 return (
                   <Card key={item.id} className="border py-4">
                     <CardContent className="flex items-center gap-4 px-4">
-                      <div className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-brand/15">
-                        <ShoppingCart className="size-7 text-brand" />
-                      </div>
+                      <Link href={listingRoute} overrideDefaults aria-label={`View ${item.listing.record.title}`}>
+                        <div className="relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand/15">
+                          <ShoppingCart className="size-7 text-brand" />
+                          {coverUrl && (
+                            <Image
+                              src={coverUrl}
+                              alt={item.listing.record.title}
+                              fill
+                              sizes="80px"
+                              className="absolute inset-0 object-cover"
+                            />
+                          )}
+                        </div>
+                      </Link>
                       <div className="min-w-0 flex-1">
                         <Typography as="h2" className="truncate font-semibold">
-                          {item.listing.record.title}
+                          <Link href={listingRoute} overrideDefaults className="hover:text-brand hover:underline">
+                            {item.listing.record.title}
+                          </Link>
                         </Typography>
                         <Typography as="p" className="text-sm text-muted-foreground">
                           {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'}
@@ -188,6 +212,14 @@ export function MarketplaceCart() {
             <Heading level={2} size="md">
               Your cart is empty
             </Heading>
+            <Typography as="p" className="mt-2 text-muted-foreground">
+              Items you add from listings appear here, saved on this device.
+            </Typography>
+            <Button asChild className="mt-6 rounded-full">
+              <Link href={APP_ROUTES.MARKETPLACE} overrideDefaults>
+                Browse the marketplace
+              </Link>
+            </Button>
           </div>
         )}
       </Container>

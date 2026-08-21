@@ -1,7 +1,17 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Bell, Gavel, HandCoins, MessageCircle, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
+import {
+  ArrowRight,
+  Bell,
+  Gavel,
+  HandCoins,
+  LayoutDashboard,
+  MessageCircle,
+  ShieldCheck,
+  ShoppingCart,
+  Store,
+} from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -100,6 +110,14 @@ export function Marketplace() {
               >
                 <Bell className="mr-2 size-4" />
                 Activity
+              </Button>
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.DASHBOARD))}
+              >
+                <LayoutDashboard className="mr-2 size-4" />
+                Seller dashboard
               </Button>
             </div>
           </div>

@@ -5,6 +5,18 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 
+// Cart rows show the listing's cover photo (record media order, first image);
+// a deterministic data-URI keeps the capture free of network fetches.
+const MEDIA_DATA_URL = vi.hoisted(
+  () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=',
+);
+
+vi.mock('@/libs/commerce/media-url', () => ({
+  resolveMarketplaceMediaUrl: () => MEDIA_DATA_URL,
+  resolveFirstMarketplaceMediaUrl: (uris: readonly string[]) => (uris.length > 0 ? MEDIA_DATA_URL : null),
+}));
+
 const fixtures = vi.hoisted(async () => {
   const { createCommerceListingFixture } = await import('@/test/fixtures/commerce/commerce');
   const { toCommerceListingModel } = await import('@/test/fixtures/commerce/listing-models');
