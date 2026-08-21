@@ -4,7 +4,6 @@ import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-react';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
-import { freezeNow } from './vrt.clock';
 import type { VrtViewport } from './vrt.viewports';
 
 export interface RenderForVRTOptions {
@@ -54,7 +53,9 @@ function VRTProviders({ children, viewport, queryClient, disableHover }: VRTProv
 
 export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) {
   await page.viewport(options.viewport.width, options.viewport.height);
-  freezeNow();
+  // Time is already frozen (and the formatting time zone pinned to UTC) by
+  // `vrt.setup.ts` before any app module loads — see its "Time determinism"
+  // comment block for the rules.
   mockMathRandom(0xdeadbeef);
   // Fresh QueryClient per test keeps cache state isolated; instantiating here
   // (rather than in the component body) avoids re-creation on every React render.

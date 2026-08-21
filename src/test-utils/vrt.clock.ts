@@ -2,7 +2,10 @@
 // Kept in a browser-free module so fixtures (e.g. `posts.ts`, `profiles.ts`)
 // and unit tests can import it without pulling in `vitest/browser`.
 
-/** Frozen instant every VRT render pretends is "now". */
+/** Frozen instant every VRT render pretends is "now". The freeze itself is
+ *  installed once per test file by `vrt.setup.ts` (fake `Date` via
+ *  `vi.setSystemTime`, plus a UTC default time zone for `toLocale*` /
+ *  `Intl.DateTimeFormat`) — see the "Time determinism" block there. */
 export const VRT_FROZEN_NOW_MS = Date.UTC(2026, 0, 1, 12, 0, 0);
 
 /** Generic millisecond duration constants. Live here because every current
@@ -10,11 +13,6 @@ export const VRT_FROZEN_NOW_MS = Date.UTC(2026, 0, 1, 12, 0, 0);
  *  when a non-test caller needs them. */
 export const MINUTE_MS = 60 * 1000;
 export const HOUR_MS = 60 * MINUTE_MS;
-
-/** Replace `Date.now` so any "x ago" UI is stable for screenshots. */
-export function freezeNow(ms: number = VRT_FROZEN_NOW_MS): void {
-  Date.now = () => ms;
-}
 
 /**
  * Deterministic relative-time formatter aligned to {@link VRT_FROZEN_NOW_MS}.

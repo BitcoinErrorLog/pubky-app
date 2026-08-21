@@ -24,6 +24,66 @@ import '@/app/globals.css';
 
 import { vi } from 'vitest';
 
+import { VRT_FROZEN_NOW_MS } from './vrt.clock';
+
+// ─── Time determinism (read this before touching any timestamp rendering) ───
+//
+// VRT compares pixels, so every rendered timestamp must be byte-identical
+// across runs, machines, and operating systems. Two independent sources of
+// drift are closed here, once, for every VRT suite:
+//
+// 1. WALL CLOCK — the system time is frozen at `VRT_FROZEN_NOW_MS` via fake
+//    timers that fake ONLY `Date` (`setTimeout`/`requestAnimationFrame`/
+//    `performance.now` stay real, so image waits and JS-driven animations
+//    still run). This covers `Date.now()`, zero-arg `new Date()`, and
+//    module-level evaluation like the settings copyright year — not just the
+//    code paths that happen to call `Date.now`.
+//
+// 2. TIME ZONE — components that format wall-clock times without an explicit
+//    `timeZone` (e.g. `toLocaleString('en-US')`) render in the machine's zone.
+//    CI baselines are captured in UTC; locally that drifts. `TZ=UTC` is NOT a
+//    fix: WebKit ignores the `TZ` env var entirely. So the harness pins the
+//    DEFAULT time zone to UTC at the formatting layer — `Date.prototype
+//    .toLocale*String` and `Intl.DateTimeFormat` get `timeZone: 'UTC'` when
+//    the caller did not pass one. A caller that DOES pass an explicit
+//    `timeZone` keeps it, so components that already render timezone-explicit
+//    output are untouched.
+//
+// Rules for suites/fixtures that follow from this:
+// - Fixture timestamps must be expressed relative to `VRT_FROZEN_NOW_MS`
+//   (see `vrt.clock.ts`), never `Date.now()` captured at authoring time.
+// - Relative-time hooks should still be mocked to `formatStableRelative`
+//   (the real hook re-renders on an interval; freezing time makes it stable,
+//   mocking it keeps the suite independent of the hook's tick behavior).
+// - Do NOT re-introduce `TZ=UTC` as a documented requirement; the harness
+//   makes local runs match CI in every browser, including WebKit.
+vi.useFakeTimers({ toFake: ['Date'] });
+vi.setSystemTime(VRT_FROZEN_NOW_MS);
+
+const VRT_TIME_ZONE = 'UTC';
+
+function withVrtTimeZone(options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions {
+  return options?.timeZone ? options : { ...options, timeZone: VRT_TIME_ZONE };
+}
+
+for (const method of ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString'] as const) {
+  const original = Date.prototype[method];
+  Date.prototype[method] = function (this: Date, locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+    return original.call(this, locales, withVrtTimeZone(options));
+  };
+}
+
+const RealDateTimeFormat = Intl.DateTimeFormat;
+const PatchedDateTimeFormat = function DateTimeFormat(
+  locales?: Intl.LocalesArgument,
+  options?: Intl.DateTimeFormatOptions,
+) {
+  return new RealDateTimeFormat(locales, withVrtTimeZone(options));
+} as unknown as typeof Intl.DateTimeFormat;
+Object.defineProperty(PatchedDateTimeFormat, 'prototype', { value: RealDateTimeFormat.prototype });
+PatchedDateTimeFormat.supportedLocalesOf = RealDateTimeFormat.supportedLocalesOf.bind(RealDateTimeFormat);
+Intl.DateTimeFormat = PatchedDateTimeFormat;
+
 // Stabilize cross-OS / cross-run rendering for visual snapshots.
 // Applied once per test file at setup time.
 

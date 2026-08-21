@@ -19,39 +19,58 @@ function FiltersHarness({ resultCount }: { resultCount: number }) {
   );
 }
 
+// Every capture here is non-interactive (state is set through the store, not
+// clicks), so `disableHover` is safe and necessary: the browser pointer rests
+// wherever the previous test file left it, and Chromium re-applies `:hover`
+// to whatever chip sits beneath it — a nondeterministic capture.
 describe('Marketplace filters — visual regression', () => {
   it('renders the default filter bar at desktop viewport', async () => {
     setStoreState();
 
-    const screen = await renderForVRT(<FiltersHarness resultCount={8} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<FiltersHarness resultCount={8} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-default-desktop');
   });
 
   it('renders the default filter bar at mobile viewport', async () => {
     setStoreState();
 
-    const screen = await renderForVRT(<FiltersHarness resultCount={8} />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<FiltersHarness resultCount={8} />, {
+      viewport: VRT_VIEWPORT_MOBILE,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-default-mobile');
   });
 
   it('renders applied filters with the clear action at desktop viewport', async () => {
     setStoreState({ query: 'boots', categoryId: 'fashion', saleFormat: 'fixed_price', sort: 'price_low' });
 
-    const screen = await renderForVRT(<FiltersHarness resultCount={3} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<FiltersHarness resultCount={3} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-applied-desktop');
   });
 
   it('renders the list layout toggle selected at desktop viewport', async () => {
     setStoreState({ layout: 'list' });
 
-    const screen = await renderForVRT(<FiltersHarness resultCount={8} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<FiltersHarness resultCount={8} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-list-layout-desktop');
   });
 
   it('renders the zero-results emphasis at desktop viewport', async () => {
     setStoreState({ query: 'no matches expected', saleFormat: 'auction' });
 
-    const screen = await renderForVRT(<FiltersHarness resultCount={0} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<FiltersHarness resultCount={0} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-zero-results-desktop');
   });
 });

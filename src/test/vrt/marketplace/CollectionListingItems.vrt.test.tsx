@@ -12,6 +12,17 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
   useIndicativeBtcRate: () => null,
 }));
 
+// The commerce fixtures carry `pubky://` media URIs that the real resolver
+// turns into live homeserver URLs — a network fetch mid-capture whose
+// load/error timing raced `toMatchScreenshot`'s stability loop (the source of
+// this suite's "could not capture a stable screenshot" timeouts). Resolve to
+// null so the card renders its deterministic gradient+icon backdrop, same as
+// `Marketplace.vrt.test.tsx`.
+vi.mock('@/libs/commerce/media-url', () => ({
+  resolveMarketplaceMediaUrl: () => null,
+  resolveFirstMarketplaceMediaUrl: () => null,
+}));
+
 const fixtures = vi.hoisted(async () => {
   const { createCommerceListingFixture, COMMERCE_FIXTURE_SELLER } = await import('@/test/fixtures/commerce/commerce');
   const { toCommerceListingModel } = await import('@/test/fixtures/commerce/listing-models');
