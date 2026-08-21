@@ -1,6 +1,21 @@
 # Trust & Reputation: Phased Implementation Plan
 
-Companion to [trust-reputation-design.md](trust-reputation-design.md) and [ADR 0024](../adr/0024-portable-reputation.md) (Proposed). **Planning document — no task below is started.** Sizing is coarse: S ≈ ≤1 day, M ≈ 2–4 days, L ≈ a week-plus, for one person familiar with the repo in question.
+Companion to [trust-reputation-design.md](trust-reputation-design.md) and [ADR 0024](../adr/0024-portable-reputation.md) (Accepted 2026-08-21). Sizing is coarse: S ≈ ≤1 day, M ≈ 2–4 days, L ≈ a week-plus, for one person familiar with the repo in question.
+
+## Progress — updated 2026-08-21 (Phases 0–1 landed; parts of Phase 3 pre-built)
+
+- [x] **P0.1** — ADR 0024 accepted; D1–D8 ratified (D2 as custom both-sides band consent; design doc §11 records all eight).
+- [x] **P1.1** — Attestation claim format in the specs fork (`0.6.2-marketplace.3`): `PubkyAppPurchaseAttestation` with closed-world `v: 1` claims, compact-JWS parsing, offline Ed25519 verification against the self-certifying `iss` pubky, review-binding checks, and test vectors (valid / wrong key / mismatched binding / unknown version / malformed forms). SPEC.md carries the normative claim table and recipe.
+- [ ] **P1.2** — Attestor record specs (attestor profile with `successor` rotation, `seller_stats/{seller}`, `annotations/{order_ref}`) — **not started**; needed before the Phase 3 publisher.
+- [x] **P1.3** — `PubkyAppReviewResponse` at `review_responses/{review_id}` with the structural subject-authorization helper, URI parser variant, builder, wasm binding, tests.
+- [x] **P1.4** — Attestor identity + signing module in the service (`attestor.rs`): Ed25519 key + order-ref salt from env (fail-closed pair), z-base-32 pubky derivation, JWS issuance, append-only `review_attestations` audit rows.
+- [x] **P1.5** — Issuance inside the `review.create` transaction, returned in the command result (echoed by `review.update`); idempotent participant-scoped `GET /v1/orders/{id}/review-attestation`; integration tests including third-party-style signature verification against the attestor pubky. **Added scope (ratified D2):** seller standing band consent (`attestation.set_band_consent` command + `attestation_band_consents` table + `GET /v1/sellers/{pubky}/band-consent`), buyer per-review `allow_amount_band` payload flag, both-sides gating tests; dispute/refund **annotations** (`attestation_annotations`, keyed by salted `order_ref`, dispute outcomes stored per winning side for the Phase 3 publisher to map to reviewer-relative vocabulary) and the moderator-only `attestation.disavow` escape hatch.
+- [x] **P1.6** — Client publishes the review record: builds `PubkyAppMarketplaceReview` via the specs builder, embeds the JWS, PUTs to the reviewer's homeserver with the staged-job retryable outbox (pending rows retry when the orders surface loads); `review.update` republishes with `revision + 1` and the original `createdAt`; buyer band opt-in rendered only when the seller consented; own-review verified status re-verified offline before display. Unit + VRT coverage. *Honest gap:* the e2e leg against the live service + homeserver is exercised by unit tests with the real crypto but not yet by a live two-party proof.
+- [x] **P1.7** — Specs release [`v0.6.2-marketplace.3`](https://github.com/BitcoinErrorLog/pubky-app-specs/releases/tag/v0.6.2-marketplace.3) published and vendored by the client. Nexus consumption happens with P2.1.
+- [ ] **P2.1–P2.5** — Nexus indexing/aggregation — **not started** (next critical-path step).
+- [~] **P3.1** — Stat computation landed early inside the weekly worker task (median paid→shipped hours via `receipt.issued`→`fulfillment.shipped` events, dispute rate, completion rate, completed-order band; integration-tested). Property tests against synthetic event streams remain open.
+- [~] **P3.2** — The signing + storage half exists (weekly `seller_stat_attestations` rows, signed JWS, cadence-guarded worker task; annotations accumulate per order_ref). The **attestor-homeserver publisher is not built** — nothing is public yet, and it needs P1.2's record specs first.
+- [ ] **P3.3, Phase 4, Phase 5** — not started.
 
 Repos touched: `pubky-app-specs` fork (**specs**), `marketplace-service` (**service**), `pubky-nexus` branch `feat/marketplace-indexing` (**nexus**), `pubky-app` (**client**).
 
