@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -30,7 +31,16 @@ type OgFont = {
 let cachedFonts: OgFont[] | null = null;
 
 function readFont(file: string): Buffer {
-  return readFileSync(fileURLToPath(new URL(`./assets/${file}`, import.meta.url)));
+  try {
+    return readFileSync(fileURLToPath(new URL(`./assets/${file}`, import.meta.url)));
+  } catch {
+    // On Vercel serverless the build-time `import.meta.url` path
+    // (/vercel/path0/…) does not exist at runtime. The assets are traced into
+    // the function bundle via `outputFileTracingIncludes` at their
+    // repo-relative path, so resolve against the runtime cwd (/var/task).
+    // Docker/standalone deploys keep working through the first branch.
+    return readFileSync(path.join(process.cwd(), 'src/libs/og/assets', file));
+  }
 }
 
 export function getOgFonts(): OgFont[] {

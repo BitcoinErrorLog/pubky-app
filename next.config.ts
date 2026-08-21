@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
   // build credentials are provided; public builds without those credentials skip upload.
   // See docs/sentry.md + ADR 0018.
   productionBrowserSourceMaps: true,
+  // OG image routes read satori font/brand assets from disk at runtime. On
+  // serverless deploys (Vercel) the bundler does not emit them, so trace the
+  // asset directory into every function bundle (see src/libs/og/ogFonts.ts).
+  outputFileTracingIncludes: {
+    '/**': ['./src/libs/og/assets/**/*'],
+  },
   experimental: {
     serverSourceMaps: true,
   },
