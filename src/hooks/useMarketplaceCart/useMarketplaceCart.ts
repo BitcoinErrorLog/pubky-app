@@ -81,7 +81,7 @@ export function useMarketplaceCart() {
   };
 
   // One subtotal per pricing asset: minor units of different assets (USD
-  // cents, satoshis) are never added into one false number.
+  // cents, bitcoin base units) are never added into one false number.
   const subtotals = sumMoneyByAsset(
     (items ?? []).flatMap((item) => {
       const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);

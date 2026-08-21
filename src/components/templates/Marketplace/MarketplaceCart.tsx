@@ -245,8 +245,8 @@ export function MarketplaceCart() {
                 <div className="border-t pt-4">
                   <div className="flex justify-between">
                     <Typography as="span">Items</Typography>
-                    {/* One line per pricing asset: USD cents and satoshis are
-                        never summed into one false number. */}
+                    {/* One line per pricing asset: USD cents and bitcoin base
+                        units are never summed into one false number. */}
                     <div className="flex flex-col items-end">
                       {cart.subtotals.map((subtotal) => (
                         <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">

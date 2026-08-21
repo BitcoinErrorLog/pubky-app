@@ -67,7 +67,7 @@ export function MarketplaceListingForm({
   const variants = useFieldArray({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS });
   const isEdit = mode === 'edit';
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
-  const pricePlaceholder = currency === 'SATS' ? '150000' : '125.00';
+  const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
   const isImperial = measurementSystem === 'imperial';
   const mediaError =
     pickerError === 'invalid-type'
@@ -226,7 +226,7 @@ export function MarketplaceListingForm({
               disabled={isPublishing || saleTermsLocked}
               options={[
                 { value: 'USD', label: 'US dollars (USD)' },
-                { value: 'SATS', label: 'Bitcoin (sats)' },
+                { value: 'BTC', label: 'Bitcoin (₿)' },
               ]}
             />
             <ControlledInputField
@@ -237,6 +237,11 @@ export function MarketplaceListingForm({
               disabled={isPublishing || saleTermsLocked}
             />
           </div>
+          {currency === 'BTC' && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Bitcoin prices are entered in whole base units: 150000 publishes as ₿150,000.
+            </Typography>
+          )}
           {isEdit && (
             <Typography as="p" className="text-sm text-muted-foreground">
               {saleTermsLocked
@@ -377,7 +382,7 @@ export function MarketplaceListingForm({
                   name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE}
                   control={form.control}
                   label={`Flat shipping (${priceUnit})`}
-                  placeholder={currency === 'SATS' ? '15000' : '12.00'}
+                  placeholder={currency === 'BTC' ? '15000' : '12.00'}
                   disabled={isPublishing}
                 />
                 <ControlledInputField

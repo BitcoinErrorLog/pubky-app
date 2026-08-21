@@ -1,7 +1,7 @@
 import type { MeasurementSystem } from '@/libs/commerce/units';
 
 export interface MarketplaceDisplayState {
-  /** Show the approximate converted secondary price (fiat ↔ sats) beside listing prices. */
+  /** Show the approximate converted secondary price (fiat ↔ bitcoin) beside listing prices. */
   showFxEstimate: boolean;
   /** Chosen measurement system; `null` means follow the browser locale (en-US → imperial, else metric). */
   measurementSystem: MeasurementSystem | null;

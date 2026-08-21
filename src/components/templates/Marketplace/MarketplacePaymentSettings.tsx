@@ -173,7 +173,7 @@ export function MarketplacePaymentSettings() {
                   Approximate price conversions
                 </Label>
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  Show &ldquo;≈&rdquo; estimates beside prices (fiat ↔ sats) at the current exchange rate. Indicative
+                  Show &ldquo;≈&rdquo; estimates beside prices (fiat ↔ bitcoin) at the current exchange rate. Indicative
                   only — payments always settle in the listing&rsquo;s own pricing asset.
                 </Typography>
               </div>

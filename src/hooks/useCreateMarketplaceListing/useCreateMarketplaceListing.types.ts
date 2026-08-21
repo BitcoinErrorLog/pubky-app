@@ -122,7 +122,7 @@ export const createMarketplaceListingSchema = z
       .regex(/^[A-Za-z]{2}$/, 'Enter a two-letter country code.'),
     region: z.string().trim().max(100, 'Region is too long.'),
     saleFormat: z.enum(['fixed_price', 'auction']),
-    currency: z.enum(['USD', 'SATS']),
+    currency: z.enum(['USD', 'BTC']),
     price: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical']),
@@ -216,7 +216,8 @@ export const createMarketplaceListingDraftSchema = z
     countryCode: z.string(),
     region: z.string(),
     saleFormat: z.enum(['fixed_price', 'auction']),
-    currency: z.enum(['USD', 'SATS']),
+    /** Legacy drafts stored the bitcoin choice as 'SATS'; accepted here and migrated to 'BTC' on restore. */
+    currency: z.enum(['USD', 'BTC', 'SATS']),
     price: z.string(),
     variants: z.array(
       z.object({

@@ -171,7 +171,7 @@ unlock — are untouched. That is the payment-agnostic claim, demonstrated.
 - Listing records carry structured money: `{amountMinor, currency, exponent}`
   (`marketplace-records.ts:510-515` and throughout). The listing form hardcodes
   `{currency: 'USD', exponent: 2}` (`useCreateMarketplaceListing.ts:151-152, 209, 239`).
-- The **live regtest Bitcoin flow did NOT convert USD → sats.** The live test priced its
+- The **live regtest Bitcoin flow did NOT convert USD → bitcoin.** The live test priced its
   listing directly in BTC — `unitPrice: {amountMinor: 15_000, currency: 'BTC', exponent: 8}` —
   matching a lock criterion of `{amount: "15000", asset: "BTC"}`
   (`src/test/live/locks-payment.live.ts`). There is no conversion code anywhere in the
@@ -203,7 +203,7 @@ or marketplace-service.
 
 **B. Extend paykit-server with fiat processors.** Same wire contract by construction,
 but it means forking/patching upstream `paykit-server` (the `CriterionAsset` BTC pin at
-`domain/invoice.rs:63-68` plus everything downstream of it assumes sats and Electrum).
+`domain/invoice.rs:63-68` plus everything downstream of it assumes bitcoin base units and Electrum).
 Paykit Server's internals — Electrum watchers, receiver paths, delivery via Paykit
 directories — are Bitcoin-shaped; fiat would be a parallel code path grafted into a
 codebase we do not own. Rejected: higher coupling, upstream PR required, no benefit over A.
@@ -222,8 +222,8 @@ _as the dependency for shipping_; written up as a ready-to-send proposal instead
    deployments (staging on Railway beside marketplace-service and the composed rails)
    configure that URL; pointing it at `fiat-verifier` is an operator decision, not a code
    change.
-3. The status contract is three states + confirmations + amount_matched (§1.5). Fiat
-   maps cleanly: _undetected_ = no completed checkout; _detected_ = processor reports
+3. The status contract is three states + confirmations + amount*matched (§1.5). Fiat
+   maps cleanly: \_undetected* = no completed checkout; _detected_ = processor reports
    paid, settlement delay running; _confirmed_ = paid AND the anti-chargeback delay
    elapsed (`confirmations` synthesized as `minimum_confirmations` so the existing
    satisfaction rule passes; see §5).

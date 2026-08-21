@@ -15,12 +15,13 @@ price override, and the flat shipping price must share the same `{currency, expo
 
 The sell studio deliberately authors exactly two of the assets that schema permits:
 
-| Studio choice  | Stored money                     | Input unit                                                          |
-| -------------- | -------------------------------- | ------------------------------------------------------------------- |
-| US dollars     | `{currency: "USD", exponent: 2}` | dollars with at most two decimals (`125.00` → `amountMinor: 12500`) |
-| Bitcoin (sats) | `{currency: "BTC", exponent: 8}` | whole satoshis (`15000` → `amountMinor: 15000`)                     |
+| Studio choice | Stored money                     | Input unit                                                          |
+| ------------- | -------------------------------- | ------------------------------------------------------------------- |
+| US dollars    | `{currency: "USD", exponent: 2}` | dollars with at most two decimals (`125.00` → `amountMinor: 12500`) |
+| Bitcoin (₿)   | `{currency: "BTC", exponent: 8}` | whole bitcoin base units (`15000` → `amountMinor: 15000`)           |
 
-Satoshis ARE the minor unit of BTC at exponent 8 — no conversion happens on input, ever.
+Bitcoin base units ARE the minor unit of BTC at exponent 8 — no conversion happens on
+input, ever.
 This is the exact shape the live regtest purchase paid
 (`unitPrice: {amountMinor: 15_000, currency: 'BTC', exponent: 8}` against a lock
 criterion of `{amount: "15000", asset: "BTC"}` — see `src/test/live/locks-payment.live.ts`).
@@ -30,14 +31,16 @@ priced in any other asset (a foreign record, e.g. EUR) still renders, but the st
 refuses to edit it (`unsupported`) rather than silently rewriting its price into an asset
 it did not have.
 
-BTC-at-exponent-8 money displays as sats everywhere (`15,000 sats`), which is the same
-exact amount as `BTC 0.00015000` stated in its own minor unit.
+BTC-at-exponent-8 money displays per BIP-177 everywhere: the bitcoin symbol followed by
+grouped integer base units (`₿15,000`), which is the same exact amount as
+`BTC 0.00015000` stated in its own minor unit. The words "sats"/"satoshis" appear
+nowhere in the UI.
 
 ## What the "≈" estimates are (indicative display only)
 
 Wherever a listing price renders (cards, detail, cart lines and subtotals, order totals),
 an approximate converted counterpart can appear beside it: fiat-priced money shows
-"≈ N sats", sats-priced money shows "≈ $X". Honest treatment, enforced in code
+"≈ ₿N", bitcoin-priced money shows "≈ $X". Honest treatment, enforced in code
 (`src/libs/commerce/pricing.ts`, `MarketplaceIndicativePrice`):
 
 - **Marked approximate.** Always prefixed "≈", with a tooltip: "At current rate,
@@ -59,9 +62,9 @@ an approximate converted counterpart can appear beside it: fiat-priced money sho
 - **The BTC rail pays BTC-denominated lock criteria.** A content lock's
   `paykit-payment` criterion carries `{amount, asset}` fixed at **lock creation**; the
   Paykit Server accepts only `asset: "BTC"` (`CriterionAsset::parse` in
-  `paykit-server/src/domain/invoice.rs`). A sats-priced listing whose lock says
-  `{amount: "<sats>", asset: "BTC"}` is payable end to end — that is the verified live
-  flow.
+  `paykit-server/src/domain/invoice.rs`). A bitcoin-priced listing whose lock says
+  `{amount: "<base units>", asset: "BTC"}` is payable end to end — that is the verified
+  live flow.
 - **Fiat-priced listings cannot take the BTC rail.** A USD-priced listing has no defined
   Bitcoin payment amount: no fiat↔BTC conversion code exists anywhere in this client,
   the marketplace service, or the verifier chain, and the criterion's asset must match

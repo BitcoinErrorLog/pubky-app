@@ -9,8 +9,8 @@ import { cn } from '@/libs/utils/utils';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
 /**
- * The approximate converted counterpart of a listing price: "≈ N sats" under
- * a fiat price, "≈ $X" under a sats price. Marked approximate and explained
+ * The approximate converted counterpart of a listing price: "≈ ₿N" under
+ * a fiat price, "≈ $X" under a bitcoin price. Marked approximate and explained
  * in a tooltip because it is display-only — the amount a payment settles is
  * fixed by the payment rail, never by this estimate (docs/ecommerce/pricing.md).
  *

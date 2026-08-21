@@ -12,7 +12,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 const USD_PRICE = { amountMinor: 12_500, currency: 'USD', exponent: 2 };
-const SATS_PRICE = { amountMinor: 15_000, currency: 'BTC', exponent: 8 };
+const BTC_PRICE = { amountMinor: 15_000, currency: 'BTC', exponent: 8 };
 const RATE = { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') };
 
 function renderPrice(money: { amountMinor: number; currency: string; exponent: number }) {
@@ -29,16 +29,16 @@ describe('MarketplaceIndicativePrice', () => {
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: null });
   });
 
-  it('shows a sats estimate for a USD price once the rate arrives', async () => {
+  it('shows a bitcoin estimate for a USD price once the rate arrives', async () => {
     vi.mocked(CommerceController.getIndicativeBtcRate).mockResolvedValue(RATE);
     renderPrice(USD_PRICE);
 
-    expect(await screen.findByText('≈ 125,000 sats')).toBeInTheDocument();
+    expect(await screen.findByText('≈ ₿125,000')).toBeInTheDocument();
   });
 
-  it('shows a USD estimate for a sats price once the rate arrives', async () => {
+  it('shows a USD estimate for a bitcoin price once the rate arrives', async () => {
     vi.mocked(CommerceController.getIndicativeBtcRate).mockResolvedValue(RATE);
-    renderPrice(SATS_PRICE);
+    renderPrice(BTC_PRICE);
 
     expect(await screen.findByText('≈ $15.00')).toBeInTheDocument();
   });

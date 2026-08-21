@@ -16,7 +16,7 @@ export interface UseMarketplaceBidResult {
 
 /**
  * `priceAsset` is the auction's own pricing asset: the proxy maximum is built
- * in it (sats bids on sats auctions, USD on USD) because the record and
+ * in it (bitcoin bids on bitcoin auctions, USD on USD) because the record and
  * service reject cross-asset amounts.
  */
 export function useMarketplaceBid(

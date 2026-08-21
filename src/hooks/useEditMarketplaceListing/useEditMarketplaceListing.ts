@@ -53,7 +53,7 @@ export interface UseEditMarketplaceListingResult {
  * Honest scope limits, enforced as `unsupported` instead of destructive
  * saves: listings with digital delivery (a `digitalLock` this studio cannot
  * author) cannot be edited here; listings priced in an asset the studio
- * cannot author (anything that is neither USD cents nor BTC satoshis) cannot
+ * cannot author (anything that is neither USD cents nor BTC base units) cannot
  * be edited here, because "editing" one would silently rewrite its price
  * into a different asset; and auction sale terms are locked because
  * rewriting a live auction's window or starting price would falsify terms

@@ -161,6 +161,8 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
  * package fields as raw record units (whole millimeters/grams under the old
  * field names); those values convert to the metric input unit (centimeters,
  * grams) and pin the draft to the metric system so labels match the numbers.
+ * Legacy drafts also stored the bitcoin pricing choice as 'SATS'; it migrates
+ * to the canonical 'BTC' here.
  */
 export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Partial<CreateMarketplaceListingData> {
   const {
@@ -169,9 +171,13 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
     lengthMillimeters: legacyLengthMm,
     widthMillimeters: legacyWidthMm,
     heightMillimeters: legacyHeightMm,
+    currency: draftCurrency,
     ...draftForm
   } = draft;
   const normalized: Partial<CreateMarketplaceListingData> = { ...draftForm };
+  if (draftCurrency !== undefined) {
+    normalized.currency = draftCurrency === 'SATS' ? 'BTC' : draftCurrency;
+  }
 
   const legacyDimension = (value: string | undefined): string | null =>
     value !== undefined && /^[1-9]\d*$/.test(value.trim())

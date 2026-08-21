@@ -23,7 +23,7 @@ export function useMarketplaceSellerDashboard() {
     0,
   );
   // One revenue figure per pricing asset: minor units of different assets
-  // (USD cents, satoshis) are never summed into one false number.
+  // (USD cents, bitcoin base units) are never summed into one false number.
   const revenue = sumMoneyByAsset(
     sellerOrders
       .filter(({ order }) => ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state))

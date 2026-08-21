@@ -289,7 +289,7 @@ export function MarketplaceDashboard() {
                               <td className="p-3">
                                 {/* The record's own price money: the model row's
                                     `price_minor` has no exponent column, and
-                                    assuming 2 misstates satoshi-priced listings. */}
+                                    assuming 2 misstates bitcoin-priced listings. */}
                                 {formatCommerceMoney(
                                   listing.record.sale.format === 'fixed_price'
                                     ? listing.record.sale.unitPrice

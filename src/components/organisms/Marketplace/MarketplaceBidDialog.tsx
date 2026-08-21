@@ -8,7 +8,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceBid } from '@/hooks/useMarketplaceBid/useMarketplaceBid';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import { amountInputUnitLabel, type CommerceAsset, isSatsAsset } from '@/libs/commerce/pricing';
+import { amountInputUnitLabel, type CommerceAsset, isBitcoinAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import type { MarketplaceListingProjection } from '@/services/marketplace/marketplace';
 
@@ -76,7 +76,7 @@ export function MarketplaceBidDialog({
           name="maximumAmount"
           control={bid.form.control}
           label={`Maximum bid (${amountInputUnitLabel(priceAsset)})`}
-          placeholder={isSatsAsset(priceAsset) ? '100000' : '100.00'}
+          placeholder={isBitcoinAsset(priceAsset) ? '100000' : '100.00'}
         />
         <Typography as="p" className="text-sm text-muted-foreground">
           Your maximum stays private. The visible price advances only enough to keep you ahead.

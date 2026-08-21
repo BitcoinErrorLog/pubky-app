@@ -6,7 +6,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { useMarketplaceOffer } from '@/hooks/useMarketplaceOffer/useMarketplaceOffer';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
-import { amountInputUnitLabel, type CommerceAsset, isSatsAsset } from '@/libs/commerce/pricing';
+import { amountInputUnitLabel, type CommerceAsset, isBitcoinAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
@@ -61,7 +61,7 @@ export function MarketplaceOfferDialog({
             name="amount"
             control={offer.form.control}
             label={`Offer amount (${amountInputUnitLabel(priceAsset)})`}
-            placeholder={isSatsAsset(priceAsset) ? '100000' : '100.00'}
+            placeholder={isBitcoinAsset(priceAsset) ? '100000' : '100.00'}
           />
           <ControlledInputField name="quantity" control={offer.form.control} label="Quantity" placeholder="1" />
           <ControlledTextareaField

@@ -93,8 +93,8 @@ export function useMarketplaceOffers() {
   const counter = async (offer: MarketplaceOffer): Promise<boolean> => {
     let succeeded = false;
     await form.handleSubmit(async (data) => {
-      // Counters are made in the offer's own asset (sats counters on sats
-      // offers): the record and service reject cross-asset amounts.
+      // Counters are made in the offer's own asset (bitcoin counters on
+      // bitcoin offers): the record and service reject cross-asset amounts.
       const assetCheck = amountInputSchemaForAsset(offer.amount).safeParse(data.amount);
       if (!assetCheck.success) {
         form.setError('amount', { message: assetCheck.error.issues[0]?.message ?? 'Enter a valid amount.' });

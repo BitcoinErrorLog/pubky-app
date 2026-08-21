@@ -20,7 +20,7 @@ export interface UseMarketplaceOfferResult {
 
 /**
  * `priceAsset` is the listing's own pricing asset: the offer's money is built
- * in it (sats offers on sats listings, USD on USD) because the record and
+ * in it (bitcoin offers on bitcoin listings, USD on USD) because the record and
  * service reject cross-asset amounts.
  */
 export function useMarketplaceOffer(

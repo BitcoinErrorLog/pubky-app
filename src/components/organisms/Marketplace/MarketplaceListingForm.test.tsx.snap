@@ -518,9 +518,9 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               US dollars (USD)
             </option>
             <option
-              value="SATS"
+              value="BTC"
             >
-              Bitcoin (sats)
+              Bitcoin (₿)
             </option>
           </select>
         </div>

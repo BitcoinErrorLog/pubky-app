@@ -8,51 +8,51 @@ import type { CommerceMoney } from './transaction-contracts';
  * module owns two concerns that must stay honest:
  *
  * 1. INPUT — turning what a user types into exact minor units for the asset
- *    they are transacting in (dollars-and-cents for USD, whole satoshis for
- *    BTC at exponent 8). No conversion ever happens here: a sats input IS
- *    the minor unit, a USD input is multiplied by 10^2, nothing else.
+ *    they are transacting in (dollars-and-cents for USD, whole bitcoin base
+ *    units for BTC at exponent 8). No conversion ever happens here: a bitcoin
+ *    input IS the minor unit, a USD input is multiplied by 10^2, nothing else.
  *
- * 2. INDICATIVE DISPLAY — an approximate counterpart price ("≈ N sats" for
- *    fiat, "≈ $X" for Bitcoin) computed from a fetched BTC/USD rate. It is
+ * 2. INDICATIVE DISPLAY — an approximate counterpart price ("≈ ₿N" for
+ *    fiat, "≈ $X" for bitcoin) computed from a fetched BTC/USD rate. It is
  *    display-only: nothing transactional consumes it, and callers must
  *    render it ONLY when a live rate exists (`null` means "show nothing").
  *    The rate-at-payment question is deliberately NOT answered here — see
  *    docs/ecommerce/pricing.md.
  */
 
-export const SATS_PER_BTC = 100_000_000;
+export const BASE_UNITS_PER_BITCOIN = 100_000_000;
 
-/** 21 million BTC in satoshis — the honest upper bound for any sats amount. */
-export const MAX_SATS_SUPPLY = 2_100_000_000_000_000;
+/** 21 million bitcoin in base units — the honest upper bound for any ₿ amount. */
+export const MAX_BITCOIN_BASE_UNITS = 2_100_000_000_000_000;
 
 export type CommerceAsset = Pick<CommerceMoney, 'currency' | 'exponent'>;
 
 export const USD_ASSET: CommerceAsset = { currency: 'USD', exponent: 2 };
 
-/** Bitcoin priced in satoshis as minor units — the convention this app writes and pays. */
-export const BTC_SATS_ASSET: CommerceAsset = { currency: 'BTC', exponent: 8 };
+/** Bitcoin priced in integer base units (exponent 8) — the convention this app writes and pays. */
+export const BTC_ASSET: CommerceAsset = { currency: 'BTC', exponent: 8 };
 
-export function isSatsAsset(asset: CommerceAsset): boolean {
-  return asset.currency === BTC_SATS_ASSET.currency && asset.exponent === BTC_SATS_ASSET.exponent;
+export function isBitcoinAsset(asset: CommerceAsset): boolean {
+  return asset.currency === BTC_ASSET.currency && asset.exponent === BTC_ASSET.exponent;
 }
 
 /**
  * The pricing currencies the sell studio deliberately offers: US dollars
- * (cents as minor units) or Bitcoin entered as whole satoshis (BTC at
+ * (cents as minor units) or bitcoin entered as whole base units (BTC at
  * exponent 8 — the exact shape the live regtest purchase paid). The record
  * schema itself accepts any uppercase asset code; this choice is what the
  * studio can author and the display layer can honestly estimate against.
  */
-export type ListingCurrencyChoice = 'USD' | 'SATS';
+export type ListingCurrencyChoice = 'USD' | 'BTC';
 
 export function assetForListingCurrency(choice: ListingCurrencyChoice): CommerceAsset {
-  return choice === 'SATS' ? BTC_SATS_ASSET : USD_ASSET;
+  return choice === 'BTC' ? BTC_ASSET : USD_ASSET;
 }
 
 /** The studio choice a stored asset maps back to, or `null` for assets the studio cannot author. */
 export function listingCurrencyChoiceForAsset(asset: CommerceAsset): ListingCurrencyChoice | null {
   if (hasSameAsset(asset, USD_ASSET)) return 'USD';
-  if (isSatsAsset(asset)) return 'SATS';
+  if (isBitcoinAsset(asset)) return 'BTC';
   return null;
 }
 
@@ -65,26 +65,27 @@ export function moneyMajorValue(money: CommerceMoney): number {
   return money.amountMinor / 10 ** money.exponent;
 }
 
-export function formatSats(sats: number): string {
-  return `${Math.round(sats).toLocaleString('en-US')} sats`;
+/** BIP-177 display: the bitcoin symbol followed by grouped integer base units, e.g. `₿15,000`. */
+export function formatBitcoinAmount(baseUnits: number): string {
+  return `₿${Math.round(baseUnits).toLocaleString('en-US')}`;
 }
 
-/** The unit a price input for this asset is denominated in, for labels like `Price (sats)`. */
+/** The unit a price input for this asset is denominated in, for labels like `Price (₿)`. */
 export function amountInputUnitLabel(asset: CommerceAsset): string {
-  return isSatsAsset(asset) ? 'sats' : asset.currency;
+  return isBitcoinAsset(asset) ? '₿' : asset.currency;
 }
 
 /**
- * Validation for a price typed in the asset's input unit: whole satoshis for
- * BTC/8, otherwise a decimal with at most `exponent` fraction digits.
+ * Validation for a price typed in the asset's input unit: whole bitcoin base
+ * units for BTC/8, otherwise a decimal with at most `exponent` fraction digits.
  */
 export function amountInputSchemaForAsset(asset: CommerceAsset): z.ZodType<string> {
-  if (isSatsAsset(asset)) {
+  if (isBitcoinAsset(asset)) {
     return z
       .string()
       .trim()
-      .regex(/^[1-9]\d*$/, 'Enter a whole number of sats.')
-      .refine((value) => Number(value) <= MAX_SATS_SUPPLY, 'That is more sats than will ever exist.');
+      .regex(/^[1-9]\d*$/, 'Enter a whole number of bitcoin base units (₿).')
+      .refine((value) => Number(value) <= MAX_BITCOIN_BASE_UNITS, 'That is more bitcoin than will ever exist.');
   }
   const decimals = asset.exponent;
   const pattern = decimals > 0 ? new RegExp(`^\\d+(?:\\.\\d{1,${decimals}})?$`) : /^\d+$/;
@@ -101,13 +102,15 @@ export function amountInputSchemaForAsset(asset: CommerceAsset): z.ZodType<strin
 
 /** A validated input string → exact minor units in the given asset. */
 export function amountInputToMoney(value: string, asset: CommerceAsset): CommerceMoney {
-  const amountMinor = isSatsAsset(asset) ? Math.round(Number(value)) : Math.round(Number(value) * 10 ** asset.exponent);
+  const amountMinor = isBitcoinAsset(asset)
+    ? Math.round(Number(value))
+    : Math.round(Number(value) * 10 ** asset.exponent);
   return { amountMinor, currency: asset.currency, exponent: asset.exponent };
 }
 
 /** Minor units → the input string a form should show for this asset. */
 export function amountInputFromMoney(money: CommerceMoney): string {
-  return isSatsAsset(money)
+  return isBitcoinAsset(money)
     ? String(money.amountMinor)
     : (money.amountMinor / 10 ** money.exponent).toFixed(money.exponent);
 }
@@ -121,7 +124,7 @@ const USD_DISPLAY = new Intl.NumberFormat('en-US', {
 
 /**
  * The approximate counterpart display for a price, at the given BTC/USD rate:
- * USD-priced money → `≈ N sats`, BTC-priced money → `≈ $X`. Returns `null`
+ * USD-priced money → `≈ ₿N`, BTC-priced money → `≈ $X`. Returns `null`
  * whenever no honest estimate exists — no positive rate, an asset with no
  * rate source (anything that is neither USD nor BTC), or an estimate that
  * rounds to zero in the counterpart unit.
@@ -130,8 +133,8 @@ export function indicativeCounterpartLabel(money: CommerceMoney, btcUsdRate: num
   if (!Number.isFinite(btcUsdRate) || btcUsdRate <= 0) return null;
   const major = moneyMajorValue(money);
   if (money.currency === 'USD') {
-    const sats = Math.round((major / btcUsdRate) * SATS_PER_BTC);
-    return sats > 0 ? `≈ ${formatSats(sats)}` : null;
+    const baseUnits = Math.round((major / btcUsdRate) * BASE_UNITS_PER_BITCOIN);
+    return baseUnits > 0 ? `≈ ${formatBitcoinAmount(baseUnits)}` : null;
   }
   if (money.currency === 'BTC') {
     const usd = major * btcUsdRate;
@@ -143,7 +146,7 @@ export function indicativeCounterpartLabel(money: CommerceMoney, btcUsdRate: num
 /**
  * Sums line prices grouped by exact asset (currency + exponent). Minor units
  * of different assets are never added together — a cart holding a $30 item
- * and a 25,000-sat item has two subtotals, not one false number.
+ * and a ₿25,000 item has two subtotals, not one false number.
  */
 export function sumMoneyByAsset(lines: Array<{ money: CommerceMoney; quantity: number }>): CommerceMoney[] {
   const totals = new Map<string, CommerceMoney>();

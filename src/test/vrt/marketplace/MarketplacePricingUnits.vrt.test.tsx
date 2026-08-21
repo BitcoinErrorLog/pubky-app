@@ -17,13 +17,13 @@ import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketp
  * Pricing-currency and measurement-unit scenarios:
  *
  * - Catalog cards with the indicative secondary price: a USD-priced card
- *   showing "≈ N sats" and a satoshi-priced card (BTC at exponent 8, the
- *   shape the live regtest purchase paid) showing sats as its PRIMARY price
- *   with "≈ $X" beneath. The BTC/USD rate is mocked to a fixed value — the
- *   estimate never renders from the network in VRT.
+ *   showing "≈ ₿N" and a bitcoin-priced card (BTC at exponent 8, the
+ *   shape the live regtest purchase paid) showing ₿ base units as its
+ *   PRIMARY price with "≈ $X" beneath. The BTC/USD rate is mocked to a
+ *   fixed value — the estimate never renders from the network in VRT.
  * - The sell studio's package-dimension fields in both measurement systems:
- *   metric (cm/g) and imperial (in/oz), with the sats pricing currency
- *   selected in the imperial scenario to capture the sats price labels.
+ *   metric (cm/g) and imperial (in/oz), with the bitcoin pricing currency
+ *   selected in the imperial scenario to capture the ₿ price labels.
  */
 
 // Deterministic BTC/USD rate for the capture (1 BTC = $100,000).
@@ -53,12 +53,12 @@ const fixtures = vi.hoisted(async () => {
   );
 
   // The exact money shape the live regtest purchase paid: BTC at exponent 8,
-  // satoshis as minor units.
-  const satsListing = catalogItemFromCatalogEntry(
+  // integer base units as minor units.
+  const btcListing = catalogItemFromCatalogEntry(
     createCommerceCatalogEntryFixture({
-      id: `${'s'.repeat(52)}:sats_camera`,
+      id: `${'s'.repeat(52)}:btc_camera`,
       seller_id: 's'.repeat(52),
-      listing_id: 'sats_camera',
+      listing_id: 'btc_camera',
       title: '35mm rangefinder camera',
       category_id: 'electronics-cameras-film',
       condition: 'excellent',
@@ -67,7 +67,7 @@ const fixtures = vi.hoisted(async () => {
     }),
   );
 
-  return { usdListing, satsListing };
+  return { usdListing, btcListing };
 });
 
 function buildMediaMock(): UseListingMediaManagerResult {
@@ -99,18 +99,18 @@ function FormHarness({ values }: { values: Partial<CreateMarketplaceListingData>
 }
 
 describe('Marketplace pricing and units — visual regression', () => {
-  it('renders USD and sats cards with indicative secondary prices at desktop viewport', async () => {
+  it('renders USD and bitcoin cards with indicative secondary prices at desktop viewport', async () => {
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
-    const { usdListing, satsListing } = await fixtures;
+    const { usdListing, btcListing } = await fixtures;
 
     const screen = await renderForVRT(
       <main className="grid w-full grid-cols-2 gap-4 px-6 py-8">
         <MarketplaceListingCard listing={usdListing} shopName="Worn Well" />
-        <MarketplaceListingCard listing={satsListing} shopName="Analog Optics" />
+        <MarketplaceListingCard listing={btcListing} shopName="Analog Optics" />
       </main>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
-    await expect.element(screen.getByText('≈ 125,000 sats')).toBeInTheDocument();
+    await expect.element(screen.getByText('≈ ₿125,000')).toBeInTheDocument();
     await expect.element(screen.getByText('≈ $15.00')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('pricing-cards-indicative-desktop');
   });
@@ -134,12 +134,12 @@ describe('Marketplace pricing and units — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-studio-package-metric-desktop');
   });
 
-  it('renders the sell studio package fields in imperial units with sats pricing at desktop viewport', async () => {
+  it('renders the sell studio package fields in imperial units with bitcoin pricing at desktop viewport', async () => {
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'imperial' });
     const screen = await renderForVRT(
       <FormHarness
         values={{
-          currency: 'SATS',
+          currency: 'BTC',
           price: '150000',
           measurementSystem: 'imperial',
           shippingPrice: '15000',
@@ -152,7 +152,7 @@ describe('Marketplace pricing and units — visual regression', () => {
       { viewport: { width: 1440, height: 2400 }, disableHover: true },
     );
     await expect.element(screen.getByText('Weight (oz)')).toBeInTheDocument();
-    await expect.element(screen.getByText('Price (sats)')).toBeInTheDocument();
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-studio-package-imperial-sats-desktop');
+    await expect.element(screen.getByText('Price (₿)')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-studio-package-imperial-btc-desktop');
   });
 });

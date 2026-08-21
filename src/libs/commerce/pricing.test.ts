@@ -4,23 +4,23 @@ import {
   amountInputSchemaForAsset,
   amountInputToMoney,
   amountInputUnitLabel,
-  BTC_SATS_ASSET,
+  BTC_ASSET,
   indicativeCounterpartLabel,
-  isSatsAsset,
+  isBitcoinAsset,
   sumMoneyByAsset,
   USD_ASSET,
 } from './pricing';
 
 describe('asset identification', () => {
-  it('recognizes satoshi-denominated Bitcoin and nothing else', () => {
-    expect(isSatsAsset({ currency: 'BTC', exponent: 8 })).toBe(true);
-    expect(isSatsAsset({ currency: 'BTC', exponent: 2 })).toBe(false);
-    expect(isSatsAsset({ currency: 'USD', exponent: 8 })).toBe(false);
+  it('recognizes base-unit-denominated bitcoin and nothing else', () => {
+    expect(isBitcoinAsset({ currency: 'BTC', exponent: 8 })).toBe(true);
+    expect(isBitcoinAsset({ currency: 'BTC', exponent: 2 })).toBe(false);
+    expect(isBitcoinAsset({ currency: 'USD', exponent: 8 })).toBe(false);
   });
 
   it('labels the input unit per asset', () => {
     expect(amountInputUnitLabel(USD_ASSET)).toBe('USD');
-    expect(amountInputUnitLabel(BTC_SATS_ASSET)).toBe('sats');
+    expect(amountInputUnitLabel(BTC_ASSET)).toBe('₿');
     expect(amountInputUnitLabel({ currency: 'EUR', exponent: 2 })).toBe('EUR');
   });
 });
@@ -35,8 +35,8 @@ describe('amount input validation', () => {
     expect(schema.safeParse('-5').success).toBe(false);
   });
 
-  it('accepts only whole positive sats within the total supply', () => {
-    const schema = amountInputSchemaForAsset(BTC_SATS_ASSET);
+  it('accepts only whole positive base units within the total supply', () => {
+    const schema = amountInputSchemaForAsset(BTC_ASSET);
     expect(schema.safeParse('15000').success).toBe(true);
     expect(schema.safeParse('1').success).toBe(true);
     expect(schema.safeParse('0').success).toBe(false);
@@ -51,8 +51,8 @@ describe('amount input to money and back', () => {
     expect(amountInputToMoney('0.10', USD_ASSET)).toEqual({ amountMinor: 10, currency: 'USD', exponent: 2 });
   });
 
-  it('treats a sats input as the minor unit itself', () => {
-    expect(amountInputToMoney('15000', BTC_SATS_ASSET)).toEqual({ amountMinor: 15_000, currency: 'BTC', exponent: 8 });
+  it('treats a bitcoin input as the minor unit itself', () => {
+    expect(amountInputToMoney('15000', BTC_ASSET)).toEqual({ amountMinor: 15_000, currency: 'BTC', exponent: 8 });
   });
 
   it('round-trips money back to its input string', () => {
@@ -62,12 +62,10 @@ describe('amount input to money and back', () => {
 });
 
 describe('indicativeCounterpartLabel', () => {
-  const RATE = 100_000; // 1 BTC = $100,000 → 1 sat = $0.001
+  const RATE = 100_000; // 1 BTC = $100,000 → 1 base unit = $0.001
 
-  it('shows a sats estimate for USD-priced money', () => {
-    expect(indicativeCounterpartLabel({ amountMinor: 12_500, currency: 'USD', exponent: 2 }, RATE)).toBe(
-      '≈ 125,000 sats',
-    );
+  it('shows a bitcoin estimate for USD-priced money', () => {
+    expect(indicativeCounterpartLabel({ amountMinor: 12_500, currency: 'USD', exponent: 2 }, RATE)).toBe('≈ ₿125,000');
   });
 
   it('shows a USD estimate for BTC-priced money', () => {
@@ -87,10 +85,10 @@ describe('indicativeCounterpartLabel', () => {
   });
 
   it('returns null when the estimate rounds to zero in the counterpart unit', () => {
-    // $0.0000004 at $100k/BTC rounds to 0 sats — amountMinor can't express
-    // this for USD/2, so use a high-exponent USD to prove the guard.
+    // $0.0000004 at $100k/BTC rounds to 0 base units — amountMinor can't
+    // express this for USD/2, so use a high-exponent USD to prove the guard.
     expect(indicativeCounterpartLabel({ amountMinor: 4, currency: 'USD', exponent: 7 }, RATE)).toBeNull();
-    // 1 sat at $100k/BTC is $0.001 → rounds below one cent.
+    // 1 base unit at $100k/BTC is $0.001 → rounds below one cent.
     expect(indicativeCounterpartLabel({ amountMinor: 1, currency: 'BTC', exponent: 8 }, RATE)).toBeNull();
   });
 });

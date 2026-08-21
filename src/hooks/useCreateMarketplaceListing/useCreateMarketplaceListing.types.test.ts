@@ -53,12 +53,12 @@ describe('createMarketplaceListingSchema', () => {
     ).toBe(true);
   });
 
-  it('accepts whole-sats pricing and rejects decimal sats', () => {
+  it('accepts whole-base-unit bitcoin pricing and rejects decimals', () => {
     const base = {
       ...createMarketplaceListingDefaults,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
-      currency: 'SATS' as const,
+      currency: 'BTC' as const,
       fulfillment: 'pickup' as const,
     };
     expect(createMarketplaceListingSchema.safeParse({ ...base, price: '150000' }).success).toBe(true);
@@ -71,7 +71,7 @@ describe('createMarketplaceListingSchema', () => {
       ...createMarketplaceListingDefaults,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
-      currency: 'SATS' as const,
+      currency: 'BTC' as const,
       price: '150000',
       shippingPrice: '15000',
       packageWeight: '1200',
@@ -79,9 +79,9 @@ describe('createMarketplaceListingSchema', () => {
       packageWidth: '25.0',
       packageHeight: '15.0',
     };
-    const satsOverride = [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '175000' }];
+    const baseUnitOverride = [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '175000' }];
     const decimalOverride = [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '175000.50' }];
-    expect(createMarketplaceListingSchema.safeParse({ ...base, variants: satsOverride }).success).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, variants: baseUnitOverride }).success).toBe(true);
     expect(createMarketplaceListingSchema.safeParse({ ...base, variants: decimalOverride }).success).toBe(false);
     expect(createMarketplaceListingSchema.safeParse({ ...base, shippingPrice: '15000.50' }).success).toBe(false);
   });

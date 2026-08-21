@@ -120,12 +120,12 @@ describe('useCreateMarketplaceListing', () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
   });
 
-  it('publishes a satoshi-priced listing as BTC money with exponent 8', async () => {
+  it('publishes a bitcoin-priced listing as BTC money with exponent 8', async () => {
     const { result } = renderHook(() => useCreateMarketplaceListing());
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
-      result.current.form.setValue('currency', 'SATS');
+      result.current.form.setValue('currency', 'BTC');
       result.current.form.setValue('price', '15000');
       result.current.form.setValue('fulfillment', 'pickup');
       result.current.form.setValue('countryCode', 'US');
@@ -237,5 +237,30 @@ describe('useCreateMarketplaceListing', () => {
     expect(result.current.restoredDraft).toBe(false);
     expect(result.current.form.getValues('title')).toBe('');
     expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalledWith('draftlisting01');
+  });
+
+  it("migrates a legacy draft's 'SATS' currency to the canonical 'BTC' on restore", async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      {
+        id: `${OWNER}:draftlisting02`,
+        owner_id: OWNER,
+        listing_id: 'draftlisting02',
+        data: {
+          ownerPubky: OWNER,
+          listingId: 'draftlisting02',
+          form: { title: 'Legacy bitcoin draft', currency: 'SATS', price: '15000' },
+        },
+        created_at: 1_000,
+        updated_at: 2_000,
+      },
+    ]);
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.restoredDraft).toBe(true);
+    expect(result.current.form.getValues('currency')).toBe('BTC');
+    expect(result.current.form.getValues('price')).toBe('15000');
   });
 });
