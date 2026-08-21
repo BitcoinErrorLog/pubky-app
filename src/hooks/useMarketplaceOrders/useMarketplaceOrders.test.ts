@@ -30,6 +30,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getMarketplacePayment: vi.fn(),
     getMarketplaceReceipt: vi.fn(),
     executeMarketplaceCommand: vi.fn(),
+    // Own-review publication (trust & reputation P1.6): the load path resumes
+    // pending publications and review commands publish the record.
+    resumeOwnReviewPublications: vi.fn(async () => 0),
+    publishOwnMarketplaceReview: vi.fn(async () => null),
   },
 }));
 

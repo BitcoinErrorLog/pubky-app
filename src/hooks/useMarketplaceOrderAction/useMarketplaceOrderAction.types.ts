@@ -16,6 +16,12 @@ export const marketplaceOrderActionSchema = z
     rating: z.string().trim(),
     text: z.string().trim().max(5_000),
     requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
+    /**
+     * Buyer-side amount-band opt-in (ratified D2): rendered only when the
+     * seller's standing consent allows bands at all; the attestation carries
+     * a band only when both sides agreed.
+     */
+    allowAmountBand: z.boolean(),
   })
   .superRefine((data, context) => {
     if (['cancel', 'return', 'dispute'].includes(data.action) && !data.reason) {
@@ -55,4 +61,5 @@ export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   rating: '5',
   text: '',
   requestedRemedy: 'refund',
+  allowAmountBand: false,
 };

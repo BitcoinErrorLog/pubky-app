@@ -184,6 +184,19 @@ export class MarketplaceGatewayService {
     return parsed.data;
   }
 
+  /**
+   * The seller's standing amount-band consent (ratified D2). Only the
+   * durable transaction service has attestations at all, so the sandbox
+   * answer is `null` — "the feature does not exist here", which callers must
+   * render as absence, never as a fake false-with-a-checkbox.
+   */
+  static async getBandConsent(actor: string, sellerPubky: string): Promise<boolean | null> {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      return await MarketplaceTransactionService.getBandConsent(actor, sellerPubky);
+    }
+    return null;
+  }
+
   static async getConversations(actor: string): Promise<MarketplaceConversation[]> {
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/conversations`;

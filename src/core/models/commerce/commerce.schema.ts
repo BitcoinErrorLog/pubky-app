@@ -1,4 +1,8 @@
-import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import type {
+  CommerceListingRecord,
+  CommerceReviewRecord,
+  CommerceShopRecord,
+} from '@/libs/commerce/marketplace-records';
 import type { AuctionState, CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
 export type CommerceCacheStatus = 'local' | 'pending' | 'synced' | 'failed';
@@ -157,6 +161,41 @@ export const commerceListingProjectionTableSchema = [
   'sync_status',
   'synced_at',
   '[seller_id+state]',
+].join(', ');
+
+/**
+ * The current user's own published marketplace review (the canonical record
+ * lives on their homeserver; this row is the local-first copy plus
+ * publication state). `attestation_verified` is the result of the offline
+ * verification recipe (signature against the `iss` pubky + claim bindings
+ * against the record) run at publication time — it never claims more than
+ * "the embedded attestation verifiably covers this review".
+ */
+export interface CommerceReviewModelSchema {
+  /** `${owner_id}:${review_id}` — one living review per (listing, subject, role). */
+  id: string;
+  owner_id: string;
+  review_id: string;
+  /** The service order the review (and its attestation) came from. */
+  order_id: string;
+  subject_id: string;
+  record: CommerceReviewRecord;
+  attestation_verified: boolean;
+  /** Attestor pubky from the verified attestation's `iss`, null when unverified. */
+  attestation_iss: string | null;
+  sync_status: CommerceCacheStatus;
+  updated_at: number;
+}
+
+export const commerceReviewTableSchema = [
+  '&id',
+  'owner_id',
+  'review_id',
+  'order_id',
+  'subject_id',
+  'sync_status',
+  'updated_at',
+  '[owner_id+order_id]',
 ].join(', ');
 
 export type CommerceSyncJobOperation = 'publish' | 'update' | 'remove';

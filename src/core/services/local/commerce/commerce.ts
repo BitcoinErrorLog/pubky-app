@@ -13,6 +13,7 @@ import {
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceLocksCorrelationModel,
+  CommerceReviewModel,
   CommerceSavedSearchModel,
   CommerceShippingPresetModel,
   CommerceShopFollowModel,
@@ -30,6 +31,7 @@ import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
+  CommerceReviewModelSchema,
   CommerceSavedSearchModelSchema,
   CommerceShippingPresetModelSchema,
   CommerceShopModelSchema,
@@ -391,6 +393,46 @@ export class LocalCommerceService {
         service: ErrorService.Local,
         operation: 'stageListingSync',
         context: { tables: [CommerceListingModel.table.name, CommerceSyncJobModel.table.name] },
+        cause: error,
+      });
+    }
+  }
+
+  static async getOwnReviewById(compositeReviewId: string): Promise<CommerceReviewModelSchema | undefined> {
+    return (await CommerceReviewModel.findById(compositeReviewId)) ?? undefined;
+  }
+
+  static async getOwnReviewByOrder(ownerId: string, orderId: string): Promise<CommerceReviewModelSchema | undefined> {
+    return await CommerceReviewModel.findByOwnerAndOrder(ownerId, orderId);
+  }
+
+  static async getPendingOwnReviews(ownerId: string): Promise<CommerceReviewModelSchema[]> {
+    return await CommerceReviewModel.findPendingByOwner(ownerId);
+  }
+
+  static async upsertOwnReview(review: CommerceReviewModelSchema): Promise<void> {
+    await CommerceReviewModel.upsert(review);
+  }
+
+  /**
+   * Stages an own-review publication: the local-first row (status `pending`)
+   * and its sync job land in one transaction, so an interrupted publication
+   * is visible and retryable rather than silently lost — the same retryable
+   * pattern listing publication established.
+   */
+  static async stageOwnReviewSync(review: CommerceReviewModelSchema, job: CommerceSyncJobModelSchema): Promise<void> {
+    this.assertSyncJobIdentity(job, review.owner_id, review.review_id, 'review');
+    try {
+      await db.transaction('rw', CommerceReviewModel.table, CommerceSyncJobModel.table, async () => {
+        await CommerceReviewModel.upsert(review);
+        await CommerceSyncJobModel.upsert(job);
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to stage review synchronization', {
+        service: ErrorService.Local,
+        operation: 'stageOwnReviewSync',
+        context: { tables: [CommerceReviewModel.table.name, CommerceSyncJobModel.table.name] },
         cause: error,
       });
     }

@@ -297,6 +297,14 @@ const reviewTermsPayloadSchema = orderIdPayload
   .extend({
     rating: z.number().int().min(1).max(5),
     text: z.string().trim().min(1).max(5_000),
+    /**
+     * Buyer-side amount-band opt-in (ratified D2, ADR 0024): the purchase
+     * attestation carries a log-decade amount band only when this is true
+     * AND the seller's standing band-consent preference allows it. Omitted
+     * means false; ignored by `review.update` (the attestation is
+     * immutable).
+     */
+    allowAmountBand: z.boolean().optional(),
   })
   .strict();
 
