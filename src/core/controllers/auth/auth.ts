@@ -2,6 +2,7 @@ import { AuthApplication } from '@/application/auth/auth';
 import type { TKeypairParams } from '@/application/auth/auth.types';
 import { BootstrapApplication, type BootstrapProgressCallback } from '@/application/bootstrap/bootstrap';
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { MessagingApplication } from '@/application/messaging/messaging';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { TagApplication } from '@/application/tag/tag';
@@ -31,6 +32,7 @@ import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
 import { useHotStore } from '@/stores/hot/hot.store';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
+import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import { useMigrationStore } from '@/stores/migration/migration.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
@@ -311,6 +313,9 @@ export class AuthController {
     PubkySpecsSingleton.reset();
     // The marketplace transaction-service bearer token lives in memory only; drop it with the user.
     CommerceApplication.clearMarketplaceSession();
+    // Same rule for the encrypted-messaging homeserver session and its live link handles.
+    MessagingApplication.clearMessagingSession();
+    useMessagingStore.getState().clearMessagingEnabled();
     TtlCoordinator.resetInstance();
     StreamCoordinator.resetInstance();
     NotificationCoordinator.resetInstance();

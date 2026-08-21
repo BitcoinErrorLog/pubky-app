@@ -1,0 +1,97 @@
+import { describe, expect, it } from 'vitest';
+import {
+  bodyByteSize,
+  buildChatMessage,
+  chatMessageBodyBudget,
+  chatMessageByteSize,
+  decodeChatMessage,
+  MARKETPLACE_CHAT_MESSAGE_KIND,
+  parseConversationAggregateId,
+  PAYKIT_NOISE_MESSAGE_MAX_BYTES,
+} from './messaging-contracts';
+import { buildMarketplaceConversationAggregateId, buildMarketplaceListingAggregateId } from './transaction-commands';
+
+const SELLER = 's'.repeat(52);
+const BUYER = 'b'.repeat(52);
+const LISTING_ID = '0033GVVN22HJ0FYQGZZS8R2BFC';
+const CONVERSATION_ID = buildMarketplaceConversationAggregateId(SELLER, BUYER, LISTING_ID);
+const LISTING_REF = buildMarketplaceListingAggregateId(SELLER, LISTING_ID);
+const EVENT_ID = '5b3f9a0e-8f2c-4f4e-9d35-1c2b4a6d8e01';
+const SENT_AT = '2026-08-21T10:00:00.000Z';
+
+function build(body: string) {
+  return buildChatMessage({
+    eventId: EVENT_ID,
+    conversationId: CONVERSATION_ID,
+    listingRef: LISTING_REF,
+    sentAt: SENT_AT,
+    body,
+  });
+}
+
+describe('marketplace chat message contract', () => {
+  it('builds a valid envelope and reports its true serialized size', () => {
+    const { message, json, byteSize } = build('Is this still available?');
+    expect(message.kind).toBe(MARKETPLACE_CHAT_MESSAGE_KIND);
+    expect(message.version).toBe(1);
+    expect(JSON.parse(json)).toEqual(message);
+    expect(byteSize).toBe(new TextEncoder().encode(json).byteLength);
+    expect(byteSize).toBeLessThanOrEqual(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
+  });
+
+  it('trims the body and rejects whitespace-only messages', () => {
+    expect(build('  hello  ').message.body).toBe('hello');
+    expect(() => build('   ')).toThrow();
+  });
+
+  it('accepts a body exactly at the budget and rejects one byte over', () => {
+    const budget = chatMessageBodyBudget(CONVERSATION_ID, LISTING_REF);
+    const exact = 'a'.repeat(budget);
+    expect(build(exact).byteSize).toBe(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
+    expect(() => build(`${exact}a`)).toThrow(/too long/);
+  });
+
+  it('counts JSON escaping and multi-byte UTF-8 against the budget, not characters', () => {
+    // One quote character serializes as two bytes (\"), one emoji as four.
+    expect(bodyByteSize('"')).toBe(2);
+    expect(bodyByteSize('\u{1F511}')).toBe(4);
+    const budget = chatMessageBodyBudget(CONVERSATION_ID, LISTING_REF);
+    const quotes = '"'.repeat(budget); // 2x the bytes of its character count
+    expect(() => build(quotes)).toThrow(/too long/);
+  });
+
+  it('keeps the budget stable across event ids and timestamps (fixed-width fields)', () => {
+    const budget = chatMessageBodyBudget(CONVERSATION_ID, LISTING_REF);
+    const withOtherIds = buildChatMessage({
+      eventId: crypto.randomUUID(),
+      conversationId: CONVERSATION_ID,
+      listingRef: LISTING_REF,
+      sentAt: new Date().toISOString(),
+      body: 'x'.repeat(budget),
+    });
+    expect(withOtherIds.byteSize).toBe(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
+  });
+
+  it('round-trips through decode and skips foreign or malformed payloads', () => {
+    const { json, message } = build('round trip');
+    expect(decodeChatMessage(json)).toEqual(message);
+    expect(decodeChatMessage('not json at all')).toBeNull();
+    expect(decodeChatMessage(JSON.stringify({ version: 1, kind: 'paykit.payment_request.v0' }))).toBeNull();
+    expect(decodeChatMessage(JSON.stringify({ ...message, event_id: 'not-a-uuid' }))).toBeNull();
+  });
+
+  it('parses conversation aggregate ids back into participants and listing', () => {
+    expect(parseConversationAggregateId(CONVERSATION_ID)).toEqual({
+      sellerPubky: SELLER,
+      buyerPubky: BUYER,
+      listingId: LISTING_ID,
+    });
+    expect(parseConversationAggregateId('listing:whatever')).toBeNull();
+    expect(parseConversationAggregateId('conversation:short')).toBeNull();
+  });
+
+  it('measures envelopes consistently with chatMessageByteSize', () => {
+    const { message, byteSize } = build('size check');
+    expect(chatMessageByteSize(message)).toBe(byteSize);
+  });
+});

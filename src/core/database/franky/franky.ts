@@ -30,6 +30,16 @@ import {
 import { type FeedModelSchema, feedTableSchema } from '@/models/feed/feed.schema';
 import { type FileDetailsModelSchema, fileDetailsTableSchema } from '@/models/file/fileDetails.schema';
 import { type HotTagsModelSchema, hotTagsTableSchema } from '@/models/hot/hot.schema';
+import {
+  type CommerceMessagingConversationModelSchema,
+  commerceMessagingConversationTableSchema,
+  type CommerceMessagingLinkModelSchema,
+  commerceMessagingLinkTableSchema,
+  type CommerceMessagingMessageModelSchema,
+  commerceMessagingMessageTableSchema,
+  type CommerceMessagingReceiverModelSchema,
+  commerceMessagingReceiverTableSchema,
+} from '@/models/messaging/messaging.schema';
 import type { Pubky } from '@/models/models.types';
 import { type ModerationModelSchema, moderationTableSchema } from '@/models/moderation/moderation.schema';
 import { notificationTableSchema } from '@/models/notification/notification.schema';
@@ -137,6 +147,12 @@ export class AppDatabase extends Dexie {
   commerce_shop_follows!: Dexie.Table<CommerceShopFollowModelSchema>;
   commerce_cart_items!: Dexie.Table<CommerceCartItemModelSchema>;
   commerce_locks_correlations!: Dexie.Table<CommerceLocksCorrelationModelSchema>;
+  // Encrypted messaging (Paykit Encrypted Links) — rows carry key material
+  // and device-local plaintext history; see messaging.schema.ts header.
+  commerce_messaging_receivers!: Dexie.Table<CommerceMessagingReceiverModelSchema>;
+  commerce_messaging_links!: Dexie.Table<CommerceMessagingLinkModelSchema>;
+  commerce_messaging_conversations!: Dexie.Table<CommerceMessagingConversationModelSchema>;
+  commerce_messaging_messages!: Dexie.Table<CommerceMessagingMessageModelSchema>;
   // Hot tags
   hot_tags!: Dexie.Table<HotTagsModelSchema>;
   // Feeds
@@ -183,6 +199,13 @@ export class AppDatabase extends Dexie {
         commerce_shop_follows: commerceShopFollowTableSchema,
         commerce_cart_items: commerceCartItemTableSchema,
         commerce_locks_correlations: commerceLocksCorrelationTableSchema,
+        // Encrypted messaging — folded into the current (unreleased) DB
+        // version rather than bumping it: version 3 has never shipped, so
+        // there is no upgrade path to preserve.
+        commerce_messaging_receivers: commerceMessagingReceiverTableSchema,
+        commerce_messaging_links: commerceMessagingLinkTableSchema,
+        commerce_messaging_conversations: commerceMessagingConversationTableSchema,
+        commerce_messaging_messages: commerceMessagingMessageTableSchema,
         // Hot tags
         hot_tags: hotTagsTableSchema,
         // Feeds
