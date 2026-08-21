@@ -12,6 +12,7 @@ import { HotActiveUsers } from '@/organisms/HotActiveUsers/HotActiveUsers';
 import { HotDiscoveryContentLayout } from '@/organisms/HotDiscoveryContentLayout/HotDiscoveryContentLayout';
 import { HotTagsCardsSection } from '@/organisms/HotTagsCardsSection/HotTagsCardsSection';
 import { HotTagsOverview } from '@/organisms/HotTagsOverview/HotTagsOverview';
+import { MarketplaceHotSection } from '@/organisms/Marketplace/MarketplaceHotSection';
 import { TimelineFeed } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeed';
 
 /**
@@ -52,6 +53,11 @@ export function Hot() {
 
       {/* Active Users - hidden via CSS when another tab is active on mobile */}
       <HotActiveUsers className={cn(hideUsers && 'hidden')} />
+
+      {/* Marketplace discovery modules (ending soon / fresh listings) — grouped
+          with the Posts tab on mobile; renders nothing when the index has no
+          listings or the marketplace is unavailable */}
+      <MarketplaceHotSection className={cn(hidePosts && 'hidden')} />
 
       {/* Trending Posts - hidden via CSS when another tab is active on mobile */}
       <Container overrideDefaults className={cn('flex flex-col gap-2', hidePosts && 'hidden')}>
