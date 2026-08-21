@@ -1,7 +1,9 @@
 # Pubky Marketplace Implementation Plan
 
-Status: active  
+Status: largely executed (historical planning document)  
 Goal: a working, feature-complete eBay/Depop-class prototype integrated with Paykit and Pubky Locks.
+
+> **2026-08-21:** this plan's task graph has been carried out and superseded by delivered work; read [`status.md`](status.md) for what is real today (including surfaces this plan never anticipated: BIP-177 display, taxonomy v2, encrypted messaging, attested public reviews with Nexus reputation, fiat rails Phase 1, and the staging deployments). Details below — including the `.json`-suffixed record paths, which the shipped specs dropped for listings/reviews — are preserved as the original design record, not as current truth.
 
 ## Definition of complete
 

@@ -10,7 +10,7 @@ Vendored: 2026-08-21 (updated same day to pick up the session export/restore sur
 | --------------- | ------------------------------------------------------------------- |
 | Repository      | `https://github.com/BitcoinErrorLog/paykit-rs-official`             |
 | Branch          | `feat/wasm-binding`                                                 |
-| Commit          | `7bbaba0447724776a1f52f8f581bcbcaf6dd67d2`                          |
+| Commit          | `7bbaba037f12efda80b0bd01f1fc27072616a402`                          |
 | Upstream        | `https://github.com/pubky/paykit-rs`                                |
 | Upstream pin    | `c8892f638951f033acbcd12804a31667a81ddc14` (tag anchor v0.1.0-rc43) |
 | Package path    | `paykit-wasm/pkg`                                                   |
@@ -34,7 +34,7 @@ The upstream pin matches the audited paykit-rs commit recorded in [`messaging/RE
 
 ```bash
 git clone https://github.com/BitcoinErrorLog/paykit-rs-official.git
-cd paykit-rs-official && git checkout 7bbaba0447724776a1f52f8f581bcbcaf6dd67d2
+cd paykit-rs-official && git checkout 7bbaba037f12efda80b0bd01f1fc27072616a402
 rustup target add wasm32-unknown-unknown
 wasm-pack build paykit-wasm --target web --out-dir pkg --release
 node paykit-wasm/scripts/smoke.mjs   # requires Node >= 20

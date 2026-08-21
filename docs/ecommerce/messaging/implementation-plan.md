@@ -1,6 +1,6 @@
 # Implementation Plan — Marketplace Private Messaging over Paykit Encrypted Links
 
-Status: ready to hand to an implementer **after** the topology decision (Decision 1 in README.md) is made. Phases 0 and the interim work are decision-independent and can start now.
+Status: executed — Topology B (browser WASM) was chosen and implemented; see the dated updates at the top of [README.md](README.md) for what actually shipped (including corrections to details below, e.g. the receiver path must be `marketplace/wallet`, not the `marketplace/web` example). Kept as the design record.
 
 Two topologies are planned. Topology B (browser WASM) is the one that actually delivers "operator cannot read" and is the recommended end state. Topology A (Rust adapter service) is documented because it is the only way to ship sooner, and its honest limitation is stated up front: **the adapter operator can decrypt messages.**
 

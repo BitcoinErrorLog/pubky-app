@@ -4,7 +4,7 @@
 
 Accepted — 2026-08-19
 
-> **Current state (2026-08-20)**: this ADR describes the target architecture. The implemented service (`services/marketplace/`) is the in-memory sandbox adapter only: no PostgreSQL persistence, no Pubky authentication (a plain actor header), and sandbox-only commands. The production implementation is specified in [ADR 0022](0022-marketplace-transaction-service-rust.md) (Rust) and must land before any non-sandbox transactional endpoint is enabled.
+> **Current state (2026-08-21)**: the architecture this ADR describes is implemented. The durable Marketplace Transaction Service exists per [ADR 0022](0022-marketplace-transaction-service-rust.md) ([`BitcoinErrorLog/pubky-marketplace-service`](https://github.com/BitcoinErrorLog/pubky-marketplace-service), Rust + PostgreSQL, Pubky AuthToken authentication, deployed on Railway for staging), and the client's `transaction-service`/`locks-paykit` modes run against it. The in-memory `services/marketplace/` adapter remains what this note said it was — the labeled sandbox for local development only, never deployed as authority. [`../ecommerce/status.md`](../ecommerce/status.md) tracks what is real per mode.
 
 ## Context
 

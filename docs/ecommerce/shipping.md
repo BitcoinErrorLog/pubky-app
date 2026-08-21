@@ -129,9 +129,10 @@ slip (browser `@media print` CSS keyed on `data-packing-slip` in
 `globals.css` — no PDF dependency) with the order id, order date, line items
 and quantities, totals, the buyer's short pubky, shipment facts once
 tracking exists, the truthful no-address notice with ruled space to write
-the destination, and a notes area. The order contract's line items carry no
-variant detail (title, quantity, and prices only — variants never enter the
-checkout command), so the slip honestly shows what the order record holds.
+the destination, and a notes area. Line items include the buyer's variant
+snapshot when the checkout carried one (see "Where shipping data lives"
+above); orders placed before the field existed have no variant line, and
+the slip shows exactly what the order record holds.
 
 ## Follow-ups (deliberately not built)
 
@@ -148,9 +149,6 @@ checkout command), so the slip honestly shows what the order record holds.
   tracking status require carrier accounts and server-side credentials —
   out of scope for a client-only change and gated on the independent
   security review like everything real-funds-adjacent.
-- **Variant detail on order lines.** The checkout command carries only
-  listing aggregate + quantity; putting the chosen variant on the order
-  record is a service contract change.
 - **Multiple shipping options per listing.** The record supports up to 20;
   the sell studio still authors exactly one flat-rate option. Presets make
   the single option cheap to reuse; a multi-option composer is future work.

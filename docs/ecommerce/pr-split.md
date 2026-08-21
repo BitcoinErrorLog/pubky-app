@@ -1,5 +1,7 @@
 # Marketplace PR Split
 
+> **Historical record — the plan below executed and then grew past itself.** All nine slices landed, and the stack continued far beyond them (branches `marketplace/pr1-docs` through `marketplace/pr44-watch-sync` and counting; `marketplace/pr25-ux` is the integration/deploy line, live at <https://shop.pubky.app>). The specs blocker in the last section was resolved by taking option 2 — the marketplace objects were backported onto the 0.6.x line and published from the `feat/marketplace-objects-0.6.x` branch of `BitcoinErrorLog/pubky-app-specs` (releases `v0.6.2-marketplace.1` … `v0.6.2-marketplace.4`), which the client consumes; the path/ID reconciliation table below was carried out in that slice. [`status.md`](status.md) is the current source of truth; nothing below is a live plan.
+
 Delivery sequence for landing the marketplace work as reviewable, independently revertible slices. Source branch: `marketplace/main` (rebased from the prototype branch). Each slice targets < ~2.5k reviewable lines, passes the standing gates before review, and gets a Bugbot review before push.
 
 | #    | Slice                               | Contents                                                                                                                                                                                                                                    | Depends on             | Status       |
