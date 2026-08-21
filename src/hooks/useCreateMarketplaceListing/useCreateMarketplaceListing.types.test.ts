@@ -14,7 +14,6 @@ describe('createMarketplaceListingSchema', () => {
         lengthMillimeters: '350',
         widthMillimeters: '250',
         heightMillimeters: '150',
-        altText: 'Brown leather boots viewed from the side',
       }).success,
     ).toBe(true);
   });
@@ -27,7 +26,6 @@ describe('createMarketplaceListingSchema', () => {
         description: 'Well cared for boots with light wear.',
         price: '125',
         fulfillment: 'pickup',
-        altText: 'Brown leather boots viewed from the side',
       }).success,
     ).toBe(true);
   });
@@ -43,7 +41,6 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Well cared for boots with light wear.',
       price: '125',
       fulfillment: 'pickup' as const,
-      altText: 'Brown leather boots viewed from the side',
       variants,
     };
 
@@ -60,7 +57,6 @@ describe('createMarketplaceListingSchema', () => {
         description: 'Well cared for boots with light wear.',
         price: '125',
         fulfillment: 'pickup',
-        altText: 'Brown leather boots',
         variants: [duplicate, { ...duplicate, size: '43' }],
       }).success,
     ).toBe(false);
@@ -81,7 +77,6 @@ describe('createMarketplaceListingSchema', () => {
       },
     ],
     ['invalid country', { countryCode: 'USA' }],
-    ['missing alt text', { altText: '' }],
   ])('rejects %s', (_label, changes) => {
     const result = createMarketplaceListingSchema.safeParse({
       ...createMarketplaceListingDefaults,
@@ -89,7 +84,6 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Well cared for boots with light wear.',
       price: '125',
       fulfillment: 'pickup',
-      altText: 'Brown leather boots',
       ...changes,
     });
 

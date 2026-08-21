@@ -61,6 +61,14 @@ export const COMMERCE_LISTING_TITLE_MIN_CHARS = 3;
 export const COMMERCE_LISTING_TITLE_MAX_CHARS = 80;
 export const COMMERCE_LISTING_DESCRIPTION_MAX_CHARS = 10_000;
 export const COMMERCE_LISTING_MAX_IMAGES = 12;
+/**
+ * How many photos the in-app sell/edit studio accepts per listing. The record
+ * contract (and the pubky-app-specs fork) allows up to
+ * {@link COMMERCE_LISTING_MAX_IMAGES}; the studio deliberately caps composing
+ * at 8 so records published elsewhere with more images still validate and
+ * render.
+ */
+export const COMMERCE_LISTING_STUDIO_MAX_PHOTOS = 8;
 export const COMMERCE_LISTING_MAX_VIDEOS = 1;
 export const COMMERCE_LISTING_MAX_MEDIA = COMMERCE_LISTING_MAX_IMAGES + COMMERCE_LISTING_MAX_VIDEOS;
 export const COMMERCE_LISTING_MAX_VARIANTS = 100;

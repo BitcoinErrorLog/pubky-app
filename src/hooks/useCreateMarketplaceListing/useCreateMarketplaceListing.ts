@@ -6,9 +6,11 @@ import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
-  useListingMediaPicker,
-  type UseListingMediaPickerResult,
-} from '@/hooks/useListingMediaPicker/useListingMediaPicker';
+  type ListingMediaRecord,
+  type PrepareListingMediaResult,
+  useListingMediaManager,
+  type UseListingMediaManagerResult,
+} from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -21,15 +23,18 @@ import {
 
 export interface UseCreateMarketplaceListingResult {
   form: UseFormReturn<CreateMarketplaceListingData>;
-  media: UseListingMediaPickerResult;
+  media: UseListingMediaManagerResult;
+  /** True when the form was hydrated from a locally autosaved draft. */
+  restoredDraft: boolean;
   submit: () => Promise<string | null>;
   reset: () => void;
 }
 
 export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const media = useListingMediaPicker();
+  const media = useListingMediaManager();
   const [draftId, setDraftId] = useState(() => crypto.randomUUID().replaceAll('-', ''));
+  const [restoredDraft, setRestoredDraft] = useState(false);
   const draftReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const form = useForm<CreateMarketplaceListingData>({
@@ -48,8 +53,10 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
         const latest = drafts[0];
         const parsed = createMarketplaceListingDraftSchema.safeParse(latest?.data.form);
         if (latest && parsed.success) {
+          const { altText: _legacyAltText, ...draftForm } = parsed.data;
           setDraftId(latest.listing_id);
-          form.reset({ ...createMarketplaceListingDefaults, ...parsed.data });
+          form.reset({ ...createMarketplaceListingDefaults, ...draftForm });
+          setRestoredDraft(true);
         }
         draftReadyRef.current = true;
       })
@@ -81,18 +88,15 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     let createdListingId: string | null = null;
 
     await form.handleSubmit(async (data) => {
-      const preparedMedia = await media.prepare(currentUserPubky, data.altText);
-      if (!preparedMedia) {
-        toast({
-          variant: 'error',
-          description: media.file ? 'Could not prepare this listing image.' : 'Add a listing image.',
-        });
+      const preparedMedia = await media.prepare(currentUserPubky);
+      if (!preparedMedia.ok) {
+        toast({ variant: 'error', description: describeMediaFailure(preparedMedia.reason) });
         return;
       }
 
       try {
-        await CommerceController.commitCreateMedia(preparedMedia.record.id, preparedMedia.bytes);
-        const listing = buildListingRecord(currentUserPubky, data, preparedMedia.record);
+        await uploadListingMedia(preparedMedia.uploads);
+        const listing = buildListingRecord(currentUserPubky, data, preparedMedia.media);
         await CommerceController.commitUpsertListing(listing);
         await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;
@@ -108,19 +112,39 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const reset = () => {
     form.reset(createMarketplaceListingDefaults);
     media.reset();
+    setRestoredDraft(false);
     draftReadyRef.current = false;
     void CommerceController.commitDeleteListingDraft(draftId);
     setDraftId(crypto.randomUUID().replaceAll('-', ''));
     draftReadyRef.current = true;
   };
 
-  return { form, media, submit, reset };
+  return { form, media, restoredDraft, submit, reset };
+}
+
+export function describeMediaFailure(reason: Extract<PrepareListingMediaResult, { ok: false }>['reason']): string {
+  switch (reason) {
+    case 'no-photos':
+      return 'Add at least one photo.';
+    case 'missing-alt-text':
+      return 'Every photo needs a description for screen readers.';
+    case 'decode-failed':
+      return 'A photo could not be processed. Remove it and try another file.';
+  }
+}
+
+export async function uploadListingMedia(
+  uploads: Array<{ record: ListingMediaRecord; bytes: Uint8Array }>,
+): Promise<void> {
+  for (const upload of uploads) {
+    await CommerceController.commitCreateMedia(upload.record.id, upload.bytes);
+  }
 }
 
 function buildListingRecord(
   ownerPubky: string,
   data: CreateMarketplaceListingData,
-  media: CommerceListingRecord['media'][number],
+  media: ListingMediaRecord[],
 ): CommerceListingRecord {
   const now = new Date();
   const listingId = crypto.randomUUID().replaceAll('-', '');
@@ -164,24 +188,8 @@ function buildListingRecord(
       countryCode: data.countryCode.toUpperCase(),
       region: data.region || undefined,
     },
-    media: [media],
-    variants: data.variants.map((variant, index) => ({
-      id: `variant_${index + 1}`,
-      sku: variant.sku || undefined,
-      options: Object.fromEntries(
-        [
-          ['size', variant.size],
-          ['color', variant.color],
-          ['style', variant.style],
-        ].filter((entry) => entry[1]),
-      ),
-      priceOverride: variant.priceOverride
-        ? { amountMinor: Math.round(Number(variant.priceOverride) * 100), currency: 'USD', exponent: 2 }
-        : undefined,
-      quantity: Number(variant.quantity),
-      mediaIds: [media.id],
-      enabled: true,
-    })),
+    media,
+    variants: buildListingVariants(data, media),
     sale,
     fulfillmentMethods: [data.fulfillment],
     package: isPhysical
@@ -213,7 +221,30 @@ function buildListingRecord(
   });
 }
 
-function deriveTags(title: string): string[] {
+export function buildListingVariants(
+  data: Pick<CreateMarketplaceListingData, 'variants'>,
+  media: ListingMediaRecord[],
+): Array<Record<string, unknown>> {
+  return data.variants.map((variant, index) => ({
+    id: `variant_${index + 1}`,
+    sku: variant.sku || undefined,
+    options: Object.fromEntries(
+      [
+        ['size', variant.size],
+        ['color', variant.color],
+        ['style', variant.style],
+      ].filter((entry) => entry[1]),
+    ),
+    priceOverride: variant.priceOverride
+      ? { amountMinor: Math.round(Number(variant.priceOverride) * 100), currency: 'USD', exponent: 2 }
+      : undefined,
+    quantity: Number(variant.quantity),
+    mediaIds: media.map(({ id }) => id),
+    enabled: true,
+  }));
+}
+
+export function deriveTags(title: string): string[] {
   return [
     ...new Set(
       title

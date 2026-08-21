@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, History, ShieldCheck } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
+import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
@@ -66,6 +67,35 @@ export function MarketplaceSell() {
             Configure Paykit and Locks for digital delivery
           </Link>
         </div>
+
+        {listing.restoredDraft && (
+          <div
+            role="status"
+            className="flex flex-col gap-3 rounded-xl border border-brand/30 bg-brand/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-3">
+              <History className="mt-0.5 size-5 shrink-0 text-brand" />
+              <div>
+                <Typography as="p" className="font-semibold">
+                  Draft restored
+                </Typography>
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  We loaded your unfinished listing from this device. Photos are not part of drafts — add them again
+                  before publishing.
+                </Typography>
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0 rounded-full"
+              disabled={isPublishing}
+              onClick={listing.reset}
+            >
+              Discard draft and start fresh
+            </Button>
+          </div>
+        )}
 
         <MarketplaceListingForm
           form={listing.form}

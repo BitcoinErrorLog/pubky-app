@@ -24,84 +24,60 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           class="font-medium mt-1 text-sm text-muted-foreground"
           data-testid="typography"
         >
-          Upload a clear cover image. Metadata is stripped before publication.
+          Up to 
+          8
+           photos. The first photo is the cover buyers see everywhere. Metadata is stripped before publication.
         </p>
       </div>
-      <div
-        class="relative flex min-h-56 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-card bg-cover bg-center"
+      <button
+        class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-10 gap-1 px-4 py-2 has-[>svg]:px-4 w-fit rounded-full"
+        data-slot="button"
+        data-variant="secondary"
+        type="button"
       >
-        <button
-          class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-10 gap-1 px-4 py-2 has-[>svg]:px-4 rounded-full"
-          data-slot="button"
-          data-variant="secondary"
-          type="button"
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-image-plus mr-2 size-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
         >
-          <svg
-            aria-hidden="true"
-            class="lucide lucide-image-plus mr-2 size-4"
-            fill="none"
-            height="24"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-            width="24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M16 5h6"
-            />
-            <path
-              d="M19 2v6"
-            />
-            <path
-              d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"
-            />
-            <path
-              d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"
-            />
-            <circle
-              cx="9"
-              cy="9"
-              r="2"
-            />
-          </svg>
-          Add image
-        </button>
-      </div>
+          <path
+            d="M16 5h6"
+          />
+          <path
+            d="M19 2v6"
+          />
+          <path
+            d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"
+          />
+          <path
+            d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"
+          />
+          <circle
+            cx="9"
+            cy="9"
+            r="2"
+          />
+        </svg>
+        Add photos (
+        0
+        /
+        8
+        )
+      </button>
       <input
         accept="image/jpeg,image/png,image/webp"
         hidden=""
+        multiple=""
         type="file"
       />
-      <div
-        class="mx-auto w-full flex-col flex gap-2"
-        data-testid="container"
-      >
-        <label
-          class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
-          data-slot="label"
-          for="altText"
-        >
-          Image description
-        </label>
-        <div
-          class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
-          data-testid="container"
-        >
-          <input
-            aria-invalid="false"
-            class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
-            data-testid="input"
-            id="altText"
-            name="altText"
-            placeholder="Describe the item for people using screen readers"
-            type="text"
-            value=""
-          />
-        </div>
-      </div>
     </div>
   </div>
   <div

@@ -5,8 +5,8 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceSell } from '@/templates/Marketplace/MarketplaceSell';
 
-// 8x8 solid-color PNG so the "media attached" scenario shows a real preview
-// without any network fetch or file-picker interaction.
+// 8x8 solid-color PNG so photo scenarios show real previews without any
+// network fetch or file-picker interaction.
 const PREVIEW_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=';
 
@@ -32,16 +32,23 @@ const draftFixture = vi.hoisted(() => ({
       widthMillimeters: '250',
       heightMillimeters: '150',
       returnDays: '30',
-      altText: 'Brown leather boots on a neutral background',
     },
   },
   created_at: 1_000,
   updated_at: 2_000,
 }));
 
+interface MockMediaItem {
+  key: string;
+  kind: 'new';
+  file: File | null;
+  previewUrl: string;
+  altText: string;
+}
+
 const view = vi.hoisted(() => ({
   drafts: [] as unknown[],
-  previewUrl: null as string | null,
+  mediaItems: [] as unknown[],
 }));
 
 vi.mock('next/navigation', () => ({
@@ -64,17 +71,20 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
-vi.mock('@/hooks/useListingMediaPicker/useListingMediaPicker', () => ({
-  useListingMediaPicker: () => ({
-    file: null,
-    previewUrl: view.previewUrl,
+vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', () => ({
+  useListingMediaManager: () => ({
+    items: view.mediaItems,
+    maxPhotos: 8,
     error: null,
     inputRef: { current: null },
     onInputChange: vi.fn(),
     choose: vi.fn(),
-    remove: vi.fn(),
+    removeItem: vi.fn(),
+    moveItem: vi.fn(),
+    setAltText: vi.fn(),
+    seed: vi.fn(),
     reset: vi.fn(),
-    prepare: vi.fn(async () => null),
+    prepare: vi.fn(async () => ({ ok: false as const, reason: 'no-photos' as const })),
   }),
 }));
 
@@ -82,10 +92,14 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
 
+function photoItem(key: string, altText: string): MockMediaItem {
+  return { key, kind: 'new', file: null, previewUrl: PREVIEW_DATA_URL, altText };
+}
+
 describe('Marketplace sell studio — visual regression', () => {
   it('renders the empty listing form at desktop viewport', async () => {
     view.drafts = [];
-    view.previewUrl = null;
+    view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-empty-form-desktop');
@@ -93,31 +107,29 @@ describe('Marketplace sell studio — visual regression', () => {
 
   it('renders the empty listing form at mobile viewport', async () => {
     view.drafts = [];
-    view.previewUrl = null;
+    view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-empty-form-mobile');
   });
 
-  it('renders the form with an autosaved draft loaded at desktop viewport', async () => {
+  it('renders the form with an autosaved draft restored at desktop viewport', async () => {
     view.drafts = [draftFixture];
-    view.previewUrl = null;
+    view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
     await vi.waitFor(() => {
       const input = screen.container.querySelector<HTMLInputElement>('#title');
       if (input?.value !== draftFixture.data.form.title) throw new Error('Draft has not populated the form yet.');
     });
-    // The populated title/description sit below the viewport crop, so bring
-    // the item-details card into view — otherwise the baseline is nearly
-    // indistinguishable from the empty form.
-    screen.container.querySelector('#title')?.scrollIntoView({ block: 'center' });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-draft-loaded-desktop');
+    // The restored-draft notice sits at the top; the populated fields prove
+    // hydration below the fold.
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-draft-restored-desktop');
   });
 
   it('renders the form with additional variants added at desktop viewport', async () => {
     view.drafts = [];
-    view.previewUrl = null;
+    view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
     await screen.getByRole('button', { name: 'Add variant' }).click();
@@ -130,17 +142,56 @@ describe('Marketplace sell studio — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-variants-added-desktop');
   });
 
-  it('renders the form with a media preview attached at desktop viewport', async () => {
+  it('renders the compose form with multiple ordered photos at desktop viewport', async () => {
     view.drafts = [];
-    view.previewUrl = PREVIEW_DATA_URL;
+    view.mediaItems = [
+      photoItem('photo_front', 'Front view of the boots'),
+      photoItem('photo_back', 'Back view showing the heels'),
+      photoItem('photo_sole', 'Soles with light wear'),
+    ];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-media-attached-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-attached-desktop');
+  });
+
+  it('renders the compose form with multiple ordered photos at mobile viewport', async () => {
+    view.drafts = [];
+    view.mediaItems = [
+      photoItem('photo_front', 'Front view of the boots'),
+      photoItem('photo_back', 'Back view showing the heels'),
+    ];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-attached-mobile');
+  });
+
+  it('renders the photo list after a reorder moved a new cover first at desktop viewport', async () => {
+    view.drafts = [];
+    // Same photos as the compose scenario but with the sole shot promoted to
+    // cover — the Cover badge must follow position one, not the original file.
+    view.mediaItems = [
+      photoItem('photo_sole', 'Soles with light wear'),
+      photoItem('photo_front', 'Front view of the boots'),
+      photoItem('photo_back', 'Back view showing the heels'),
+    ];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-reordered-desktop');
+  });
+
+  it('renders the photo limit reached state at desktop viewport', async () => {
+    view.drafts = [];
+    view.mediaItems = Array.from({ length: 8 }, (_, index) =>
+      photoItem(`photo_${index + 1}`, `Detail photo ${index + 1}`),
+    );
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-limit-desktop');
   });
 
   it('renders validation errors after an empty submit at desktop viewport', async () => {
     view.drafts = [];
-    view.previewUrl = null;
+    view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
     await screen.getByRole('button', { name: 'Publish listing' }).click();

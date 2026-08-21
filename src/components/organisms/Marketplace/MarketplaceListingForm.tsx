@@ -1,10 +1,12 @@
 'use client';
 
-import { ImagePlus, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Film, ImagePlus, Plus, Trash2 } from 'lucide-react';
 import { Controller, useFieldArray, type UseFormReturn, useWatch } from 'react-hook-form';
+import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
+import { Input } from '@/atoms/Input/Input';
 import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
@@ -14,30 +16,57 @@ import {
   CREATE_MARKETPLACE_LISTING_FIELDS,
   type CreateMarketplaceListingData,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
-import type { UseListingMediaPickerResult } from '@/hooks/useListingMediaPicker/useListingMediaPicker';
+import type {
+  ListingMediaItem,
+  UseListingMediaManagerResult,
+} from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
 export interface MarketplaceListingFormProps {
   form: UseFormReturn<CreateMarketplaceListingData>;
-  media: UseListingMediaPickerResult;
+  media: UseListingMediaManagerResult;
   onSubmit: () => Promise<void>;
   isPublishing: boolean;
+  /** Edit mode locks the sale format (and auction terms) and relabels submit. */
+  mode?: 'create' | 'edit';
+  /** True for auctions being edited: price and format were fixed at publish. */
+  saleTermsLocked?: boolean;
 }
 
-export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: MarketplaceListingFormProps) {
-  const { previewUrl, error: pickerError, inputRef, onInputChange, choose, remove } = media;
+export function MarketplaceListingForm({
+  form,
+  media,
+  onSubmit,
+  isPublishing,
+  mode = 'create',
+  saleTermsLocked = false,
+}: MarketplaceListingFormProps) {
+  const {
+    items: mediaItems,
+    maxPhotos,
+    error: pickerError,
+    inputRef,
+    onInputChange,
+    choose,
+    removeItem,
+    moveItem,
+    setAltText,
+  } = media;
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
   const variants = useFieldArray({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS });
+  const isEdit = mode === 'edit';
   const mediaError =
     pickerError === 'invalid-type'
-      ? 'Choose an image file.'
+      ? 'Choose image files only.'
       : pickerError === 'too-large'
-        ? 'Image is too large.'
+        ? 'An image is too large.'
         : pickerError === 'decode-failed'
-          ? 'Image could not be processed.'
-          : null;
+          ? 'A photo could not be processed.'
+          : pickerError === 'limit-reached'
+            ? `Listings support up to ${maxPhotos} photos.`
+            : null;
 
   return (
     <form
@@ -54,38 +83,51 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               Photos
             </Typography>
             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              Upload a clear cover image. Metadata is stripped before publication.
+              Up to {media.maxPhotos} photos. The first photo is the cover buyers see everywhere. Metadata is stripped
+              before publication.
             </Typography>
           </div>
-          <div
-            className="relative flex min-h-56 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-card bg-cover bg-center"
-            style={previewUrl ? { backgroundImage: `url(${previewUrl})` } : undefined}
+
+          {mediaItems.length > 0 && (
+            <ul className="flex flex-col gap-3" aria-label="Listing photos in display order">
+              {mediaItems.map((item, index) => (
+                <ListingPhotoRow
+                  key={item.key}
+                  item={item}
+                  index={index}
+                  count={mediaItems.length}
+                  isPublishing={isPublishing}
+                  onMove={moveItem}
+                  onRemove={removeItem}
+                  onAltTextChange={setAltText}
+                />
+              ))}
+            </ul>
+          )}
+
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-fit rounded-full"
+            disabled={isPublishing || mediaItems.length >= maxPhotos}
+            onClick={choose}
           >
-            {previewUrl ? (
-              <Button type="button" variant="secondary" className="rounded-full" onClick={remove}>
-                <Trash2 className="mr-2 size-4" />
-                Remove image
-              </Button>
-            ) : (
-              <Button type="button" variant="secondary" className="rounded-full" onClick={choose}>
-                <ImagePlus className="mr-2 size-4" />
-                Add image
-              </Button>
-            )}
-          </div>
-          <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onInputChange} />
+            <ImagePlus className="mr-2 size-4" />
+            Add photos ({mediaItems.length}/{maxPhotos})
+          </Button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            hidden
+            onChange={onInputChange}
+          />
           {mediaError && (
             <Typography as="p" role="alert" className="text-sm text-destructive">
               {mediaError}
             </Typography>
           )}
-          <ControlledInputField
-            name={CREATE_MARKETPLACE_LISTING_FIELDS.ALT_TEXT}
-            control={form.control}
-            label="Image description"
-            placeholder="Describe the item for people using screen readers"
-            disabled={isPublishing}
-          />
         </CardContent>
       </Card>
 
@@ -159,7 +201,7 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               form={form}
               name={CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT}
               label="Sale format"
-              disabled={isPublishing}
+              disabled={isPublishing || isEdit}
               options={[
                 { value: 'fixed_price', label: 'Buy now' },
                 { value: 'auction', label: '7-day auction' },
@@ -168,11 +210,18 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
             <ControlledInputField
               name={CREATE_MARKETPLACE_LISTING_FIELDS.PRICE}
               control={form.control}
-              label="Price (USD)"
+              label={saleFormat === 'auction' ? 'Starting price (USD)' : 'Price (USD)'}
               placeholder="125.00"
-              disabled={isPublishing}
+              disabled={isPublishing || saleTermsLocked}
             />
           </div>
+          {isEdit && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              {saleTermsLocked
+                ? 'Auction terms (format, starting price, and schedule) are fixed once the auction is published.'
+                : 'The sale format cannot change after publishing.'}
+            </Typography>
+          )}
 
           <div className="flex items-center justify-between gap-4 border-t pt-5">
             <div>
@@ -338,9 +387,93 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
       </Card>
 
       <Button type="submit" size="lg" className="w-full rounded-full" disabled={isPublishing}>
-        {isPublishing ? 'Publishing…' : 'Publish listing'}
+        {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
       </Button>
     </form>
+  );
+}
+
+function ListingPhotoRow({
+  item,
+  index,
+  count,
+  isPublishing,
+  onMove,
+  onRemove,
+  onAltTextChange,
+}: {
+  item: ListingMediaItem;
+  index: number;
+  count: number;
+  isPublishing: boolean;
+  onMove: (key: string, direction: -1 | 1) => void;
+  onRemove: (key: string) => void;
+  onAltTextChange: (key: string, altText: string) => void;
+}) {
+  const position = `Photo ${index + 1} of ${count}`;
+  return (
+    <li className="flex flex-col gap-3 rounded-xl border bg-card/60 p-3 sm:flex-row sm:items-center">
+      <div className="relative size-24 shrink-0 overflow-hidden rounded-lg border bg-card">
+        {item.previewUrl ? (
+          // Plain <img>: previews are local object URLs or direct homeserver
+          // reads, neither of which should go through Next image optimization.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.previewUrl} alt={item.altText || position} className="size-full object-cover" />
+        ) : (
+          <span className="flex size-full items-center justify-center">
+            <Film aria-hidden="true" className="size-8 text-muted-foreground" />
+          </span>
+        )}
+        {index === 0 && <Badge className="absolute bottom-1 left-1 px-1.5 py-0 text-[10px]">Cover</Badge>}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <Label htmlFor={`listing-photo-alt-${item.key}`} className={FORM_LABEL_CLASSES}>
+          Photo {index + 1} description
+        </Label>
+        <Input
+          id={`listing-photo-alt-${item.key}`}
+          value={item.altText}
+          placeholder="Describe this photo for people using screen readers"
+          disabled={isPublishing}
+          onChange={(event) => onAltTextChange(item.key, event.target.value)}
+        />
+      </div>
+      <div className="flex shrink-0 items-center gap-1 self-end sm:self-center">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="rounded-full"
+          aria-label={`Move photo ${index + 1} earlier`}
+          disabled={isPublishing || index === 0}
+          onClick={() => onMove(item.key, -1)}
+        >
+          <ArrowUp className="size-4" />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="rounded-full"
+          aria-label={`Move photo ${index + 1} later`}
+          disabled={isPublishing || index === count - 1}
+          onClick={() => onMove(item.key, 1)}
+        >
+          <ArrowDown className="size-4" />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="rounded-full"
+          aria-label={`Remove photo ${index + 1}`}
+          disabled={isPublishing}
+          onClick={() => onRemove(item.key)}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+    </li>
   );
 }
 

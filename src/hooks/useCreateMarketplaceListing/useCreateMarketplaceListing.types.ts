@@ -3,7 +3,6 @@ import {
   COMMERCE_LISTING_DESCRIPTION_MAX_CHARS,
   COMMERCE_LISTING_TITLE_MAX_CHARS,
   COMMERCE_LISTING_TITLE_MIN_CHARS,
-  COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS,
 } from '@/config/commerce';
 
 export const CREATE_MARKETPLACE_LISTING_FIELDS = {
@@ -23,7 +22,6 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   WIDTH_MM: 'widthMillimeters',
   HEIGHT_MM: 'heightMillimeters',
   RETURN_DAYS: 'returnDays',
-  ALT_TEXT: 'altText',
 } as const;
 
 const moneyInputSchema = z
@@ -84,11 +82,6 @@ export const createMarketplaceListingSchema = z
     widthMillimeters: z.string().trim(),
     heightMillimeters: z.string().trim(),
     returnDays: z.enum(['none', '14', '30']),
-    altText: z
-      .string()
-      .trim()
-      .min(1, 'Image description is required.')
-      .max(COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS, 'Image description is too long.'),
   })
   .superRefine((data, context) => {
     if (data.fulfillment === 'physical') {
@@ -161,6 +154,7 @@ export const createMarketplaceListingDraftSchema = z
     widthMillimeters: z.string(),
     heightMillimeters: z.string(),
     returnDays: z.enum(['none', '14', '30']),
+    /** Legacy single-photo drafts carried one alt text; tolerated so they still hydrate. */
     altText: z.string(),
   })
   .partial()
@@ -185,5 +179,4 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   widthMillimeters: '',
   heightMillimeters: '',
   returnDays: '30',
-  altText: '',
 };

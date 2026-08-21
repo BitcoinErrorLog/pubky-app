@@ -10,7 +10,7 @@ const PUB_PATH_PREFIX = '/pub/';
  *
  * Marketplace media files are raw bytes the seller uploaded to their own
  * homeserver under `/pub/pubky.app/marketplace/v1/media/<id>` (see
- * `useListingMediaPicker` for the upload side). `/pub/*` paths are publicly
+ * `useListingMediaManager` for the upload side). `/pub/*` paths are publicly
  * readable over the homeserver's plain HTTPS endpoint without authentication;
  * the homeserver identifies the tenant from the `pubky-host` QUERY PARAMETER
  * (its `PubkyHostLayer` checks the `host` header, the `pubky-host` header,

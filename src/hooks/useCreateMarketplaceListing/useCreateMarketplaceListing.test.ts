@@ -10,7 +10,7 @@ const mediaState = vi.hoisted(() => ({
   prepared: true,
 }));
 
-const mediaRecord = {
+const coverRecord = {
   id: 'image_01',
   type: 'image' as const,
   url: `pubky://${OWNER}/pub/pubky.app/marketplace/v1/media/image_01`,
@@ -22,22 +22,42 @@ const mediaRecord = {
   altText: 'Brown leather boots',
 };
 
+const secondRecord = {
+  ...coverRecord,
+  id: 'image_02',
+  url: `pubky://${OWNER}/pub/pubky.app/marketplace/v1/media/image_02`,
+  contentHash: 'b'.repeat(64),
+  altText: 'Boot soles showing light wear',
+};
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: OWNER }),
 }));
 
-vi.mock('@/hooks/useListingMediaPicker/useListingMediaPicker', () => ({
-  useListingMediaPicker: () => ({
-    file: new File(['image'], 'boots.jpg', { type: 'image/jpeg' }),
-    previewUrl: 'blob:boots',
+vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', () => ({
+  useListingMediaManager: () => ({
+    items: [],
+    maxPhotos: 8,
     error: null,
     inputRef: { current: null },
     onInputChange: vi.fn(),
     choose: vi.fn(),
-    remove: vi.fn(),
+    removeItem: vi.fn(),
+    moveItem: vi.fn(),
+    setAltText: vi.fn(),
+    seed: vi.fn(),
     reset: vi.fn(),
     prepare: vi.fn(async () =>
-      mediaState.prepared ? { record: mediaRecord, bytes: new Uint8Array([1, 2, 3]) } : null,
+      mediaState.prepared
+        ? {
+            ok: true,
+            media: [coverRecord, secondRecord],
+            uploads: [
+              { record: coverRecord, bytes: new Uint8Array([1, 2, 3]) },
+              { record: secondRecord, bytes: new Uint8Array([4, 5, 6]) },
+            ],
+          }
+        : { ok: false, reason: 'no-photos' },
     ),
   }),
 }));
@@ -67,14 +87,13 @@ describe('useCreateMarketplaceListing', () => {
     vi.useRealTimers();
   });
 
-  it('uploads prepared media and publishes a schema-valid owner listing', async () => {
+  it('uploads every prepared photo and publishes a schema-valid owner listing in media order', async () => {
     const { result } = renderHook(() => useCreateMarketplaceListing());
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
-      result.current.form.setValue('altText', 'Brown leather boots');
       result.current.form.setValue('countryCode', 'US');
     });
 
@@ -83,7 +102,8 @@ describe('useCreateMarketplaceListing', () => {
       createdId = await result.current.submit();
     });
 
-    expect(CommerceController.commitCreateMedia).toHaveBeenCalledWith('image_01', new Uint8Array([1, 2, 3]));
+    expect(CommerceController.commitCreateMedia).toHaveBeenNthCalledWith(1, 'image_01', new Uint8Array([1, 2, 3]));
+    expect(CommerceController.commitCreateMedia).toHaveBeenNthCalledWith(2, 'image_02', new Uint8Array([4, 5, 6]));
     expect(CommerceController.commitUpsertListing).toHaveBeenCalledOnce();
     const listing = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
     expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
@@ -93,7 +113,8 @@ describe('useCreateMarketplaceListing', () => {
       title: 'Vintage leather boots',
       fulfillmentMethods: ['pickup'],
       sale: { format: 'fixed_price', unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 } },
-      variants: [{ id: 'variant_1', quantity: 1 }],
+      media: [{ id: 'image_01' }, { id: 'image_02' }],
+      variants: [{ id: 'variant_1', quantity: 1, mediaIds: ['image_01', 'image_02'] }],
     });
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
@@ -107,7 +128,6 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
-      result.current.form.setValue('altText', 'Brown leather boots');
     });
 
     await act(() => result.current.submit());
@@ -138,5 +158,31 @@ describe('useCreateMarketplaceListing', () => {
       '018f47d26a277c23a49d6b21bb770121',
       expect.objectContaining({ title: 'Autosaved boots' }),
     );
+  });
+
+  it('reports a restored draft and clears it on reset', async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      {
+        id: `${OWNER}:draftlisting01`,
+        owner_id: OWNER,
+        listing_id: 'draftlisting01',
+        data: { ownerPubky: OWNER, listingId: 'draftlisting01', form: { title: 'Draft boots' } },
+        created_at: 1_000,
+        updated_at: 2_000,
+      },
+    ]);
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.restoredDraft).toBe(true);
+    expect(result.current.form.getValues('title')).toBe('Draft boots');
+
+    act(() => result.current.reset());
+
+    expect(result.current.restoredDraft).toBe(false);
+    expect(result.current.form.getValues('title')).toBe('');
+    expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalledWith('draftlisting01');
   });
 });
