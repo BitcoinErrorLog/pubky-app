@@ -19,8 +19,10 @@ import { toast } from '@/molecules/Toaster/use-toast';
  * unmount cancels it.
  *
  * `reconnect` switches the copy for the returning case: the receiver key
- * already exists on this device, but the messaging session is memory-only and
- * died with the previous tab, so a new approval is needed to send or receive.
+ * already exists on this device, but the messaging session could not be
+ * restored (it expired, was revoked, or this is a new tab — sessions restore
+ * automatically only within the tab that created them), so a new approval is
+ * needed to send or receive.
  */
 export function MarketplaceMessagingEnablePanel({
   reconnect,
@@ -33,7 +35,7 @@ export function MarketplaceMessagingEnablePanel({
     onEnabled: () => {
       toast({
         title: reconnect ? 'Encrypted messaging reconnected' : 'Encrypted messaging enabled',
-        description: 'The messaging session lives only in this tab and dies with it.',
+        description: 'The session stays active in this tab, survives reloads, and ends when the tab closes.',
       });
       void onEnabled?.();
     },
@@ -61,7 +63,8 @@ export function MarketplaceMessagingEnablePanel({
         Approving with your signer (Pubky Ring) grants this app a homeserver session scoped to{' '}
         <code className="rounded bg-secondary px-1 py-0.5 text-xs">{PAYKIT_MESSAGING_CAPABILITY}</code> — the Paykit
         tree where encrypted-message data lives. Your identity key never enters this browser; message encryption uses a
-        separate key generated and kept on this device. The session lives only in this tab&apos;s memory.
+        separate key generated and kept on this device. The session belongs to this tab: it survives page reloads but
+        ends when the tab closes, and other tabs need their own approval.
       </Typography>
 
       {enable.status === 'error' ? (

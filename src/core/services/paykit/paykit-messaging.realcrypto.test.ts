@@ -19,6 +19,7 @@ import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
+import { buildDmMessage, decodeDmMessage, dmBodyBudget } from '@/libs/messaging/dm-contracts';
 
 type PaykitWasmModule = typeof import('paykit-wasm');
 
@@ -87,6 +88,45 @@ describe('paykit-wasm real crypto (vendored artifact)', () => {
     const packet = alice.encrypt(new TextEncoder().encode(json));
     const plaintext = new TextDecoder().decode(bob.decrypt(packet));
     expect(decodeChatMessage(plaintext)).toEqual(message);
+    alice.close();
+    bob.close();
+  });
+
+  it('round-trips a real pubky_app.dm.v0 envelope through the SAME encrypted transport', () => {
+    const { alice, bob } = establishedPair();
+    const dm = buildDmMessage({
+      eventId: crypto.randomUUID(),
+      sentAt: new Date().toISOString(),
+      body: 'General DMs ride the same Noise link as marketplace chat.',
+    });
+    const chat = buildChatMessage({
+      eventId: crypto.randomUUID(),
+      conversationId: CONVERSATION_ID,
+      listingRef: LISTING_REF,
+      sentAt: new Date().toISOString(),
+      body: 'And this one belongs to the listing conversation.',
+    });
+    // One link, two kinds, in one drain order — receivers split them by kind.
+    const first = new TextDecoder().decode(bob.decrypt(alice.encrypt(new TextEncoder().encode(dm.json))));
+    const second = new TextDecoder().decode(bob.decrypt(alice.encrypt(new TextEncoder().encode(chat.json))));
+    expect(decodeDmMessage(first)).toEqual(dm.message);
+    expect(decodeChatMessage(first)).toBeNull();
+    expect(decodeChatMessage(second)).toEqual(chat.message);
+    expect(decodeDmMessage(second)).toBeNull();
+    alice.close();
+    bob.close();
+  });
+
+  it('accepts an exactly-at-budget DM envelope over the real transport', () => {
+    const { alice, bob } = establishedPair();
+    const { json, byteSize } = buildDmMessage({
+      eventId: crypto.randomUUID(),
+      sentAt: '2026-08-21T10:00:00.000Z',
+      body: 'a'.repeat(dmBodyBudget()),
+    });
+    expect(byteSize).toBe(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
+    const bytes = new TextEncoder().encode(json);
+    expect([...bob.decrypt(alice.encrypt(bytes))]).toEqual([...bytes]);
     alice.close();
     bob.close();
   });

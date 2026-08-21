@@ -1,19 +1,29 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
-import { MessagingApplication } from '@/application/messaging/messaging';
+import { MESSAGING_SYNC_MAX_COUNTERPARTIES, MessagingApplication } from '@/application/messaging/messaging';
+import { UserStreamApplication } from '@/application/stream/users/users';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
+import { parseDmConversationId } from '@/libs/messaging/dm-contracts';
+import type { Pubky } from '@/models/models.types';
+import { buildUserCompositeId } from '@/models/stream/user/userStream.helper';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 
 /**
- * Controller for end-to-end-encrypted marketplace messaging (durable commerce
- * modes; the sandbox transport stays on `CommerceController`). Manages the
- * messaging store — the application layer never touches stores.
+ * Controller for end-to-end-encrypted messaging: marketplace listing
+ * conversations AND general direct messages over the same per-counterparty
+ * Encrypted Links (the marketplace sandbox's plaintext transport stays on
+ * `CommerceController`). Manages the messaging store — the application layer
+ * never touches stores.
  */
 export class MessagingController {
   private constructor() {}
@@ -90,10 +100,33 @@ export class MessagingController {
     });
   }
 
+  /** Opens (or resumes) the general DM conversation with a counterparty. */
+  static async openDmConversation(counterpartyPubky: unknown) {
+    const ownerPubky = this.getCurrentUserPubky();
+    const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
+    const state = await MessagingApplication.openDmConversation(ownerPubky, counterparty);
+    return { state, counterpartyPubky: counterparty };
+  }
+
+  /** One poll step for the DM surface: advance handshake + receive on the shared link. */
+  static async pollDmConversation(counterpartyPubky: unknown) {
+    const ownerPubky = this.getCurrentUserPubky();
+    return await MessagingApplication.pollConversation(ownerPubky, CommerceRecordNormalizer.pubky(counterpartyPubky));
+  }
+
+  static async sendDmMessage(counterpartyPubky: unknown, body: string) {
+    const ownerPubky = this.getCurrentUserPubky();
+    return await MessagingApplication.sendDmMessage(
+      ownerPubky,
+      CommerceRecordNormalizer.pubky(counterpartyPubky),
+      body,
+    );
+  }
+
   static async getConversationMessages(conversationId: unknown) {
     return await MessagingApplication.getConversationMessages(
       this.getCurrentUserPubky(),
-      CommerceRecordNormalizer.entityId(conversationId),
+      this.normalizeConversationId(conversationId),
     );
   }
 
@@ -102,15 +135,66 @@ export class MessagingController {
   }
 
   /**
-   * One bounded inbox sync pass: candidate counterparties are the
-   * participants of the user's durable orders and offers (the only channel
-   * through which an unknown initiator can become known — the binding cannot
-   * enumerate inbound handshakes from strangers) plus everyone with existing
-   * local messaging state. Order/offer read failures degrade to local-only
-   * candidates instead of failing the sync.
+   * Moves a conversation's device-local read checkpoint to now and refreshes
+   * the unread fact in the store. Called by conversation surfaces while they
+   * are actually showing messages.
+   */
+  static async markConversationRead(conversationId: unknown): Promise<void> {
+    const ownerPubky = this.getCurrentUserPubky();
+    await MessagingApplication.markConversationRead(ownerPubky, this.normalizeConversationId(conversationId));
+    await this.refreshUnreadCount();
+  }
+
+  /**
+   * Recomputes the device-local unread conversation count and mirrors it into
+   * the messaging store (the header/footer badges subscribe there). Honest by
+   * construction: only messages already persisted on this device count.
+   */
+  static async refreshUnreadCount(): Promise<number> {
+    const ownerPubky = useAuthStore.getState().currentUserPubky;
+    if (!ownerPubky) {
+      useMessagingStore.getState().setUnreadConversations(0);
+      return 0;
+    }
+    const count = await MessagingApplication.getUnreadConversationCount(ownerPubky);
+    useMessagingStore.getState().setUnreadConversations(count);
+    return count;
+  }
+
+  /**
+   * One bounded inbox sync pass. The responder can only answer handshakes
+   * from counterparties it can NAME (the binding cannot enumerate inbound
+   * handshakes from strangers), so the naming set is assembled here:
+   *
+   * 1. Everyone with existing local messaging state (added inside the
+   *    application layer, always first within the probe bound).
+   * 2. Marketplace order/offer participants — only when a durable commerce
+   *    mode is configured; general DMs never depend on the commerce adapter.
+   * 3. The user's follows and followers (Nexus-fed user streams) — the v1
+   *    answer to the stranger problem: someone in your graph can reach you,
+   *    a total stranger's invitation stays invisible until they enter it.
+   *
+   * Any source failing to read degrades to the remaining sources instead of
+   * failing the sync. Ends by refreshing the device-local unread fact.
    */
   static async syncInbox(): Promise<void> {
     const ownerPubky = this.getCurrentUserPubky();
+    const candidates = new Set<string>();
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      for (const pubky of await this.getMarketplaceCounterpartyCandidates(ownerPubky)) {
+        candidates.add(pubky);
+      }
+    }
+    for (const pubky of await this.getFollowGraphCandidates(ownerPubky)) {
+      candidates.add(pubky);
+    }
+    candidates.delete(ownerPubky);
+    await MessagingApplication.syncCounterparties(ownerPubky, [...candidates]);
+    await this.refreshUnreadCount();
+  }
+
+  /** Buyer/seller pubkys from the user's durable orders and offers; failures degrade to empty. */
+  private static async getMarketplaceCounterpartyCandidates(ownerPubky: string): Promise<string[]> {
     const candidates = new Set<string>();
     const [orders, offers] = await Promise.allSettled([
       CommerceApplication.getMarketplaceOrders(ownerPubky),
@@ -136,13 +220,57 @@ export class MessagingController {
         error: offers.reason,
       });
     }
-    candidates.delete(ownerPubky);
-    await MessagingApplication.syncCounterparties(ownerPubky, [...candidates]);
+    return [...candidates];
   }
 
-  /** True when encrypted messaging applies to the current adapter mode. */
-  static isEncryptedMessagingMode(): boolean {
-    return isDurableCommerceMode(getCommerceAdapterMode());
+  /**
+   * The user's follows and followers from the app's existing Nexus-fed user
+   * streams (cache-first, one bounded page each — the sync pass itself is
+   * capped at {@link MESSAGING_SYNC_MAX_COUNTERPARTIES} probes, so deeper
+   * pagination would buy nothing). Failures degrade to empty.
+   */
+  private static async getFollowGraphCandidates(ownerPubky: string): Promise<string[]> {
+    const candidates = new Set<string>();
+    const slices = await Promise.allSettled(
+      (['following', 'followers'] as const).map((reach) =>
+        UserStreamApplication.getOrFetchStreamSlice({
+          streamId: buildUserCompositeId({ userId: ownerPubky as Pubky, reach }),
+          skip: 0,
+          limit: MESSAGING_SYNC_MAX_COUNTERPARTIES,
+          viewerId: ownerPubky as Pubky,
+          allowPartialCache: true,
+        }),
+      ),
+    );
+    slices.forEach((slice, index) => {
+      if (slice.status === 'fulfilled') {
+        for (const pubky of slice.value.nextPageIds) {
+          candidates.add(pubky);
+        }
+      } else {
+        Logger.warn('Inbox sync could not read the follow graph for counterparty candidates', {
+          error: slice.reason,
+          context: { reach: index === 0 ? 'following' : 'followers' },
+        });
+      }
+    });
+    return [...candidates];
+  }
+
+  /**
+   * A conversation id is a LOCAL Dexie key, not a path-safe commerce entity
+   * id (both shapes contain a colon): the marketplace aggregate
+   * `conversation:{seller}_{buyer}_{listingId}` or the DM key
+   * `dm:{counterpartyPubky}`. Anything else is rejected.
+   */
+  private static normalizeConversationId(input: unknown): string {
+    if (typeof input === 'string' && (parseConversationAggregateId(input) || parseDmConversationId(input))) {
+      return input;
+    }
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Invalid messaging conversation id.', {
+      service: ErrorService.Local,
+      operation: 'normalizeConversationId',
+    });
   }
 
   private static resolveConversation(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown) {

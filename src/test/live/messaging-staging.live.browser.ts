@@ -229,10 +229,10 @@ describe('encrypted marketplace messaging — live two-party proof on STAGING (p
     });
     await bobLink!.sendPrivateApplicationMessageJson(reply.json);
 
-    let aliceReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveChatMessages>> = [];
+    let aliceReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const aliceDeadline = Date.now() + 60_000;
     while (Date.now() < aliceDeadline && aliceReceived.length === 0) {
-      aliceReceived = await PaykitMessagingService.receiveChatMessages(alice.pubky, bob.pubky);
+      aliceReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
       if (aliceReceived.length === 0) await sleep(1000);
     }
     expect(aliceReceived).toHaveLength(1);
@@ -266,10 +266,10 @@ describe('encrypted marketplace messaging — live two-party proof on STAGING (p
     const restoredState = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
     expect(restoredState).toEqual({ status: 'ready' });
 
-    let afterRestore: Awaited<ReturnType<typeof PaykitMessagingService.receiveChatMessages>> = [];
+    let afterRestore: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const restoreDeadline = Date.now() + 60_000;
     while (Date.now() < restoreDeadline && afterRestore.length === 0) {
-      afterRestore = await PaykitMessagingService.receiveChatMessages(alice.pubky, bob.pubky);
+      afterRestore = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
       if (afterRestore.length === 0) await sleep(1000);
     }
     expect(afterRestore).toHaveLength(1);

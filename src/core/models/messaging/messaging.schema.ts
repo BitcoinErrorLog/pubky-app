@@ -79,20 +79,41 @@ export const commerceMessagingLinkTableSchema = [
 ].join(', ');
 
 /**
- * One listing-scoped conversation this account participates in. Created when
- * the local user opens (initiates) a conversation, or when the first inbound
- * chat message referencing an unknown conversation arrives over a link.
+ * Which surface a conversation belongs to. Both kinds ride the SAME Encrypted
+ * Link per counterparty pair — the message kind on the wire decides where an
+ * inbound message lands, and this discriminator mirrors that locally.
+ */
+export type CommerceMessagingConversationKind = 'listing' | 'dm';
+
+/**
+ * One conversation this account participates in — either listing-scoped
+ * (marketplace, `kind: 'listing'`) or a general direct-message thread keyed
+ * by the counterparty (`kind: 'dm'`). Created when the local user opens
+ * (initiates) a conversation, or when the first inbound message referencing
+ * an unknown conversation arrives over a link.
  */
 export interface CommerceMessagingConversationModelSchema {
   /** `${owner_id}:${conversation_id}` */
   id: string;
   owner_id: string;
-  /** `conversation:{seller}_{buyer}_{listingId}` — matches the sandbox aggregate id. */
+  /**
+   * `conversation:{seller}_{buyer}_{listingId}` for listing conversations
+   * (matches the sandbox aggregate id); `dm:{counterpartyPubky}` for direct
+   * messages — the counterparty IS the DM conversation identity.
+   */
   conversation_id: string;
-  /** `listing:{seller}:{listingId}` */
-  listing_ref: string;
+  kind: CommerceMessagingConversationKind;
+  /** `listing:{seller}:{listingId}` for listing conversations; `null` for DMs. */
+  listing_ref: string | null;
   counterparty_pubky: string;
   last_message_at: number | null;
+  /**
+   * Device-local read checkpoint: the newest `recorded_at` this device has
+   * shown the user for this conversation, or `null` if never opened. Drives
+   * the honest local unread badge — it counts only messages that already
+   * arrived on THIS device, never anything unfetched.
+   */
+  last_read_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -118,7 +139,8 @@ export interface CommerceMessagingMessageModelSchema {
   id: string;
   owner_id: string;
   conversation_id: string;
-  listing_ref: string;
+  /** `listing:{seller}:{listingId}` for listing conversations; `null` for DMs. */
+  listing_ref: string | null;
   counterparty_pubky: string;
   direction: CommerceMessagingDirection;
   body: string;

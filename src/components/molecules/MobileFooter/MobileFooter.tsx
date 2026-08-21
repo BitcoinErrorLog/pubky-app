@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Flame, Home, Library, Search, Settings, Store, UserRoundPlus } from 'lucide-react';
+import { Flame, Home, Library, MessageCircle, Search, Settings, Store, UserRoundPlus } from 'lucide-react';
 import { APP_ROUTES, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -13,6 +13,7 @@ import { FileController } from '@/controllers/file/file';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
+import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
@@ -39,6 +40,9 @@ export function MobileFooter({ className }: MobileFooterProps) {
   const { userDetails, currentUserPubky } = useCurrentUserProfile();
   // Social unread plus marketplace unread — one badge for the whole surface.
   const unreadNotifications = useNotificationStore((state) => state.selectTotalUnread());
+  // Honest device-local unread: conversations whose last received message
+  // postdates the local read checkpoint.
+  const unreadMessages = useMessagesUnread();
   const localAvatarUrl = useLocalFilesStore((state) => state.profile);
   const { isKeyboardVisible, keyboardOffset } = useKeyboardOffset();
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
@@ -82,6 +86,12 @@ export function MobileFooter({ className }: MobileFooterProps) {
         ]
       : []),
     {
+      href: APP_ROUTES.MESSAGES,
+      activePrefix: APP_ROUTES.MESSAGES,
+      icon: MessageCircle,
+      label: 'Messages',
+    },
+    {
       href: APP_ROUTES.COLLECTIONS,
       activePrefix: APP_ROUTES.COLLECTIONS,
       icon: Library,
@@ -94,7 +104,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
       label: 'Settings',
     },
   ];
-  const protectedNavHrefs = new Set<string>([SETTINGS_ROUTES.ACCOUNT]);
+  const protectedNavHrefs = new Set<string>([SETTINGS_ROUTES.ACCOUNT, APP_ROUTES.MESSAGES]);
   // Hide footer for guests only on non-explore routes. Core explore and dynamic public
   // routes (/home, /post/..., /profile/...) use the public explore footer.
   if (!isAuthenticated && !isPublicExploreRoute) {
@@ -125,11 +135,18 @@ export function MobileFooter({ className }: MobileFooterProps) {
           const itemIsActive = isNavItemActive(pathname, item);
           const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
           const showCollectionsNewTreatment = isCollectionsItem && showCollectionsNew;
+          const itemBadgeCount = item.href === APP_ROUTES.MESSAGES ? unreadMessages : 0;
           return (
             <Link
               key={item.href}
               href={item.href}
-              aria-label={showCollectionsNewTreatment ? `${item.label}, ${collectionsNewLabel}` : item.label}
+              aria-label={
+                itemBadgeCount > 0
+                  ? `${item.label}, ${itemBadgeCount} unread`
+                  : showCollectionsNewTreatment
+                    ? `${item.label}, ${collectionsNewLabel}`
+                    : item.label
+              }
               onClick={(event) => {
                 if (!isAuthenticated && protectedNavHrefs.has(item.href)) {
                   event.preventDefault();
@@ -144,6 +161,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
               }}
               className={cn(
                 'rounded-full p-3 transition-all',
+                itemBadgeCount > 0 && 'relative inline-flex',
                 showCollectionsNewTreatment
                   ? 'relative inline-flex border border-brand bg-white/5 text-brand hover:bg-brand/10'
                   : itemIsActive
@@ -152,6 +170,20 @@ export function MobileFooter({ className }: MobileFooterProps) {
               )}
             >
               <Icon className="h-6 w-6" />
+              {itemBadgeCount > 0 && (
+                <Badge
+                  data-cy="mobile-messages-counter"
+                  className="absolute -right-1 -bottom-1 h-5 w-5 rounded-full bg-brand shadow-sm"
+                  variant="secondary"
+                >
+                  <Typography
+                    className={cn('font-semibold text-primary-foreground', itemBadgeCount > 21 && 'text-xs')}
+                    size="xs"
+                  >
+                    {itemBadgeCount > 21 ? '21+' : itemBadgeCount}
+                  </Typography>
+                </Badge>
+              )}
               {showCollectionsNewTreatment ? (
                 <span
                   aria-hidden="true"

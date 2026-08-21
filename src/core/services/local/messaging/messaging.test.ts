@@ -70,6 +70,7 @@ describe('LocalMessagingService', () => {
     await LocalMessagingService.touchConversation({
       owner_id: OWNER,
       conversation_id: CONVERSATION_ID,
+      kind: 'listing',
       listing_ref: `listing:${COUNTERPARTY}:L1`,
       counterparty_pubky: COUNTERPARTY,
       last_message_at: 100,
@@ -79,6 +80,7 @@ describe('LocalMessagingService', () => {
     await LocalMessagingService.touchConversation({
       owner_id: OWNER,
       conversation_id: CONVERSATION_ID,
+      kind: 'listing',
       listing_ref: `listing:${COUNTERPARTY}:L1`,
       counterparty_pubky: COUNTERPARTY,
       last_message_at: 50,
@@ -89,6 +91,82 @@ describe('LocalMessagingService', () => {
     expect(conversations[0].last_message_at).toBe(100);
     expect(conversations[0].updated_at).toBe(100);
     expect(conversations[0].created_at).toBe(100);
+    // New rows start unread: the checkpoint belongs to markConversationRead.
+    expect(conversations[0].last_read_at).toBeNull();
+  });
+
+  it('stores a dm conversation with no listing ref alongside a listing conversation', async () => {
+    await LocalMessagingService.touchConversation({
+      owner_id: OWNER,
+      conversation_id: `dm:${COUNTERPARTY}`,
+      kind: 'dm',
+      listing_ref: null,
+      counterparty_pubky: COUNTERPARTY,
+      last_message_at: 10,
+      updated_at: 10,
+    });
+    await LocalMessagingService.touchConversation({
+      owner_id: OWNER,
+      conversation_id: CONVERSATION_ID,
+      kind: 'listing',
+      listing_ref: `listing:${COUNTERPARTY}:L1`,
+      counterparty_pubky: COUNTERPARTY,
+      last_message_at: 20,
+      updated_at: 20,
+    });
+    const conversations = await LocalMessagingService.getConversationsByOwner(OWNER);
+    expect(conversations).toHaveLength(2);
+    const dm = conversations.find(({ kind }) => kind === 'dm');
+    expect(dm).toMatchObject({ conversation_id: `dm:${COUNTERPARTY}`, listing_ref: null });
+  });
+
+  it('markConversationRead moves the checkpoint forward only, and ignores unknown rows', async () => {
+    // Unknown conversation: a no-op, never an implicit row.
+    await LocalMessagingService.markConversationRead(OWNER, CONVERSATION_ID, 100);
+    await expect(LocalMessagingService.getConversation(OWNER, CONVERSATION_ID)).resolves.toBeNull();
+
+    await LocalMessagingService.touchConversation({
+      owner_id: OWNER,
+      conversation_id: CONVERSATION_ID,
+      kind: 'listing',
+      listing_ref: `listing:${COUNTERPARTY}:L1`,
+      counterparty_pubky: COUNTERPARTY,
+      last_message_at: 100,
+      updated_at: 100,
+    });
+    await LocalMessagingService.markConversationRead(OWNER, CONVERSATION_ID, 200);
+    // A stale (older) mark must not move the checkpoint backward.
+    await LocalMessagingService.markConversationRead(OWNER, CONVERSATION_ID, 150);
+    const conversation = await LocalMessagingService.getConversation(OWNER, CONVERSATION_ID);
+    expect(conversation?.last_read_at).toBe(200);
+  });
+
+  it('counts unread conversations from RECEIVED messages after the checkpoint only', async () => {
+    await LocalMessagingService.touchConversation({
+      owner_id: OWNER,
+      conversation_id: CONVERSATION_ID,
+      kind: 'listing',
+      listing_ref: `listing:${COUNTERPARTY}:L1`,
+      counterparty_pubky: COUNTERPARTY,
+      last_message_at: 100,
+      updated_at: 100,
+    });
+    // A conversation with only SENT messages is never unread.
+    await LocalMessagingService.upsertMessage(crypto.randomUUID(), {
+      ...messageRow('mine', 100),
+      direction: 'sent',
+    });
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
+
+    await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('theirs', 120));
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(1);
+
+    await LocalMessagingService.markConversationRead(OWNER, CONVERSATION_ID, 120);
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
+
+    // A later received message flips it back to unread.
+    await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('newer', 140));
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(1);
   });
 
   it('updateLinkSnapshot refuses to write without an existing row', async () => {

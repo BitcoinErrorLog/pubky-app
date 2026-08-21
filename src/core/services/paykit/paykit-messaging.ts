@@ -2,7 +2,6 @@
 // loaded through the dynamic import in loadPaykitWasm(), never at module scope, so this
 // file stays safe to pull into server-rendered module graphs (same rule as the Locks SDK).
 import type { EncryptedLinkHandle, LinkHandshakeHandle, PubkyClient, SessionHandle } from 'paykit-wasm';
-import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import {
   buildChatMessage,
   decodeChatMessage,
@@ -15,6 +14,12 @@ import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/er
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
+import {
+  buildDmConversationId,
+  buildDmMessage,
+  decodeDmMessage,
+  type PubkyAppDmMessage,
+} from '@/libs/messaging/dm-contracts';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 
@@ -96,23 +101,62 @@ export type MessagingLinkState =
 /** Probe-only result: `none` means no local state and no inbound handshake — nothing was started. */
 export type MessagingProbeState = MessagingLinkState | { status: 'none' };
 
-export type ReceivedChatMessage = MarketplaceChatMessage & { counterpartyPubky: string };
+/**
+ * One inbound message after kind routing, flattened to the persisted row's
+ * vocabulary: `kind: 'listing'` came in as `marketplace.chat_message.v0` (its
+ * own `conversation_id`/`listing_ref` from the envelope), `kind: 'dm'` came in
+ * as `pubky_app.dm.v0` (conversation identity derived from the counterparty).
+ */
+export type ReceivedMessage = {
+  kind: 'listing' | 'dm';
+  event_id: string;
+  conversation_id: string;
+  listing_ref: string | null;
+  sent_at: string;
+  body: string;
+  counterpartyPubky: string;
+};
 
 type ActiveSession = { handle: SessionHandle; pubky: string };
 type ActiveHandshake = { handle: LinkHandshakeHandle; role: 'initiator' | 'responder' };
 
 /**
- * End-to-end-encrypted marketplace messaging over Paykit Encrypted Links
- * (vendored paykit-wasm binding, durable commerce modes only — the sandbox
- * keeps its own labeled plaintext transport).
+ * `sessionStorage` key for the persisted messaging-session metadata. The
+ * stored value is the binding's `exportSession()` string — base64 public
+ * `SessionInfo` (pubky, capabilities), NO secrets. The actual credential is
+ * the homeserver's HTTP-only session cookie, which the BROWSER holds and
+ * attaches (`credentials: include`); this app can neither read nor persist
+ * it. Storage contract mirrors the marketplace transaction session
+ * (`marketplace-session.ts`): per-tab `sessionStorage`, account-scoped
+ * validation on restore, cleared on sign-out/account switch, and a restore
+ * the homeserver rejects surfaces the honest reconnect state.
+ */
+export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
+
+/**
+ * End-to-end-encrypted messaging over Paykit Encrypted Links (vendored
+ * paykit-wasm binding). One link per counterparty pair carries BOTH message
+ * kinds — marketplace listing conversations (`marketplace.chat_message.v0`)
+ * and general direct messages (`pubky_app.dm.v0`); the kind on the wire
+ * decides which conversation an inbound message lands in.
+ *
+ * This service is deliberately independent of the commerce adapter mode: it
+ * needs only a signed-in user, a browser environment for the WASM binding,
+ * and the homeserver. Marketplace-contextual SURFACES gate themselves on the
+ * commerce mode (the sandbox keeps its own labeled plaintext transport for
+ * listing chat); general DMs never do.
  *
  * Key facts the rest of the app relies on:
  *
  * - The homeserver session comes from a Ring-approved `pubkyauth` grant for
  *   `/pub/paykit/:rw` — its own approval, NEVER the marketplace
  *   transaction-service session, and the Pubky identity secret never enters
- *   this runtime. The session handle lives in memory only and dies with the
- *   tab; reconnecting requires a fresh signer approval.
+ *   this runtime. The credential is an HTTP-only homeserver cookie the
+ *   BROWSER holds; this code persists only secret-free session metadata to
+ *   per-tab `sessionStorage` ({@link MESSAGING_SESSION_STORAGE_KEY}) so a
+ *   page reload resumes silently via {@link restorePersistedSession}. A new
+ *   tab or a cookie the homeserver no longer accepts requires a fresh
+ *   signer approval.
  * - Link crypto uses a receiver-scoped Noise key generated here and persisted
  *   in account-scoped IndexedDB (`commerce_messaging_receivers`); snapshots
  *   are persisted as produced — unencrypted, containing key material — with
@@ -128,6 +172,7 @@ export class PaykitMessagingService {
   private constructor() {}
 
   private static session: ActiveSession | null = null;
+  private static restoreInFlight: { pubky: string; done: Promise<boolean> } | null = null;
   private static client: PubkyClient | null = null;
   private static links = new Map<string, EncryptedLinkHandle>();
   private static handshakes = new Map<string, ActiveHandshake>();
@@ -145,7 +190,6 @@ export class PaykitMessagingService {
    * handle is freed unused).
    */
   static async beginEnableFlow(expectedPubky: string): Promise<MessagingEnableFlow> {
-    this.assertDurableMode('beginEnableFlow');
     const wasmModule = await loadPaykitWasm();
     const client = this.getClient(wasmModule);
     const flow = client.startAuthFlow(PAYKIT_MESSAGING_CAPABILITY);
@@ -186,6 +230,68 @@ export class PaykitMessagingService {
   }
 
   /**
+   * Attempts to silently resume the messaging session after a page reload:
+   * true when a session for `expectedPubky` is live afterwards (already in
+   * memory, or restored from the persisted metadata + the browser's
+   * HTTP-only session cookie via the binding's `restoreSession`, which
+   * revalidates against the homeserver). Anything that does not validate —
+   * missing/malformed blob, another account's blob, a cookie the homeserver
+   * no longer accepts — clears the stored value and returns false, so the
+   * UI shows the honest reconnect state. Never throws for "no session";
+   * concurrent callers share one in-flight restore.
+   */
+  static async restorePersistedSession(expectedPubky: string): Promise<boolean> {
+    if (this.hasActiveSession(expectedPubky)) return true;
+    if (this.restoreInFlight?.pubky === expectedPubky) return await this.restoreInFlight.done;
+    const done = this.restoreSessionFromStorage(expectedPubky);
+    this.restoreInFlight = { pubky: expectedPubky, done };
+    try {
+      return await done;
+    } finally {
+      this.restoreInFlight = null;
+    }
+  }
+
+  private static async restoreSessionFromStorage(expectedPubky: string): Promise<boolean> {
+    const raw = this.readSessionStorage();
+    if (raw === null) return false;
+    let stored: { pubky?: unknown; exported?: unknown } | null;
+    try {
+      stored = JSON.parse(raw) as { pubky?: unknown; exported?: unknown };
+    } catch {
+      stored = null;
+    }
+    if (!stored || typeof stored.pubky !== 'string' || typeof stored.exported !== 'string') {
+      this.removePersistedSession();
+      return false;
+    }
+    if (stored.pubky !== expectedPubky) {
+      // Another account's blob: drop it so it can never outlive its owner's tab session.
+      this.removePersistedSession();
+      return false;
+    }
+    try {
+      const wasmModule = await loadPaykitWasm();
+      const client = this.getClient(wasmModule);
+      const handle = (await client.restoreSession(stored.exported)) as SessionHandle;
+      if (handle.pubky() !== expectedPubky) {
+        closeQuietly(() => handle.free());
+        this.removePersistedSession();
+        return false;
+      }
+      this.setSession({ handle, pubky: expectedPubky });
+      Logger.info('Restored the encrypted messaging session after reload', { pubky: expectedPubky });
+      return true;
+    } catch (error) {
+      // The homeserver rejected the cookie (expired/revoked) or the restore
+      // failed in transit; either way the persisted metadata is useless now.
+      Logger.info('Could not restore the persisted messaging session; reconnect is required', { error });
+      this.removePersistedSession();
+      return false;
+    }
+  }
+
+  /**
    * Live-test seam: runs the REAL receiver provisioning and marker publish
    * for a session obtained through the binding's dev/test signup helpers
    * (`signupWithSecret` against an ephemeral local testnet) instead of the
@@ -208,8 +314,12 @@ export class PaykitMessagingService {
     return Boolean(receiver?.marker_published);
   }
 
-  /** Drops the in-memory session and every live link/handshake handle. Sign-out teardown. */
+  /**
+   * Drops the in-memory session, the persisted session metadata, and every
+   * live link/handshake handle. Sign-out and account-switch teardown.
+   */
   static clearSession(): void {
+    this.removePersistedSession();
     for (const link of this.links.values()) closeQuietly(() => void link.close());
     for (const handshake of this.handshakes.values()) closeQuietly(() => handshake.handle.free());
     this.links.clear();
@@ -228,7 +338,6 @@ export class PaykitMessagingService {
    * Public read — needs no session.
    */
   static async getCounterpartyMarker(counterpartyPubky: string): Promise<CounterpartyMessagingMarker | null> {
-    this.assertDurableMode('getCounterpartyMarker');
     const wasmModule = await loadPaykitWasm();
     const client = this.getClient(wasmModule);
     const marker = (await wasmModule.getReceiverMarker(client, counterpartyPubky, PAYKIT_MESSAGING_RECEIVER_PATH)) as
@@ -262,11 +371,11 @@ export class PaykitMessagingService {
   }
 
   /**
-   * Sends one chat message over an established link. Enforces the 1000-byte
-   * serialized ceiling before the crypto layer would reject it anyway. On
-   * success the message row is persisted (direction `sent`) and THEN the
-   * advanced link snapshot; a failure leaves no message row behind — the UI
-   * keeps the draft and shows the real error.
+   * Sends one marketplace chat message over an established link. Enforces the
+   * 1000-byte serialized ceiling before the crypto layer would reject it
+   * anyway. On success the message row is persisted (direction `sent`) and
+   * THEN the advanced link snapshot; a failure leaves no message row behind —
+   * the UI keeps the draft and shows the real error.
    */
   static async sendChatMessage(
     ownerPubky: string,
@@ -274,21 +383,7 @@ export class PaykitMessagingService {
     input: { conversationId: string; listingRef: string; body: string },
   ): Promise<MarketplaceChatMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
-      const state = await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true);
-      if (state.status !== 'ready') {
-        throw Err.client(ClientErrorCode.BAD_REQUEST, 'The encrypted link is not established yet.', {
-          service: ErrorService.Paykit,
-          operation: 'sendChatMessage',
-          context: { linkStatus: state.status },
-        });
-      }
-      const link = this.links.get(this.linkKey(ownerPubky, counterpartyPubky));
-      if (!link) {
-        throw Err.server(ServerErrorCode.UNKNOWN_ERROR, 'The encrypted link handle is missing.', {
-          service: ErrorService.Paykit,
-          operation: 'sendChatMessage',
-        });
-      }
+      const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendChatMessage');
       const { message, json } = buildChatMessage({
         eventId: crypto.randomUUID(),
         conversationId: input.conversationId,
@@ -297,70 +392,185 @@ export class PaykitMessagingService {
         body: input.body,
       });
       await link.sendPrivateApplicationMessageJson(json);
-      const now = Date.now();
-      await LocalMessagingService.upsertMessage(message.event_id, {
-        owner_id: ownerPubky,
-        conversation_id: message.conversation_id,
-        listing_ref: message.listing_ref,
-        counterparty_pubky: counterpartyPubky,
-        direction: 'sent',
+      await this.persistSentMessage(ownerPubky, counterpartyPubky, link, {
+        kind: 'listing',
+        eventId: message.event_id,
+        conversationId: message.conversation_id,
+        listingRef: message.listing_ref,
+        sentAt: message.sent_at,
         body: message.body,
-        sent_at: message.sent_at,
-        recorded_at: now,
       });
-      await LocalMessagingService.touchConversation({
-        owner_id: ownerPubky,
-        conversation_id: message.conversation_id,
-        listing_ref: message.listing_ref,
-        counterparty_pubky: counterpartyPubky,
-        last_message_at: now,
-        updated_at: now,
-      });
-      await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
       return message;
     });
   }
 
   /**
-   * Receives pending inbound messages on an established link. Unknown kinds
-   * are skipped (legal on a shared link). Message rows and conversation rows
-   * are persisted BEFORE the advanced snapshot.
+   * Sends one general direct message over the same established link the
+   * marketplace kinds ride. The DM conversation identity IS the counterparty
+   * pubky (`dm:{counterparty}`); same ceiling, same persistence ordering, and
+   * a failed send leaves no row behind.
    */
-  static async receiveChatMessages(ownerPubky: string, counterpartyPubky: string): Promise<ReceivedChatMessage[]> {
+  static async sendDmMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    input: { body: string },
+  ): Promise<PubkyAppDmMessage> {
+    return await this.withQueue(counterpartyPubky, async () => {
+      const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendDmMessage');
+      const { message, json } = buildDmMessage({
+        eventId: crypto.randomUUID(),
+        sentAt: new Date().toISOString(),
+        body: input.body,
+      });
+      await link.sendPrivateApplicationMessageJson(json);
+      await this.persistSentMessage(ownerPubky, counterpartyPubky, link, {
+        kind: 'dm',
+        eventId: message.event_id,
+        conversationId: buildDmConversationId(counterpartyPubky),
+        listingRef: null,
+        sentAt: message.sent_at,
+        body: message.body,
+      });
+      return message;
+    });
+  }
+
+  /**
+   * Receives pending inbound messages on an established link and routes them
+   * by kind: `marketplace.chat_message.v0` lands in its envelope's listing
+   * conversation, `pubky_app.dm.v0` lands in the counterparty's DM
+   * conversation. BOTH kinds are always persisted in one drain — the
+   * binding's read checkpoint advances past everything returned, so a kind
+   * skipped here would be lost. Unknown kinds are skipped (legal on a shared
+   * link). Message rows and conversation rows are persisted BEFORE the
+   * advanced snapshot.
+   */
+  static async receiveMessages(ownerPubky: string, counterpartyPubky: string): Promise<ReceivedMessage[]> {
     return await this.withQueue(counterpartyPubky, async () => {
       const link = this.links.get(this.linkKey(ownerPubky, counterpartyPubky));
       if (!link) return [];
       const inbound = (await link.receivePrivateApplicationMessages()) as { rawJson: string }[];
-      const received: ReceivedChatMessage[] = [];
+      const received: ReceivedMessage[] = [];
       const now = Date.now();
       for (const item of inbound) {
-        const message = decodeChatMessage(item.rawJson);
-        if (!message) continue;
-        await LocalMessagingService.upsertMessage(message.event_id, {
+        const routed = this.routeInboundMessage(item.rawJson, counterpartyPubky);
+        if (!routed) continue;
+        await LocalMessagingService.upsertMessage(routed.event_id, {
           owner_id: ownerPubky,
-          conversation_id: message.conversation_id,
-          listing_ref: message.listing_ref,
+          conversation_id: routed.conversation_id,
+          listing_ref: routed.listing_ref,
           counterparty_pubky: counterpartyPubky,
           direction: 'received',
-          body: message.body,
-          sent_at: message.sent_at,
+          body: routed.body,
+          sent_at: routed.sent_at,
           recorded_at: now,
         });
         await LocalMessagingService.touchConversation({
           owner_id: ownerPubky,
-          conversation_id: message.conversation_id,
-          listing_ref: message.listing_ref,
+          conversation_id: routed.conversation_id,
+          kind: routed.kind,
+          listing_ref: routed.listing_ref,
           counterparty_pubky: counterpartyPubky,
           last_message_at: now,
           updated_at: now,
         });
-        received.push({ ...message, counterpartyPubky });
+        received.push(routed);
       }
       if (inbound.length > 0) {
         await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
       }
       return received;
     });
+  }
+
+  /** Decodes one inbound payload into its conversation routing, or `null` for unknown kinds. */
+  private static routeInboundMessage(rawJson: string, counterpartyPubky: string): ReceivedMessage | null {
+    const chat = decodeChatMessage(rawJson);
+    if (chat) {
+      return {
+        kind: 'listing',
+        event_id: chat.event_id,
+        conversation_id: chat.conversation_id,
+        listing_ref: chat.listing_ref,
+        sent_at: chat.sent_at,
+        body: chat.body,
+        counterpartyPubky,
+      };
+    }
+    const dm = decodeDmMessage(rawJson);
+    if (dm) {
+      return {
+        kind: 'dm',
+        event_id: dm.event_id,
+        conversation_id: buildDmConversationId(counterpartyPubky),
+        listing_ref: null,
+        sent_at: dm.sent_at,
+        body: dm.body,
+        counterpartyPubky,
+      };
+    }
+    return null;
+  }
+
+  /** Advances the link if needed and returns the ready handle, or throws the honest state. */
+  private static async requireReadyLink(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    operation: string,
+  ): Promise<EncryptedLinkHandle> {
+    const state = await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true);
+    if (state.status !== 'ready') {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'The encrypted link is not established yet.', {
+        service: ErrorService.Paykit,
+        operation,
+        context: { linkStatus: state.status },
+      });
+    }
+    const link = this.links.get(this.linkKey(ownerPubky, counterpartyPubky));
+    if (!link) {
+      throw Err.server(ServerErrorCode.UNKNOWN_ERROR, 'The encrypted link handle is missing.', {
+        service: ErrorService.Paykit,
+        operation,
+      });
+    }
+    return link;
+  }
+
+  /** Persists a sent message row + conversation touch, THEN the advanced snapshot. */
+  private static async persistSentMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    link: EncryptedLinkHandle,
+    sent: {
+      kind: 'listing' | 'dm';
+      eventId: string;
+      conversationId: string;
+      listingRef: string | null;
+      sentAt: string;
+      body: string;
+    },
+  ): Promise<void> {
+    const now = Date.now();
+    await LocalMessagingService.upsertMessage(sent.eventId, {
+      owner_id: ownerPubky,
+      conversation_id: sent.conversationId,
+      listing_ref: sent.listingRef,
+      counterparty_pubky: counterpartyPubky,
+      direction: 'sent',
+      body: sent.body,
+      sent_at: sent.sentAt,
+      recorded_at: now,
+    });
+    await LocalMessagingService.touchConversation({
+      owner_id: ownerPubky,
+      conversation_id: sent.conversationId,
+      kind: sent.kind,
+      listing_ref: sent.listingRef,
+      counterparty_pubky: counterpartyPubky,
+      last_message_at: now,
+      updated_at: now,
+    });
+    await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
   }
 
   // --- internals -----------------------------------------------------------
@@ -371,7 +581,7 @@ export class PaykitMessagingService {
     allowInitiate: boolean,
   ): Promise<MessagingProbeState> {
     const wasmModule = await loadPaykitWasm();
-    const session = this.requireSession(ownerPubky);
+    const session = await this.requireSessionOrRestore(ownerPubky);
     const key = this.linkKey(ownerPubky, counterpartyPubky);
 
     if (this.links.has(key)) return { status: 'ready' };
@@ -699,6 +909,14 @@ export class PaykitMessagingService {
     return this.session;
   }
 
+  /** Like {@link requireSession}, but first tries the silent reload restore. */
+  private static async requireSessionOrRestore(ownerPubky: string): Promise<ActiveSession> {
+    if (!this.hasActiveSession(ownerPubky)) {
+      await this.restorePersistedSession(ownerPubky);
+    }
+    return this.requireSession(ownerPubky);
+  }
+
   private static async requireReceiver(ownerPubky: string) {
     const receiver = await LocalMessagingService.getReceiver(ownerPubky);
     if (!receiver) {
@@ -714,6 +932,40 @@ export class PaykitMessagingService {
     if (this.session && this.session.pubky !== session.pubky) this.clearSession();
     else if (this.session) closeQuietly(() => this.session?.handle.free());
     this.session = session;
+    this.writePersistedSession(session);
+  }
+
+  // sessionStorage access is wrapped because browsers can refuse it; a
+  // session that cannot persist is still a working in-memory session, so
+  // persistence failures only log (same posture as the marketplace session).
+  private static writePersistedSession(session: ActiveSession): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.setItem(
+        MESSAGING_SESSION_STORAGE_KEY,
+        JSON.stringify({ pubky: session.pubky, exported: session.handle.exportSession() }),
+      );
+    } catch {
+      Logger.warn('Could not persist the messaging session metadata; reconnect will be needed after a reload.');
+    }
+  }
+
+  private static removePersistedSession(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.removeItem(MESSAGING_SESSION_STORAGE_KEY);
+    } catch {
+      // Removal failing means storage is unavailable, so nothing persisted either.
+    }
+  }
+
+  private static readSessionStorage(): string | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      return window.sessionStorage.getItem(MESSAGING_SESSION_STORAGE_KEY);
+    } catch {
+      return null;
+    }
   }
 
   private static getClient(wasmModule: PaykitWasmModule): PubkyClient {
@@ -738,15 +990,6 @@ export class PaykitMessagingService {
 
   private static linkKey(ownerPubky: string, counterpartyPubky: string): string {
     return `${ownerPubky}:${counterpartyPubky}`;
-  }
-
-  private static assertDurableMode(operation: string): void {
-    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
-      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Encrypted marketplace messaging is disabled in this mode.', {
-        service: ErrorService.Paykit,
-        operation,
-      });
-    }
   }
 }
 

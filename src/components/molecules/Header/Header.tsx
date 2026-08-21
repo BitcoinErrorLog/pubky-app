@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Flame, Home, Library, Settings, Store, UserRoundPlus } from 'lucide-react';
+import { Flame, Home, Library, MessageCircle, Settings, Store, UserRoundPlus } from 'lucide-react';
 import { APP_ROUTES, isCoreExploreRoute, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -13,6 +13,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { getGithubLink, getTelegramLink, getTwitterGetpubkyLink } from '@/config/externalLinks';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
+import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Github2, Telegram, XTwitter } from '@/icons';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
@@ -128,6 +129,13 @@ const getNavigationItems = (): NavigationItemConfig[] => [
       ]
     : []),
   {
+    href: APP_ROUTES.MESSAGES,
+    icon: MessageCircle,
+    label: 'Messages',
+    dataCy: 'header-messages-btn',
+    activePrefix: APP_ROUTES.MESSAGES,
+  },
+  {
     href: APP_ROUTES.COLLECTIONS,
     icon: Library,
     label: 'Collections',
@@ -155,6 +163,8 @@ type NavigationButtonProps = {
   isFeedRoute?: boolean;
   showNew?: boolean;
   newLabel?: string;
+  /** Honest device-local count (e.g. unread conversations); 0 hides the badge. */
+  badgeCount?: number;
 };
 const NavigationButton = ({
   href,
@@ -166,8 +176,10 @@ const NavigationButton = ({
   isFeedRoute,
   showNew = false,
   newLabel,
+  badgeCount = 0,
 }: NavigationButtonProps) => {
-  const accessibleLabel = showNew && newLabel ? `${label}, ${newLabel}` : label;
+  const accessibleLabel =
+    badgeCount > 0 ? `${label}, ${badgeCount} unread` : showNew && newLabel ? `${label}, ${newLabel}` : label;
   const button = (
     <Button
       data-cy={href ? undefined : dataCy}
@@ -187,6 +199,17 @@ const NavigationButton = ({
   const content = (
     <>
       {button}
+      {badgeCount > 0 && (
+        <Badge
+          data-cy={dataCy ? `${dataCy}-counter` : undefined}
+          className="absolute -right-1 -bottom-1 h-5 w-5 rounded-full bg-brand shadow-sm"
+          variant="secondary"
+        >
+          <Typography className={cn('font-semibold text-primary-foreground', badgeCount > 21 && 'text-xs')} size="xs">
+            {badgeCount > 21 ? '21+' : badgeCount}
+          </Typography>
+        </Badge>
+      )}
       {showNew && newLabel ? (
         <span
           aria-hidden="true"
@@ -197,11 +220,12 @@ const NavigationButton = ({
       ) : null}
     </>
   );
+  const needsRelativeWrap = showNew || badgeCount > 0;
   return href ? (
     <Link
       href={href}
       data-cy={dataCy}
-      className={showNew ? 'relative inline-flex' : undefined}
+      className={needsRelativeWrap ? 'relative inline-flex' : undefined}
       onClick={(event) => {
         onClick?.();
         if (!isFeedRoute) return;
@@ -211,7 +235,7 @@ const NavigationButton = ({
       {content}
     </Link>
   ) : (
-    <span className={showNew ? 'relative inline-flex' : undefined}>{content}</span>
+    <span className={needsRelativeWrap ? 'relative inline-flex' : undefined}>{content}</span>
   );
 };
 export function HeaderNavigationButtons({
@@ -223,11 +247,15 @@ export function HeaderNavigationButtons({
 }: HeaderNavigationButtonsProps) {
   const pathname = usePathname();
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
+  // Honest badge: conversations on THIS device whose last received message
+  // postdates the local read checkpoint — never a server-claimed count.
+  const unreadMessages = useMessagesUnread();
   const counterString = counter > 21 ? '21+' : counter.toString();
   return (
     <Container className={cn('hidden w-auto flex-row items-center justify-start gap-3 lg:flex', className)}>
       {getNavigationItems().map((item) => {
         const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
+        const isMessagesItem = item.href === APP_ROUTES.MESSAGES;
         return (
           <NavigationButton
             key={item.href}
@@ -240,6 +268,7 @@ export function HeaderNavigationButtons({
             isFeedRoute={item.isFeedRoute}
             showNew={isCollectionsItem && showCollectionsNew}
             newLabel={'New'}
+            badgeCount={isMessagesItem ? unreadMessages : 0}
           />
         );
       })}

@@ -61,6 +61,10 @@ function createFakeWorld() {
     lastPublishedMarker: null as null | { path: string; noisePublicKey: string; capabilities: boolean[] },
     links: [] as FakeLink[],
     nextApprovalPubky: OWNER,
+    // Scripted `restoreSession` behavior: reject (cookie expired/revoked at
+    // the homeserver) or resolve with the pubky embedded in the export blob.
+    restoreRejects: false,
+    restoredPubkyOverride: null as string | null,
   };
 
   let keyCounter = 0;
@@ -69,6 +73,10 @@ function createFakeWorld() {
     constructor(private readonly owner: string) {}
     pubky() {
       return this.owner;
+    }
+    // Mirrors the binding: secret-free metadata identifying the session owner.
+    exportSession() {
+      return `exported-session:${this.owner}`;
     }
     free() {}
   }
@@ -136,6 +144,12 @@ function createFakeWorld() {
         authorizationUrl: () => `pubkyauth://signin?caps=${capabilities}&secret=fake`,
         awaitApproval: async () => new FakeSessionHandle(world.nextApprovalPubky),
       };
+    }
+    async restoreSession(exported: string) {
+      world.calls.push('restoreSession');
+      if (world.restoreRejects) throw new Error('session restore failed: RequestExpired');
+      const owner = world.restoredPubkyOverride ?? exported.replace('exported-session:', '');
+      return new FakeSessionHandle(owner);
     }
   }
 
@@ -221,9 +235,11 @@ describe('PaykitMessagingService', () => {
   });
 
   describe('session lifecycle and receiver provisioning', () => {
-    it('refuses to start outside durable commerce modes', async () => {
+    it('is independent of the commerce adapter mode (general DMs never gate on commerce)', async () => {
       config.mode = 'sandbox';
-      await expect(PaykitMessagingService.beginEnableFlow(OWNER)).rejects.toThrow(/disabled in this mode/);
+      const enabled = await enableMessaging(world);
+      expect(enabled.pubky).toBe(OWNER);
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
     });
 
     it('asks Ring for exactly the paykit capability and publishes a messaging-only marker', async () => {
@@ -428,13 +444,13 @@ describe('PaykitMessagingService', () => {
         { version: 1, kind: 'paykit.payment_request.v0', rawJson: foreign },
       );
 
-      const received = await PaykitMessagingService.receiveChatMessages(OWNER, COUNTERPARTY);
+      const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
       expect(received).toHaveLength(1);
       expect(received[0].body).toBe('hello from the counterparty');
 
       // Replay the same event (expected after a snapshot restore): no duplicate.
       link.inboundQueue.push({ version: 1, kind: 'marketplace.chat_message.v0', rawJson });
-      await PaykitMessagingService.receiveChatMessages(OWNER, COUNTERPARTY);
+      await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
 
       const rows = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
       expect(rows).toHaveLength(1);
@@ -466,8 +482,159 @@ describe('PaykitMessagingService', () => {
         }),
       });
 
-      await PaykitMessagingService.receiveChatMessages(OWNER, COUNTERPARTY);
+      await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
       expect(order).toEqual(['message', 'snapshot']);
+    });
+
+    it('sends a DM with the pubky_app.dm.v0 kind into the counterparty-keyed conversation', async () => {
+      const message = await PaykitMessagingService.sendDmMessage(OWNER, COUNTERPARTY, { body: 'hi — direct' });
+
+      const link = world.links.at(-1)!;
+      expect(link.sent).toHaveLength(1);
+      expect(JSON.parse(link.sent[0])).toMatchObject({
+        version: 1,
+        kind: 'pubky_app.dm.v0',
+        body: 'hi — direct',
+      });
+      expect(JSON.parse(link.sent[0])).not.toHaveProperty('listing_ref');
+
+      const rows = await LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        direction: 'sent',
+        listing_ref: null,
+        id: `${OWNER}:${message.event_id}`,
+      });
+      const conversations = await LocalMessagingService.getConversationsByOwner(OWNER);
+      expect(conversations.find((row) => row.conversation_id === `dm:${COUNTERPARTY}`)).toMatchObject({
+        kind: 'dm',
+        listing_ref: null,
+      });
+    });
+
+    it('routes one inbound drain into BOTH conversations by kind (shared link)', async () => {
+      const link = world.links.at(-1)!;
+      const chatRaw = JSON.stringify({
+        version: 1,
+        kind: 'marketplace.chat_message.v0',
+        event_id: crypto.randomUUID(),
+        conversation_id: CONVERSATION_ID,
+        listing_ref: LISTING_REF,
+        sent_at: '2026-08-21T10:00:00.000Z',
+        body: 'about the listing',
+      });
+      const dmRaw = JSON.stringify({
+        version: 1,
+        kind: 'pubky_app.dm.v0',
+        event_id: crypto.randomUUID(),
+        sent_at: '2026-08-21T10:00:01.000Z',
+        body: 'and a personal note',
+      });
+      link.inboundQueue.push(
+        { version: 1, kind: 'marketplace.chat_message.v0', rawJson: chatRaw },
+        { version: 1, kind: 'pubky_app.dm.v0', rawJson: dmRaw },
+      );
+
+      const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
+
+      expect(received.map((entry) => entry.kind)).toEqual(['listing', 'dm']);
+      await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toHaveLength(1);
+      await expect(LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`)).resolves.toHaveLength(1);
+      const conversations = await LocalMessagingService.getConversationsByOwner(OWNER);
+      expect(conversations.map((row) => row.kind).sort()).toEqual(['dm', 'listing']);
+    });
+  });
+
+  describe('session persistence across reloads', () => {
+    const storedValue = () => window.sessionStorage.getItem('pubky.messaging.session.v1');
+
+    // A reload keeps sessionStorage and the browser cookie jar but wipes all
+    // in-memory wasm state. clearSession() deliberately wipes BOTH, so the
+    // simulation re-seeds storage after dropping memory.
+    const simulateReload = () => {
+      const persisted = storedValue();
+      PaykitMessagingService.clearSession();
+      if (persisted !== null) window.sessionStorage.setItem('pubky.messaging.session.v1', persisted);
+    };
+
+    it('persists secret-free session metadata on enable', async () => {
+      await enableMessaging(world);
+      expect(JSON.parse(storedValue()!)).toEqual({ pubky: OWNER, exported: `exported-session:${OWNER}` });
+    });
+
+    it('restores the session silently after a reload, and link operations work without re-enable', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+      simulateReload();
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(false);
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
+      expect(world.calls).toContain('restoreSession');
+      // The restored session drives link operations directly.
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+    });
+
+    it('link operations self-restore after a reload without an explicit restore call', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+      simulateReload();
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
+    });
+
+    it('drops another account\u2019s persisted blob without touching the network', async () => {
+      await enableMessaging(world);
+      simulateReload();
+      window.sessionStorage.setItem(
+        'pubky.messaging.session.v1',
+        JSON.stringify({ pubky: COUNTERPARTY, exported: `exported-session:${COUNTERPARTY}` }),
+      );
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+      expect(storedValue()).toBeNull();
+      expect(world.calls).not.toContain('restoreSession');
+    });
+
+    it('drops a malformed persisted blob', async () => {
+      window.sessionStorage.setItem('pubky.messaging.session.v1', 'not json');
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+      expect(storedValue()).toBeNull();
+    });
+
+    it('clears the blob and reports false when the homeserver rejects the restore (expired cookie)', async () => {
+      await enableMessaging(world);
+      simulateReload();
+      world.restoreRejects = true;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(false);
+      expect(storedValue()).toBeNull();
+      // The surfaces now show the honest reconnect state.
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).rejects.toThrow(
+        /No active messaging session/,
+      );
+    });
+
+    it('rejects a restored session whose identity does not match the expected account', async () => {
+      await enableMessaging(world);
+      simulateReload();
+      world.restoredPubkyOverride = COUNTERPARTY;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(false);
+      expect(storedValue()).toBeNull();
+    });
+
+    it('sign-out clears BOTH the in-memory session and the persisted metadata', async () => {
+      await enableMessaging(world);
+      expect(storedValue()).not.toBeNull();
+      PaykitMessagingService.clearSession();
+      expect(storedValue()).toBeNull();
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
     });
   });
 });
