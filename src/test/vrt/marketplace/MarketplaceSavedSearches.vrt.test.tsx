@@ -5,9 +5,9 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 import { MarketplaceSavedSearches } from '@/organisms/Marketplace/MarketplaceSavedSearches';
 
-// The populated chips-with-NEW-badge state is covered inside the full
-// Marketplace page baselines; this suite pins the organism's empty state and
-// the inline naming flow.
+// Saved searches live in a compact popover off the filter row; this suite
+// pins the trigger (with and without the aggregate NEW badge), the open
+// popover's empty state, the naming flow, and a populated list.
 const view = vi.hoisted(() => ({
   searches: [] as unknown[],
   isSignedIn: true,
@@ -23,29 +23,49 @@ vi.mock('@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches', () =>
   }),
 }));
 
+const SAVED_FIXTURES = [
+  { id: 'search-1', name: 'Y2K denim', new_count: 3 },
+  { id: 'search-2', name: 'Film cameras under ₿200,000', new_count: 0 },
+];
+
+function harness() {
+  return (
+    <div className="mx-auto flex h-96 max-w-5xl justify-end p-6">
+      <MarketplaceSavedSearches />
+    </div>
+  );
+}
+
 describe('Marketplace saved searches — visual regression', () => {
-  it('renders the empty state with the save affordance at desktop viewport', async () => {
+  it('renders the trigger with an aggregate NEW badge at desktop viewport', async () => {
+    view.searches = SAVED_FIXTURES;
+
+    const screen = await renderForVRT(harness(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('saved-searches-trigger-desktop');
+  });
+
+  it('renders the open popover with saved searches at desktop viewport', async () => {
+    view.searches = SAVED_FIXTURES;
+
+    const screen = await renderForVRT(harness(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await screen.getByRole('button', { name: /Saved searches/ }).click();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('saved-searches-open-desktop');
+  });
+
+  it('renders the open popover empty state at desktop viewport', async () => {
     view.searches = [];
 
-    const screen = await renderForVRT(
-      <div className="mx-auto max-w-5xl p-6">
-        <MarketplaceSavedSearches />
-      </div>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
+    const screen = await renderForVRT(harness(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await screen.getByRole('button', { name: /Saved searches/ }).click();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('saved-searches-empty-desktop');
   });
 
-  it('renders the inline naming form after choosing to save at desktop viewport', async () => {
+  it('renders the naming form after choosing to save at desktop viewport', async () => {
     view.searches = [];
 
-    const screen = await renderForVRT(
-      <div className="mx-auto max-w-5xl p-6">
-        <MarketplaceSavedSearches />
-      </div>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
-    await screen.getByRole('button', { name: 'Save current search' }).click();
+    const screen = await renderForVRT(harness(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await screen.getByRole('button', { name: /Saved searches/ }).click();
+    await screen.getByRole('button', { name: 'Save current' }).click();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('saved-searches-naming-desktop');
   });
 });

@@ -28,7 +28,6 @@ import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceFilters } from '@/organisms/Marketplace/MarketplaceFilters';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
-import { MarketplaceSavedSearches } from '@/organisms/Marketplace/MarketplaceSavedSearches';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -184,8 +183,6 @@ export function Marketplace() {
             </div>
           </section>
         )}
-
-        <MarketplaceSavedSearches />
 
         <section id="marketplace-catalog" className="flex scroll-mt-28 flex-col gap-5">
           <MarketplaceFilters resultCount={listings.length} />

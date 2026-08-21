@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Typography } from '@/atoms/Typography/Typography';
 import { COMMERCE_CATEGORIES } from '@/config/commerce';
 import { cn } from '@/libs/utils/utils';
+import { MarketplaceSavedSearches } from '@/organisms/Marketplace/MarketplaceSavedSearches';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import type { CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
 
@@ -68,6 +69,8 @@ export function MarketplaceFilters({ resultCount }: MarketplaceFiltersProps) {
               <SelectItem value="ending_soon">Ending soon</SelectItem>
             </SelectContent>
           </Select>
+
+          <MarketplaceSavedSearches />
 
           <div
             role="group"
