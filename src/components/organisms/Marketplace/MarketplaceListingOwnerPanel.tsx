@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { EyeOff, LinkIcon, PencilLine, Play, Trash2 } from 'lucide-react';
 import { getMarketplaceListingEditRoute, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
@@ -33,6 +33,16 @@ export interface MarketplaceListingOwnerPanelProps {
  * offer the pause/relist toggle.
  */
 export function MarketplaceListingOwnerPanel({ record }: MarketplaceListingOwnerPanelProps) {
+  // Self-heal: listings published before durable-mode registration existed
+  // (or while it failed) have no aggregate on the transaction service, which
+  // makes them un-buyable. Registration is idempotent, so re-run it whenever
+  // the owner views their listing; failures (e.g. no marketplace session yet)
+  // stay silent here — the transactional surfaces already surface session
+  // guidance, and the next visit retries.
+  useEffect(() => {
+    CommerceController.ensureListingRegistered(record).catch(() => {});
+  }, [record]);
+
   const router = useRouter();
   const [isMutating, setIsMutating] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);

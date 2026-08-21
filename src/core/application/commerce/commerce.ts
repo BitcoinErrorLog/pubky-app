@@ -1214,9 +1214,25 @@ export class CommerceApplication {
 
     // Registration is idempotent (skipped when the aggregate already has a server
     // revision), so retrying the whole commit after a failure here is safe.
-    if (getCommerceAdapterMode() === 'sandbox') {
+    // Every transactional mode needs it: without registration the service has
+    // no aggregate for the listing, so checkout/offers/bids dead-end. (This
+    // was sandbox-only once — a relic that left durable-mode listings
+    // unregistered and therefore un-buyable.)
+    if (getCommerceAdapterMode() !== 'unavailable') {
       await this.registerListing(record);
     }
+  }
+
+  /**
+   * Self-heal for listings published while registration failed or was skipped
+   * (e.g. records created before durable-mode registration existed): registers
+   * the listing when the service has no aggregate for it. Idempotent; callers
+   * invoke it from owner-facing surfaces where a session is available.
+   */
+  static async ensureListingRegistered(record: CommerceListingRecord): Promise<boolean> {
+    if (getCommerceAdapterMode() === 'unavailable') return false;
+    await this.registerListing(record);
+    return true;
   }
 
   /**

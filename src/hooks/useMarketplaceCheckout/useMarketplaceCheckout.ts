@@ -193,7 +193,11 @@ export function useMarketplaceCheckout(
           }),
         );
         if (lines.some((line) => line === null)) {
-          toast({ variant: 'error', description: 'Cart terms could not be refreshed.' });
+          toast({
+            variant: 'error',
+            description:
+              'A listing in your cart is not registered for transactions yet — the seller needs to open it once while connected (or republish it). Nothing was ordered.',
+          });
           return;
         }
         const commandId = crypto.randomUUID();

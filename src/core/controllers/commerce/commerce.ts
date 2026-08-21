@@ -228,6 +228,15 @@ export class CommerceController {
     return await CommerceApplication.resumeOwnReviewPublications(this.getCurrentUserPubky());
   }
 
+  /**
+   * Self-heal: registers an own listing with the transaction service when it
+   * has no aggregate there (published before durable-mode registration
+   * existed, or while registration failed). Idempotent.
+   */
+  static async ensureListingRegistered(record: unknown) {
+    return await CommerceApplication.ensureListingRegistered(CommerceRecordNormalizer.listing(record));
+  }
+
   static async getMarketplaceListingProjection(ownerPubky: unknown, listingId: unknown) {
     const owner = CommerceRecordNormalizer.pubky(ownerPubky);
     const id = CommerceRecordNormalizer.entityId(listingId);
