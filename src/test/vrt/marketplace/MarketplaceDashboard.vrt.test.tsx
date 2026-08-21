@@ -59,7 +59,7 @@ const fixtures = vi.hoisted(async () => {
       totalInventory: 6,
       lowStock: 2,
       paidOrders: 4,
-      revenueMinor: 51_300,
+      revenue: [{ amountMinor: 51_300, currency: 'USD', exponent: 2 }],
       openOffers: 2,
     },
     emptyMetrics: {
@@ -67,7 +67,7 @@ const fixtures = vi.hoisted(async () => {
       totalInventory: 0,
       lowStock: 0,
       paidOrders: 0,
-      revenueMinor: 0,
+      revenue: [],
       openOffers: 0,
     },
   };

@@ -14,6 +14,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { amountInputUnitLabel, isSatsAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -154,8 +155,8 @@ export function MarketplaceOffers() {
           <ControlledInputField
             name="amount"
             control={offers.form.control}
-            label="Counter amount (USD)"
-            placeholder="110.00"
+            label={`Counter amount (${countering ? amountInputUnitLabel(countering.amount) : 'USD'})`}
+            placeholder={countering && isSatsAsset(countering.amount) ? '110000' : '110.00'}
           />
           <ControlledInputField name="quantity" control={offers.form.control} label="Quantity" placeholder="1" />
           <ControlledTextareaField

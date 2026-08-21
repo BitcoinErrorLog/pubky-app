@@ -1,9 +1,16 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceListing } from '@/templates/Marketplace/MarketplaceListing';
+
+// Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
+// estimates render from this fixed value, never from the network.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: (enabled: boolean) =>
+    enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
+}));
 
 // Record media resolves to a deterministic data-URI image so the gallery
 // captures a REAL loaded image (main viewer + thumbnails) without any network
@@ -186,7 +193,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   useMarketplaceCart: () => ({
     items: [],
     itemCount: 0,
-    subtotalMinor: 0,
+    subtotals: [],
     isLoading: false,
     add: vi.fn(),
     update: vi.fn(),
@@ -276,6 +283,14 @@ async function setView(overrides: Partial<typeof view>) {
   view.listingTags = [];
   Object.assign(view, overrides);
 }
+
+// The display store persists to localStorage, which the VRT browser shares
+// across test files — pin the defaults so captures never depend on what a
+// previously-run file left behind.
+beforeEach(async () => {
+  const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
+  useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
+});
 
 describe('Marketplace listing detail — visual regression', () => {
   it('renders a fixed-price listing at desktop viewport', async () => {

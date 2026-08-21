@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Bell, Heart, MapPin, PlaneTakeoff, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
+import { ArrowLeft, Bell, Heart, MapPin, Package, PlaneTakeoff, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { TagKind } from '@/application/tag/tag.types';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -18,13 +18,16 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
+import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
+import { formatPackageDimensions, formatWeight } from '@/libs/commerce/units';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCommunityTags';
 import { MarketplaceDigitalDeliveryNotice } from '@/organisms/Marketplace/MarketplaceDigitalDeliveryNotice';
+import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceListingOwnerPanel } from '@/organisms/Marketplace/MarketplaceListingOwnerPanel';
 import { MarketplaceListingSavePicker } from '@/organisms/Marketplace/MarketplaceListingSavePicker';
 import { MarketplaceMediaGallery } from '@/organisms/Marketplace/MarketplaceMediaGallery';
@@ -54,6 +57,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
   const negotiation = useMarketplaceProjection(sellerPubky, listingId);
   const cart = useMarketplaceCart();
+  const measurementSystem = useMeasurementSystem();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
 
   useEffect(() => {
@@ -198,6 +202,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   : ''}
                 {formatCommerceMoney(displayPrice)}
               </Typography>
+              <MarketplaceIndicativePrice money={displayPrice} className="text-sm" />
               {negotiation.projection?.auction && (
                 <Typography as="p" className="mt-1 text-sm text-muted-foreground">
                   {negotiation.projection.auction.bidCount}{' '}
@@ -323,6 +328,20 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   </Typography>
                 </div>
               </div>
+              {record.package && (
+                <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
+                  <Package className="size-5 text-brand" />
+                  <div>
+                    <Typography as="p" className="text-sm font-semibold">
+                      Package
+                    </Typography>
+                    <Typography as="p" className="text-sm text-muted-foreground">
+                      {formatWeight(record.package.weightGrams, measurementSystem)} ·{' '}
+                      {formatPackageDimensions(record.package, measurementSystem)}
+                    </Typography>
+                  </div>
+                </div>
+              )}
             </div>
 
             {record.digitalLock && <MarketplaceDigitalDeliveryNotice adapterMode={adapterMode} />}
@@ -332,6 +351,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 <MarketplaceBidDialog
                   aggregateId={aggregateId}
                   projection={negotiation.projection}
+                  priceAsset={price}
                   onAccepted={negotiation.refresh}
                 />
               ) : (
@@ -357,6 +377,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}
+                      priceAsset={price}
                       onAccepted={negotiation.refresh}
                     />
                   )}

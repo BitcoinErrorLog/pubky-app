@@ -3,6 +3,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { sumMoneyByAsset } from '@/libs/commerce/pricing';
 import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -79,18 +80,22 @@ export function useMarketplaceCart() {
     await CommerceController.commitClearCart();
   };
 
-  const subtotalMinor = (items ?? []).reduce((total, item) => {
-    const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-    const price =
-      variant?.priceOverride ??
-      (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
-    return total + (price?.amountMinor ?? 0) * item.quantity;
-  }, 0);
+  // One subtotal per pricing asset: minor units of different assets (USD
+  // cents, satoshis) are never added into one false number.
+  const subtotals = sumMoneyByAsset(
+    (items ?? []).flatMap((item) => {
+      const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+      const price =
+        variant?.priceOverride ??
+        (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+      return price ? [{ money: price, quantity: item.quantity }] : [];
+    }),
+  );
 
   return {
     items: items ?? [],
     itemCount: (items ?? []).reduce((total, item) => total + item.quantity, 0),
-    subtotalMinor,
+    subtotals,
     isLoading: items === undefined,
     add,
     update,

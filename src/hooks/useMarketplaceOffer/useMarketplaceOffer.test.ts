@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { USD_ASSET } from '@/libs/commerce/pricing';
 import { useMarketplaceOffer } from './useMarketplaceOffer';
 
 vi.mock('@/controllers/commerce/commerce', () => ({
@@ -29,7 +30,7 @@ describe('useMarketplaceOffer', () => {
       eventIds: ['00000000-0000-4000-8000-000000000801'],
       result: { kind: 'offer' },
     });
-    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3, vi.fn()));
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3, vi.fn(), USD_ASSET));
     act(() => {
       result.current.form.setValue('amount', '100.00');
       result.current.form.setValue('quantity', '2');
@@ -58,7 +59,7 @@ describe('useMarketplaceOffer', () => {
   });
 
   it('does not submit without an authoritative revision', async () => {
-    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', null, vi.fn()));
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', null, vi.fn(), USD_ASSET));
     await expect(result.current.submit()).resolves.toBe(false);
     expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
@@ -69,7 +70,7 @@ describe('useMarketplaceOffer', () => {
       error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 4 },
     });
     const onConflict = vi.fn();
-    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3, onConflict));
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3, onConflict, USD_ASSET));
     act(() => {
       result.current.form.setValue('amount', '100.00');
       result.current.form.setValue('quantity', '1');

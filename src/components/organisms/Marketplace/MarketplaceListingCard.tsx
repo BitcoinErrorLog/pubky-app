@@ -14,6 +14,7 @@ import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketpl
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { cn } from '@/libs/utils/utils';
+import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
 
 const MEDIA_BACKGROUNDS = [
@@ -138,6 +139,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
               <Typography as="p" className="text-base font-bold text-brand">
                 {formatCommerceMoney(hasLiveBid ? bid.currentPrice : listing.price)}
               </Typography>
+              <MarketplaceIndicativePrice money={hasLiveBid ? bid.currentPrice : listing.price} />
               {hasLiveBid && (
                 <Typography as="span" className="text-xs text-muted-foreground">
                   {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}

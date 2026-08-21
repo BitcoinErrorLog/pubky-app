@@ -1,9 +1,16 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+
+// Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
+// estimates render from this fixed value, never from the network.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: (enabled: boolean) =>
+    enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
+}));
 
 /**
  * Card-level scenarios for catalog cards rendered from Nexus index entries.
@@ -177,6 +184,14 @@ vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
   }),
 }));
 
+// The display store persists to localStorage, which the VRT browser shares
+// across test files — pin the defaults so captures never depend on what a
+// previously-run file left behind.
+beforeEach(async () => {
+  const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
+  useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
+});
+
 describe('Marketplace listing cards — visual regression', () => {
   it('renders index-entry auction cards with terms, missing terms, and a fixed-price control at desktop viewport', async () => {
     const { termStates, shopNames } = await fixtures;
@@ -186,7 +201,7 @@ describe('Marketplace listing cards — visual regression', () => {
           <MarketplaceListingCard key={listing.id} listing={listing} shopName={shopNames.get(listing.sellerId)} />
         ))}
       </div>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-auction-terms-desktop');
   });
@@ -202,7 +217,7 @@ describe('Marketplace listing cards — visual regression', () => {
           <MarketplaceListingCard key={listing.id} listing={listing} shopName={shopNames.get(listing.sellerId)} />
         ))}
       </div>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-live-bid-desktop');
   });
@@ -215,7 +230,7 @@ describe('Marketplace listing cards — visual regression', () => {
           <MarketplaceListingCard key={listing.id} listing={listing} shopName={shopNames.get(listing.sellerId)} />
         ))}
       </div>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-ending-soon-desktop');
   });

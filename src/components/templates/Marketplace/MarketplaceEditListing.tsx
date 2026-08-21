@@ -61,7 +61,7 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
                 {editing.status === 'not-owner'
                   ? 'You are signed in as a different account than the one that published this listing.'
                   : editing.status === 'unsupported'
-                    ? 'This listing includes digital delivery settings the in-app studio cannot author, so editing it here could break its payment-locked content.'
+                    ? 'This listing uses digital delivery settings or a pricing asset the in-app studio cannot author, so editing it here could break its payment-locked content or silently rewrite its price.'
                     : 'This listing could not be loaded from your device or the network.'}
               </Typography>
               <Button asChild className="mt-6 rounded-full">

@@ -22,6 +22,8 @@ import type {
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMarketplaceShippingPresets } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets';
 import { presetToShippingFields } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
+import { amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
+import { dimensionUnitLabel, weightUnitLabel } from '@/libs/commerce/units';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
@@ -57,8 +59,16 @@ export function MarketplaceListingForm({
   } = media;
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
+  const currency = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY });
+  const measurementSystem = useWatch({
+    control: form.control,
+    name: CREATE_MARKETPLACE_LISTING_FIELDS.MEASUREMENT_SYSTEM,
+  });
   const variants = useFieldArray({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS });
   const isEdit = mode === 'edit';
+  const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
+  const pricePlaceholder = currency === 'SATS' ? '150000' : '125.00';
+  const isImperial = measurementSystem === 'imperial';
   const mediaError =
     pickerError === 'invalid-type'
       ? 'Choose image files only.'
@@ -198,7 +208,7 @@ export function MarketplaceListingForm({
           <Typography as="h2" className="text-xl font-semibold">
             Price and availability
           </Typography>
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-3">
             <FormSelect
               form={form}
               name={CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT}
@@ -209,11 +219,21 @@ export function MarketplaceListingForm({
                 { value: 'auction', label: '7-day auction' },
               ]}
             />
+            <FormSelect
+              form={form}
+              name={CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY}
+              label="Pricing currency"
+              disabled={isPublishing || saleTermsLocked}
+              options={[
+                { value: 'USD', label: 'US dollars (USD)' },
+                { value: 'SATS', label: 'Bitcoin (sats)' },
+              ]}
+            />
             <ControlledInputField
               name={CREATE_MARKETPLACE_LISTING_FIELDS.PRICE}
               control={form.control}
-              label={saleFormat === 'auction' ? 'Starting price (USD)' : 'Price (USD)'}
-              placeholder="125.00"
+              label={saleFormat === 'auction' ? `Starting price (${priceUnit})` : `Price (${priceUnit})`}
+              placeholder={pricePlaceholder}
               disabled={isPublishing || saleTermsLocked}
             />
           </div>
@@ -290,7 +310,7 @@ export function MarketplaceListingForm({
                 <ControlledInputField
                   name={`variants.${index}.priceOverride`}
                   control={form.control}
-                  label="Price override (USD)"
+                  label={`Price override (${priceUnit})`}
                   placeholder="Optional"
                   disabled={isPublishing}
                 />
@@ -356,8 +376,8 @@ export function MarketplaceListingForm({
                 <ControlledInputField
                   name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE}
                   control={form.control}
-                  label="Flat shipping (USD)"
-                  placeholder="12.00"
+                  label={`Flat shipping (${priceUnit})`}
+                  placeholder={currency === 'SATS' ? '15000' : '12.00'}
                   disabled={isPublishing}
                 />
                 <ControlledInputField
@@ -375,36 +395,40 @@ export function MarketplaceListingForm({
                   disabled={isPublishing}
                 />
                 <ControlledInputField
-                  name={CREATE_MARKETPLACE_LISTING_FIELDS.WEIGHT_GRAMS}
+                  name={CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WEIGHT}
                   control={form.control}
-                  label="Weight (grams)"
-                  placeholder="1200"
+                  label={`Weight (${weightUnitLabel(measurementSystem)})`}
+                  placeholder={isImperial ? '42.3' : '1200'}
                   disabled={isPublishing}
                 />
               </div>
               <div className="grid gap-5 sm:grid-cols-3">
                 <ControlledInputField
-                  name={CREATE_MARKETPLACE_LISTING_FIELDS.LENGTH_MM}
+                  name={CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_LENGTH}
                   control={form.control}
-                  label="Length (mm)"
-                  placeholder="350"
+                  label={`Length (${dimensionUnitLabel(measurementSystem)})`}
+                  placeholder={isImperial ? '13.8' : '35.0'}
                   disabled={isPublishing}
                 />
                 <ControlledInputField
-                  name={CREATE_MARKETPLACE_LISTING_FIELDS.WIDTH_MM}
+                  name={CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WIDTH}
                   control={form.control}
-                  label="Width (mm)"
-                  placeholder="250"
+                  label={`Width (${dimensionUnitLabel(measurementSystem)})`}
+                  placeholder={isImperial ? '9.8' : '25.0'}
                   disabled={isPublishing}
                 />
                 <ControlledInputField
-                  name={CREATE_MARKETPLACE_LISTING_FIELDS.HEIGHT_MM}
+                  name={CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_HEIGHT}
                   control={form.control}
-                  label="Height (mm)"
-                  placeholder="150"
+                  label={`Height (${dimensionUnitLabel(measurementSystem)})`}
+                  placeholder={isImperial ? '5.9' : '15.0'}
                   disabled={isPublishing}
                 />
               </div>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Package details are entered in {isImperial ? 'inches and ounces' : 'centimeters and grams'} (your
+                measurement preference) and stored exactly in millimeters and grams.
+              </Typography>
             </>
           )}
         </CardContent>
@@ -592,6 +616,7 @@ function FormSelect({
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.CATEGORY
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.CONDITION
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT
+    | typeof CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.RETURN_DAYS;
   label: string;

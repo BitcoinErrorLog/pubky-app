@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
+import { USD_ASSET } from '@/libs/commerce/pricing';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
@@ -126,6 +127,7 @@ describe('Marketplace dialogs — visual regression', () => {
         <MarketplaceBidDialog
           aggregateId={auctionProjection.aggregateId}
           projection={auctionProjection}
+          priceAsset={USD_ASSET}
           onAccepted={() => {}}
         />
       </DialogHarness>,
@@ -143,6 +145,7 @@ describe('Marketplace dialogs — visual regression', () => {
         <MarketplaceBidDialog
           aggregateId={auctionProjection.aggregateId}
           projection={auctionProjection}
+          priceAsset={USD_ASSET}
           onAccepted={() => {}}
         />
       </DialogHarness>,
@@ -160,6 +163,7 @@ describe('Marketplace dialogs — visual regression', () => {
         <MarketplaceOfferDialog
           aggregateId={auctionProjection.aggregateId}
           expectedRevision={3}
+          priceAsset={USD_ASSET}
           onAccepted={() => {}}
         />
       </DialogHarness>,

@@ -4,6 +4,12 @@ import {
   COMMERCE_LISTING_TITLE_MAX_CHARS,
   COMMERCE_LISTING_TITLE_MIN_CHARS,
 } from '@/config/commerce';
+import {
+  amountInputSchemaForAsset,
+  assetForListingCurrency,
+  type ListingCurrencyChoice,
+} from '@/libs/commerce/pricing';
+import { gramsFromWeightInput, type MeasurementSystem, millimetersFromDimensionInput } from '@/libs/commerce/units';
 
 export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   TITLE: 'title',
@@ -13,6 +19,7 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   COUNTRY_CODE: 'countryCode',
   REGION: 'region',
   SALE_FORMAT: 'saleFormat',
+  CURRENCY: 'currency',
   PRICE: 'price',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
@@ -20,41 +27,80 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   SHIPPING_PRICE: 'shippingPrice',
   SHIPPING_MIN_DAYS: 'shippingMinDays',
   SHIPPING_MAX_DAYS: 'shippingMaxDays',
-  WEIGHT_GRAMS: 'weightGrams',
-  LENGTH_MM: 'lengthMillimeters',
-  WIDTH_MM: 'widthMillimeters',
-  HEIGHT_MM: 'heightMillimeters',
+  MEASUREMENT_SYSTEM: 'measurementSystem',
+  PACKAGE_WEIGHT: 'packageWeight',
+  PACKAGE_LENGTH: 'packageLength',
+  PACKAGE_WIDTH: 'packageWidth',
+  PACKAGE_HEIGHT: 'packageHeight',
   RETURN_DAYS: 'returnDays',
 } as const;
 
-const moneyInputSchema = z
-  .string()
-  .trim()
-  .regex(/^\d+(?:\.\d{1,2})?$/, 'Enter a valid USD amount with at most two decimal places.')
-  .refine((value) => Number(value) > 0, 'Price must be greater than zero.');
+/** Canonical record bounds — the form validates converted values against these. */
+const PACKAGE_WEIGHT_MAX_GRAMS = 1_000_000;
+const PACKAGE_DIMENSION_MAX_MM = 100_000;
 
-const listingVariantSchema = z
-  .object({
-    sku: z.string().trim().max(64, 'SKU must be 64 characters or fewer.'),
-    size: z.string().trim().max(80, 'Size is too long.'),
-    color: z.string().trim().max(80, 'Color is too long.'),
-    style: z.string().trim().max(80, 'Style is too long.'),
-    quantity: z
-      .string()
-      .trim()
-      .regex(/^[1-9]\d*$/, 'Quantity must be a positive whole number.')
-      .refine((value) => Number(value) <= 1_000_000, 'Quantity is too large.'),
-    priceOverride: z.string().trim(),
-  })
-  .superRefine((variant, context) => {
-    if (variant.priceOverride && !moneyInputSchema.safeParse(variant.priceOverride).success) {
-      context.addIssue({
-        code: 'custom',
-        path: ['priceOverride'],
-        message: 'Enter a valid price override.',
-      });
-    }
-  });
+const listingVariantSchema = z.object({
+  sku: z.string().trim().max(64, 'SKU must be 64 characters or fewer.'),
+  size: z.string().trim().max(80, 'Size is too long.'),
+  color: z.string().trim().max(80, 'Color is too long.'),
+  style: z.string().trim().max(80, 'Style is too long.'),
+  quantity: z
+    .string()
+    .trim()
+    .regex(/^[1-9]\d*$/, 'Quantity must be a positive whole number.')
+    .refine((value) => Number(value) <= 1_000_000, 'Quantity is too large.'),
+  priceOverride: z.string().trim(),
+});
+
+function validateMoneyField(
+  value: string,
+  currency: ListingCurrencyChoice,
+  path: Array<string | number>,
+  context: z.RefinementCtx,
+): void {
+  const parsed = amountInputSchemaForAsset(assetForListingCurrency(currency)).safeParse(value);
+  if (!parsed.success) {
+    context.addIssue({
+      code: 'custom',
+      path,
+      message: parsed.error.issues[0]?.message ?? 'Enter a valid amount.',
+    });
+  }
+}
+
+function validatePackageWeight(value: string, system: MeasurementSystem, context: z.RefinementCtx): void {
+  const pattern = system === 'imperial' ? /^\d+(?:\.\d)?$/ : /^\d+$/;
+  const grams = pattern.test(value) ? gramsFromWeightInput(Number(value), system) : Number.NaN;
+  if (!(grams >= 1 && grams <= PACKAGE_WEIGHT_MAX_GRAMS)) {
+    context.addIssue({
+      code: 'custom',
+      path: [CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WEIGHT],
+      message:
+        system === 'imperial'
+          ? 'Enter a package weight in ounces (one decimal allowed).'
+          : 'Enter a package weight in whole grams.',
+    });
+  }
+}
+
+function validatePackageDimension(
+  value: string,
+  field: string,
+  system: MeasurementSystem,
+  context: z.RefinementCtx,
+): void {
+  const millimeters = /^\d+(?:\.\d)?$/.test(value) ? millimetersFromDimensionInput(Number(value), system) : Number.NaN;
+  if (!(millimeters >= 1 && millimeters <= PACKAGE_DIMENSION_MAX_MM)) {
+    context.addIssue({
+      code: 'custom',
+      path: [field],
+      message:
+        system === 'imperial'
+          ? 'Enter a package dimension in inches (one decimal allowed).'
+          : 'Enter a package dimension in centimeters (one decimal allowed).',
+    });
+  }
+}
 
 export const createMarketplaceListingSchema = z
   .object({
@@ -76,29 +122,35 @@ export const createMarketplaceListingSchema = z
       .regex(/^[A-Za-z]{2}$/, 'Enter a two-letter country code.'),
     region: z.string().trim().max(100, 'Region is too long.'),
     saleFormat: z.enum(['fixed_price', 'auction']),
-    price: moneyInputSchema,
+    currency: z.enum(['USD', 'SATS']),
+    price: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical']),
     shippingLabel: z.string().trim().max(100, 'Keep the shipping label under 100 characters.'),
     shippingPrice: z.string().trim(),
     shippingMinDays: z.string().trim(),
     shippingMaxDays: z.string().trim(),
-    weightGrams: z.string().trim(),
-    lengthMillimeters: z.string().trim(),
-    widthMillimeters: z.string().trim(),
-    heightMillimeters: z.string().trim(),
+    measurementSystem: z.enum(['metric', 'imperial']),
+    packageWeight: z.string().trim(),
+    packageLength: z.string().trim(),
+    packageWidth: z.string().trim(),
+    packageHeight: z.string().trim(),
     returnDays: z.enum(['none', '14', '30']),
   })
   .superRefine((data, context) => {
-    if (data.fulfillment === 'physical') {
-      const shipping = moneyInputSchema.safeParse(data.shippingPrice);
-      if (!shipping.success) {
-        context.addIssue({
-          code: 'custom',
-          path: ['shippingPrice'],
-          message: shipping.error.issues[0]?.message ?? 'Shipping price is required.',
-        });
+    validateMoneyField(data.price, data.currency, [CREATE_MARKETPLACE_LISTING_FIELDS.PRICE], context);
+    data.variants.forEach((variant, index) => {
+      if (variant.priceOverride) {
+        validateMoneyField(variant.priceOverride, data.currency, ['variants', index, 'priceOverride'], context);
       }
+    });
+    if (data.fulfillment === 'physical') {
+      validateMoneyField(
+        data.shippingPrice,
+        data.currency,
+        [CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE],
+        context,
+      );
       if (!data.shippingLabel) {
         context.addIssue({
           code: 'custom',
@@ -112,14 +164,14 @@ export const createMarketplaceListingSchema = z
         context.addIssue({
           code: 'custom',
           path: ['shippingMinDays'],
-          message: 'Enter an estimate in whole days (0–365).',
+          message: 'Enter an estimate in whole days (0\u2013365).',
         });
       }
       if (!maxDaysValid) {
         context.addIssue({
           code: 'custom',
           path: ['shippingMaxDays'],
-          message: 'Enter an estimate in whole days (0–365).',
+          message: 'Enter an estimate in whole days (0\u2013365).',
         });
       }
       if (minDaysValid && maxDaysValid && Number(data.shippingMaxDays) < Number(data.shippingMinDays)) {
@@ -129,21 +181,13 @@ export const createMarketplaceListingSchema = z
           message: 'The maximum estimate cannot precede the minimum.',
         });
       }
-      if (!/^[1-9]\d*$/.test(data.weightGrams) || Number(data.weightGrams) > 1_000_000) {
-        context.addIssue({
-          code: 'custom',
-          path: ['weightGrams'],
-          message: 'Enter a package weight in whole grams.',
-        });
-      }
-      for (const field of ['lengthMillimeters', 'widthMillimeters', 'heightMillimeters'] as const) {
-        if (!/^[1-9]\d*$/.test(data[field]) || Number(data[field]) > 100_000) {
-          context.addIssue({
-            code: 'custom',
-            path: [field],
-            message: 'Enter a package dimension in whole millimeters.',
-          });
-        }
+      validatePackageWeight(data.packageWeight, data.measurementSystem, context);
+      for (const field of [
+        CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_LENGTH,
+        CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WIDTH,
+        CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_HEIGHT,
+      ] as const) {
+        validatePackageDimension(data[field], field, data.measurementSystem, context);
       }
     }
     if (data.saleFormat === 'auction' && data.variants.length !== 1) {
@@ -172,6 +216,7 @@ export const createMarketplaceListingDraftSchema = z
     countryCode: z.string(),
     region: z.string(),
     saleFormat: z.enum(['fixed_price', 'auction']),
+    currency: z.enum(['USD', 'SATS']),
     price: z.string(),
     variants: z.array(
       z.object({
@@ -188,18 +233,25 @@ export const createMarketplaceListingDraftSchema = z
     shippingPrice: z.string(),
     shippingMinDays: z.string(),
     shippingMaxDays: z.string(),
+    measurementSystem: z.enum(['metric', 'imperial']),
+    packageWeight: z.string(),
+    packageLength: z.string(),
+    packageWidth: z.string(),
+    packageHeight: z.string(),
+    returnDays: z.enum(['none', '14', '30']),
+    /** Legacy single-photo drafts carried one alt text; tolerated so they still hydrate. */
+    altText: z.string(),
+    /** Legacy drafts stored package fields as raw millimeters/grams; tolerated and converted on restore. */
     weightGrams: z.string(),
     lengthMillimeters: z.string(),
     widthMillimeters: z.string(),
     heightMillimeters: z.string(),
-    returnDays: z.enum(['none', '14', '30']),
-    /** Legacy single-photo drafts carried one alt text; tolerated so they still hydrate. */
-    altText: z.string(),
   })
   .partial()
   .strict();
 
 export type CreateMarketplaceListingData = z.infer<typeof createMarketplaceListingSchema>;
+export type CreateMarketplaceListingDraftData = z.infer<typeof createMarketplaceListingDraftSchema>;
 
 export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   title: '',
@@ -209,6 +261,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   countryCode: 'US',
   region: '',
   saleFormat: 'fixed_price',
+  currency: 'USD',
   price: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
   fulfillment: 'physical',
@@ -216,9 +269,10 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   shippingPrice: '',
   shippingMinDays: '3',
   shippingMaxDays: '7',
-  weightGrams: '',
-  lengthMillimeters: '',
-  widthMillimeters: '',
-  heightMillimeters: '',
+  measurementSystem: 'metric',
+  packageWeight: '',
+  packageLength: '',
+  packageWidth: '',
+  packageHeight: '',
   returnDays: '30',
 };

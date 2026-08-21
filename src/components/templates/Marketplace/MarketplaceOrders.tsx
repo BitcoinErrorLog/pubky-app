@@ -15,6 +15,7 @@ import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
+import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
@@ -93,7 +94,8 @@ export function MarketplaceOrders() {
                         </Typography>
                       ))}
                       <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
-                        {formatCommerceMoney(order.total)}
+                        {formatCommerceMoney(order.total)}{' '}
+                        <MarketplaceIndicativePrice money={order.total} className="text-sm font-normal" />
                       </Typography>
                       <Typography as="p" className="mt-1 text-xs text-muted-foreground">
                         Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)} ·

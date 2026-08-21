@@ -6,22 +6,26 @@ import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { useMarketplaceOffer } from '@/hooks/useMarketplaceOffer/useMarketplaceOffer';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { amountInputUnitLabel, type CommerceAsset, isSatsAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
 export function MarketplaceOfferDialog({
   aggregateId,
   expectedRevision,
+  priceAsset,
   onAccepted,
 }: {
   aggregateId: string;
   expectedRevision: number | null;
+  /** The listing's own pricing asset — offers are made in it, never converted. */
+  priceAsset: CommerceAsset;
   onAccepted: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   // `onAccepted` refreshes the projection, which is exactly the recovery a
   // revision conflict needs: reload the terms/revision, then the user re-offers.
-  const offer = useMarketplaceOffer(aggregateId, expectedRevision, onAccepted);
+  const offer = useMarketplaceOffer(aggregateId, expectedRevision, onAccepted, priceAsset);
   const { requireAuth } = useRequireAuth();
 
   const submit = async () => {
@@ -56,8 +60,8 @@ export function MarketplaceOfferDialog({
           <ControlledInputField
             name="amount"
             control={offer.form.control}
-            label="Offer amount (USD)"
-            placeholder="100.00"
+            label={`Offer amount (${amountInputUnitLabel(priceAsset)})`}
+            placeholder={isSatsAsset(priceAsset) ? '100000' : '100.00'}
           />
           <ControlledInputField name="quantity" control={offer.form.control} label="Quantity" placeholder="1" />
           <ControlledTextareaField

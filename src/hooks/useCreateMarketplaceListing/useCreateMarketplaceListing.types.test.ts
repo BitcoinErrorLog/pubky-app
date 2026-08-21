@@ -10,12 +10,80 @@ describe('createMarketplaceListingSchema', () => {
         description: 'Well cared for boots with light wear.',
         price: '125.00',
         shippingPrice: '12.00',
-        weightGrams: '1200',
-        lengthMillimeters: '350',
-        widthMillimeters: '250',
-        heightMillimeters: '150',
+        packageWeight: '1200',
+        packageLength: '35.0',
+        packageWidth: '25.0',
+        packageHeight: '15.0',
       }).success,
     ).toBe(true);
+  });
+
+  it('accepts imperial package inputs with one decimal', () => {
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...createMarketplaceListingDefaults,
+        title: 'Vintage leather boots',
+        description: 'Well cared for boots with light wear.',
+        price: '125.00',
+        shippingPrice: '12.00',
+        measurementSystem: 'imperial',
+        packageWeight: '42.3',
+        packageLength: '13.8',
+        packageWidth: '9.8',
+        packageHeight: '5.9',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects fractional grams in metric but allows one-decimal ounces in imperial', () => {
+    const base = {
+      ...createMarketplaceListingDefaults,
+      title: 'Vintage leather boots',
+      description: 'Well cared for boots with light wear.',
+      price: '125.00',
+      shippingPrice: '12.00',
+      packageLength: '35.0',
+      packageWidth: '25.0',
+      packageHeight: '15.0',
+    };
+    expect(createMarketplaceListingSchema.safeParse({ ...base, packageWeight: '1200.5' }).success).toBe(false);
+    expect(
+      createMarketplaceListingSchema.safeParse({ ...base, measurementSystem: 'imperial', packageWeight: '42.3' })
+        .success,
+    ).toBe(true);
+  });
+
+  it('accepts whole-sats pricing and rejects decimal sats', () => {
+    const base = {
+      ...createMarketplaceListingDefaults,
+      title: 'Vintage leather boots',
+      description: 'Well cared for boots with light wear.',
+      currency: 'SATS' as const,
+      fulfillment: 'pickup' as const,
+    };
+    expect(createMarketplaceListingSchema.safeParse({ ...base, price: '150000' }).success).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, price: '150000.5' }).success).toBe(false);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, price: '0' }).success).toBe(false);
+  });
+
+  it('validates variant price overrides and shipping in the chosen currency', () => {
+    const base = {
+      ...createMarketplaceListingDefaults,
+      title: 'Vintage leather boots',
+      description: 'Well cared for boots with light wear.',
+      currency: 'SATS' as const,
+      price: '150000',
+      shippingPrice: '15000',
+      packageWeight: '1200',
+      packageLength: '35.0',
+      packageWidth: '25.0',
+      packageHeight: '15.0',
+    };
+    const satsOverride = [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '175000' }];
+    const decimalOverride = [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '175000.50' }];
+    expect(createMarketplaceListingSchema.safeParse({ ...base, variants: satsOverride }).success).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, variants: decimalOverride }).success).toBe(false);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, shippingPrice: '15000.50' }).success).toBe(false);
   });
 
   it('allows pickup without package or shipping fields', () => {

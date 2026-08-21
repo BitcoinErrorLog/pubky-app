@@ -22,6 +22,7 @@ import { formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function MarketplaceCart() {
@@ -109,7 +110,8 @@ export function MarketplaceCart() {
                         </Typography>
                         {price && (
                           <Typography as="p" className="mt-1 font-bold text-brand">
-                            {formatCommerceMoney(price)}
+                            {formatCommerceMoney(price)}{' '}
+                            <MarketplaceIndicativePrice money={price} className="font-normal" />
                           </Typography>
                         )}
                       </div>
@@ -243,9 +245,16 @@ export function MarketplaceCart() {
                 <div className="border-t pt-4">
                   <div className="flex justify-between">
                     <Typography as="span">Items</Typography>
-                    <Typography as="span" className="font-bold">
-                      {formatCommerceMoney({ amountMinor: cart.subtotalMinor, currency: 'USD', exponent: 2 })}
-                    </Typography>
+                    {/* One line per pricing asset: USD cents and satoshis are
+                        never summed into one false number. */}
+                    <div className="flex flex-col items-end">
+                      {cart.subtotals.map((subtotal) => (
+                        <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
+                          {formatCommerceMoney(subtotal)}{' '}
+                          <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
+                        </Typography>
+                      ))}
+                    </div>
                   </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
                     {isSandbox

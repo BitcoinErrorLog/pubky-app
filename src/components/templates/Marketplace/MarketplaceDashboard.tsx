@@ -159,13 +159,12 @@ export function MarketplaceDashboard() {
                 { label: 'Paid orders', value: dashboard.metrics.paidOrders, icon: TrendingUp },
                 {
                   // In sandbox mode this number is simulated and must say so;
-                  // in the durable modes it reflects real orders.
+                  // in the durable modes it reflects real orders. One figure
+                  // per pricing asset — never a cross-asset sum.
                   label: getCommerceAdapterMode() === 'sandbox' ? 'Sandbox revenue' : 'Revenue',
-                  value: formatCommerceMoney({
-                    amountMinor: dashboard.metrics.revenueMinor,
-                    currency: 'USD',
-                    exponent: 2,
-                  }),
+                  value: dashboard.metrics.revenue.length
+                    ? dashboard.metrics.revenue.map(formatCommerceMoney).join(' + ')
+                    : formatCommerceMoney({ amountMinor: 0, currency: 'USD', exponent: 2 }),
                   icon: TrendingUp,
                 },
               ].map(({ label, value, icon: Icon }) => (
@@ -288,11 +287,14 @@ export function MarketplaceDashboard() {
                                 {listing.record.variants.reduce((total, variant) => total + variant.quantity, 0)}
                               </td>
                               <td className="p-3">
-                                {formatCommerceMoney({
-                                  amountMinor: listing.price_minor,
-                                  currency: listing.currency,
-                                  exponent: 2,
-                                })}
+                                {/* The record's own price money: the model row's
+                                    `price_minor` has no exponent column, and
+                                    assuming 2 misstates satoshi-priced listings. */}
+                                {formatCommerceMoney(
+                                  listing.record.sale.format === 'fixed_price'
+                                    ? listing.record.sale.unitPrice
+                                    : listing.record.sale.startingPrice,
+                                )}
                               </td>
                               <td className="p-3">
                                 <Button asChild size="sm" variant="ghost" className="rounded-full">

@@ -49,6 +49,7 @@ import {
   type WatchObservation,
   type WatchProjectionObservation,
 } from '@/pipes/marketplaceWatch/marketplaceWatch.detector';
+import { ExchangerateService } from '@/services/exchangerate/exchangerate';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
@@ -487,6 +488,16 @@ export class CommerceApplication {
 
   static getPaykitSetupUrl(returnTo: string, state: string) {
     return LocksGatewayService.buildPaykitSetupUrl(returnTo, state);
+  }
+
+  /**
+   * BTC/USD rate for the indicative "≈" price estimates shown beside listing
+   * prices. Display-only: nothing transactional consumes this rate, and it
+   * throws when unavailable so the UI shows no estimate instead of a stale
+   * or invented number.
+   */
+  static async getIndicativeBtcRate() {
+    return await ExchangerateService.getIndicativeBtcRate();
   }
 
   static async isFavorite(ownerPubky: string, listingId: string): Promise<boolean> {

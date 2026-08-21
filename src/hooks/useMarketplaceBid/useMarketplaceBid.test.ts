@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { USD_ASSET } from '@/libs/commerce/pricing';
 import { useMarketplaceBid } from './useMarketplaceBid';
 
 vi.mock('@/controllers/commerce/commerce', () => ({
@@ -29,7 +30,7 @@ describe('useMarketplaceBid', () => {
       eventIds: ['00000000-0000-4000-8000-000000000811'],
       result: { kind: 'bid' },
     });
-    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, vi.fn()));
+    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, vi.fn(), USD_ASSET));
     act(() => result.current.form.setValue('maximumAmount', '150.00'));
 
     let succeeded = false;
@@ -56,7 +57,7 @@ describe('useMarketplaceBid', () => {
       error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 5 },
     });
     const onConflict = vi.fn();
-    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, onConflict));
+    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, onConflict, USD_ASSET));
     act(() => result.current.form.setValue('maximumAmount', '150.00'));
 
     let succeeded = true;

@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { amountInputSchemaForAsset, amountInputToMoney, type CommerceAsset } from '@/libs/commerce/pricing';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import {
@@ -17,10 +18,16 @@ export interface UseMarketplaceOfferResult {
   reset: () => void;
 }
 
+/**
+ * `priceAsset` is the listing's own pricing asset: the offer's money is built
+ * in it (sats offers on sats listings, USD on USD) because the record and
+ * service reject cross-asset amounts.
+ */
 export function useMarketplaceOffer(
   aggregateId: string,
   expectedRevision: number | null,
   onConflict: () => void | Promise<void>,
+  priceAsset: CommerceAsset,
 ): UseMarketplaceOfferResult {
   const form = useForm<MarketplaceOfferData>({
     resolver: zodResolver(marketplaceOfferSchema),
@@ -32,6 +39,11 @@ export function useMarketplaceOffer(
     if (expectedRevision === null) return false;
     let succeeded = false;
     await form.handleSubmit(async (data) => {
+      const assetCheck = amountInputSchemaForAsset(priceAsset).safeParse(data.amount);
+      if (!assetCheck.success) {
+        form.setError('amount', { message: assetCheck.error.issues[0]?.message ?? 'Enter a valid amount.' });
+        return;
+      }
       try {
         const response = await CommerceController.executeMarketplaceCommand({
           version: 1,
@@ -41,7 +53,7 @@ export function useMarketplaceOffer(
           issuedAt: new Date().toISOString(),
           kind: 'offer.create',
           payload: {
-            amount: { amountMinor: Math.round(Number(data.amount) * 100), currency: 'USD', exponent: 2 },
+            amount: amountInputToMoney(data.amount, priceAsset),
             quantity: Number(data.quantity),
             expiresInSeconds: 24 * 60 * 60,
             message: data.message,

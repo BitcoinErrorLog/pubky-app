@@ -85,14 +85,33 @@ export class ExchangerateService {
   static async getSatoshiUsdRate(): Promise<BtcRate> {
     return exchangerateQueryClient.fetchQuery({
       queryKey: ['exchangerate', 'btc-rate'],
-      queryFn: async () => {
-        const btcusd = await ExchangerateService.getBtcUsdRate();
-        return {
-          satUsd: btcusd / 100_000_000,
-          btcUsd: btcusd,
-          lastUpdatedAt: new Date(),
-        };
-      },
+      queryFn: ExchangerateService.fetchBtcRate,
     });
+  }
+
+  /**
+   * The BTC rate for indicative marketplace price estimates. Same source and
+   * cache entry as `getSatoshiUsdRate`, but refetched when older than five
+   * minutes: an "≈" estimate shown beside every listing price should not be
+   * half an hour stale.
+   *
+   * @throws {AppError} If the API request fails or the response is invalid —
+   * callers must render NO estimate in that case, never a fallback number.
+   */
+  static async getIndicativeBtcRate(): Promise<BtcRate> {
+    return exchangerateQueryClient.fetchQuery({
+      queryKey: ['exchangerate', 'btc-rate'],
+      queryFn: ExchangerateService.fetchBtcRate,
+      staleTime: 5 * 60 * 1000,
+    });
+  }
+
+  private static async fetchBtcRate(): Promise<BtcRate> {
+    const btcusd = await ExchangerateService.getBtcUsdRate();
+    return {
+      satUsd: btcusd / 100_000_000,
+      btcUsd: btcusd,
+      lastUpdatedAt: new Date(),
+    };
   }
 }

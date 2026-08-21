@@ -6,6 +6,13 @@ import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.view
 import { MarketplaceFollowedSellersShelf } from '@/organisms/Marketplace/MarketplaceFollowedSellersShelf';
 import { MarketplaceHotSection } from '@/organisms/Marketplace/MarketplaceHotSection';
 
+// No rate in this capture: the indicative-rate hook resolves to null (no
+// rate -> no estimate), keeping the scenario network-free and the cards
+// byte-identical to the pre-estimate baseline.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: () => null,
+}));
+
 /**
  * The social-discovery marketplace surfaces: the home-feed "From sellers you
  * follow" shelf and the Hot-page "Ending soon" / "Fresh listings" modules.
@@ -169,7 +176,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       <SurfaceHost>
         <MarketplaceFollowedSellersShelf />
       </SurfaceHost>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('followed-sellers-shelf-desktop');
   });
@@ -181,7 +188,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       <SurfaceHost>
         <MarketplaceFollowedSellersShelf />
       </SurfaceHost>,
-      { viewport: VRT_VIEWPORT_MOBILE },
+      { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('followed-sellers-shelf-mobile');
   });
@@ -192,7 +199,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       <SurfaceHost>
         <MarketplaceFollowedSellersShelf />
       </SurfaceHost>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('followed-sellers-shelf-absent');
   });
@@ -204,7 +211,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       <SurfaceHost>
         <MarketplaceHotSection />
       </SurfaceHost>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-marketplace-modules-desktop');
   });
@@ -216,7 +223,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       <SurfaceHost>
         <MarketplaceHotSection />
       </SurfaceHost>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-marketplace-fresh-only-desktop');
   });
@@ -227,7 +234,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       <SurfaceHost>
         <MarketplaceHotSection />
       </SurfaceHost>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-marketplace-modules-absent');
   });

@@ -10,6 +10,7 @@ import {
   marketplaceOfferDefaults,
   marketplaceOfferSchema,
 } from '@/hooks/useMarketplaceOffer/useMarketplaceOffer.types';
+import { amountInputSchemaForAsset, amountInputToMoney } from '@/libs/commerce/pricing';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -92,6 +93,13 @@ export function useMarketplaceOffers() {
   const counter = async (offer: MarketplaceOffer): Promise<boolean> => {
     let succeeded = false;
     await form.handleSubmit(async (data) => {
+      // Counters are made in the offer's own asset (sats counters on sats
+      // offers): the record and service reject cross-asset amounts.
+      const assetCheck = amountInputSchemaForAsset(offer.amount).safeParse(data.amount);
+      if (!assetCheck.success) {
+        form.setError('amount', { message: assetCheck.error.issues[0]?.message ?? 'Enter a valid amount.' });
+        return;
+      }
       try {
         const response = await CommerceController.executeMarketplaceCommand({
           version: 1,
@@ -102,7 +110,7 @@ export function useMarketplaceOffers() {
           kind: 'offer.counter',
           payload: {
             offerId: offer.id,
-            amount: { amountMinor: Math.round(Number(data.amount) * 100), currency: 'USD', exponent: 2 },
+            amount: amountInputToMoney(data.amount, offer.amount),
             quantity: Number(data.quantity),
             expiresInSeconds: 24 * 60 * 60,
             message: data.message,
