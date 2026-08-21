@@ -1,7 +1,12 @@
 'use client';
 
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
-import { getCommerceAdapterMode, getCommercePollIntervalMs, isTransactionalCommerceMode } from '@/config/commerce';
+import {
+  getCommerceAdapterMode,
+  getCommercePollIntervalMs,
+  isDurableCommerceMode,
+  isTransactionalCommerceMode,
+} from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { MarketplaceListingProjection } from '@/services/marketplace/marketplace';
@@ -56,15 +61,18 @@ async function loadProjection(
 ): Promise<void> {
   if (!isTransactionalCommerceMode(getCommerceAdapterMode())) return;
   try {
-    const next = await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId);
+    let next = await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId);
+    // An unregistered listing is healable by ANY signed-in user: the service
+    // fetches the canonical seller-signed record from the homeserver itself
+    // (`listing.sync`). Exactly one attempt per poll cycle, then one re-read.
+    // A signed-out visitor never reaches this point in durable mode — the
+    // projection read itself throws the session requirement first, so the
+    // needsSession affordance takes precedence over any sync attempt.
+    if (!next && isDurableCommerceMode(getCommerceAdapterMode())) {
+      next = await syncThenReread(sellerPubky, listingId);
+    }
     setProjection(next);
-    // Registration is a seller-authenticated command, so a buyer cannot heal
-    // this state — say what is wrong and whose action fixes it.
-    setError(
-      next
-        ? null
-        : 'This listing is not set up for checkout yet — the seller needs to open it once while connected. You can watch it or message the seller meanwhile.',
-    );
+    setError(next ? null : 'This listing could not be prepared for checkout. It may have been removed by the seller.');
     setNeedsSession(false);
   } catch (loadError) {
     // A missing/expired marketplace session is not a dead end: flag it so the
@@ -77,5 +85,20 @@ async function loadProjection(
     );
   } finally {
     setIsLoading(false);
+  }
+}
+
+/**
+ * One `listing.sync` attempt followed by one projection re-read. Sync
+ * failures are deliberately swallowed here: the caller's honest "could not
+ * be prepared" copy is the fallback, and the next poll cycle retries.
+ */
+async function syncThenReread(sellerPubky: string, listingId: string): Promise<MarketplaceListingProjection | null> {
+  try {
+    const response = await CommerceController.syncListingRegistration(sellerPubky, listingId);
+    if (!response.ok) return null;
+    return await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId);
+  } catch {
+    return null;
   }
 }

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
-import { getCommerceAdapterMode } from '@/config/commerce';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import {
@@ -43,6 +43,22 @@ function addressFieldValues(
     postalCode: address.postal_code,
     countryCode: address.country_code,
   };
+}
+
+/**
+ * One `listing.sync` attempt followed by one projection re-read — the
+ * buyer-side heal for a cart line whose listing was published before
+ * durable-mode registration existed. Sync failures fall through to the
+ * caller's honest failure toast.
+ */
+async function syncLineProjection(ownerPubky: string, listingId: string) {
+  try {
+    const response = await CommerceController.syncListingRegistration(ownerPubky, listingId);
+    if (!response.ok) return null;
+    return await CommerceController.getMarketplaceListingProjection(ownerPubky, listingId);
+  } catch {
+    return null;
+  }
 }
 
 function formMatchesAddress(
@@ -180,10 +196,16 @@ export function useMarketplaceCheckout(
         const lines = await Promise.all(
           items.map(async (item) => {
             const record = item.listing.record;
-            const projection = await CommerceController.getMarketplaceListingProjection(
+            let projection = await CommerceController.getMarketplaceListingProjection(
               record.ownerPubky,
               record.listingId,
             );
+            // An unregistered line is healable by the buyer: one sync
+            // attempt per listing per submit, then one re-read, before the
+            // line is declared dead.
+            if (!projection && isDurableCommerceMode(getCommerceAdapterMode())) {
+              projection = await syncLineProjection(record.ownerPubky, record.listingId);
+            }
             if (!projection) return null;
             // Snapshot the chosen variant for fulfillment display: the id and
             // its option dimensions ride the line as an ordered {name, value}
@@ -206,7 +228,7 @@ export function useMarketplaceCheckout(
           toast({
             variant: 'error',
             description:
-              'A listing in your cart is not registered for transactions yet — the seller needs to open it once while connected (or republish it). Nothing was ordered.',
+              'A listing in your cart could not be prepared for checkout. It may have been removed by the seller. Nothing was ordered.',
           });
           return;
         }

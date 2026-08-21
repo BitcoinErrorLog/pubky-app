@@ -7,6 +7,7 @@ import {
   COMMERCE_WATCH_CHECK_MAX_ITEMS,
   COMMERCE_WATCH_ENDING_SOON_THRESHOLD_MS,
   getCommerceAdapterMode,
+  isDurableCommerceMode,
   isTransactionalCommerceMode,
   MARKETPLACE_FOLLOWED_SHELF_MAX_SELLER_FETCHES,
 } from '@/config/commerce';
@@ -1441,6 +1442,39 @@ export class CommerceApplication {
     if (getCommerceAdapterMode() === 'unavailable') return false;
     await this.registerListing(record);
     return true;
+  }
+
+  /**
+   * Buyer-side heal (`listing.sync`, durable modes only): asks the
+   * transaction service to fetch the canonical seller-signed record from the
+   * seller's homeserver itself and register (or refresh) the aggregate from
+   * it. Unlike {@link ensureListingRegistered}, the actor need NOT be the
+   * seller — provenance comes from the service's homeserver fetch, not from
+   * the session — so any signed-in user can heal a listing published before
+   * durable-mode registration existed. Convergent: `expectedRevision` is
+   * always 0 and a pre-existing aggregate is a no-op success.
+   */
+  static async syncListingRegistration(
+    actorPubky: string,
+    sellerPubky: string,
+    listingId: string,
+  ): Promise<MarketplaceCommandResponse> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Listing sync requires the durable transaction service.', {
+        service: ErrorService.Marketplace,
+        operation: 'syncListingRegistration',
+      });
+    }
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'listing.sync',
+      payload: { sellerPubky, listingId },
+    });
+    return await MarketplaceGatewayService.execute(actorPubky, command);
   }
 
   /**

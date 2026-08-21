@@ -28,9 +28,19 @@ const item: MarketplaceCartItem = {
   },
 };
 
+const config = vi.hoisted(() => ({
+  mode: 'sandbox' as string,
+}));
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommerceAdapterMode: () => config.mode };
+});
+
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMarketplaceListingProjection: vi.fn(),
+    syncListingRegistration: vi.fn(),
     executeMarketplaceCommand: vi.fn(),
     getDeliveryAddresses: vi.fn(async () => []),
     commitUpsertDeliveryAddress: vi.fn(async () => {}),
@@ -71,6 +81,7 @@ const savedAddress = {
 describe('useMarketplaceCheckout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    config.mode = 'sandbox';
     authMock.currentUserPubky = null;
     vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([]);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000001100');
@@ -143,6 +154,76 @@ describe('useMarketplaceCheckout', () => {
       }),
     );
     expect(clear).toHaveBeenCalled();
+  });
+
+  it('heals an unregistered cart line with one sync before checking out', async () => {
+    config.mode = 'transaction-service';
+    const registered = {
+      aggregateId: `listing:${listing.ownerPubky}_${listing.listingId}`,
+      serverRevision: 1,
+    };
+    vi.mocked(CommerceController.getMarketplaceListingProjection)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(registered as never);
+    vi.mocked(CommerceController.syncListingRegistration).mockResolvedValue({ ok: true, revision: 1 } as never);
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+    });
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(true);
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledWith(listing.ownerPubky, listing.listingId);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'checkout.create',
+        payload: expect.objectContaining({
+          lines: [expect.objectContaining({ listingAggregateId: registered.aggregateId, expectedRevision: 1 })],
+        }),
+      }),
+    );
+  });
+
+  it('fails honestly when the line sync also cannot register the listing', async () => {
+    config.mode = 'transaction-service';
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(null);
+    vi.mocked(CommerceController.syncListingRegistration).mockResolvedValue({
+      ok: false,
+      error: { code: 'NOT_FOUND', message: "The seller's homeserver has no such listing record." },
+    } as never);
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+    });
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringContaining('could not be prepared for checkout') }),
+    );
   });
 
   it('keeps the cart and asks for a retry when a listing revision conflicts mid-checkout', async () => {

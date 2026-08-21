@@ -95,6 +95,16 @@ describe('client contracts match the canonical service artifact', () => {
     },
   );
 
+  it('declares the buyer-side listing.sync command on the listing aggregate', () => {
+    // `listing.sync` is the service-side heal for listings published before
+    // durable-mode registration existed: the service fetches the canonical
+    // seller-signed homeserver record itself, so ANY authenticated user may
+    // issue it. A vendored artifact missing it is stale.
+    const listing = aggregates.find(({ aggregate }) => aggregate === 'listing');
+    expect(listing?.commands).toContain('listing.sync');
+    expect(listing?.commands).toContain('listing.register');
+  });
+
   it.each(aggregates.map((aggregate) => [aggregate.aggregate, aggregate] as const))(
     'declares every %s state in the transition table, reachable or not',
     (name, contract) => {

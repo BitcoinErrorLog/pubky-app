@@ -49,6 +49,7 @@ import { MarketplaceSessionService } from './marketplace-session';
  */
 const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']> = new Set([
   'listing.register',
+  'listing.sync',
   'inventory.reserve',
   'checkout.create',
   'offer.create',

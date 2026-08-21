@@ -174,6 +174,52 @@ describe('CommerceApplication', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it('issues listing.sync as a convergent command any actor may send', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770130');
+    const response = {
+      ok: true as const,
+      version: 1 as const,
+      commandId: '018f47d2-6a27-7c23-a49d-6b21bb770130',
+      aggregateId: `listing:${COMMERCE_FIXTURE_SELLER}_boots_01`,
+      revision: 1,
+      eventIds: [],
+      result: { kind: 'listing' as const },
+    };
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(response);
+    const buyer = 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u';
+
+    await expect(
+      CommerceApplication.syncListingRegistration(buyer, COMMERCE_FIXTURE_SELLER, 'boots_01'),
+    ).resolves.toEqual(response);
+
+    // The buyer — not the seller — is the acting identity, and the command
+    // is convergent: expectedRevision is always 0.
+    expect(execute).toHaveBeenCalledWith(
+      buyer,
+      expect.objectContaining({
+        kind: 'listing.sync',
+        aggregateId: `listing:${COMMERCE_FIXTURE_SELLER}_boots_01`,
+        expectedRevision: 0,
+        payload: { sellerPubky: COMMERCE_FIXTURE_SELLER, listingId: 'boots_01' },
+      }),
+    );
+  });
+
+  it('refuses listing.sync outside the durable transaction-service modes', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    await expect(
+      CommerceApplication.syncListingRegistration(
+        'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u',
+        COMMERCE_FIXTURE_SELLER,
+        'boots_01',
+      ),
+    ).rejects.toThrow('Listing sync requires the durable transaction service.');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('deletes a listing from the homeserver, then every local cache, then its media', async () => {
     const record = createCommerceListingFixture();
     const compositeId = `${record.ownerPubky}:${record.listingId}`;
