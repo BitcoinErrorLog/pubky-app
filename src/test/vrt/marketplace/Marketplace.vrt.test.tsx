@@ -1,9 +1,12 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildFeatureDiscoveryStorageKey, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { Marketplace } from '@/templates/Marketplace/Marketplace';
+
+const VRT_USER_PUBKY = vi.hoisted(() => 'y'.repeat(52));
 
 const fixtures = vi.hoisted(async () => {
   const { createCommerceSandboxCatalog } = await import('@/libs/commerce/sandbox-catalog');
@@ -24,6 +27,11 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
+}));
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: VRT_USER_PUBKY }),
 }));
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
@@ -53,9 +61,22 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('Marketplace — visual regression', () => {
-  it('renders the sandbox catalog at desktop viewport', async () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('renders the sandbox catalog with the promo visible at desktop viewport', async () => {
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-desktop');
+  });
+
+  it('renders the sandbox catalog with the promo dismissed at desktop viewport', async () => {
+    window.localStorage.setItem(
+      buildFeatureDiscoveryStorageKey(VRT_USER_PUBKY, MARKETPLACE_PROMO_STORAGE_ID),
+      'dismissed',
+    );
+    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-promo-dismissed-desktop');
   });
 
   it('renders the sandbox catalog at mobile viewport', async () => {
