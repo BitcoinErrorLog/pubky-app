@@ -308,6 +308,15 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
   moderatedTags: z.array(nonEmptyStringValue).default([...APP_RUNTIME_DEFAULTS.moderatedTags]),
   exchangeRateApi: urlValue.default(APP_RUNTIME_DEFAULTS.exchangeRateApi),
   marketplaceUrl: urlValue.default(APP_RUNTIME_DEFAULTS.marketplaceUrl),
+  /**
+   * Marketplace-only Nexus override. The official Nexus deployments do not
+   * serve the marketplace index endpoints (`v0/stream/listings`), which live
+   * on a dedicated marketplace-indexing Nexus deployed separately. When set,
+   * ONLY commerce/marketplace Nexus reads go here; every social surface keeps
+   * using `nexusUrl`. Absent means marketplace reads use `nexusUrl` too (see
+   * `getMarketplaceNexusUrl`).
+   */
+  marketplaceNexusUrl: urlValue.optional(),
   locksUrl: urlValue.default(APP_RUNTIME_DEFAULTS.locksUrl),
   paykitSetupUrl: urlValue.default(APP_RUNTIME_DEFAULTS.paykitSetupUrl),
   commerceAdapterMode: commerceAdapterModeValue.default(APP_RUNTIME_DEFAULTS.commerceAdapterMode),
@@ -385,6 +394,7 @@ export const runtimeEnvInputSchema = z
     moderatedTags: optionalStringArrayFromString('MODERATED_TAGS'),
     exchangeRateApi: optionalUrlFromString,
     marketplaceUrl: optionalUrlFromString,
+    marketplaceNexusUrl: optionalUrlFromString,
     locksUrl: optionalUrlFromString,
     paykitSetupUrl: optionalUrlFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
@@ -469,6 +479,7 @@ export const runtimeEnvInputSchemaWithDefaults = z
     moderatedTags: optionalStringArrayFromString('MODERATED_TAGS'),
     exchangeRateApi: optionalUrlFromString,
     marketplaceUrl: optionalUrlFromString,
+    marketplaceNexusUrl: optionalUrlFromString,
     locksUrl: optionalUrlFromString,
     paykitSetupUrl: optionalUrlFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
@@ -545,6 +556,7 @@ export const PUBKY_RUNTIME_ENV_NAMES: Record<keyof RuntimeConfig, string> = {
   moderatedTags: 'PUBKY_RUNTIME_MODERATED_TAGS',
   exchangeRateApi: 'PUBKY_RUNTIME_EXCHANGE_RATE_API',
   marketplaceUrl: 'PUBKY_RUNTIME_MARKETPLACE_URL',
+  marketplaceNexusUrl: 'PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL',
   locksUrl: 'PUBKY_RUNTIME_LOCKS_URL',
   paykitSetupUrl: 'PUBKY_RUNTIME_PAYKIT_SETUP_URL',
   commerceAdapterMode: 'PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE',

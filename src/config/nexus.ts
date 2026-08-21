@@ -1,8 +1,14 @@
-import { getCdnUrl, getNexusUrl, getStreamCacheMaxAgeMs } from '@/libs/runtime-config/runtime-config';
+import {
+  getCdnUrl,
+  getMarketplaceNexusUrl,
+  getNexusUrl,
+  getStreamCacheMaxAgeMs,
+} from '@/libs/runtime-config/runtime-config';
 
 // Runtime-configurable: read via getters at call time (PUBKY_RUNTIME_*, staging defaults in
-// dev/test). See @/libs/runtime-config.
-export { getCdnUrl, getNexusUrl, getStreamCacheMaxAgeMs };
+// dev/test). See @/libs/runtime-config. `getMarketplaceNexusUrl` is for commerce/marketplace
+// index reads ONLY and falls back to `getNexusUrl` when the override is unset.
+export { getCdnUrl, getMarketplaceNexusUrl, getNexusUrl, getStreamCacheMaxAgeMs };
 
 export const NEXUS_LISTINGS_PER_PAGE = 30; // Nexus caps the marketplace listing stream `limit` at 30
 export const NEXUS_NOTIFICATIONS_LIMIT = 30;

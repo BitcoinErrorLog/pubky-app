@@ -11,6 +11,13 @@ export type TBuildUrlWithQueryParams = {
   params: Record<string, unknown>;
   /** Keys that are path parameters and should be excluded from query string */
   excludeKeys?: readonly string[];
+  /**
+   * Nexus base URL override. Defaults to the main `getNexusUrl()`; the only
+   * caller that overrides it is the marketplace index API, which routes
+   * through `getMarketplaceNexusUrl()` (the marketplace endpoints may live on
+   * a dedicated Nexus deployment).
+   */
+  baseUrl?: string;
 };
 
 /**

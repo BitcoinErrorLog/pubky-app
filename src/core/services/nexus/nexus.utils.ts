@@ -37,7 +37,7 @@ export function encodePathSegment(segment: string): string {
  * @param excludeKeys - Array of keys that are path parameters and should be excluded from query string
  * @returns Full Nexus URL with query parameters appended
  */
-export function buildUrlWithQuery({ baseRoute, params, excludeKeys = [] }: TBuildUrlWithQueryParams): string {
+export function buildUrlWithQuery({ baseRoute, params, excludeKeys = [], baseUrl }: TBuildUrlWithQueryParams): string {
   const queryParams = new URLSearchParams();
 
   // Add only query parameters (exclude path params)
@@ -50,7 +50,7 @@ export function buildUrlWithQuery({ baseRoute, params, excludeKeys = [] }: TBuil
   const queryString = queryParams.toString();
   const relativeUrl = queryString ? `${baseRoute}?${queryString}` : baseRoute;
 
-  return buildNexusUrl(relativeUrl);
+  return baseUrl !== undefined ? `${baseUrl}/${relativeUrl}` : buildNexusUrl(relativeUrl);
 }
 
 /**

@@ -194,6 +194,15 @@ export const getModerationId = (): string | undefined => getRuntimeConfig().mode
 export const getModeratedTags = (): string[] => getRuntimeConfig().moderatedTags;
 export const getExchangeRateApi = (): string => getRuntimeConfig().exchangeRateApi;
 export const getMarketplaceUrl = (): string => getRuntimeConfig().marketplaceUrl;
+/**
+ * Nexus base URL for marketplace/commerce index reads ONLY. Falls back to the
+ * main `nexusUrl` when `PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL` is unset — the
+ * override exists because official Nexus deployments do not serve the
+ * marketplace index endpoints yet. Social surfaces must keep using
+ * `getNexusUrl`.
+ */
+export const getMarketplaceNexusUrl = (): string =>
+  getRuntimeConfig().marketplaceNexusUrl ?? getRuntimeConfig().nexusUrl;
 export const getLocksUrl = (): string => getRuntimeConfig().locksUrl;
 export const getPaykitSetupUrl = (): string => getRuntimeConfig().paykitSetupUrl;
 export const getCommerceAdapterMode = (): CommerceAdapterMode => getRuntimeConfig().commerceAdapterMode;

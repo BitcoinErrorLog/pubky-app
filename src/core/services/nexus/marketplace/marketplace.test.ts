@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getNexusUrl } from '@/config/nexus';
 import { queryNexus } from '@/services/nexus/nexus.utils';
 import { createNexusListingDetailsFixture } from '@/test/fixtures/commerce/commerce';
@@ -13,11 +13,37 @@ vi.mock('@/services/nexus/nexus.utils', async (importOriginal) => {
   };
 });
 
+// Overridable stand-in for PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL: unset (null)
+// keeps the real accessor's fallback-to-nexusUrl behavior, which is what the
+// pre-existing URL assertions below rely on.
+const nexusConfigOverride = vi.hoisted(() => ({ marketplaceNexusUrl: null as string | null }));
+
+vi.mock('@/config/nexus', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/config/nexus')>();
+  return {
+    ...actual,
+    getMarketplaceNexusUrl: () => nexusConfigOverride.marketplaceNexusUrl ?? actual.getMarketplaceNexusUrl(),
+  };
+});
+
 const mockQueryNexus = vi.mocked(queryNexus);
 
 describe('Marketplace API', () => {
+  afterEach(() => {
+    nexusConfigOverride.marketplaceNexusUrl = null;
+  });
+
   it('builds the bare listing stream URL when no filters are set', () => {
     expect(marketplaceApi.listingStream({})).toBe(`${getNexusUrl()}/v0/stream/listings`);
+  });
+
+  it('routes listing stream URLs through the marketplace Nexus override when one is configured', () => {
+    nexusConfigOverride.marketplaceNexusUrl = 'https://marketplace-nexus.example.com';
+
+    const url = marketplaceApi.listingStream({ state: 'active' });
+
+    expect(url).toBe('https://marketplace-nexus.example.com/v0/stream/listings?state=active');
+    expect(url).not.toContain(getNexusUrl());
   });
 
   it('serializes server-side filters and pagination as query parameters', () => {

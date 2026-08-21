@@ -4,6 +4,7 @@ import {
   getCommerceAdapterMode,
   getCommercePollIntervalMs,
   getLocksUrl,
+  getMarketplaceNexusUrl,
   getMarketplaceUrl,
   getPaykitSetupUrl,
   getRuntimeConfig,
@@ -179,6 +180,23 @@ describe('runtime-config resolver', () => {
       expect(config.nexusUrl).toBe('http://localhost:8080');
       expect(config.cdnUrl).toBe(NETWORK_RUNTIME_DEFAULTS.cdnUrl);
       expect(config.testnet).toBe(NETWORK_RUNTIME_DEFAULTS.testnet);
+    });
+
+    it('routes marketplace Nexus reads through the override and falls back to nexusUrl when unset', () => {
+      setAllRuntimeEnv();
+      expect(getMarketplaceNexusUrl()).toBe('https://nexus.runtime.example.com');
+
+      // Set: ONLY the marketplace accessor changes; the main nexusUrl is untouched.
+      resetRuntimeConfigForTests();
+      process.env[PUBKY_RUNTIME_ENV_NAMES.marketplaceNexusUrl] = 'https://marketplace-nexus.runtime.example.com';
+      expect(getMarketplaceNexusUrl()).toBe('https://marketplace-nexus.runtime.example.com');
+      expect(getRuntimeConfig().nexusUrl).toBe('https://nexus.runtime.example.com');
+    });
+
+    it('strict deployed parse succeeds with the marketplace Nexus override genuinely unset', () => {
+      simulateDeployedEnv();
+      setAllRuntimeEnv();
+      expect(readServerConfig().marketplaceNexusUrl).toBeUndefined();
     });
 
     it('throws when required and no PUBKY_RUNTIME_* present', () => {

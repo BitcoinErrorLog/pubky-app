@@ -109,6 +109,25 @@ describe('runtimeEnvInputSchema', () => {
     expect(parsed.sentryReplaysOnErrorSampleRate).toBe(1);
   });
 
+  it('keeps the marketplace Nexus override genuinely optional in the strict deployed parse', () => {
+    // A deployed container that sets every REQUIRED network value but no
+    // override must parse — the var is optional, not silently required.
+    const parsed = runtimeEnvInputSchema.parse(VALID_ENV_INPUT);
+    expect(parsed.marketplaceNexusUrl).toBeUndefined();
+
+    const withOverride = runtimeEnvInputSchema.parse({
+      ...VALID_ENV_INPUT,
+      marketplaceNexusUrl: 'https://marketplace-nexus.example.com',
+    });
+    expect(withOverride.marketplaceNexusUrl).toBe('https://marketplace-nexus.example.com');
+
+    // Blank means unset; a malformed URL still fails loudly.
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, marketplaceNexusUrl: '  ' }).marketplaceNexusUrl,
+    ).toBeUndefined();
+    expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, marketplaceNexusUrl: 'not-a-url' })).toThrow();
+  });
+
   it('treats an empty/whitespace DSN as unset (Sentry disabled)', () => {
     expect(runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, sentryDsn: '' }).sentryDsn).toBeUndefined();
     expect(runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, sentryDsn: '   ' }).sentryDsn).toBeUndefined();
