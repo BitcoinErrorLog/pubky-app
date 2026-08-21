@@ -9,6 +9,15 @@ import type { VrtViewport } from './vrt.viewports';
 
 export interface RenderForVRTOptions {
   viewport: VrtViewport;
+  /**
+   * Render the tree with pointer events disabled so `:hover` styles cannot
+   * apply. The browser window's pointer keeps whatever position the last
+   * interaction test left it at, and in Chromium that resting position
+   * re-applies hover effects (card lift/scale) to whatever element sits
+   * beneath it — a nondeterministic capture. Only for non-interactive
+   * captures: real clicks inside the tree stop working under this option.
+   */
+  disableHover?: boolean;
 }
 
 export const VRT_ROOT_TESTID = 'vrt-root';
@@ -17,9 +26,10 @@ interface VRTProvidersProps {
   children: ReactNode;
   viewport: VrtViewport;
   queryClient: QueryClient;
+  disableHover?: boolean;
 }
 
-function VRTProviders({ children, viewport, queryClient }: VRTProvidersProps) {
+function VRTProviders({ children, viewport, queryClient, disableHover }: VRTProvidersProps) {
   // The wrapper clamps the rendered tree to the requested viewport so
   // `locator.screenshot()` returns a viewport-sized image instead of the full
   // scrollable document height. The data-testid lets tests target this element
@@ -28,6 +38,7 @@ function VRTProviders({ children, viewport, queryClient }: VRTProvidersProps) {
     width: viewport.width,
     height: viewport.height,
     overflow: 'hidden',
+    ...(disableHover ? { pointerEvents: 'none' as const } : {}),
   };
 
   return (
@@ -54,7 +65,7 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
     },
   });
   const screen = render(
-    <VRTProviders viewport={options.viewport} queryClient={queryClient}>
+    <VRTProviders viewport={options.viewport} queryClient={queryClient} disableHover={options.disableHover}>
       {ui}
     </VRTProviders>,
   );

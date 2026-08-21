@@ -108,7 +108,7 @@ describe('Marketplace pricing and units — visual regression', () => {
         <MarketplaceListingCard listing={usdListing} shopName="Worn Well" />
         <MarketplaceListingCard listing={satsListing} shopName="Analog Optics" />
       </main>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect.element(screen.getByText('≈ 125,000 sats')).toBeInTheDocument();
     await expect.element(screen.getByText('≈ $15.00')).toBeInTheDocument();
@@ -128,7 +128,7 @@ describe('Marketplace pricing and units — visual regression', () => {
           packageHeight: '15.0',
         }}
       />,
-      { viewport: { width: 1440, height: 2400 } },
+      { viewport: { width: 1440, height: 2400 }, disableHover: true },
     );
     await expect.element(screen.getByText('Weight (g)')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-studio-package-metric-desktop');
@@ -149,7 +149,7 @@ describe('Marketplace pricing and units — visual regression', () => {
           packageHeight: '5.9',
         }}
       />,
-      { viewport: { width: 1440, height: 2400 } },
+      { viewport: { width: 1440, height: 2400 }, disableHover: true },
     );
     await expect.element(screen.getByText('Weight (oz)')).toBeInTheDocument();
     await expect.element(screen.getByText('Price (sats)')).toBeInTheDocument();

@@ -73,7 +73,7 @@ describe('Marketplace — visual regression', () => {
   });
 
   it('renders the sandbox catalog with the promo visible at desktop viewport', async () => {
-    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-desktop');
   });
 
@@ -82,12 +82,12 @@ describe('Marketplace — visual regression', () => {
       buildFeatureDiscoveryStorageKey(VRT_USER_PUBKY, MARKETPLACE_PROMO_STORAGE_ID),
       'dismissed',
     );
-    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-promo-dismissed-desktop');
   });
 
   it('renders the sandbox catalog at mobile viewport', async () => {
-    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-mobile');
   });
 });

@@ -1,6 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
@@ -156,6 +156,14 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
+
+// The display store persists to localStorage, which the VRT browser shares
+// across test files — pin the defaults so captures never depend on what a
+// previously-run file left behind.
+beforeEach(async () => {
+  const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
+  useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
+});
 
 describe('Marketplace cart — visual regression', () => {
   it('renders a single-seller cart at desktop viewport', async () => {

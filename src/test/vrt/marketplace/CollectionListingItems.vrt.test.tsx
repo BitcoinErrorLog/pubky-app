@@ -85,7 +85,7 @@ describe('Collection listing items — visual regression', () => {
           { sellerPubky: seller, listingId: 'rangefinder_camera' },
         ]}
       />,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('collection-listing-items-desktop');
   });
@@ -96,7 +96,7 @@ describe('Collection listing items — visual regression', () => {
 
     const screen = await renderForVRT(
       <CollectionListingItems listings={[{ sellerPubky: seller, listingId: 'boots_01' }]} />,
-      { viewport: VRT_VIEWPORT_MOBILE },
+      { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('collection-listing-items-mobile');
   });
@@ -112,7 +112,7 @@ describe('Collection listing items — visual regression', () => {
           { sellerPubky: seller, listingId: 'gone_listing_0' },
         ]}
       />,
-      { viewport: VRT_VIEWPORT_DESKTOP },
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('collection-listing-unavailable-desktop');
   });

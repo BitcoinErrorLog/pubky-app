@@ -184,7 +184,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-populated-desktop');
   });
 
@@ -194,7 +197,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_MOBILE,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-populated-mobile');
   });
 
@@ -205,7 +211,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-branding-desktop');
   });
 
@@ -215,7 +224,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_MOBILE,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-branding-mobile');
   });
 
@@ -229,7 +241,10 @@ describe('Marketplace shop — visual regression', () => {
       { label: 'fast-shipping', taggers: ['w'.repeat(52)], taggers_count: 1, relationship: false },
     ];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-community-tags-desktop');
     view.shopTags = [];
   });
@@ -240,7 +255,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-vacation-mode-desktop');
   });
 
@@ -250,7 +268,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = [];
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-no-listings-desktop');
   });
 
@@ -260,7 +281,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = undefined;
     view.catalogEntries = undefined;
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-loading-desktop');
   });
 
@@ -273,7 +297,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await vi.waitFor(() => {
       if (!screen.container.textContent?.includes('hasn’t set up a shop profile yet')) {
         throw new Error('The no-shop fallback has not rendered yet.');
@@ -289,7 +316,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await vi.waitFor(() => {
       if (!screen.container.textContent?.includes('Set up your shop')) {
         throw new Error('The owner set-up prompt has not rendered yet.');
@@ -305,7 +335,10 @@ describe('Marketplace shop — visual regression', () => {
     view.listings = listings;
     view.catalogEntries = [];
 
-    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+      viewport: VRT_VIEWPORT_MOBILE,
+      disableHover: true,
+    });
     await vi.waitFor(() => {
       if (!screen.container.textContent?.includes('hasn’t set up a shop profile yet')) {
         throw new Error('The no-shop fallback has not rendered yet.');

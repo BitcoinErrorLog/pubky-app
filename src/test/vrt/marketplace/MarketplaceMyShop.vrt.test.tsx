@@ -86,7 +86,7 @@ describe('Marketplace my shop — visual regression', () => {
     view.isLoading = false;
     view.withImages = false;
 
-    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-create-desktop');
   });
 
@@ -95,7 +95,7 @@ describe('Marketplace my shop — visual regression', () => {
     view.isLoading = false;
     view.withImages = false;
 
-    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-create-mobile');
   });
 
@@ -104,7 +104,7 @@ describe('Marketplace my shop — visual regression', () => {
     view.isLoading = false;
     view.withImages = false;
 
-    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-edit-desktop');
   });
 
@@ -113,7 +113,7 @@ describe('Marketplace my shop — visual regression', () => {
     view.isLoading = false;
     view.withImages = true;
 
-    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-edit-images-desktop');
   });
 
@@ -122,7 +122,7 @@ describe('Marketplace my shop — visual regression', () => {
     view.isLoading = true;
     view.withImages = false;
 
-    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-loading-desktop');
   });
 });
