@@ -25,9 +25,11 @@ export interface UseMarketplaceMessagesResult {
   isLoading: boolean;
   error: string | null;
   /**
-   * Messaging is SANDBOX-ONLY: the durable transaction service has no
-   * conversation/message tables and the `message.send` command was never
-   * ported. In any other mode this hook loads nothing and refuses to send.
+   * This hook serves the SANDBOX transport only: the durable transaction
+   * service has no conversation/message tables and `message.send` was never
+   * ported. In any other mode this hook loads nothing and refuses to send —
+   * durable modes carry messaging over the encrypted transport instead
+   * (`useEncryptedConversation`).
    */
   isSandbox: boolean;
   attachment: ReturnType<typeof useMessageAttachmentPicker>;
@@ -73,7 +75,10 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
     if (!currentUserPubky || currentUserPubky === sellerPubky) return false;
     // Re-checked at call time: `message.send` has no durable counterpart.
     if (getCommerceAdapterMode() !== 'sandbox') {
-      toast({ variant: 'error', description: 'Messaging is sandbox-only; the durable service does not store it.' });
+      toast({
+        variant: 'error',
+        description: 'This transport is sandbox-only; use the encrypted conversation instead.',
+      });
       return false;
     }
     let succeeded = false;
