@@ -1,8 +1,9 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
+import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import { MarketplaceSell } from '@/templates/Marketplace/MarketplaceSell';
 
 // 8x8 solid-color PNG so photo scenarios show real previews without any
@@ -130,6 +131,14 @@ function photoItem(key: string, altText: string): MockMediaItem {
 }
 
 describe('Marketplace sell studio — visual regression', () => {
+  beforeEach(() => {
+    // The display store persists to localStorage, which browser-mode workers
+    // share across suites — MarketplacePricingUnits sets both systems, so an
+    // unpinned preference here renders whichever ran last. Pin the system the
+    // committed baselines were captured with.
+    useMarketplaceDisplayStore.setState({ measurementSystem: 'imperial' });
+  });
+
   it('renders the empty listing form at desktop viewport', async () => {
     view.drafts = [];
     view.mediaItems = [];

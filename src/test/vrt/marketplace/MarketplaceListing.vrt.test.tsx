@@ -191,6 +191,9 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: () => (view.fetchFails ? Promise.reject(new Error('offline')) : Promise.resolve(null)),
     getListingTags: () => view.listingTags,
     fetchListingTags: () => Promise.resolve([]),
+    // The owner panel self-heals listing registration on mount; VRT renders
+    // the visual outcome only, so the call resolves without side effects.
+    ensureListingRegistered: () => Promise.resolve(false),
   },
 }));
 
