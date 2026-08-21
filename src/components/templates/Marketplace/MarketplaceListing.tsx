@@ -33,7 +33,7 @@ import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOffer
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { MarketplaceSkeleton } from './Marketplace.skeleton';
+import { MarketplaceListingDetailSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceListingProps {
   sellerPubky: string;
@@ -42,6 +42,10 @@ export interface MarketplaceListingProps {
 
 export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListingProps) {
   const [error, setError] = useState<string | null>(null);
+  // Local cache answers `null` instantly for a listing this device has never
+  // seen, while the network fetch is still in flight — without tracking the
+  // fetch, the page flashes "Listing unavailable" before the record lands.
+  const [isFetchSettled, setIsFetchSettled] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [shopAvatarFailed, setShopAvatarFailed] = useState(false);
   const adapterMode = getCommerceAdapterMode();
@@ -53,11 +57,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
 
   useEffect(() => {
-    if (adapterMode === 'sandbox') return;
+    if (adapterMode === 'sandbox') {
+      setIsFetchSettled(true);
+      return;
+    }
     let active = true;
-    CommerceController.getOrFetchListing(sellerPubky, listingId).catch(() => {
-      if (active) setError('This listing could not be loaded.');
-    });
+    setIsFetchSettled(false);
+    CommerceController.getOrFetchListing(sellerPubky, listingId)
+      .catch(() => {
+        if (active) setError('This listing could not be loaded.');
+      })
+      .finally(() => {
+        if (active) setIsFetchSettled(true);
+      });
     return () => {
       active = false;
     };
@@ -75,7 +87,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     }
   }, [listing, selectedVariantId]);
 
-  if (listing === undefined || shop === undefined) {
+  if (listing === undefined || shop === undefined || (!listing && !isFetchSettled && !error)) {
     return (
       <ContentLayout
         showLeftSidebar={false}
@@ -84,7 +96,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
         showRightMobileButton={false}
       >
         <Container overrideDefaults className="w-full px-4 sm:px-6">
-          <MarketplaceSkeleton count={1} />
+          <MarketplaceListingDetailSkeleton />
         </Container>
       </ContentLayout>
     );
