@@ -158,14 +158,30 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
       classNameWrapperContent="max-w-6xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6 lg:px-8">
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
+        <div className="flex w-full items-center justify-between gap-2">
+          <Link
+            href={APP_ROUTES.MARKETPLACE}
+            overrideDefaults
+            className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+            Marketplace
+          </Link>
+          {cart.itemCount > 0 && (
+            <Link
+              href={MARKETPLACE_ROUTES.CART}
+              overrideDefaults
+              data-cy="marketplace-listing-cart-link"
+              className="inline-flex items-center gap-2 rounded-full border border-border/60 px-3 py-1.5 text-sm text-foreground transition-colors hover:border-brand/40 hover:text-brand"
+            >
+              <ShoppingCart className="size-4" />
+              Cart
+              <Badge variant="secondary" className="px-1.5">
+                {cart.itemCount}
+              </Badge>
+            </Link>
+          )}
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
           <MarketplaceMediaGallery media={record.media} saleFormat={record.sale.format} />
@@ -349,7 +365,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
             {record.digitalLock && <MarketplaceDigitalDeliveryNotice adapterMode={adapterMode} />}
 
-            <div className="mt-auto flex gap-3">
+            {/* flex-wrap: four buttons exceed narrow viewports' min-content width,
+                and a non-wrapping row would overflow the grid column — clipping
+                the watch and collection buttons off-screen entirely. */}
+            <div className="mt-auto flex flex-wrap gap-3">
               {record.sale.format === 'auction' ? (
                 <MarketplaceBidDialog
                   aggregateId={aggregateId}

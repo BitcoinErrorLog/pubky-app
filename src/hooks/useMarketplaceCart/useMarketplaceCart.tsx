@@ -1,6 +1,9 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { ToastAction } from '@/atoms/Toast/Toast';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { sumMoneyByAsset } from '@/libs/commerce/pricing';
@@ -19,6 +22,7 @@ export interface MarketplaceCartItem {
 export function useMarketplaceCart() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { requireAuth } = useRequireAuth();
+  const router = useRouter();
   const items = useLiveQuery(async () => {
     if (!currentUserPubky) return [];
     const rows = await CommerceController.getCartItems();
@@ -60,7 +64,14 @@ export function useMarketplaceCart() {
     const mutation = requireAuth(async () => {
       try {
         await CommerceController.commitUpsertCartItem(listingId, variantId, quantity);
-        toast({ title: 'Added to cart' });
+        toast({
+          title: 'Added to cart',
+          action: (
+            <ToastAction altText="View cart" onClick={() => router.push(MARKETPLACE_ROUTES.CART)}>
+              View cart
+            </ToastAction>
+          ),
+        });
       } catch {
         toast({ variant: 'error', description: 'Could not add this item to the cart.' });
       }

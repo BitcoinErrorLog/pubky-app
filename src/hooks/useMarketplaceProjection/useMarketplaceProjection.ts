@@ -58,7 +58,13 @@ async function loadProjection(
   try {
     const next = await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId);
     setProjection(next);
-    setError(next ? null : 'Transaction projection is not registered.');
+    // Registration is a seller-authenticated command, so a buyer cannot heal
+    // this state — say what is wrong and whose action fixes it.
+    setError(
+      next
+        ? null
+        : 'This listing is not set up for checkout yet — the seller needs to open it once while connected. You can watch it or message the seller meanwhile.',
+    );
     setNeedsSession(false);
   } catch (loadError) {
     // A missing/expired marketplace session is not a dead end: flag it so the
