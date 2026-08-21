@@ -50,6 +50,16 @@ What that means for the tooling here:
   (e.g. the end-to-end-encrypted conversation). Printing a fabricated or
   cached address the seller was never served would falsify the privacy
   model, so the slip does not.
+- The slip (and the order rows) now show the buyer's **variant snapshot**
+  when the checkout carried one: `checkout.create` lines accept an optional
+  `variant_id` plus up to three `{name, value}` option pairs (an ordered
+  array, safe through the wire-casing layer), which both engines echo
+  verbatim onto the order line. It is a buyer-supplied display snapshot —
+  listing registration carries no variant inventory, so the service
+  validates its shape, not its truth against the owner-signed listing
+  content; like `quantity`, the seller sees the claim and fulfills or
+  refuses it. Orders placed before the field existed simply have no
+  variant line.
 
 ## Structured carrier tracking
 
@@ -57,7 +67,11 @@ The service's `fulfillment.ship` command already takes structured fields —
 `carrier` (trimmed free string, 1–100 chars) and `tracking_number` — and
 stores them in the participant-visible `shipment` object. **No contract
 change was needed and none was made**; wire casing stays snake_case per
-ADR-0019 §3 via the existing wire-casing layer.
+ADR-0019 §3 via the existing wire-casing layer. The service now additionally
+rejects control characters in both fields (a charset floor, not a vocabulary
+lock — international carrier names stay valid) and documents this client's
+canonical carrier names as its soft vocabulary on `ShipOrderPayload.carrier`,
+deliberately without an enum so foreign clients can ship other carriers.
 
 Encoding decision: the ship dialog offers a curated carrier select, and the
 client writes the selected carrier's **canonical display name** (e.g.
