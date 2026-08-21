@@ -22,11 +22,19 @@ import type {
 import { useMarketplaceShippingPresets } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets';
 import { presetToShippingFields } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
 import { amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
-import { dimensionUnitLabel, weightUnitLabel } from '@/libs/commerce/units';
+import {
+  dimensionInputFromMillimeters,
+  dimensionUnitLabel,
+  gramsFromWeightInput,
+  millimetersFromDimensionInput,
+  weightInputFromGrams,
+  weightUnitLabel,
+} from '@/libs/commerce/units';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
 import { MarketplaceListingAttributeFields } from '@/organisms/Marketplace/MarketplaceListingAttributeFields';
+import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
 export interface MarketplaceListingFormProps {
   form: UseFormReturn<CreateMarketplaceListingData>;
@@ -66,6 +74,37 @@ export function MarketplaceListingForm({
     name: CREATE_MARKETPLACE_LISTING_FIELDS.MEASUREMENT_SYSTEM,
   });
   const variants = useFieldArray({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS });
+  // The inline unit toggle writes the device-wide preference AND the form:
+  // the hook only adopts the preference while the package fields are empty
+  // (so labels always match typed numbers), so an explicit toggle must also
+  // convert any values already entered — via the exact mm/g round-trip the
+  // publish path uses, so nothing drifts.
+  const setMeasurementSystem = useMarketplaceDisplayStore((state) => state.setMeasurementSystem);
+  const switchMeasurementSystem = (next: 'metric' | 'imperial') => {
+    const current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.MEASUREMENT_SYSTEM) as 'metric' | 'imperial';
+    if (next === current) return;
+    setMeasurementSystem(next);
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.MEASUREMENT_SYSTEM, next);
+    const dimensionFields = [
+      CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_LENGTH,
+      CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WIDTH,
+      CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_HEIGHT,
+    ] as const;
+    for (const name of dimensionFields) {
+      const raw = String(form.getValues(name) ?? '').trim();
+      const parsed = Number(raw);
+      if (raw === '' || !Number.isFinite(parsed)) continue;
+      form.setValue(name, dimensionInputFromMillimeters(millimetersFromDimensionInput(parsed, current), next));
+    }
+    const rawWeight = String(form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WEIGHT) ?? '').trim();
+    const parsedWeight = Number(rawWeight);
+    if (rawWeight !== '' && Number.isFinite(parsedWeight)) {
+      form.setValue(
+        CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WEIGHT,
+        weightInputFromGrams(gramsFromWeightInput(parsedWeight, current), next),
+      );
+    }
+  };
   const isEdit = mode === 'edit';
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
   const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
@@ -413,6 +452,33 @@ export function MarketplaceListingForm({
                   placeholder={isImperial ? '42.3' : '1200'}
                   disabled={isPublishing}
                 />
+              </div>
+              <div className="flex items-center gap-2" data-cy="marketplace-package-units-toggle">
+                <Typography as="span" className="text-sm text-muted-foreground">
+                  Units
+                </Typography>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={isImperial ? 'default' : 'secondary'}
+                  className="rounded-full"
+                  aria-pressed={isImperial}
+                  disabled={isPublishing}
+                  onClick={() => switchMeasurementSystem('imperial')}
+                >
+                  in / oz
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={isImperial ? 'secondary' : 'default'}
+                  className="rounded-full"
+                  aria-pressed={!isImperial}
+                  disabled={isPublishing}
+                  onClick={() => switchMeasurementSystem('metric')}
+                >
+                  cm / g
+                </Button>
               </div>
               <div className="grid gap-5 sm:grid-cols-3">
                 <ControlledInputField
