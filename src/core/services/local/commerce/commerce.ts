@@ -7,12 +7,14 @@ import { isAppError } from '@/libs/error/error.utils';
 import {
   CommerceCartItemModel,
   CommerceCatalogEntryModel,
+  CommerceDeliveryAddressModel,
   CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceLocksCorrelationModel,
   CommerceSavedSearchModel,
+  CommerceShippingPresetModel,
   CommerceShopFollowModel,
   CommerceShopModel,
   CommerceSyncJobModel,
@@ -22,17 +24,20 @@ import {
 import type {
   CommerceCacheStatus,
   CommerceCatalogEntryModelSchema,
+  CommerceDeliveryAddressModelSchema,
   CommerceListingDraftData,
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
   CommerceSavedSearchModelSchema,
+  CommerceShippingPresetModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
   CommerceWatchAlertModelSchema,
   CommerceWatchSnapshotModelSchema,
 } from '@/models/commerce/commerce.schema';
+import type { CommerceDeliveryAddressInput, CommerceShippingPresetInput } from '@/pipes/commerce/commerce.normalizer';
 
 /** Alert rows kept per account; older rows are pruned when new alerts land. */
 export const COMMERCE_WATCH_ALERTS_MAX_PER_OWNER = 100;
@@ -624,6 +629,135 @@ export class LocalCommerceService {
       window_expires_at: windowExpiresAt,
       updated_at: now,
     });
+  }
+
+  /**
+   * The buyer's private address book, picker-ordered: default first, then by
+   * most recent use, then by most recent edit. Addresses never leave this
+   * device except inside the owner's own `checkout.create` command.
+   */
+  static async getDeliveryAddresses(ownerId: string): Promise<CommerceDeliveryAddressModelSchema[]> {
+    const addresses = await CommerceDeliveryAddressModel.findByOwner(ownerId);
+    return addresses.sort((a, b) => {
+      if (a.is_default !== b.is_default) return a.is_default ? -1 : 1;
+      const aUsed = a.last_used_at ?? 0;
+      const bUsed = b.last_used_at ?? 0;
+      if (aUsed !== bUsed) return bUsed - aUsed;
+      return b.updated_at - a.updated_at;
+    });
+  }
+
+  static async upsertDeliveryAddress(
+    ownerId: string,
+    addressId: string,
+    input: CommerceDeliveryAddressInput,
+    now: number,
+  ): Promise<void> {
+    const id = this.deliveryAddressId(ownerId, addressId);
+    const current = await CommerceDeliveryAddressModel.findById(id);
+    const existing = await CommerceDeliveryAddressModel.findByOwner(ownerId);
+    await CommerceDeliveryAddressModel.upsert({
+      id,
+      owner_id: ownerId,
+      label: input.label,
+      name: input.name,
+      line1: input.line1,
+      line2: input.line2,
+      city: input.city,
+      region: input.region,
+      postal_code: input.postalCode,
+      country_code: input.countryCode,
+      // The first saved address becomes the default so the picker always has
+      // one; later saves never steal it.
+      is_default: current?.is_default ?? existing.length === 0,
+      last_used_at: current?.last_used_at ?? null,
+      created_at: current?.created_at ?? now,
+      updated_at: now,
+    });
+  }
+
+  static async deleteDeliveryAddress(ownerId: string, addressId: string): Promise<void> {
+    await CommerceDeliveryAddressModel.deleteById(this.deliveryAddressId(ownerId, addressId));
+  }
+
+  static async setDefaultDeliveryAddress(ownerId: string, addressId: string, now: number): Promise<void> {
+    const id = this.deliveryAddressId(ownerId, addressId);
+    try {
+      await db.transaction('rw', CommerceDeliveryAddressModel.table, async () => {
+        const target = await CommerceDeliveryAddressModel.table.get(id);
+        if (!target) {
+          throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'No such delivery address to set as default.', {
+            service: ErrorService.Local,
+            operation: 'setDefaultDeliveryAddress',
+          });
+        }
+        await CommerceDeliveryAddressModel.table
+          .where('owner_id')
+          .equals(ownerId)
+          .modify((address) => {
+            const shouldBeDefault = address.id === id;
+            if (address.is_default !== shouldBeDefault) {
+              address.is_default = shouldBeDefault;
+              address.updated_at = now;
+            }
+          });
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to set the default delivery address', {
+        service: ErrorService.Local,
+        operation: 'setDefaultDeliveryAddress',
+        context: { table: CommerceDeliveryAddressModel.table.name },
+        cause: error,
+      });
+    }
+  }
+
+  /** Records that an order was just placed with this address (drives "last used" picker ordering). */
+  static async markDeliveryAddressUsed(ownerId: string, addressId: string, now: number): Promise<void> {
+    const id = this.deliveryAddressId(ownerId, addressId);
+    const current = await CommerceDeliveryAddressModel.findById(id);
+    if (!current) return;
+    await CommerceDeliveryAddressModel.upsert({ ...current, last_used_at: now });
+  }
+
+  /** The seller's shipping preset templates, most recently edited first. */
+  static async getShippingPresets(ownerId: string): Promise<CommerceShippingPresetModelSchema[]> {
+    const presets = await CommerceShippingPresetModel.findByOwner(ownerId);
+    return presets.sort((a, b) => b.updated_at - a.updated_at);
+  }
+
+  static async upsertShippingPreset(
+    ownerId: string,
+    presetId: string,
+    input: CommerceShippingPresetInput,
+    now: number,
+  ): Promise<void> {
+    const id = this.shippingPresetId(ownerId, presetId);
+    const current = await CommerceShippingPresetModel.findById(id);
+    await CommerceShippingPresetModel.upsert({
+      id,
+      owner_id: ownerId,
+      label: input.label,
+      price_minor: input.priceMinor,
+      currency: input.currency,
+      estimated_min_days: input.estimatedMinDays,
+      estimated_max_days: input.estimatedMaxDays,
+      created_at: current?.created_at ?? now,
+      updated_at: now,
+    });
+  }
+
+  static async deleteShippingPreset(ownerId: string, presetId: string): Promise<void> {
+    await CommerceShippingPresetModel.deleteById(this.shippingPresetId(ownerId, presetId));
+  }
+
+  private static deliveryAddressId(ownerId: string, addressId: string): string {
+    return `${ownerId}:${addressId}`;
+  }
+
+  private static shippingPresetId(ownerId: string, presetId: string): string {
+    return `${ownerId}:${presetId}`;
   }
 
   private static locksCorrelationId(ownerId: string, paymentId: string): string {

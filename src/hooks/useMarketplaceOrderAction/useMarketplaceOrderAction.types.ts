@@ -1,9 +1,14 @@
 import { z } from 'zod';
+import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
+
+const carrierIds = SHIPPING_CARRIERS.map(({ id }) => id) as [string, ...string[]];
 
 export const marketplaceOrderActionSchema = z
   .object({
     action: z.enum(['cancel', 'ship', 'return', 'refund', 'dispute', 'review', 'review_edit']),
     reason: z.string().trim().max(2_000),
+    /** Curated carrier id from the registry, or `other` with a free-text name below. */
+    carrierChoice: z.enum(carrierIds),
     carrier: z.string().trim().max(100),
     trackingNumber: z.string().trim().max(200),
     amount: z.string().trim(),
@@ -16,8 +21,13 @@ export const marketplaceOrderActionSchema = z
     if (['cancel', 'return', 'dispute'].includes(data.action) && !data.reason) {
       context.addIssue({ code: 'custom', path: ['reason'], message: 'Reason is required.' });
     }
-    if (data.action === 'ship' && (!data.carrier || !data.trackingNumber)) {
-      context.addIssue({ code: 'custom', path: ['trackingNumber'], message: 'Carrier and tracking are required.' });
+    if (data.action === 'ship') {
+      if (!data.trackingNumber) {
+        context.addIssue({ code: 'custom', path: ['trackingNumber'], message: 'The tracking number is required.' });
+      }
+      if (data.carrierChoice === OTHER_CARRIER_ID && !data.carrier) {
+        context.addIssue({ code: 'custom', path: ['carrier'], message: 'Name the carrier.' });
+      }
     }
     if (data.action === 'refund') {
       if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount) || Number(data.amount) <= 0) {
@@ -37,6 +47,7 @@ export type MarketplaceOrderActionData = z.infer<typeof marketplaceOrderActionSc
 export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   action: 'cancel',
   reason: '',
+  carrierChoice: 'usps',
   carrier: '',
   trackingNumber: '',
   amount: '',

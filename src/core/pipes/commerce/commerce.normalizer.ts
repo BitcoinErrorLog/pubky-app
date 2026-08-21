@@ -33,6 +33,58 @@ import type { NexusListingDetails } from '@/services/nexus/marketplace/marketpla
 
 const MARKETPLACE_BASE_PATH = '/pub/pubky.app/marketplace/v1';
 
+/**
+ * A delivery address as entered in the address book or checkout form. Field
+ * limits mirror the `checkout.create` command contract exactly (see
+ * `createMarketplaceCheckoutCommandSchema`), so a saved address is always
+ * submittable; `label` is client-only picker metadata.
+ */
+const commerceDeliveryAddressInputSchema = z
+  .object({
+    label: z.string().trim().min(1).max(40),
+    name: z.string().trim().min(1).max(100),
+    line1: z.string().trim().min(1).max(200),
+    line2: z.string().trim().max(200),
+    city: z.string().trim().min(1).max(100),
+    region: z.string().trim().min(1).max(100),
+    postalCode: z.string().trim().min(1).max(32),
+    countryCode: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{2}$/)
+      .transform((code) => code.toUpperCase()),
+  })
+  .strict();
+
+export type CommerceDeliveryAddressInput = z.infer<typeof commerceDeliveryAddressInputSchema>;
+
+/**
+ * A seller shipping preset as entered in the sell studio or shipping
+ * settings. Limits mirror the published record's flat shipping option
+ * (label ≤ 100, day estimates 0–365, max ≥ min), so applying a preset always
+ * yields a publishable listing.
+ */
+const commerceShippingPresetInputSchema = z
+  .object({
+    label: z.string().trim().min(1).max(100),
+    priceMinor: z.number().int().positive().max(100_000_000),
+    currency: z.literal('USD'),
+    estimatedMinDays: z.number().int().min(0).max(365),
+    estimatedMaxDays: z.number().int().min(0).max(365),
+  })
+  .strict()
+  .superRefine((preset, context) => {
+    if (preset.estimatedMaxDays < preset.estimatedMinDays) {
+      context.addIssue({
+        code: 'custom',
+        path: ['estimatedMaxDays'],
+        message: 'Maximum delivery estimate must not precede the minimum',
+      });
+    }
+  });
+
+export type CommerceShippingPresetInput = z.infer<typeof commerceShippingPresetInputSchema>;
+
 const NEXUS_AUCTION_TERM_FIELDS = [
   'auction_starts_at',
   'auction_ends_at',
@@ -178,6 +230,14 @@ export class CommerceRecordNormalizer {
 
   static jsonValue(input: unknown): CommerceJsonValue {
     return this.parse(z.json(), input, 'jsonValue');
+  }
+
+  static deliveryAddressInput(input: unknown): CommerceDeliveryAddressInput {
+    return this.parse(commerceDeliveryAddressInputSchema, input, 'deliveryAddressInput');
+  }
+
+  static shippingPresetInput(input: unknown): CommerceShippingPresetInput {
+    return this.parse(commerceShippingPresetInputSchema, input, 'shippingPresetInput');
   }
 
   static marketplaceCommand(input: unknown): MarketplaceCommand {

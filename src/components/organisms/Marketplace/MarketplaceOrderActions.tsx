@@ -1,14 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWatch } from 'react-hook-form';
+import { Controller, useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
+import { Label } from '@/atoms/Label/Label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { COMMERCE_REVIEW_EDIT_WINDOW_SECONDS } from '@/config/commerce';
+import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
+import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/MarketplacePackingSlipDialog';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 
 export function MarketplaceOrderActions({
@@ -47,6 +52,7 @@ export function MarketplaceOrderActions({
   }, []);
   const action = useMarketplaceOrderAction(order, actOnOrder);
   const actionType = useWatch({ control: action.form.control, name: 'action' });
+  const carrierChoice = useWatch({ control: action.form.control, name: 'carrierChoice' });
 
   const begin = (next: MarketplaceOrderActionData['action'], overrides?: Partial<MarketplaceOrderActionData>) => {
     action.setAction(next, overrides);
@@ -77,6 +83,9 @@ export function MarketplaceOrderActions({
           <Button size="sm" className="rounded-full" onClick={() => begin('ship')}>
             Add tracking
           </Button>
+        )}
+        {!isBuyer && ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state) && (
+          <MarketplacePackingSlipDialog order={order} />
         )}
         {isBuyer && order.state === 'shipped' && (
           <Button
@@ -155,7 +164,32 @@ export function MarketplaceOrderActions({
           )}
           {actionType === 'ship' && (
             <>
-              <ControlledInputField name="carrier" control={action.form.control} label="Carrier" />
+              <div className="grid gap-2">
+                <Label htmlFor="ship-carrier-select" className={FORM_LABEL_CLASSES}>
+                  Carrier
+                </Label>
+                <Controller
+                  name="carrierChoice"
+                  control={action.form.control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="ship-carrier-select" className="h-11 w-full rounded-md border px-3">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SHIPPING_CARRIERS.map((carrier) => (
+                          <SelectItem key={carrier.id} value={carrier.id}>
+                            {carrier.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              {carrierChoice === OTHER_CARRIER_ID && (
+                <ControlledInputField name="carrier" control={action.form.control} label="Carrier name" />
+              )}
               <ControlledInputField name="trackingNumber" control={action.form.control} label="Tracking number" />
             </>
           )}

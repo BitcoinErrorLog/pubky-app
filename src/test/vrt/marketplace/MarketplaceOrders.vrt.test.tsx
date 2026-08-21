@@ -38,12 +38,32 @@ const fixtures = vi.hoisted(async () => {
     return { order, payment: createPaymentFixture('confirmed'), receipt: null };
   };
 
+  // A shipped order whose carrier the curated registry resolves (USPS), so
+  // the buyer's "Track package" link renders next to the tracking facts. The
+  // every-state fixtures keep the unknown carrier ("Local Courier"), whose
+  // shipment line stays plain text with no link — both fallbacks get a
+  // baseline.
+  const trackableShippedView = () => ({
+    order: createOrderFixture('shipped', {
+      shipment: {
+        carrier: 'USPS',
+        trackingNumber: '9400111899223197428490',
+        state: 'shipped' as const,
+        shippedAt: '2026-08-14T10:00:00.000Z',
+        deliveredAt: null,
+      },
+    }),
+    payment: createPaymentFixture('confirmed'),
+    receipt: null,
+  });
+
   return {
     buyer: ORDER_FIXTURE_BUYER,
     everyOrderState: createOrderViewsForEveryState(),
     everyPaymentState: createOrderViewsForEveryPaymentState(),
     reviewedInWindow: [reviewedOrderView(23)],
     reviewedOutOfWindow: [reviewedOrderView(25)],
+    trackableShipped: [trackableShippedView()],
   };
 });
 
@@ -101,6 +121,16 @@ describe('Marketplace orders — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-every-state-mobile');
+  });
+
+  it('renders a shipped order with a carrier tracking link at desktop viewport', async () => {
+    const { trackableShipped } = await fixtures;
+    ordersState.orders = trackableShipped;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-shipped-track-link-desktop');
   });
 
   it('renders every buyer-visible payment state at desktop viewport', async () => {

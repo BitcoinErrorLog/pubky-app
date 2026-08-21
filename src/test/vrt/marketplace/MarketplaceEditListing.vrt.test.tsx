@@ -73,6 +73,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
       view.record ? Promise.resolve(view.record) : Promise.reject(new Error('listing unavailable')),
     commitCreateMedia: () => Promise.resolve(),
     commitUpsertListing: () => Promise.resolve(),
+    getShippingPresets: () => Promise.resolve([]),
+    commitUpsertShippingPreset: () => Promise.resolve(),
   },
 }));
 

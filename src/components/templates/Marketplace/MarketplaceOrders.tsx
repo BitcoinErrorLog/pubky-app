@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, ReceiptText } from 'lucide-react';
+import { ArrowLeft, ExternalLink, ReceiptText } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -11,6 +11,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isTransactionalCommerceMode } from '@/config/commerce';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
@@ -105,9 +106,32 @@ export function MarketplaceOrders() {
                         </div>
                       )}
                       {order.shipment && (
-                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
-                          {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}
-                        </Typography>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <Typography as="p">
+                            {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}
+                          </Typography>
+                          {/* Only carriers the curated registry can resolve get a
+                              link — an unrecognized carrier stays plain text
+                              instead of risking a dead tracking URL. */}
+                          {(() => {
+                            const trackingUrl = buildCarrierTrackingUrl(
+                              order.shipment.carrier,
+                              order.shipment.trackingNumber,
+                            );
+                            return trackingUrl ? (
+                              <Link
+                                href={trackingUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                overrideDefaults
+                                className="inline-flex items-center gap-1 font-medium text-brand hover:underline"
+                              >
+                                Track package
+                                <ExternalLink className="size-3.5" />
+                              </Link>
+                            ) : null;
+                          })()}
+                        </div>
                       )}
                       {order.returnRequest && (
                         <Typography as="p" className="mt-2 text-sm text-muted-foreground">

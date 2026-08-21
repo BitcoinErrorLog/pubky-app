@@ -20,6 +20,8 @@ import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { useMarketplaceShippingPresets } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets';
+import { presetToShippingFields } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
@@ -342,12 +344,34 @@ export function MarketplaceListingForm({
 
           {fulfillment === 'physical' && (
             <>
+              <ListingShippingPresetRow form={form} isPublishing={isPublishing} />
               <div className="grid gap-5 sm:grid-cols-2">
+                <ControlledInputField
+                  name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_LABEL}
+                  control={form.control}
+                  label="Shipping label"
+                  placeholder="Standard shipping"
+                  disabled={isPublishing}
+                />
                 <ControlledInputField
                   name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE}
                   control={form.control}
                   label="Flat shipping (USD)"
                   placeholder="12.00"
+                  disabled={isPublishing}
+                />
+                <ControlledInputField
+                  name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MIN_DAYS}
+                  control={form.control}
+                  label="Delivery estimate min (days)"
+                  placeholder="3"
+                  disabled={isPublishing}
+                />
+                <ControlledInputField
+                  name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MAX_DAYS}
+                  control={form.control}
+                  label="Delivery estimate max (days)"
+                  placeholder="7"
                   disabled={isPublishing}
                 />
                 <ControlledInputField
@@ -390,6 +414,85 @@ export function MarketplaceListingForm({
         {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
       </Button>
     </form>
+  );
+}
+
+/**
+ * Save/apply shipping presets: device-local templates over the four shipping
+ * fields. Applying only fills the form — the published record shape is
+ * unchanged either way.
+ */
+function ListingShippingPresetRow({
+  form,
+  isPublishing,
+}: {
+  form: UseFormReturn<CreateMarketplaceListingData>;
+  isPublishing: boolean;
+}) {
+  const { presets, saveFromFields } = useMarketplaceShippingPresets();
+
+  const applyPreset = (presetId: string) => {
+    const preset = presets.find(({ id }) => id === presetId);
+    if (!preset) return;
+    const fields = presetToShippingFields(preset);
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_LABEL, fields.shippingLabel, { shouldValidate: true });
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE, fields.shippingPrice, { shouldValidate: true });
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MIN_DAYS, fields.shippingMinDays, {
+      shouldValidate: true,
+    });
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MAX_DAYS, fields.shippingMaxDays, {
+      shouldValidate: true,
+    });
+  };
+
+  const saveAsPreset = () => {
+    const values = form.getValues();
+    void saveFromFields(null, {
+      shippingLabel: values.shippingLabel,
+      shippingPrice: values.shippingPrice,
+      shippingMinDays: values.shippingMinDays,
+      shippingMaxDays: values.shippingMaxDays,
+    });
+  };
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-card/60 p-3">
+      {presets.length > 0 && (
+        <Container className="min-w-48 flex-1 gap-2">
+          <Label htmlFor="listing-shipping-preset" className={FORM_LABEL_CLASSES}>
+            Shipping preset
+          </Label>
+          <Select onValueChange={applyPreset} disabled={isPublishing}>
+            <SelectTrigger id="listing-shipping-preset" className="h-11 w-full rounded-md border px-3">
+              <SelectValue placeholder="Apply a saved preset" />
+            </SelectTrigger>
+            <SelectContent>
+              {presets.map((preset) => (
+                <SelectItem key={preset.id} value={preset.id}>
+                  {preset.label} · ${(preset.price_minor / 100).toFixed(2)} · {preset.estimated_min_days}–
+                  {preset.estimated_max_days}d
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Container>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        className="rounded-full"
+        disabled={isPublishing}
+        onClick={saveAsPreset}
+      >
+        Save as preset
+      </Button>
+      {presets.length === 0 && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          Presets store these shipping fields on this device so future listings start pre-filled.
+        </Typography>
+      )}
+    </div>
   );
 }
 

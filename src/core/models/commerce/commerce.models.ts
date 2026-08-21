@@ -7,12 +7,14 @@ import { RecordModelBase } from '@/models/shared/base/record/baseRecord';
 import type {
   CommerceCartItemModelSchema,
   CommerceCatalogEntryModelSchema,
+  CommerceDeliveryAddressModelSchema,
   CommerceFavoriteModelSchema,
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
   CommerceSavedSearchModelSchema,
+  CommerceShippingPresetModelSchema,
   CommerceShopFollowModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
@@ -596,6 +598,98 @@ export class CommerceLocksCorrelationModel
   }
 
   static async findByOwner(ownerId: string): Promise<CommerceLocksCorrelationModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceDeliveryAddressModel
+  extends RecordModelBase<string, CommerceDeliveryAddressModelSchema>
+  implements CommerceDeliveryAddressModelSchema
+{
+  static table: Table<CommerceDeliveryAddressModelSchema> = db.table('commerce_delivery_addresses');
+
+  owner_id: string;
+  label: string;
+  name: string;
+  line1: string;
+  line2: string;
+  city: string;
+  region: string;
+  postal_code: string;
+  country_code: string;
+  is_default: boolean;
+  last_used_at: number | null;
+  created_at: number;
+  updated_at: number;
+
+  constructor(address: CommerceDeliveryAddressModelSchema) {
+    super(address);
+    this.owner_id = address.owner_id;
+    this.label = address.label;
+    this.name = address.name;
+    this.line1 = address.line1;
+    this.line2 = address.line2;
+    this.city = address.city;
+    this.region = address.region;
+    this.postal_code = address.postal_code;
+    this.country_code = address.country_code;
+    this.is_default = address.is_default;
+    this.last_used_at = address.last_used_at;
+    this.created_at = address.created_at;
+    this.updated_at = address.updated_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceDeliveryAddressModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceShippingPresetModel
+  extends RecordModelBase<string, CommerceShippingPresetModelSchema>
+  implements CommerceShippingPresetModelSchema
+{
+  static table: Table<CommerceShippingPresetModelSchema> = db.table('commerce_shipping_presets');
+
+  owner_id: string;
+  label: string;
+  price_minor: number;
+  currency: string;
+  estimated_min_days: number;
+  estimated_max_days: number;
+  created_at: number;
+  updated_at: number;
+
+  constructor(preset: CommerceShippingPresetModelSchema) {
+    super(preset);
+    this.owner_id = preset.owner_id;
+    this.label = preset.label;
+    this.price_minor = preset.price_minor;
+    this.currency = preset.currency;
+    this.estimated_min_days = preset.estimated_min_days;
+    this.estimated_max_days = preset.estimated_max_days;
+    this.created_at = preset.created_at;
+    this.updated_at = preset.updated_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceShippingPresetModelSchema[]> {
     try {
       return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
     } catch (error) {

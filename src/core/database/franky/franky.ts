@@ -10,6 +10,8 @@ import {
   commerceCartItemTableSchema,
   type CommerceCatalogEntryModelSchema,
   commerceCatalogEntryTableSchema,
+  type CommerceDeliveryAddressModelSchema,
+  commerceDeliveryAddressTableSchema,
   type CommerceFavoriteModelSchema,
   commerceFavoriteTableSchema,
   type CommerceListingDraftModelSchema,
@@ -22,6 +24,8 @@ import {
   commerceLocksCorrelationTableSchema,
   type CommerceSavedSearchModelSchema,
   commerceSavedSearchTableSchema,
+  type CommerceShippingPresetModelSchema,
+  commerceShippingPresetTableSchema,
   type CommerceShopFollowModelSchema,
   commerceShopFollowTableSchema,
   type CommerceShopModelSchema,
@@ -158,6 +162,10 @@ export class AppDatabase extends Dexie {
   commerce_watch_snapshots!: Dexie.Table<CommerceWatchSnapshotModelSchema>;
   commerce_watch_alerts!: Dexie.Table<CommerceWatchAlertModelSchema>;
   commerce_saved_searches!: Dexie.Table<CommerceSavedSearchModelSchema>;
+  // Private delivery details and seller authoring templates — device-local
+  // only, never on the homeserver (see commerce.schema.ts headers).
+  commerce_delivery_addresses!: Dexie.Table<CommerceDeliveryAddressModelSchema>;
+  commerce_shipping_presets!: Dexie.Table<CommerceShippingPresetModelSchema>;
   // Encrypted messaging (Paykit Encrypted Links) — rows carry key material
   // and device-local plaintext history; see messaging.schema.ts header.
   commerce_messaging_receivers!: Dexie.Table<CommerceMessagingReceiverModelSchema>;
@@ -218,6 +226,11 @@ export class AppDatabase extends Dexie {
         commerce_watch_snapshots: commerceWatchSnapshotTableSchema,
         commerce_watch_alerts: commerceWatchAlertTableSchema,
         commerce_saved_searches: commerceSavedSearchTableSchema,
+        // Buyer address book and seller shipping presets — folded into the
+        // current (unreleased) DB version rather than bumping it: version 3
+        // has never shipped, so there is no upgrade path to preserve.
+        commerce_delivery_addresses: commerceDeliveryAddressTableSchema,
+        commerce_shipping_presets: commerceShippingPresetTableSchema,
         // Encrypted messaging — folded into the current (unreleased) DB
         // version rather than bumping it: version 3 has never shipped, so
         // there is no upgrade path to preserve.

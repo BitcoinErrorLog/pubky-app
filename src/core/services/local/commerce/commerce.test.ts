@@ -4,11 +4,13 @@ import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
   CommerceCartItemModel,
   CommerceCatalogEntryModel,
+  CommerceDeliveryAddressModel,
   CommerceFavoriteModel,
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceSavedSearchModel,
+  CommerceShippingPresetModel,
   CommerceShopFollowModel,
   CommerceShopModel,
   CommerceSyncJobModel,
@@ -46,6 +48,8 @@ describe('LocalCommerceService', () => {
       CommerceWatchSnapshotModel.table.clear(),
       CommerceWatchAlertModel.table.clear(),
       CommerceSavedSearchModel.table.clear(),
+      CommerceDeliveryAddressModel.table.clear(),
+      CommerceShippingPresetModel.table.clear(),
     ]);
   });
 
@@ -415,5 +419,142 @@ describe('LocalCommerceService', () => {
 
     await LocalCommerceService.deleteSavedSearch('search-1');
     expect(await LocalCommerceService.getSavedSearches(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+  });
+
+  describe('delivery address book', () => {
+    const addressInput = (label: string) => ({
+      label,
+      name: 'Satoshi Buyer',
+      line1: '1 Main Street',
+      line2: '',
+      city: 'Lisbon',
+      region: 'Lisboa',
+      postalCode: '1000-001',
+      countryCode: 'PT',
+    });
+
+    it('creates, updates, and deletes account-scoped addresses', async () => {
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr1', addressInput('Home'), 100);
+
+      let addresses = await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_BUYER);
+      expect(addresses).toEqual([
+        expect.objectContaining({
+          id: `${COMMERCE_FIXTURE_BUYER}:addr1`,
+          owner_id: COMMERCE_FIXTURE_BUYER,
+          label: 'Home',
+          postal_code: '1000-001',
+          country_code: 'PT',
+          created_at: 100,
+          updated_at: 100,
+          last_used_at: null,
+        }),
+      ]);
+
+      await LocalCommerceService.upsertDeliveryAddress(
+        COMMERCE_FIXTURE_BUYER,
+        'addr1',
+        { ...addressInput('Home office'), line1: '2 Other Street' },
+        200,
+      );
+      addresses = await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_BUYER);
+      expect(addresses).toEqual([
+        expect.objectContaining({ label: 'Home office', line1: '2 Other Street', created_at: 100, updated_at: 200 }),
+      ]);
+
+      await LocalCommerceService.deleteDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr1');
+      expect(await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+    });
+
+    it('makes the first saved address the default and keeps defaults exclusive', async () => {
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr1', addressInput('Home'), 100);
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr2', addressInput('Work'), 200);
+
+      let addresses = await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_BUYER);
+      expect(addresses.map(({ label, is_default }) => ({ label, is_default }))).toEqual([
+        { label: 'Home', is_default: true },
+        { label: 'Work', is_default: false },
+      ]);
+
+      await LocalCommerceService.setDefaultDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr2', 300);
+      addresses = await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_BUYER);
+      expect(addresses.map(({ label, is_default }) => ({ label, is_default }))).toEqual([
+        { label: 'Work', is_default: true },
+        { label: 'Home', is_default: false },
+      ]);
+
+      await expect(
+        LocalCommerceService.setDefaultDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'missing', 400),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    });
+
+    it('orders the picker default-first, then by most recent use', async () => {
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr1', addressInput('Home'), 100);
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr2', addressInput('Work'), 200);
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr3', addressInput('Parents'), 300);
+
+      await LocalCommerceService.markDeliveryAddressUsed(COMMERCE_FIXTURE_BUYER, 'addr2', 400);
+
+      const addresses = await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_BUYER);
+      // addr1 is the default; among the rest, addr2 was used most recently.
+      expect(addresses.map(({ label }) => label)).toEqual(['Home', 'Work', 'Parents']);
+      expect(addresses[1].last_used_at).toBe(400);
+
+      // Marking an unknown address used is a silent no-op (the order already
+      // succeeded; there is nothing to update).
+      await LocalCommerceService.markDeliveryAddressUsed(COMMERCE_FIXTURE_BUYER, 'missing', 500);
+    });
+
+    it('keeps address books account-scoped', async () => {
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr1', addressInput('Home'), 100);
+      expect(await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_SELLER)).toEqual([]);
+    });
+  });
+
+  describe('shipping presets', () => {
+    const presetInput = (label: string, priceMinor = 1_200) => ({
+      label,
+      priceMinor,
+      currency: 'USD' as const,
+      estimatedMinDays: 2,
+      estimatedMaxDays: 6,
+    });
+
+    it('creates, updates, lists, and deletes account-scoped presets', async () => {
+      await LocalCommerceService.upsertShippingPreset(COMMERCE_FIXTURE_SELLER, 'p1', presetInput('Standard'), 100);
+      await LocalCommerceService.upsertShippingPreset(
+        COMMERCE_FIXTURE_SELLER,
+        'p2',
+        presetInput('Express', 2_500),
+        200,
+      );
+
+      let presets = await LocalCommerceService.getShippingPresets(COMMERCE_FIXTURE_SELLER);
+      expect(presets.map(({ label }) => label)).toEqual(['Express', 'Standard']);
+      expect(presets[0]).toMatchObject({
+        id: `${COMMERCE_FIXTURE_SELLER}:p2`,
+        price_minor: 2_500,
+        estimated_min_days: 2,
+        estimated_max_days: 6,
+      });
+
+      await LocalCommerceService.upsertShippingPreset(
+        COMMERCE_FIXTURE_SELLER,
+        'p1',
+        presetInput('Standard tracked', 1_500),
+        300,
+      );
+      presets = await LocalCommerceService.getShippingPresets(COMMERCE_FIXTURE_SELLER);
+      expect(presets.map(({ label }) => label)).toEqual(['Standard tracked', 'Express']);
+      expect(presets[0]).toMatchObject({ created_at: 100, updated_at: 300 });
+
+      await LocalCommerceService.deleteShippingPreset(COMMERCE_FIXTURE_SELLER, 'p1');
+      await LocalCommerceService.deleteShippingPreset(COMMERCE_FIXTURE_SELLER, 'p2');
+      expect(await LocalCommerceService.getShippingPresets(COMMERCE_FIXTURE_SELLER)).toEqual([]);
+    });
+
+    it('keeps presets account-scoped', async () => {
+      await LocalCommerceService.upsertShippingPreset(COMMERCE_FIXTURE_SELLER, 'p1', presetInput('Standard'), 100);
+      expect(await LocalCommerceService.getShippingPresets(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+    });
   });
 });

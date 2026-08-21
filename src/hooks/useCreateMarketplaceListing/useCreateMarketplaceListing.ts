@@ -205,10 +205,10 @@ function buildListingRecord(
           {
             id: 'seller_flat_rate',
             pricing: 'flat',
-            label: 'Seller shipping',
+            label: data.shippingLabel,
             price: { amountMinor: Math.round(Number(data.shippingPrice) * 100), currency: 'USD', exponent: 2 },
-            estimatedMinDays: 3,
-            estimatedMaxDays: 7,
+            estimatedMinDays: Number(data.shippingMinDays),
+            estimatedMaxDays: Number(data.shippingMaxDays),
           },
         ]
       : [],

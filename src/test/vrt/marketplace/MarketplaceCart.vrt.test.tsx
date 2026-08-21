@@ -90,7 +90,49 @@ const view = vi.hoisted(() => ({
   items: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
+  addresses: [] as unknown[],
+  selectedAddressId: null as string | null,
 }));
+
+// Two saved delivery addresses for the picker baseline (device-local rows;
+// the shape mirrors CommerceDeliveryAddressModelSchema).
+const savedAddresses = vi.hoisted(() => {
+  const owner = 'b'.repeat(52);
+  return [
+    {
+      id: `${owner}:addr_home`,
+      owner_id: owner,
+      label: 'Home',
+      name: 'Alice Buyer',
+      line1: '1 Market Street',
+      line2: '',
+      city: 'New York',
+      region: 'NY',
+      postal_code: '10001',
+      country_code: 'US',
+      is_default: true,
+      last_used_at: 1_755_000_000_000,
+      created_at: 1_754_000_000_000,
+      updated_at: 1_755_000_000_000,
+    },
+    {
+      id: `${owner}:addr_work`,
+      owner_id: owner,
+      label: 'Work',
+      name: 'Alice Buyer',
+      line1: '77 Broadway, Floor 4',
+      line2: '',
+      city: 'New York',
+      region: 'NY',
+      postal_code: '10006',
+      country_code: 'US',
+      is_default: false,
+      last_used_at: null,
+      created_at: 1_754_100_000_000,
+      updated_at: 1_754_100_000_000,
+    },
+  ];
+});
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -131,6 +173,11 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
     useMarketplaceCheckout: () => ({
       form: useForm({ defaultValues: marketplaceCheckoutDefaults }),
       submit: vi.fn(async () => false),
+      needsSession: false,
+      sessionError: null,
+      addresses: view.addresses,
+      selectedAddressId: view.selectedAddressId,
+      selectAddress: vi.fn(),
     }),
   };
 });
@@ -174,6 +221,34 @@ describe('Marketplace cart — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-stale-item-desktop');
+  });
+
+  // The address book picker: two saved addresses with the default applied,
+  // so the picker renders and the save-for-next-time controls stay hidden.
+  it('renders the checkout with the saved-address picker at desktop viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.addresses = savedAddresses;
+    view.selectedAddressId = (savedAddresses[0] as { id: string }).id;
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-address-picker-desktop');
+    view.addresses = [];
+    view.selectedAddressId = null;
+  });
+
+  it('renders the checkout with the saved-address picker at mobile viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.addresses = savedAddresses;
+    view.selectedAddressId = (savedAddresses[0] as { id: string }).id;
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-address-picker-mobile');
+    view.addresses = [];
+    view.selectedAddressId = null;
   });
 
   it('renders the empty cart at desktop viewport', async () => {

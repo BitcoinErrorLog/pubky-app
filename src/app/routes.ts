@@ -48,6 +48,8 @@ export enum MARKETPLACE_ROUTES {
   WATCHLIST = '/marketplace/watchlist',
   MODERATION = '/marketplace/moderation',
   SETTINGS = '/marketplace/settings',
+  SETTINGS_ADDRESSES = '/marketplace/settings/addresses',
+  SETTINGS_SHIPPING = '/marketplace/settings/shipping',
 }
 
 export enum PROFILE_ROUTES {

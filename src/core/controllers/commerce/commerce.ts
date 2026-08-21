@@ -528,6 +528,58 @@ export class CommerceController {
     await CommerceApplication.commitClearCart(this.getCurrentUserPubky());
   }
 
+  static async getDeliveryAddresses() {
+    return await CommerceApplication.getDeliveryAddresses(this.getCurrentUserPubky());
+  }
+
+  static async commitUpsertDeliveryAddress(addressId: unknown, input: unknown): Promise<void> {
+    await CommerceApplication.commitUpsertDeliveryAddress(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(addressId),
+      CommerceRecordNormalizer.deliveryAddressInput(input),
+    );
+  }
+
+  static async commitDeleteDeliveryAddress(addressId: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteDeliveryAddress(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(addressId),
+    );
+  }
+
+  static async commitSetDefaultDeliveryAddress(addressId: unknown): Promise<void> {
+    await CommerceApplication.commitSetDefaultDeliveryAddress(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(addressId),
+    );
+  }
+
+  static async commitMarkDeliveryAddressUsed(addressId: unknown): Promise<void> {
+    await CommerceApplication.commitMarkDeliveryAddressUsed(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(addressId),
+    );
+  }
+
+  static async getShippingPresets() {
+    return await CommerceApplication.getShippingPresets(this.getCurrentUserPubky());
+  }
+
+  static async commitUpsertShippingPreset(presetId: unknown, input: unknown): Promise<void> {
+    await CommerceApplication.commitUpsertShippingPreset(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(presetId),
+      CommerceRecordNormalizer.shippingPresetInput(input),
+    );
+  }
+
+  static async commitDeleteShippingPreset(presetId: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteShippingPreset(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(presetId),
+    );
+  }
+
   static async getFavorites() {
     return await CommerceApplication.getFavorites(this.getCurrentUserPubky());
   }
