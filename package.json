@@ -32,6 +32,8 @@
     "test:marketplace": "vitest run --project unit services/marketplace",
     "test:marketplace:service": "vitest run --config vitest.integration.config.ts",
     "test:marketplace:locks": "vitest run --config vitest.locks.config.ts",
+    "test:marketplace:messaging": "vitest run --config vitest.messaging.config.ts",
+    "test:marketplace:messaging:staging": "vitest run --config vitest.messaging.staging.config.ts",
     "vrt:gallery": "node scripts/vrt-gallery.mjs"
   },
   "lint-staged": {
@@ -68,6 +70,7 @@
     "libphonenumber-js": "1.13.2",
     "linkify-it": "5.0.0",
     "locks-sdk-wasm": "file:vendor/locks-sdk-wasm",
+    "paykit-wasm": "file:vendor/paykit-wasm",
     "lodash-es": "4.18.1",
     "lucide-react": "1.16.0",
     "motion": "12.39.0",

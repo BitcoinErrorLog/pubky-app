@@ -54,4 +54,8 @@ src/libs/commerce/contracts/state-machines.json
 # kept byte-identical to the recorded build (see docs/ecommerce/locks-sdk-provenance.md)
 vendor/locks-sdk-wasm/
 
+# Vendored verbatim wasm-pack output of the paykit-wasm messaging binding;
+# kept byte-identical to the recorded build (see docs/ecommerce/paykit-wasm-provenance.md)
+vendor/paykit-wasm/
+
 tsconfig.json

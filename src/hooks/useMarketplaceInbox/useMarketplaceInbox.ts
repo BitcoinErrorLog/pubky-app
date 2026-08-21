@@ -7,10 +7,10 @@ import type { MarketplaceConversation } from '@/services/marketplace/marketplace
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
- * Listing conversations are SANDBOX-ONLY: the durable transaction service
- * has no conversation or message tables (the `message.*` commands were never
- * ported), so in any other mode this hook loads nothing and the surface must
- * say messaging is not available rather than look functional.
+ * SANDBOX transport inbox: the durable transaction service has no
+ * conversation or message tables (the `message.*` commands were never
+ * ported), so in any other mode this hook loads nothing. Durable modes list
+ * encrypted conversations through `useEncryptedInbox` instead.
  */
 export function useMarketplaceInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);

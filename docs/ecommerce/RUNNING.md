@@ -174,6 +174,35 @@ This integration suite uses no mocks: it runs a genuine Pubky auth flow (acting 
 
 The client's state tables are held in lockstep with the service's canonical contract: `contracts/state-machines.json` from the service repo is vendored at `src/libs/commerce/contracts/state-machines.json`, and `src/libs/commerce/state-machines.contract.test.ts` fails CI on any drift. When the service contract changes, re-vendor the file and reconcile the TypeScript — the service is canonical.
 
+### Enabling encrypted messaging (durable modes)
+
+Marketplace messaging in the durable modes is end-to-end encrypted over Paykit Encrypted Links (experiment grade — see [`status.md`](status.md) and [`paykit-wasm-provenance.md`](paykit-wasm-provenance.md)). It needs its OWN Pubky Ring approval, separate from the marketplace session above, because it grants a different capability:
+
+1. Open a listing's **Message seller** dialog or the marketplace **Messages** page. If messaging is not enabled yet, an **"Enable encrypted messaging"** step appears.
+2. The dialog shows a `pubkyauth://` URL (QR for cross-device Ring, deeplink/copy for same-device) requesting exactly `/pub/paykit/:rw` — the Paykit homeserver tree where receiver markers, handshake slots, and encrypted message slots live. Approve it in Pubky Ring.
+3. On approval the app generates a receiver-scoped Noise key on this device (never the identity key, which stays in Ring), publishes your receiver marker, and messaging is live for this tab.
+
+Facts to know, all disclosed in the UI: the messaging session lives only in the tab's memory — after a reload the **Reconnect** affordance asks for a fresh approval (stored history stays readable without one); BOTH parties must have enabled messaging before anything can be delivered, and the composer stays disabled with a truthful "waiting for the counterparty" state until the Noise handshake completes; one message is capped at 1,000 bytes (live byte meter, no attachments); conversation history and the local key material are device-local in account-scoped IndexedDB — clearing site data deletes them, and other devices cannot show the history (the multi-device backup key is an open product decision).
+
+To prove the encrypted transport live — two parties, real crypto, real homeserver — against a local Pubky testnet:
+
+```bash
+pubky-testnet   # stock ports: pkarr relay 15411, homeserver HTTP 6286, admin 6288
+npm run test:marketplace:messaging
+```
+
+This live suite runs the vendored WASM binding in a real Chromium page with no mocks: enrollment and marker publish through the app's own messaging service, the not-enrolled honest dead end, the Noise XX handshake over live homeserver outbox slots, bidirectional `marketplace.chat_message.v0` delivery, IndexedDB persistence, and snapshot/restore across a simulated reload. Sessions come from the binding's dev signup helper — the interactive Ring approval is the one leg a machine cannot honestly perform. It is intentionally not part of the unit gates.
+
+The same proof also exists against the REAL staging network — the staging homeserver reached through the public pkarr relays, the exact topology of the staging deployment (`PUBKY_RUNTIME_TESTNET=false`). It passed on 2026-08-21. The staging homeserver requires single-use signup tokens, so this is a run-on-demand suite, never a standing gate:
+
+```bash
+PAYKIT_STAGING_SIGNUP_TOKEN_A=XXXX-XXXX-XXXX \
+PAYKIT_STAGING_SIGNUP_TOKEN_B=YYYY-YYYY-YYYY \
+npm run test:marketplace:messaging:staging
+```
+
+The harness prints the throwaway identity secrets it generates; if a run fails after signup (tokens consumed), re-run with `PAYKIT_STAGING_SECRET_A`/`PAYKIT_STAGING_SECRET_B` instead of tokens to sign back in.
+
 ## Running a real Locks/Paykit payment (`locks-paykit` mode)
 
 Real payments work end to end on regtest, with the wallet's protocol role exercised by the composed environment's real tooling (`paykit-companion-auth` approves the watch-only companion claim; `paykit-reader-demo` receives the private Paykit Payment Request). Only the real Bitkit app UX remains unproven — see [`status.md`](status.md).

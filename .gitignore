@@ -87,4 +87,7 @@ public/sw.js.map
 
 # VRT baseline gallery (generated)
 .vrt-gallery.html
+
+# Failure screenshots from the live messaging browser suite (debug artifacts, never baselines)
+src/test/live/__screenshots__/
 .live-out/

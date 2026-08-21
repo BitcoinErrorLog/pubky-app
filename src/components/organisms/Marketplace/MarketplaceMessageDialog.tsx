@@ -5,11 +5,13 @@ import { ImagePlus, MessageCircle, Send, Trash2 } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useMarketplaceMessages } from '@/hooks/useMarketplaceMessages/useMarketplaceMessages';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { MarketplaceEncryptedConversationDialog } from './MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessageAttachment } from './MarketplaceMessageAttachment';
 
 export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPubky: string; listingId: string }) {
@@ -18,14 +20,54 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
   const { requireAuth } = useRequireAuth();
   const messages = useMarketplaceMessages(sellerPubky, listingId);
   const { previewUrl, error: attachmentError, inputRef, onInputChange, choose, remove } = messages.attachment;
+  const isSeller = Boolean(currentUserPubky && currentUserPubky === sellerPubky);
 
   const submit = async () => {
     await messages.submit();
   };
 
-  // Messaging has no durable backend (no conversation/message tables on the
-  // transaction service), so outside the sandbox the affordance is visibly
-  // disabled instead of pretending a conversation could exist.
+  // Durable modes carry real end-to-end-encrypted messaging over Paykit
+  // Encrypted Links. The buyer is the signed-in user; a signed-out visitor
+  // gets the auth prompt on open, so a placeholder buyer id is never used to
+  // derive a conversation.
+  if (isDurableCommerceMode(getCommerceAdapterMode())) {
+    if (!currentUserPubky || isSeller) {
+      return (
+        <div>
+          <Button
+            variant="secondary"
+            className="w-full rounded-full"
+            disabled={isSeller}
+            onClick={() => requireAuth(() => undefined)}
+          >
+            <MessageCircle className="mr-2 size-4" />
+            Message seller
+          </Button>
+          {isSeller && (
+            <Typography as="p" className="mt-2 text-center text-xs text-muted-foreground">
+              This is your listing. Buyer conversations appear in your marketplace messages.
+            </Typography>
+          )}
+        </div>
+      );
+    }
+    return (
+      <MarketplaceEncryptedConversationDialog
+        sellerPubky={sellerPubky}
+        buyerPubky={currentUserPubky}
+        listingId={listingId}
+        counterpartyPubky={sellerPubky}
+        trigger={
+          <Button variant="secondary" className="w-full rounded-full">
+            <MessageCircle className="mr-2 size-4" />
+            Message seller
+          </Button>
+        }
+      />
+    );
+  }
+
+  // Modes with no transactional backend at all keep the honest dead end.
   if (!messages.isSandbox) {
     return (
       <div>
@@ -34,7 +76,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
           Message seller
         </Button>
         <Typography as="p" className="mt-2 text-center text-xs text-muted-foreground">
-          Messaging is sandbox-only — the durable marketplace service does not store messages.
+          Messaging is not available in this deployment mode.
         </Typography>
       </div>
     );
