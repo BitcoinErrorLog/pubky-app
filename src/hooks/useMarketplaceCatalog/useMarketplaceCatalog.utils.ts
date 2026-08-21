@@ -33,6 +33,14 @@ export interface MarketplaceCatalogItem {
   saleFormat: CommerceListingModelSchema['format'];
   price: CommerceMoney;
   auction: CommerceCatalogAuctionTerms | null;
+  /**
+   * Item specifics from the cached canonical record: `{}` when the record is
+   * known to carry none, `null` when unknown — Nexus index projections do
+   * not carry attributes (index-side attribute indexing is a follow-up), so
+   * items rendered from a projection honestly report "unknown" rather than
+   * "none".
+   */
+  attributes: Record<string, string | string[]> | null;
   location: { countryCode: string; region: string | null };
   /**
    * Media URIs for the card image, in display order: the record's image media
@@ -80,6 +88,7 @@ export function catalogItemFromListingModel(listing: CommerceListingModelSchema)
     saleFormat: record.sale.format,
     price: record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice,
     auction,
+    attributes: record.attributes ?? {},
     location: { countryCode: record.location.countryCode, region: record.location.region ?? null },
     mediaUrls: record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
     revision: listing.revision,
@@ -101,6 +110,7 @@ export function catalogItemFromCatalogEntry(entry: CommerceCatalogEntryModelSche
     saleFormat: entry.sale_format,
     price: entry.price,
     auction: entry.auction,
+    attributes: null,
     location: { countryCode: entry.country_code, region: entry.region },
     // Nullish fallback: entries cached before the model carried media_urls.
     mediaUrls: entry.media_urls ?? [],
@@ -166,6 +176,59 @@ export function filterMarketplaceCatalog(
         return recommendationScore(right) - recommendationScore(left);
     }
   });
+}
+
+/**
+ * Applies attribute facet filters over items with KNOWN attributes: an item
+ * matches when every active key has the filtered value (string equality or
+ * list membership). Items whose attributes are unknown (`null` — rendered
+ * from an index projection that does not carry attributes) are excluded
+ * while any attribute filter is active; the filters UI says so.
+ */
+export function applyMarketplaceAttributeFilters(
+  items: MarketplaceCatalogItem[],
+  attributeFilters: Record<string, string>,
+): MarketplaceCatalogItem[] {
+  const activeFilters = Object.entries(attributeFilters);
+  if (activeFilters.length === 0) return items;
+  return items.filter(
+    (item) =>
+      item.attributes !== null &&
+      activeFilters.every(([key, filterValue]) => {
+        const value = item.attributes?.[key];
+        return Array.isArray(value) ? value.includes(filterValue) : value === filterValue;
+      }),
+  );
+}
+
+/**
+ * Facet values (with counts, descending) for the given attribute keys over
+ * the items whose attributes are known.
+ */
+export function collectMarketplaceAttributeFacets(
+  items: MarketplaceCatalogItem[],
+  keys: string[],
+): Map<string, Array<{ value: string; count: number }>> {
+  const facets = new Map<string, Map<string, number>>(keys.map((key) => [key, new Map()]));
+  for (const item of items) {
+    if (item.attributes === null) continue;
+    for (const key of keys) {
+      const value = item.attributes[key];
+      if (value === undefined) continue;
+      const counts = facets.get(key)!;
+      for (const entry of Array.isArray(value) ? value : [value]) {
+        counts.set(entry, (counts.get(entry) ?? 0) + 1);
+      }
+    }
+  }
+  return new Map(
+    [...facets].map(([key, counts]) => [
+      key,
+      [...counts]
+        .map(([value, count]) => ({ value, count }))
+        .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)),
+    ]),
+  );
 }
 
 // Auctions with known terms sort by end time; auctions whose stale index row

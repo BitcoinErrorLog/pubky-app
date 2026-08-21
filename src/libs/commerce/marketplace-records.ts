@@ -16,8 +16,16 @@ import {
   COMMERCE_SHOP_BIO_MAX_CHARS,
   COMMERCE_SHOP_NAME_MAX_CHARS,
   COMMERCE_SHOP_POLICY_MAX_CHARS,
-  COMMERCE_TAXONOMY_VERSION,
+  COMMERCE_TAXONOMY_VERSION_MAX,
+  COMMERCE_TAXONOMY_VERSION_MIN,
 } from '@/config/commerce';
+import {
+  COMMERCE_ATTRIBUTE_KEY_MAX_CHARS,
+  COMMERCE_ATTRIBUTE_KEY_PATTERN,
+  COMMERCE_ATTRIBUTE_MAX_VALUES_PER_KEY,
+  COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS,
+  COMMERCE_LISTING_MAX_ATTRIBUTES,
+} from '@/config/taxonomy/taxonomy';
 import {
   commerceEntityIdSchema,
   commerceMoneySchema,
@@ -252,6 +260,48 @@ const commerceShopRecordSchemaInner = commercePublicRecordBaseSchema
   .strict()
   .superRefine(validateRecordDates);
 
+const commerceAttributeValueSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS, 'Attribute values must be 80 characters or fewer');
+
+/**
+ * Item specifics: the bounded, generic key/value container from the specs
+ * fork (0.6.2-marketplace.4). Which keys a category expects (and their
+ * allowed values) is client configuration keyed by `taxonomyVersion` — the
+ * record only enforces shape bounds, so records from other taxonomies stay
+ * valid and render as plain label:value pairs.
+ */
+export const commerceListingAttributesSchema = z
+  .record(
+    z
+      .string()
+      .max(COMMERCE_ATTRIBUTE_KEY_MAX_CHARS)
+      .regex(COMMERCE_ATTRIBUTE_KEY_PATTERN, 'Expected a lowercase alphanumeric attribute key'),
+    z.union([
+      commerceAttributeValueSchema,
+      z.array(commerceAttributeValueSchema).min(1).max(COMMERCE_ATTRIBUTE_MAX_VALUES_PER_KEY),
+    ]),
+  )
+  .superRefine((attributes, context) => {
+    if (Object.keys(attributes).length > COMMERCE_LISTING_MAX_ATTRIBUTES) {
+      context.addIssue({
+        code: 'custom',
+        message: `Listings support at most ${COMMERCE_LISTING_MAX_ATTRIBUTES} attributes`,
+      });
+    }
+    for (const [key, value] of Object.entries(attributes)) {
+      if (Array.isArray(value) && new Set(value).size !== value.length) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Attribute values must be unique',
+          path: [key],
+        });
+      }
+    }
+  });
+
 const commerceListingRecordSchemaInner = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('listing'),
@@ -259,12 +309,13 @@ const commerceListingRecordSchemaInner = commercePublicRecordBaseSchema
     state: z.enum(['active', 'paused', 'ended', 'removed']),
     title: z.string().trim().min(COMMERCE_LISTING_TITLE_MIN_CHARS).max(COMMERCE_LISTING_TITLE_MAX_CHARS),
     description: z.string().trim().min(1).max(COMMERCE_LISTING_DESCRIPTION_MAX_CHARS),
-    taxonomyVersion: z.literal(COMMERCE_TAXONOMY_VERSION),
+    taxonomyVersion: z.number().int().min(COMMERCE_TAXONOMY_VERSION_MIN).max(COMMERCE_TAXONOMY_VERSION_MAX),
     categoryId: z
       .string()
       .min(1)
       .max(120)
       .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Expected a kebab-case category id'),
+    attributes: commerceListingAttributesSchema.optional(),
     condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
     conditionDetails: z.string().trim().max(1_000).optional(),
     tags: z.array(z.string().trim().min(1).max(40)).max(COMMERCE_LISTING_MAX_TAGS),

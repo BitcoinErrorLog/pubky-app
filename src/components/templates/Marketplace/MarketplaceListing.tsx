@@ -30,6 +30,7 @@ import { MarketplaceDigitalDeliveryNotice } from '@/organisms/Marketplace/Market
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceListingOwnerPanel } from '@/organisms/Marketplace/MarketplaceListingOwnerPanel';
 import { MarketplaceListingSavePicker } from '@/organisms/Marketplace/MarketplaceListingSavePicker';
+import { MarketplaceListingSpecifics } from '@/organisms/Marketplace/MarketplaceListingSpecifics';
 import { MarketplaceMediaGallery } from '@/organisms/Marketplace/MarketplaceMediaGallery';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
@@ -259,6 +260,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             <Typography as="p" className="text-base leading-7 text-muted-foreground">
               {record.description}
             </Typography>
+
+            <MarketplaceListingSpecifics record={record} />
 
             {record.tags.length > 0 && (
               <div className="flex flex-col gap-2">

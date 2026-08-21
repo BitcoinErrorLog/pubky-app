@@ -36,7 +36,7 @@ export function Marketplace() {
   const { requireAuth } = useRequireAuth();
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
-  const { listings, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
+  const { listings, facetPool, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
   // Visiting the marketplace (or refocusing its tab) runs the bounded
   // watchlist detection pass — the app has no background daemon.
@@ -185,7 +185,7 @@ export function Marketplace() {
         )}
 
         <section id="marketplace-catalog" className="flex scroll-mt-28 flex-col gap-5">
-          <MarketplaceFilters resultCount={listings.length} />
+          <MarketplaceFilters resultCount={listings.length} facetPool={facetPool} />
 
           {adapterMode === 'unavailable' && (
             <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">

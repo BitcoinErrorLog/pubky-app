@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/atoms/Card/Card';
 import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import { commerceAttributeValueLabel, commerceCardAttributeKeys } from '@/config/taxonomy/taxonomy';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
@@ -155,6 +156,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           <Typography as="p" className="truncate text-sm text-muted-foreground">
             {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
           </Typography>
+          <CardTopAttributes listing={listing} />
           <div className="mt-auto flex items-center justify-between gap-2 pt-1">
             <Typography as="span" className="text-xs text-muted-foreground">
               {formatCommerceCondition(listing.condition)}
@@ -167,6 +169,30 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
         </CardContent>
       </Card>
     </Link>
+  );
+}
+
+/**
+ * The 1–2 highest-value item specifics for this category (e.g. size then
+ * brand for fashion), rendered only when the card is backed by the cached
+ * canonical record — index projections do not carry attributes, so those
+ * cards honestly show nothing rather than a guess.
+ */
+function CardTopAttributes({ listing }: { listing: MarketplaceCatalogItem }) {
+  if (listing.attributes === null) return null;
+  const parts = commerceCardAttributeKeys(listing.categoryId)
+    .map((key) => {
+      const value = listing.attributes?.[key];
+      const first = Array.isArray(value) ? value[0] : value;
+      return first !== undefined ? commerceAttributeValueLabel(key, first) : null;
+    })
+    .filter((part): part is string => part !== null)
+    .slice(0, 2);
+  if (parts.length === 0) return null;
+  return (
+    <Typography as="p" className="truncate text-xs text-muted-foreground" data-cy="marketplace-card-attributes">
+      {parts.join(' · ')}
+    </Typography>
   );
 }
 

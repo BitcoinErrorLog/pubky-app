@@ -7,7 +7,19 @@ export const useCommerceStore = create<CommerceStore>()(
     (set) => ({
       ...commerceInitialState,
       setQuery: (query) => set({ query }, false, CommerceActionTypes.SET_QUERY),
-      setCategoryId: (categoryId) => set({ categoryId }, false, CommerceActionTypes.SET_CATEGORY),
+      // Attribute filters are scoped to a category, so changing it clears them.
+      setCategoryId: (categoryId) => set({ categoryId, attributeFilters: {} }, false, CommerceActionTypes.SET_CATEGORY),
+      setAttributeFilter: (key, value) =>
+        set(
+          (state) => ({
+            attributeFilters:
+              value === null
+                ? Object.fromEntries(Object.entries(state.attributeFilters).filter(([entryKey]) => entryKey !== key))
+                : { ...state.attributeFilters, [key]: value },
+          }),
+          false,
+          CommerceActionTypes.SET_ATTRIBUTE_FILTER,
+        ),
       setSaleFormat: (saleFormat) => set({ saleFormat }, false, CommerceActionTypes.SET_SALE_FORMAT),
       setConditions: (conditions) =>
         set({ conditions: [...new Set(conditions)] }, false, CommerceActionTypes.SET_CONDITIONS),
@@ -36,6 +48,7 @@ export const useCommerceStore = create<CommerceStore>()(
           {
             query: commerceInitialState.query,
             categoryId: commerceInitialState.categoryId,
+            attributeFilters: commerceInitialState.attributeFilters,
             saleFormat: commerceInitialState.saleFormat,
             conditions: commerceInitialState.conditions,
             minimumPriceMinor: commerceInitialState.minimumPriceMinor,

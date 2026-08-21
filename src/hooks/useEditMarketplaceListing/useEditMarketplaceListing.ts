@@ -3,18 +3,21 @@
 import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
+import { commerceAttributeFieldsFor } from '@/config/taxonomy/taxonomy';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   buildListingVariants,
   buildPackageRecord,
   deriveTags,
   describeMediaFailure,
+  listingAttributesFromFormData,
   uploadListingMedia,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
   createMarketplaceListingSchema,
+  listingAttributeFormField,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import {
   useListingMediaManager,
@@ -145,6 +148,61 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
   };
 }
 
+/**
+ * Splits a record's attributes into values the studio form can manage
+ * (keys in the record category's attribute set whose values fit the field's
+ * shape and vocabulary) and everything else — foreign keys, foreign
+ * vocabulary values, unexpected shapes. The passthrough half is preserved
+ * verbatim on save so editing unrelated facts never destroys attributes this
+ * client cannot express; form-managed keys are rewritten from the form.
+ */
+export function partitionListingAttributes(record: Pick<CommerceListingRecord, 'categoryId' | 'attributes'>): {
+  formValues: Partial<CreateMarketplaceListingData>;
+  passthrough: Record<string, string | string[]>;
+} {
+  const formValues: Partial<CreateMarketplaceListingData> = {};
+  const passthrough: Record<string, string | string[]> = {};
+  const fieldsByKey = new Map(commerceAttributeFieldsFor(record.categoryId).map((field) => [field.key, field]));
+
+  for (const [key, value] of Object.entries(record.attributes ?? {})) {
+    const field = fieldsByKey.get(key);
+    const formField = field ? listingAttributeFormField(field.key) : null;
+    if (!field || !formField) {
+      passthrough[key] = value;
+      continue;
+    }
+    if (field.input === 'multi-select') {
+      const allowed = new Set((field.options ?? []).map((option) => option.value));
+      if (
+        Array.isArray(value) &&
+        (field.maxValues === undefined || value.length <= field.maxValues) &&
+        value.every((entry) => allowed.has(entry))
+      ) {
+        (formValues as Record<string, string | string[]>)[formField] = value;
+      } else {
+        passthrough[key] = value;
+      }
+      continue;
+    }
+    if (typeof value !== 'string') {
+      passthrough[key] = value;
+      continue;
+    }
+    if (field.input === 'select') {
+      const allowed = new Set((field.options ?? []).map((option) => option.value));
+      if (allowed.has(value)) {
+        (formValues as Record<string, string | string[]>)[formField] = value;
+      } else {
+        passthrough[key] = value;
+      }
+      continue;
+    }
+    (formValues as Record<string, string | string[]>)[formField] = value;
+  }
+
+  return { formValues, passthrough };
+}
+
 function formDataFromRecord(
   record: CommerceListingRecord,
   currency: ListingCurrencyChoice,
@@ -161,6 +219,8 @@ function formDataFromRecord(
       : ('none' as const);
 
   return {
+    ...createMarketplaceListingDefaults,
+    ...partitionListingAttributes(record).formValues,
     title: record.title,
     description: record.description,
     categoryId: record.categoryId,
@@ -219,6 +279,13 @@ function buildUpdatedRecord(
   const isPhysical = data.fulfillment === 'physical';
   const returnWindowDays = data.returnDays === 'none' ? undefined : Number(data.returnDays);
 
+  // Attributes this client cannot express (foreign keys/values) survive the
+  // save verbatim; the form's structured values win on shared keys.
+  const attributes = {
+    ...partitionListingAttributes(record).passthrough,
+    ...listingAttributesFromFormData(data),
+  };
+
   return commerceListingRecordSchema.parse({
     ...record,
     revision: record.revision + 1,
@@ -226,6 +293,7 @@ function buildUpdatedRecord(
     title: data.title,
     description: data.description,
     categoryId: data.categoryId,
+    attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
     condition: data.condition,
     tags: deriveTags(data.title),
     location: {

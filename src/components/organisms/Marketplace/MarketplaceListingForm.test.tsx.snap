@@ -149,30 +149,32 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
         </div>
       </div>
       <div
-        class="grid gap-5 sm:grid-cols-2"
+        class="mx-auto w-full flex-col flex gap-2"
+        data-testid="container"
       >
-        <div
-          class="mx-auto w-full flex-col flex gap-2"
-          data-testid="container"
+        <label
+          class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+          data-slot="label"
+          for="marketplace-category-level-0"
         >
-          <label
-            class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
-            data-slot="label"
-            for="categoryId"
-          >
-            Category
-          </label>
+          Category
+        </label>
+        <div
+          class="flex flex-col gap-2"
+        >
           <button
             aria-autocomplete="none"
             aria-controls="radix-normalized"
             aria-expanded="false"
             aria-invalid="false"
+            aria-label="Category"
             class="flex cursor-pointer items-center justify-between gap-2.5 bg-transparent py-2 text-base font-bold whitespace-nowrap text-foreground transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 h-11 w-full rounded-md border px-3"
+            data-placeholder=""
             data-size="default"
             data-slot="select-trigger"
             data-state="closed"
             dir="ltr"
-            id="categoryId"
+            id="marketplace-category-level-0"
             role="combobox"
             type="button"
           >
@@ -180,7 +182,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               data-slot="select-value"
               style="pointer-events: none;"
             >
-              Fashion
+              Choose a category
             </span>
             <svg
               aria-hidden="true"
@@ -206,7 +208,6 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
             tabindex="-1"
           >
             <option
-              selected=""
               value="fashion"
             >
               Fashion
@@ -219,15 +220,59 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
             <option
               value="home"
             >
-              Home
+              Home & Garden
+            </option>
+            <option
+              value="art"
+            >
+              Art
             </option>
             <option
               value="collectibles"
             >
               Collectibles
             </option>
+            <option
+              value="books-media"
+            >
+              Books & Media
+            </option>
+            <option
+              value="music"
+            >
+              Music & Instruments
+            </option>
+            <option
+              value="sports"
+            >
+              Sports & Outdoors
+            </option>
+            <option
+              value="beauty"
+            >
+              Beauty
+            </option>
+            <option
+              value="toys-games"
+            >
+              Toys & Games
+            </option>
+            <option
+              value="jewelry-watches"
+            >
+              Jewelry & Watches
+            </option>
+            <option
+              value="other"
+            >
+              Everything else
+            </option>
           </select>
         </div>
+      </div>
+      <div
+        class="grid gap-5 sm:grid-cols-2"
+      >
         <div
           class="mx-auto w-full flex-col flex gap-2"
           data-testid="container"

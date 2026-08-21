@@ -20,6 +20,11 @@ export type CommerceLayout = 'grid' | 'list';
 export interface CommerceState {
   query: string;
   categoryId: string | null;
+  /**
+   * Active attribute facet filters (attribute key -> stored value), scoped
+   * to the current category — changing or clearing the category clears them.
+   */
+  attributeFilters: Record<string, string>;
   saleFormat: CommerceSaleFormatFilter;
   conditions: CommerceConditionFilter[];
   minimumPriceMinor: number | null;
@@ -34,6 +39,7 @@ export interface CommerceState {
 export interface CommerceActions {
   setQuery: (query: string) => void;
   setCategoryId: (categoryId: string | null) => void;
+  setAttributeFilter: (key: string, value: string | null) => void;
   setSaleFormat: (saleFormat: CommerceSaleFormatFilter) => void;
   setConditions: (conditions: CommerceConditionFilter[]) => void;
   setPriceRange: (minimumPriceMinor: number | null, maximumPriceMinor: number | null) => void;
@@ -51,6 +57,7 @@ export type CommerceStore = CommerceState & CommerceActions;
 export const commerceInitialState: CommerceState = {
   query: '',
   categoryId: null,
+  attributeFilters: {},
   saleFormat: 'all',
   conditions: [],
   minimumPriceMinor: null,
@@ -65,6 +72,7 @@ export const commerceInitialState: CommerceState = {
 export enum CommerceActionTypes {
   SET_QUERY = 'SET_QUERY',
   SET_CATEGORY = 'SET_CATEGORY',
+  SET_ATTRIBUTE_FILTER = 'SET_ATTRIBUTE_FILTER',
   SET_SALE_FORMAT = 'SET_SALE_FORMAT',
   SET_CONDITIONS = 'SET_CONDITIONS',
   SET_PRICE_RANGE = 'SET_PRICE_RANGE',

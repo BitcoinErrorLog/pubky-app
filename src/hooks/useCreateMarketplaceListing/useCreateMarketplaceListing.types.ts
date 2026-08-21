@@ -5,6 +5,11 @@ import {
   COMMERCE_LISTING_TITLE_MIN_CHARS,
 } from '@/config/commerce';
 import {
+  COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS,
+  commerceAttributeFieldsFor,
+  resolveCommerceCategory,
+} from '@/config/taxonomy/taxonomy';
+import {
   amountInputSchemaForAsset,
   assetForListingCurrency,
   type ListingCurrencyChoice,
@@ -15,6 +20,17 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   TITLE: 'title',
   DESCRIPTION: 'description',
   CATEGORY: 'categoryId',
+  ATTR_SIZE: 'attrSize',
+  ATTR_BRAND: 'attrBrand',
+  ATTR_COLORS: 'attrColors',
+  ATTR_SOURCE: 'attrSource',
+  ATTR_AGE: 'attrAge',
+  ATTR_STYLES: 'attrStyles',
+  ATTR_MODEL: 'attrModel',
+  ATTR_MEDIUM: 'attrMedium',
+  ATTR_AUTHOR: 'attrAuthor',
+  ATTR_FORMAT: 'attrFormat',
+  ATTR_MATERIAL: 'attrMaterial',
   CONDITION: 'condition',
   COUNTRY_CODE: 'countryCode',
   REGION: 'region',
@@ -39,6 +55,33 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
 const PACKAGE_WEIGHT_MAX_GRAMS = 1_000_000;
 const PACKAGE_DIMENSION_MAX_MM = 100_000;
 
+/** Form field per taxonomy attribute key (see `commerceAttributeFieldsFor`). */
+export const LISTING_ATTRIBUTE_FORM_FIELDS = {
+  size: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_SIZE,
+  brand: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_BRAND,
+  color: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_COLORS,
+  source: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_SOURCE,
+  age: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_AGE,
+  style: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_STYLES,
+  model: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_MODEL,
+  medium: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_MEDIUM,
+  author: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_AUTHOR,
+  format: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_FORMAT,
+  material: CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_MATERIAL,
+} as const;
+
+export type ListingAttributeFormField =
+  (typeof LISTING_ATTRIBUTE_FORM_FIELDS)[keyof typeof LISTING_ATTRIBUTE_FORM_FIELDS];
+
+export function listingAttributeFormField(key: string): ListingAttributeFormField | null {
+  return key in LISTING_ATTRIBUTE_FORM_FIELDS
+    ? LISTING_ATTRIBUTE_FORM_FIELDS[key as keyof typeof LISTING_ATTRIBUTE_FORM_FIELDS]
+    : null;
+}
+
+const attributeTextSchema = z.string().trim().max(COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS, 'Keep this under 80 characters.');
+const attributeMultiSchema = z.array(z.string().trim().min(1).max(COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS));
+
 const listingVariantSchema = z.object({
   sku: z.string().trim().max(64, 'SKU must be 64 characters or fewer.'),
   size: z.string().trim().max(80, 'Size is too long.'),
@@ -51,6 +94,81 @@ const listingVariantSchema = z.object({
     .refine((value) => Number(value) <= 1_000_000, 'Quantity is too large.'),
   priceOverride: z.string().trim(),
 });
+
+/**
+ * The category must resolve in the taxonomy (the picker only offers leaves;
+ * records hydrated for editing may legitimately carry v1 or legacy ids,
+ * which also resolve). Structured attribute values must satisfy the
+ * category's field definitions: required size must come from the leaf's
+ * chart, vocabulary-backed selects must use vocabulary values.
+ */
+function validateCategoryAndAttributes(
+  data: {
+    categoryId: string;
+    attrSize: string;
+    attrBrand: string;
+    attrColors: string[];
+    attrSource: string;
+    attrAge: string;
+    attrStyles: string[];
+    attrModel: string;
+    attrMedium: string;
+    attrAuthor: string;
+    attrFormat: string;
+    attrMaterial: string;
+  },
+  context: z.RefinementCtx,
+): void {
+  if (!resolveCommerceCategory(data.categoryId)) {
+    context.addIssue({
+      code: 'custom',
+      path: [CREATE_MARKETPLACE_LISTING_FIELDS.CATEGORY],
+      message: 'Choose a category.',
+    });
+    return;
+  }
+  for (const field of commerceAttributeFieldsFor(data.categoryId)) {
+    const formField = listingAttributeFormField(field.key);
+    if (!formField) continue;
+    const value = data[formField];
+    if (field.input === 'multi-select' && Array.isArray(value)) {
+      if (field.maxValues !== undefined && value.length > field.maxValues) {
+        context.addIssue({
+          code: 'custom',
+          path: [formField],
+          message: `Choose at most ${field.maxValues} ${field.label.toLowerCase()} values.`,
+        });
+      }
+      const allowed = new Set((field.options ?? []).map((option) => option.value));
+      if (value.some((entry) => !allowed.has(entry))) {
+        context.addIssue({
+          code: 'custom',
+          path: [formField],
+          message: `Choose ${field.label.toLowerCase()} values from the list.`,
+        });
+      }
+      continue;
+    }
+    if (typeof value !== 'string') continue;
+    if (field.required && value === '') {
+      context.addIssue({
+        code: 'custom',
+        path: [formField],
+        message: `Choose a ${field.label.toLowerCase()}.`,
+      });
+    }
+    if (field.input === 'select' && value !== '') {
+      const allowed = new Set((field.options ?? []).map((option) => option.value));
+      if (!allowed.has(value)) {
+        context.addIssue({
+          code: 'custom',
+          path: [formField],
+          message: `Choose a ${field.label.toLowerCase()} from the list.`,
+        });
+      }
+    }
+  }
+}
 
 function validateMoneyField(
   value: string,
@@ -115,6 +233,17 @@ export const createMarketplaceListingSchema = z
       .min(1, 'Description is required.')
       .max(COMMERCE_LISTING_DESCRIPTION_MAX_CHARS, 'Description is too long.'),
     categoryId: z.string().min(1, 'Choose a category.'),
+    attrSize: attributeTextSchema,
+    attrBrand: attributeTextSchema,
+    attrColors: attributeMultiSchema.max(2, 'Choose at most 2 colors.'),
+    attrSource: attributeTextSchema,
+    attrAge: attributeTextSchema,
+    attrStyles: attributeMultiSchema.max(3, 'Choose at most 3 styles.'),
+    attrModel: attributeTextSchema,
+    attrMedium: attributeTextSchema,
+    attrAuthor: attributeTextSchema,
+    attrFormat: attributeTextSchema,
+    attrMaterial: attributeTextSchema,
     condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
     countryCode: z
       .string()
@@ -138,6 +267,7 @@ export const createMarketplaceListingSchema = z
     returnDays: z.enum(['none', '14', '30']),
   })
   .superRefine((data, context) => {
+    validateCategoryAndAttributes(data, context);
     validateMoneyField(data.price, data.currency, [CREATE_MARKETPLACE_LISTING_FIELDS.PRICE], context);
     data.variants.forEach((variant, index) => {
       if (variant.priceOverride) {
@@ -212,6 +342,17 @@ export const createMarketplaceListingDraftSchema = z
     title: z.string(),
     description: z.string(),
     categoryId: z.string(),
+    attrSize: z.string(),
+    attrBrand: z.string(),
+    attrColors: z.array(z.string()),
+    attrSource: z.string(),
+    attrAge: z.string(),
+    attrStyles: z.array(z.string()),
+    attrModel: z.string(),
+    attrMedium: z.string(),
+    attrAuthor: z.string(),
+    attrFormat: z.string(),
+    attrMaterial: z.string(),
     condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
     countryCode: z.string(),
     region: z.string(),
@@ -257,7 +398,18 @@ export type CreateMarketplaceListingDraftData = z.infer<typeof createMarketplace
 export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   title: '',
   description: '',
-  categoryId: 'fashion',
+  categoryId: '',
+  attrSize: '',
+  attrBrand: '',
+  attrColors: [],
+  attrSource: '',
+  attrAge: '',
+  attrStyles: [],
+  attrModel: '',
+  attrMedium: '',
+  attrAuthor: '',
+  attrFormat: '',
+  attrMaterial: '',
   condition: 'good',
   countryCode: 'US',
   region: '',

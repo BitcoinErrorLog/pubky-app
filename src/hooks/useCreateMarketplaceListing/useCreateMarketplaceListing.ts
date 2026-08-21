@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import { commerceAttributeFieldsFor } from '@/config/taxonomy/taxonomy';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   type ListingMediaRecord,
@@ -27,6 +28,7 @@ import {
   type CreateMarketplaceListingDraftData,
   createMarketplaceListingDraftSchema,
   createMarketplaceListingSchema,
+  listingAttributeFormField,
 } from './useCreateMarketplaceListing.types';
 
 export interface UseCreateMarketplaceListingResult {
@@ -260,6 +262,7 @@ function buildListingRecord(
     description: data.description,
     taxonomyVersion: COMMERCE_TAXONOMY_VERSION,
     categoryId: data.categoryId,
+    attributes: listingAttributesFromFormData(data),
     condition: data.condition,
     tags: deriveTags(data.title),
     location: {
@@ -290,6 +293,29 @@ function buildListingRecord(
     },
     adultOnly: false,
   });
+}
+
+/**
+ * The structured item specifics for the chosen category: only the keys the
+ * category's attribute set defines, only non-empty values. Returns
+ * `undefined` when nothing was filled in, so the record omits the field
+ * instead of publishing an empty object.
+ */
+export function listingAttributesFromFormData(
+  data: CreateMarketplaceListingData,
+): Record<string, string | string[]> | undefined {
+  const attributes: Record<string, string | string[]> = {};
+  for (const field of commerceAttributeFieldsFor(data.categoryId)) {
+    const formField = listingAttributeFormField(field.key);
+    if (!formField) continue;
+    const value = data[formField];
+    if (Array.isArray(value)) {
+      if (value.length > 0) attributes[field.key] = value;
+    } else if (value !== '') {
+      attributes[field.key] = value;
+    }
+  }
+  return Object.keys(attributes).length > 0 ? attributes : undefined;
 }
 
 /** The canonical package record: entered units converted to exact integer millimeters/grams. */

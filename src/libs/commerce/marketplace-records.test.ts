@@ -147,6 +147,49 @@ describe('commerceListingRecordSchema', () => {
     expect(parsed.variants[0]?.priceOverride).toBeUndefined();
   });
 
+  it('accepts any taxonomy version in the spec range, and rejects out-of-range values', () => {
+    const listing = makeFixedListing() as Record<string, unknown>;
+    expect(commerceListingRecordSchema.safeParse({ ...listing, taxonomyVersion: 1 }).success).toBe(true);
+    expect(commerceListingRecordSchema.safeParse({ ...listing, taxonomyVersion: 2 }).success).toBe(true);
+    expect(commerceListingRecordSchema.safeParse({ ...listing, taxonomyVersion: 999 }).success).toBe(true);
+    expect(commerceListingRecordSchema.safeParse({ ...listing, taxonomyVersion: 0 }).success).toBe(false);
+    expect(commerceListingRecordSchema.safeParse({ ...listing, taxonomyVersion: 1.5 }).success).toBe(false);
+    expect(commerceListingRecordSchema.safeParse({ ...listing, taxonomyVersion: 1_000_001 }).success).toBe(false);
+  });
+
+  it('accepts a bounded attributes container with string and string-list values', () => {
+    const listing = {
+      ...makeFixedListing(),
+      attributes: {
+        size: 'US 9',
+        color: ['brown', 'black'],
+        'age-era': '90s',
+        graded_by: 'PSA 9',
+      },
+    };
+    const parsed = commerceListingRecordSchema.parse(listing);
+    expect(parsed.attributes).toEqual(listing.attributes);
+    // Absent attributes remain valid — v1 records never carry them.
+    expect(commerceListingRecordSchema.safeParse(makeFixedListing()).success).toBe(true);
+  });
+
+  it('rejects malformed attributes: bad keys, oversized or duplicate values, too many keys', () => {
+    const base = makeFixedListing();
+    const withAttributes = (attributes: unknown) =>
+      commerceListingRecordSchema.safeParse({ ...base, attributes }).success;
+
+    expect(withAttributes({ 'Not-Kebab': 'value' })).toBe(false);
+    expect(withAttributes({ 'double--dash': 'value' })).toBe(false);
+    expect(withAttributes({ size: '' })).toBe(false);
+    expect(withAttributes({ size: 'x'.repeat(81) })).toBe(false);
+    expect(withAttributes({ color: [] })).toBe(false);
+    expect(withAttributes({ color: ['brown', 'brown'] })).toBe(false);
+    expect(withAttributes({ style: Array.from({ length: 11 }, (_, index) => `style-${index}`) })).toBe(false);
+    expect(
+      withAttributes(Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`key-${index}`, 'value']))),
+    ).toBe(false);
+  });
+
   it('rejects unknown fields so private data cannot hitchhike on public records', () => {
     const listing = {
       ...makeFixedListing(),

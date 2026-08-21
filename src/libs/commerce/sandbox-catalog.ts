@@ -1,4 +1,4 @@
-import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 import type { CommerceListingProjectionModelSchema } from '@/models/commerce/commerce.schema';
 import {
   type CommerceListingRecord,
@@ -19,7 +19,14 @@ type CatalogEntry = {
   listingId: string;
   title: string;
   description: string;
+  /**
+   * Entries without an explicit version simulate records published under
+   * taxonomy v1 (flat categories, no attributes) — they exercise the
+   * legacy-id resolution path. v2 entries carry item specifics.
+   */
+  taxonomyVersion?: number;
   categoryId: string;
+  attributes?: Record<string, string | string[]>;
   condition: CommerceListingRecord['condition'];
   amountMinor: number;
   tags: string[];
@@ -132,6 +139,47 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     saleFormat: 'fixed_price',
     colorHash: '1',
   },
+  {
+    seller: 'p'.repeat(52),
+    shopName: 'Ninetieth Percentile',
+    listingId: 'varsity_fleece',
+    title: 'Heavyweight varsity fleece',
+    description: 'Boxy 90s collegiate fleece with an embroidered chest hit.',
+    taxonomyVersion: 2,
+    categoryId: 'fashion-men-tops-hoodies',
+    attributes: {
+      size: 'L',
+      brand: 'Champion',
+      color: ['grey', 'navy'],
+      source: 'vintage',
+      age: '90s',
+      style: ['retro', 'sportswear'],
+    },
+    condition: 'good',
+    amountMinor: 7_200,
+    tags: ['vintage', 'fleece'],
+    saleFormat: 'fixed_price',
+    colorHash: '3',
+  },
+  {
+    seller: 'q'.repeat(52),
+    shopName: 'Shutter Priority',
+    listingId: 'slr_program',
+    title: 'Program-mode 35mm SLR',
+    description: 'Clean program-mode SLR body with a fresh light seal service.',
+    taxonomyVersion: 2,
+    categoryId: 'electronics-cameras-film',
+    attributes: {
+      brand: 'Canon',
+      model: 'AE-1 Program',
+      color: ['black'],
+    },
+    condition: 'excellent',
+    amountMinor: 21_000,
+    tags: ['film', 'slr'],
+    saleFormat: 'fixed_price',
+    colorHash: '5',
+  },
 ];
 
 export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
@@ -207,8 +255,9 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
     state: 'active',
     title: entry.title,
     description: entry.description,
-    taxonomyVersion: COMMERCE_TAXONOMY_VERSION,
+    taxonomyVersion: entry.taxonomyVersion ?? 1,
     categoryId: entry.categoryId,
+    attributes: entry.attributes,
     condition: entry.condition,
     tags: entry.tags,
     location: { countryCode: 'US' },

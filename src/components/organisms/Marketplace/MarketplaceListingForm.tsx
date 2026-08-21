@@ -10,7 +10,6 @@ import { Input } from '@/atoms/Input/Input';
 import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
-import { COMMERCE_CATEGORIES } from '@/config/commerce';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
 import {
   CREATE_MARKETPLACE_LISTING_FIELDS,
@@ -26,6 +25,8 @@ import { amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/p
 import { dimensionUnitLabel, weightUnitLabel } from '@/libs/commerce/units';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
+import { MarketplaceListingAttributeFields } from '@/organisms/Marketplace/MarketplaceListingAttributeFields';
 
 export interface MarketplaceListingFormProps {
   form: UseFormReturn<CreateMarketplaceListingData>;
@@ -163,14 +164,20 @@ export function MarketplaceListingForm({
             rows={6}
             disabled={isPublishing}
           />
+          <Controller
+            name={CREATE_MARKETPLACE_LISTING_FIELDS.CATEGORY}
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <MarketplaceCategoryPicker
+                value={field.value}
+                onChange={field.onChange}
+                disabled={isPublishing}
+                error={fieldState.error?.message}
+              />
+            )}
+          />
+          <MarketplaceListingAttributeFields form={form} isPublishing={isPublishing} />
           <div className="grid gap-5 sm:grid-cols-2">
-            <FormSelect
-              form={form}
-              name={CREATE_MARKETPLACE_LISTING_FIELDS.CATEGORY}
-              label="Category"
-              disabled={isPublishing}
-              options={COMMERCE_CATEGORIES.map(({ id, label }) => ({ value: id, label }))}
-            />
             <FormSelect
               form={form}
               name={CREATE_MARKETPLACE_LISTING_FIELDS.CONDITION}
@@ -618,7 +625,6 @@ function FormSelect({
 }: {
   form: UseFormReturn<CreateMarketplaceListingData>;
   name:
-    | typeof CREATE_MARKETPLACE_LISTING_FIELDS.CATEGORY
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.CONDITION
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY

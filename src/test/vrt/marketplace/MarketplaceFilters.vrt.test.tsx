@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceFilters } from '@/organisms/Marketplace/MarketplaceFilters';
+import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { commerceInitialState, type CommerceState } from '@/stores/commerce/commerce.types';
 
@@ -11,10 +12,31 @@ function setStoreState(overrides: Partial<CommerceState> = {}) {
   useCommerceStore.setState({ ...commerceInitialState, ...overrides });
 }
 
-function FiltersHarness({ resultCount }: { resultCount: number }) {
+// One record-backed catalog item whose attributes feed the facet chips.
+const facetItem: MarketplaceCatalogItem = {
+  id: 'seller:varsity_fleece',
+  sellerId: 's'.repeat(52),
+  listingId: 'varsity_fleece',
+  state: 'active',
+  title: 'Heavyweight varsity fleece',
+  description: 'Boxy 90s collegiate fleece.',
+  categoryId: 'fashion-men-tops-hoodies',
+  condition: 'good',
+  tags: [],
+  saleFormat: 'fixed_price',
+  price: { amountMinor: 7_200, currency: 'USD', exponent: 2 },
+  auction: null,
+  attributes: { size: 'L', brand: 'Champion', color: ['grey', 'navy'] },
+  location: { countryCode: 'US', region: null },
+  mediaUrls: [],
+  revision: 1,
+  updatedAt: 1_000,
+};
+
+function FiltersHarness({ resultCount, facetPool }: { resultCount: number; facetPool?: MarketplaceCatalogItem[] }) {
   return (
     <main className="w-full px-6 py-6">
-      <MarketplaceFilters resultCount={resultCount} />
+      <MarketplaceFilters resultCount={resultCount} facetPool={facetPool} />
     </main>
   );
 }
@@ -72,5 +94,30 @@ describe('Marketplace filters — visual regression', () => {
       disableHover: true,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-zero-results-desktop');
+  });
+
+  it('renders the category drill-down breadcrumb with child chips at desktop viewport', async () => {
+    setStoreState({ categoryId: 'fashion-men-footwear' });
+
+    const screen = await renderForVRT(<FiltersHarness resultCount={4} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-category-drilldown-desktop');
+  });
+
+  it('renders attribute facet chips with an active size filter at desktop viewport', async () => {
+    setStoreState({ categoryId: 'fashion', attributeFilters: { size: 'L' } });
+
+    const screen = await renderForVRT(<FiltersHarness resultCount={1} facetPool={[facetItem]} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-attribute-facets-desktop');
+  });
+
+  it('renders attribute facet chips at mobile viewport', async () => {
+    setStoreState({ categoryId: 'fashion' });
+
+    const screen = await renderForVRT(<FiltersHarness resultCount={1} facetPool={[facetItem]} />, {
+      viewport: VRT_VIEWPORT_MOBILE,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-attribute-facets-mobile');
   });
 });
