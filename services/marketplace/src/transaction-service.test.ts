@@ -868,6 +868,63 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('order_created');
   });
 
+  it('echoes the checkout line variant snapshot onto the order line and omits it when absent', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand(2));
+
+    // A variant-less line carries no variant keys at all on the order.
+    const plain = checkoutCommand();
+    const plainResult = await service.execute(BUYER, plain);
+    expect(plainResult.ok).toBe(true);
+    const plainLine = service.getOrders(BUYER)[0].lines[0];
+    expect('variantId' in plainLine).toBe(false);
+    expect('variantOptions' in plainLine).toBe(false);
+
+    const base = checkoutCommand();
+    const commandId = '00000000-0000-4000-8000-000000001001';
+    const command = {
+      ...base,
+      commandId,
+      aggregateId: buildMarketplaceCheckoutAggregateId(commandId),
+      payload: {
+        ...base.payload,
+        // The plain checkout reserved one of two units and advanced the listing.
+        lines: [
+          {
+            listingAggregateId: AGGREGATE_ID,
+            expectedRevision: 2,
+            quantity: 1,
+            variantId: 'variant_forest_m',
+            variantOptions: [
+              { name: 'Size', value: 'M' },
+              { name: 'Color', value: 'Forest green' },
+            ],
+          },
+        ],
+      },
+    };
+    const result = await service.execute(BUYER, command);
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        orders: [
+          {
+            lines: [
+              {
+                variantId: 'variant_forest_m',
+                variantOptions: [
+                  { name: 'Size', value: 'M' },
+                  { name: 'Color', value: 'Forest green' },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
   it('advances sandbox payment through detection to confirmation and issues a receipt', async () => {
     const { service } = createService();
     await service.execute(SELLER, registerCommand());

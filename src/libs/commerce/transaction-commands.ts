@@ -123,10 +123,30 @@ export const updateMarketplaceNotificationPreferencesCommandSchema = createComme
     .strict(),
 );
 
+/**
+ * One `name → value` pair of the buyer's chosen variant, carried as an
+ * ordered array (never an open-keyed map: the wire-casing layer converts
+ * object KEYS between camelCase and snake_case, which would mangle
+ * free-form option names in transit). Limits mirror the listing record's
+ * variant contract: names ≤40 chars, values ≤80 chars, ≤3 dimensions.
+ */
+const checkoutLineVariantOptionSchema = z
+  .object({
+    name: z.string().trim().min(1).max(40),
+    value: z.string().trim().min(1).max(80),
+  })
+  .strict();
+
 const checkoutLineSchema = z.object({
   listingAggregateId: z.string().min(1),
   expectedRevision: z.number().int().positive(),
   quantity: z.number().int().positive().max(1_000_000),
+  // Optional variant snapshot for fulfillment display (packing slips, order
+  // rows). Additive on the service's checkout contract; the service stores
+  // it as the buyer's claim about the owner-signed listing content, exactly
+  // like quantity.
+  variantId: commerceEntityIdSchema.optional(),
+  variantOptions: z.array(checkoutLineVariantOptionSchema).min(1).max(3).optional(),
 });
 
 export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchema(

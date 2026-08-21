@@ -11,7 +11,9 @@ export class MarketplaceNotificationNormalizer {
    * notification surface renders. The output is constructed field-by-field
    * (never spread), so any extra fields a backend might attach to the
    * projection are dropped here — the general surface can only render a
-   * type, an actor, an aggregate reference, and a timestamp (ADR-0019 §8).
+   * type, an actor, an aggregate reference, a timestamp, and (where §8
+   * permits) a monetary amount the recipient already sees in a role-scoped
+   * projection (ADR-0019 §8).
    *
    * `isUnread` is honest per adapter mode: the sandbox stores `readAt` and
    * accepts `notification.mark_read`, so its null `readAt` means unread; the
@@ -32,6 +34,17 @@ export class MarketplaceNotificationNormalizer {
       timestamp: Date.parse(notification.createdAt),
       isUnread: adapterMode === 'sandbox' && notification.readAt === null,
       href: MarketplaceNotificationNormalizer.toDeepLink(notification.type, notification.aggregateId),
+      // Copied field-by-field like everything above: only the three money
+      // fields cross, never the raw projection object.
+      ...(notification.amount
+        ? {
+            amount: {
+              amountMinor: notification.amount.amountMinor,
+              currency: notification.amount.currency,
+              exponent: notification.amount.exponent,
+            },
+          }
+        : {}),
     };
   }
 

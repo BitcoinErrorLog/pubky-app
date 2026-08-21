@@ -46,8 +46,6 @@ import { MarketplaceSessionService } from './marketplace-session';
  *   once (ADR-0019 §7). Deployments without Locks configured refuse it.
  * - `message.send` and `notification.*` have no durable tables; messaging
  *   and notification preferences remain sandbox-only.
- * - `order.cancel_request`/`order.cancel_approve` are declared in the
- *   contract artifact but not yet ported by the service.
  */
 const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']> = new Set([
   'listing.register',
@@ -63,6 +61,8 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'payment.register_locks',
   'fulfillment.ship',
   'fulfillment.confirm_delivery',
+  'order.cancel_request',
+  'order.cancel_approve',
   'return.request',
   'return.approve',
   'return.receive',

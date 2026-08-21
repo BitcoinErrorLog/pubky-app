@@ -40,7 +40,7 @@ export function MarketplaceNotificationItem({ notification, isMobile = false }: 
   const { profile } = useUserProfile(notification.actorPubky);
   const userName = profile?.name || 'User';
   const userProfileLink = getUserProfileLink(notification.actorPubky);
-  const actionText = getMarketplaceNotificationActionText(notification.type);
+  const actionText = getMarketplaceNotificationActionText(notification);
   const timestampDate = new Date(notification.timestamp);
 
   const handleRowClick = (e: React.MouseEvent) => {

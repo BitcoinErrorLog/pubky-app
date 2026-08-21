@@ -89,9 +89,17 @@ export function MarketplaceOrders() {
                         <Badge variant="secondary">{order.state.replaceAll('_', ' ')}</Badge>
                       </div>
                       {order.lines.map((line) => (
-                        <Typography key={line.listingAggregateId} as="p" className="font-semibold">
-                          {line.title} × {line.quantity}
-                        </Typography>
+                        <div key={line.listingAggregateId}>
+                          <Typography as="p" className="font-semibold">
+                            {line.title} × {line.quantity}
+                          </Typography>
+                          {/* The buyer's variant snapshot from checkout. */}
+                          {line.variantOptions?.length ? (
+                            <Typography as="p" className="text-xs text-muted-foreground">
+                              {line.variantOptions.map(({ name, value }) => `${name}: ${value}`).join(' · ')}
+                            </Typography>
+                          ) : null}
+                        </div>
                       ))}
                       <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
                         {formatCommerceMoney(order.total)}{' '}
@@ -183,7 +191,6 @@ export function MarketplaceOrders() {
                     <MarketplaceOrderActions
                       order={order}
                       isBuyer={isBuyer}
-                      canCancel={isSandbox}
                       canEditReview={adapterMode === 'transaction-service'}
                       actOnOrder={actOnOrder}
                     />

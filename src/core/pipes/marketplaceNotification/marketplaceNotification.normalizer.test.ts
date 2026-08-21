@@ -44,7 +44,11 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
 
     const item = MarketplaceNotificationNormalizer.toFeedNotification(smuggled, 'sandbox');
 
-    expect(Object.keys(item).sort()).toEqual([...MARKETPLACE_FEED_NOTIFICATION_KEYS].sort());
+    // Every emitted key must be in the allowed set (`amount` is optional and
+    // only present when the projection carried the §8-permitted context).
+    for (const key of Object.keys(item)) {
+      expect(MARKETPLACE_FEED_NOTIFICATION_KEYS).toContain(key);
+    }
     const serialized = JSON.stringify(item);
     for (const leaked of [
       '1 Secret Lane',
@@ -69,6 +73,23 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
     const row = createNotificationFixture('outbid', { readAt: null });
 
     expect(MarketplaceNotificationNormalizer.toFeedNotification(row, 'transaction-service').isUnread).toBe(false);
+  });
+
+  it('carries the §8-permitted amount field-by-field and omits it when absent', () => {
+    const withAmount = createNotificationFixture('auction_ended', {
+      amount: { amountMinor: 8_500, currency: 'USD', exponent: 2 },
+    });
+    const carried = MarketplaceNotificationNormalizer.toFeedNotification(withAmount, 'transaction-service');
+    expect(carried.amount).toEqual({ amountMinor: 8_500, currency: 'USD', exponent: 2 });
+
+    // Old service rows deliver amount: null; sandbox rows have no field at
+    // all — neither may materialize an `amount` key on the feed shape.
+    const nullAmount = createNotificationFixture('auction_ended', { amount: null });
+    expect('amount' in MarketplaceNotificationNormalizer.toFeedNotification(nullAmount, 'transaction-service')).toBe(
+      false,
+    );
+    const absent = createNotificationFixture('auction_ended');
+    expect('amount' in MarketplaceNotificationNormalizer.toFeedNotification(absent, 'sandbox')).toBe(false);
   });
 });
 

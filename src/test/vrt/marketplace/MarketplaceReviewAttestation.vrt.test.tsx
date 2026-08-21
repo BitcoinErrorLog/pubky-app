@@ -82,7 +82,6 @@ describe('Marketplace review attestation surfaces — visual regression', () => 
         <MarketplaceOrderActions
           order={unreviewedOrder}
           isBuyer={true}
-          canCancel={false}
           canEditReview={true}
           actOnOrder={vi.fn(async () => true)}
         />
@@ -105,7 +104,6 @@ describe('Marketplace review attestation surfaces — visual regression', () => 
         <MarketplaceOrderActions
           order={unreviewedOrder}
           isBuyer={true}
-          canCancel={false}
           canEditReview={true}
           actOnOrder={vi.fn(async () => true)}
         />
@@ -130,7 +128,6 @@ describe('Marketplace review attestation surfaces — visual regression', () => 
         <MarketplaceOrderActions
           order={unreviewedOrder}
           isBuyer={true}
-          canCancel={false}
           canEditReview={true}
           actOnOrder={vi.fn(async () => true)}
         />
@@ -152,7 +149,6 @@ describe('Marketplace review attestation surfaces — visual regression', () => 
         <MarketplaceOrderActions
           order={reviewedOrder}
           isBuyer={true}
-          canCancel={false}
           canEditReview={true}
           actOnOrder={vi.fn(async () => true)}
         />

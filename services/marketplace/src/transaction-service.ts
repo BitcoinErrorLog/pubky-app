@@ -203,6 +203,9 @@ export interface MarketplaceOrderLine {
   quantity: number;
   unitPrice: MarketplaceListingAggregate['unitPrice'];
   subtotal: MarketplaceListingAggregate['unitPrice'];
+  /** The buyer's variant snapshot, echoed for fulfillment display (packing slips, order rows). */
+  variantId?: string;
+  variantOptions?: Array<{ name: string; value: string }>;
 }
 
 export interface MarketplaceDeliveryAddress {
@@ -1601,6 +1604,10 @@ export class MarketplaceTransactionService {
         quantity: requested.quantity,
         unitPrice: listing.unitPrice,
         subtotal: { ...listing.unitPrice, amountMinor: listing.unitPrice.amountMinor * requested.quantity },
+        // Echo the buyer's variant snapshot verbatim, matching the durable
+        // service: display data validated for shape only.
+        ...(requested.variantId ? { variantId: requested.variantId } : {}),
+        ...(requested.variantOptions ? { variantOptions: requested.variantOptions } : {}),
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
       const shippingMinor = 1_200;

@@ -22,19 +22,11 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 export function MarketplaceOrderActions({
   order,
   isBuyer,
-  canCancel,
   canEditReview,
   actOnOrder,
 }: {
   order: MarketplaceOrder;
   isBuyer: boolean;
-  /**
-   * Order cancellation (`order.cancel_request`/`order.cancel_approve`) only
-   * exists on the sandbox: the durable service declares those commands in its
-   * contract but has not ported them, so the affordance is withheld there
-   * instead of failing after a click.
-   */
-  canCancel: boolean;
   /**
    * `review.update` only exists on the durable service (the sandbox has no
    * review editing), so the edit affordance is withheld in sandbox mode
@@ -117,7 +109,10 @@ export function MarketplaceOrderActions({
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        {canCancel && isBuyer && ['pending_payment', 'paid', 'processing'].includes(order.state) && (
+        {/* Cancellation (order.cancel_request / order.cancel_approve) is now
+            implemented by BOTH engines — the sandbox and the durable service —
+            so the affordance is no longer mode-gated. */}
+        {isBuyer && ['pending_payment', 'paid', 'processing'].includes(order.state) && (
           <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('cancel')}>
             Cancel order
           </Button>
@@ -144,7 +139,7 @@ export function MarketplaceOrderActions({
             Request return
           </Button>
         )}
-        {canCancel && !isBuyer && order.state === 'cancel_requested' && (
+        {!isBuyer && order.state === 'cancel_requested' && (
           <Button size="sm" className="rounded-full" onClick={() => void actOnOrder(order, 'order.cancel_approve', {})}>
             Approve cancellation
           </Button>

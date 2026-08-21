@@ -52,13 +52,7 @@ function renderActions({
   });
   const actOnOrder = vi.fn(async () => true);
   render(
-    <MarketplaceOrderActions
-      order={order}
-      isBuyer={true}
-      canCancel={false}
-      canEditReview={canEditReview}
-      actOnOrder={actOnOrder}
-    />,
+    <MarketplaceOrderActions order={order} isBuyer={true} canEditReview={canEditReview} actOnOrder={actOnOrder} />,
   );
   return { order, actOnOrder };
 }
