@@ -4,6 +4,13 @@ Companion to `fiat-rails-design.md` (read it first — all design decisions and 
 live there). This plan turns the design into phases with sizing, parallelization, and an
 explicit ownership boundary: **what we build vs what becomes an upstream proposal**.
 
+> **Status (2026-08-21): Phase 1 executed.** The `fiat-verifier` gateway is built,
+> tested, deployed to staging, and the Lock Server is cut over to it; the BTC live
+> purchase re-passed through the proxy, and a USD lock was published and dispatched
+> live. The Stripe test-card purchase (task 1.10's final leg) is blocked on a test-mode
+> secret key. Observed values and the exact remaining step:
+> [`fiat-rails-phase1.md`](fiat-rails-phase1.md).
+
 Sizing: **S** ≤ 1 day · **M** = 2–4 days · **L** = 1–2 weeks.
 
 ## Ownership boundary
