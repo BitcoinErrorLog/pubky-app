@@ -20,6 +20,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export interface MarketplaceListingOwnerPanelProps {
   record: CommerceListingRecord;
@@ -36,12 +37,16 @@ export function MarketplaceListingOwnerPanel({ record }: MarketplaceListingOwner
   // Self-heal: listings published before durable-mode registration existed
   // (or while it failed) have no aggregate on the transaction service, which
   // makes them un-buyable. Registration is idempotent, so re-run it whenever
-  // the owner views their listing; failures (e.g. no marketplace session yet)
-  // stay silent here — the transactional surfaces already surface session
-  // guidance, and the next visit retries.
+  // the owner views their listing — and again the moment a marketplace
+  // session connects (the store object is replaced on connect), because
+  // without a session the attempt cannot run and previously failed silently,
+  // forcing a manual reload after connecting. Remaining failures stay quiet
+  // here: the transactional surfaces own session guidance, buyers self-heal
+  // via `listing.sync`, and the next visit retries.
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   useEffect(() => {
     CommerceController.ensureListingRegistered(record).catch(() => {});
-  }, [record]);
+  }, [record, marketplaceSession]);
 
   const router = useRouter();
   const [isMutating, setIsMutating] = useState(false);
