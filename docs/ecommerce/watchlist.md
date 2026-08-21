@@ -50,4 +50,69 @@ A saved search (`commerce_saved_searches`) stores a name plus the exact catalog 
 - **Service gap — no watcher/loser auction close notification**: the service emits `auction_won` only to the winner and `outbid` only to the displaced leader. Losing bidders and watchers get no server event when an auction ends; the client's `state_change`/ending-soon detection covers this locally. A service-side `auction_ended` emission to auction participants would close this gap (the client normalizer already handles the kind for the sandbox).
 - **Service gap — uniform outbox payload**: service notifications carry only `{type, actor, aggregate}` — no bid amount. Amount context on bid alerts is therefore only available on device-detected rows, where the projection read supplied it.
 - Detection recency is bounded by visits: a price drop is detected the next time the user opens a marketplace surface, not the moment it happens. This is inherent to a local-first app without push, and the UI's "checked/observed … by this device" phrasing states it.
-- Watch state does not sync across devices (favorites are device-local today); an alert about a bid placed from another device reports "new bid" rather than "outbid" unless this device observed the user leading.
+- Watch state does not sync across devices (favorites are device-local today); an alert about a bid placed from another device reports "new bid" rather than "outbid" unless this device observed the user leading. Cross-device sync is decision-gated on a capability the app does not currently hold — see the decision memo below.
+
+## Decision memo: cross-device watch sync
+
+**Status: DECISION REQUIRED — nothing wired.** This memo resolves the "watch state does not sync across devices" gap above by investigation. It concludes that the honest, privacy-preserving mechanism (a private homeserver document) is blocked on a capability grant the app does not request today, so the right move is to decide the grant deliberately rather than ship a half-version. No sync code exists on this branch.
+
+### The privacy question, stated first
+
+A watchlist reveals **purchase intent**, and intent is strategically valuable to the counterparties who could read it. On an auction it enables sniping and demand signaling (a seller who can see who is watching knows exactly whose reserve to test and when interest peaks); on fixed-price items it exposes a buyer's shopping list. eBay treats watchlists as private for precisely this reason. So the acceptable-leakage bar here is not "consistent with the rest of the app" — it is "no third party can enumerate what a given pubky is watching."
+
+This runs against the ecosystem grain. Every existing `pubky.app` record — follows, bookmarks, mutes, `last_read` — lives under `/pub/` and is **public by construction** (`pubky-app-specs` defines only `PUBLIC_PATH = "/pub/"`; `last_read_uri_builder` writes `pubky://<id>/pub/pubky.app/last_read`, and Nexus indexes the whole `/pub/pubky.app/` subtree). A watchlist stored the same way would be world-readable. Obscuring the path (a random or hashed filename under `/pub/`) does not fix this: `/pub/` directories are **listable** by anyone (`publicStorage.list` needs no auth), so an obscured name is discoverable, and even a truly unguessable name is security-through-obscurity that Nexus indexing and directory enumeration defeat. **A public-but-obscured watchlist is not acceptable for a purchase-intent record**, and this memo treats that option as closed.
+
+### What the homeserver and the app's session can actually do (empirical)
+
+Tested against the live staging homeserver (`homeserver.staging.pubky.app`, pkarr relays `pkarr.pubky.app`/`pubky.org`) with throwaway identities via the vendored `@synonymdev/pubky` 0.8 SDK — the exact client the deployed app uses. Results:
+
+| #   | Actor / session                                                                                                         | Operation on `/priv/pubky.app/…`                 | Result                                                                              |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| 1   | Signup/keypair session (`signer.signup`/`signin`) — capabilities `["/:rw"]`                                             | `putJson`, `getJson`, `list`, raw `PUT`/`GET`    | **All succeed** (201 / 200)                                                         |
+| 2   | Ring auth-flow session requesting `/pub/pubky.app/:rw` — capabilities `["/pub/pubky.app/:rw"]`                          | `PUT` and `GET` `/priv/…`                        | **403 Forbidden** — "Session does not have write access to path" (and reads denied) |
+| 3   | Ring auth-flow session requesting `/pub/pubky.app/:rw,/priv/pubky.app/:rw` — capabilities include `/priv/pubky.app/:rw` | approval, `PUT`, `GET` `/priv/…`                 | **All succeed** (approval accepted, 201 / 200)                                      |
+| 4   | A **different pubky**, fresh process, no session                                                                        | `GET`, `list`, `PUT` on another user's `/priv/…` | **401** — "Authentication required to read private storage"                         |
+
+Two findings matter and one is a trap:
+
+- **`/priv/` is genuinely private.** From a separate process holding no session, reads, listings, and writes to another user's `/priv/` path are refused with 401 (row 4). The staging homeserver enforces authentication on `/priv/` for both reads and writes — unlike `/pub/`, whose reads are open and whose directories are listable. This is exactly the confidentiality the intent record needs.
+  - _Trap that had to be ruled out:_ an in-process "anonymous" client initially appeared to read and even overwrite `/priv/` (200/201). That was a **process-global cookie jar** in the WASM SDK — separate `Client` instances in one Node process share the owner's session cookie. Re-run from a clean process, the same requests return 401. Privacy is load-bearing here, so this was verified cross-process rather than trusted from the single-process run.
+- **The SDK fully expresses `/priv` scopes.** `validateCapabilities("/pub/pubky.app/:rw,/priv/pubky.app/:rw")` normalizes cleanly, the auth flow accepts the string, and the resulting `SessionInfo.capabilities` carries both entries (row 3). There is no SDK-level blocker.
+- **The app's Ring session cannot touch `/priv` today.** The app requests exactly `CAPABILITIES = '/pub/pubky.app/:rw'` (`src/core/services/homeserver/homeserver.ts`). A Ring-authenticated session therefore holds only that scope and is refused on `/priv/` (row 2). Only keypair/recovery-phrase sign-in yields root `/:rw` (row 1) and can reach `/priv/`.
+
+### The exact blocker
+
+**Pubky Ring is the flagship sign-in method** (`AuthApplication.generateAuthUrl()` → "Generates an authentication URL for Pubky Ring App"), and it is the whole point of the model: keys stay in the authenticator, the web app receives only the scoped capabilities it asked for. Those users' sessions **cannot read or write `/priv/`** under the current grant. Recovery-phrase users get root and could, but building sync that silently works for recovery-phrase users and no-ops for Ring users would be a **dishonestly-labeled half-version** — the UI would claim "synced privately via your homeserver" for a population where it does not sync at all. Our rules forbid that.
+
+Enabling private sync for all users requires the app to request a broader capability at sign-in:
+
+```
+'/pub/pubky.app/:rw,/priv/pubky.app/:rw'
+```
+
+That is a **new Ring capability grant**, structurally the same class of change as messaging's `/pub/paykit` scope addition. It is not a code detail; it is a product/trust decision with real costs, which is why this memo stops here instead of flipping the constant.
+
+There is also **no spec convention** for private records: `pubky-app-specs` knows only `/pub/`. A `/priv/pubky.app/marketplace/watchlist.json` document would be a brand-new storage convention, which implies (small) upstream spec work to reserve and shape the path so other clients and Nexus treat it as intentionally non-indexed.
+
+### Options
+
+1. **Add `/priv/pubky.app/:rw` to the Ring grant, then build the private-document sync.**
+   - _Benefit:_ true cross-device sync with the privacy the record demands; `/priv` confidentiality is already enforced by the deployed homeserver (verified).
+   - _UX / trust cost:_ the authorizer (Pubky Ring) will show users a **new, broader permission** — write access to their private homeserver namespace — at connect time. That is a meaningfully larger ask than "public app data," and it must be justified in the consent copy. **Every already-authorized session must re-authenticate** to gain the scope; until they do, sync is unavailable for them, so the app needs a capability-detection path (`session.info.capabilities`) and honest "sign in again to enable private sync" messaging rather than a silent failure.
+   - _Scope cost:_ new spec path convention + the sync engine itself (single last-writer-wins JSON document: favorites/watch marks + saved searches, `updated_at` LWW, tombstone list with pruning, union-merge with local Dexie, debounced write on change, read on sign-in, offline-tolerant) + merge/tombstone unit tests + a live cross-context round-trip test.
+
+2. **Public records under `/pub/` (obscured or not).**
+   - _Benefit:_ works with the capability the app already holds; zero grant change.
+   - _Privacy cost:_ **unacceptable.** Purchase intent becomes world-readable and directory-enumerable (and Nexus-indexable). Obscuring the filename does not close enumeration. Rejected above; listed only for completeness.
+
+3. **Stay device-local (status quo).**
+   - _Benefit:_ zero new capability, zero new attack surface, no consent-copy or re-auth burden. The watchlist and its device-detected alerts already carry honest "on this device" labeling, so nothing is mislabeled.
+   - _Cost:_ the watchlist does not follow a user across browsers/devices — the gap this memo exists to resolve stays open.
+
+### Recommendation
+
+**Take Option 1, as a deliberate, separately-scoped change — not folded into this UX branch.** The mechanism is sound and the privacy property is real and already enforced by the homeserver, so the only thing standing between the app and honest cross-device sync is a capability the app chooses not to request yet. That choice should be made explicitly because it widens what the app is trusted to do (private-namespace write access) and forces a re-auth migration — both of which need product sign-off and user-facing consent copy, not a one-line constant flip buried in a feature PR.
+
+Concretely, Option 1 should ship as its own change that: (a) widens `CAPABILITIES` to include `/priv/pubky.app/:rw` with reviewed Ring-consent copy; (b) reserves the `/priv/pubky.app/marketplace/` path in `pubky-app-specs`; (c) gates the sync engine on `session.info.capabilities` actually including the `/priv` scope, showing a truthful "re-authenticate to enable private sync" state otherwise (never a silent no-op); (d) stores one last-writer-wins document merged with Dexie by union with a pruned tombstone list; and (e) proves it with merge/tombstone unit tests plus a live two-context staging round-trip.
+
+Until that decision is taken, the watchlist **stays device-local** (Option 3) and remains honestly labeled as such. **Nothing on this branch wires sync.**
