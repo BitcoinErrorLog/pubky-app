@@ -128,9 +128,18 @@ export class CommerceApplication {
   }
 
   /**
-   * Drops the in-memory Marketplace Transaction Service session. Part of the
-   * sign-out teardown: the bearer token must not survive the user it was
-   * minted for (it lives only in memory, so this is the single cleanup point).
+   * Restores the account-scoped marketplace session persisted in
+   * `sessionStorage`, returning its public facts (never the token) or null
+   * when nothing valid is persisted for this account.
+   */
+  static restoreMarketplaceSession(pubky: string) {
+    return MarketplaceSessionService.restorePersistedSession(pubky);
+  }
+
+  /**
+   * Drops the Marketplace Transaction Service session from memory and from
+   * `sessionStorage`. Part of the sign-out teardown: the bearer token must not
+   * survive the user it was minted for (this is the single cleanup point).
    */
   static clearMarketplaceSession(): void {
     MarketplaceSessionService.clearSession();

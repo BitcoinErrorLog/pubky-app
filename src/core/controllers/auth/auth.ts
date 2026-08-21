@@ -70,6 +70,13 @@ export class AuthController {
         hasProfile: authStore.hasProfile,
       };
       authStore.init(initialState);
+      // The marketplace bearer session survives reloads in sessionStorage,
+      // scoped to the account whose app session was just restored; anything
+      // persisted for another account is dropped inside the restore.
+      const marketplaceSession = CommerceApplication.restoreMarketplaceSession(initialState.currentUserPubky);
+      if (marketplaceSession) {
+        useCommerceStore.getState().setMarketplaceSession(marketplaceSession);
+      }
       return true;
     } catch (error) {
       const appError = toAppError(error, ErrorService.Local, 'restorePersistedSession');

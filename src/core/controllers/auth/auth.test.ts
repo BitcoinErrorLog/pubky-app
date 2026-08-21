@@ -23,6 +23,7 @@ import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { AuthStore } from '@/stores/auth/auth.types';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
 import { useHotStore } from '@/stores/hot/hot.store';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
@@ -1011,6 +1012,37 @@ describe('AuthController', () => {
         currentUserPubky: mockPubky,
         hasProfile: true,
       });
+    });
+
+    it('should restore the account-scoped marketplace session and mirror its facts into the commerce store', async () => {
+      const mockSession = buildMockSession();
+      const mockPubky = TEST_PUBKY as Pubky;
+      const marketplaceSession = {
+        pubky: mockPubky,
+        capabilities: '',
+        expiresAt: '2026-08-22T00:00:00.000Z',
+      };
+
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        hasHydrated: true,
+        session: null,
+        sessionExport: 'session-export',
+        hasProfile: true,
+        isRestoringSession: false,
+        setIsRestoringSession: vi.fn(),
+        init: vi.fn(),
+      });
+
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({ session: mockSession });
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(mockPubky);
+      const restoreSpy = vi.spyOn(CommerceApplication, 'restoreMarketplaceSession').mockReturnValue(marketplaceSession);
+
+      await AuthController.restorePersistedSession();
+
+      expect(restoreSpy).toHaveBeenCalledWith(mockPubky);
+      expect(useCommerceStore.getState().marketplaceSession).toEqual(marketplaceSession);
     });
 
     it('should return false and run full cleanup when restoration fails', async () => {

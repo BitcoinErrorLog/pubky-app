@@ -27,7 +27,7 @@ export function MarketplaceSessionConnectDialog({ onConnected }: { onConnected?:
     onConnected: () => {
       toast({
         title: 'Marketplace session connected',
-        description: 'This session lives only in this tab and expires on its own.',
+        description: 'This session stays in this tab, survives reloads, and expires on its own.',
       });
       setOpen(false);
       void onConnected?.();
@@ -70,8 +70,8 @@ export function MarketplaceSessionConnectDialog({ onConnected }: { onConnected?:
 
         <Typography as="p" className="text-sm text-muted-foreground">
           Approving with your signer (Pubky Ring) authorizes a marketplace session: this app may then transact as you
-          against the transaction service until the session expires or you sign out. The session lives only in this
-          tab&apos;s memory.
+          against the transaction service until the session expires or you sign out. The session stays in this tab
+          (surviving reloads) and is never shared with other tabs.
         </Typography>
 
         {session.status === 'error' ? (

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MarketplaceSessionService } from './marketplace-session';
+import {
+  MARKETPLACE_SESSION_STORAGE_KEY,
+  MarketplaceSessionService,
+  SESSION_FLOW_TIMEOUT_MS,
+} from './marketplace-session';
 
 const PUBKY = 'y'.repeat(52);
 const TOKEN = 'opaque-session-token-base64url';
@@ -43,6 +47,15 @@ function inOneDay(): string {
   return new Date(Date.now() + 86_400_000).toISOString();
 }
 
+/** Simulates a page reload: the in-memory session dies, sessionStorage survives. */
+function dropMemoryOnly() {
+  const persisted = window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
+  MarketplaceSessionService.clearSession();
+  if (persisted !== null) {
+    window.sessionStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, persisted);
+  }
+}
+
 describe('MarketplaceSessionService', () => {
   beforeEach(() => {
     config.mode = 'transaction-service';
@@ -82,20 +95,70 @@ describe('MarketplaceSessionService', () => {
     expect(JSON.stringify(info)).not.toContain(TOKEN);
   });
 
-  it('never writes the session token to localStorage, sessionStorage, or IndexedDB', async () => {
-    const storageWrites: string[] = [];
-    const setItemSpy = vi
-      .spyOn(Storage.prototype, 'setItem')
-      .mockImplementation((key: string, value: string) => storageWrites.push(`${key}=${value}`));
+  it('persists the session to sessionStorage only — never localStorage or IndexedDB', async () => {
+    const localSetItemSpy = vi.spyOn(window.localStorage, 'setItem');
     const indexedDbOpenSpy = vi.spyOn(indexedDB, 'open');
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
 
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
 
-    expect(storageWrites.join('\n')).not.toContain(TOKEN);
+    const persisted = window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
+    expect(persisted).not.toBeNull();
+    expect(JSON.parse(persisted!)).toMatchObject({ token: TOKEN, pubky: PUBKY });
+    expect(localSetItemSpy).not.toHaveBeenCalled();
     expect(indexedDbOpenSpy).not.toHaveBeenCalled();
-    setItemSpy.mockRestore();
+    localSetItemSpy.mockRestore();
     indexedDbOpenSpy.mockRestore();
+  });
+
+  it('restores a persisted session for the matching account across a simulated reload', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+
+    dropMemoryOnly();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+
+    const info = MarketplaceSessionService.restorePersistedSession(PUBKY);
+
+    expect(info).toMatchObject({ pubky: PUBKY });
+    expect(info).not.toHaveProperty('token');
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
+  });
+
+  it('drops a persisted session that belongs to another account', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    dropMemoryOnly();
+
+    expect(MarketplaceSessionService.restorePersistedSession('z'.repeat(52))).toBeNull();
+    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('drops a persisted session that is past the expiry margin or malformed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'));
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    dropMemoryOnly();
+
+    vi.setSystemTime(new Date('2026-08-20T12:59:31.000Z'));
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toBeNull();
+    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+
+    window.sessionStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, 'not json');
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toBeNull();
+    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('refuses to restore outside durable modes even when a blob is persisted', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    dropMemoryOnly();
+    config.mode = 'sandbox';
+
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toBeNull();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 
   it('treats a session as absent once it reaches the expiry margin, and re-establishes', async () => {
@@ -114,13 +177,46 @@ describe('MarketplaceSessionService', () => {
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: 'second-token' });
   });
 
-  it('clears the session on demand', async () => {
+  it('clears the session from memory AND sessionStorage on demand', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).not.toBeNull();
 
     MarketplaceSessionService.clearSession();
 
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('times out an unapproved flow with a retryable error and frees the underlying auth flow', async () => {
+    vi.useFakeTimers();
+    authTokenFlow.awaitToken.mockReturnValueOnce(new Promise(() => {})); // never approved
+
+    const flow = MarketplaceSessionService.beginSessionFlow();
+    const pending = flow.awaitSession();
+    const outcome = expect(pending).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'REQUEST_TIMEOUT',
+      message: expect.stringContaining('expired before it was approved'),
+    });
+
+    await vi.advanceTimersByTimeAsync(SESSION_FLOW_TIMEOUT_MS);
+    await outcome;
+    expect(authTokenFlow.cancelAuthFlow).toHaveBeenCalled();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('does not fire the timeout once the exchange already succeeded', async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    authTokenFlow.awaitToken.mockResolvedValueOnce({ toBytes: () => new Uint8Array([7]) });
+
+    const flow = MarketplaceSessionService.beginSessionFlow();
+    const info = await flow.awaitSession();
+    await vi.advanceTimersByTimeAsync(SESSION_FLOW_TIMEOUT_MS + 1_000);
+
+    expect(info).toMatchObject({ pubky: PUBKY });
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN });
   });
 
   it('rejects establishment when the service refuses the auth token', async () => {

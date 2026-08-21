@@ -40,6 +40,18 @@ This is the correct boundary: the signer device holds the key and signs, the ser
 
 The service's own session tokens continue to work as they do today (opaque, hashed at rest, TTL, Bearer on `/v1/commands`), so only the establishment step changes.
 
+## Where the bearer token lives in the browser
+
+The original rule was memory-only: the token died on any reload, which in field testing meant every reload or new tab demanded another Pubky Ring approval. That cost users real friction for little security gain, so the rule is deliberately loosened — this section is the record of exactly how far.
+
+**What is stored, and where.** On session establishment the client writes one value to `sessionStorage` under the key `pubky.marketplace.session.v1`: a JSON object containing the opaque bearer token, the account pubky it was minted for, the granted capability string, and the expiry timestamp. Nothing else. The token is still never written to IndexedDB, localStorage, or cookies, and never logged; the in-memory copy remains what requests read from.
+
+**Why `sessionStorage` specifically.** It is scoped to one tab and dies with the browsing session: a reload in the same tab restores the session silently, while a new tab, a new browser session, or another device still requires a fresh signer approval. That is the narrowest storage that fixes the reload complaint.
+
+**Restore is validated, not trusted.** On app boot, after the app's own homeserver session restore has identified the signed-in account, the client re-reads the stored blob and drops it unless it parses against the session schema, its pubky matches the restored account, and it has not passed the client-side expiry margin. Sign-out and account switch clear it (both funnel through the same cleanup as the in-memory session). If the service itself no longer accepts a restored token, the first request answers 401, the client clears the session everywhere, and the "Connect marketplace session" affordance resurfaces — the service stays the authority on validity.
+
+**The tradeoff, stated plainly.** Anything running in the page's origin (an XSS payload, a malicious extension with page access) could read `sessionStorage` where it could previously only read process memory. That is a real widening, bounded by the token's own properties: it is opaque, short-lived TTL, scoped to marketplace commands for one account, hashed at rest on the service, and revoked by sign-out or expiry. We judge that acceptable against the alternative of retraining users to re-approve on every reload.
+
 ## Version interoperability, measured
 
 The service verifies with the Rust crate `pubky-common`, pinned to `=0.11.0`. This app ships `@synonymdev/pubky` **0.8.0**. Those are three minor versions apart, and the crate's signature serialization was refactored in between (0.8 relies on the default `Signature` serde; 0.11 uses a custom fixed-64-byte module). That raised an obvious risk: tokens produced around the client's version failing verification at the service.
@@ -64,7 +76,7 @@ That is a real UX cost and it is a product decision, not a technical one. Two di
 - **Accept it.** A distinct approval for "this app may transact on my behalf in the marketplace" is arguably the honest thing to show a user, and it keeps marketplace authority scoped separately from social write access.
 - **Fold it into sign-in.** Request the marketplace capability during the existing auth flow so there is one approval. Cheaper UX, but it grants marketplace authority to every user at sign-in whether or not they ever use it.
 
-The transport no longer waits on this decision: in `transaction-service` mode the client establishes sessions exactly as designed above (`MarketplaceSessionService.beginSessionFlow()` starts the flow, `awaitToken()` bytes are exchanged at `/v1/auth/sessions`, the bearer lives in memory and dies on sign-out), and commands execute against the durable service — verified end to end by `npm run test:marketplace:service`. The in-app approval prompt exists too: `MarketplaceSessionConnectDialog` renders the flow's `pubkyauth://` URL as a QR/deeplink for Pubky Ring, and every durable-mode surface that hits the session requirement offers it (see [`status.md`](status.md)). That UI implements the **separate-approval** direction; whether the grant should instead fold into sign-in — and the wider capability-scoping questions above — remain the open product decision this document records.
+The transport no longer waits on this decision: in `transaction-service` mode the client establishes sessions exactly as designed above (`MarketplaceSessionService.beginSessionFlow()` starts the flow, `awaitToken()` bytes are exchanged at `/v1/auth/sessions`, the bearer lives in memory with a per-tab `sessionStorage` mirror — see "Where the bearer token lives in the browser" — and dies on sign-out), and commands execute against the durable service — verified end to end by `npm run test:marketplace:service`. The in-app approval prompt exists too: `MarketplaceSessionConnectDialog` renders the flow's `pubkyauth://` URL as a QR/deeplink for Pubky Ring, and every durable-mode surface that hits the session requirement offers it (see [`status.md`](status.md)). That UI implements the **separate-approval** direction; whether the grant should instead fold into sign-in — and the wider capability-scoping questions above — remain the open product decision this document records.
 
 ## What is not affected
 

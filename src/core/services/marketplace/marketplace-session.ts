@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
@@ -15,6 +15,19 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
  * never departs with a token that dies in flight.
  */
 const SESSION_EXPIRY_MARGIN_MS = 30_000;
+
+/**
+ * Upper bound on one connect attempt (QR shown → signer approval → token
+ * exchange). Without it a flow whose relay channel silently died keeps the
+ * dialog in "waiting for approval" forever — the wedge a tester hit by
+ * scanning stale QRs. On timeout the flow is freed and the caller gets a
+ * visible, retryable error; the QR from a timed-out flow is dead by design
+ * (AuthTokens are single-use), so retry always mints a fresh one.
+ */
+export const SESSION_FLOW_TIMEOUT_MS = 120_000;
+
+/** `sessionStorage` key for the persisted session (see the class docs for the storage contract). */
+export const MARKETPLACE_SESSION_STORAGE_KEY = 'pubky.marketplace.session.v1';
 
 const sessionResponseSchema = z.object({
   token: z.string().min(1),
@@ -45,14 +58,25 @@ type StoredMarketplaceSession = {
 };
 
 /**
- * Holds the Marketplace Transaction Service session for the lifetime of the
- * signed-in browser session — IN MEMORY ONLY.
+ * Holds the Marketplace Transaction Service session for the signed-in browser
+ * session: in memory for request use, mirrored to `sessionStorage` so a page
+ * reload does not force a fresh signer approval.
  *
- * The bearer token is deliberately never written to IndexedDB, localStorage,
- * sessionStorage, or cookies, and never logged: it is a capability to act as
- * the user on the transaction service, and its blast radius is bounded by
- * keeping it in this module's private field. Sign-out clears it via
- * `CommerceApplication.clearMarketplaceSession()`.
+ * Storage contract (a deliberate, documented loosening of the original
+ * memory-only rule — see `docs/ecommerce/service-auth.md`):
+ *  - The opaque bearer token plus its facts (pubky, capabilities, expiry) are
+ *    written ONLY to `sessionStorage` under {@link MARKETPLACE_SESSION_STORAGE_KEY}.
+ *    `sessionStorage` is per-tab and dies with the browsing session; a new tab
+ *    still requires a fresh approval.
+ *  - Never IndexedDB, never localStorage, never cookies, never logged.
+ *  - Restore is account-scoped: {@link restorePersistedSession} validates the
+ *    stored blob and drops it unless its pubky matches the account whose app
+ *    session was just restored. Sign-out (and account switch, which funnels
+ *    through the same cleanup) clears it via
+ *    `CommerceApplication.clearMarketplaceSession()`.
+ *  - A restored token the service no longer accepts surfaces as a 401, which
+ *    clears the session and re-shows the reconnect affordance — expiry is the
+ *    service's call, not this cache's.
  *
  * Establishment (per `docs/ecommerce/service-auth.md`): the Pubky auth flow
  * yields an `AuthToken` after the user approves on their signer; the raw
@@ -70,6 +94,9 @@ export class MarketplaceSessionService {
    * Starts the interactive session flow. Returns the authorization URL to show
    * on the user's signer (QR/deeplink) and a lazy `awaitSession` that resolves
    * once the user approves and the transaction service issues a session.
+   * `awaitSession` rejects with a retryable timeout error after
+   * {@link SESSION_FLOW_TIMEOUT_MS} so an abandoned or dead-relay flow can
+   * never hold the UI in an awaiting state forever.
    */
   static beginSessionFlow(): MarketplaceSessionFlow {
     this.assertTransactionServiceMode('beginSessionFlow');
@@ -77,11 +104,38 @@ export class MarketplaceSessionService {
     return {
       authorizationUrl: flow.authorizationUrl,
       awaitSession: async () => {
-        const authToken = await flow.awaitToken();
+        const authToken = await this.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
         return await this.establishWithAuthToken(authToken.toBytes());
       },
       cancel: flow.cancelAuthFlow,
     };
+  }
+
+  private static async withFlowTimeout<T>(pending: Promise<T>, cancelFlow: () => void): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        // Free the WASM flow so the relay wait cannot linger; the rejection
+        // below is what the caller surfaces.
+        cancelFlow();
+        reject(
+          Err.timeout(
+            TimeoutErrorCode.REQUEST_TIMEOUT,
+            'The connect request expired before it was approved. Start again to get a fresh QR code.',
+            {
+              service: ErrorService.Marketplace,
+              operation: 'awaitSession',
+              context: { timeoutMs: SESSION_FLOW_TIMEOUT_MS },
+            },
+          ),
+        );
+      }, SESSION_FLOW_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([pending, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -119,7 +173,38 @@ export class MarketplaceSessionService {
     }
     const { token, pubky, capabilities, expiresAt } = parsed.data;
     this.session = { token, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt) };
+    this.writePersistedSession(parsed.data);
     Logger.info('Established marketplace transaction session', { pubky, expiresAt });
+    return { pubky, capabilities, expiresAt };
+  }
+
+  /**
+   * Restores a persisted session from `sessionStorage` for the given account.
+   * Called once the app's own session restore has identified who is signed in
+   * (`AuthController.restorePersistedSession`). Anything that does not
+   * validate — malformed blob, wrong account, already past the expiry margin,
+   * non-durable mode — removes the stored value and returns null, so a stale
+   * token can never outlive its checks.
+   */
+  static restorePersistedSession(expectedPubky: string): MarketplaceSessionInfo | null {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return null;
+    const raw = this.readStorage();
+    if (raw === null) return null;
+
+    const parsed = sessionResponseSchema.safeParse(this.parseJson(raw));
+    if (!parsed.success || parsed.data.pubky !== expectedPubky) {
+      this.removePersistedSession();
+      return null;
+    }
+    const { token, pubky, capabilities, expiresAt } = parsed.data;
+    const expiresAtMs = Date.parse(expiresAt);
+    if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
+      this.removePersistedSession();
+      return null;
+    }
+
+    this.session = { token, pubky, capabilities, expiresAt, expiresAtMs };
+    Logger.info('Restored marketplace transaction session', { pubky, expiresAt });
     return { pubky, capabilities, expiresAt };
   }
 
@@ -130,15 +215,54 @@ export class MarketplaceSessionService {
   static getActiveSession(): StoredMarketplaceSession | null {
     if (!this.session) return null;
     if (Date.now() >= this.session.expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
-      this.session = null;
+      this.clearSession();
       return null;
     }
     return this.session;
   }
 
-  /** Drops the in-memory session. Called on sign-out and on server-side 401. */
+  /** Drops the session from memory AND storage. Called on sign-out and on server-side 401. */
   static clearSession(): void {
     this.session = null;
+    this.removePersistedSession();
+  }
+
+  // sessionStorage access is wrapped because browsers can refuse it (disabled
+  // storage, private-mode quirks); a session that cannot persist is still a
+  // working in-memory session, so persistence failures only log.
+  private static writePersistedSession(session: z.infer<typeof sessionResponseSchema>): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, JSON.stringify(session));
+    } catch {
+      Logger.warn('Could not persist the marketplace session; it will last until the next reload only.');
+    }
+  }
+
+  private static removePersistedSession(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.removeItem(MARKETPLACE_SESSION_STORAGE_KEY);
+    } catch {
+      // Removal failing means storage is unavailable, so nothing persisted either.
+    }
+  }
+
+  private static readStorage(): string | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      return window.sessionStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  private static parseJson(raw: string): unknown {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   }
 
   private static assertTransactionServiceMode(operation: string): void {

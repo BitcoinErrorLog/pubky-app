@@ -91,6 +91,27 @@ describe('useMarketplaceSessionConnect', () => {
     expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=second');
   });
 
+  it('surfaces the flow timeout as a visible, retryable error instead of awaiting forever', async () => {
+    const timedOut = createDeferredFlow('pubkyauth:///?caps=first');
+    const fresh = createDeferredFlow('pubkyauth:///?caps=second');
+    vi.mocked(CommerceController.beginMarketplaceSessionConnect)
+      .mockReturnValueOnce(timedOut.flow)
+      .mockReturnValueOnce(fresh.flow);
+    const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+    act(() => result.current.start());
+    // The service-level timeout rejects awaitSession after SESSION_FLOW_TIMEOUT_MS.
+    timedOut.rejectSession(
+      new Error('The connect request expired before it was approved. Start again to get a fresh QR code.'),
+    );
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.errorMessage).toContain('expired before it was approved');
+
+    act(() => result.current.start());
+    expect(result.current.status).toBe('awaiting');
+    expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=second');
+  });
+
   it('reports an error when the flow cannot even start (e.g. non-durable mode)', () => {
     vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockImplementation(() => {
       throw new Error('The marketplace transaction service is not enabled in this deployment.');
