@@ -28,8 +28,9 @@ export default defineConfig({
   test: {
     name: 'marketplace-messaging-live',
     // `.live.browser.ts` (not `.test.ts`) keeps the unit project's jsdom
-    // glob from picking this up; only this config runs it.
-    include: ['src/test/live/**/*.live.browser.ts'],
+    // glob from picking this up; only this config runs it. The staging
+    // variant (single-use tokens) has its own config.
+    include: ['src/test/live/messaging.live.browser.ts'],
     env: {
       NEXT_PUBLIC_APP_VERSION: '0.0.0-live',
     },

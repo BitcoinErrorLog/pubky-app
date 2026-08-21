@@ -33,6 +33,7 @@
     "test:marketplace:service": "vitest run --config vitest.integration.config.ts",
     "test:marketplace:locks": "vitest run --config vitest.locks.config.ts",
     "test:marketplace:messaging": "vitest run --config vitest.messaging.config.ts",
+    "test:marketplace:messaging:staging": "vitest run --config vitest.messaging.staging.config.ts",
     "vrt:gallery": "node scripts/vrt-gallery.mjs"
   },
   "lint-staged": {

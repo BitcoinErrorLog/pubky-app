@@ -191,6 +191,16 @@ npm run test:marketplace:messaging
 
 This live suite runs the vendored WASM binding in a real Chromium page with no mocks: enrollment and marker publish through the app's own messaging service, the not-enrolled honest dead end, the Noise XX handshake over live homeserver outbox slots, bidirectional `marketplace.chat_message.v0` delivery, IndexedDB persistence, and snapshot/restore across a simulated reload. Sessions come from the binding's dev signup helper — the interactive Ring approval is the one leg a machine cannot honestly perform. It is intentionally not part of the unit gates.
 
+The same proof also exists against the REAL staging network — the staging homeserver reached through the public pkarr relays, the exact topology of the staging deployment (`PUBKY_RUNTIME_TESTNET=false`). It passed on 2026-08-21. The staging homeserver requires single-use signup tokens, so this is a run-on-demand suite, never a standing gate:
+
+```bash
+PAYKIT_STAGING_SIGNUP_TOKEN_A=XXXX-XXXX-XXXX \
+PAYKIT_STAGING_SIGNUP_TOKEN_B=YYYY-YYYY-YYYY \
+npm run test:marketplace:messaging:staging
+```
+
+The harness prints the throwaway identity secrets it generates; if a run fails after signup (tokens consumed), re-run with `PAYKIT_STAGING_SECRET_A`/`PAYKIT_STAGING_SECRET_B` instead of tokens to sign back in.
+
 ## Running a real Locks/Paykit payment (`locks-paykit` mode)
 
 Real payments work end to end on regtest, with the wallet's protocol role exercised by the composed environment's real tooling (`paykit-companion-auth` approves the watch-only companion claim; `paykit-reader-demo` receives the private Paykit Payment Request). Only the real Bitkit app UX remains unproven — see [`status.md`](status.md).
