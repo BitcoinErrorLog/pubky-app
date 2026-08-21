@@ -81,6 +81,7 @@ vi.mock('@/app/routes', async () => {
       HOT: '/hot',
       MARKETPLACE: '/marketplace',
       COLLECTIONS: '/collections',
+      MESSAGES: '/messages',
       SETTINGS: '/settings',
       PROFILE: '/profile',
     },
@@ -112,6 +113,10 @@ vi.mock('@/hooks/usePublicRoute/usePublicRoute', () => ({
 vi.mock('@/hooks/useKeyboardOffset/useKeyboardOffset', () => ({
   useKeyboardOffset: vi.fn(() => ({ isKeyboardVisible: false, keyboardOffset: 0 })),
 }));
+vi.mock('@/hooks/useMessagesUnread/useMessagesUnread', () => ({
+  useMessagesUnread: vi.fn(() => 0),
+}));
+
 vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => ({
   useCollectionsNavDiscovery: () => ({
     showCollectionsNew: Boolean(mockCurrentUserPubky) && collectionsDiscoveryMock.showCollectionsNew,
@@ -509,6 +514,7 @@ describe('MobileFooter', () => {
       '/home',
       '/search',
       '/hot',
+      '/messages',
       '/collections',
       '/settings/account',
     ]);

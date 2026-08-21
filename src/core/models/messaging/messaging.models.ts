@@ -88,9 +88,11 @@ export class CommerceMessagingConversationModel
 
   owner_id: string;
   conversation_id: string;
-  listing_ref: string;
+  kind: CommerceMessagingConversationModelSchema['kind'];
+  listing_ref: string | null;
   counterparty_pubky: string;
   last_message_at: number | null;
+  last_read_at: number | null;
   created_at: number;
   updated_at: number;
 
@@ -98,9 +100,11 @@ export class CommerceMessagingConversationModel
     super(conversation);
     this.owner_id = conversation.owner_id;
     this.conversation_id = conversation.conversation_id;
+    this.kind = conversation.kind;
     this.listing_ref = conversation.listing_ref;
     this.counterparty_pubky = conversation.counterparty_pubky;
     this.last_message_at = conversation.last_message_at;
+    this.last_read_at = conversation.last_read_at;
     this.created_at = conversation.created_at;
     this.updated_at = conversation.updated_at;
   }
@@ -128,7 +132,7 @@ export class CommerceMessagingMessageModel
 
   owner_id: string;
   conversation_id: string;
-  listing_ref: string;
+  listing_ref: string | null;
   counterparty_pubky: string;
   direction: CommerceMessagingMessageModelSchema['direction'];
   body: string;

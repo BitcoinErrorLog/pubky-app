@@ -57,7 +57,13 @@ export function useEncryptedConversation(
 
   const loadMessages = useCallback(async () => {
     try {
-      setMessages(await MessagingController.getConversationMessages(conversationId));
+      const history = await MessagingController.getConversationMessages(conversationId);
+      setMessages(history);
+      if (history.length > 0) {
+        // The surface is open and showing these rows: advance the device-local
+        // read checkpoint so the unread badge stays honest.
+        await MessagingController.markConversationRead(conversationId);
+      }
     } catch (error) {
       Logger.warn('Failed to load local conversation history', { error });
     }

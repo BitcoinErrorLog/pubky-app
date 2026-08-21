@@ -1,7 +1,9 @@
-// LIVE two-party proof of encrypted marketplace messaging, in a real Chromium
-// page against a live local Pubky testnet. Nothing is mocked below the module
+// LIVE two-party proof of encrypted messaging — marketplace chat AND general
+// direct messages over the same Encrypted Link — in a real Chromium page
+// against a live local Pubky testnet. Nothing is mocked below the module
 // seam: real vendored WASM crypto, real pkarr resolution, real homeserver
-// reads/writes, real IndexedDB persistence.
+// reads/writes, real IndexedDB persistence, real sessionStorage + HTTP-only
+// cookie session restore after a simulated reload.
 //
 // Alice runs the app's FULL PaykitMessagingService stack (receiver
 // provisioning, marker publish, link state machine, Dexie persistence,
@@ -21,8 +23,13 @@ import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
+import { buildDmConversationId, buildDmMessage, decodeDmMessage } from '@/libs/messaging/dm-contracts';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
-import { PaykitMessagingService, setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
+import {
+  MESSAGING_SESSION_STORAGE_KEY,
+  PaykitMessagingService,
+  setPaykitWasmModuleForTests,
+} from '@/services/paykit/paykit-messaging';
 
 // Self-contained factories, hoisted by vitest above the imports (browser-mode
 // mocking cannot use importActual here): the messaging service imports exactly
@@ -100,7 +107,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     setPaykitWasmModuleForTests(wasm);
   });
 
-  it('runs enrollment, handshake, bidirectional chat, and snapshot-restore against the live testnet', async () => {
+  it('runs enrollment, handshake, bidirectional chat + DMs, and reload session/snapshot restore against the live testnet', async () => {
     // --- Bob (counterparty, raw binding — the reference usage) -------------
     const bob = await signup(randomIdentitySecret());
     const bobNoiseSecret = wasm.generateNoiseSecretKey();
@@ -203,13 +210,14 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     });
     await bobLink!.sendPrivateApplicationMessageJson(reply.json);
 
-    let aliceReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveChatMessages>> = [];
+    let aliceReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const aliceDeadline = Date.now() + 30_000;
     while (Date.now() < aliceDeadline && aliceReceived.length === 0) {
-      aliceReceived = await PaykitMessagingService.receiveChatMessages(alice.pubky, bob.pubky);
+      aliceReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
       if (aliceReceived.length === 0) await sleep(500);
     }
     expect(aliceReceived).toHaveLength(1);
+    expect(aliceReceived[0].kind).toBe('listing');
     expect(aliceReceived[0].body).toBe(reply.message.body);
 
     const persisted = await LocalMessagingService.getMessages(alice.pubky, conversationId);
@@ -218,11 +226,65 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
       { direction: 'received', body: reply.message.body },
     ]);
 
-    // --- Snapshot restore through the service -------------------------------
-    // Simulate a reload: in-memory handles die, IndexedDB rows survive, a
-    // fresh session is signed in, and the link restores from its persisted
-    // snapshot — then still receives a message Bob sent in the meantime.
+    // --- General DMs over the SAME link -------------------------------------
+    // The pubky_app.dm.v0 kind rides the very link the marketplace chat just
+    // used; the kind decides the conversation, not a second enrollment.
+    const dmConversationId = buildDmConversationId(bob.pubky);
+    const dmSent = await PaykitMessagingService.sendDmMessage(alice.pubky, bob.pubky, {
+      body: 'First general DM. (live proof, Alice -> Bob)',
+    });
+    let bobDmInbox: { rawJson: string }[] = [];
+    const dmDeadline = Date.now() + 30_000;
+    while (Date.now() < dmDeadline && bobDmInbox.length === 0) {
+      bobDmInbox = (await bobLink!.receivePrivateApplicationMessages()) as { rawJson: string }[];
+      if (bobDmInbox.length === 0) await sleep(500);
+    }
+    expect(bobDmInbox).toHaveLength(1);
+    expect(decodeDmMessage(bobDmInbox[0].rawJson)).toEqual(dmSent);
+    // The DM is NOT a chat message — kind routing is real on the wire.
+    expect(decodeChatMessage(bobDmInbox[0].rawJson)).toBeNull();
+
+    const dmReply = buildDmMessage({
+      eventId: crypto.randomUUID(),
+      sentAt: new Date().toISOString(),
+      body: 'DM received and answered. (live proof, Bob -> Alice)',
+    });
+    await bobLink!.sendPrivateApplicationMessageJson(dmReply.json);
+
+    let aliceDmReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
+    const aliceDmDeadline = Date.now() + 30_000;
+    while (Date.now() < aliceDmDeadline && aliceDmReceived.length === 0) {
+      aliceDmReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
+      if (aliceDmReceived.length === 0) await sleep(500);
+    }
+    expect(aliceDmReceived).toHaveLength(1);
+    expect(aliceDmReceived[0].kind).toBe('dm');
+    expect(aliceDmReceived[0].conversation_id).toBe(dmConversationId);
+    expect(aliceDmReceived[0].body).toBe(dmReply.message.body);
+
+    // Both kinds landed in their OWN conversations, listing history untouched.
+    const dmPersisted = await LocalMessagingService.getMessages(alice.pubky, dmConversationId);
+    expect(dmPersisted.map(({ direction, body }) => ({ direction, body }))).toEqual([
+      { direction: 'sent', body: dmSent.body },
+      { direction: 'received', body: dmReply.message.body },
+    ]);
+    await expect(LocalMessagingService.getMessages(alice.pubky, conversationId)).resolves.toHaveLength(2);
+    const aliceConversations = await LocalMessagingService.getConversationsByOwner(alice.pubky);
+    expect(aliceConversations.map(({ kind }) => kind).sort()).toEqual(['dm', 'listing']);
+
+    // --- Reload: silent session restore + snapshot restore ------------------
+    // A real reload keeps sessionStorage and the browser's HTTP-only cookie
+    // but wipes every in-memory wasm handle. clearSession() deliberately
+    // wipes the persisted metadata too (it is the sign-out path), so the
+    // simulation re-seeds storage after dropping memory — exactly what
+    // survives an actual reload. NO new signin happens below: the session
+    // comes back through restorePersistedSession() (exported metadata + the
+    // live cookie revalidated by the homeserver), and the link comes back
+    // from its persisted IndexedDB snapshot.
+    const persistedSessionBlob = window.sessionStorage.getItem(MESSAGING_SESSION_STORAGE_KEY);
+    expect(persistedSessionBlob).not.toBeNull();
     PaykitMessagingService.clearSession();
+    window.sessionStorage.setItem(MESSAGING_SESSION_STORAGE_KEY, persistedSessionBlob!);
     expect(PaykitMessagingService.hasActiveSession(alice.pubky)).toBe(false);
 
     const secondReply = buildChatMessage({
@@ -234,16 +296,16 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     });
     await bobLink!.sendPrivateApplicationMessageJson(secondReply.json);
 
-    const aliceSessionAgain = (await wasm.PubkyClient.testnet().signinWithSecret(aliceIdentitySecret)) as SessionHandle;
-    await PaykitMessagingService.enableWithSessionForTests(aliceSessionAgain);
+    await expect(PaykitMessagingService.restorePersistedSession(alice.pubky)).resolves.toBe(true);
+    expect(PaykitMessagingService.hasActiveSession(alice.pubky)).toBe(true);
 
     const restoredState = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
     expect(restoredState).toEqual({ status: 'ready' });
 
-    let afterRestore: Awaited<ReturnType<typeof PaykitMessagingService.receiveChatMessages>> = [];
+    let afterRestore: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const restoreDeadline = Date.now() + 30_000;
     while (Date.now() < restoreDeadline && afterRestore.length === 0) {
-      afterRestore = await PaykitMessagingService.receiveChatMessages(alice.pubky, bob.pubky);
+      afterRestore = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
       if (afterRestore.length === 0) await sleep(500);
     }
     expect(afterRestore).toHaveLength(1);

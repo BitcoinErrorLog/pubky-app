@@ -5,6 +5,15 @@ import { resetViewport, setMobileViewport } from '@/test-utils/viewport';
 import { ProfilePageHeader } from './ProfilePageHeader';
 import { ProfilePageHeaderProps } from './ProfilePageHeader.types';
 
+// The Message button navigates via the app router and gates on auth.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
+}));
+
 // Mock Molecules components
 vi.mock('@/molecules/PostText/PostText', () => {
   return {
