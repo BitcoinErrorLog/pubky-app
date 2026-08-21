@@ -3,6 +3,7 @@ import type {
   CommerceCatalogAuctionTerms,
   CommerceCatalogEntryModelSchema,
   CommerceListingModelSchema,
+  CommerceReputationSnippet,
 } from '@/models/commerce/commerce.schema';
 import type { CommerceConditionFilter, CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
 
@@ -41,6 +42,15 @@ export interface MarketplaceCatalogItem {
    * source carried none, which keeps the gradient fallback.
    */
   mediaUrls: string[];
+  /**
+   * Seller-scoped reputation from the Nexus stream projection (buyer
+   * reviews across all the seller's listings). Only index entries carry it:
+   * a card built from a cached canonical record inherits the entry's value
+   * in {@link buildMarketplaceCatalogItems}, and `null` renders nothing —
+   * honest absence, never 0.0. Display only; never a ranking input
+   * (ratified D4).
+   */
+  reputation: CommerceReputationSnippet | null;
   revision: number;
   updatedAt: number;
 }
@@ -82,6 +92,9 @@ export function catalogItemFromListingModel(listing: CommerceListingModelSchema)
     auction,
     location: { countryCode: record.location.countryCode, region: record.location.region ?? null },
     mediaUrls: record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
+    // Canonical records carry no aggregate; the catalog merge fills this in
+    // from the index entry when one exists for the same listing.
+    reputation: null,
     revision: listing.revision,
     updatedAt: listing.updated_at,
   };
@@ -104,6 +117,8 @@ export function catalogItemFromCatalogEntry(entry: CommerceCatalogEntryModelSche
     location: { countryCode: entry.country_code, region: entry.region },
     // Nullish fallback: entries cached before the model carried media_urls.
     mediaUrls: entry.media_urls ?? [],
+    // Nullish fallback: entries cached before the model carried reputation.
+    reputation: entry.reputation ?? null,
     revision: entry.revision,
     updatedAt: entry.updated_at,
   };
@@ -127,6 +142,11 @@ export function buildMarketplaceCatalogItems(
     const cached = items.get(entry.id);
     if (!cached || entry.revision > cached.revision) {
       items.set(entry.id, catalogItemFromCatalogEntry(entry));
+    } else {
+      // The cached canonical record wins the card content, but reputation
+      // only exists in the index projection — carry it over so a hydrated
+      // listing does not lose its stars.
+      items.set(entry.id, { ...cached, reputation: entry.reputation ?? null });
     }
   }
   return [...items.values()];

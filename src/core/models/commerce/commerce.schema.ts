@@ -1,6 +1,7 @@
 import type {
   CommerceListingRecord,
   CommerceReviewRecord,
+  CommerceReviewResponseRecord,
   CommerceShopRecord,
 } from '@/libs/commerce/marketplace-records';
 import type { AuctionState, CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
@@ -50,6 +51,21 @@ export const commerceListingTableSchema = [
 ].join(', ');
 
 /**
+ * The compact reputation aggregate carried by the Nexus listing stream and
+ * shop views (ADR 0024 §9). `avg` averages the overall stars of every
+ * indexed review — verified and labeled-unverified alike (ratified D5);
+ * `verifiedCount` is the subset whose embedded purchase attestation
+ * cryptographically verified at ingest. `null` on a catalog entry means the
+ * index reported no reviews (or predates reputation indexing) — honest
+ * absence, rendered as nothing or "New seller", never as 0.0.
+ */
+export interface CommerceReputationSnippet {
+  avg: number;
+  count: number;
+  verifiedCount: number;
+}
+
+/**
  * Auction sale terms as carried by the Nexus listing index. Money terms are
  * denominated in the listing's primary asset. `reservePrice` and
  * `buyNowPrice` are optional terms of the auction itself; the other three
@@ -97,6 +113,14 @@ export interface CommerceCatalogEntryModelSchema {
   sale_format: CommerceListingRecord['sale']['format'];
   price: CommerceMoney;
   auction: CommerceCatalogAuctionTerms | null;
+  /**
+   * Seller-scoped reputation from the stream projection (buyer reviews
+   * across all the seller's listings). `null` for entries cached before the
+   * model carried it and for sellers without indexed reviews.
+   */
+  reputation: CommerceReputationSnippet | null;
+  /** Listing-scoped reputation (buyer reviews of this listing). Same absence semantics. */
+  listing_reputation: CommerceReputationSnippet | null;
   revision: number;
   updated_at: number;
 }
@@ -198,13 +222,95 @@ export const commerceReviewTableSchema = [
   '[owner_id+order_id]',
 ].join(', ');
 
+/**
+ * The current user's own review-response record (`PubkyAppReviewResponse`,
+ * published to their OWN homeserver — the subject owns their words,
+ * symmetrically to the reviewer). The path ID equals the subject review's
+ * ID, structurally capping responses at one revisable response per review
+ * (ratified D7). There is no service command for responses: they are pure
+ * homeserver records that Nexus indexes with the structural
+ * `owner == subjectPubky` authorization check.
+ */
+export interface CommerceReviewResponseModelSchema {
+  /** `${owner_id}:${review_id}` — one living response per review. */
+  id: string;
+  /** The responder (this user; the subject of the review). */
+  owner_id: string;
+  /** The subject review's ID (also the response record's path ID). */
+  review_id: string;
+  /** The reviewer whose homeserver hosts the subject review. */
+  reviewer_id: string;
+  record: CommerceReviewResponseRecord;
+  sync_status: CommerceCacheStatus;
+  updated_at: number;
+}
+
+export const commerceReviewResponseTableSchema = ['&id', 'owner_id', 'review_id', 'sync_status', 'updated_at'].join(
+  ', ',
+);
+
+/**
+ * One indexed review as rendered on public marketplace surfaces (listing
+ * and shop review sections), normalized from the Nexus review stream.
+ *
+ * `verified` is exactly "the embedded purchase attestation parsed, its
+ * Ed25519 signature verified against `attestorId`, and its claims bind to
+ * this review" — a cryptographic fact recorded at ingest. Whether
+ * `attestorId` is a TRUSTED attestor is this client's policy (see
+ * `isTrustedMarketplaceAttestor`); unverified reviews render labeled, never
+ * hidden (ratified D5).
+ */
+export interface CommerceIndexedReview {
+  reviewId: string;
+  reviewerId: string;
+  subjectId: string;
+  listingOwnerId: string;
+  listingId: string;
+  role: 'buyer_reviewing_seller' | 'seller_reviewing_buyer';
+  ratingOverall: number;
+  text: string;
+  verified: boolean;
+  attestorId: string | null;
+  editedLate: boolean;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+  response: CommerceIndexedReviewResponse | null;
+}
+
+/** The subject's response joined beneath an indexed review (ratified D7). */
+export interface CommerceIndexedReviewResponse {
+  responderId: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+}
+
+/**
+ * The full reputation aggregate of a subject, normalized from
+ * `GET v0/shop/{seller}/reputation`. `histogram[0]` holds 1-star counts;
+ * `attestors` maps attestor pubky → verified-review count so display can
+ * state its verified basis per trust list.
+ */
+export interface CommerceReputationSummary {
+  count: number;
+  verifiedCount: number;
+  avg: number;
+  histogram: [number, number, number, number, number];
+  responseCount: number;
+  editedLateCount: number;
+  attestors: Record<string, number>;
+  lastReviewedAt: string | null;
+}
+
 export type CommerceSyncJobOperation = 'publish' | 'update' | 'remove';
 export type CommerceSyncJobStatus = 'pending' | 'running' | 'failed';
 
 export interface CommerceSyncJobModelSchema {
   id: string;
   owner_id: string;
-  entity_type: 'shop' | 'listing' | 'review' | 'collection';
+  entity_type: 'shop' | 'listing' | 'review' | 'review_response' | 'collection';
   entity_id: string;
   operation: CommerceSyncJobOperation;
   status: CommerceSyncJobStatus;

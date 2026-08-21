@@ -133,6 +133,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     fetchShopTags: () => Promise.resolve([]),
     // Cards carry a watch toggle; VRT keeps them at the unwatched baseline.
     isFavorite: () => false,
+    // No reputation-aware index in these scenarios: the rating header and the
+    // reviews section render nothing, keeping the existing baselines. The
+    // review surfaces have their own VRT file (MarketplaceReviewsPublic).
+    fetchSellerReputation: () => Promise.resolve({ status: 'unavailable' }),
+    fetchSellerReviews: () => Promise.resolve({ status: 'unavailable' }),
+    fetchListingReviews: () => Promise.resolve({ status: 'unavailable' }),
   },
 }));
 

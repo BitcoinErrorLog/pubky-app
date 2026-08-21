@@ -172,6 +172,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: () => (view.fetchFails ? Promise.reject(new Error('offline')) : Promise.resolve(null)),
     getListingTags: () => view.listingTags,
     fetchListingTags: () => Promise.resolve([]),
+    // No reputation-aware index in these scenarios: the rating header and the
+    // reviews section render nothing, keeping the existing baselines. The
+    // review surfaces have their own VRT file (MarketplaceReviewsPublic).
+    fetchSellerReputation: () => Promise.resolve({ status: 'unavailable' }),
+    fetchSellerReviews: () => Promise.resolve({ status: 'unavailable' }),
+    fetchListingReviews: () => Promise.resolve({ status: 'unavailable' }),
   },
 }));
 

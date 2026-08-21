@@ -34,6 +34,8 @@ import { MarketplaceMediaGallery } from '@/organisms/Marketplace/MarketplaceMedi
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
+import { MarketplaceReputationHeader } from '@/organisms/Marketplace/MarketplaceReputationHeader';
+import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceReviewsSection';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceListingDetailSkeleton } from './Marketplace.skeleton';
@@ -231,6 +233,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     <Typography as="p" className="font-semibold">
                       {shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`}
                     </Typography>
+                    <MarketplaceReputationHeader sellerPubky={sellerPubky} variant="compact" className="mt-1" />
                     {isOwner && !shop && (
                       <Typography as="p" className="mt-1 text-sm text-muted-foreground">
                         You haven&apos;t created a shop yet — buyers only see your key.
@@ -278,6 +281,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             <MarketplaceCommunityTags
               target={{ kind: TagKind.LISTING, sellerPubky: record.ownerPubky, listingId: record.listingId }}
             />
+
+            <MarketplaceReviewsSection sellerPubky={record.ownerPubky} listingId={record.listingId} />
 
             {record.variants.length > 1 && (
               <div>

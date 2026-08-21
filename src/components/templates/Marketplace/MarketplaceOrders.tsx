@@ -16,6 +16,7 @@ import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
+import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
@@ -200,6 +201,8 @@ export function MarketplaceOrders() {
             </Heading>
           </div>
         )}
+
+        <MarketplaceMyReviews />
       </Container>
     </ContentLayout>
   );

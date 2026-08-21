@@ -1,9 +1,14 @@
 import { marketplaceApi } from '@/services/nexus/marketplace/marketplace.api';
 import type {
   NexusListingDetails,
+  NexusReputationSummary,
+  NexusReviewView,
   TListingDetailsParams,
+  TListingReviewsParams,
   TListingStreamParams,
   TListingTagsParams,
+  TShopReputationParams,
+  TShopReviewsParams,
   TShopTagsParams,
 } from '@/services/nexus/marketplace/marketplace.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
@@ -64,5 +69,41 @@ export class NexusMarketplaceService {
    */
   static async fetchShopTags(params: TShopTagsParams): Promise<NexusTag[]> {
     return await queryNexus<NexusTag[]>({ url: marketplaceApi.shopTags(params) });
+  }
+
+  /**
+   * Fetches a page of indexed reviews about a subject (with joined subject
+   * responses). Served once the reputation-indexing Nexus is deployed; a
+   * 404 from an older deployment propagates and callers degrade to
+   * rendering no review section at all.
+   *
+   * @param params - Subject path param plus role filter and pagination
+   * @returns Review page entries, newest-indexed first (empty when none)
+   */
+  static async fetchShopReviews(params: TShopReviewsParams): Promise<NexusReviewView[]> {
+    return await queryNexus<NexusReviewView[]>({ url: marketplaceApi.shopReviews(params) });
+  }
+
+  /**
+   * Fetches the full reputation aggregate of a subject. Answers 404 when no
+   * review is indexed for the subject in that role — the explicit
+   * "New seller" state, which callers must render as absence, never 0.0.
+   *
+   * @param params - Subject path param plus role filter
+   * @returns The reputation summary as currently indexed
+   */
+  static async fetchShopReputation(params: TShopReputationParams): Promise<NexusReputationSummary> {
+    return await queryNexus<NexusReputationSummary>({ url: marketplaceApi.shopReputation(params) });
+  }
+
+  /**
+   * Fetches a page of indexed buyer reviews of one listing (with joined
+   * seller responses). Same deployment caveat as `fetchShopReviews`.
+   *
+   * @param params - Seller/listing path params plus pagination
+   * @returns Review page entries, newest-indexed first (empty when none)
+   */
+  static async fetchListingReviews(params: TListingReviewsParams): Promise<NexusReviewView[]> {
+    return await queryNexus<NexusReviewView[]>({ url: marketplaceApi.listingReviews(params) });
   }
 }

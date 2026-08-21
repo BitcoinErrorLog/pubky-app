@@ -14,6 +14,7 @@ import type {
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
   CommerceReviewModelSchema,
+  CommerceReviewResponseModelSchema,
   CommerceSavedSearchModelSchema,
   CommerceShippingPresetModelSchema,
   CommerceShopFollowModelSchema,
@@ -116,6 +117,62 @@ export class CommerceReviewModel
       });
     }
   }
+
+  /** All of the user's own published review rows, newest update first. */
+  static async findByOwner(ownerId: string): Promise<CommerceReviewModelSchema[]> {
+    try {
+      const rows = await this.table.where('owner_id').equals(ownerId).toArray();
+      return rows.sort((left, right) => right.updated_at - left.updated_at);
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read own reviews from ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceReviewResponseModel
+  extends RecordModelBase<string, CommerceReviewResponseModelSchema>
+  implements CommerceReviewResponseModelSchema
+{
+  static table: Table<CommerceReviewResponseModelSchema> = db.table('commerce_review_responses');
+
+  owner_id: string;
+  review_id: string;
+  reviewer_id: string;
+  record: CommerceReviewResponseModelSchema['record'];
+  sync_status: CommerceReviewResponseModelSchema['sync_status'];
+  updated_at: number;
+
+  constructor(response: CommerceReviewResponseModelSchema) {
+    super(response);
+    this.owner_id = response.owner_id;
+    this.review_id = response.review_id;
+    this.reviewer_id = response.reviewer_id;
+    this.record = response.record;
+    this.sync_status = response.sync_status;
+    this.updated_at = response.updated_at;
+  }
+
+  static async findPendingByOwner(ownerId: string): Promise<CommerceReviewResponseModelSchema[]> {
+    try {
+      return await this.table
+        .where('owner_id')
+        .equals(ownerId)
+        .and((row) => row.sync_status === 'pending')
+        .toArray();
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to read pending responses from ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findPendingByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
 }
 
 export class CommerceListingModel
@@ -207,6 +264,8 @@ export class CommerceCatalogEntryModel
   sale_format: CommerceCatalogEntryModelSchema['sale_format'];
   price: CommerceCatalogEntryModelSchema['price'];
   auction: CommerceCatalogEntryModelSchema['auction'];
+  reputation: CommerceCatalogEntryModelSchema['reputation'];
+  listing_reputation: CommerceCatalogEntryModelSchema['listing_reputation'];
   revision: number;
   updated_at: number;
 
@@ -226,6 +285,8 @@ export class CommerceCatalogEntryModel
     this.sale_format = entry.sale_format;
     this.price = entry.price;
     this.auction = entry.auction;
+    this.reputation = entry.reputation ?? null;
+    this.listing_reputation = entry.listing_reputation ?? null;
     this.revision = entry.revision;
     this.updated_at = entry.updated_at;
   }

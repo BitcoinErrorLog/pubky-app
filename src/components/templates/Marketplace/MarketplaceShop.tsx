@@ -22,6 +22,8 @@ import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCommunityTags';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+import { MarketplaceReputationHeader } from '@/organisms/Marketplace/MarketplaceReputationHeader';
+import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceReviewsSection';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -133,6 +135,7 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                     {shop.record.location.region ? `${shop.record.location.region}, ` : ''}
                     {shop.record.location.countryCode}
                   </Typography>
+                  <MarketplaceReputationHeader sellerPubky={sellerPubky} variant="full" className="mt-3" />
                 </div>
                 <div className="flex flex-col items-start gap-4 sm:items-end">
                   <div className="flex flex-wrap gap-2">
@@ -194,6 +197,10 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
             </Card>
 
             <ShopListingsGrid listings={listings} shopName={shop.record.name} isOwner={isOwner} />
+
+            {/* The section styles its own container and renders NOTHING when no
+                review index serves this deployment — no empty card shell. */}
+            <MarketplaceReviewsSection sellerPubky={sellerPubky} className="rounded-xl border bg-card p-5" />
           </>
         ) : (
           <>
@@ -212,6 +219,7 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                       ? 'You haven\u2019t set up a shop yet. Buyers who open your listings land here and only see your key.'
                       : 'This seller hasn\u2019t set up a shop profile yet. Their owner-signed listings are below.'}
                   </Typography>
+                  <MarketplaceReputationHeader sellerPubky={sellerPubky} variant="full" className="mt-3" />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {isOwner ? (
@@ -234,6 +242,8 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
             </Card>
 
             <ShopListingsGrid listings={listings} isOwner={isOwner} />
+
+            <MarketplaceReviewsSection sellerPubky={sellerPubky} className="rounded-xl border bg-card p-5" />
           </>
         )}
       </Container>

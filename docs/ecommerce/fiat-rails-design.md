@@ -222,8 +222,8 @@ _as the dependency for shipping_; written up as a ready-to-send proposal instead
    deployments (staging on Railway beside marketplace-service and the composed rails)
    configure that URL; pointing it at `fiat-verifier` is an operator decision, not a code
    change.
-3. The status contract is three states + confirmations + amount_matched (§1.5). Fiat
-   maps cleanly: _undetected_ = no completed checkout; _detected_ = processor reports
+3. The status contract is three states + confirmations + amount*matched (§1.5). Fiat
+   maps cleanly: \_undetected* = no completed checkout; _detected_ = processor reports
    paid, settlement delay running; _confirmed_ = paid AND the anti-chargeback delay
    elapsed (`confirmations` synthesized as `minimum_confirmations` so the existing
    satisfaction rule passes; see §5).
