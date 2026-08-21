@@ -1,3 +1,8 @@
+import type { Metadata as NextMetadata } from 'next';
+import { getMarketplaceListingRoute } from '@/app/routes';
+import { buildListingDescription, buildListingTitle, MARKETPLACE_STATIC_SEO } from '@/libs/commerce/seo';
+import { fetchListingForMetadata } from '@/libs/og/ogCommerceData';
+import { Metadata } from '@/molecules/Metadata/Metadata';
 import { MarketplaceListing } from '@/templates/Marketplace/MarketplaceListing';
 
 export interface MarketplaceListingPageProps {
@@ -5,6 +10,49 @@ export interface MarketplaceListingPageProps {
     sellerPubky: string;
     listingId: string;
   }>;
+}
+
+/**
+ * Dynamic metadata for a listing page, built strictly from the canonical
+ * listing record on the seller's homeserver (deduped by the Data Cache with
+ * the `opengraph-image` route). The preview image comes from the dynamic
+ * `opengraph-image` / `twitter-image` file convention, so static images are
+ * omitted (`omitImages`). A missing/removed/unparseable record falls back to
+ * the static marketplace copy (never inventing listing details), keeping the
+ * canonical URL.
+ */
+export async function generateMetadata({ params }: MarketplaceListingPageProps): Promise<NextMetadata> {
+  const { sellerPubky, listingId } = await params;
+  const canonical = getMarketplaceListingRoute(sellerPubky, listingId);
+
+  const fallback = () => {
+    const { openGraph, twitter, alternates } = Metadata({
+      title: MARKETPLACE_STATIC_SEO.title,
+      description: MARKETPLACE_STATIC_SEO.description,
+      url: canonical,
+      omitImages: true,
+    });
+    return {
+      title: MARKETPLACE_STATIC_SEO.title,
+      description: MARKETPLACE_STATIC_SEO.description,
+      openGraph,
+      twitter,
+      alternates,
+    };
+  };
+
+  try {
+    const listing = await fetchListingForMetadata(sellerPubky, listingId);
+    if (!listing) return fallback();
+
+    const title = buildListingTitle(listing);
+    const description = buildListingDescription(listing);
+    const { openGraph, twitter, alternates } = Metadata({ title, description, url: canonical, omitImages: true });
+
+    return { title, description, openGraph, twitter, alternates };
+  } catch {
+    return fallback();
+  }
 }
 
 export default async function MarketplaceListingPage({ params }: MarketplaceListingPageProps) {
