@@ -111,6 +111,25 @@ Moderation roles are independent: there is no broad admin role, and non-moderato
 
 `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE` defaults to `unavailable` and must stay that way outside explicitly local or demo deployments. See [`RUNNING.md`](RUNNING.md).
 
+## Proof ledger
+
+The most recent full verification pass (2026-08-21), with the command to
+reproduce each result. Local suites were run on the deploy line at the commit
+introducing this section; live proofs ran against the deployed staging stack
+the same day.
+
+| Proof                           | Result                                                                                                                                                                                               | How to re-run                                                                                       |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Client unit suite               | 954 files, 13,935 passed, 2 skipped, 0 failed                                                                                                                                                        | `npm run test`                                                                                      |
+| Client VRT                      | 143/144 files in a full parallel run; the single failure (Messaging, firefox mobile) is a load-order flake that passes standalone 3× — baselines are owned by the `vrt-update-baselines` CI workflow | `npx vitest run --project vrt`                                                                      |
+| Transaction service suite       | 173 passed, 0 failed (includes `listing.sync`, cancellation, concurrency one-winner proofs)                                                                                                          | `docker compose up -d --wait && export DATABASE_URL=… && cargo test` in `pubky-marketplace-service` |
+| Cross-account live journey      | 1/1 vs the real staging homeserver: seller publishes a null-carrying listing through the real create path; a fresh account with a destroyed cache loads it through `getOrFetchListing`               | `npm run test:marketplace:cross-account` (needs a staging signup token)                             |
+| `listing.sync` acceptance       | Throwaway buyer identity healed a genuinely unregistered live listing: projection 404 → sync → HTTP 200 registered aggregate, on the deployed Railway service                                        | `node scripts/probe-listing-registration.mjs <seller> <listingId>`                                  |
+| Reputation live proof           | Real order lifecycle to delivery → attested review through the client's publish path → Nexus verified at ingest → aggregate `{count: 1, verified: 1, avg: 5}` served over HTTP                       | `npm run test:marketplace:reviews`                                                                  |
+| Encrypted messaging browser e2e | 16/16 on chromium/firefox/webkit against the live homeserver, including reload-survival                                                                                                              | `paykit-rs-official` `feat/wasm-binding`, see `paykit-wasm/browser-e2e.md`                          |
+| Payment rails lifecycle         | Full purchase on the Railway regtest rails with staging identities: proof bundle → `payment.register_locks` → on-chain payment → worker confirmation → receipt → guarded content                     | `npm run test:marketplace:locks` against the composed env (see `RUNNING.md`)                        |
+| Bitkit wallet leg               | In progress: seller leg proven (watch-only account tracking, tpub delivery to Paykit); buyer-wallet leg running on a second simulator                                                                | device QA evidence in the wallet-leg session                                                        |
+
 ## How to judge this work
 
 Fair questions to ask:
