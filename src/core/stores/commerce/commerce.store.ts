@@ -29,6 +29,8 @@ export const useCommerceStore = create<CommerceStore>()(
           false,
           CommerceActionTypes.SET_ENTITY_PENDING,
         ),
+      setMarketplaceSession: (marketplaceSession) =>
+        set({ marketplaceSession }, false, CommerceActionTypes.SET_MARKETPLACE_SESSION),
       resetFilters: () =>
         set(
           {

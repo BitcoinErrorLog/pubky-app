@@ -1,4 +1,18 @@
 export type CommerceSaleFormatFilter = 'all' | 'fixed_price' | 'auction';
+
+/**
+ * Public facts about the marketplace transaction-service session, set by the
+ * controller when a signer-approved session is established. Deliberately
+ * NEVER contains the bearer token — that lives only inside
+ * `MarketplaceSessionService`'s private field. This mirror exists so
+ * durable-mode surfaces can re-render (and refetch) the moment a session is
+ * connected, and it is cleared with the rest of the store on sign-out.
+ */
+export interface CommerceMarketplaceSession {
+  pubky: string;
+  capabilities: string;
+  expiresAt: string;
+}
 export type CommerceConditionFilter = 'new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'for_parts';
 export type CommerceSort = 'recommended' | 'newest' | 'price_low' | 'price_high' | 'ending_soon';
 export type CommerceLayout = 'grid' | 'list';
@@ -14,6 +28,7 @@ export interface CommerceState {
   layout: CommerceLayout;
   selectedListingId: string | null;
   pendingEntityIds: string[];
+  marketplaceSession: CommerceMarketplaceSession | null;
 }
 
 export interface CommerceActions {
@@ -26,6 +41,7 @@ export interface CommerceActions {
   setLayout: (layout: CommerceLayout) => void;
   setSelectedListingId: (listingId: string | null) => void;
   setEntityPending: (entityId: string, isPending: boolean) => void;
+  setMarketplaceSession: (session: CommerceMarketplaceSession | null) => void;
   resetFilters: () => void;
   reset: () => void;
 }
@@ -43,6 +59,7 @@ export const commerceInitialState: CommerceState = {
   layout: 'grid',
   selectedListingId: null,
   pendingEntityIds: [],
+  marketplaceSession: null,
 };
 
 export enum CommerceActionTypes {
@@ -55,6 +72,7 @@ export enum CommerceActionTypes {
   SET_LAYOUT = 'SET_LAYOUT',
   SET_SELECTED_LISTING = 'SET_SELECTED_LISTING',
   SET_ENTITY_PENDING = 'SET_ENTITY_PENDING',
+  SET_MARKETPLACE_SESSION = 'SET_MARKETPLACE_SESSION',
   RESET_FILTERS = 'RESET_FILTERS',
   RESET = 'RESET',
 }

@@ -98,6 +98,28 @@ export class CommerceController {
     return await CommerceApplication.initializeSandboxCatalog();
   }
 
+  /**
+   * Starts the interactive session-connect flow for the durable Marketplace
+   * Transaction Service. The returned `awaitSession` resolves once the user
+   * approves on their signer and the AuthToken is exchanged for a bearer
+   * session; on success the session's public facts (never the token) are
+   * mirrored into the commerce store so every durable-mode surface refetches.
+   * `cancel` frees the underlying auth flow. Flows are single-use — a retry
+   * after failure or cancellation must call this again for a fresh flow.
+   */
+  static beginMarketplaceSessionConnect() {
+    const flow = CommerceApplication.beginMarketplaceSessionFlow();
+    return {
+      authorizationUrl: flow.authorizationUrl,
+      awaitSession: async () => {
+        const session = await flow.awaitSession();
+        useCommerceStore.getState().setMarketplaceSession(session);
+        return session;
+      },
+      cancel: flow.cancel,
+    };
+  }
+
   static async executeMarketplaceCommand(input: unknown) {
     return await CommerceApplication.executeMarketplaceCommand(
       this.getCurrentUserPubky(),

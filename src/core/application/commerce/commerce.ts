@@ -116,6 +116,18 @@ export class CommerceApplication {
   }
 
   /**
+   * Starts the interactive Marketplace Transaction Service session flow:
+   * returns the `pubkyauth://` authorization URL to hand to the user's signer
+   * (QR or deeplink) plus a lazy `awaitSession` that resolves once the signer
+   * approves and the AuthToken is exchanged for a bearer session. AuthTokens
+   * are single-use, so every retry must come back through here for a fresh
+   * flow. Durable modes only; the service fails closed otherwise.
+   */
+  static beginMarketplaceSessionFlow() {
+    return MarketplaceSessionService.beginSessionFlow();
+  }
+
+  /**
    * Drops the in-memory Marketplace Transaction Service session. Part of the
    * sign-out teardown: the bearer token must not survive the user it was
    * minted for (it lives only in memory, so this is the single cleanup point).

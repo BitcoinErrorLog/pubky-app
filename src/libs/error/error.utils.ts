@@ -78,6 +78,19 @@ export const isWrongEnvironmentHomeserverError = (error: unknown): error is AppE
 };
 
 /**
+ * True when the durable marketplace transport refused an operation because its
+ * bearer session is missing, expired locally, or was rejected server-side
+ * (401 — the transport drops the local copy before throwing). This is the one
+ * marketplace error whose remedy is a fresh signer approval, so surfaces that
+ * catch it must offer the session-connect affordance instead of a dead end.
+ */
+export const isMarketplaceSessionRequiredError = (error: unknown): error is AppError => {
+  return (
+    isAppError(error) && error.service === ErrorService.Marketplace && error.code === AuthErrorCode.SESSION_EXPIRED
+  );
+};
+
+/**
  * Is this a "not found" error?
  * Checks both client NOT_FOUND and database RECORD_NOT_FOUND.
  */
