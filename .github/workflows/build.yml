@@ -33,6 +33,9 @@ jobs:
       - name: Smoke test vendored Locks SDK
         run: node scripts/locks-sdk-smoke.mjs
 
+      - name: Smoke test vendored paykit-wasm messaging binding
+        run: node scripts/paykit-wasm-smoke.mjs
+
       - name: Build prod
         run: npm run build
 

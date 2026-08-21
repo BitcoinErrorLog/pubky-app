@@ -33,6 +33,7 @@ const eslintConfig = [
       'public/sw.js',
       // Vendored verbatim wasm-pack output (see docs/ecommerce/locks-sdk-provenance.md)
       'vendor/locks-sdk-wasm/**',
+      'vendor/paykit-wasm/**',
     ],
   },
   {
