@@ -5,6 +5,13 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 
+// Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
+// estimates render from this fixed value, never from the network.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: (enabled: boolean) =>
+    enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
+}));
+
 /**
  * Card-level scenarios for catalog cards rendered from Nexus index entries.
  * The full Marketplace template keeps its hero above the fold, so these

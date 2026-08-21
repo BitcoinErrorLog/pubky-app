@@ -388,7 +388,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
         Price and availability
       </h2>
       <div
-        class="grid gap-5 sm:grid-cols-2"
+        class="grid gap-5 sm:grid-cols-3"
       >
         <div
           class="mx-auto w-full flex-col flex gap-2"
@@ -454,6 +454,73 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               value="auction"
             >
               7-day auction
+            </option>
+          </select>
+        </div>
+        <div
+          class="mx-auto w-full flex-col flex gap-2"
+          data-testid="container"
+        >
+          <label
+            class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+            data-slot="label"
+            for="currency"
+          >
+            Pricing currency
+          </label>
+          <button
+            aria-autocomplete="none"
+            aria-controls="radix-normalized"
+            aria-expanded="false"
+            aria-invalid="false"
+            class="flex cursor-pointer items-center justify-between gap-2.5 bg-transparent py-2 text-base font-bold whitespace-nowrap text-foreground transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 h-11 w-full rounded-md border px-3"
+            data-size="default"
+            data-slot="select-trigger"
+            data-state="closed"
+            dir="ltr"
+            id="currency"
+            role="combobox"
+            type="button"
+          >
+            <span
+              data-slot="select-value"
+              style="pointer-events: none;"
+            >
+              US dollars (USD)
+            </span>
+            <svg
+              aria-hidden="true"
+              class="lucide lucide-chevron-down pointer-events-none size-4"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m6 9 6 6 6-6"
+              />
+            </svg>
+          </button>
+          <select
+            aria-hidden="true"
+            style="position: absolute; border: 0px; width: 1px; height: 1px; padding: 0px; margin: -1px; overflow: hidden; clip: rect(0px, 0px, 0px, 0px); white-space: nowrap; word-wrap: normal;"
+            tabindex="-1"
+          >
+            <option
+              selected=""
+              value="USD"
+            >
+              US dollars (USD)
+            </option>
+            <option
+              value="SATS"
+            >
+              Bitcoin (sats)
             </option>
           </select>
         </div>
@@ -899,9 +966,9 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           <label
             class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
             data-slot="label"
-            for="weightGrams"
+            for="packageWeight"
           >
-            Weight (grams)
+            Weight (g)
           </label>
           <div
             class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
@@ -911,8 +978,8 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               aria-invalid="false"
               class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
               data-testid="input"
-              id="weightGrams"
-              name="weightGrams"
+              id="packageWeight"
+              name="packageWeight"
               placeholder="1200"
               type="text"
               value=""
@@ -930,9 +997,9 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           <label
             class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
             data-slot="label"
-            for="lengthMillimeters"
+            for="packageLength"
           >
-            Length (mm)
+            Length (cm)
           </label>
           <div
             class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
@@ -942,9 +1009,9 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               aria-invalid="false"
               class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
               data-testid="input"
-              id="lengthMillimeters"
-              name="lengthMillimeters"
-              placeholder="350"
+              id="packageLength"
+              name="packageLength"
+              placeholder="35.0"
               type="text"
               value=""
             />
@@ -957,9 +1024,9 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           <label
             class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
             data-slot="label"
-            for="widthMillimeters"
+            for="packageWidth"
           >
-            Width (mm)
+            Width (cm)
           </label>
           <div
             class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
@@ -969,9 +1036,9 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               aria-invalid="false"
               class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
               data-testid="input"
-              id="widthMillimeters"
-              name="widthMillimeters"
-              placeholder="250"
+              id="packageWidth"
+              name="packageWidth"
+              placeholder="25.0"
               type="text"
               value=""
             />
@@ -984,9 +1051,9 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           <label
             class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
             data-slot="label"
-            for="heightMillimeters"
+            for="packageHeight"
           >
-            Height (mm)
+            Height (cm)
           </label>
           <div
             class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
@@ -996,15 +1063,23 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               aria-invalid="false"
               class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
               data-testid="input"
-              id="heightMillimeters"
-              name="heightMillimeters"
-              placeholder="150"
+              id="packageHeight"
+              name="packageHeight"
+              placeholder="15.0"
               type="text"
               value=""
             />
           </div>
         </div>
       </div>
+      <p
+        class="font-medium text-sm text-muted-foreground"
+        data-testid="typography"
+      >
+        Package details are entered in 
+        centimeters and grams
+         (your measurement preference) and stored exactly in millimeters and grams.
+      </p>
     </div>
   </div>
   <button

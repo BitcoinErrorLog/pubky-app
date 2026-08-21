@@ -1,20 +1,37 @@
 'use client';
 
-import { ArrowLeft, CheckCircle2, ExternalLink, KeyRound, LoaderCircle, Store, WalletCards } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ExternalLink,
+  KeyRound,
+  LoaderCircle,
+  SlidersHorizontal,
+  Store,
+  WalletCards,
+} from 'lucide-react';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { Label } from '@/atoms/Label/Label';
 import { Link } from '@/atoms/Link/Link';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
+import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksConnect } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
 export function MarketplacePaymentSettings() {
   const locksConnect = useMarketplaceLocksConnect();
+  const showFxEstimate = useMarketplaceDisplayStore((state) => state.showFxEstimate);
+  const setShowFxEstimate = useMarketplaceDisplayStore((state) => state.setShowFxEstimate);
+  const measurementSystem = useMarketplaceDisplayStore((state) => state.measurementSystem);
+  const setMeasurementSystem = useMarketplaceDisplayStore((state) => state.setMeasurementSystem);
 
   const openPaykit = () => {
     const url = CommerceController.getPaykitSetupUrl(window.location.href, crypto.randomUUID().replaceAll('-', ''));
@@ -132,6 +149,71 @@ export function MarketplacePaymentSettings() {
               Open Bitkit setup
               <ExternalLink className="ml-2 size-4" />
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="border">
+          <CardContent className="grid gap-5 px-6">
+            <div className="flex gap-3">
+              <SlidersHorizontal className="mt-1 size-5 text-brand" />
+              <div>
+                <Typography as="h2" className="font-semibold">
+                  Display preferences
+                </Typography>
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  How prices and package details render for you, stored on this device. Neither setting changes any
+                  listing record or payment amount.
+                </Typography>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="marketplace-fx-estimate" className="font-medium">
+                  Approximate price conversions
+                </Label>
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  Show &ldquo;≈&rdquo; estimates beside prices (fiat ↔ sats) at the current exchange rate. Indicative
+                  only — payments always settle in the listing&rsquo;s own pricing asset.
+                </Typography>
+              </div>
+              <Switch
+                id="marketplace-fx-estimate"
+                checked={showFxEstimate}
+                onCheckedChange={setShowFxEstimate}
+                aria-label="Show approximate price conversions"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="marketplace-measurement-system" className="font-medium">
+                  Measurement system
+                </Label>
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  Units for package dimensions and weight. Records always store exact millimeters and grams.
+                </Typography>
+              </div>
+              <Select
+                value={measurementSystem ?? 'auto'}
+                onValueChange={(value) =>
+                  setMeasurementSystem(value === 'auto' ? null : (value as 'metric' | 'imperial'))
+                }
+              >
+                <SelectTrigger
+                  id="marketplace-measurement-system"
+                  className="h-11 w-56 shrink-0 rounded-md border px-3"
+                  aria-label="Measurement system"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Automatic (from locale)</SelectItem>
+                  <SelectItem value="metric">Metric (cm, g)</SelectItem>
+                  <SelectItem value="imperial">Imperial (in, oz)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </CardContent>
         </Card>
 

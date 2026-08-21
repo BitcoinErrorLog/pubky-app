@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { USD_ASSET } from '@/libs/commerce/pricing';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceOfferDialog } from './MarketplaceOfferDialog';
 
@@ -12,14 +13,28 @@ describe('MarketplaceOfferDialog', () => {
   });
 
   it('disables the trigger while the listing has no server revision to offer against', () => {
-    render(<MarketplaceOfferDialog aggregateId="listing:x" expectedRevision={null} onAccepted={vi.fn()} />);
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={null}
+        priceAsset={USD_ASSET}
+        onAccepted={vi.fn()}
+      />,
+    );
 
     expect(screen.getByRole('button', { name: 'Make offer' })).toBeDisabled();
   });
 
   it('opens a labelled modal dialog, traps focus in labelled fields, and restores focus on close', async () => {
     const user = userEvent.setup();
-    render(<MarketplaceOfferDialog aggregateId="listing:x" expectedRevision={1} onAccepted={vi.fn()} />);
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={1}
+        priceAsset={USD_ASSET}
+        onAccepted={vi.fn()}
+      />,
+    );
 
     const trigger = screen.getByRole('button', { name: 'Make offer' });
     await user.click(trigger);
@@ -41,7 +56,14 @@ describe('MarketplaceOfferDialog', () => {
   it('opens the sign-in dialog instead of the offer form for signed-out visitors', async () => {
     useAuthStore.setState({ currentUserPubky: null });
     const user = userEvent.setup();
-    render(<MarketplaceOfferDialog aggregateId="listing:x" expectedRevision={1} onAccepted={vi.fn()} />);
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={1}
+        priceAsset={USD_ASSET}
+        onAccepted={vi.fn()}
+      />,
+    );
 
     await user.click(screen.getByRole('button', { name: 'Make offer' }));
 

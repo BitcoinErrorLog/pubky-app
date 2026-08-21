@@ -8,22 +8,26 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceBid } from '@/hooks/useMarketplaceBid/useMarketplaceBid';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { amountInputUnitLabel, type CommerceAsset, isSatsAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import type { MarketplaceListingProjection } from '@/services/marketplace/marketplace';
 
 export function MarketplaceBidDialog({
   aggregateId,
   projection,
+  priceAsset,
   onAccepted,
 }: {
   aggregateId: string;
   projection: MarketplaceListingProjection | null;
+  /** The auction's own pricing asset — bids are made in it, never converted. */
+  priceAsset: CommerceAsset;
   onAccepted: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   // `onAccepted` refreshes the projection, which is exactly the recovery a
   // revision conflict needs: reload the price/revision, then the user rebids.
-  const bid = useMarketplaceBid(aggregateId, projection?.serverRevision ?? null, onAccepted);
+  const bid = useMarketplaceBid(aggregateId, projection?.serverRevision ?? null, onAccepted, priceAsset);
   const { requireAuth } = useRequireAuth();
 
   const submit = async () => {
@@ -71,8 +75,8 @@ export function MarketplaceBidDialog({
         <ControlledInputField
           name="maximumAmount"
           control={bid.form.control}
-          label="Maximum bid (USD)"
-          placeholder="100.00"
+          label={`Maximum bid (${amountInputUnitLabel(priceAsset)})`}
+          placeholder={isSatsAsset(priceAsset) ? '100000' : '100.00'}
         />
         <Typography as="p" className="text-sm text-muted-foreground">
           Your maximum stays private. The visible price advances only enough to keep you ahead.

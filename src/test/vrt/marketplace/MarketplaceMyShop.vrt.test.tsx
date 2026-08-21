@@ -5,6 +5,13 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceMyShop } from '@/templates/Marketplace/MarketplaceMyShop';
 
+// No rate in this capture: the indicative-rate hook resolves to null (no
+// rate -> no estimate), keeping the scenario network-free and byte-identical
+// to the pre-estimate baseline.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: () => null,
+}));
+
 const configuredShop = vi.hoisted(() => ({
   name: 'Satoshi Vintage',
   bio: 'Circular fashion and Bitcoin.',

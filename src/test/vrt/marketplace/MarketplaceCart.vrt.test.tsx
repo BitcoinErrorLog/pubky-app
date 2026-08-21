@@ -5,6 +5,13 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 
+// Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
+// estimates render from this fixed value, never from the network.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: (enabled: boolean) =>
+    enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
+}));
+
 // Cart rows show the listing's cover photo (record media order, first image);
 // a deterministic data-URI keeps the capture free of network fetches.
 const MEDIA_DATA_URL = vi.hoisted(
@@ -75,13 +82,19 @@ const fixtures = vi.hoisted(async () => {
   };
 });
 
+interface CartItemMoneyLike {
+  amountMinor: number;
+  currency: string;
+  exponent: number;
+}
+
 interface CartItemLike {
   quantity: number;
   variantId: string;
   listing: {
     record: {
-      variants: Array<{ id: string; priceOverride?: { amountMinor: number } }>;
-      sale: { format: string; unitPrice?: { amountMinor: number } };
+      variants: Array<{ id: string; priceOverride?: CartItemMoneyLike }>;
+      sale: { format: string; unitPrice?: CartItemMoneyLike };
     };
   };
 }
@@ -102,27 +115,32 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
 });
 
-vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
-  useMarketplaceCart: () => {
-    const items = view.items as CartItemLike[];
-    return {
-      items,
-      itemCount: items.reduce((total, item) => total + item.quantity, 0),
-      subtotalMinor: items.reduce((total, item) => {
-        const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-        const price =
-          variant?.priceOverride ??
-          (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
-        return total + (price?.amountMinor ?? 0) * item.quantity;
-      }, 0),
-      isLoading: view.isLoading,
-      add: vi.fn(),
-      update: vi.fn(),
-      remove: vi.fn(),
-      clear: vi.fn(),
-    };
-  },
-}));
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async () => {
+  const { sumMoneyByAsset } = await import('@/libs/commerce/pricing');
+  return {
+    useMarketplaceCart: () => {
+      const items = view.items as CartItemLike[];
+      return {
+        items,
+        itemCount: items.reduce((total, item) => total + item.quantity, 0),
+        subtotals: sumMoneyByAsset(
+          items.flatMap((item) => {
+            const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+            const price =
+              variant?.priceOverride ??
+              (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+            return price ? [{ money: price, quantity: item.quantity }] : [];
+          }),
+        ),
+        isLoading: view.isLoading,
+        add: vi.fn(),
+        update: vi.fn(),
+        remove: vi.fn(),
+        clear: vi.fn(),
+      };
+    },
+  };
+});
 
 vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
   const { useForm } = await import('react-hook-form');

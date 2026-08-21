@@ -120,6 +120,59 @@ describe('useCreateMarketplaceListing', () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
   });
 
+  it('publishes a satoshi-priced listing as BTC money with exponent 8', async () => {
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Vintage leather boots');
+      result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('currency', 'SATS');
+      result.current.form.setValue('price', '15000');
+      result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const listing = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+    expect(listing).toMatchObject({
+      sale: { format: 'fixed_price', unitPrice: { amountMinor: 15_000, currency: 'BTC', exponent: 8 } },
+    });
+  });
+
+  it('converts imperial package inputs to exact millimeters and grams on publish', async () => {
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Vintage leather boots');
+      result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('price', '125.00');
+      result.current.form.setValue('shippingPrice', '12.00');
+      result.current.form.setValue('packageWeight', '42.3');
+      result.current.form.setValue('packageLength', '13.8');
+      result.current.form.setValue('packageWidth', '9.8');
+      result.current.form.setValue('packageHeight', '5.9');
+      result.current.form.setValue('measurementSystem', 'imperial');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const listing = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+    expect(listing).toMatchObject({
+      package: {
+        weightGrams: 1_199, // 42.3 oz × 28.349523125
+        lengthMillimeters: 351, // 13.8 in × 25.4
+        widthMillimeters: 249, // 9.8 in × 25.4
+        heightMillimeters: 150, // 5.9 in × 25.4
+      },
+    });
+  });
+
   it('does not publish when media preparation fails', async () => {
     mediaState.prepared = false;
     const { result } = renderHook(() => useCreateMarketplaceListing());

@@ -462,6 +462,10 @@ export class CommerceController {
     return CommerceApplication.getPaykitSetupUrl(parsedReturnTo.toString(), CommerceRecordNormalizer.entityId(state));
   }
 
+  static async getIndicativeBtcRate() {
+    return await CommerceApplication.getIndicativeBtcRate();
+  }
+
   static async getListingDrafts() {
     return await CommerceApplication.getListingDrafts(this.getCurrentUserPubky());
   }

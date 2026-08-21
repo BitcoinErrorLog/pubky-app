@@ -6,6 +6,7 @@ import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   buildListingVariants,
+  buildPackageRecord,
   deriveTags,
   describeMediaFailure,
   uploadListingMedia,
@@ -19,7 +20,16 @@ import {
   useListingMediaManager,
   type UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
+import {
+  amountInputFromMoney,
+  amountInputToMoney,
+  assetForListingCurrency,
+  type ListingCurrencyChoice,
+  listingCurrencyChoiceForAsset,
+} from '@/libs/commerce/pricing';
+import { dimensionInputFromMillimeters, type MeasurementSystem, weightInputFromGrams } from '@/libs/commerce/units';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -42,13 +52,17 @@ export interface UseEditMarketplaceListingResult {
  *
  * Honest scope limits, enforced as `unsupported` instead of destructive
  * saves: listings with digital delivery (a `digitalLock` this studio cannot
- * author) cannot be edited here, and auction sale terms are locked because
+ * author) cannot be edited here; listings priced in an asset the studio
+ * cannot author (anything that is neither USD cents nor BTC satoshis) cannot
+ * be edited here, because "editing" one would silently rewrite its price
+ * into a different asset; and auction sale terms are locked because
  * rewriting a live auction's window or starting price would falsify terms
  * bidders may already have acted on. Item facts (title, description, photos,
  * inventory, delivery) stay editable for auctions.
  */
 export function useEditMarketplaceListing(sellerPubky: string, listingId: string): UseEditMarketplaceListingResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const measurementSystem = useMeasurementSystem();
   const media = useListingMediaManager();
   const [status, setStatus] = useState<EditMarketplaceListingStatus>('loading');
   const [record, setRecord] = useState<CommerceListingRecord | null>(null);
@@ -72,8 +86,14 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
           setStatus('unsupported');
           return;
         }
+        const primaryPrice = loaded.sale.format === 'fixed_price' ? loaded.sale.unitPrice : loaded.sale.startingPrice;
+        const currency = listingCurrencyChoiceForAsset(primaryPrice);
+        if (currency === null) {
+          setStatus('unsupported');
+          return;
+        }
         setRecord(loaded);
-        form.reset(formDataFromRecord(loaded));
+        form.reset(formDataFromRecord(loaded, currency, measurementSystem));
         media.seed(loaded.media);
         setStatus('ready');
       })
@@ -84,7 +104,9 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
       active = false;
     };
     // `form` and `media` are stable hook results; re-running on their identity
-    // would re-seed and clobber in-progress edits.
+    // would re-seed and clobber in-progress edits. `measurementSystem` is read
+    // once at hydration for the same reason: converting in-progress inputs
+    // under the user would silently change what the numbers mean.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserPubky, sellerPubky, listingId]);
 
@@ -123,7 +145,11 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
   };
 }
 
-function formDataFromRecord(record: CommerceListingRecord): CreateMarketplaceListingData {
+function formDataFromRecord(
+  record: CommerceListingRecord,
+  currency: ListingCurrencyChoice,
+  measurementSystem: MeasurementSystem,
+): CreateMarketplaceListingData {
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const isPhysical = record.fulfillmentMethods.includes('physical');
   const flatShipping = record.shippingOptions.find((option) => option.pricing === 'flat');
@@ -142,21 +168,29 @@ function formDataFromRecord(record: CommerceListingRecord): CreateMarketplaceLis
     countryCode: record.location.countryCode,
     region: record.location.region ?? '',
     saleFormat: record.sale.format,
-    price: minorToInput(price.amountMinor),
+    currency,
+    price: amountInputFromMoney(price),
     variants: record.variants.map((variant) => ({
       sku: variant.sku ?? '',
       size: variant.options.size ?? '',
       color: variant.options.color ?? '',
       style: variant.options.style ?? '',
       quantity: String(variant.quantity),
-      priceOverride: variant.priceOverride ? minorToInput(variant.priceOverride.amountMinor) : '',
+      priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
     fulfillment: isPhysical ? 'physical' : 'pickup',
-    shippingPrice: flatShipping ? minorToInput(flatShipping.price.amountMinor) : '',
-    weightGrams: record.package ? String(record.package.weightGrams) : '',
-    lengthMillimeters: record.package ? String(record.package.lengthMillimeters) : '',
-    widthMillimeters: record.package ? String(record.package.widthMillimeters) : '',
-    heightMillimeters: record.package ? String(record.package.heightMillimeters) : '',
+    shippingPrice: flatShipping ? amountInputFromMoney(flatShipping.price) : '',
+    measurementSystem,
+    packageWeight: record.package ? weightInputFromGrams(record.package.weightGrams, measurementSystem) : '',
+    packageLength: record.package
+      ? dimensionInputFromMillimeters(record.package.lengthMillimeters, measurementSystem)
+      : '',
+    packageWidth: record.package
+      ? dimensionInputFromMillimeters(record.package.widthMillimeters, measurementSystem)
+      : '',
+    packageHeight: record.package
+      ? dimensionInputFromMillimeters(record.package.heightMillimeters, measurementSystem)
+      : '',
     returnDays,
   };
 }
@@ -167,8 +201,8 @@ function buildUpdatedRecord(
   media: CommerceListingRecord['media'],
 ): CommerceListingRecord {
   const now = new Date().toISOString();
-  const amountMinor = Math.round(Number(data.price) * 100);
-  const unitPrice = { amountMinor, currency: 'USD', exponent: 2 };
+  const asset = assetForListingCurrency(data.currency);
+  const unitPrice = amountInputToMoney(data.price, asset);
   // Auction sale terms are immutable after publish (see the hook doc); the
   // fixed-price branch rebuilds from the form but keeps the offers setting.
   const sale: CommerceListingRecord['sale'] =
@@ -195,21 +229,14 @@ function buildUpdatedRecord(
     variants: buildListingVariants(data, media),
     sale,
     fulfillmentMethods: [data.fulfillment],
-    package: isPhysical
-      ? {
-          weightGrams: Number(data.weightGrams),
-          lengthMillimeters: Number(data.lengthMillimeters),
-          widthMillimeters: Number(data.widthMillimeters),
-          heightMillimeters: Number(data.heightMillimeters),
-        }
-      : undefined,
+    package: isPhysical ? buildPackageRecord(data) : undefined,
     shippingOptions: isPhysical
       ? [
           {
             id: 'seller_flat_rate',
             pricing: 'flat',
             label: 'Seller shipping',
-            price: { amountMinor: Math.round(Number(data.shippingPrice) * 100), currency: 'USD', exponent: 2 },
+            price: amountInputToMoney(data.shippingPrice, asset),
             estimatedMinDays: 3,
             estimatedMaxDays: 7,
           },
@@ -221,8 +248,4 @@ function buildUpdatedRecord(
       buyerPaysReturnShipping: true,
     },
   });
-}
-
-function minorToInput(amountMinor: number): string {
-  return (amountMinor / 100).toFixed(2);
 }

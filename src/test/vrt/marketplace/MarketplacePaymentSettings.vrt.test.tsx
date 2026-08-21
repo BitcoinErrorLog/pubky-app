@@ -63,4 +63,18 @@ describe('Marketplace payment settings — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-locks-connected-desktop');
     view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
   });
+
+  // A taller viewport so the display-preferences card at the bottom of the
+  // page (the approximate-conversion toggle and the measurement-system
+  // select) is inside the capture.
+  it('renders the display preferences controls at desktop viewport', async () => {
+    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
+    useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'imperial' });
+
+    const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: { width: 1440, height: 1600 } });
+    await expect.element(screen.getByText('Display preferences')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-display-preferences-desktop');
+    useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: null });
+  });
 });

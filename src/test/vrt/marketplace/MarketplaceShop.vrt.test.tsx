@@ -5,6 +5,13 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceShop } from '@/templates/Marketplace/MarketplaceShop';
 
+// No rate in this capture: the indicative-rate hook resolves to null (no
+// rate -> no estimate), keeping the scenario network-free and byte-identical
+// to the pre-estimate baseline.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: () => null,
+}));
+
 const fixtures = vi.hoisted(async () => {
   const { createCommerceListingFixture, createCommerceShopFixture, COMMERCE_FIXTURE_SELLER } =
     await import('@/test/fixtures/commerce/commerce');

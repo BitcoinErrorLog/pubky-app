@@ -5,6 +5,13 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
 
+// Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
+// estimates render from this fixed value, never from the network.
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: (enabled: boolean) =>
+    enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
+}));
+
 // Covers every order state and every buyer-visible payment state defined by the
 // transaction contract, so a state that only appears after a timeout, a return, or
 // a reconciliation still has a reviewable rendering.

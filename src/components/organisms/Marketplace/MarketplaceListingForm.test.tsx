@@ -76,8 +76,10 @@ describe('MarketplaceListingForm', () => {
     expect(screen.getByRole('heading', { name: 'Item details' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Price and availability' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Delivery and returns' })).toBeInTheDocument();
+    expect(screen.getByText('Pricing currency')).toBeInTheDocument();
     expect(screen.getByText('Flat shipping (USD)')).toBeInTheDocument();
-    expect(screen.getByText('Weight (grams)')).toBeInTheDocument();
+    expect(screen.getByText('Weight (g)')).toBeInTheDocument();
+    expect(screen.getByText('Length (cm)')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish listing' })).toBeInTheDocument();
   });
 
@@ -85,7 +87,7 @@ describe('MarketplaceListingForm', () => {
     render(<FormHarness fulfillment="pickup" />);
 
     expect(screen.queryByText('Flat shipping (USD)')).not.toBeInTheDocument();
-    expect(screen.queryByText('Weight (grams)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Weight (g)')).not.toBeInTheDocument();
   });
 
   it('opens the photo picker and submits through the form owner', async () => {

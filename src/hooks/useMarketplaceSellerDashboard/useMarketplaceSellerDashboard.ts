@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { sumMoneyByAsset } from '@/libs/commerce/pricing';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -21,9 +22,13 @@ export function useMarketplaceSellerDashboard() {
     (total, listing) => total + listing.record.variants.reduce((sum, variant) => sum + variant.quantity, 0),
     0,
   );
-  const revenueMinor = sellerOrders
-    .filter(({ order }) => ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state))
-    .reduce((total, { order }) => total + order.total.amountMinor, 0);
+  // One revenue figure per pricing asset: minor units of different assets
+  // (USD cents, satoshis) are never summed into one false number.
+  const revenue = sumMoneyByAsset(
+    sellerOrders
+      .filter(({ order }) => ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state))
+      .map(({ order }) => ({ money: order.total, quantity: 1 })),
+  );
 
   const updateListingState = async (listingIds: string[], state: 'active' | 'paused') => {
     const selected = (localListings ?? []).filter(({ id }) => listingIds.includes(id));
@@ -76,7 +81,7 @@ export function useMarketplaceSellerDashboard() {
         listing.record.variants.some((variant) => variant.enabled && variant.quantity <= 1),
       ).length,
       paidOrders: sellerOrders.filter(({ order }) => order.state !== 'pending_payment').length,
-      revenueMinor,
+      revenue,
       openOffers: offers.offers.filter(
         ({ sellerPubky, state }) => sellerPubky === currentUserPubky && (state === 'pending' || state === 'countered'),
       ).length,
