@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, Bell, Gavel, Heart, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceShopRoute } from '@/app/routes';
+import { TagKind } from '@/application/tag/tag.types';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -21,7 +22,9 @@ import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/fo
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
+import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCommunityTags';
 import { MarketplaceDigitalDeliveryNotice } from '@/organisms/Marketplace/MarketplaceDigitalDeliveryNotice';
+import { MarketplaceListingSavePicker } from '@/organisms/Marketplace/MarketplaceListingSavePicker';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
@@ -191,13 +194,24 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               {record.description}
             </Typography>
 
-            <div className="flex flex-wrap gap-2">
-              {record.tags.map((tag) => (
-                <Badge key={tag} variant="outline">
-                  #{tag}
-                </Badge>
-              ))}
-            </div>
+            {record.tags.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <Typography as="p" className="text-sm font-semibold">
+                  Seller&apos;s keywords
+                </Typography>
+                <div className="flex flex-wrap gap-2" data-cy="marketplace-seller-keywords">
+                  {record.tags.map((tag) => (
+                    <Badge key={tag} variant="outline">
+                      #{tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <MarketplaceCommunityTags
+              target={{ kind: TagKind.LISTING, sellerPubky: record.ownerPubky, listingId: record.listingId }}
+            />
 
             {record.variants.length > 1 && (
               <div>
@@ -305,6 +319,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   <Heart className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
                 )}
               </Button>
+              <MarketplaceListingSavePicker sellerPubky={record.ownerPubky} listingId={record.listingId} />
             </div>
             {adapterMode === 'unavailable' && (
               <Typography as="p" className="text-center text-sm text-muted-foreground">

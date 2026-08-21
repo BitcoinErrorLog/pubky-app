@@ -153,6 +153,8 @@ export class AppDatabase extends Dexie {
   commerce_messaging_links!: Dexie.Table<CommerceMessagingLinkModelSchema>;
   commerce_messaging_conversations!: Dexie.Table<CommerceMessagingConversationModelSchema>;
   commerce_messaging_messages!: Dexie.Table<CommerceMessagingMessageModelSchema>;
+  // Marketplace community tags (listing/shop targets), kind-prefixed row ids
+  marketplace_tags!: Dexie.Table<TagCollectionModelSchema<string>>;
   // Hot tags
   hot_tags!: Dexie.Table<HotTagsModelSchema>;
   // Feeds
@@ -206,6 +208,10 @@ export class AppDatabase extends Dexie {
         commerce_messaging_links: commerceMessagingLinkTableSchema,
         commerce_messaging_conversations: commerceMessagingConversationTableSchema,
         commerce_messaging_messages: commerceMessagingMessageTableSchema,
+        // Marketplace community tags — folded into the current (unreleased)
+        // DB version rather than bumping it: version 3 has never shipped, so
+        // there is no upgrade path to preserve.
+        marketplace_tags: tagCollectionTableSchema,
         // Hot tags
         hot_tags: hotTagsTableSchema,
         // Feeds

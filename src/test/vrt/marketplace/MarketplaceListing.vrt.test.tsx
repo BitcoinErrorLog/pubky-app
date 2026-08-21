@@ -72,6 +72,7 @@ const view = vi.hoisted(() => ({
   shop: undefined as unknown,
   projection: null as unknown,
   fetchFails: false,
+  listingTags: [] as unknown[],
 }));
 
 vi.mock('next/navigation', () => ({
@@ -93,16 +94,47 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
 });
 
-vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: (querier: () => unknown) => querier(),
-}));
+// The community-tags hook uses an async live-query, so a synchronous
+// passthrough would surface a Promise. Unwrap into state; the browser-mode
+// render waits (fonts, images, rAF) long enough for the settle to paint.
+vi.mock('dexie-react-hooks', async () => {
+  const { useEffect, useState } = await import('react');
+  return {
+    useLiveQuery: (querier: () => unknown, deps: unknown[] = [], defaultValue?: unknown) => {
+      const [value, setValue] = useState(defaultValue);
+      useEffect(() => {
+        let stale = false;
+        Promise.resolve(querier()).then((result) => {
+          if (!stale) setValue(result);
+        });
+        return () => {
+          stale = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mirror useLiveQuery's deps contract
+      }, deps);
+      return value;
+    },
+  };
+});
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getListing: () => view.listing,
     getShop: () => view.shop,
     getOrFetchListing: () => (view.fetchFails ? Promise.reject(new Error('offline')) : Promise.resolve(null)),
+    getListingTags: () => view.listingTags,
+    fetchListingTags: () => Promise.resolve([]),
   },
+}));
+
+// Pass tags through unchanged: enrichment reads user details from the local
+// DB, which VRT deliberately does not exercise.
+vi.mock('@/hooks/useEnrichedTags/useEnrichedTags', () => ({
+  useEnrichedTags: (tags: unknown[]) => ({ enrichedTags: tags, isLoading: false }),
+}));
+
+vi.mock('@/hooks/useAuthoredCollections/useAuthoredCollections', () => ({
+  useAuthoredCollections: () => ({ collections: [], isLoading: false }),
 }));
 
 vi.mock('@/hooks/useCommerceFavorite/useCommerceFavorite', () => ({
@@ -199,6 +231,7 @@ async function setView(overrides: Partial<typeof view>) {
   view.shop = shop;
   view.projection = null;
   view.fetchFails = false;
+  view.listingTags = [];
   Object.assign(view, overrides);
 }
 
@@ -254,6 +287,23 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-digital-locks-paykit-desktop');
+  });
+
+  it('renders community tags separated from seller keywords at desktop viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      projection: fixedPriceProjection,
+      listingTags: [
+        { label: 'handmade', taggers: ['t'.repeat(52), 'v'.repeat(52)], taggers_count: 2, relationship: true },
+        { label: 'vintage', taggers: ['w'.repeat(52)], taggers_count: 1, relationship: false },
+      ],
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-community-tags-desktop');
   });
 
   it('renders a sold-out listing at desktop viewport', async () => {

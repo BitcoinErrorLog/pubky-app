@@ -5,11 +5,13 @@ import { Container } from '@/atoms/Container/Container';
 import { COLLECTION_LAYOUT, type CollectionLayout, DEFAULT_COLLECTION_LAYOUT } from '@/config/collections';
 import { TIMELINE_FEED_VARIANT } from '@/config/feed';
 import { useReorderCollection } from '@/hooks/useReorderCollection/useReorderCollection';
+import { parseListingUri } from '@/libs/commerce/listingUri';
 import { parseCollectionContent } from '@/libs/post/collectionContent';
 import { buildCompositeId } from '@/models/models.utils';
 import { CollectionHero } from '@/organisms/Collections/CollectionHero/CollectionHero';
 import { CollectionHiddenItemsNotice } from '@/organisms/Collections/CollectionHiddenItemsNotice/CollectionHiddenItemsNotice';
 import { CollectionItemsEmpty } from '@/organisms/Collections/CollectionItemsEmpty/CollectionItemsEmpty';
+import { CollectionListingItems } from '@/organisms/Collections/CollectionListingItems/CollectionListingItems';
 import { CollectionReorderGrid } from '@/organisms/Collections/CollectionReorderGrid/CollectionReorderGrid';
 import { DialogAddContent } from '@/organisms/Collections/DialogAddContent/DialogAddContent';
 import { PostMainLayoutProvider } from '@/organisms/PostMain/PostMainLayoutContext';
@@ -43,6 +45,12 @@ export function CollectionItems({ authorPubky, postId, postDetails, pullToRefres
   // renders `postDetails` is a resolved collection envelope. The `null` branch
   // here stays as a defensive fall-through to the feed's own empty/error state.
   const collection = postDetails ? parseCollectionContent(postDetails.content) : null;
+  // Marketplace listings curated into this collection. The COLLECTION post
+  // stream cannot return them (they are not posts), so they render in their
+  // own section below the hero, hydrated through the commerce cache.
+  const listingRefs = (collection?.items ?? [])
+    .map(parseListingUri)
+    .filter((ref): ref is NonNullable<typeof ref> => ref !== null);
   const creatorLayout = collection?.layout ?? DEFAULT_COLLECTION_LAYOUT;
   const [viewerLayoutOverride, setViewerLayoutOverride] = useState<CollectionLayout | null>(null);
   const viewerLayout = viewerLayoutOverride ?? creatorLayout;
@@ -107,7 +115,10 @@ export function CollectionItems({ authorPubky, postId, postDetails, pullToRefres
   }
 
   const isConfirmedEmpty = postDetails != null && (collection?.items?.length ?? 0) === 0;
-  const emptyState = <CollectionItemsEmpty />;
+  // When the collection holds only listings, the post stream is legitimately
+  // empty — suppress the "empty collection" copy instead of contradicting the
+  // listing grid rendered above it.
+  const emptyState = listingRefs.length > 0 ? <></> : <CollectionItemsEmpty />;
   const isListLayout = viewerLayout === COLLECTION_LAYOUT.LIST;
   const isVisualLayout = viewerLayout === COLLECTION_LAYOUT.VISUAL;
   const requestedLayout = isListLayout ? LAYOUT.LIST : isVisualLayout ? LAYOUT.VISUAL : LAYOUT.COLUMNS;
@@ -142,7 +153,10 @@ export function CollectionItems({ authorPubky, postId, postDetails, pullToRefres
         ) : undefined
       }
     >
-      <Container overrideDefaults>{hero}</Container>
+      <Container overrideDefaults className="flex w-full flex-col gap-6">
+        {hero}
+        <CollectionListingItems listings={listingRefs} />
+      </Container>
     </TimelineFeed>
   );
 }

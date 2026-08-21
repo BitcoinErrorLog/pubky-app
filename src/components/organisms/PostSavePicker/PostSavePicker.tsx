@@ -1,27 +1,18 @@
 'use client';
 
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from 'react';
-import { Bookmark, Check, Library, Loader2, Plus, SquareLibrary } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Library, SquareLibrary } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
-import { Container } from '@/atoms/Container/Container';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/atoms/DropdownMenu/DropdownMenu';
-import { Input } from '@/atoms/Input/Input';
-import { Label } from '@/atoms/Label/Label';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/atoms/DropdownMenu/DropdownMenu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/atoms/Sheet/Sheet';
 import { Typography } from '@/atoms/Typography/Typography';
 import { TIMELINE_FEED_VARIANT } from '@/config/feed';
-import { COLLECTION_NAME_MAX_CHARACTER_LENGTH } from '@/config/posts';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
-import { type PostSaveCollectionTarget, usePostSaveTargets } from '@/hooks/usePostSaveTargets/usePostSaveTargets';
+import { usePostSaveTargets } from '@/hooks/usePostSaveTargets/usePostSaveTargets';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 import { useTimelineFeedContext } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext';
+import { SavePickerContent } from './SavePickerContent';
 
 type PostSavePickerProps = {
   postId: string;
@@ -33,37 +24,7 @@ type PostSavePickerProps = {
   buttonClassName: string;
 };
 
-type SavePickerLayout = 'dropdown' | 'sheet';
 type SaveTriggerIconState = 'default' | 'saved';
-
-type SaveTargetIconProps = {
-  isSaved: boolean;
-  isBusy: boolean;
-};
-
-type SavePickerContentProps = {
-  layout: SavePickerLayout;
-  isBookmarked: boolean;
-  isBookmarkBusy: boolean;
-  collections: PostSaveCollectionTarget[];
-  isCollectionsLoading: boolean;
-  isCreatingCollection: boolean;
-  toggleBookmark: () => Promise<void>;
-  toggleCollection: (collectionId: string) => Promise<void>;
-  createCollectionWithPost: (name: string) => Promise<void>;
-};
-
-function SaveTargetIcon({ isSaved, isBusy }: SaveTargetIconProps) {
-  if (isBusy) {
-    return <Loader2 className="size-4 animate-spin" />;
-  }
-
-  if (isSaved) {
-    return <Check className="size-4 text-brand" />;
-  }
-
-  return null;
-}
 
 function SaveTriggerIcon({ state }: { state: SaveTriggerIconState }) {
   const iconClassName = (targetState: SaveTriggerIconState) =>
@@ -83,189 +44,6 @@ function SaveTriggerIcon({ state }: { state: SaveTriggerIconState }) {
       <Library aria-hidden="true" className={iconClassName('default')} />
       <SquareLibrary aria-hidden="true" className={cn(iconClassName('saved'), 'text-brand')} />
     </Typography>
-  );
-}
-
-function SavePickerRow({
-  layout,
-  disabled,
-  dataCy,
-  onActivate,
-  children,
-}: {
-  layout: SavePickerLayout;
-  disabled?: boolean;
-  dataCy?: string;
-  onActivate: () => void;
-  children: ReactNode;
-}) {
-  if (layout === 'dropdown') {
-    return (
-      <DropdownMenuItem
-        disabled={disabled}
-        onSelect={(event) => {
-          event.preventDefault();
-          onActivate();
-        }}
-        className="w-full gap-2 p-0 text-base font-medium text-muted-foreground"
-        data-cy={dataCy}
-      >
-        {children}
-      </DropdownMenuItem>
-    );
-  }
-
-  return (
-    <Button
-      overrideDefaults
-      disabled={disabled}
-      onClick={onActivate}
-      className="flex w-full cursor-pointer items-center gap-2 rounded-sm p-0 text-base font-medium text-muted-foreground disabled:opacity-50"
-      data-cy={dataCy}
-    >
-      {children}
-    </Button>
-  );
-}
-
-function CollectionRow({
-  layout,
-  collection,
-  onToggleCollection,
-}: {
-  layout: SavePickerLayout;
-  collection: PostSaveCollectionTarget;
-  onToggleCollection: (collectionId: string) => Promise<void>;
-}) {
-  return (
-    <SavePickerRow
-      layout={layout}
-      disabled={collection.isUpdating}
-      dataCy="post-save-collection-option"
-      onActivate={() => void onToggleCollection(collection.id)}
-    >
-      <Library className="size-4" />
-      <Typography
-        as="span"
-        overrideDefaults
-        className={cn('min-w-0 flex-1 truncate', layout === 'sheet' && 'text-left')}
-      >
-        {collection.name}
-      </Typography>
-      <SaveTargetIcon isSaved={collection.isSaved} isBusy={collection.isUpdating} />
-    </SavePickerRow>
-  );
-}
-
-function SavePickerContent({
-  layout,
-  isBookmarked,
-  isBookmarkBusy,
-  collections,
-  isCollectionsLoading,
-  isCreatingCollection,
-  toggleBookmark,
-  toggleCollection,
-  createCollectionWithPost,
-}: SavePickerContentProps) {
-  const [newCollectionName, setNewCollectionName] = useState('');
-  const canCreate = newCollectionName.trim().length > 0 && !isCreatingCollection;
-
-  const handleCreate = async () => {
-    if (!canCreate) return;
-    await createCollectionWithPost(newCollectionName);
-    setNewCollectionName('');
-  };
-
-  const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    // Stop the menu/sheet from intercepting typing (e.g. type-ahead in
-    // DropdownMenu, copy/paste shortcuts) so the inline name field behaves
-    // like a normal text input even when nested inside the menu.
-    event.stopPropagation();
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    void handleCreate();
-  };
-
-  return (
-    <Container overrideDefaults className={cn('flex w-full flex-col', layout === 'sheet' ? 'gap-4' : 'gap-3')}>
-      {/* Bookmark + collections scroll as one region so a long collection list
-          can't push the "New collection" creator off-screen and out of reach.
-          `max-h-[50dvh]` keeps the picker within the viewport on both the
-          desktop dropdown and the mobile sheet. */}
-      <Container
-        overrideDefaults
-        className={cn('flex max-h-[50dvh] flex-col overflow-y-auto', layout === 'sheet' ? 'gap-4' : 'gap-3')}
-      >
-        <SavePickerRow
-          layout={layout}
-          disabled={isBookmarkBusy}
-          dataCy="post-save-bookmarks-option"
-          onActivate={() => void toggleBookmark()}
-        >
-          <Bookmark className="size-4" />
-          <Typography
-            as="span"
-            overrideDefaults
-            className={cn('min-w-0 flex-1 truncate', layout === 'sheet' && 'text-left')}
-          >
-            {'Bookmarks'}
-          </Typography>
-          <SaveTargetIcon isSaved={isBookmarked} isBusy={isBookmarkBusy} />
-        </SavePickerRow>
-
-        {isCollectionsLoading ? (
-          <Container overrideDefaults className="flex items-center gap-2 text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            <Typography overrideDefaults className="text-base font-medium">
-              {'Loading collections...'}
-            </Typography>
-          </Container>
-        ) : (
-          collections.map((collection) => (
-            <CollectionRow
-              key={collection.id}
-              layout={layout}
-              collection={collection}
-              onToggleCollection={toggleCollection}
-            />
-          ))
-        )}
-      </Container>
-
-      {layout === 'dropdown' ? <DropdownMenuSeparator /> : <Container overrideDefaults className="h-px bg-muted" />}
-
-      <Container overrideDefaults className={cn('flex flex-col gap-2', layout === 'dropdown' && 'pt-1')}>
-        <Label className="text-xs tracking-widest text-muted-foreground uppercase">{'New Collection'}</Label>
-        <Container
-          overrideDefaults
-          className="flex items-center gap-2 rounded-md border border-dashed border-input px-4 py-3"
-        >
-          <Input
-            value={newCollectionName}
-            onChange={(event) => setNewCollectionName(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            maxLength={COLLECTION_NAME_MAX_CHARACTER_LENGTH}
-            placeholder={'Collection name'}
-            className="h-auto border-none p-0 shadow-none"
-            disabled={isCreatingCollection}
-            data-cy="post-save-new-collection-input"
-          />
-          <Button
-            type="button"
-            size="icon"
-            variant="secondary"
-            className="size-6"
-            disabled={!canCreate}
-            onClick={() => void handleCreate()}
-            aria-label={'Create collection'}
-            data-cy="post-save-new-collection-create-btn"
-          >
-            {isCreatingCollection ? <Loader2 className="animate-spin" /> : <Plus />}
-          </Button>
-        </Container>
-      </Container>
-    </Container>
   );
 }
 
@@ -328,7 +106,18 @@ export function PostSavePicker({ postId, buttonClassName }: PostSavePickerProps)
     requireAuth(() => setOpen(true));
   };
 
-  const contentProps = { ...saveTargets, isBookmarkBusy };
+  const contentProps = {
+    bookmark: {
+      isBookmarked: saveTargets.isBookmarked,
+      isBookmarkBusy,
+      toggleBookmark: saveTargets.toggleBookmark,
+    },
+    collections: saveTargets.collections,
+    isCollectionsLoading: saveTargets.isCollectionsLoading,
+    isCreatingCollection: saveTargets.isCreatingCollection,
+    toggleCollection: saveTargets.toggleCollection,
+    createCollectionWithItem: saveTargets.createCollectionWithPost,
+  };
 
   if (isMobile) {
     return (

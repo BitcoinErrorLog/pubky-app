@@ -1,5 +1,6 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { TagKind } from '@/application/tag/tag.types';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
@@ -19,11 +20,17 @@ import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import {
+  buildMarketplaceTagRowId,
+  LocalMarketplaceTagService,
+  type MarketplaceTagKind,
+} from '@/services/local/tag/marketplace/tag.marketplace';
 import { LocksGatewayService } from '@/services/locks/locks';
 import {
   MarketplaceGatewayService,
@@ -33,6 +40,7 @@ import {
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/nexus/marketplace/marketplace.types';
+import type { NexusTag } from '@/services/nexus/nexus.types';
 
 export interface CommerceCatalogStreamFilters {
   saleFormat?: NexusListingSaleFormat;
@@ -72,6 +80,84 @@ export class CommerceApplication {
 
   static async getListing(compositeListingId: string) {
     return await LocalCommerceService.getListing(compositeListingId);
+  }
+
+  /**
+   * Reads the locally cached community tag aggregate for a marketplace target.
+   *
+   * @param kind - `TagKind.LISTING` or `TagKind.SHOP`
+   * @param taggedId - Composite `seller:listingId` for listings, owner pubky for shops
+   * @returns The cached NexusTag[] aggregate (viewer's own write-through included)
+   */
+  static async getMarketplaceTags(kind: MarketplaceTagKind, taggedId: string): Promise<NexusTag[]> {
+    return await LocalMarketplaceTagService.read(buildMarketplaceTagRowId(kind, taggedId));
+  }
+
+  /**
+   * Fetches the community tag aggregate for a marketplace target from the
+   * marketplace Nexus and merges it into the local cache.
+   *
+   * Honest degradation: the tag endpoints only exist once the marketplace
+   * Nexus deploys tag aggregation. A 404 means "aggregation not available",
+   * so this returns an empty array WITHOUT touching the local cache — the
+   * viewer's own locally written tags keep rendering, and nothing fake is
+   * shown. Any other error propagates.
+   *
+   * @param params.kind - `TagKind.LISTING` or `TagKind.SHOP`
+   * @param params.taggedId - Composite `seller:listingId` for listings, owner pubky for shops
+   * @param params.viewerId - Viewer pubky for relationship data, if signed in
+   * @param params.skip - Number of tags to skip (pagination)
+   * @param params.limit - Maximum number of tags to return
+   * @returns Tags returned by Nexus; empty when the endpoint is not deployed (404)
+   */
+  static async fetchMarketplaceTags({
+    kind,
+    taggedId,
+    viewerId,
+    skip,
+    limit,
+  }: {
+    kind: MarketplaceTagKind;
+    taggedId: string;
+    viewerId?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<NexusTag[]> {
+    let nexusTags: NexusTag[];
+    try {
+      if (kind === TagKind.LISTING) {
+        const [sellerId, listingId] = taggedId.split(':');
+        nexusTags = await NexusMarketplaceService.fetchListingTags({
+          seller_id: sellerId,
+          listing_id: listingId,
+          skip_tags: skip,
+          limit_tags: limit,
+          viewer_id: viewerId,
+        });
+      } else {
+        nexusTags = await NexusMarketplaceService.fetchShopTags({
+          seller_id: taggedId,
+          skip_tags: skip,
+          limit_tags: limit,
+          viewer_id: viewerId,
+        });
+      }
+    } catch (error) {
+      if (isAppError(error) && isNotFound(error)) {
+        return [];
+      }
+      throw error;
+    }
+
+    if (nexusTags.length > 0) {
+      await LocalMarketplaceTagService.mergeTags({
+        taggedId: buildMarketplaceTagRowId(kind, taggedId),
+        tags: nexusTags,
+        viewerId: viewerId ?? null,
+      });
+    }
+
+    return nexusTags;
   }
 
   static async getListingsBySeller(sellerPubky: string) {

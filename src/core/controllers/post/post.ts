@@ -1,4 +1,4 @@
-import { postUriBuilder } from 'pubky-app-specs';
+import { listingUriBuilder, postUriBuilder } from 'pubky-app-specs';
 import { FileApplication } from '@/application/file/file';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { PostApplication } from '@/application/post/post';
@@ -426,6 +426,7 @@ export class PostController {
     collectionId,
     postId,
     shouldAdd,
+    itemKind = 'post',
   }: TUpdateCollectionItemParams): Promise<void> {
     const currentUserPubky = useAuthStore.getState().selectCurrentUserPubky();
     const collection = await PostApplication.getDetails({ compositeId: collectionId });
@@ -449,8 +450,9 @@ export class PostController {
       });
     }
 
-    const { pubky: postAuthorId, id: rawPostId } = parseCompositeId(postId);
-    const itemUri = postUriBuilder(postAuthorId, rawPostId);
+    const { pubky: itemOwnerId, id: rawItemId } = parseCompositeId(postId);
+    const itemUri =
+      itemKind === 'listing' ? listingUriBuilder(itemOwnerId, rawItemId) : postUriBuilder(itemOwnerId, rawItemId);
     const nextContent = shouldAdd
       ? CollectionPostContent.addItem(currentContent, itemUri)
       : CollectionPostContent.removeItem(currentContent, itemUri);

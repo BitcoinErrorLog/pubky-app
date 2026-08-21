@@ -3,6 +3,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, MapPin, Store, UserCheck, UserPlus } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
+import { TagKind } from '@/application/tag/tag.types';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -14,6 +15,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
 import { buildMarketplaceCatalogItems } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCommunityTags';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -105,6 +107,12 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border py-5">
+              <CardContent className="px-5">
+                <MarketplaceCommunityTags target={{ kind: TagKind.SHOP, ownerPubky: sellerPubky }} />
               </CardContent>
             </Card>
 

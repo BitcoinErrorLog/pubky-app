@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TagKind } from '@/application/tag/tag.types';
 import * as commerceConfig from '@/config/commerce';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { CommerceCatalogEntryModel, CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { LocalMarketplaceTagService } from '@/services/local/tag/marketplace/tag.marketplace';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import {
@@ -167,6 +172,91 @@ describe('CommerceApplication', () => {
 
     expect(put).toHaveBeenCalledWith(LISTING_URL, record);
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  describe('fetchMarketplaceTags', () => {
+    const VIEWER = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+    const nexusTag = { label: 'handmade', taggers: [VIEWER], taggers_count: 1, relationship: true };
+
+    it('fetches listing tags from Nexus and merges them into the local cache', async () => {
+      const fetchSpy = vi.spyOn(NexusMarketplaceService, 'fetchListingTags').mockResolvedValue([nexusTag]);
+      const mergeSpy = vi.spyOn(LocalMarketplaceTagService, 'mergeTags').mockResolvedValue(undefined);
+
+      const result = await CommerceApplication.fetchMarketplaceTags({
+        kind: TagKind.LISTING,
+        taggedId: `${COMMERCE_FIXTURE_SELLER}:0034A0X7NJ52A`,
+        viewerId: VIEWER,
+      });
+
+      expect(result).toEqual([nexusTag]);
+      expect(fetchSpy).toHaveBeenCalledWith({
+        seller_id: COMMERCE_FIXTURE_SELLER,
+        listing_id: '0034A0X7NJ52A',
+        skip_tags: undefined,
+        limit_tags: undefined,
+        viewer_id: VIEWER,
+      });
+      expect(mergeSpy).toHaveBeenCalledWith({
+        taggedId: `listing:${COMMERCE_FIXTURE_SELLER}:0034A0X7NJ52A`,
+        tags: [nexusTag],
+        viewerId: VIEWER,
+      });
+    });
+
+    it('fetches shop tags from Nexus keyed by the owner pubky', async () => {
+      const fetchSpy = vi.spyOn(NexusMarketplaceService, 'fetchShopTags').mockResolvedValue([nexusTag]);
+      const mergeSpy = vi.spyOn(LocalMarketplaceTagService, 'mergeTags').mockResolvedValue(undefined);
+
+      await CommerceApplication.fetchMarketplaceTags({ kind: TagKind.SHOP, taggedId: COMMERCE_FIXTURE_SELLER });
+
+      expect(fetchSpy).toHaveBeenCalledWith({
+        seller_id: COMMERCE_FIXTURE_SELLER,
+        skip_tags: undefined,
+        limit_tags: undefined,
+        viewer_id: undefined,
+      });
+      expect(mergeSpy).toHaveBeenCalledWith({
+        taggedId: `shop:${COMMERCE_FIXTURE_SELLER}`,
+        tags: [nexusTag],
+        viewerId: null,
+      });
+    });
+
+    it('returns [] without touching the cache when the tag endpoint answers 404 (not deployed)', async () => {
+      vi.spyOn(NexusMarketplaceService, 'fetchListingTags').mockRejectedValue(
+        Err.client(ClientErrorCode.NOT_FOUND, 'Not found', { service: ErrorService.Nexus, operation: 'fetchNexus' }),
+      );
+      const mergeSpy = vi.spyOn(LocalMarketplaceTagService, 'mergeTags');
+
+      const result = await CommerceApplication.fetchMarketplaceTags({
+        kind: TagKind.LISTING,
+        taggedId: `${COMMERCE_FIXTURE_SELLER}:0034A0X7NJ52A`,
+      });
+
+      expect(result).toEqual([]);
+      expect(mergeSpy).not.toHaveBeenCalled();
+    });
+
+    it('propagates non-404 errors', async () => {
+      vi.spyOn(NexusMarketplaceService, 'fetchShopTags').mockRejectedValue(new Error('nexus unreachable'));
+
+      await expect(
+        CommerceApplication.fetchMarketplaceTags({ kind: TagKind.SHOP, taggedId: COMMERCE_FIXTURE_SELLER }),
+      ).rejects.toThrow('nexus unreachable');
+    });
+
+    it('skips the merge when Nexus returns an empty aggregate', async () => {
+      vi.spyOn(NexusMarketplaceService, 'fetchShopTags').mockResolvedValue([]);
+      const mergeSpy = vi.spyOn(LocalMarketplaceTagService, 'mergeTags');
+
+      const result = await CommerceApplication.fetchMarketplaceTags({
+        kind: TagKind.SHOP,
+        taggedId: COMMERCE_FIXTURE_SELLER,
+      });
+
+      expect(result).toEqual([]);
+      expect(mergeSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('fetchCatalogListings', () => {

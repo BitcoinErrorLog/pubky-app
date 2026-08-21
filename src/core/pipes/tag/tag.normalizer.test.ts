@@ -356,6 +356,83 @@ describe('TagNormalizer', () => {
         });
       });
 
+      describe('LISTING tag creation', () => {
+        it('should parse composite ID and build marketplace listing URI', async () => {
+          (await spyOnParseCompositeId()).mockReturnValue({
+            pubky: TEST_PUBKY.USER_2,
+            id: TEST_POST_IDS.POST_1,
+          });
+
+          const params: TTagEventParams = {
+            taggerId: TEST_PUBKY.USER_1,
+            taggedId: compositePostId,
+            label: 'Handmade',
+            taggedKind: TagKind.LISTING,
+          };
+
+          TagNormalizer.from(params);
+
+          expect(parseCompositeId).toHaveBeenCalledWith(compositePostId);
+          expect(mockBuilder.createTag).toHaveBeenCalledWith(
+            `pubky://${TEST_PUBKY.USER_2}/pub/pubky.app/marketplace/v1/listings/${TEST_POST_IDS.POST_1}`,
+            'Handmade',
+          );
+        });
+
+        it('should return normalized response with taggedKind LISTING', async () => {
+          (await spyOnParseCompositeId()).mockReturnValue({
+            pubky: TEST_PUBKY.USER_2,
+            id: TEST_POST_IDS.POST_1,
+          });
+
+          const params: TTagEventParams = {
+            taggerId: TEST_PUBKY.USER_1,
+            taggedId: compositePostId,
+            label: '  HANDMADE  ',
+            taggedKind: TagKind.LISTING,
+          };
+
+          const result = TagNormalizer.from(params);
+
+          expect(result.label).toBe('handmade');
+          expect(result.taggedKind).toBe(TagKind.LISTING);
+          expect(result.taggedId).toBe(compositePostId);
+        });
+      });
+
+      describe('SHOP tag creation', () => {
+        it('should build shop URI directly from the owner pubky', () => {
+          const params: TTagEventParams = {
+            taggerId: TEST_PUBKY.USER_1,
+            taggedId: TEST_PUBKY.USER_2,
+            label: 'Trusted',
+            taggedKind: TagKind.SHOP,
+          };
+
+          TagNormalizer.from(params);
+
+          expect(mockBuilder.createTag).toHaveBeenCalledWith(
+            `pubky://${TEST_PUBKY.USER_2}/pub/pubky.app/marketplace/v1/shop.json`,
+            'Trusted',
+          );
+        });
+
+        it('should return normalized response with taggedKind SHOP', () => {
+          const params: TTagEventParams = {
+            taggerId: TEST_PUBKY.USER_1,
+            taggedId: TEST_PUBKY.USER_2,
+            label: '  TRUSTED  ',
+            taggedKind: TagKind.SHOP,
+          };
+
+          const result = TagNormalizer.from(params);
+
+          expect(result.label).toBe('trusted');
+          expect(result.taggedKind).toBe(TagKind.SHOP);
+          expect(result.taggedId).toBe(TEST_PUBKY.USER_2);
+        });
+      });
+
       describe('error handling', () => {
         it('should throw AppError with correct properties when parseCompositeId fails', async () => {
           (await spyOnParseCompositeId()).mockImplementation(() => {
@@ -440,6 +517,48 @@ describe('TagNormalizer', () => {
 
           expect(result.tagUrl).toMatch(/^pubky:\/\/.+\/pub\/pubky\.app\/tags\/.+/);
           expect(result.label).toBe('developer');
+        });
+      });
+
+      describe('LISTING tag with real library', () => {
+        it('should create valid LISTING tag targeting the canonical listing URI', () => {
+          const compositeId = `${TEST_PUBKY.USER_2}:${TEST_POST_IDS.POST_1}`;
+
+          const params: TTagEventParams = {
+            taggerId: TEST_PUBKY.USER_1,
+            taggedId: compositeId,
+            label: 'handmade',
+            taggedKind: TagKind.LISTING,
+          };
+
+          const result = TagNormalizer.from(params);
+
+          expect(result.tagUrl).toMatch(/^pubky:\/\/.+\/pub\/pubky\.app\/tags\/.+/);
+          expect(result.label).toBe('handmade');
+          expect(result.tagJson).toHaveProperty(
+            'uri',
+            `pubky://${TEST_PUBKY.USER_2}/pub/pubky.app/marketplace/v1/listings/${TEST_POST_IDS.POST_1}`,
+          );
+        });
+      });
+
+      describe('SHOP tag with real library', () => {
+        it('should create valid SHOP tag targeting the canonical shop URI', () => {
+          const params: TTagEventParams = {
+            taggerId: TEST_PUBKY.USER_1,
+            taggedId: TEST_PUBKY.USER_2,
+            label: 'trusted',
+            taggedKind: TagKind.SHOP,
+          };
+
+          const result = TagNormalizer.from(params);
+
+          expect(result.tagUrl).toMatch(/^pubky:\/\/.+\/pub\/pubky\.app\/tags\/.+/);
+          expect(result.label).toBe('trusted');
+          expect(result.tagJson).toHaveProperty(
+            'uri',
+            `pubky://${TEST_PUBKY.USER_2}/pub/pubky.app/marketplace/v1/shop.json`,
+          );
         });
       });
 

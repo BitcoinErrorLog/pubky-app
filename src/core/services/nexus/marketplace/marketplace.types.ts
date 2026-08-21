@@ -101,3 +101,27 @@ export type TListingStreamParams = {
   start?: number;
   end?: number;
 };
+
+/**
+ * Query parameters for `GET v0/listing/{seller_id}/{listing_id}/tags`.
+ * Mirrors the post tag endpoint's pagination/viewer contract
+ * (`GET v0/post/{author}/{post}/tags`).
+ */
+export type TListingTagsParams = {
+  seller_id: string;
+  listing_id: string;
+  limit_tags?: number;
+  skip_tags?: number;
+  viewer_id?: string;
+};
+
+/** Query parameters for `GET v0/shop/{seller_id}/tags`. */
+export type TShopTagsParams = {
+  seller_id: string;
+  limit_tags?: number;
+  skip_tags?: number;
+  viewer_id?: string;
+};
+
+/** Path params excluded from tag endpoint query strings. */
+export const MARKETPLACE_TAGS_PATH_PARAMS = ['seller_id', 'listing_id'];
