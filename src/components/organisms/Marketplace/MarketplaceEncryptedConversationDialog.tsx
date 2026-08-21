@@ -1,7 +1,7 @@
 'use client';
 
 import { type ReactNode, useState } from 'react';
-import { Loader2, LockKeyhole, Send, ShieldAlert } from 'lucide-react';
+import { LockKeyhole, ShieldAlert } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Link } from '@/atoms/Link/Link';
@@ -9,15 +9,16 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useEncryptedConversation } from '@/hooks/useEncryptedConversation/useEncryptedConversation';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
-import { cn } from '@/libs/utils/utils';
+import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
 import { MarketplaceMessagingEnablePanel } from './MarketplaceMessagingEnableDialog';
 
 /**
  * Provenance of the vendored encrypted transport (pinned commit, checksums,
  * proof coverage, known limitations). Linked from the E2EE label so the
- * "experiment-grade" claim is auditable, not decorative.
+ * "experiment-grade" claim is auditable, not decorative. Exported for the
+ * general messages surfaces, which ride the same transport.
  */
-const PAYKIT_WASM_PROVENANCE_URL =
+export const PAYKIT_WASM_PROVENANCE_URL =
   'https://github.com/BitcoinErrorLog/pubky-app/blob/marketplace/pr22-messaging/docs/ecommerce/paykit-wasm-provenance.md';
 
 /**
@@ -91,25 +92,25 @@ export function MarketplaceEncryptedConversationDialog({
         )}
 
         {conversation.status === 'handshaking-initiator' && (
-          <ConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} composerDisabled>
+          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} composerDisabled>
             <Typography as="p" role="status" className="text-sm text-muted-foreground">
               Invitation sent — waiting for <span className="font-semibold">{counterpartyLabel}</span> to open their
               encrypted messages. The encrypted handshake needs both sides, so you can write once they answer.
             </Typography>
-          </ConversationBody>
+          </EncryptedConversationBody>
         )}
 
         {conversation.status === 'handshaking-responder' && (
-          <ConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} composerDisabled>
+          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} composerDisabled>
             <Typography as="p" role="status" className="text-sm text-muted-foreground">
               Securing this conversation — answering <span className="font-semibold">{counterpartyLabel}</span>&apos;s
               encrypted handshake. It completes the next time their device checks in.
             </Typography>
-          </ConversationBody>
+          </EncryptedConversationBody>
         )}
 
         {conversation.status === 'ready' && (
-          <ConversationBody
+          <EncryptedConversationBody
             conversation={conversation}
             counterpartyLabel={counterpartyLabel}
             composerDisabled={false}
@@ -134,109 +135,5 @@ export function MarketplaceEncryptedConversationDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ConversationBody({
-  conversation,
-  counterpartyLabel,
-  composerDisabled,
-  children,
-}: {
-  conversation: ReturnType<typeof useEncryptedConversation>;
-  counterpartyLabel: string;
-  composerDisabled: boolean;
-  children?: ReactNode;
-}) {
-  const overBudget = conversation.draftBytes > conversation.bodyBudgetBytes;
-
-  return (
-    <>
-      <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border bg-card/50 p-4">
-        {conversation.messages.length ? (
-          conversation.messages.map((message) => {
-            const mine = message.direction === 'sent';
-            return (
-              <div key={message.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
-                <div
-                  className={cn(
-                    'max-w-[85%] rounded-2xl px-4 py-2 text-sm',
-                    mine ? 'bg-brand text-primary-foreground' : 'bg-secondary text-secondary-foreground',
-                  )}
-                >
-                  <Typography as="p" overrideDefaults className="text-sm break-words whitespace-pre-wrap">
-                    {message.body}
-                  </Typography>
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <Typography as="p" className="py-8 text-center text-sm text-muted-foreground">
-            {composerDisabled
-              ? `No messages yet with ${counterpartyLabel}.`
-              : 'Ask about condition, shipping, or item details. Do not share payment credentials.'}
-          </Typography>
-        )}
-      </div>
-
-      {children}
-
-      {!composerDisabled && (
-        <>
-          <div className="grid gap-1">
-            <label htmlFor="encrypted-message-body" className="text-sm font-medium">
-              Message
-            </label>
-            <textarea
-              id="encrypted-message-body"
-              rows={3}
-              value={conversation.draft}
-              onChange={(event) => conversation.setDraft(event.target.value)}
-              placeholder="Is this still available?"
-              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-1"
-            />
-            <Typography
-              as="p"
-              overrideDefaults
-              aria-live="polite"
-              className={cn('text-right text-xs', overBudget ? 'text-destructive' : 'text-muted-foreground')}
-            >
-              {conversation.draftBytes} / {conversation.bodyBudgetBytes} bytes
-            </Typography>
-          </div>
-
-          {conversation.sendError && (
-            <Typography as="p" role="alert" className="text-sm text-destructive">
-              {conversation.sendError}
-            </Typography>
-          )}
-
-          <div className="flex items-center justify-between gap-3">
-            <Typography as="p" overrideDefaults className="text-xs text-muted-foreground">
-              No attachments here: one encrypted message is capped at 1,000 bytes, too small for images.
-            </Typography>
-            <Button
-              className="rounded-full"
-              onClick={() => void conversation.send()}
-              disabled={conversation.isSending || !conversation.draft.trim() || overBudget}
-              aria-busy={conversation.isSending}
-            >
-              {conversation.isSending ? (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              ) : (
-                <Send className="mr-2 size-4" />
-              )}
-              {conversation.isSending ? 'Sending…' : 'Send'}
-            </Button>
-          </div>
-        </>
-      )}
-
-      <Typography as="p" overrideDefaults className="text-xs text-muted-foreground">
-        Messages travel as ciphertext; no service operator can read them. History and the local encryption keys live
-        only in this browser — clearing site data deletes them, and no other device can show this conversation.
-      </Typography>
-    </>
   );
 }

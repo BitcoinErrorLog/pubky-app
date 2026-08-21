@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import {
   Check,
   Ellipsis,
@@ -7,16 +8,19 @@ import {
   Link,
   Loader2,
   LogOut,
+  MessageCircle,
   Pencil,
   UserMinus,
   UserRoundPlus,
   UsersRound,
 } from 'lucide-react';
+import { getDmConversationRoute } from '@/app/routes';
 import { AvatarEmojiBadge } from '@/atoms/AvatarEmojiBadge/AvatarEmojiBadge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Typography } from '@/atoms/Typography/Typography';
 import { FOLLOW_ACTIONS } from '@/hooks/useFollowUser/useFollowUser.types';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useTtlSubscription } from '@/hooks/useTtlSubscription/useTtlSubscription';
 import { extractEmojiFromStatus, parseStatus } from '@/libs/status/status';
 import { cn, formatPublicKey } from '@/libs/utils/utils';
@@ -66,6 +70,9 @@ export function ProfilePageHeader({ profile, actions, isOwnProfile = true, userI
     type: 'user',
     id: userId,
   });
+  const router = useRouter();
+  const { requireAuth } = useRequireAuth();
+  const openDmConversation = () => requireAuth(() => router.push(getDmConversationRoute(userId)));
   const formattedPublicKey = formatPublicKey({
     key: publicKey,
   });
@@ -280,6 +287,19 @@ export function ProfilePageHeader({ profile, actions, isOwnProfile = true, userI
                   )}
                 </Button>
               )}
+              {/* Direct message: opens the encrypted DM conversation page. The
+                  conversation surface itself reports the honest transport state
+                  (enable, counterparty not enrolled, handshake pending). */}
+              <Button
+                data-cy="profile-message-btn"
+                variant="secondary"
+                size="sm"
+                className={ACTION_BUTTON_GRID_CELL}
+                onClick={openDmConversation}
+              >
+                <MessageCircle className="size-4" />
+                {'Message'}
+              </Button>
               {copyPublicKeyButton}
               <Button className={ACTION_BUTTON_GRID_CELL} variant="secondary" size="sm" onClick={onCopyLink}>
                 <Link className="size-4" />

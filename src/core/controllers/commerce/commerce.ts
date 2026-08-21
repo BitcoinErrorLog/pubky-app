@@ -141,6 +141,15 @@ export class CommerceController {
     await CommerceApplication.fetchSellerCatalogListings(CommerceRecordNormalizer.pubky(sellerPubky));
   }
 
+  /**
+   * Refreshes the catalog cache with listings from followed sellers for the
+   * home-feed shelf. See `CommerceApplication.fetchFollowedSellerCatalogListings`
+   * for the request-count bounds.
+   */
+  static async fetchFollowedSellerListings(followedPubkys: unknown): Promise<void> {
+    await CommerceApplication.fetchFollowedSellerCatalogListings(CommerceRecordNormalizer.pubkyList(followedPubkys));
+  }
+
   static async initializeSandboxCatalog(): Promise<boolean> {
     return await CommerceApplication.initializeSandboxCatalog();
   }

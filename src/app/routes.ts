@@ -23,6 +23,7 @@ export enum APP_ROUTES {
   HOT = '/hot',
   COLLECTIONS = '/collections',
   MARKETPLACE = '/marketplace',
+  MESSAGES = '/messages',
   SETTINGS = '/settings',
   PROFILE = '/profile',
   WHO_TO_FOLLOW = '/who-to-follow',
@@ -117,6 +118,7 @@ export const ALLOWED_ROUTES = [
   APP_ROUTES.HOT,
   APP_ROUTES.COLLECTIONS,
   APP_ROUTES.MARKETPLACE,
+  APP_ROUTES.MESSAGES,
   APP_ROUTES.SETTINGS,
   APP_ROUTES.PROFILE,
   APP_ROUTES.WHO_TO_FOLLOW,
@@ -327,6 +329,28 @@ export function matchSingleCollectionRoute(pathname: string): { userId: string; 
     return null;
   }
   return { userId, postId };
+}
+
+// ============================================================================
+// Messages Route Helpers
+// ============================================================================
+
+/** The direct-message conversation with one counterparty: `/messages/{pubky}`. */
+export function getDmConversationRoute(counterpartyPubky: string): string {
+  return `${APP_ROUTES.MESSAGES}/${counterpartyPubky}`;
+}
+
+/**
+ * Matches `/messages/[pubky]` and returns its param, or `null` for any other
+ * path. Shape-only matching — identifier validation is the caller's concern
+ * (mirrors `matchPostRoute`).
+ */
+export function matchDmConversationRoute(pathname: string): { counterpartyPubky: string } | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'messages' || segments.length !== 2) {
+    return null;
+  }
+  return { counterpartyPubky: segments[1] };
 }
 
 export function getMarketplaceListingRoute(sellerPubky: string, listingId: string): string {

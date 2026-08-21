@@ -88,9 +88,13 @@ export class LocalMessagingService {
     return await CommerceMessagingConversationModel.findById(`${ownerId}:${conversationId}`);
   }
 
-  /** Creates the conversation row if absent; bumps `last_message_at`/`updated_at` if newer. */
+  /**
+   * Creates the conversation row if absent; bumps `last_message_at`/`updated_at`
+   * if newer. The read checkpoint (`last_read_at`) is owned by
+   * `markConversationRead` and is never touched here.
+   */
   static async touchConversation(
-    conversation: Omit<CommerceMessagingConversationModelSchema, 'id' | 'created_at'>,
+    conversation: Omit<CommerceMessagingConversationModelSchema, 'id' | 'created_at' | 'last_read_at'>,
   ): Promise<void> {
     const id = `${conversation.owner_id}:${conversation.conversation_id}`;
     const current = await CommerceMessagingConversationModel.findById(id);
@@ -98,6 +102,7 @@ export class LocalMessagingService {
       await CommerceMessagingConversationModel.upsert({
         ...conversation,
         id,
+        last_read_at: null,
         created_at: conversation.updated_at,
       });
       return;
@@ -107,6 +112,36 @@ export class LocalMessagingService {
       last_message_at: latest(current.last_message_at, conversation.last_message_at),
       updated_at: Math.max(current.updated_at, conversation.updated_at),
     });
+  }
+
+  /**
+   * Moves the device-local read checkpoint forward (never backward). Called
+   * when the conversation surface is actually showing its messages.
+   */
+  static async markConversationRead(ownerId: string, conversationId: string, now: number): Promise<void> {
+    const current = await CommerceMessagingConversationModel.findById(`${ownerId}:${conversationId}`);
+    if (!current) return;
+    if (current.last_read_at !== null && current.last_read_at >= now) return;
+    await CommerceMessagingConversationModel.upsert({ ...current, last_read_at: now });
+  }
+
+  /**
+   * Honest device-local unread: conversations holding at least one RECEIVED
+   * message persisted after the read checkpoint. Counts only messages that
+   * already arrived on this device — it can never claim knowledge of
+   * undelivered mail sitting on a homeserver.
+   */
+  static async countUnreadConversations(ownerId: string): Promise<number> {
+    const conversations = await CommerceMessagingConversationModel.findByOwner(ownerId);
+    let unread = 0;
+    for (const conversation of conversations) {
+      const checkpoint = conversation.last_read_at ?? 0;
+      const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversation.conversation_id);
+      if (messages.some((message) => message.direction === 'received' && message.recorded_at > checkpoint)) {
+        unread += 1;
+      }
+    }
+    return unread;
   }
 
   static async getMessages(ownerId: string, conversationId: string): Promise<CommerceMessagingMessageModelSchema[]> {
