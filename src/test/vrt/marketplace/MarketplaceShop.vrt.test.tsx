@@ -72,6 +72,7 @@ const view = vi.hoisted(() => ({
   listings: undefined as unknown,
   catalogEntries: undefined as unknown,
   currentUserPubky: 'u'.repeat(52),
+  shopTags: [] as unknown[],
 }));
 
 vi.mock('next/navigation', () => ({
@@ -80,13 +81,32 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: view.currentUserPubky }),
+  useAuthStore: (selector: (state: { currentUserPubky: string; setShowSignInDialog: () => void }) => unknown) =>
+    selector({ currentUserPubky: view.currentUserPubky, setShowSignInDialog: vi.fn() }),
 }));
 
-vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: (querier: () => unknown) => querier(),
-}));
+// The community-tags hook uses an async live-query, so a synchronous
+// passthrough would surface a Promise. Unwrap into state; the browser-mode
+// render waits (fonts, images, rAF) long enough for the settle to paint.
+vi.mock('dexie-react-hooks', async () => {
+  const { useEffect, useState } = await import('react');
+  return {
+    useLiveQuery: (querier: () => unknown, deps: unknown[] = [], defaultValue?: unknown) => {
+      const [value, setValue] = useState(defaultValue);
+      useEffect(() => {
+        let stale = false;
+        Promise.resolve(querier()).then((result) => {
+          if (!stale) setValue(result);
+        });
+        return () => {
+          stale = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mirror useLiveQuery's deps contract
+      }, deps);
+      return value;
+    },
+  };
+});
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
@@ -96,6 +116,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     fetchSellerCatalogListings: () => Promise.resolve(),
     getListingsBySeller: () => view.listings,
     getCatalogEntriesBySeller: () => view.catalogEntries,
+    getShopTags: () => view.shopTags,
+    fetchShopTags: () => Promise.resolve([]),
   },
 }));
 
@@ -109,6 +131,16 @@ vi.mock('@/hooks/useCommerceShopFollow/useCommerceShopFollow', () => ({
 vi.mock('@/libs/commerce/media-url', () => ({
   resolveMarketplaceMediaUrl: () => null,
   resolveFirstMarketplaceMediaUrl: () => null,
+}));
+
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ isAuthenticated: true, requireAuth: (action: () => void) => action() }),
+}));
+
+// Pass tags through unchanged: enrichment reads user details from the local
+// DB, which VRT deliberately does not exercise.
+vi.mock('@/hooks/useEnrichedTags/useEnrichedTags', () => ({
+  useEnrichedTags: (tags: unknown[]) => ({ enrichedTags: tags, isLoading: false }),
 }));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
@@ -135,6 +167,21 @@ describe('Marketplace shop — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-populated-mobile');
+  });
+
+  it('renders shop community tags at desktop viewport', async () => {
+    const { seller, shop, listings } = await fixtures;
+    view.shop = shop;
+    view.listings = listings;
+    view.catalogEntries = [];
+    view.shopTags = [
+      { label: 'trusted', taggers: ['t'.repeat(52), 'v'.repeat(52)], taggers_count: 2, relationship: true },
+      { label: 'fast-shipping', taggers: ['w'.repeat(52)], taggers_count: 1, relationship: false },
+    ];
+
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-community-tags-desktop');
+    view.shopTags = [];
   });
 
   it('renders a shop in vacation mode at desktop viewport', async () => {

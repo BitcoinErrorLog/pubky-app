@@ -1,4 +1,5 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { TagKind } from '@/application/tag/tag.types';
 import { getCommerceAdapterMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
@@ -53,6 +54,48 @@ export class CommerceController {
 
   static async getListingsBySeller(sellerPubky: unknown) {
     return await CommerceApplication.getListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
+  /**
+   * Reads locally cached community tags for a listing (viewer write-through included).
+   */
+  static async getListingTags(sellerPubky: unknown, listingId: unknown) {
+    const seller = CommerceRecordNormalizer.pubky(sellerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    return await CommerceApplication.getMarketplaceTags(TagKind.LISTING, `${seller}:${id}`);
+  }
+
+  /**
+   * Fetches community tags for a listing from the marketplace Nexus, merging
+   * into the local cache. Returns [] without faking when the tag endpoint is
+   * not deployed yet (404).
+   */
+  static async fetchListingTags(sellerPubky: unknown, listingId: unknown, viewerId?: string) {
+    const seller = CommerceRecordNormalizer.pubky(sellerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    return await CommerceApplication.fetchMarketplaceTags({
+      kind: TagKind.LISTING,
+      taggedId: `${seller}:${id}`,
+      viewerId,
+    });
+  }
+
+  /** Reads locally cached community tags for a shop (viewer write-through included). */
+  static async getShopTags(ownerPubky: unknown) {
+    return await CommerceApplication.getMarketplaceTags(TagKind.SHOP, CommerceRecordNormalizer.pubky(ownerPubky));
+  }
+
+  /**
+   * Fetches community tags for a shop from the marketplace Nexus, merging into
+   * the local cache. Returns [] without faking when the tag endpoint is not
+   * deployed yet (404).
+   */
+  static async fetchShopTags(ownerPubky: unknown, viewerId?: string) {
+    return await CommerceApplication.fetchMarketplaceTags({
+      kind: TagKind.SHOP,
+      taggedId: CommerceRecordNormalizer.pubky(ownerPubky),
+      viewerId,
+    });
   }
 
   static async getListingsByCategory(categoryId: unknown) {

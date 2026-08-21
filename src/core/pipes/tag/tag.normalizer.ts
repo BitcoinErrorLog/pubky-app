@@ -1,4 +1,4 @@
-import { postUriBuilder, TagResult, userUriBuilder } from 'pubky-app-specs';
+import { listingUriBuilder, postUriBuilder, shopUriBuilder, TagResult, userUriBuilder } from 'pubky-app-specs';
 import { TagKind } from '@/application/tag/tag.types';
 import type { TTagEventParams, TTagFromResponse } from '@/controllers/tag/tag.types';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
@@ -17,6 +17,11 @@ export class TagNormalizer {
       if (taggedKind === TagKind.POST) {
         const { pubky, id: postId } = parseCompositeId(taggedId);
         uri = postUriBuilder(pubky, postId);
+      } else if (taggedKind === TagKind.LISTING) {
+        const { pubky, id: listingId } = parseCompositeId(taggedId);
+        uri = listingUriBuilder(pubky, listingId);
+      } else if (taggedKind === TagKind.SHOP) {
+        uri = shopUriBuilder(taggedId);
       } else {
         uri = userUriBuilder(taggedId);
       }

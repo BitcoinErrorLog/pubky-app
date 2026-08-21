@@ -2,12 +2,44 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { PackageX } from 'lucide-react';
 import { Card } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
+import { Typography } from '@/atoms/Typography/Typography';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import { catalogItemFromListingModel } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import { type ListingUriRef, parseListingUri } from '@/libs/commerce/listingUri';
 import { cn } from '@/libs/utils/utils';
 import { PostUnavailable } from '@/molecules/PostUnavailable/PostUnavailable';
+import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { PostMain } from '@/organisms/PostMain/PostMain';
 import type { CollectionReorderCardProps } from './CollectionReorderGrid.types';
+
+/**
+ * Reorder cell for a marketplace listing item: renders the listing card from
+ * the local commerce cache (warmed by `CollectionListingItems` on the page
+ * below), or an explicit unavailable placeholder — never a fake post cell.
+ */
+function ReorderListingCell({ listingRef }: { listingRef: ListingUriRef }) {
+  const cached = useLiveQuery(
+    () => CommerceController.getListing(listingRef.sellerPubky, listingRef.listingId),
+    [listingRef.sellerPubky, listingRef.listingId],
+  );
+
+  if (cached) {
+    return <MarketplaceListingCard listing={catalogItemFromListingModel(cached)} />;
+  }
+
+  return (
+    <Card className="min-w-0 flex-1 flex-col items-center justify-center gap-2 rounded-md py-6">
+      <PackageX className="size-6 text-muted-foreground" />
+      <Typography as="p" overrideDefaults className="text-sm text-muted-foreground">
+        Marketplace listing
+      </Typography>
+    </Card>
+  );
+}
 
 /**
  * CollectionReorderCard
@@ -30,6 +62,7 @@ export function CollectionReorderCard({ entry, disabled = false }: CollectionReo
     id: entry.uri,
     disabled,
   });
+  const listingRef = entry.postId ? null : parseListingUri(entry.uri);
 
   return (
     <Container
@@ -52,6 +85,8 @@ export function CollectionReorderCard({ entry, disabled = false }: CollectionReo
       <Container inert overrideDefaults className="pointer-events-none flex min-w-0 flex-col [&>*:first-child]:flex-1">
         {entry.postId ? (
           <PostMain postId={entry.postId} isReply={false} isNavigable={false} />
+        ) : listingRef ? (
+          <ReorderListingCell listingRef={listingRef} />
         ) : (
           <Card className="min-w-0 flex-1 justify-center gap-0 rounded-md py-2">
             <PostUnavailable message={'Post not found.'} />
