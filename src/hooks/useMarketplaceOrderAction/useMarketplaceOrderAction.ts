@@ -2,6 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
+import { getCarrierById, OTHER_CARRIER_ID } from '@/libs/commerce/carriers';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import {
   type MarketplaceOrderActionData,
@@ -39,8 +40,15 @@ export function useMarketplaceOrderAction(
           succeeded = await actOnOrder(order, 'order.cancel_request', { reason: data.reason });
           break;
         case 'ship':
+          // The service's `carrier` field is a structured free string; the
+          // curated select writes the registry's canonical display name into
+          // it (resolvable back to a tracking link on the buyer side), and
+          // "Other" passes the seller's own carrier name through verbatim.
           succeeded = await actOnOrder(order, 'fulfillment.ship', {
-            carrier: data.carrier,
+            carrier:
+              data.carrierChoice === OTHER_CARRIER_ID
+                ? data.carrier
+                : (getCarrierById(data.carrierChoice)?.name ?? data.carrier),
             trackingNumber: data.trackingNumber,
           });
           break;

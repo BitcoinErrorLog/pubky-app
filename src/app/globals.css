@@ -973,3 +973,27 @@ body {
     min-height: calc(100dvh - var(--header-offset-onboarding));
   }
 }
+
+/* Packing slip printing (MarketplacePackingSlipDialog): when the slip is on
+   screen, printing shows only the slip. The classic visibility technique
+   keeps the page's layout intact while hiding everything else, then pins the
+   slip to the top of the printed page. No PDF dependency — plain browser
+   print. */
+@media print {
+  body:has([data-packing-slip]) * {
+    visibility: hidden;
+  }
+  body:has([data-packing-slip]) [data-packing-slip],
+  body:has([data-packing-slip]) [data-packing-slip] * {
+    visibility: visible;
+  }
+  body:has([data-packing-slip]) [data-packing-slip] {
+    position: fixed;
+    inset: 0;
+    overflow: visible;
+    border: none;
+    border-radius: 0;
+    background: white;
+    color: black;
+  }
+}
