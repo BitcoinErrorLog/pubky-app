@@ -19,6 +19,7 @@ import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavo
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
+import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
@@ -42,6 +43,7 @@ export interface MarketplaceListingProps {
 export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListingProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState('');
+  const [shopAvatarFailed, setShopAvatarFailed] = useState(false);
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const isOwner = currentUserPubky === sellerPubky;
@@ -63,6 +65,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const listing = useLiveQuery(() => CommerceController.getListing(sellerPubky, listingId), [sellerPubky, listingId]);
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
+  const shopAvatarUrl =
+    !shopAvatarFailed && shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(shop.record.avatarUrl) : null;
 
   useEffect(() => {
     const firstVariant = listing?.record.variants[0]?.id;
@@ -193,18 +197,29 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
             <Card className="gap-4 border py-5">
               <CardContent className="flex items-center justify-between gap-4 px-5">
-                <div>
-                  <Typography as="p" className="text-sm text-muted-foreground">
-                    Sold by
-                  </Typography>
-                  <Typography as="p" className="font-semibold">
-                    {shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`}
-                  </Typography>
-                  {isOwner && !shop && (
-                    <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-                      You haven&apos;t created a shop yet — buyers only see your key.
-                    </Typography>
+                <div className="flex items-center gap-3">
+                  {shopAvatarUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
+                    <img
+                      src={shopAvatarUrl}
+                      alt={`${shop?.record.name ?? 'Shop'} avatar`}
+                      className="size-10 shrink-0 rounded-lg object-cover"
+                      onError={() => setShopAvatarFailed(true)}
+                    />
                   )}
+                  <div>
+                    <Typography as="p" className="text-sm text-muted-foreground">
+                      Sold by
+                    </Typography>
+                    <Typography as="p" className="font-semibold">
+                      {shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`}
+                    </Typography>
+                    {isOwner && !shop && (
+                      <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                        You haven&apos;t created a shop yet — buyers only see your key.
+                      </Typography>
+                    )}
+                  </div>
                 </div>
                 {isOwner && !shop ? (
                   <Button asChild size="sm" className="rounded-full">

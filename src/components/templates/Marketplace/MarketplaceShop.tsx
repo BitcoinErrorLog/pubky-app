@@ -18,6 +18,7 @@ import {
   buildMarketplaceCatalogItems,
   type MarketplaceCatalogItem,
 } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCommunityTags';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
@@ -61,6 +62,13 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
 
   const isLoading = listings === undefined || shop === undefined || (!shop && !shopFetchSettled);
 
+  // A media URI that resolves but whose bytes 404 (e.g. a seller on another
+  // homeserver) must not leave a broken image; fall back like the cards do.
+  const [bannerFailed, setBannerFailed] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const bannerUrl = !bannerFailed && shop?.record.bannerUrl ? resolveMarketplaceMediaUrl(shop.record.bannerUrl) : null;
+  const avatarUrl = !avatarFailed && shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(shop.record.avatarUrl) : null;
+
   return (
     <ContentLayout
       showLeftSidebar={false}
@@ -85,11 +93,31 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
         ) : shop ? (
           <>
             <Card className="overflow-hidden border py-0">
-              <div className="h-28 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-40" />
+              {bannerUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
+                <img
+                  src={bannerUrl}
+                  alt={`${shop.record.name} banner`}
+                  className="h-28 w-full object-cover sm:h-40"
+                  onError={() => setBannerFailed(true)}
+                />
+              ) : (
+                <div className="h-28 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-40" />
+              )}
               <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-end sm:justify-between">
                 <div className="-mt-16">
-                  <div className="mb-4 flex size-20 items-center justify-center rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg">
-                    <Store className="size-9" />
+                  <div className="mb-4 flex size-20 items-center justify-center overflow-hidden rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg">
+                    {avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
+                      <img
+                        src={avatarUrl}
+                        alt={`${shop.record.name} avatar`}
+                        className="size-full object-cover"
+                        onError={() => setAvatarFailed(true)}
+                      />
+                    ) : (
+                      <Store className="size-9" />
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Heading level={1} size="xl" className="text-3xl sm:text-5xl">

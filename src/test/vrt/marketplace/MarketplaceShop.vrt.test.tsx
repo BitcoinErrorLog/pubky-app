@@ -57,6 +57,12 @@ const fixtures = vi.hoisted(async () => {
   return {
     seller: COMMERCE_FIXTURE_SELLER,
     shop: toCommerceShopModel(createCommerceShopFixture()),
+    brandedShop: toCommerceShopModel(
+      createCommerceShopFixture({
+        avatarUrl: `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/shop_avatar`,
+        bannerUrl: `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/media/shop_banner`,
+      }),
+    ),
     vacationShop: toCommerceShopModel(createCommerceShopFixture({ vacationMode: true })),
     listings: [
       listingEntry('leather_boots', 'Vintage leather boots', 'fashion-shoes-boots', 12_500, 'a'),
@@ -127,9 +133,25 @@ vi.mock('@/hooks/useCommerceShopFollow/useCommerceShopFollow', () => ({
 
 // Fixture media URIs have no fetchable bytes in VRT; null keeps the honest
 // gradient fallback deterministic (loaded-image cards are captured in
-// MarketplaceListingCards.vrt.test.tsx via a data URI).
+// MarketplaceListingCards.vrt.test.tsx via a data URI). Shop branding URIs
+// map to deterministic solid-color data URIs so the banner/avatar rendering
+// is captured without network fetches.
+const SHOP_AVATAR_DATA_URL = vi.hoisted(
+  () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGMQqejBihiGlgQAPF1GAQp5eMUAAAAASUVORK5CYII=',
+);
+const SHOP_BANNER_DATA_URL = vi.hoisted(
+  () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAIAAAA8r+mnAAAAEUlEQVR4nGOwMZqGFTFQTwIATn4ggS6iTnsAAAAASUVORK5CYII=',
+);
+
 vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: () => null,
+  resolveMarketplaceMediaUrl: (uri: string) =>
+    uri.endsWith('/media/shop_avatar')
+      ? SHOP_AVATAR_DATA_URL
+      : uri.endsWith('/media/shop_banner')
+        ? SHOP_BANNER_DATA_URL
+        : null,
   resolveFirstMarketplaceMediaUrl: () => null,
 }));
 
@@ -167,6 +189,27 @@ describe('Marketplace shop — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-populated-mobile');
+  });
+
+  it('renders a shop with a banner and avatar at desktop viewport', async () => {
+    const { seller, brandedShop, listings } = await fixtures;
+    view.currentUserPubky = 'u'.repeat(52);
+    view.shop = brandedShop;
+    view.listings = listings;
+    view.catalogEntries = [];
+
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-branding-desktop');
+  });
+
+  it('renders a shop with a banner and avatar at mobile viewport', async () => {
+    const { seller, brandedShop, listings } = await fixtures;
+    view.shop = brandedShop;
+    view.listings = listings;
+    view.catalogEntries = [];
+
+    const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-branding-mobile');
   });
 
   it('renders shop community tags at desktop viewport', async () => {

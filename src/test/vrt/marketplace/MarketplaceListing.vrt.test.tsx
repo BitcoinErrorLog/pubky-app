@@ -54,6 +54,11 @@ const fixtures = vi.hoisted(async () => {
     ),
     seller,
     shop: toCommerceShopModel(createCommerceShopFixture()),
+    brandedShop: toCommerceShopModel(
+      createCommerceShopFixture({
+        avatarUrl: `pubky://${seller}/pub/pubky.app/marketplace/v1/media/shop_avatar`,
+      }),
+    ),
     fixedPriceListing: toCommerceListingModel(createCommerceListingFixture({ variants: twoVariants(2) })),
     soldOutListing: toCommerceListingModel(createCommerceListingFixture({ variants: twoVariants(0) })),
     auctionListing: toCommerceListingModel(
@@ -291,6 +296,16 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-media-gallery-desktop');
+  });
+
+  it('renders the seller block with the shop avatar at desktop viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection, brandedShop } = await fixtures;
+    await setView({ listing: fixedPriceListing, projection: fixedPriceProjection, shop: brandedShop });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-shop-avatar-desktop');
   });
 
   it('renders a fixed-price listing at mobile viewport', async () => {

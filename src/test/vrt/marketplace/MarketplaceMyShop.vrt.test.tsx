@@ -18,6 +18,27 @@ const configuredShop = vi.hoisted(() => ({
 const view = vi.hoisted(() => ({
   configured: false,
   isLoading: false,
+  withImages: false,
+}));
+
+// Deterministic solid-color previews for the images-set editor state.
+const AVATAR_DATA_URL = vi.hoisted(
+  () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGMQqejBihiGlgQAPF1GAQp5eMUAAAAASUVORK5CYII=',
+);
+const BANNER_DATA_URL = vi.hoisted(
+  () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAIAAAA8r+mnAAAAEUlEQVR4nGOwMZqGFTFQTwIATn4ggS6iTnsAAAAASUVORK5CYII=',
+);
+
+const imageSlot = vi.hoisted(() => (previewUrl: string | null) => ({
+  previewUrl,
+  hasImage: previewUrl !== null,
+  error: null,
+  inputRef: { current: null },
+  choose: () => undefined,
+  onInputChange: () => undefined,
+  remove: () => undefined,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -39,7 +60,10 @@ vi.mock('@/hooks/useMarketplaceShopSettings/useMarketplaceShopSettings', async (
       form: useForm({ defaultValues: view.configured ? configuredShop : marketplaceShopSettingsDefaults }),
       revision: view.configured ? 3 : 0,
       isLoading: view.isLoading,
+      isSaving: false,
       hasShop: view.configured,
+      avatar: imageSlot(view.withImages ? AVATAR_DATA_URL : null),
+      banner: imageSlot(view.withImages ? BANNER_DATA_URL : null),
       submit: vi.fn(async () => false),
     }),
   };
@@ -53,6 +77,7 @@ describe('Marketplace my shop — visual regression', () => {
   it('renders the create-shop state for a seller without a shop at desktop viewport', async () => {
     view.configured = false;
     view.isLoading = false;
+    view.withImages = false;
 
     const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-create-desktop');
@@ -61,6 +86,7 @@ describe('Marketplace my shop — visual regression', () => {
   it('renders the create-shop state at mobile viewport', async () => {
     view.configured = false;
     view.isLoading = false;
+    view.withImages = false;
 
     const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-create-mobile');
@@ -69,14 +95,25 @@ describe('Marketplace my shop — visual regression', () => {
   it('renders the edit state for an existing shop at desktop viewport', async () => {
     view.configured = true;
     view.isLoading = false;
+    view.withImages = false;
 
     const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-edit-desktop');
   });
 
+  it('renders the edit state with an avatar and banner set at desktop viewport', async () => {
+    view.configured = true;
+    view.isLoading = false;
+    view.withImages = true;
+
+    const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-edit-images-desktop');
+  });
+
   it('renders the loading skeleton at desktop viewport', async () => {
     view.configured = false;
     view.isLoading = true;
+    view.withImages = false;
 
     const screen = await renderForVRT(<MarketplaceMyShop />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('my-shop-loading-desktop');
