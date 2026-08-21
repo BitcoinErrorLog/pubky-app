@@ -242,10 +242,13 @@ describe('PaykitMessagingService', () => {
       expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
     });
 
-    it('asks Ring for exactly the paykit capability and publishes a messaging-only marker', async () => {
+    it('asks Ring for the paykit capability plus the app scope and publishes a messaging-only marker', async () => {
       const enabled = await enableMessaging(world);
 
-      expect(world.calls).toContain('startAuthFlow:/pub/paykit/:rw');
+      // Both scopes on purpose: the homeserver holds one session cookie per
+      // user, so the messaging session must also carry the app's write scope
+      // or approving it breaks every pubky.app write (see messaging-contracts).
+      expect(world.calls).toContain('startAuthFlow:/pub/pubky.app/:rw,/pub/paykit/:rw');
       expect(enabled.pubky).toBe(OWNER);
       expect(enabled.receiverPath).toBe('marketplace/wallet');
       expect(world.lastPublishedMarker).toEqual({

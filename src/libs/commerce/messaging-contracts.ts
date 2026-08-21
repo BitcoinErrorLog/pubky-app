@@ -6,10 +6,17 @@ import { ErrorService } from '@/libs/error/error.types';
 /**
  * The homeserver capability the encrypted-messaging session asks Pubky Ring to
  * grant. It covers the Paykit tree (`/pub/paykit/…`) where receiver markers,
- * handshake slots, and encrypted message slots live — and nothing else. Shown
- * verbatim in the approval UI.
+ * handshake slots, and encrypted message slots live — PLUS the app's own
+ * `/pub/pubky.app/` scope. The second scope is load-bearing, not scope creep:
+ * the homeserver keeps ONE session cookie per user per origin (the cookie is
+ * named after the pubky), so approving this session REPLACES the app session
+ * in the browser. A paykit-only grant therefore broke every pubky.app write
+ * (posts, uploads, listings) with 403 "Session does not have write access to
+ * path" until the user signed in again — reproduced empirically 2026-08-21
+ * (see scripts/probe-media-write.mjs). The session that wins the cookie must
+ * be able to do everything the app needs. Shown verbatim in the approval UI.
  */
-export const PAYKIT_MESSAGING_CAPABILITY = '/pub/paykit/:rw';
+export const PAYKIT_MESSAGING_CAPABILITY = '/pub/pubky.app/:rw,/pub/paykit/:rw';
 
 /**
  * The Paykit receiver path this app publishes its messaging receiver marker

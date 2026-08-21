@@ -62,9 +62,10 @@ export function MarketplaceMessagingEnablePanel({
       <Typography as="p" className="text-sm text-muted-foreground">
         Approving with your signer (Pubky Ring) grants this app a homeserver session scoped to{' '}
         <code className="rounded bg-secondary px-1 py-0.5 text-xs">{PAYKIT_MESSAGING_CAPABILITY}</code> — the Paykit
-        tree where encrypted-message data lives. Your identity key never enters this browser; message encryption uses a
-        separate key generated and kept on this device. The session belongs to this tab: it survives page reloads but
-        ends when the tab closes, and other tabs need their own approval.
+        tree where encrypted-message data lives, plus the app&apos;s own storage scope (the homeserver keeps one session
+        per browser, so this approval also carries your normal posting and publishing access). Your identity key never
+        enters this browser; message encryption uses a separate key generated and kept on this device. The session
+        persists on this device until it expires or you sign out.
       </Typography>
 
       {enable.status === 'error' ? (
