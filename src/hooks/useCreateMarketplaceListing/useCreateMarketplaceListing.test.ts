@@ -92,6 +92,8 @@ describe('useCreateMarketplaceListing', () => {
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
       result.current.form.setValue('countryCode', 'US');
@@ -115,6 +117,9 @@ describe('useCreateMarketplaceListing', () => {
       sale: { format: 'fixed_price', unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 } },
       media: [{ id: 'image_01' }, { id: 'image_02' }],
       variants: [{ id: 'variant_1', quantity: 1, mediaIds: ['image_01', 'image_02'] }],
+      taxonomyVersion: 2,
+      categoryId: 'fashion-men-footwear-boots',
+      attributes: { size: 'US 9' },
     });
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
@@ -125,6 +130,8 @@ describe('useCreateMarketplaceListing', () => {
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('currency', 'SATS');
       result.current.form.setValue('price', '15000');
       result.current.form.setValue('fulfillment', 'pickup');
@@ -147,6 +154,8 @@ describe('useCreateMarketplaceListing', () => {
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('shippingPrice', '12.00');
       result.current.form.setValue('packageWeight', '42.3');
@@ -179,6 +188,8 @@ describe('useCreateMarketplaceListing', () => {
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');
       result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
     });

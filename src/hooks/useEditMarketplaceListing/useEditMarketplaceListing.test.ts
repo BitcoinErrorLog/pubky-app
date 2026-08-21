@@ -131,6 +131,59 @@ describe('useEditMarketplaceListing', () => {
     });
   });
 
+  it('hydrates structured attributes into the form and preserves foreign attributes verbatim', async () => {
+    const recordWithAttributes = {
+      ...structuredClone(publishedRecord),
+      taxonomyVersion: 2,
+      categoryId: 'fashion-men-tops-hoodies',
+      attributes: {
+        size: 'L',
+        brand: 'Champion',
+        color: ['grey', 'navy'],
+        // A vocabulary value this build does not know: not form-manageable.
+        source: 'estate-sale',
+        // A key this build's taxonomy does not define at all.
+        'graded-by': 'PSA 9',
+      },
+    };
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(recordWithAttributes);
+
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    expect(result.current.form.getValues()).toMatchObject({
+      categoryId: 'fashion-men-tops-hoodies',
+      attrSize: 'L',
+      attrBrand: 'Champion',
+      attrColors: ['grey', 'navy'],
+      // The foreign source value stays out of the form (it would fail the
+      // vocabulary validation) — it is preserved outside it instead.
+      attrSource: '',
+    });
+
+    act(() => {
+      result.current.form.setValue('title', 'Heavyweight varsity fleece — washed');
+      result.current.form.setValue('attrSize', 'XL');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const updated = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
+    expect(commerceListingRecordSchema.safeParse(updated).success).toBe(true);
+    expect(updated).toMatchObject({
+      revision: 3,
+      attributes: {
+        size: 'XL',
+        brand: 'Champion',
+        color: ['grey', 'navy'],
+        source: 'estate-sale',
+        'graded-by': 'PSA 9',
+      },
+    });
+  });
+
   it('preserves auction sale terms verbatim when editing an auction', async () => {
     const auctionRecord = {
       ...structuredClone(publishedRecord),

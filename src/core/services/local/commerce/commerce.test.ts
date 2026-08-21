@@ -59,9 +59,9 @@ describe('LocalCommerceService', () => {
     await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(true);
     await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(false);
 
-    expect(await LocalCommerceService.getAllShops()).toHaveLength(8);
-    expect(await LocalCommerceService.getAllListings()).toHaveLength(8);
-    expect(await CommerceListingProjectionModel.table.count()).toBe(8);
+    expect(await LocalCommerceService.getAllShops()).toHaveLength(10);
+    expect(await LocalCommerceService.getAllListings()).toHaveLength(10);
+    expect(await CommerceListingProjectionModel.table.count()).toBe(10);
   });
 
   it('persists normalized shop and listing cache fields', async () => {

@@ -6,11 +6,16 @@ import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { Logger } from '@/libs/logger/logger';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
-import { buildMarketplaceCatalogItems, filterMarketplaceCatalog } from './useMarketplaceCatalog.utils';
+import {
+  applyMarketplaceAttributeFilters,
+  buildMarketplaceCatalogItems,
+  filterMarketplaceCatalog,
+} from './useMarketplaceCatalog.utils';
 
 export function useMarketplaceCatalog() {
   const query = useCommerceStore((state) => state.query);
   const categoryId = useCommerceStore((state) => state.categoryId);
+  const attributeFilters = useCommerceStore((state) => state.attributeFilters);
   const saleFormat = useCommerceStore((state) => state.saleFormat);
   const conditions = useCommerceStore((state) => state.conditions);
   const minimumPriceMinor = useCommerceStore((state) => state.minimumPriceMinor);
@@ -48,7 +53,9 @@ export function useMarketplaceCatalog() {
   const localListings = useLiveQuery(() => CommerceController.getAllListings(), []);
   const catalogEntries = useLiveQuery(() => CommerceController.getAllCatalogEntries(), []);
   const localShops = useLiveQuery(() => CommerceController.getAllShops(), []);
-  const listings = filterMarketplaceCatalog(buildMarketplaceCatalogItems(localListings ?? [], catalogEntries ?? []), {
+  // The facet pool matches every filter EXCEPT the attribute filters, so the
+  // facet chips keep offering alternatives to the active value.
+  const facetPool = filterMarketplaceCatalog(buildMarketplaceCatalogItems(localListings ?? [], catalogEntries ?? []), {
     query,
     categoryId,
     saleFormat,
@@ -57,6 +64,7 @@ export function useMarketplaceCatalog() {
     maximumPriceMinor,
     sort,
   });
+  const listings = applyMarketplaceAttributeFilters(facetPool, attributeFilters);
   const shopsBySeller = new Map((localShops ?? []).map(({ owner_id, record }) => [owner_id, record]));
 
   // While a refresh is in flight over an empty cache, stay in the loading
@@ -68,6 +76,7 @@ export function useMarketplaceCatalog() {
 
   return {
     listings,
+    facetPool,
     shopsBySeller,
     isLoading: isCacheUnresolved || (isCacheEmpty && isRefreshing),
     adapterMode,

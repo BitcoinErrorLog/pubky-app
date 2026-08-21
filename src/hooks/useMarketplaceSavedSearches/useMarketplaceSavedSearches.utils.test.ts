@@ -20,6 +20,7 @@ function item(overrides: Partial<MarketplaceCatalogItem> = {}): MarketplaceCatal
     saleFormat: 'fixed_price',
     price: { amountMinor: 120_00, currency: 'USD', exponent: 2 },
     auction: null,
+    attributes: null,
     location: { countryCode: 'US', region: null },
     mediaUrls: [],
     revision: 1,

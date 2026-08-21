@@ -142,7 +142,36 @@ const fixtures = vi.hoisted(async () => {
 
   const fixedPrice = catalogItemFromCatalogEntry(createCommerceCatalogEntryFixture());
 
+  // Record-backed items (attributes known) next to an index-entry item
+  // (attributes unknown → the card shows no attribute line, honestly).
+  const { catalogItemFromListingModel } = await import('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils');
+  const { createCommerceListingFixture } = await import('@/test/fixtures/commerce/commerce');
+  const { toCommerceListingModel } = await import('@/test/fixtures/commerce/listing-models');
+  const attributedFashion = catalogItemFromListingModel(
+    toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId: 'varsity_fleece',
+        title: 'Heavyweight varsity fleece',
+        description: 'Boxy 90s collegiate fleece with an embroidered chest hit.',
+        categoryId: 'fashion-men-tops-hoodies',
+        attributes: { size: 'L', brand: 'Champion', color: ['grey', 'navy'] },
+      }),
+    ),
+  );
+  const attributedElectronics = catalogItemFromListingModel(
+    toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId: 'slr_program',
+        title: 'Program-mode 35mm SLR',
+        description: 'Clean program-mode SLR body with a fresh light seal service.',
+        categoryId: 'electronics-cameras-film',
+        attributes: { brand: 'Canon', model: 'AE-1 Program' },
+      }),
+    ),
+  );
+
   return {
+    attributeStates: [attributedFashion, attributedElectronics, fixedPrice],
     termStates: [auctionWithTerms, auctionMissingTerms, fixedPrice],
     liveBidStates: [auctionWithLiveBid, auctionMissingTerms, fixedPrice],
     endingSoon: filterMarketplaceCatalog([fixedPrice, auctionWithTerms, auctionMissingTerms, auctionEndingSooner], {
@@ -220,6 +249,19 @@ describe('Marketplace listing cards — visual regression', () => {
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-live-bid-desktop');
+  });
+
+  it('renders card attribute lines for record-backed items next to an index-entry control at desktop viewport', async () => {
+    const { attributeStates, shopNames } = await fixtures;
+    const screen = await renderForVRT(
+      <div className="grid grid-cols-4 gap-5 p-6">
+        {attributeStates.map((listing) => (
+          <MarketplaceListingCard key={listing.id} listing={listing} shopName={shopNames.get(listing.sellerId)} />
+        ))}
+      </div>,
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-attributes-desktop');
   });
 
   it('renders the ending-soon ordering with a term-less auction after known end times at desktop viewport', async () => {

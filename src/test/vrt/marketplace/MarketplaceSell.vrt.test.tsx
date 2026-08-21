@@ -239,6 +239,71 @@ describe('Marketplace sell studio — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-limit-desktop');
   });
 
+  // A restored draft for a sized fashion leaf: the category cascade shows
+  // the full path and the category-dependent item specifics render populated
+  // (size chart select, brand, color/style chips, source, age).
+  it('renders fashion item specifics for a sized leaf at desktop viewport', async () => {
+    view.drafts = [
+      {
+        ...draftFixture,
+        data: {
+          form: {
+            ...draftFixture.data.form,
+            categoryId: 'fashion-men-tops-hoodies',
+            attrSize: 'L',
+            attrBrand: 'Champion',
+            attrColors: ['grey', 'navy'],
+            attrSource: 'vintage',
+            attrAge: '90s',
+            attrStyles: ['retro', 'sportswear'],
+          },
+        },
+      },
+    ];
+    view.mediaItems = [];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-cy="marketplace-listing-attributes"]')) {
+        throw new Error('The item specifics block has not rendered yet.');
+      }
+      if (!screen.container.querySelector('#marketplace-attribute-size')) {
+        throw new Error('The size field has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-attributes-fashion-desktop');
+    view.drafts = [];
+  });
+
+  it('renders electronics item specifics (brand, model, colors) at desktop viewport', async () => {
+    view.drafts = [
+      {
+        ...draftFixture,
+        data: {
+          form: {
+            ...draftFixture.data.form,
+            title: 'Program-mode 35mm SLR',
+            description: 'Clean program-mode SLR body with a fresh light seal service.',
+            categoryId: 'electronics-cameras-film',
+            attrBrand: 'Canon',
+            attrModel: 'AE-1 Program',
+            attrColors: ['black'],
+          },
+        },
+      },
+    ];
+    view.mediaItems = [];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('#marketplace-attribute-model')) {
+        throw new Error('The model field has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-attributes-electronics-desktop');
+    view.drafts = [];
+  });
+
   it('renders validation errors after an empty submit at desktop viewport', async () => {
     view.drafts = [];
     view.mediaItems = [];

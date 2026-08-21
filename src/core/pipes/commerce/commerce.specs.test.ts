@@ -49,6 +49,29 @@ describe('commerce records against pubky-app-specs', () => {
     expect('unexpectedField' in serialized).toBe(false);
   });
 
+  it('round-trips the attributes container and both taxonomy versions through the spec', () => {
+    const attributes = { size: 'US 9', color: ['brown', 'black'], 'graded-by': 'PSA 9' };
+    const result = builder().createListing({ ...createCommerceListingFixture(), attributes });
+    const serialized = result.listing.toJson() as Record<string, unknown>;
+    // The wasm boundary renders Rust maps as JS Maps (same as variant
+    // options); the wire format is still a plain JSON object.
+    expect(Object.fromEntries(serialized.attributes as Map<string, unknown>)).toEqual(attributes);
+
+    // v1 records (no attributes) remain spec-valid alongside v2 records.
+    expect(() =>
+      builder().createListing({ ...createCommerceListingFixture(), taxonomyVersion: 1, attributes: undefined }),
+    ).not.toThrow();
+  });
+
+  it('rejects spec-invalid attributes at the wasm boundary', () => {
+    expect(() =>
+      builder().createListing({ ...createCommerceListingFixture(), attributes: { 'Not-Kebab': 'value' } }),
+    ).toThrow();
+    expect(() =>
+      builder().createListing({ ...createCommerceListingFixture(), attributes: { color: ['brown', 'brown'] } }),
+    ).toThrow();
+  });
+
   it('rejects a listing record whose field violates a spec rule', () => {
     const record = { ...createCommerceListingFixture(), title: '' };
 

@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { createMarketplaceListingDefaults, createMarketplaceListingSchema } from './useCreateMarketplaceListing.types';
 
+/**
+ * The form defaults deliberately ship no category (the seller must pick
+ * one); these tests exercise the rest of the schema with a resolvable
+ * category that requires no attributes.
+ */
+const formDefaults = { ...createMarketplaceListingDefaults, categoryId: 'fashion' };
+
 describe('createMarketplaceListingSchema', () => {
   it('accepts complete physical delivery terms', () => {
     expect(
       createMarketplaceListingSchema.safeParse({
-        ...createMarketplaceListingDefaults,
+        ...formDefaults,
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125.00',
@@ -21,7 +28,7 @@ describe('createMarketplaceListingSchema', () => {
   it('accepts imperial package inputs with one decimal', () => {
     expect(
       createMarketplaceListingSchema.safeParse({
-        ...createMarketplaceListingDefaults,
+        ...formDefaults,
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125.00',
@@ -37,7 +44,7 @@ describe('createMarketplaceListingSchema', () => {
 
   it('rejects fractional grams in metric but allows one-decimal ounces in imperial', () => {
     const base = {
-      ...createMarketplaceListingDefaults,
+      ...formDefaults,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       price: '125.00',
@@ -55,7 +62,7 @@ describe('createMarketplaceListingSchema', () => {
 
   it('accepts whole-sats pricing and rejects decimal sats', () => {
     const base = {
-      ...createMarketplaceListingDefaults,
+      ...formDefaults,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       currency: 'SATS' as const,
@@ -68,7 +75,7 @@ describe('createMarketplaceListingSchema', () => {
 
   it('validates variant price overrides and shipping in the chosen currency', () => {
     const base = {
-      ...createMarketplaceListingDefaults,
+      ...formDefaults,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       currency: 'SATS' as const,
@@ -89,7 +96,7 @@ describe('createMarketplaceListingSchema', () => {
   it('allows pickup without package or shipping fields', () => {
     expect(
       createMarketplaceListingSchema.safeParse({
-        ...createMarketplaceListingDefaults,
+        ...formDefaults,
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125',
@@ -104,7 +111,7 @@ describe('createMarketplaceListingSchema', () => {
       { sku: 'BOOTS-43', size: '43', color: 'Brown', style: '', quantity: '2', priceOverride: '135.00' },
     ];
     const base = {
-      ...createMarketplaceListingDefaults,
+      ...formDefaults,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       price: '125',
@@ -120,7 +127,7 @@ describe('createMarketplaceListingSchema', () => {
     const duplicate = { sku: 'BOOTS', size: '', color: '', style: '', quantity: '1', priceOverride: '' };
     expect(
       createMarketplaceListingSchema.safeParse({
-        ...createMarketplaceListingDefaults,
+        ...formDefaults,
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125',
@@ -128,6 +135,79 @@ describe('createMarketplaceListingSchema', () => {
         variants: [duplicate, { ...duplicate, size: '43' }],
       }).success,
     ).toBe(false);
+  });
+
+  it('requires a category that resolves in the taxonomy', () => {
+    const base = {
+      ...formDefaults,
+      title: 'Vintage leather boots',
+      description: 'Well cared for boots with light wear.',
+      price: '125',
+      fulfillment: 'pickup' as const,
+    };
+    expect(createMarketplaceListingSchema.safeParse({ ...base, categoryId: '' }).success).toBe(false);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, categoryId: 'not-a-category' }).success).toBe(false);
+    // Legacy v1 ids still resolve, so editing older records stays possible.
+    expect(createMarketplaceListingSchema.safeParse({ ...base, categoryId: 'fashion-shoes-boots' }).success).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, categoryId: 'collectibles-music-vinyl' }).success).toBe(
+      true,
+    );
+  });
+
+  it('requires a chart size for fashion leaves that have a size chart', () => {
+    const base = {
+      ...formDefaults,
+      title: 'Hiking boots',
+      description: 'Sturdy leather hiking boots.',
+      price: '125',
+      fulfillment: 'pickup' as const,
+      categoryId: 'fashion-men-footwear-boots',
+    };
+    expect(createMarketplaceListingSchema.safeParse(base).success).toBe(false);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrSize: 'US 9' }).success).toBe(true);
+    // The size must come from the leaf's chart, not be free text.
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrSize: 'gigantic' }).success).toBe(false);
+    // Chartless fashion leaves (e.g. accessories) have no size requirement.
+    expect(
+      createMarketplaceListingSchema.safeParse({ ...base, categoryId: 'fashion-men-accessories-belt' }).success,
+    ).toBe(true);
+  });
+
+  it('bounds and vocab-checks multi-value attributes', () => {
+    const base = {
+      ...formDefaults,
+      title: 'Varsity fleece',
+      description: 'Boxy 90s collegiate fleece.',
+      price: '72',
+      fulfillment: 'pickup' as const,
+      categoryId: 'fashion-men-tops-hoodies',
+      attrSize: 'L',
+    };
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrColors: ['grey', 'navy'] }).success).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrColors: ['grey', 'navy', 'black'] }).success).toBe(
+      false,
+    );
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrColors: ['taupe'] }).success).toBe(false);
+    expect(
+      createMarketplaceListingSchema.safeParse({ ...base, attrStyles: ['retro', 'sportswear', 'grunge'] }).success,
+    ).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrSource: 'vintage' }).success).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrSource: 'stolen' }).success).toBe(false);
+  });
+
+  it('leaves free-text attributes unconstrained beyond length', () => {
+    const base = {
+      ...formDefaults,
+      title: 'Program-mode SLR',
+      description: 'Clean film SLR body.',
+      price: '210',
+      fulfillment: 'pickup' as const,
+      categoryId: 'electronics-cameras-film',
+    };
+    expect(
+      createMarketplaceListingSchema.safeParse({ ...base, attrBrand: 'Canon', attrModel: 'AE-1 Program' }).success,
+    ).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, attrModel: 'x'.repeat(81) }).success).toBe(false);
   });
 
   it.each([
@@ -138,7 +218,7 @@ describe('createMarketplaceListingSchema', () => {
       {
         variants: [
           {
-            ...createMarketplaceListingDefaults.variants[0],
+            ...formDefaults.variants[0],
             quantity: '0',
           },
         ],
@@ -147,7 +227,7 @@ describe('createMarketplaceListingSchema', () => {
     ['invalid country', { countryCode: 'USA' }],
   ])('rejects %s', (_label, changes) => {
     const result = createMarketplaceListingSchema.safeParse({
-      ...createMarketplaceListingDefaults,
+      ...formDefaults,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       price: '125',

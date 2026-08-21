@@ -7,8 +7,10 @@ import {
 } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import {
+  applyMarketplaceAttributeFilters,
   buildMarketplaceCatalogItems,
   catalogItemFromCatalogEntry,
+  collectMarketplaceAttributeFacets,
   filterMarketplaceCatalog,
   type MarketplaceCatalogFilters,
   type MarketplaceCatalogItem,
@@ -159,7 +161,7 @@ describe('filterMarketplaceCatalog', () => {
     const high = filterMarketplaceCatalog(catalogItems(), filters({ sort: 'price_high' }));
 
     expect(low[0].listingId).toBe('jazz_first_press');
-    expect(high[0].listingId).toBe('mechanical_keyboard');
+    expect(high[0].listingId).toBe('slr_program');
   });
 
   it('puts active auctions before fixed-price listings for ending-soon', () => {
@@ -190,5 +192,48 @@ describe('filterMarketplaceCatalog', () => {
 
     expect(knownAuctionIndexes.every((index) => index < staleIndex)).toBe(true);
     expect(fixedPriceIndexes.every((index) => index > staleIndex)).toBe(true);
+  });
+});
+
+describe('applyMarketplaceAttributeFilters', () => {
+  it('matches string values and list membership, and excludes unknown-attribute items honestly', () => {
+    const items = catalogItems();
+    // Index-projection item: attributes unknown, not merely empty.
+    const indexItem = catalogItemFromCatalogEntry(
+      createCommerceCatalogEntryFixture({
+        id: `${COMMERCE_FIXTURE_SELLER}:index_only`,
+        listing_id: 'index_only',
+      }),
+    );
+    expect(indexItem.attributes).toBeNull();
+
+    const bySize = applyMarketplaceAttributeFilters([...items, indexItem], { size: 'L' });
+    expect(bySize.map(({ listingId }) => listingId)).toEqual(['varsity_fleece']);
+
+    const byColor = applyMarketplaceAttributeFilters(items, { color: 'navy' });
+    expect(byColor.map(({ listingId }) => listingId)).toEqual(['varsity_fleece']);
+
+    const byBrandAndColor = applyMarketplaceAttributeFilters(items, { brand: 'Canon', color: 'black' });
+    expect(byBrandAndColor.map(({ listingId }) => listingId)).toEqual(['slr_program']);
+
+    // No active filters: everything passes, including unknown-attribute items.
+    expect(applyMarketplaceAttributeFilters([...items, indexItem], {})).toHaveLength(items.length + 1);
+  });
+});
+
+describe('collectMarketplaceAttributeFacets', () => {
+  it('counts facet values over items with known attributes, expanding list values', () => {
+    const facets = collectMarketplaceAttributeFacets(catalogItems(), ['size', 'brand', 'color']);
+
+    expect(facets.get('size')).toEqual([{ value: 'L', count: 1 }]);
+    expect(facets.get('brand')).toEqual([
+      { value: 'Canon', count: 1 },
+      { value: 'Champion', count: 1 },
+    ]);
+    expect(facets.get('color')).toEqual([
+      { value: 'black', count: 1 },
+      { value: 'grey', count: 1 },
+      { value: 'navy', count: 1 },
+    ]);
   });
 });

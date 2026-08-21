@@ -106,6 +106,25 @@ const fixtures = vi.hoisted(async () => {
         },
       }),
     ),
+    attributedListing: toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId: 'varsity_fleece',
+        title: 'Heavyweight varsity fleece',
+        description: 'Boxy 90s collegiate fleece with an embroidered chest hit.',
+        categoryId: 'fashion-men-tops-hoodies',
+        attributes: {
+          size: 'L',
+          brand: 'Champion',
+          color: ['grey', 'navy'],
+          source: 'vintage',
+          age: '90s',
+          style: ['retro', 'sportswear'],
+          // A key this build's taxonomy does not define: renders as a
+          // prettified label with the raw value instead of being dropped.
+          'graded-by': 'PSA 9',
+        },
+      }),
+    ),
     pausedListing: toCommerceListingModel(createCommerceListingFixture({ state: 'paused' })),
     vacationShop: toCommerceShopModel(createCommerceShopFixture({ vacationMode: true })),
     fixedPriceProjection: createListingProjectionFixture(),
@@ -293,6 +312,16 @@ beforeEach(async () => {
 });
 
 describe('Marketplace listing detail — visual regression', () => {
+  it('renders the item-specifics table with vocab labels and a foreign key at desktop viewport', async () => {
+    const { seller, attributedListing, fixedPriceProjection } = await fixtures;
+    await setView({ listing: attributedListing, projection: fixedPriceProjection });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="varsity_fleece" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-item-specifics-desktop');
+  });
+
   it('renders a fixed-price listing at desktop viewport', async () => {
     const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
     await setView({ listing: fixedPriceListing, projection: fixedPriceProjection });

@@ -44,6 +44,8 @@ describe('MarketplaceFilters', () => {
     const user = userEvent.setup();
     useCommerceStore.getState().setLayout('list');
     useCommerceStore.getState().setQuery('camera');
+    useCommerceStore.getState().setCategoryId('fashion');
+    useCommerceStore.getState().setAttributeFilter('size', 'L');
     render(<MarketplaceFilters resultCount={1} />);
 
     await user.click(screen.getByRole('button', { name: 'Clear' }));
@@ -51,9 +53,67 @@ describe('MarketplaceFilters', () => {
     expect(useCommerceStore.getState()).toMatchObject({
       query: '',
       categoryId: null,
+      attributeFilters: {},
       saleFormat: 'all',
       layout: 'list',
     });
+  });
+
+  it('drills into the category tree via breadcrumb and child chips', async () => {
+    const user = userEvent.setup();
+    render(<MarketplaceFilters resultCount={8} />);
+
+    await user.click(screen.getByRole('button', { name: 'Fashion' }));
+    expect(useCommerceStore.getState().categoryId).toBe('fashion');
+    // Children of the selected node appear as chips.
+    await user.click(screen.getByRole('button', { name: 'Men' }));
+    expect(useCommerceStore.getState().categoryId).toBe('fashion-men');
+    await user.click(screen.getByRole('button', { name: 'Footwear' }));
+    expect(useCommerceStore.getState().categoryId).toBe('fashion-men-footwear');
+    // The breadcrumb jumps back up the path.
+    await user.click(screen.getByRole('button', { name: 'Fashion' }));
+    expect(useCommerceStore.getState().categoryId).toBe('fashion');
+  });
+
+  it('clears attribute filters when the category changes', () => {
+    useCommerceStore.getState().setCategoryId('fashion');
+    useCommerceStore.getState().setAttributeFilter('size', 'L');
+    expect(useCommerceStore.getState().attributeFilters).toEqual({ size: 'L' });
+
+    useCommerceStore.getState().setCategoryId('electronics');
+    expect(useCommerceStore.getState().attributeFilters).toEqual({});
+  });
+
+  it('renders attribute facets from the facet pool and toggles a filter', async () => {
+    const user = userEvent.setup();
+    useCommerceStore.getState().setCategoryId('fashion');
+    const facetItem = {
+      id: 'seller:varsity_fleece',
+      sellerId: 'seller',
+      listingId: 'varsity_fleece',
+      state: 'active' as const,
+      title: 'Heavyweight varsity fleece',
+      description: 'Boxy 90s collegiate fleece.',
+      categoryId: 'fashion-men-tops-hoodies',
+      condition: 'good' as const,
+      tags: [],
+      saleFormat: 'fixed_price' as const,
+      price: { amountMinor: 7_200, currency: 'USD', exponent: 2 },
+      auction: null,
+      attributes: { size: 'L', brand: 'Champion', color: ['grey', 'navy'] },
+      location: { countryCode: 'US', region: null },
+      mediaUrls: [],
+      revision: 1,
+      updatedAt: 1_000,
+    };
+    render(<MarketplaceFilters resultCount={1} facetPool={[facetItem]} />);
+
+    expect(screen.getByText('Size')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'L · 1' }));
+    expect(useCommerceStore.getState().attributeFilters).toEqual({ size: 'L' });
+    // Toggling the active chip clears it again.
+    await user.click(screen.getByRole('button', { name: 'L · 1' }));
+    expect(useCommerceStore.getState().attributeFilters).toEqual({});
   });
 });
 

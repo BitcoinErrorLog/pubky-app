@@ -51,7 +51,18 @@ export function isLocksPaykitCommerceMode(mode: CommerceAdapterMode): boolean {
 }
 
 export const COMMERCE_CONTRACT_VERSION = 1 as const;
-export const COMMERCE_TAXONOMY_VERSION = 1 as const;
+/**
+ * The taxonomy version new listings publish. Version 2 introduced the full
+ * category tree and category-dependent attributes (see
+ * `src/config/taxonomy/taxonomy.ts`); version-1 records (four flat
+ * categories, no attributes) remain valid — their ids all resolve in the v2
+ * tree. Records validate against the range below, mirroring the specs fork
+ * (0.6.2-marketplace.4), which bounds `taxonomyVersion` instead of pinning
+ * it so the taxonomy can evolve as client config without spec churn.
+ */
+export const COMMERCE_TAXONOMY_VERSION = 2 as const;
+export const COMMERCE_TAXONOMY_VERSION_MIN = 1;
+export const COMMERCE_TAXONOMY_VERSION_MAX = 1_000_000;
 
 export const COMMERCE_SHOP_NAME_MAX_CHARS = 60;
 export const COMMERCE_SHOP_BIO_MAX_CHARS = 1_000;
@@ -134,10 +145,3 @@ export const COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS = 60;
 
 /** Saved searches storable per account. */
 export const COMMERCE_SAVED_SEARCH_MAX_PER_OWNER = 20;
-
-export const COMMERCE_CATEGORIES = [
-  { id: 'fashion', label: 'Fashion' },
-  { id: 'electronics', label: 'Electronics' },
-  { id: 'home', label: 'Home' },
-  { id: 'collectibles', label: 'Collectibles' },
-] as const;
