@@ -1,7 +1,7 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { TagKind } from '@/application/tag/tag.types';
-import { getCommerceAdapterMode } from '@/config/commerce';
+import { getCommerceAdapterMode, MARKETPLACE_FOLLOWED_SHELF_MAX_SELLER_FETCHES } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import type {
@@ -23,6 +23,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
+import { selectFollowedSellersToRefresh } from '@/pipes/commerce/commerce.discovery';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
@@ -577,6 +578,74 @@ export class CommerceApplication {
     });
     const entries = CommerceRecordNormalizer.nexusListingStream(payload);
     await LocalCommerceService.bulkUpsertCatalogEntries(entries);
+  }
+
+  /**
+   * Refreshes the catalog cache with recent active listings from the sellers
+   * a viewer follows, for the home-feed "From sellers you follow" shelf.
+   *
+   * Cost model — the Nexus listing stream accepts one `seller_id` per
+   * request, so intersecting a follow graph with the index can never be one
+   * query. This method bounds the cost instead of hiding it:
+   *
+   * 1. ONE shared global page of the newest active listings (the same read
+   *    the catalog grid does) — it both refreshes the cache and cheaply
+   *    discovers followed accounts that recently listed something.
+   * 2. Per-seller refreshes ONLY for follows already known to sell (cached
+   *    shop record or cached index entry), capped at
+   *    {@link MARKETPLACE_FOLLOWED_SHELF_MAX_SELLER_FETCHES} — never a
+   *    request per follow (see {@link selectFollowedSellersToRefresh}).
+   *
+   * Degradation: a failed global page falls back to refreshing cache-known
+   * sellers; failed per-seller refreshes are logged and skipped
+   * (`allSettled`) so one unreachable seller cannot empty the shelf; when
+   * everything fails the shelf renders whatever the cache honestly holds.
+   * Sandbox catalogs are seeded locally and never read from Nexus.
+   */
+  static async fetchFollowedSellerCatalogListings(followedPubkys: string[]): Promise<void> {
+    if (getCommerceAdapterMode() === 'sandbox') return;
+    if (followedPubkys.length === 0) return;
+
+    try {
+      const payload = await NexusMarketplaceService.fetchListingStream({
+        state: 'active',
+        limit: NEXUS_LISTINGS_PER_PAGE,
+      });
+      await LocalCommerceService.bulkUpsertCatalogEntries(CommerceRecordNormalizer.nexusListingStream(payload));
+    } catch (error) {
+      Logger.warn('Failed to refresh the global listing page for the followed-sellers shelf; using cache only', {
+        error,
+      });
+    }
+
+    const [entries, shops] = await Promise.all([
+      LocalCommerceService.getAllCatalogEntries(),
+      LocalCommerceService.getAllShops(),
+    ]);
+    const knownSellerIds = new Set([
+      ...entries.map(({ seller_id }) => seller_id),
+      ...shops.map(({ owner_id }) => owner_id),
+    ]);
+    const sellersToRefresh = selectFollowedSellersToRefresh(
+      followedPubkys,
+      knownSellerIds,
+      MARKETPLACE_FOLLOWED_SHELF_MAX_SELLER_FETCHES,
+    );
+    if (sellersToRefresh.length === 0) return;
+
+    const results = await Promise.allSettled(
+      sellersToRefresh.map((sellerId) => this.fetchSellerCatalogListings(sellerId)),
+    );
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        Logger.warn('Failed to refresh a followed seller for the shelf; keeping their cached listings', {
+          sellerId: sellersToRefresh[index],
+          error: result.reason,
+        });
+      }
+    });
+
+    await this.hydrateDiscoveredShops(sellersToRefresh);
   }
 
   private static async hydrateDiscoveredShops(sellerIds: string[]): Promise<void> {
