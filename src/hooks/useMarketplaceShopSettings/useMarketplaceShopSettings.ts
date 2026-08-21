@@ -7,6 +7,7 @@ import { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
+import { getErrorMessage } from '@/libs/error/error.utils';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -217,14 +218,20 @@ export function useMarketplaceShopSettings() {
       let bannerUrl: string | undefined;
       try {
         avatarUrl = await avatar.resolveForPublish();
-      } catch {
-        toast({ variant: 'error', description: 'Could not upload the shop avatar image. Nothing was saved.' });
+      } catch (uploadError) {
+        toast({
+          variant: 'error',
+          description: `Could not upload the shop avatar image (${getErrorMessage(uploadError)}). Nothing was saved.`,
+        });
         return;
       }
       try {
         bannerUrl = await banner.resolveForPublish();
-      } catch {
-        toast({ variant: 'error', description: 'Could not upload the shop banner image. Nothing was saved.' });
+      } catch (uploadError) {
+        toast({
+          variant: 'error',
+          description: `Could not upload the shop banner image (${getErrorMessage(uploadError)}). Nothing was saved.`,
+        });
         return;
       }
 

@@ -236,7 +236,7 @@ describe('useMarketplaceShopSettings', () => {
     expect(CommerceController.commitUpsertShop).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith({
       variant: 'error',
-      description: 'Could not upload the shop avatar image. Nothing was saved.',
+      description: expect.stringContaining('Could not upload the shop avatar image'),
     });
   });
 });
