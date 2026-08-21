@@ -1,6 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useMarketplaceOrders } from './useMarketplaceOrders';
 
 const BUYER = 'b'.repeat(52);
@@ -33,10 +37,21 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
 
+/** The exact error shape the durable transport throws for a missing or 401-rejected session. */
+const sessionRequiredError = () =>
+  new AppError({
+    category: ErrorCategory.Auth,
+    code: AuthErrorCode.SESSION_EXPIRED,
+    message: 'The marketplace session expired. Approve the marketplace connection on your signer and try again.',
+    service: ErrorService.Marketplace,
+    operation: 'getOrders',
+  });
+
 describe('useMarketplaceOrders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     config.mode = 'sandbox';
+    useCommerceStore.getState().reset();
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000001111');
     vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
       {
@@ -200,6 +215,56 @@ describe('useMarketplaceOrders', () => {
     expect(vi.mocked(toast)).toHaveBeenCalledWith(
       expect.objectContaining({ description: expect.stringContaining('reloaded') }),
     );
+  });
+
+  it('flags needsSession on a session-required load failure and refetches once a session connects', async () => {
+    config.mode = 'transaction-service';
+    vi.mocked(CommerceController.getMarketplaceOrders).mockRejectedValue(sessionRequiredError());
+
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.needsSession).toBe(true));
+    expect(result.current.error).toContain('marketplace session expired');
+    expect(result.current.orders).toHaveLength(0);
+
+    // Approving on the signer mirrors the session into the store, which must
+    // trigger an automatic refetch — no manual reload.
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([]);
+    act(() => {
+      useCommerceStore.getState().setMarketplaceSession({
+        pubky: BUYER,
+        capabilities: '/pub/pubky.app/:rw',
+        expiresAt: '2026-08-22T00:00:00.000Z',
+      });
+    });
+
+    await waitFor(() => expect(result.current.needsSession).toBe(false));
+    expect(result.current.error).toBeNull();
+  });
+
+  it('keeps needsSession false for non-session failures', async () => {
+    config.mode = 'transaction-service';
+    vi.mocked(CommerceController.getMarketplaceOrders).mockRejectedValue(new Error('boom'));
+
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.needsSession).toBe(false);
+  });
+
+  it('flags needsSession when an order action is rejected for an expired session', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const order = result.current.orders[0].order;
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValue(sessionRequiredError());
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.actOnOrder(order, 'fulfillment.confirm_delivery', {});
+    });
+
+    expect(succeeded).toBe(false);
+    expect(result.current.needsSession).toBe(true);
+    expect(result.current.error).toContain('marketplace session expired');
   });
 
   it('refuses to advance a payment outside sandbox mode', async () => {

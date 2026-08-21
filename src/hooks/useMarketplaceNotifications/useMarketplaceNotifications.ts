@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceNotification, MarketplaceNotificationPreferences } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 /**
  * Commerce notifications from whichever transactional backend the mode
@@ -18,12 +20,16 @@ import { useAuthStore } from '@/stores/auth/auth.store';
  */
 export function useMarketplaceNotifications() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  // Refetch trigger: connecting a session replaces this store object, so the
+  // effect below re-runs immediately instead of waiting for the next poll.
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const adapterMode = getCommerceAdapterMode();
   const canMarkRead = adapterMode === 'sandbox';
   const [notifications, setNotifications] = useState<MarketplaceNotification[]>([]);
   const [preferences, setPreferences] = useState<MarketplaceNotificationPreferences | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
+  const [needsSession, setNeedsSession] = useState(false);
 
   useEffect(() => {
     if (!currentUserPubky) {
@@ -41,9 +47,13 @@ export function useMarketplaceNotifications() {
           setNotifications(next);
           setPreferences(nextPreferences);
           setError(null);
+          setNeedsSession(false);
         }
       } catch (loadError) {
         if (active) {
+          // A missing/expired marketplace session is not a dead end: flag it
+          // so the surface renders the session-connect affordance.
+          setNeedsSession(isMarketplaceSessionRequiredError(loadError));
           setError(
             loadError instanceof Error && loadError.name === 'AppError'
               ? loadError.message
@@ -60,7 +70,7 @@ export function useMarketplaceNotifications() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [canMarkRead, currentUserPubky]);
+  }, [canMarkRead, currentUserPubky, marketplaceSession]);
 
   const markAllRead = async () => {
     // Re-checked at call time: `notification.mark_read` does not exist on the
@@ -151,6 +161,7 @@ export function useMarketplaceNotifications() {
     unreadCount: notifications.filter(({ readAt }) => !readAt).length,
     isLoading,
     error,
+    needsSession,
     canMarkRead,
     markAllRead,
     updatePreferences,

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { getCommerceAdapterMode } from '@/config/commerce';
@@ -9,7 +10,9 @@ import {
   buildMarketplaceCheckoutAggregateId,
   isMarketplaceRevisionConflict,
 } from '@/libs/commerce/transaction-commands';
+import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   type MarketplaceCheckoutData,
   marketplaceCheckoutDefaults,
@@ -22,12 +25,25 @@ export function useMarketplaceCheckout(
 ): {
   form: UseFormReturn<MarketplaceCheckoutData>;
   submit: () => Promise<boolean>;
+  needsSession: boolean;
+  sessionError: string | null;
 } {
+  // Connecting a session replaces this store object; the flag below clears so
+  // the cart's session-required card disappears without a submit attempt.
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
+  const [needsSession, setNeedsSession] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const form = useForm<MarketplaceCheckoutData>({
     resolver: zodResolver(marketplaceCheckoutSchema),
     defaultValues: marketplaceCheckoutDefaults,
     mode: 'onChange',
   });
+
+  useEffect(() => {
+    if (!marketplaceSession) return;
+    setNeedsSession(false);
+    setSessionError(null);
+  }, [marketplaceSession]);
 
   const submit = async (): Promise<boolean> => {
     if (!items.length) return false;
@@ -100,12 +116,21 @@ export function useMarketplaceCheckout(
                 ? 'Recorded by the transaction service. Open Orders to request the payment in your wallet.'
                 : 'Recorded by the transaction service. Payments are not enabled here, so it will stay awaiting payment.',
         });
-      } catch {
+      } catch (checkoutError) {
+        if (isMarketplaceSessionRequiredError(checkoutError)) {
+          // The projection reads and the checkout command both require the
+          // durable session; surface the reconnect affordance instead of a
+          // generic failure toast.
+          setNeedsSession(true);
+          setSessionError(checkoutError.message);
+          toast({ variant: 'error', description: checkoutError.message });
+          return;
+        }
         toast({ variant: 'error', description: 'Checkout could not be completed.' });
       }
     })();
     return succeeded;
   };
 
-  return { form, submit };
+  return { form, submit, needsSession, sessionError };
 }

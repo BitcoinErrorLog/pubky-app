@@ -11,6 +11,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceDisputeCase } from '@/hooks/useMarketplaceDisputeCase/useMarketplaceDisputeCase';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { MarketplaceSessionRequiredCard } from './MarketplaceSessionRequiredCard';
 
 /**
  * The dispute case file: the scoped evidence read plus, for moderators, the
@@ -75,6 +76,8 @@ export function MarketplaceDisputeCaseDialog({
 
         {disputeCase.isLoading ? (
           <Skeleton className="h-40 w-full" />
+        ) : disputeCase.needsSession && disputeCase.error ? (
+          <MarketplaceSessionRequiredCard message={disputeCase.error} onConnected={disputeCase.refresh} />
         ) : disputeCase.error ? (
           <div role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
             {disputeCase.error}

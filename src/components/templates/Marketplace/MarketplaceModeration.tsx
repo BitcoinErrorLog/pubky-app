@@ -15,6 +15,7 @@ import { useMarketplaceModeration } from '@/hooks/useMarketplaceModeration/useMa
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function MarketplaceModeration() {
   const moderation = useMarketplaceModeration();
@@ -45,6 +46,8 @@ export function MarketplaceModeration() {
 
         {moderation.isLoading ? (
           <Skeleton className="h-40 w-full" />
+        ) : moderation.needsSession && moderation.error ? (
+          <MarketplaceSessionRequiredCard message={moderation.error} />
         ) : moderation.error ? (
           <div role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
             {moderation.error}
@@ -99,6 +102,8 @@ export function MarketplaceModeration() {
           </div>
         ) : disputes.isLoading ? (
           <Skeleton className="h-40 w-full" />
+        ) : disputes.needsSession && disputes.error ? (
+          <MarketplaceSessionRequiredCard message={disputes.error} />
         ) : disputes.error ? (
           <div role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
             {disputes.error}

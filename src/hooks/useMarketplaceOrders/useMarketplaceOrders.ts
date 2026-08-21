@@ -5,9 +5,11 @@ import { getCommerceAdapterMode, getCommercePollIntervalMs, isTransactionalComme
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
 import { buildMarketplaceOrderAggregateId, isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
+import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOrder, MarketplacePayment, MarketplaceReceipt } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export interface MarketplaceOrderView {
   order: MarketplaceOrder;
@@ -30,13 +32,17 @@ export interface MarketplaceOrderView {
  */
 export function useMarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  // Refetch trigger: connecting a session replaces this store object, so the
+  // effect below re-runs immediately instead of waiting for the next poll.
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const adapterMode = getCommerceAdapterMode();
   const isTransactional = isTransactionalCommerceMode(adapterMode);
   const [orders, setOrders] = useState<MarketplaceOrderView[]>([]);
   const [isLoading, setIsLoading] = useState(isTransactional && Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
+  const [needsSession, setNeedsSession] = useState(false);
 
-  const refresh = () => loadOrders(currentUserPubky, setOrders, setIsLoading, setError);
+  const refresh = () => loadOrders(currentUserPubky, setOrders, setIsLoading, setError, setNeedsSession);
 
   useEffect(() => {
     if (!currentUserPubky || !isTransactional) {
@@ -44,15 +50,15 @@ export function useMarketplaceOrders() {
       return;
     }
     let active = true;
-    void loadOrders(currentUserPubky, setOrders, setIsLoading, setError);
+    void loadOrders(currentUserPubky, setOrders, setIsLoading, setError, setNeedsSession);
     const timer = window.setInterval(() => {
-      if (active) void loadOrders(currentUserPubky, setOrders, setIsLoading, setError);
+      if (active) void loadOrders(currentUserPubky, setOrders, setIsLoading, setError, setNeedsSession);
     }, getCommercePollIntervalMs());
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [currentUserPubky, isTransactional]);
+  }, [currentUserPubky, isTransactional, marketplaceSession]);
 
   const advancePayment = async (
     payment: MarketplacePayment,
@@ -88,7 +94,15 @@ export function useMarketplaceOrders() {
       }
       await refresh();
       return true;
-    } catch {
+    } catch (actionError) {
+      if (isMarketplaceSessionRequiredError(actionError)) {
+        // Expiry mid-action must surface the reconnect affordance, not a
+        // generic failure: the surface swaps to the session-required card.
+        setNeedsSession(true);
+        setError(actionError.message);
+        toast({ variant: 'error', description: actionError.message });
+        return false;
+      }
       toast({ variant: 'error', description: 'Could not advance the sandbox payment.' });
       return false;
     }
@@ -119,13 +133,19 @@ export function useMarketplaceOrders() {
       }
       await refresh();
       return true;
-    } catch {
+    } catch (actionError) {
+      if (isMarketplaceSessionRequiredError(actionError)) {
+        setNeedsSession(true);
+        setError(actionError.message);
+        toast({ variant: 'error', description: actionError.message });
+        return false;
+      }
       toast({ variant: 'error', description: 'Could not update this order.' });
       return false;
     }
   };
 
-  return { orders, isLoading, error, refresh, advancePayment, actOnOrder, adapterMode };
+  return { orders, isLoading, error, needsSession, refresh, advancePayment, actOnOrder, adapterMode };
 }
 
 async function loadOrders(
@@ -133,6 +153,7 @@ async function loadOrders(
   setOrders: Dispatch<SetStateAction<MarketplaceOrderView[]>>,
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
+  setNeedsSession: Dispatch<SetStateAction<boolean>>,
 ): Promise<void> {
   if (!currentUserPubky || !isTransactionalCommerceMode(getCommerceAdapterMode())) return;
   try {
@@ -148,10 +169,11 @@ async function loadOrders(
     );
     setOrders(views);
     setError(null);
+    setNeedsSession(false);
   } catch (loadError) {
-    // A missing/expired marketplace session carries actionable guidance
-    // (approve the connection on your signer) — surface it instead of a
-    // generic failure.
+    // A missing/expired marketplace session is not a dead end: flag it so the
+    // surface renders the session-connect affordance with the real guidance.
+    setNeedsSession(isMarketplaceSessionRequiredError(loadError));
     setError(
       loadError instanceof Error && loadError.name === 'AppError'
         ? loadError.message

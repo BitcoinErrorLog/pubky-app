@@ -12,11 +12,21 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications/useMarketplaceNotifications';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 
 export function MarketplaceNotifications() {
-  const { notifications, preferences, unreadCount, isLoading, error, canMarkRead, markAllRead, updatePreferences } =
-    useMarketplaceNotifications();
+  const {
+    notifications,
+    preferences,
+    unreadCount,
+    isLoading,
+    error,
+    needsSession,
+    canMarkRead,
+    markAllRead,
+    updatePreferences,
+  } = useMarketplaceNotifications();
 
   const setPreference = (key: 'messages' | 'offers' | 'bids' | 'auctions', checked: boolean) => {
     if (!preferences) return;
@@ -94,6 +104,8 @@ export function MarketplaceNotifications() {
 
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
+        ) : needsSession && error ? (
+          <MarketplaceSessionRequiredCard message={error} />
         ) : error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">
             {error}

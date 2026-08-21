@@ -65,6 +65,10 @@ export function useMarketplaceSellerDashboard() {
     sellerOrders,
     offers: offers.offers.filter(({ sellerPubky }) => sellerPubky === currentUserPubky),
     isLoading: localListings === undefined || orders.isLoading || offers.isLoading,
+    // Orders and offers ride the same durable session, so either flag means
+    // the dashboard's remote-backed numbers are missing until reconnect.
+    needsSession: orders.needsSession || offers.needsSession,
+    sessionError: (orders.needsSession ? orders.error : null) ?? (offers.needsSession ? offers.error : null),
     metrics: {
       activeListings: activeListings.length,
       totalInventory,

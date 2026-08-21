@@ -25,6 +25,7 @@ import { MarketplaceDigitalDeliveryNotice } from '@/organisms/Marketplace/Market
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceListingProps {
@@ -310,11 +311,15 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 Transactions are disabled in this deployment.
               </Typography>
             )}
-            {isTransactionalCommerceMode(adapterMode) && negotiation.error && (
-              <Typography as="p" role="alert" className="text-center text-sm text-amber-300">
-                {negotiation.error}
-              </Typography>
-            )}
+            {isTransactionalCommerceMode(adapterMode) &&
+              negotiation.error &&
+              (negotiation.needsSession ? (
+                <MarketplaceSessionRequiredCard message={negotiation.error} onConnected={negotiation.refresh} />
+              ) : (
+                <Typography as="p" role="alert" className="text-center text-sm text-amber-300">
+                  {negotiation.error}
+                </Typography>
+              ))}
           </div>
         </div>
       </Container>

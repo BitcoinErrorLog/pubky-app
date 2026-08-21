@@ -19,6 +19,7 @@ import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarket
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function MarketplaceCart() {
   const router = useRouter();
@@ -170,6 +171,11 @@ export function MarketplaceCart() {
                       : 'Shipping and tax are calculated authoritatively by the transaction service at checkout.'}
                   </Typography>
                 </div>
+                {/* A checkout rejected for a missing/expired durable session is
+                    recoverable in place: connect, then place the order again. */}
+                {checkout.needsSession && checkout.sessionError && (
+                  <MarketplaceSessionRequiredCard message={checkout.sessionError} />
+                )}
                 <Button className="w-full rounded-full" onClick={submit}>
                   {isSandbox ? 'Place sandbox order' : 'Place order'}
                 </Button>

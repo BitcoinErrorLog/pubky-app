@@ -15,6 +15,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function MarketplaceDashboard() {
   const dashboard = useMarketplaceSellerDashboard();
@@ -79,6 +80,13 @@ export function MarketplaceDashboard() {
           <Skeleton className="h-48 w-full" />
         ) : (
           <>
+            {/* Local listings stay real without a session, but orders/offers
+                come from the durable service — without a session the work
+                queues and revenue below would silently read as zero, so say
+                so and offer the connect affordance instead. */}
+            {dashboard.needsSession && dashboard.sessionError && (
+              <MarketplaceSessionRequiredCard message={dashboard.sessionError} />
+            )}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {[
                 { label: 'Active listings', value: dashboard.metrics.activeListings, icon: ShoppingBag },

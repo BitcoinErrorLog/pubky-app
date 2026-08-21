@@ -16,11 +16,13 @@ import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const { orders, isLoading, error, refresh, advancePayment, actOnOrder, adapterMode } = useMarketplaceOrders();
+  const { orders, isLoading, error, needsSession, refresh, advancePayment, actOnOrder, adapterMode } =
+    useMarketplaceOrders();
   const isSandbox = adapterMode === 'sandbox';
   const hasTransactionBackend = isTransactionalCommerceMode(adapterMode);
 
@@ -66,6 +68,8 @@ export function MarketplaceOrders() {
           </div>
         ) : isLoading ? (
           <Skeleton className="h-48 w-full" />
+        ) : needsSession && error ? (
+          <MarketplaceSessionRequiredCard message={error} />
         ) : error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">
             {error}

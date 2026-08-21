@@ -3,8 +3,10 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 /**
  * The moderator dispute adjudication queue (`GET /v1/disputes`) — durable
@@ -21,24 +23,29 @@ import { useAuthStore } from '@/stores/auth/auth.store';
  */
 export function useMarketplaceDisputes() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  // Refetch trigger: connecting a session replaces this store object, so the
+  // effect below re-runs immediately.
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const adapterMode = getCommerceAdapterMode();
   const isDurable = isDurableCommerceMode(adapterMode);
   const [disputes, setDisputes] = useState<MarketplaceOrder[]>([]);
   const [isModerator, setIsModerator] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(isDurable && Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
+  const [needsSession, setNeedsSession] = useState(false);
 
-  const refresh = () => loadDisputes(currentUserPubky, setDisputes, setIsModerator, setIsLoading, setError);
+  const refresh = () =>
+    loadDisputes(currentUserPubky, setDisputes, setIsModerator, setIsLoading, setError, setNeedsSession);
 
   useEffect(() => {
     if (!currentUserPubky || !isDurable) {
       setIsLoading(false);
       return;
     }
-    void loadDisputes(currentUserPubky, setDisputes, setIsModerator, setIsLoading, setError);
-  }, [currentUserPubky, isDurable]);
+    void loadDisputes(currentUserPubky, setDisputes, setIsModerator, setIsLoading, setError, setNeedsSession);
+  }, [currentUserPubky, isDurable, marketplaceSession]);
 
-  return { disputes, isModerator, isLoading, error, adapterMode, refresh };
+  return { disputes, isModerator, isLoading, error, needsSession, adapterMode, refresh };
 }
 
 async function loadDisputes(
@@ -47,6 +54,7 @@ async function loadDisputes(
   setIsModerator: Dispatch<SetStateAction<boolean | null>>,
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
+  setNeedsSession: Dispatch<SetStateAction<boolean>>,
 ): Promise<void> {
   if (!currentUserPubky || !isDurableCommerceMode(getCommerceAdapterMode())) return;
   try {
@@ -60,9 +68,11 @@ async function loadDisputes(
       setDisputes(queue);
     }
     setError(null);
+    setNeedsSession(false);
   } catch (loadError) {
-    // A missing/expired marketplace session carries actionable guidance
-    // (approve the connection on your signer) — surface it as-is.
+    // A missing/expired marketplace session is not a dead end: flag it so the
+    // surface renders the session-connect affordance with the real guidance.
+    setNeedsSession(isMarketplaceSessionRequiredError(loadError));
     setError(
       loadError instanceof Error && loadError.name === 'AppError'
         ? loadError.message

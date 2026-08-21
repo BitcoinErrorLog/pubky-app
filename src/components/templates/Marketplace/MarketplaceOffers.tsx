@@ -17,6 +17,7 @@ import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -59,6 +60,8 @@ export function MarketplaceOffers() {
 
         {offers.isLoading ? (
           <Skeleton className="h-40 w-full" />
+        ) : offers.needsSession && offers.error ? (
+          <MarketplaceSessionRequiredCard message={offers.error} />
         ) : offers.error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">
             {offers.error}

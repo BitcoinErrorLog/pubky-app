@@ -6,9 +6,11 @@ import { useForm } from 'react-hook-form';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { buildMarketplaceOrderAggregateId, isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
+import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceDisputeCaseFile, MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   type MarketplaceDisputeEvidenceFormData,
   marketplaceDisputeEvidenceFormDefaults,
@@ -36,10 +38,14 @@ import {
  */
 export function useMarketplaceDisputeCase(orderId: string, active: boolean) {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  // Refetch trigger: connecting a session replaces this store object, so an
+  // open case dialog reloads immediately after the session connects.
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const [order, setOrder] = useState<MarketplaceOrder | null>(null);
   const [caseFile, setCaseFile] = useState<MarketplaceDisputeCaseFile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsSession, setNeedsSession] = useState(false);
 
   const evidenceForm = useForm<MarketplaceDisputeEvidenceFormData>({
     resolver: zodResolver(marketplaceDisputeEvidenceFormSchema),
@@ -52,12 +58,13 @@ export function useMarketplaceDisputeCase(orderId: string, active: boolean) {
     mode: 'onChange',
   });
 
-  const refresh = () => loadCase(currentUserPubky, orderId, setOrder, setCaseFile, setIsLoading, setError);
+  const refresh = () =>
+    loadCase(currentUserPubky, orderId, setOrder, setCaseFile, setIsLoading, setError, setNeedsSession);
 
   useEffect(() => {
     if (!active) return;
-    void loadCase(currentUserPubky, orderId, setOrder, setCaseFile, setIsLoading, setError);
-  }, [active, orderId, currentUserPubky]);
+    void loadCase(currentUserPubky, orderId, setOrder, setCaseFile, setIsLoading, setError, setNeedsSession);
+  }, [active, orderId, currentUserPubky, marketplaceSession]);
 
   const executeAgainstFreshOrder = async (kind: string, payload: Record<string, unknown>): Promise<boolean> => {
     if (!order) return false;
@@ -85,7 +92,15 @@ export function useMarketplaceDisputeCase(orderId: string, active: boolean) {
       }
       await refresh();
       return true;
-    } catch {
+    } catch (actionError) {
+      if (isMarketplaceSessionRequiredError(actionError)) {
+        // Expiry mid-adjudication surfaces the reconnect affordance in the
+        // dialog instead of a generic failure toast.
+        setNeedsSession(true);
+        setError(actionError.message);
+        toast({ variant: 'error', description: actionError.message });
+        return false;
+      }
       toast({ variant: 'error', description: 'Could not update this dispute.' });
       return false;
     }
@@ -124,6 +139,7 @@ export function useMarketplaceDisputeCase(orderId: string, active: boolean) {
     caseFile,
     isLoading,
     error,
+    needsSession,
     refresh,
     evidenceForm,
     resolveForm,
@@ -142,6 +158,7 @@ async function loadCase(
   setCaseFile: Dispatch<SetStateAction<MarketplaceDisputeCaseFile | null>>,
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
+  setNeedsSession: Dispatch<SetStateAction<boolean>>,
 ): Promise<void> {
   if (!currentUserPubky || !isDurableCommerceMode(getCommerceAdapterMode())) return;
   setIsLoading(true);
@@ -156,12 +173,17 @@ async function loadCase(
       setOrder(null);
       setCaseFile(null);
       setError('This case file is not available to this account.');
+      setNeedsSession(false);
       return;
     }
     setOrder(order);
     setCaseFile(caseFile);
     setError(null);
+    setNeedsSession(false);
   } catch (loadError) {
+    // A missing/expired marketplace session is not a dead end: flag it so the
+    // dialog renders the session-connect affordance with the real guidance.
+    setNeedsSession(isMarketplaceSessionRequiredError(loadError));
     setError(
       loadError instanceof Error && loadError.name === 'AppError'
         ? loadError.message
