@@ -18,3 +18,32 @@ export function MarketplaceSkeleton({ count = COMMERCE_CATALOG_SKELETON_COUNT }:
     </div>
   );
 }
+
+/** Mirrors the listing detail layout (media pane beside title/price/actions) while the record loads. */
+export function MarketplaceListingDetailSkeleton() {
+  return (
+    <div data-testid="marketplace-listing-skeleton" className="grid gap-6 lg:grid-cols-2 lg:gap-10">
+      <div className="flex flex-col gap-3">
+        <Skeleton className="aspect-[4/3] w-full rounded-xl" />
+        <div className="flex gap-2">
+          <Skeleton className="size-16 rounded-lg" />
+          <Skeleton className="size-16 rounded-lg" />
+          <Skeleton className="size-16 rounded-lg" />
+        </div>
+      </div>
+      <div className="flex flex-col gap-4">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-9 w-4/5" />
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-2/5" />
+        <div className="mt-2 flex flex-col gap-2">
+          <Skeleton className="h-11 w-full rounded-full" />
+          <Skeleton className="h-11 w-full rounded-full" />
+        </div>
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-11/12" />
+        <Skeleton className="h-4 w-3/5" />
+      </div>
+    </div>
+  );
+}
