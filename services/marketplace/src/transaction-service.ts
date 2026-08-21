@@ -768,6 +768,11 @@ export class MarketplaceTransactionService {
     switch (command.kind) {
       case 'listing.register':
         return this.registerListing(actorPubky, command);
+      case 'listing.sync':
+        // The sandbox has no homeserver to fetch canonical records from —
+        // service-side sync exists only on the durable service. Refuse
+        // honestly rather than fabricate a registration.
+        return failure('INVALID_COMMAND', 'Listing sync is not available on the sandbox service.');
       case 'inventory.reserve':
         return this.reserveInventory(actorPubky, command);
       case 'offer.create':

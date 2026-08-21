@@ -63,6 +63,27 @@ export const registerListingCommandSchema = createCommerceCommandSchema(
   registerListingPayloadSchema,
 );
 
+/**
+ * `listing.sync` (durable service only, ANY authenticated actor): asks the
+ * service to fetch the canonical seller-signed listing record from the
+ * seller's homeserver and register (or refresh) the inventory aggregate from
+ * it. Provenance comes from the service's own homeserver fetch — the record
+ * lives on a seller-owned path — so the actor deliberately need not be the
+ * seller: any buyer can heal a listing published before durable-mode
+ * registration existed. Convergent, not optimistic: callers always send
+ * `expectedRevision` 0, and a pre-existing aggregate is a no-op success,
+ * never a conflict.
+ */
+export const syncListingCommandSchema = createCommerceCommandSchema(
+  'listing.sync',
+  z
+    .object({
+      sellerPubky: commercePubkySchema,
+      listingId: commerceEntityIdSchema,
+    })
+    .strict(),
+);
+
 export const reserveInventoryCommandSchema = createCommerceCommandSchema(
   'inventory.reserve',
   z
@@ -369,6 +390,7 @@ export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
 
 export const marketplaceCommandSchema = z.union([
   registerListingCommandSchema,
+  syncListingCommandSchema,
   reserveInventoryCommandSchema,
   createOfferCommandSchema,
   counterOfferCommandSchema,
@@ -445,6 +467,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
 ]);
 
 export type RegisterListingCommand = z.infer<typeof registerListingCommandSchema>;
+export type SyncListingCommand = z.infer<typeof syncListingCommandSchema>;
 export type ReserveInventoryCommand = z.infer<typeof reserveInventoryCommandSchema>;
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;

@@ -239,6 +239,20 @@ export class CommerceController {
   }
 
   /**
+   * Buyer-side heal (durable modes only): asks the transaction service to
+   * fetch the canonical seller-signed record from the homeserver and
+   * register the listing from it. Any signed-in user may trigger it — the
+   * seller is not required.
+   */
+  static async syncListingRegistration(sellerPubky: unknown, listingId: unknown) {
+    return await CommerceApplication.syncListingRegistration(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.pubky(sellerPubky),
+      CommerceRecordNormalizer.entityId(listingId),
+    );
+  }
+
+  /**
    * A seller's public reputation overview (`rated` / `new_seller` /
    * `unavailable`) for rating headers. Network-only: reputation is index
    * data, never cached as a record.

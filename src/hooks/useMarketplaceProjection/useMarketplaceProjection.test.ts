@@ -15,6 +15,7 @@ vi.mock('@/config/commerce', async () => {
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMarketplaceListingProjection: vi.fn(),
+    syncListingRegistration: vi.fn(),
   },
 }));
 
@@ -65,6 +66,58 @@ describe('useMarketplaceProjection', () => {
 
     expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalled();
     expect(result.current.projection).toMatchObject({ serverRevision: 2 });
+  });
+
+  it('heals an unregistered listing with one service-side sync, then re-reads', async () => {
+    config.mode = 'transaction-service';
+    const registered = {
+      aggregateId: `listing:${'y'.repeat(52)}_item`,
+      serverRevision: 1,
+    };
+    vi.mocked(CommerceController.getMarketplaceListingProjection)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(registered as never);
+    vi.mocked(CommerceController.syncListingRegistration).mockResolvedValue({ ok: true, revision: 1 } as never);
+
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledWith('y'.repeat(52), 'item');
+    expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalledTimes(2);
+    expect(result.current.projection).toMatchObject({ serverRevision: 1 });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('shows the honest copy when the sync also fails — the seller is not required for it', async () => {
+    config.mode = 'transaction-service';
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(null);
+    vi.mocked(CommerceController.syncListingRegistration).mockResolvedValue({
+      ok: false,
+      error: { code: 'NOT_FOUND', message: "The seller's homeserver has no such listing record." },
+    } as never);
+
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
+    expect(result.current.projection).toBeNull();
+    expect(result.current.error).toBe(
+      'This listing could not be prepared for checkout. It may have been removed by the seller.',
+    );
+  });
+
+  it('never attempts a sync in sandbox mode', async () => {
+    config.mode = 'sandbox';
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(null);
+
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(CommerceController.syncListingRegistration).not.toHaveBeenCalled();
+    expect(result.current.error).toBe(
+      'This listing could not be prepared for checkout. It may have been removed by the seller.',
+    );
   });
 
   it('surfaces the durable session requirement instead of a generic failure', async () => {
