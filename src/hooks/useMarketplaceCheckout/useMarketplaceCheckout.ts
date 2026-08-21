@@ -185,10 +185,20 @@ export function useMarketplaceCheckout(
               record.listingId,
             );
             if (!projection) return null;
+            // Snapshot the chosen variant for fulfillment display: the id and
+            // its option dimensions ride the line as an ordered {name, value}
+            // array (safe through the wire-casing layer) and are echoed back
+            // on the order for packing slips and order rows.
+            const variant = record.variants.find(({ id }) => id === item.variantId);
+            const variantOptions = variant ? Object.entries(variant.options) : [];
             return {
               listingAggregateId: projection.aggregateId,
               expectedRevision: projection.serverRevision,
               quantity: item.quantity,
+              ...(variant ? { variantId: variant.id } : {}),
+              ...(variantOptions.length
+                ? { variantOptions: variantOptions.map(([name, value]) => ({ name, value })) }
+                : {}),
             };
           }),
         );

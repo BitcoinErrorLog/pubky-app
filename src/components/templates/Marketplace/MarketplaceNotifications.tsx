@@ -14,6 +14,7 @@ import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
+import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import {
@@ -162,6 +163,9 @@ export function MarketplaceNotifications() {
                   <div className="min-w-0 flex-1">
                     <Typography as="p" className="font-semibold">
                       {notificationLabel(notification.type)}
+                      {/* §8-permitted monetary context (offer amount, auction
+                          visible price), formatted per BIP-177 for bitcoin. */}
+                      {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
                     </Typography>
                     <Typography as="p" className="truncate text-sm text-muted-foreground">
                       From {notification.actorPubky.slice(0, 10)}…

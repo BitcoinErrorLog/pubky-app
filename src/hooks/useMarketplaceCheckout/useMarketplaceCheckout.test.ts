@@ -124,6 +124,18 @@ describe('useMarketplaceCheckout', () => {
               listingAggregateId: `listing:${listing.ownerPubky}_${listing.listingId}`,
               expectedRevision: 1,
               quantity: 1,
+              // The chosen variant rides the line as a display snapshot: the
+              // id plus its option dimensions as an ordered {name, value}
+              // array (safe through the wire-casing layer).
+              variantId: listing.variants[0].id,
+              ...(Object.keys(listing.variants[0].options).length
+                ? {
+                    variantOptions: Object.entries(listing.variants[0].options).map(([name, value]) => ({
+                      name,
+                      value,
+                    })),
+                  }
+                : {}),
             },
           ],
           guaranteePolicyVersion: 1,

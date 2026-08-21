@@ -68,6 +68,13 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
                     <td className="py-1.5 pr-2">{line.quantity}</td>
                     <td className="py-1.5 pr-2">
                       {line.title}
+                      {/* The buyer's variant snapshot from checkout — the whole
+                          point of a packing slip is packing the right variant. */}
+                      {line.variantOptions?.length ? (
+                        <span className="block text-xs text-neutral-800">
+                          {line.variantOptions.map(({ name, value }) => `${name}: ${value}`).join(' · ')}
+                        </span>
+                      ) : null}
                       <span className="block text-xs text-neutral-600">{formatCommerceMoney(line.unitPrice)} each</span>
                     </td>
                     <td className="py-1.5 text-right">{formatCommerceMoney(line.subtotal)}</td>

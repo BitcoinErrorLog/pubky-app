@@ -155,8 +155,6 @@ describe('MarketplaceTransactionService.execute', () => {
     'message.send',
     'notification.mark_read',
     'notification.preferences.update',
-    'order.cancel_request',
-    'order.cancel_approve',
   ] as const)('rejects the sandbox-only command kind %s before sending', async (kind) => {
     await establishSession();
 
@@ -169,6 +167,8 @@ describe('MarketplaceTransactionService.execute', () => {
   it.each([
     'fulfillment.ship',
     'fulfillment.confirm_delivery',
+    'order.cancel_request',
+    'order.cancel_approve',
     'return.request',
     'return.approve',
     'return.receive',

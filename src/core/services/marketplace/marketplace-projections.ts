@@ -76,6 +76,12 @@ export const marketplaceNotificationSchema = z
       'review_received',
     ]),
     aggregateId: z.string(),
+    // Optional monetary context (ADR-0019 §8: present only where the
+    // recipient already sees the figure in a role-scoped projection — the
+    // offer amount on offer notifications, the auction's visible price on
+    // outbid/auction_won/auction_ended). Null on service rows delivered
+    // before amounts existed and absent from sandbox notifications.
+    amount: marketplaceMoneySchema.nullish(),
     createdAt: z.string(),
     readAt: z.string().nullable(),
   })
@@ -153,6 +159,10 @@ export const marketplaceOrderSchema = z
         quantity: z.number().int().positive(),
         unitPrice: marketplaceMoneySchema,
         subtotal: marketplaceMoneySchema,
+        // The buyer's variant snapshot from checkout, echoed for fulfillment
+        // display. Absent on orders placed before the field existed.
+        variantId: z.string().optional(),
+        variantOptions: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
       }),
     ),
     subtotal: marketplaceMoneySchema,
