@@ -171,8 +171,9 @@ describe('Database Initialization', () => {
       ([message]) => typeof message === 'string' && message.startsWith('Database version mismatch'),
     );
 
-    // The normalized version will be injectedVersion / 10
-    const normalizedVersion = injectedVersion / 10;
+    // The normalized version is floor(injectedVersion / 10) — the fractional
+    // part is Dexie's additive auto-bump bookkeeping, not a real version.
+    const normalizedVersion = Math.floor(injectedVersion / 10);
     expect(mismatchLog?.[0]).toBe(`Database version mismatch. Current: ${normalizedVersion}, Expected: ${DB_VERSION}`);
 
     expect(reproductionDb.verno).toBe(DB_VERSION);
@@ -272,6 +273,30 @@ describe('Database Initialization', () => {
     expect(result.wasDbReset).toBe(true);
 
     // Clean up test database to avoid leaking into other tests
+    await testDb.delete();
+  });
+
+  it('does NOT recreate when Dexie auto-bumped the native version for an additive schema change', async () => {
+    // Regression: Dexie 4 bumps the native version by +1 (e.g. 30 -> 31) when
+    // tables are added at the same declared version. Treating 31 as version
+    // 3.1 !== 3 wiped every returning browser's local database after each
+    // additive deploy.
+    const testDbName = `${DB_NAME}-additive-bump`;
+    const testDb = new AppDatabase(testDbName);
+
+    await waitForDatabaseDeletion(testDbName, () => testDb.close());
+
+    const firstResult = await testDb.initialize();
+    expect(firstResult.wasDbReset).toBe(true); // new DB
+
+    // Simulate Dexie's +1 auto-bump: same tables, native version +1.
+    testDb.close();
+    const baselineVersion = await readNativeDatabaseVersion(testDbName);
+    await openNativeDatabase(testDbName, { version: baselineVersion + 1, upgrade: () => {} });
+
+    const result = await testDb.initialize();
+    expect(result.wasDbReset).toBe(false);
+
     await testDb.delete();
   });
 

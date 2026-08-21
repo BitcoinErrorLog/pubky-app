@@ -55,3 +55,17 @@ The rule this establishes for the remaining pre-launch work: while version 3 is 
 
 - [ADR 0007: Dexie Version Normalization](0007-dexie-version-normalization.md)
 - [ADR 0019: Marketplace Transaction Authority](0019-marketplace-transaction-authority.md)
+
+## Amendment (2026-08-21): the version-3 fold policy after the first deployment
+
+Version 3 shipped to the staging deployment on 2026-08-21, so "fold new tables
+into unreleased version 3" stopped being safe that morning: Dexie 4 performs
+additive table creation in place by bumping the NATIVE IndexedDB version by +1
+(30 -> 31) at the same declared version, and the initialization guard treated
+the resulting 3.1 as a version mismatch — recreating (wiping) the local
+database for every returning browser after each additive deploy. The guard now
+floors the normalized version, so Dexie's additive auto-migrations no longer
+trigger recreation. Standing policy from here: additive table additions at the
+declared version are safe and wipe nothing; any breaking schema change
+(indexes, primary keys, reshaped rows) requires a real DB_VERSION bump, which
+performs the documented destructive recreate.

@@ -294,9 +294,15 @@ export class AppDatabase extends Dexie {
     }
 
     // Dexie always multiplies the version by 10 internally
-    // If the version is >= 10, it's been multiplied by Dexie, so divide it back
+    // If the version is >= 10, it's been multiplied by Dexie, so divide it back.
+    // Dexie 4 additionally auto-bumps the native version by +1 when tables are
+    // added to the SAME declared version (31 for declared version 3 after an
+    // additive schema change), so floor the quotient: a fractional remainder is
+    // Dexie's own in-place migration bookkeeping, not a version mismatch, and
+    // treating it as one recreated (wiped) the database on every load after an
+    // additive deploy.
     if (version >= AppDatabase.DEXIE_VERSION_MULTIPLIER) {
-      return version / AppDatabase.DEXIE_VERSION_MULTIPLIER;
+      return Math.floor(version / AppDatabase.DEXIE_VERSION_MULTIPLIER);
     }
 
     // If version is < 10, it's the raw user version (shouldn't happen in practice)
