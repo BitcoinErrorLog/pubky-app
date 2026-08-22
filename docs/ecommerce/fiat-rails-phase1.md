@@ -134,3 +134,36 @@ explicitly deferred by the plan: client UX (Phase 2), PayPal (Phase 3), seller-o
 Stripe Connect accounts (Phase 4 — the deployed processor settles into the operator's
 test account, staging-only by declaration), automated chargeback→dispute bridge
 (Phase 5), live mode (Phase 6, gated on security review).
+
+## Update 2026-08-22: Stripe proven live; PayPal built and deployed fail-closed
+
+**The Stripe live proof landed.** With a real test-mode key on the `fiat-verifier`
+Railway service (webhook self-provisioned per the runbook above), the full purchase
+ran on the deployed stack: USD lock → proof bundle → gateway invoice → hosted
+Checkout paid with the `4242` test card in a real browser → webhook `detected`
+(amount matched) → 300s settlement → `confirmed` → `completed` → access credential →
+guarded content read. `/health` reports `stripe_enabled:true, stripe_webhook_configured:true`.
+
+**PayPal (the plan's Phase 3) is built, tested (72 verifier tests, 24 new), and
+deployed fail-closed.** Orders v2 with capture-on-approval, postback-verified
+webhooks treated as hints (only a fresh order+capture pull with the exact criterion
+amount advances state), the same settlement machine and reversal corroboration as
+Stripe. Verifier configuration:
+
+| Env var                                     | Meaning                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Sandbox REST app credentials, set together; absent ⇒ the PayPal path answers 503 `fiat_unavailable`    |
+| `PAYPAL_WEBHOOK_ID`                         | Webhook verification id; absent ⇒ webhook endpoint 503s and detection is poll-only                     |
+| `PAYPAL_API_BASE`                           | Defaults to the sandbox host; a live host refuses to boot without `FIAT_LIVE_MODE=true`                |
+| `FIAT_DEFAULT_PROCESSOR`                    | `stripe` (default) or `paypal`; used when both processors are configured and the buyer does not choose |
+
+`POST /checkout-sessions` accepts an optional `processor` (`stripe`\|`paypal`);
+the binding is permanent per correlation (asking for the other processor afterwards
+is a 409 — switching would strand a still-payable session the gateway no longer
+observes). The design §7 `Locks · PayPal` badge case is now reachable.
+
+**Remaining for the live PayPal sandbox proof** (not fabricated; mocked-API lifecycle
+tests plus the deployed fail-closed behavior are what is proven today): a PayPal
+sandbox client id + secret on the Railway service, optionally a webhook id, and a
+sandbox buyer login to approve the checkout via `checkout <bundleId> paypal` in the
+rails driver.
