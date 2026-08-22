@@ -2,6 +2,8 @@
 
 Read this before evaluating the marketplace. It exists so nobody has to reverse-engineer which behavior is genuine and which is simulated.
 
+For the complete hierarchical feature inventory, see [`FEATURES.md`](FEATURES.md).
+
 This is a **pre-production prototype**, now running as a staging deployment: the client at <https://shop.pubky.app> (Vercel), the durable transaction service and the payment rails (Bitcoin **regtest** only — valueless coins) on Railway, and a dedicated marketplace-indexing Nexus on Railway. Nothing here has handled real funds, and mainnet remains gated on the independent security review below.
 
 Last updated: 2026-08-21.
