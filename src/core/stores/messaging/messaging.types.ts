@@ -13,19 +13,12 @@ export interface MessagingState {
    * sync/receive/mark-read.
    */
   unreadConversations: number;
-  /**
-   * The `kind: 'listing'` (marketplace) slice of {@link unreadConversations}.
-   * Marketplace conversations are operationally time-sensitive, so the
-   * marketplace nav entry carries its own badge; the Messages entry badges
-   * only the general-DM remainder. Same honesty contract as the total.
-   */
-  unreadMarketplaceConversations: number;
 }
 
 export interface MessagingActions {
   setMessagingEnabled: (pubky: string) => void;
   clearMessagingEnabled: () => void;
-  setUnreadConversations: (total: number, marketplace: number) => void;
+  setUnreadConversations: (count: number) => void;
 }
 
 export type MessagingStore = MessagingState & MessagingActions;
@@ -33,7 +26,6 @@ export type MessagingStore = MessagingState & MessagingActions;
 export const messagingInitialState: MessagingState = {
   enabledPubky: null,
   unreadConversations: 0,
-  unreadMarketplaceConversations: 0,
 };
 
 export enum MessagingActionTypes {

@@ -13,7 +13,6 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { getGithubLink, getTelegramLink, getTwitterGetpubkyLink } from '@/config/externalLinks';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
-import { useMarketplaceUnread } from '@/hooks/useMarketplaceUnread/useMarketplaceUnread';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Github2, Telegram, XTwitter } from '@/icons';
@@ -248,19 +247,15 @@ export function HeaderNavigationButtons({
 }: HeaderNavigationButtonsProps) {
   const pathname = usePathname();
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
-  // Honest badges: conversations on THIS device whose last received message
-  // postdates the local read checkpoint — never a server-claimed count. The
-  // marketplace entry carries its own operationally time-sensitive count
-  // (listing conversations + service notifications); Messages carries the rest.
+  // Honest badge: conversations on THIS device whose last received message
+  // postdates the local read checkpoint — never a server-claimed count.
   const unreadMessages = useMessagesUnread();
-  const unreadMarketplace = useMarketplaceUnread();
   const counterString = counter > 21 ? '21+' : counter.toString();
   return (
     <Container className={cn('hidden w-auto flex-row items-center justify-start gap-3 lg:flex', className)}>
       {getNavigationItems().map((item) => {
         const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
         const isMessagesItem = item.href === APP_ROUTES.MESSAGES;
-        const isMarketplaceItem = item.href === APP_ROUTES.MARKETPLACE;
         return (
           <NavigationButton
             key={item.href}
@@ -273,7 +268,7 @@ export function HeaderNavigationButtons({
             isFeedRoute={item.isFeedRoute}
             showNew={isCollectionsItem && showCollectionsNew}
             newLabel={'New'}
-            badgeCount={isMessagesItem ? unreadMessages : isMarketplaceItem ? unreadMarketplace : 0}
+            badgeCount={isMessagesItem ? unreadMessages : 0}
           />
         );
       })}

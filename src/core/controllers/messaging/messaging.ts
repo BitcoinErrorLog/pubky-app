@@ -154,12 +154,12 @@ export class MessagingController {
   static async refreshUnreadCount(): Promise<number> {
     const ownerPubky = useAuthStore.getState().currentUserPubky;
     if (!ownerPubky) {
-      useMessagingStore.getState().setUnreadConversations(0, 0);
+      useMessagingStore.getState().setUnreadConversations(0);
       return 0;
     }
-    const { total, marketplace } = await MessagingApplication.getUnreadConversationCount(ownerPubky);
-    useMessagingStore.getState().setUnreadConversations(total, marketplace);
-    return total;
+    const count = await MessagingApplication.getUnreadConversationCount(ownerPubky);
+    useMessagingStore.getState().setUnreadConversations(count);
+    return count;
   }
 
   /**

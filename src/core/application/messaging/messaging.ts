@@ -161,7 +161,7 @@ export class MessagingApplication {
    * received-and-persisted message newer than the read checkpoint. Local
    * reads only — this never claims knowledge of undelivered mail.
    */
-  static async getUnreadConversationCount(ownerPubky: string): Promise<{ total: number; marketplace: number }> {
+  static async getUnreadConversationCount(ownerPubky: string): Promise<number> {
     return await LocalMessagingService.countUnreadConversations(ownerPubky);
   }
 

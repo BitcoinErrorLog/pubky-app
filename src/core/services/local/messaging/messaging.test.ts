@@ -156,17 +156,17 @@ describe('LocalMessagingService', () => {
       ...messageRow('mine', 100),
       direction: 'sent',
     });
-    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toEqual({ total: 0, marketplace: 0 });
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
 
     await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('theirs', 120));
-    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toEqual({ total: 1, marketplace: 1 });
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(1);
 
     await LocalMessagingService.markConversationRead(OWNER, CONVERSATION_ID, 120);
-    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toEqual({ total: 0, marketplace: 0 });
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
 
     // A later received message flips it back to unread.
     await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('newer', 140));
-    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toEqual({ total: 1, marketplace: 1 });
+    await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(1);
   });
 
   it('updateLinkSnapshot refuses to write without an existing row', async () => {

@@ -13,7 +13,6 @@ import { FileController } from '@/controllers/file/file';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
-import { useMarketplaceUnread } from '@/hooks/useMarketplaceUnread/useMarketplaceUnread';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
@@ -44,7 +43,6 @@ export function MobileFooter({ className }: MobileFooterProps) {
   // Honest device-local unread: conversations whose last received message
   // postdates the local read checkpoint.
   const unreadMessages = useMessagesUnread();
-  const unreadMarketplace = useMarketplaceUnread();
   const localAvatarUrl = useLocalFilesStore((state) => state.profile);
   const { isKeyboardVisible, keyboardOffset } = useKeyboardOffset();
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
@@ -137,12 +135,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
           const itemIsActive = isNavItemActive(pathname, item);
           const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
           const showCollectionsNewTreatment = isCollectionsItem && showCollectionsNew;
-          const itemBadgeCount =
-            item.href === APP_ROUTES.MESSAGES
-              ? unreadMessages
-              : item.href === APP_ROUTES.MARKETPLACE
-                ? unreadMarketplace
-                : 0;
+          const itemBadgeCount = item.href === APP_ROUTES.MESSAGES ? unreadMessages : 0;
           return (
             <Link
               key={item.href}

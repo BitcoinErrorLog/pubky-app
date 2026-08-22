@@ -21,10 +21,6 @@ export function useMessagesUnread(): number {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const enabledPubky = useMessagingStore((state) => state.enabledPubky);
   const unreadConversations = useMessagingStore((state) => state.unreadConversations);
-  // Marketplace (listing) conversations badge on the Marketplace nav entry
-  // instead (see useMarketplaceUnread); this badge carries the remainder so
-  // one unread conversation is never counted twice across the nav.
-  const unreadMarketplace = useMessagingStore((state) => state.unreadMarketplaceConversations);
 
   useEffect(() => {
     if (!currentUserPubky) return;
@@ -33,5 +29,5 @@ export function useMessagesUnread(): number {
     });
   }, [currentUserPubky, enabledPubky]);
 
-  return Math.max(0, unreadConversations - unreadMarketplace);
+  return unreadConversations;
 }

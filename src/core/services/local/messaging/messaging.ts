@@ -131,21 +131,17 @@ export class LocalMessagingService {
    * already arrived on this device — it can never claim knowledge of
    * undelivered mail sitting on a homeserver.
    */
-  static async countUnreadConversations(ownerId: string): Promise<{ total: number; marketplace: number }> {
+  static async countUnreadConversations(ownerId: string): Promise<number> {
     const conversations = await CommerceMessagingConversationModel.findByOwner(ownerId);
-    let total = 0;
-    let marketplace = 0;
+    let unread = 0;
     for (const conversation of conversations) {
       const checkpoint = conversation.last_read_at ?? 0;
       const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversation.conversation_id);
       if (messages.some((message) => message.direction === 'received' && message.recorded_at > checkpoint)) {
-        total += 1;
-        // Marketplace (listing) conversations get their own nav badge — they
-        // are operationally time-sensitive; the Messages badge carries the rest.
-        if (conversation.kind === 'listing') marketplace += 1;
+        unread += 1;
       }
     }
-    return { total, marketplace };
+    return unread;
   }
 
   static async getMessages(ownerId: string, conversationId: string): Promise<CommerceMessagingMessageModelSchema[]> {
