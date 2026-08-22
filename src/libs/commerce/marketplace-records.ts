@@ -651,6 +651,46 @@ function stripSerializedNulls(input: unknown): unknown {
   return input;
 }
 
+const commerceEpochMillisSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+
+const commerceWatchlistItemSchema = z
+  .object({
+    listingOwnerPubky: commercePubkySchema,
+    listingId: commerceEntityIdSchema,
+    watchedAtMs: commerceEpochMillisSchema,
+  })
+  .strict();
+
+const commerceWatchlistTombstoneSchema = z
+  .object({
+    listingOwnerPubky: commercePubkySchema,
+    listingId: commerceEntityIdSchema,
+    removedAtMs: commerceEpochMillisSchema,
+  })
+  .strict();
+
+/**
+ * The PRIVATE watchlist document at `/priv/pubky.app/marketplace/v1/watchlist.json`
+ * (pubky-app-specs 0.6.2-marketplace.6). Entry timestamps are integer epoch
+ * milliseconds — they are last-write-wins merge keys compared numerically.
+ * Every listing key appears at most once across items AND tombstones: the
+ * document is the post-merge resolved state.
+ */
+const commerceWatchlistRecordSchemaInner = commercePublicRecordBaseSchema
+  .extend({
+    recordType: z.literal('watchlist'),
+    items: z.array(commerceWatchlistItemSchema).max(500),
+    tombstones: z.array(commerceWatchlistTombstoneSchema).max(500),
+  })
+  .strict()
+  .superRefine((watchlist, context) => {
+    validateRecordDates(watchlist, context);
+    const keys = [...watchlist.items, ...watchlist.tombstones].map(
+      (entry) => `${entry.listingOwnerPubky}:${entry.listingId}`,
+    );
+    validateUniqueValues(keys, ['items'], 'Watchlist listing keys must be unique across items and tombstones', context);
+  });
+
 export const commerceShopRecordSchema = z.preprocess(stripSerializedNulls, commerceShopRecordSchemaInner);
 export const commerceListingRecordSchema = z.preprocess(stripSerializedNulls, commerceListingRecordSchemaInner);
 export const commerceReviewRecordSchema = z.preprocess(stripSerializedNulls, commerceReviewRecordSchemaInner);
@@ -659,11 +699,15 @@ export const commerceReviewResponseRecordSchema = z.preprocess(
   commerceReviewResponseRecordSchemaInner,
 );
 export const commerceCollectionRecordSchema = z.preprocess(stripSerializedNulls, commerceCollectionRecordSchemaInner);
+export const commerceWatchlistRecordSchema = z.preprocess(stripSerializedNulls, commerceWatchlistRecordSchemaInner);
 
 export type CommerceShopRecord = z.infer<typeof commerceShopRecordSchema>;
 export type CommerceListingRecord = z.infer<typeof commerceListingRecordSchema>;
 export type CommerceReviewRecord = z.infer<typeof commerceReviewRecordSchema>;
 export type CommerceReviewResponseRecord = z.infer<typeof commerceReviewResponseRecordSchema>;
 export type CommerceCollectionRecord = z.infer<typeof commerceCollectionRecordSchema>;
+export type CommerceWatchlistRecord = z.infer<typeof commerceWatchlistRecordSchema>;
+export type CommerceWatchlistRecordItem = CommerceWatchlistRecord['items'][number];
+export type CommerceWatchlistRecordTombstone = CommerceWatchlistRecord['tombstones'][number];
 export type CommerceTombstoneRecord = z.infer<typeof commerceTombstoneRecordSchema>;
 export type CommercePublicRecord = z.infer<typeof commercePublicRecordSchema>;

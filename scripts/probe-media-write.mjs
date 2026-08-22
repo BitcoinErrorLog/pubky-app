@@ -2,7 +2,7 @@
 // ('/pub/pubky.app/:rw') write to the marketplace media path? Reproduces a
 // reported 403 "Session does not have write access to path" on shop avatar
 // upload. Env: STAGING_ADMIN_PASSWORD required.
-import { Pubky, Keypair, AuthFlowKind, PublicKey } from '@synonymdev/pubky';
+import { AuthFlowKind, Keypair, Pubky, PublicKey } from '@synonymdev/pubky';
 
 const HOMESERVER_ADMIN = 'https://admin.homeserver.staging.pubky.app/generate_signup_token';
 const ADMIN_PASSWORD = process.env.STAGING_ADMIN_PASSWORD;
@@ -27,7 +27,6 @@ await signer.approveAuthRequest(flow.authorizationUrl);
 const session = await approval;
 console.log(`session capabilities: ${JSON.stringify(session.capabilities ?? session.info?.capabilities ?? 'n/a')}`);
 
-const paykitWrite = `/pub/paykit/probe-check`;
 const writes = [
   `pubky://${who}/pub/pubky.app/marketplace/v1/media/probe0123456789abcdef01234567`,
   `pubky://${who}/pub/pubky.app/profile.json`,

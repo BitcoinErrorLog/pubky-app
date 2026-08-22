@@ -43,6 +43,8 @@ export const useCommerceStore = create<CommerceStore>()(
         ),
       setMarketplaceSession: (marketplaceSession) =>
         set({ marketplaceSession }, false, CommerceActionTypes.SET_MARKETPLACE_SESSION),
+      setWatchlistSyncStatus: (watchlistSyncStatus) =>
+        set({ watchlistSyncStatus }, false, CommerceActionTypes.SET_WATCHLIST_SYNC_STATUS),
       resetFilters: () =>
         set(
           {

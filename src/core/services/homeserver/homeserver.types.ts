@@ -55,6 +55,18 @@ export type CancelableAuthApproval = {
  */
 export type PubPath<T extends string = string> = `/pub/${T}`;
 
+/**
+ * Type alias for private path pattern.
+ * Represents paths that start with '/priv/' — the homeserver's authenticated
+ * private storage (only the owner's sessions can read, list, or write).
+ */
+export type PrivPath<T extends string = string> = `/priv/${T}`;
+
+/**
+ * A path the current session owns outright: its own `/pub/` or `/priv/` tree.
+ */
+export type OwnedPath<T extends string = string> = PubPath<T> | PrivPath<T>;
+
 export type TGenerateSignupAuthUrlParams = {
   inviteCode: string;
   caps?: Capabilities;
@@ -100,12 +112,12 @@ export type TParseResponseOrUndefinedParams = {
 export type TResolveOwnedSessionPathParams = {
   url: string;
   session: Session | null;
-  pubPathPrefix: string;
+  ownedPathPrefixes: readonly string[];
 };
 
 export type TOwnedSessionPath = {
   session: Session;
-  path: PubPath<string>;
+  path: OwnedPath<string>;
 };
 
 export type TCheckSessionExpirationParams = {
@@ -121,7 +133,7 @@ export type TAssertOkParams = {
 
 export type TGetOwnedResponseParams = {
   session: Session;
-  path: PubPath<string>;
+  path: OwnedPath<string>;
   url: string;
 };
 

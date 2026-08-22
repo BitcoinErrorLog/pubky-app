@@ -11,7 +11,7 @@ import { sleep } from '@/libs/utils/utils';
 import { createCanceledError, extractStatusCode, handleError } from './error.utils';
 import type {
   CancelableAuthApproval,
-  PubPath,
+  OwnedPath,
   TAssertOkParams,
   TCheckSessionExpirationParams,
   TGetOwnedResponseParams,
@@ -218,24 +218,60 @@ export const createCancelableAuthApproval = (
 };
 
 /**
+ * Bridges an owned path to the SDK's `Path` type. The published SDK typing is
+ * `/pub/${string}` only, but the WASM runtime accepts any absolute session
+ * path — the SDK's own capability docs use `/priv/foo.txt:r`, and `/priv/`
+ * session reads/writes were verified against the live staging homeserver
+ * (see docs/ecommerce/watchlist.md). This cast is the single, documented
+ * point where the type-level lag is bridged.
+ */
+export const toSdkPath = (path: OwnedPath<string>): import('@synonymdev/pubky').Path =>
+  path as import('@synonymdev/pubky').Path;
+
+/**
+ * Whether a session's normalized capability entries grant WRITE access to a
+ * path. Entries look like `/pub/pubky.app/:rw`, `/priv/pubky.app/:rw`, or the
+ * root `/:rw` a keypair/recovery-phrase sign-in yields; the segment after the
+ * last `:` carries the abilities. A scope grants a path when the scope is the
+ * path itself or a directory prefix of it.
+ *
+ * This is how the app detects, from session facts rather than by probing for
+ * 403s, whether a legacy session (approved before the grant widened to
+ * include `/priv/pubky.app/:rw`) can use private sync.
+ */
+export const capabilitiesGrantWrite = (capabilities: readonly string[], path: string): boolean => {
+  return capabilities.some((entry) => {
+    const separator = entry.lastIndexOf(':');
+    if (separator <= 0) return false;
+    const scope = entry.slice(0, separator);
+    const abilities = entry.slice(separator + 1);
+    if (!abilities.includes('w')) return false;
+    if (scope === path) return true;
+    const scopeAsDirectory = scope.endsWith('/') ? scope : `${scope}/`;
+    return path.startsWith(scopeAsDirectory);
+  });
+};
+
+/**
  * Resolves an owned session path from a URL.
- * Checks if the URL matches the current session's pubky and is a valid /pub/* path.
+ * Checks if the URL matches the current session's pubky and is a path the
+ * session owns outright (its own /pub/* or /priv/* tree).
  *
  * @param url - The URL to resolve
  * @param session - The current session (or null if not authenticated)
- * @param pubPathPrefix - The pub path prefix constant (e.g., '/pub/')
+ * @param ownedPathPrefixes - The owned path prefixes (e.g., ['/pub/', '/priv/'])
  * @returns Object with session and path if owned, null otherwise
  */
 export const resolveOwnedSessionPath = ({
   url,
   session,
-  pubPathPrefix,
+  ownedPathPrefixes,
 }: TResolveOwnedSessionPathParams): TOwnedSessionPath | null => {
   if (!session) return null;
 
   const pathname = toPathname(url);
-  if (!pathname || !pathname.startsWith(pubPathPrefix)) return null;
-  const path = pathname as PubPath<string>;
+  if (!pathname || !ownedPathPrefixes.some((prefix) => pathname.startsWith(prefix))) return null;
+  const path = pathname as TOwnedSessionPath['path'];
 
   if (url.startsWith('/')) return { session, path };
 
@@ -301,7 +337,7 @@ export const assertOk = async ({ response, url, operation }: TAssertOkParams): P
  * @throws {HomeserverError} When response is not OK or storage.get fails
  */
 export const getOwnedResponse = async ({ session, path, url }: TGetOwnedResponseParams): Promise<Response> => {
-  const response = await session.storage.get(path).catch((error) =>
+  const response = await session.storage.get(toSdkPath(path)).catch((error) =>
     // Transforms the error into an AppError and re-throws to caller
     handleError({ error, additionalContext: { url, method: HttpMethod.GET } }),
   );

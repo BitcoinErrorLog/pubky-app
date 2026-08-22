@@ -50,11 +50,11 @@ A saved search (`commerce_saved_searches`) stores a name plus the exact catalog 
 - **CLOSED — watcher/loser auction close notification**: the service now emits `auction_ended` to every distinct bidder except the winner on close (sold and unsold), sharing the one close event so redelivery dedups by `(event, recipient)`. The client normalizer already handled the kind; the item copy now renders the closing price it carries. Watchers who never bid still have no server event (the service only knows bidders), so the client's `state_change`/ending-soon detection continues to cover pure watchers locally.
 - **CLOSED — outbox payload amounts**: service notifications now carry an optional `amount` (money JSON) where ADR-0019 §8 permits — the offer amount on offer notifications, the auction's visible price on `outbid`/`auction_won`/`auction_ended` — because the recipient already reads those figures in role-scoped projections. Older delivered rows have no amount and keep rendering without one; device-detected rows keep their projection-read amounts as before.
 - Detection recency is bounded by visits: a price drop is detected the next time the user opens a marketplace surface, not the moment it happens. This is inherent to a local-first app without push, and the UI's "checked/observed … by this device" phrasing states it.
-- Watch state does not sync across devices (favorites are device-local today); an alert about a bid placed from another device reports "new bid" rather than "outbid" unless this device observed the user leading. Cross-device sync is decision-gated on a capability the app does not currently hold — see the decision memo below.
+- **CLOSED — cross-device watch sync**: watch state now syncs across devices through a private homeserver document; see the implementation section below. What remains device-local by design: observation baselines and detected alerts (they describe what THIS device observed), and an alert about a bid placed from another device still reports "new bid" rather than "outbid" unless this device observed the user leading — syncing watch marks does not sync observation history, and the UI's per-device labeling stays accurate.
 
-## Decision memo: cross-device watch sync
+## Cross-device watch sync (implemented)
 
-**Status: DECISION REQUIRED — nothing wired.** This memo resolves the "watch state does not sync across devices" gap above by investigation. It concludes that the honest, privacy-preserving mechanism (a private homeserver document) is blocked on a capability grant the app does not request today, so the right move is to decide the grant deliberately rather than ship a half-version. No sync code exists on this branch.
+**Status: IMPLEMENTED and proven live.** The user approved the "new grant" option this section originally put up for decision: the app's single sign-in grant now includes `/priv/pubky.app/:rw` (see `CAPABILITIES` in `src/core/services/homeserver/homeserver.ts`), and the sync engine described below ships on this branch. The privacy analysis and the empirical findings that justified the mechanism are preserved as written — they are the reason the feature looks the way it does.
 
 ### The privacy question, stated first
 
@@ -78,41 +78,46 @@ Two findings matter and one is a trap:
 - **`/priv/` is genuinely private.** From a separate process holding no session, reads, listings, and writes to another user's `/priv/` path are refused with 401 (row 4). The staging homeserver enforces authentication on `/priv/` for both reads and writes — unlike `/pub/`, whose reads are open and whose directories are listable. This is exactly the confidentiality the intent record needs.
   - _Trap that had to be ruled out:_ an in-process "anonymous" client initially appeared to read and even overwrite `/priv/` (200/201). That was a **process-global cookie jar** in the WASM SDK — separate `Client` instances in one Node process share the owner's session cookie. Re-run from a clean process, the same requests return 401. Privacy is load-bearing here, so this was verified cross-process rather than trusted from the single-process run.
 - **The SDK fully expresses `/priv` scopes.** `validateCapabilities("/pub/pubky.app/:rw,/priv/pubky.app/:rw")` normalizes cleanly, the auth flow accepts the string, and the resulting `SessionInfo.capabilities` carries both entries (row 3). There is no SDK-level blocker.
-- **The app's Ring session cannot touch `/priv` today.** The app requests exactly `CAPABILITIES = '/pub/pubky.app/:rw'` (`src/core/services/homeserver/homeserver.ts`). A Ring-authenticated session therefore holds only that scope and is refused on `/priv/` (row 2). Only keypair/recovery-phrase sign-in yields root `/:rw` (row 1) and can reach `/priv/`.
+- **The app's Ring session could not touch `/priv` at measurement time.** The app then requested exactly `CAPABILITIES = '/pub/pubky.app/:rw'` (`src/core/services/homeserver/homeserver.ts`). A Ring-authenticated session therefore held only that scope and was refused on `/priv/` (row 2). Only keypair/recovery-phrase sign-in yielded root `/:rw` (row 1) and could reach `/priv/`. (The grant has since been widened — see below — but sessions approved under the old grant still behave exactly like row 2, which is why the capability gate exists.)
 
-### The exact blocker
+### The decision that unblocked it
 
-**Pubky Ring is the flagship sign-in method** (`AuthApplication.generateAuthUrl()` → "Generates an authentication URL for Pubky Ring App"), and it is the whole point of the model: keys stay in the authenticator, the web app receives only the scoped capabilities it asked for. Those users' sessions **cannot read or write `/priv/`** under the current grant. Recovery-phrase users get root and could, but building sync that silently works for recovery-phrase users and no-ops for Ring users would be a **dishonestly-labeled half-version** — the UI would claim "synced privately via your homeserver" for a population where it does not sync at all. Our rules forbid that.
+**Pubky Ring is the flagship sign-in method**, and under the previous grant (`/pub/pubky.app/:rw` only) Ring sessions could not touch `/priv/` — building sync that silently worked for recovery-phrase users (root `/:rw`) and no-oped for Ring users would have been a dishonestly-labeled half-version. The user approved widening the grant: the app's single sign-in approval now requests `/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw` (one combined grant on purpose — the homeserver keeps ONE session cookie per user per origin, so split approvals clobber each other; see the `CAPABILITIES` comment in `homeserver.ts`). **Already-authorized legacy sessions do not gain the scope retroactively**; how the app stays honest for them is the capability-gating section below.
 
-Enabling private sync for all users requires the app to request a broader capability at sign-in:
+### The record
 
-```
-'/pub/pubky.app/:rw,/priv/pubky.app/:rw'
-```
+`pubky-app-specs` fork `0.6.2-marketplace.6` (branch `marketplace-4-build`) reserves the first private-record convention:
 
-That is a **new Ring capability grant**, structurally the same class of change as messaging's `/pub/paykit` scope addition. It is not a code detail; it is a product/trust decision with real costs, which is why this memo stops here instead of flipping the constant.
+- **`PubkyAppWatchlist`** — a SINGLE revisioned document at `/priv/pubky.app/marketplace/v1/watchlist.json` (`PRIVATE_PATH` constant, `watchlistUriBuilder`, wasm `createWatchlist` + `fromJson`/`toJson`). One document instead of per-item records because watch toggles are high-churn (one `PUT` per sync instead of a create/delete stream), merge needs items and tombstones resolved atomically, and private storage has no index to benefit from per-item paths.
+- Shape: base marketplace envelope (`schemaVersion`, `recordType: "watchlist"`, `ownerPubky`, `revision`, ISO `createdAt`/`updatedAt`) plus `items[]` and `tombstones[]`, each entry `(listingOwnerPubky, listingId)` with an **integer epoch-milliseconds timestamp** (`watchedAtMs` / `removedAtMs`) — integers because they are merge keys compared numerically, immune to offset-formatting skew. Caps of 500 each; every listing key appears in at most ONE of the two lists (the document is the post-merge resolved state). Deliberately NOT wired into `PubkyAppObject`/URI resource resolution: nothing under `/priv/` is watcher- or Nexus-visible.
 
-There is also **no spec convention** for private records: `pubky-app-specs` knows only `/pub/`. A `/priv/pubky.app/marketplace/watchlist.json` document would be a brand-new storage convention, which implies (small) upstream spec work to reserve and shape the path so other clients and Nexus treat it as intentionally non-indexed.
+### The merge rule
 
-### Options
+Per listing key, **last-write-wins on the entry timestamp; a tie resolves to the tombstone** (deletion wins — resurrecting an item the user removed is the worse failure). The merged state is applied to Dexie (favorites + a new `commerce_watch_tombstones` table; snapshots of removed items are deleted so an unwatched item can never alert) and written back with `revision` incremented when it differs from the remote. Tombstones beyond the cap are pruned oldest-first. The pure implementation and property tests (commutativity, idempotence, disjointness, tie-to-tombstone, pruning) live in `src/core/pipes/commerce/commerce.watchlist.ts(.test.ts)`.
 
-1. **Add `/priv/pubky.app/:rw` to the Ring grant, then build the private-document sync.**
-   - _Benefit:_ true cross-device sync with the privacy the record demands; `/priv` confidentiality is already enforced by the deployed homeserver (verified).
-   - _UX / trust cost:_ the authorizer (Pubky Ring) will show users a **new, broader permission** — write access to their private homeserver namespace — at connect time. That is a meaningfully larger ask than "public app data," and it must be justified in the consent copy. **Every already-authorized session must re-authenticate** to gain the scope; until they do, sync is unavailable for them, so the app needs a capability-detection path (`session.info.capabilities`) and honest "sign in again to enable private sync" messaging rather than a silent failure.
-   - _Scope cost:_ new spec path convention + the sync engine itself (single last-writer-wins JSON document: favorites/watch marks + saved searches, `updated_at` LWW, tombstone list with pruning, union-merge with local Dexie, debounced write on change, read on sign-in, offline-tolerant) + merge/tombstone unit tests + a live cross-context round-trip test.
+### The sync engine
 
-2. **Public records under `/pub/` (obscured or not).**
-   - _Benefit:_ works with the capability the app already holds; zero grant change.
-   - _Privacy cost:_ **unacceptable.** Purchase intent becomes world-readable and directory-enumerable (and Nexus-indexable). Obscuring the filename does not close enumeration. Rejected above; listed only for completeness.
+Local-first throughout: Dexie stays the source of immediate truth, every toggle works signed-in-offline, and sync is a background reconciliation.
 
-3. **Stay device-local (status quo).**
-   - _Benefit:_ zero new capability, zero new attack surface, no consent-copy or re-auth burden. The watchlist and its device-detected alerts already carry honest "on this device" labeling, so nothing is mislabeled.
-   - _Cost:_ the watchlist does not follow a user across browsers/devices — the gap this memo exists to resolve stays open.
+- **Push on change**: each watch/unwatch stages a deterministic outbox job (`commerce_sync_jobs`, id `watchlist|<owner>` — whole-state document, so one pending job coalesces any number of toggles) and triggers a sync round; a failed push leaves the job pending and heals on the next round.
+- **Pull on sign-in/restore**: the auth controller fires a sync round after bootstrap.
+- **Per visit**: the watchlist page triggers a round on load; overlapping triggers share one round-trip (single-flight per owner).
+- Reads/writes go through the app's homeserver session (`HomeserverService.request` now resolves owned `/priv/*` paths alongside `/pub/*`).
 
-### Recommendation
+### Capability gating (the honesty contract)
 
-**Take Option 1, as a deliberate, separately-scoped change — not folded into this UX branch.** The mechanism is sound and the privacy property is real and already enforced by the homeserver, so the only thing standing between the app and honest cross-device sync is a capability the app chooses not to request yet. That choice should be made explicitly because it widens what the app is trusted to do (private-namespace write access) and forces a re-auth migration — both of which need product sign-off and user-facing consent copy, not a one-line constant flip buried in a feature PR.
+Whether sync can work is decided from **session facts** — `session.info.capabilities`, the homeserver's own statement of the grant — never by probing and swallowing 403s (`capabilitiesGrantWrite` in `homeserver.utils.ts`). Three states:
 
-Concretely, Option 1 should ship as its own change that: (a) widens `CAPABILITIES` to include `/priv/pubky.app/:rw` with reviewed Ring-consent copy; (b) reserves the `/priv/pubky.app/marketplace/` path in `pubky-app-specs`; (c) gates the sync engine on `session.info.capabilities` actually including the `/priv` scope, showing a truthful "re-authenticate to enable private sync" state otherwise (never a silent no-op); (d) stores one last-writer-wins document merged with Dexie by union with a pruned tombstone list; and (e) proves it with merge/tombstone unit tests plus a live two-context staging round-trip.
+- **capable**: the grant covers writing `/priv/pubky.app/` (widened Ring grant, or root `/:rw` from recovery-phrase sign-in) — sync runs.
+- **needs_reauth**: a live legacy session whose grant predates the `/priv` scope. The watchlist keeps working locally, and the watchlist page shows ONE non-blocking notice: "Sync across devices needs a fresh sign-in approval." An actual 401/403 on a real read or write ALSO flips to this state. Never a silent no-op.
+- **no_session / sandbox**: sync is skipped and nothing is claimed.
 
-Until that decision is taken, the watchlist **stays device-local** (Option 3) and remains honestly labeled as such. **Nothing on this branch wires sync.**
+### Live proof (2026-08-22, staging)
+
+`npm run test:marketplace:watchlist` (vitest browser mode, real staging homeserver over the public pkarr relays, nothing mocked) proves in one journey: device 1 of identity A watches → the private document is live at the `/priv` URI; a wiped-DB fresh sign-in (device 2) pulls the watch; device 2 unwatches → pushed as a tombstone with the revision advanced; device 3 sees the item absent and the tombstone present; identity B's read AND directory listing of A's document are both refused — verbatim: `401 Unauthorized - Authentication required to read private storage`. Result recorded in the proof ledger in [`status.md`](status.md). The legacy-session `needs_reauth` half is covered by unit tests (`commerce.watchlist.test.ts`) because a machine cannot honestly approve a narrow-scope Ring flow.
+
+### Known limits, stated
+
+- **What syncs is the watch marks** (and their removals). Observation baselines, device-detected alerts, and saved searches remain device-local by design — they describe what a specific device observed, and the UI's "on this device" labeling stays true.
+- The synced document carries at most 500 items and 500 tombstones (spec caps); overflow beyond the newest 500 stays local-only, as do watches on non-pubky sellers (sandbox catalog).
+- A pruned tombstone stops protecting against re-adds older than itself; both are by construction the oldest signals in play.

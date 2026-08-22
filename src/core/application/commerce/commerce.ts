@@ -19,6 +19,7 @@ import {
   type CommerceListingRecord,
   commerceReviewRecordSchema,
   type CommerceShopRecord,
+  type CommerceWatchlistRecord,
 } from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
@@ -31,7 +32,8 @@ import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { isAppError, isNotFound } from '@/libs/error/error.utils';
+import { hasHttpStatus, isAppError, isNotFound } from '@/libs/error/error.utils';
+import { HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import type {
   CommerceCatalogEntryModelSchema,
@@ -52,6 +54,14 @@ import {
   type CommerceShippingPresetInput,
 } from '@/pipes/commerce/commerce.normalizer';
 import {
+  emptyWatchlistState,
+  localRowsToWatchlistState,
+  mergeWatchlistStates,
+  watchlistRecordToState,
+  watchlistStatesEqual,
+  watchlistStateToRecordBody,
+} from '@/pipes/commerce/commerce.watchlist';
+import {
   detectWatchAlerts,
   type WatchIndexObservation,
   type WatchObservation,
@@ -59,6 +69,7 @@ import {
 } from '@/pipes/marketplaceWatch/marketplaceWatch.detector';
 import { ExchangerateService } from '@/services/exchangerate/exchangerate';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { HomeserverService, PRIVATE_APP_DATA_PATH } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
   buildMarketplaceTagRowId,
@@ -110,6 +121,19 @@ export interface CommerceCatalogStreamFilters {
  * or `unavailable` (no reputation-aware index reachable — render nothing,
  * never a fabricated state).
  */
+/**
+ * Whether the current session can use private cross-device watchlist sync,
+ * decided from `session.info.capabilities` (facts), never by probing for 403s.
+ */
+export type CommerceWatchlistSyncCapability = 'capable' | 'needs_reauth' | 'no_session';
+
+/**
+ * Outcome of one watchlist sync round. `skipped` covers sandbox mode and
+ * signed-out/restoring states; `needs_reauth` is the honest "this session's
+ * grant cannot touch /priv" state (from capability facts OR an actual 401/403).
+ */
+export type CommerceWatchlistSyncStatus = 'synced' | 'needs_reauth' | 'skipped' | 'error';
+
 export type CommerceSellerReputationOverview =
   | { status: 'rated'; summary: CommerceReputationSummary }
   | { status: 'new_seller' }
@@ -612,14 +636,163 @@ export class CommerceApplication {
 
   static async commitCreateFavorite(ownerPubky: string, listingId: string): Promise<void> {
     await LocalCommerceService.createFavorite(ownerPubky, listingId, Date.now());
+    await this.stageWatchlistPush(ownerPubky);
   }
 
   static async commitDeleteFavorite(ownerPubky: string, listingId: string): Promise<void> {
-    await LocalCommerceService.deleteFavorite(ownerPubky, listingId);
+    await LocalCommerceService.deleteFavorite(ownerPubky, listingId, Date.now());
     // The watch baseline shadows the favorite row; an unwatched item must not
     // keep producing alerts. Already-created alerts stay — they were real
     // observations made while the item was watched.
     await LocalCommerceService.deleteWatchSnapshot(ownerPubky, listingId);
+    await this.stageWatchlistPush(ownerPubky);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cross-device watchlist sync (PRIVATE homeserver document)
+  // ---------------------------------------------------------------------------
+
+  /** In-flight sync per owner, so overlapping triggers share one round-trip. */
+  private static watchlistSyncInFlight = new Map<string, Promise<CommerceWatchlistSyncStatus>>();
+
+  private static watchlistSyncJobId(ownerPubky: string): string {
+    return `watchlist|${ownerPubky}`;
+  }
+
+  /**
+   * Marks the private watchlist document dirty in the retryable outbox
+   * (`commerce_sync_jobs`, same table the review outbox uses). The job id is
+   * deterministic per owner because the document is whole-state — the latest
+   * sync always carries every prior change, so one pending job coalesces any
+   * number of toggles. Local-first: this stages only; the actual push is
+   * triggered by the controller after the toggle, and any staged job that
+   * outlives a failed push heals on the next watchlist sync.
+   */
+  private static async stageWatchlistPush(ownerPubky: string): Promise<void> {
+    if (getCommerceAdapterMode() === 'sandbox') return;
+    const now = Date.now();
+    await LocalCommerceService.upsertSyncJob({
+      id: this.watchlistSyncJobId(ownerPubky),
+      owner_id: ownerPubky,
+      entity_type: 'watchlist',
+      entity_id: ownerPubky,
+      operation: 'update',
+      status: 'pending',
+      attempts: 0,
+      next_attempt_at: now,
+      last_error_code: null,
+      payload: {},
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  /**
+   * Whether the CURRENT session can use private watchlist sync, decided from
+   * session facts (`session.info.capabilities`), never by probing for 403s:
+   * - `capable` — the session's grant covers writing `/priv/pubky.app/`
+   *   (the widened Ring grant, or the root `/:rw` of a recovery-phrase sign-in)
+   * - `needs_reauth` — a live session whose grant predates the `/priv` scope;
+   *   the user must approve a fresh sign-in for sync to work
+   * - `no_session` — signed out or the session is still being restored
+   */
+  static getWatchlistSyncCapability(): CommerceWatchlistSyncCapability {
+    if (!HomeserverService.hasActiveSession()) return 'no_session';
+    return HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH) ? 'capable' : 'needs_reauth';
+  }
+
+  /**
+   * One full sync round of the private watchlist document: pull, merge,
+   * apply locally, push back when the merge changed the remote.
+   *
+   * Local-first: Dexie is applied before any push, and a failed push leaves
+   * the outbox job pending so the next sync heals it. The merge rule
+   * (per-key LWW, tie -> tombstone) lives in `commerce.watchlist.ts`.
+   *
+   * Honesty contract: capability is decided from session facts up front, and
+   * a 401/403 on the actual read or write ALSO returns `needs_reauth` — the
+   * caller (controller) surfaces that state; nothing silently no-ops.
+   */
+  static async syncWatchlist(ownerPubky: string): Promise<CommerceWatchlistSyncStatus> {
+    if (getCommerceAdapterMode() === 'sandbox') return 'skipped';
+
+    const capability = this.getWatchlistSyncCapability();
+    if (capability === 'no_session') return 'skipped';
+    if (capability === 'needs_reauth') return 'needs_reauth';
+
+    const inFlight = this.watchlistSyncInFlight.get(ownerPubky);
+    if (inFlight) return await inFlight;
+
+    const run = this.runWatchlistSync(ownerPubky).finally(() => {
+      this.watchlistSyncInFlight.delete(ownerPubky);
+    });
+    this.watchlistSyncInFlight.set(ownerPubky, run);
+    return await run;
+  }
+
+  private static async runWatchlistSync(ownerPubky: string): Promise<CommerceWatchlistSyncStatus> {
+    const url = CommerceRecordNormalizer.watchlistUri(ownerPubky);
+    try {
+      let remote: CommerceWatchlistRecord | null = null;
+      try {
+        const payload = await CommerceHomeserverService.fetchJson(url);
+        remote = CommerceRecordNormalizer.watchlistRecord(payload);
+      } catch (error) {
+        if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+        if (!(isAppError(error) && isNotFound(error))) throw error;
+      }
+
+      const [favorites, tombstoneRows] = await Promise.all([
+        LocalCommerceService.getFavorites(ownerPubky),
+        LocalCommerceService.getWatchTombstones(ownerPubky),
+      ]);
+      const localState = localRowsToWatchlistState(favorites, tombstoneRows);
+      const remoteState = remote ? watchlistRecordToState(remote) : emptyWatchlistState();
+      const merged = mergeWatchlistStates(localState, remoteState);
+
+      if (!watchlistStatesEqual(merged, localState)) {
+        await LocalCommerceService.applyWatchlistState(ownerPubky, merged.items, merged.tombstones);
+      }
+
+      const isEmptyAndUnpublished = !remote && merged.items.size === 0 && merged.tombstones.size === 0;
+      const remoteNeedsWrite = !isEmptyAndUnpublished && (!remote || !watchlistStatesEqual(merged, remoteState));
+      if (remoteNeedsWrite) {
+        const nowIso = new Date().toISOString();
+        const createdAt = remote?.createdAt ?? nowIso;
+        // Guard against clock skew between devices: updatedAt must not
+        // precede createdAt or the record fails its own validation.
+        const updatedAt = Date.parse(createdAt) > Date.now() ? createdAt : nowIso;
+        const body = watchlistStateToRecordBody({
+          ownerPubky,
+          state: merged,
+          revision: (remote?.revision ?? 0) + 1,
+          createdAt,
+          updatedAt,
+        });
+        // Validate through the vendored specs builder before the PUT, the
+        // same guarantee every other published marketplace record gets.
+        const { PubkySpecsBuilder } = await import('pubky-app-specs');
+        const built = new PubkySpecsBuilder(ownerPubky).createWatchlist(body);
+        const record = CommerceRecordNormalizer.watchlistRecord(built.watchlist.toJson());
+        try {
+          await CommerceHomeserverService.putJson(url, { ...record });
+        } catch (error) {
+          if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+          throw error;
+        }
+      }
+
+      await LocalCommerceService.completeSyncJob(this.watchlistSyncJobId(ownerPubky));
+      return 'synced';
+    } catch (error) {
+      Logger.warn('Watchlist sync failed; the outbox job stays pending', { url, error });
+      return 'error';
+    }
+  }
+
+  /** 403 (scope refused) or 401 (session rejected) on the private document. */
+  private static isPrivateAccessDenied(error: unknown): boolean {
+    return hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED);
   }
 
   static async getWatchAlerts(ownerPubky: string): Promise<CommerceWatchAlertModelSchema[]> {

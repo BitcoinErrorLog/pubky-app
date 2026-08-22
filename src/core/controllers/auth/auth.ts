@@ -11,6 +11,7 @@ import type {
   TLoginWithMnemonicParams,
   TSignUpParams,
 } from '@/controllers/auth/auth.types';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
@@ -153,6 +154,13 @@ export class AuthController {
 
     const notification = await BootstrapApplication.initialize({ pubky, lastReadUrl: url, allowedTypes }, onProgress);
     useNotificationStore.getState().setState(notification);
+
+    // Pull the private cross-device watchlist and merge it into local state.
+    // Fire-and-forget: sign-in must not block on it, and a failed round
+    // leaves the outbox job pending to heal on the next marketplace visit.
+    void CommerceController.syncWatchlist().catch((error) => {
+      Logger.warn('Watchlist sync after bootstrap failed; it will retry on the next marketplace visit', { error });
+    });
 
     // Apply remote settings to store (store mutation stays in Controller layer)
     if (remoteSettings) {

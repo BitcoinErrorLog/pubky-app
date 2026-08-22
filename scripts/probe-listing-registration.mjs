@@ -3,12 +3,14 @@
 // marketplace session (AuthToken exchange, same wire as the app), and reads
 // the listing projection exactly the way a buyer's checkout does.
 //   STAGING_ADMIN_PASSWORD=... node scripts/probe-listing-registration.mjs <sellerPubky> <listingId>
-import { Pubky, Keypair, AuthFlowKind, PublicKey } from '@synonymdev/pubky';
+import { AuthFlowKind, Keypair, Pubky, PublicKey } from '@synonymdev/pubky';
 
 const SERVICE_URL = process.env.MARKETPLACE_SERVICE_URL ?? 'https://marketplace-service-production.up.railway.app';
 const HOMESERVER_ADMIN = 'https://admin.homeserver.staging.pubky.app/generate_signup_token';
 const ADMIN_PASSWORD = process.env.STAGING_ADMIN_PASSWORD;
 const HOMESERVER_PUBKY = process.env.STAGING_HOMESERVER_PUBKY ?? '5eh8kjqfx4o7comfbtnqqxxi6oz3axeqfotpi7oiepwmoym1i16o';
+// Standalone node probe script: the app's runtime-config getters don't apply here.
+// eslint-disable-next-line no-restricted-syntax
 const HTTP_RELAY = process.env.PUBKY_RUNTIME_DEFAULT_HTTP_RELAY ?? 'https://n.staging.pubky.app/inbox';
 
 const [sellerPubky, listingId] = process.argv.slice(2);

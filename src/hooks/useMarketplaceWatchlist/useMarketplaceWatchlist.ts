@@ -1,10 +1,12 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { CommerceWatchSnapshotModelSchema } from '@/models/commerce/commerce.schema';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   buildMarketplaceCatalogItems,
   type MarketplaceCatalogItem,
@@ -37,6 +39,16 @@ export interface MarketplaceWatchlistEntry {
 export function useMarketplaceWatchlist() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const adapterMode = getCommerceAdapterMode();
+  const watchlistSyncStatus = useCommerceStore((state) => state.watchlistSyncStatus);
+
+  // One cross-device sync round per visit: pulls the private homeserver
+  // document, merges (LWW per item), pushes back local changes, and mirrors
+  // the outcome — including the honest "needs re-approval" state — into the
+  // store this hook reads.
+  useEffect(() => {
+    if (!currentUserPubky) return;
+    void CommerceController.syncWatchlist();
+  }, [currentUserPubky]);
 
   const favorites = useLiveQuery(() => (currentUserPubky ? CommerceController.getFavorites() : []), [currentUserPubky]);
   const localListings = useLiveQuery(() => CommerceController.getAllListings(), []);
@@ -70,5 +82,7 @@ export function useMarketplaceWatchlist() {
     isLoading: Boolean(currentUserPubky) && (favorites === undefined || localListings === undefined),
     isSignedIn: Boolean(currentUserPubky),
     adapterMode,
+    /** `needs_reauth` = the session's grant cannot write /priv (or a write was refused); watching still works locally. */
+    watchlistSyncStatus,
   };
 }

@@ -13,6 +13,15 @@ export interface CommerceMarketplaceSession {
   capabilities: string;
   expiresAt: string;
 }
+/**
+ * Cross-device watchlist sync state for UI surfaces, written by the
+ * controller after each sync round. `idle` = no sync attempted yet (or not
+ * applicable: sandbox mode, signed out); `needs_reauth` = the session's grant
+ * cannot write `/priv/pubky.app/` (legacy approval) OR an actual write was
+ * refused with 401/403 — the honest "re-approve to enable sync" state.
+ */
+export type CommerceWatchlistSyncUiStatus = 'idle' | 'synced' | 'needs_reauth' | 'error';
+
 export type CommerceConditionFilter = 'new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'for_parts';
 export type CommerceSort = 'recommended' | 'newest' | 'price_low' | 'price_high' | 'ending_soon';
 export type CommerceLayout = 'grid' | 'list';
@@ -34,6 +43,7 @@ export interface CommerceState {
   selectedListingId: string | null;
   pendingEntityIds: string[];
   marketplaceSession: CommerceMarketplaceSession | null;
+  watchlistSyncStatus: CommerceWatchlistSyncUiStatus;
 }
 
 export interface CommerceActions {
@@ -48,6 +58,7 @@ export interface CommerceActions {
   setSelectedListingId: (listingId: string | null) => void;
   setEntityPending: (entityId: string, isPending: boolean) => void;
   setMarketplaceSession: (session: CommerceMarketplaceSession | null) => void;
+  setWatchlistSyncStatus: (watchlistSyncStatus: CommerceWatchlistSyncUiStatus) => void;
   resetFilters: () => void;
   reset: () => void;
 }
@@ -67,6 +78,7 @@ export const commerceInitialState: CommerceState = {
   selectedListingId: null,
   pendingEntityIds: [],
   marketplaceSession: null,
+  watchlistSyncStatus: 'idle',
 };
 
 export enum CommerceActionTypes {
@@ -81,6 +93,7 @@ export enum CommerceActionTypes {
   SET_SELECTED_LISTING = 'SET_SELECTED_LISTING',
   SET_ENTITY_PENDING = 'SET_ENTITY_PENDING',
   SET_MARKETPLACE_SESSION = 'SET_MARKETPLACE_SESSION',
+  SET_WATCHLIST_SYNC_STATUS = 'SET_WATCHLIST_SYNC_STATUS',
   RESET_FILTERS = 'RESET_FILTERS',
   RESET = 'RESET',
 }
