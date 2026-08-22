@@ -2,6 +2,7 @@ import { CommerceApplication } from '@/application/commerce/commerce';
 import { MESSAGING_SYNC_MAX_COUNTERPARTIES, MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import { NEXUS_USER_IDS_MAX_LIMIT } from '@/config/nexus';
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
 import {
   buildMarketplaceConversationAggregateId,
@@ -236,7 +237,10 @@ export class MessagingController {
         UserStreamApplication.getOrFetchStreamSlice({
           streamId: buildUserCompositeId({ userId: ownerPubky as Pubky, reach }),
           skip: 0,
-          limit: MESSAGING_SYNC_MAX_COUNTERPARTIES,
+          // The user-ids stream rejects limits above its own cap (20 on the
+          // deployed Nexus) with a 400, which silently degraded this whole
+          // source to empty and made follower-initiated messages undiscoverable.
+          limit: Math.min(MESSAGING_SYNC_MAX_COUNTERPARTIES, NEXUS_USER_IDS_MAX_LIMIT),
           viewerId: ownerPubky as Pubky,
           allowPartialCache: true,
         }),

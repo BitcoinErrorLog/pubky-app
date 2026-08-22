@@ -66,12 +66,14 @@ describe('live DM to a real user on the deployed staging network', () => {
     expect(state.status, 'handshake did not complete — is the counterparty online with the app open?').toBe('ready');
     console.info('[dm-live] link READY');
 
-    await PaykitMessagingService.sendChatMessage(me, __DM_TARGET_PUBKY__, {
-      conversationId: buildMarketplaceConversationAggregateId(__DM_TARGET_PUBKY__, me, __DM_LISTING_ID__),
-      listingRef: buildMarketplaceListingAggregateId(__DM_TARGET_PUBKY__, __DM_LISTING_ID__),
-      body: 'Hi! I just made you a real offer on this listing — this message rode the encrypted link. (Live proof, sent by an agent-driven fresh identity.)',
-    });
-    console.info('[dm-live] marketplace chat message SENT');
+    if (__DM_LISTING_ID__ !== '') {
+      await PaykitMessagingService.sendChatMessage(me, __DM_TARGET_PUBKY__, {
+        conversationId: buildMarketplaceConversationAggregateId(__DM_TARGET_PUBKY__, me, __DM_LISTING_ID__),
+        listingRef: buildMarketplaceListingAggregateId(__DM_TARGET_PUBKY__, __DM_LISTING_ID__),
+        body: 'Hi! I just made you a real offer on this listing — this message rode the encrypted link. (Live proof, sent by an agent-driven fresh identity.)',
+      });
+      console.info('[dm-live] marketplace chat message SENT');
+    }
 
     await PaykitMessagingService.sendDmMessage(me, __DM_TARGET_PUBKY__, {
       body: 'And this one is a general direct message — Noise XX end to end, no marketplace context needed. — Fable',

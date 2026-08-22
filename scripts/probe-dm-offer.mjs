@@ -34,12 +34,11 @@ const flow = pubky.startAuthFlow('/pub/pubky.app/:rw,/pub/paykit/:rw', AuthFlowK
 const approval = flow.awaitApproval();
 await signer.approveAuthRequest(flow.authorizationUrl);
 const session = await approval;
+// Minimal VALID profile: empty-string image/links/status fail spec validation
+// and make Nexus silently skip the user (observed live 2026-08-22).
 await session.storage.putJson('/pub/pubky.app/profile.json', {
   name: 'Fable (test buyer)',
   bio: 'Encrypted-messaging live proof identity.',
-  image: '',
-  links: [],
-  status: '',
 });
 console.log('profile published');
 
