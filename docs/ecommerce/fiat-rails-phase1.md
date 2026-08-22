@@ -162,8 +162,10 @@ the binding is permanent per correlation (asking for the other processor afterwa
 is a 409 — switching would strand a still-payable session the gateway no longer
 observes). The design §7 `Locks · PayPal` badge case is now reachable.
 
-**Remaining for the live PayPal sandbox proof** (not fabricated; mocked-API lifecycle
-tests plus the deployed fail-closed behavior are what is proven today): a PayPal
-sandbox client id + secret on the Railway service, optionally a webhook id, and a
-sandbox buyer login to approve the checkout via `checkout <bundleId> paypal` in the
-rails driver.
+**Update, same day: the live PayPal sandbox proof landed.** With sandbox
+credentials and a self-provisioned webhook on the Railway service (`/health`
+reports both processors enabled), the full purchase ran on the deployed stack:
+proof bundle → gateway invoice bound to PayPal → hosted approval page paid via
+guest card checkout → `detected` (amount matched) → 300s settlement →
+`confirmed` → `completed` → access credential → guarded content read. Both
+fiat rails are now live-proven end to end.
