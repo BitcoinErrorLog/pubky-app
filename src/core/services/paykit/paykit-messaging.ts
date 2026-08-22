@@ -129,8 +129,9 @@ type ActiveHandshake = { handle: LinkHandshakeHandle; role: 'initiator' | 'respo
  * it. Storage contract mirrors the marketplace transaction session
  * (`marketplace-session.ts`): `localStorage` (survives tabs and restarts —
  * the cookie, which the browser shares across tabs, is the real credential),
- * account-scoped validation on restore, cleared on sign-out/account switch,
- * and a restore the homeserver rejects surfaces the honest reconnect state.
+ * account-scoped validation on restore, cleared on sign-out/account switch.
+ * A restore the homeserver rejects falls through to cookie resume, and only
+ * when that also fails does the UI surface the honest reconnect state.
  */
 export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
 
@@ -149,15 +150,21 @@ export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
  *
  * Key facts the rest of the app relies on:
  *
- * - The homeserver session comes from a Ring-approved `pubkyauth` grant for
- *   `/pub/paykit/:rw` — its own approval, NEVER the marketplace
- *   transaction-service session, and the Pubky identity secret never enters
- *   this runtime. The credential is an HTTP-only homeserver cookie the
- *   BROWSER holds; this code persists only secret-free session metadata to
- *   `localStorage` ({@link MESSAGING_SESSION_STORAGE_KEY}) so reloads and
- *   new tabs resume silently via {@link restorePersistedSession} for as long
- *   as the browser still holds a cookie the homeserver accepts. Only a
- *   rejected/expired cookie requires a fresh signer approval.
+ * - The homeserver session normally comes from the app's OWN sign-in: the
+ *   sign-in grant (`/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw`)
+ *   already covers the Paykit tree, and the credential is the HTTP-only
+ *   homeserver cookie the BROWSER holds from that sign-in. The binding's
+ *   `resumeSessionFromCookie` rebuilds a session handle from that cookie
+ *   with ZERO additional signer approvals ({@link restorePersistedSession}
+ *   resume order: in-memory session → persisted `exportSession` metadata →
+ *   cookie resume → only then the interactive flow). The Pubky identity
+ *   secret never enters this runtime, and this code persists only
+ *   secret-free session metadata to `localStorage`
+ *   ({@link MESSAGING_SESSION_STORAGE_KEY}) so later loads take the fast
+ *   path. The interactive Ring approval ({@link beginEnableFlow}) remains
+ *   ONLY for legacy sessions whose sign-in predates the combined grant
+ *   (cookie resume rejects with `SessionResumeScopeMissing`) or whose
+ *   cookie the homeserver no longer accepts.
  * - Link crypto uses a receiver-scoped Noise key generated here and persisted
  *   in account-scoped IndexedDB (`commerce_messaging_receivers`); snapshots
  *   are persisted as produced — unencrypted, containing key material — with
@@ -185,6 +192,11 @@ export class PaykitMessagingService {
    * `awaitEnabled` that — once approved — verifies the approving identity,
    * provisions (or reuses) the receiver Noise key, and publishes the receiver
    * marker that makes this user discoverable for encrypted messaging.
+   *
+   * This flow is the LAST resort in the resume order: it is only reached for
+   * sign-ins that predate the combined grant (no `/pub/paykit/` scope in the
+   * session cookie) or whose cookie the homeserver no longer accepts —
+   * current sign-ins resume silently via {@link restorePersistedSession}.
    *
    * `cancel` detaches the flow: the binding exposes no abort for a pending
    * approval, so a later approval on a detached flow is dropped (its session
@@ -231,25 +243,111 @@ export class PaykitMessagingService {
   }
 
   /**
-   * Attempts to silently resume the messaging session after a page reload:
-   * true when a session for `expectedPubky` is live afterwards (already in
-   * memory, or restored from the persisted metadata + the browser's
-   * HTTP-only session cookie via the binding's `restoreSession`, which
-   * revalidates against the homeserver). Anything that does not validate —
-   * missing/malformed blob, another account's blob, a cookie the homeserver
-   * no longer accepts — clears the stored value and returns false, so the
-   * UI shows the honest reconnect state. Never throws for "no session";
-   * concurrent callers share one in-flight restore.
+   * Attempts to silently resume the messaging session, in strict order:
+   *
+   * 1. in-memory session (already live in this tab),
+   * 2. persisted `exportSession` metadata + the browser's HTTP-only cookie
+   *    via the binding's `restoreSession` (revalidates against the
+   *    homeserver),
+   * 3. cookie-ONLY resume via the binding's `resumeSessionFromCookie` — the
+   *    zero-approval path: the app's sign-in grant already covers
+   *    `/pub/paykit/:rw`, so the sign-in cookie alone is sufficient. On
+   *    success the session is persisted via `exportSession` exactly like
+   *    the approval path, so subsequent loads take path 2.
+   *
+   * Only when ALL of these fail does the UI show the interactive enable
+   * flow — which is now reachable ONLY by legacy sessions without the
+   * paykit scope or cookies the homeserver rejects. Every successful resume
+   * also ensures the receiver key + marker are provisioned, so messaging
+   * surfaces go straight to ready after sign-in. Never throws for "no
+   * session"; concurrent callers share one in-flight resume.
    */
   static async restorePersistedSession(expectedPubky: string): Promise<boolean> {
-    if (this.hasActiveSession(expectedPubky)) return true;
+    if (this.hasActiveSession(expectedPubky)) {
+      await this.ensureReceiverProvisioned(expectedPubky);
+      return true;
+    }
     if (this.restoreInFlight?.pubky === expectedPubky) return await this.restoreInFlight.done;
-    const done = this.restoreSessionFromStorage(expectedPubky);
+    const done = this.resumeSessionSilently(expectedPubky);
     this.restoreInFlight = { pubky: expectedPubky, done };
     try {
       return await done;
     } finally {
       this.restoreInFlight = null;
+    }
+  }
+
+  /** Paths 2 and 3 of the resume order, plus receiver provisioning on success. */
+  private static async resumeSessionSilently(expectedPubky: string): Promise<boolean> {
+    const resumed =
+      (await this.restoreSessionFromStorage(expectedPubky)) || (await this.resumeSessionFromCookie(expectedPubky));
+    if (resumed) await this.ensureReceiverProvisioned(expectedPubky);
+    return resumed;
+  }
+
+  /**
+   * The zero-approval resume: rebuilds the session handle purely from the
+   * browser's existing homeserver cookie (set by the app's sign-in, whose
+   * grant covers `/pub/paykit/:rw`). The binding revalidates against the
+   * homeserver and verifies both the identity and the paykit scope, so a
+   * `true` here is a fully working messaging session with no signer
+   * involvement. Typed failures are deliberate no-session outcomes:
+   * `SessionResumeScopeMissing` means the sign-in predates the combined
+   * grant (the ONLY population that still sees the enable dialog);
+   * `SessionResumeUnauthorized` means the homeserver holds no valid session
+   * behind the browser's cookies. Both fall through to the honest
+   * reconnect/enable state.
+   */
+  private static async resumeSessionFromCookie(expectedPubky: string): Promise<boolean> {
+    try {
+      const wasmModule = await loadPaykitWasm();
+      const client = this.getClient(wasmModule);
+      const handle = (await client.resumeSessionFromCookie(expectedPubky)) as SessionHandle;
+      if (handle.pubky() !== expectedPubky) {
+        // Defensive: the binding already rejects this as SessionResumePubkyMismatch.
+        closeQuietly(() => handle.free());
+        return false;
+      }
+      // Persist like the approval path so subsequent loads take the
+      // restoreSession fast path instead of re-running cookie resume.
+      this.setSession({ handle, pubky: expectedPubky });
+      Logger.info('Resumed the encrypted messaging session from the sign-in cookie (no signer approval)', {
+        pubky: expectedPubky,
+      });
+      return true;
+    } catch (error) {
+      if (isErrorNamed(error, 'SessionResumeScopeMissing')) {
+        Logger.info('The sign-in session predates the combined paykit grant; messaging needs a one-time approval', {
+          pubky: expectedPubky,
+        });
+      } else {
+        Logger.info('Could not resume the messaging session from the sign-in cookie', { error });
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Ensures the resumed session is usable for RECEIVING, not just holding a
+   * session: on the cookie-resume path there was never an enable flow, so
+   * the receiver Noise key and the published marker may not exist yet. Runs
+   * the same idempotent {@link provisionReceiver} the approval path runs; a
+   * transient publish failure is logged and retried on the next status
+   * poll (this method is on every resume path) instead of failing the
+   * session.
+   */
+  private static async ensureReceiverProvisioned(pubky: string): Promise<void> {
+    if (this.session?.pubky !== pubky) return;
+    const receiver = await LocalMessagingService.getReceiver(pubky);
+    if (receiver?.marker_published) return;
+    try {
+      const wasmModule = await loadPaykitWasm();
+      await this.provisionReceiver(wasmModule, this.session.handle, pubky);
+      Logger.info('Provisioned the messaging receiver automatically for the resumed session', { pubky });
+    } catch (error) {
+      Logger.warn('Could not provision the messaging receiver for the resumed session; will retry on the next poll', {
+        error,
+      });
     }
   }
 
@@ -286,7 +384,8 @@ export class PaykitMessagingService {
     } catch (error) {
       // The homeserver rejected the cookie (expired/revoked) or the restore
       // failed in transit; either way the persisted metadata is useless now.
-      Logger.info('Could not restore the persisted messaging session; reconnect is required', { error });
+      // Cookie resume still runs next — a fresh sign-in may hold a new cookie.
+      Logger.info('Could not restore the persisted messaging session from its exported metadata', { error });
       this.removePersistedSession();
       return false;
     }
@@ -992,6 +1091,16 @@ export class PaykitMessagingService {
   private static linkKey(ownerPubky: string, counterpartyPubky: string): string {
     return `${ownerPubky}:${counterpartyPubky}`;
   }
+}
+
+/**
+ * The binding's typed rejections carry a stable machine-readable code in
+ * `Error.name` (`SessionResumeUnauthorized` / `SessionResumePubkyMismatch` /
+ * `SessionResumeScopeMissing`); everything else is untyped and treated as
+ * transient.
+ */
+function isErrorNamed(error: unknown, name: string): boolean {
+  return error instanceof Error && error.name === name;
 }
 
 function closeQuietly(dispose: () => void): void {

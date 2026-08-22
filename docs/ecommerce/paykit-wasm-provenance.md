@@ -2,7 +2,7 @@
 
 The paykit-wasm browser binding — the Paykit Encrypted Link messaging surface compiled to WASM — is not published to npm. It is built from source at a pinned commit and vendored into this repository, then loaded through a dynamic import so the WASM module never enters a server-rendered module graph. This file records the provenance of the build so it is reproducible and auditable.
 
-Vendored: 2026-08-21 (updated same day to pick up the session export/restore surface). The vendored files are byte-identical to the build recorded in the binding's own `paykit-wasm/README.md` at the pinned commit (checksums verified on copy).
+Vendored: 2026-08-22 (updated to pick up the zero-approval cookie-resume surface, `resumeSessionFromCookie`). The vendored files are byte-identical to the build recorded in the binding's own `paykit-wasm/README.md` at the pinned commit (checksums verified on copy).
 
 ## Source
 
@@ -10,15 +10,15 @@ Vendored: 2026-08-21 (updated same day to pick up the session export/restore sur
 | --------------- | ------------------------------------------------------------------- |
 | Repository      | `https://github.com/BitcoinErrorLog/paykit-rs-official`             |
 | Branch          | `feat/wasm-binding`                                                 |
-| Commit          | `7bbaba037f12efda80b0bd01f1fc27072616a402`                          |
+| Commit          | `0a6c6e4521fd41f5081ad9f074020f4813d8a03e`                          |
 | Upstream        | `https://github.com/pubky/paykit-rs`                                |
 | Upstream pin    | `c8892f638951f033acbcd12804a31667a81ddc14` (tag anchor v0.1.0-rc43) |
 | Package path    | `paykit-wasm/pkg`                                                   |
 | Package name    | `paykit-wasm`                                                       |
-| Package version | `0.1.0-rc43`                                                        |
+| Package version | `0.1.0-rc44`                                                        |
 | License         | MIT                                                                 |
 
-The upstream pin matches the audited paykit-rs commit recorded in [`messaging/README.md`](messaging/README.md). The fork adds only packaging-class fixes for the wasm32 target (getrandom backends, a one-line vendored `snow` manifest fix, `uuid` RNG feature, `reqwest/stream`) plus one additive binding surface: `SessionHandle.exportSession()` / `PubkyClient.restoreSession()`, thin wrappers over pubky 0.8.0's own wasm session `export()`/`import()` (secret-free metadata; the credential stays in the browser's HTTP-only cookie jar). The full diff rationale is in the binding's README at the pinned commit. Upstream paykit-rs is pre-1.0 ("WIP - not for production") and claims no independent security review; the binding and this integration inherit that status.
+The upstream pin matches the audited paykit-rs commit recorded in [`messaging/README.md`](messaging/README.md). The fork adds only packaging-class fixes for the wasm32 target (getrandom backends, a one-line vendored `snow` manifest fix, `uuid` RNG feature, `reqwest/stream`) plus additive binding surfaces: `SessionHandle.exportSession()` / `PubkyClient.restoreSession()`, thin wrappers over pubky 0.8.0's own wasm session `export()`/`import()` (secret-free metadata; the credential stays in the browser's HTTP-only cookie jar), and `PubkyClient.resumeSessionFromCookie(pubky)` — a zero-approval session resume that synthesizes the same secret-free `SessionInfo` payload and reuses the identical `/session` revalidation, then verifies the homeserver's authoritative response for the expected pubky and a capability covering `/pub/paykit/` read+write, rejecting with typed `Error.name` values (`SessionResumeUnauthorized`, `SessionResumePubkyMismatch`, `SessionResumeScopeMissing`). The full diff rationale is in the binding's README at the pinned commit. Upstream paykit-rs is pre-1.0 ("WIP - not for production") and claims no independent security review; the binding and this integration inherit that status.
 
 ## Toolchain
 
@@ -34,7 +34,7 @@ The upstream pin matches the audited paykit-rs commit recorded in [`messaging/RE
 
 ```bash
 git clone https://github.com/BitcoinErrorLog/paykit-rs-official.git
-cd paykit-rs-official && git checkout 7bbaba037f12efda80b0bd01f1fc27072616a402
+cd paykit-rs-official && git checkout 0a6c6e4521fd41f5081ad9f074020f4813d8a03e
 rustup target add wasm32-unknown-unknown
 wasm-pack build paykit-wasm --target web --out-dir pkg --release
 node paykit-wasm/scripts/smoke.mjs   # requires Node >= 20
@@ -46,11 +46,11 @@ SHA-256 of the vendored files (identical to the binding README's recorded build)
 
 | File                       | SHA-256                                                            |
 | -------------------------- | ------------------------------------------------------------------ |
-| `paykit_wasm_bg.wasm`      | `6a58b5f76270510b092d540a32073d50e4fd5a08c111ce7f79ebe1c2d816ffc1` |
-| `paykit_wasm.js`           | `3e6986e8a049ba768980f3712286c306be2896ca1ef2a98a12813dcb9af80a9f` |
-| `paykit_wasm.d.ts`         | `23f537a22812a2413deb3d0ec0b233fd12ae9846f9ef41b632e94b56b42ef97b` |
-| `paykit_wasm_bg.wasm.d.ts` | `08941c45f148698bf19860e67b0fb1052cd707ffdfb7e6d60befd8b1f0b3b669` |
-| `package.json`             | `4ef84587b4aed173786a1beb771b4619c4d296886134d9b5c5847052e24af425` |
+| `paykit_wasm_bg.wasm`      | `cd781e364126312453b014ba3ceb74055a0c3f8b26c70b41e4827a0991ba4096` |
+| `paykit_wasm.js`           | `ee73963f128b8b2667391721b3ed3a025527d4b89ade26cd1522c47cf9746587` |
+| `paykit_wasm.d.ts`         | `c88bda8479479e6dd548542a3b380b7224dcab28cca572936d69cf8013930887` |
+| `paykit_wasm_bg.wasm.d.ts` | `b390e8c1ebd8ec5ed148bd51aa8891ca7b6688d35fe744b90bd4615cf86cf5bb` |
+| `package.json`             | `374e0391c23bfa4e56d0a2819c6823bc7a1c83a7ca79c9032a5e4cadd40c261a` |
 
 Generated package size: ~1.5 MB (wasm ~1.45 MB). `wasm-opt` output is not guaranteed bit-identical across platforms; treat these checksums as a record of this build, and re-record when the pin or toolchain changes.
 
@@ -74,7 +74,7 @@ npm symlinks `node_modules/paykit-wasm` to the vendored directory, so a fresh cl
 ## Verification performed
 
 - `node scripts/paykit-wasm-smoke.mjs` passes against the vendored copy with REAL crypto in Node: module instantiation, the bound messaging API surface, receiver Noise key generation (entropy through the wasm getrandom backend), a complete Noise XX handshake between two in-memory parties with converging link ids (`MemoryNoiseSession` drives the exact `DataLinkContext` state machine Encrypted Links use), encrypted roundtrips in both directions, AEAD rejection of tampered ciphertext, the 1000-byte message limit, and `pubkyauth` URL construction for the `/pub/paykit/:rw` scope. CI runs it in `.github/workflows/build.yml` ahead of `next build`.
-- The homeserver-backed flows (sessions, session export/restore across a page reload, receiver markers, handshake over homeserver outbox transport, bidirectional Private Application Messages, snapshot/restore across a destroyed browser context) are proven by the binding's own Playwright e2e at the pinned commit — 16/16 checks in real Chromium, Firefox, and WebKit against a live Pubky testnet homeserver. See `paykit-wasm/docs/browser-e2e.md` in the source repo for the exact environment and the honest not-covered list (notably: the production `startAuthFlow` signer approval is NOT e2e-covered there; only URL construction is).
+- The homeserver-backed flows (sessions, session export/restore across a page reload, cookie-ONLY resume with the exported metadata discarded, receiver markers, handshake over homeserver outbox transport, bidirectional Private Application Messages, snapshot/restore across a destroyed browser context) are proven by the binding's own Playwright e2e at the pinned commit — 19/19 checks in real Chromium, Firefox, and WebKit against a live Pubky testnet homeserver, with every post-resume check running on the cookie-resumed session. See `paykit-wasm/docs/browser-e2e.md` in the source repo for the exact environment and the honest not-covered list (notably: the production `startAuthFlow` signer approval is NOT e2e-covered there, and the `SessionResumeScopeMissing` typed rejection is covered by the binding's native cargo tests rather than the e2e, because dev signup sessions are root-scoped).
 
 ## What the binding is used for here
 
