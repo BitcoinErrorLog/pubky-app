@@ -18,11 +18,16 @@ import { toast } from '@/molecules/Toaster/use-toast';
  * affordance for same-device Ring. Every mount starts a FRESH flow and
  * unmount cancels it.
  *
+ * This panel is the LAST resort: sign-ins made with the combined grant
+ * (`/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw`) resume
+ * messaging silently from the sign-in cookie and NEVER see it. It renders
+ * only when the cookie resume failed — a sign-in that predates the combined
+ * grant (no paykit scope in its session) or a cookie the homeserver no
+ * longer accepts.
+ *
  * `reconnect` switches the copy for the returning case: the receiver key
- * already exists on this device, but the messaging session could not be
- * restored (the homeserver cookie expired or was revoked — sessions persist
- * in localStorage and restore across tabs and reloads while the cookie
- * holds), so a new approval is needed to send or receive.
+ * already exists on this device, but no resume path produced a working
+ * session, so a new approval is needed to send or receive.
  */
 export function MarketplaceMessagingEnablePanel({
   reconnect,
@@ -60,12 +65,15 @@ export function MarketplaceMessagingEnablePanel({
   return (
     <div className="grid gap-4">
       <Typography as="p" className="text-sm text-muted-foreground">
-        Approving with your signer (Pubky Ring) grants this app a homeserver session scoped to{' '}
+        Messaging normally needs no extra approval: a sign-in made with the current grant already covers messaging and
+        connects automatically — if that were your case, you would never see this step. You are seeing it because this
+        sign-in predates the combined grant (its session has no messaging scope) or the homeserver no longer accepts its
+        session. Approving once with your signer (Pubky Ring) grants this app a homeserver session scoped to{' '}
         <code className="rounded bg-secondary px-1 py-0.5 text-xs">{PAYKIT_MESSAGING_CAPABILITY}</code> — the Paykit
         tree where encrypted-message data lives, plus the app&apos;s own storage scope (the homeserver keeps one session
         per browser, so this approval also carries your normal posting and publishing access). Your identity key never
-        enters this browser; message encryption uses a separate key generated and kept on this device. The session
-        persists on this device until it expires or you sign out.
+        enters this browser; message encryption uses a separate key generated and kept on this device. After this
+        one-time approval, messaging resumes automatically on this device until the session expires or you sign out.
       </Typography>
 
       {enable.status === 'error' ? (

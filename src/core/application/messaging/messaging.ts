@@ -13,7 +13,11 @@ import {
 } from '@/services/paykit/paykit-messaging';
 
 export type MessagingStatus = {
-  /** A Ring-approved `/pub/paykit/:rw` session is live (restores across tabs/reloads). */
+  /**
+   * A `/pub/paykit/:rw` homeserver session is live — resumed from the
+   * sign-in cookie with zero approvals for current sign-ins, or from a Ring
+   * approval for legacy sessions (restores across tabs/reloads).
+   */
   sessionActive: boolean;
   /** A receiver Noise key exists on this device and its marker was published. */
   receiverProvisioned: boolean;
@@ -38,19 +42,22 @@ export class MessagingApplication {
   /**
    * Starts the interactive "enable encrypted messaging" flow: a Ring approval
    * for the `/pub/paykit/:rw` grant, then receiver provisioning and marker
-   * publish. This is messaging's OWN session — deliberately separate from the
-   * marketplace transaction-service session (different capability, different
-   * blast radius, its own explicit signer approval).
+   * publish. Last resort only: current sign-ins carry the combined grant and
+   * resume with ZERO approvals via {@link getStatus} (cookie resume inside
+   * `restorePersistedSession`); this flow is reached only by legacy sessions
+   * without the paykit scope or cookies the homeserver rejects.
    */
   static async beginEnableFlow(ownerPubky: string): Promise<MessagingEnableFlow> {
     return await PaykitMessagingService.beginEnableFlow(ownerPubky);
   }
 
   static async getStatus(ownerPubky: string): Promise<MessagingStatus> {
-    // Restore-before-report: after a page reload the session resumes
-    // silently from the persisted metadata + the browser's HTTP-only cookie
-    // (validated against the homeserver), so surfaces never show the
-    // reconnect card while a valid session is actually recoverable.
+    // Restore-before-report: the session resumes silently — persisted
+    // metadata first, then purely from the sign-in cookie (the sign-in
+    // grant covers /pub/paykit/:rw), each validated against the homeserver,
+    // with receiver provisioning ensured on success — so surfaces never
+    // show the enable/reconnect card while a valid session is actually
+    // recoverable without a signer.
     return {
       sessionActive: await PaykitMessagingService.restorePersistedSession(ownerPubky),
       receiverProvisioned: await PaykitMessagingService.isReceiverProvisioned(ownerPubky),

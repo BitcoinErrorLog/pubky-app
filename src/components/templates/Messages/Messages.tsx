@@ -67,8 +67,8 @@ export function Messages() {
                 </div>
                 <Typography as="p" className="text-sm text-muted-foreground">
                   {inbox.receiverProvisioned
-                    ? 'The messaging session could not be restored — it may have expired, or this is a new tab (a session restores automatically only in the tab that created it). Approve a fresh connection in Pubky Ring to send and receive; your stored history below stays readable either way.'
-                    : 'Messages are end-to-end encrypted. Enabling messaging asks Pubky Ring to approve a homeserver grant for the Paykit message tree and publishes your encrypted-messaging address so others can reach you.'}
+                    ? 'The messaging session could not be resumed automatically — your sign-in may predate the messaging grant, or the homeserver no longer accepts its session. Approve a fresh connection in Pubky Ring to send and receive; your stored history below stays readable either way.'
+                    : 'Messages are end-to-end encrypted and activate automatically for sign-ins made with the current grant. Your sign-in predates the messaging grant, so a one-time Pubky Ring approval is needed to grant the Paykit message tree and publish your encrypted-messaging address so others can reach you.'}
                 </Typography>
                 <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
               </div>

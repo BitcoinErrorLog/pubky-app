@@ -65,6 +65,14 @@ function createFakeWorld() {
     // the homeserver) or resolve with the pubky embedded in the export blob.
     restoreRejects: false,
     restoredPubkyOverride: null as string | null,
+    // Scripted `resumeSessionFromCookie` behavior. Default 'unauthorized':
+    // the browser holds no homeserver cookie for the requested pubky (the
+    // binding's SessionResumeUnauthorized), which mirrors the signed-out
+    // baseline every pre-existing test assumes.
+    cookieResume: 'unauthorized' as 'success' | 'unauthorized' | 'scope-missing',
+    cookieResumePubkyOverride: null as string | null,
+    // Scripted marker-publish failures (consumed one per publish attempt).
+    publishMarkerFailures: 0,
   };
 
   let keyCounter = 0;
@@ -151,6 +159,21 @@ function createFakeWorld() {
       const owner = world.restoredPubkyOverride ?? exported.replace('exported-session:', '');
       return new FakeSessionHandle(owner);
     }
+    // Mirrors the binding: typed rejections carry a stable Error.name.
+    async resumeSessionFromCookie(pubky: string) {
+      world.calls.push('resumeSessionFromCookie');
+      if (world.cookieResume === 'unauthorized') {
+        const error = new Error('cookie resume failed: no valid session behind the browser cookies');
+        error.name = 'SessionResumeUnauthorized';
+        throw error;
+      }
+      if (world.cookieResume === 'scope-missing') {
+        const error = new Error('cookie resume failed: session scope does not grant /pub/paykit/ read+write');
+        error.name = 'SessionResumeScopeMissing';
+        throw error;
+      }
+      return new FakeSessionHandle(world.cookieResumePubkyOverride ?? pubky);
+    }
   }
 
   const fakeModule = {
@@ -167,6 +190,10 @@ function createFakeWorld() {
       ...capabilities: boolean[]
     ) => {
       world.calls.push('publishReceiverMarker');
+      if (world.publishMarkerFailures > 0) {
+        world.publishMarkerFailures -= 1;
+        throw new Error('marker publish failed (scripted transient homeserver error)');
+      }
       world.lastPublishedMarker = { path, noisePublicKey, capabilities };
     },
     getReceiverMarker: async (_client: unknown, ownerPubky: string) => {
@@ -589,7 +616,7 @@ describe('PaykitMessagingService', () => {
       expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
     });
 
-    it('drops another account\u2019s persisted blob without touching the network', async () => {
+    it('drops another account\u2019s persisted blob without a restore attempt, then falls through to cookie resume', async () => {
       await enableMessaging(world);
       simulateReload();
       window.localStorage.setItem(
@@ -599,7 +626,10 @@ describe('PaykitMessagingService', () => {
 
       await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
       expect(storedValue()).toBeNull();
+      // The foreign blob is never sent to the homeserver; the only network
+      // attempt is the cookie resume for the CURRENT account (unauthorized here).
       expect(world.calls).not.toContain('restoreSession');
+      expect(world.calls).toContain('resumeSessionFromCookie');
     });
 
     it('drops a malformed persisted blob', async () => {
@@ -638,6 +668,149 @@ describe('PaykitMessagingService', () => {
       PaykitMessagingService.clearSession();
       expect(storedValue()).toBeNull();
       await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+    });
+  });
+
+  describe('zero-approval cookie resume', () => {
+    const storedValue = () => window.localStorage.getItem('pubky.messaging.session.v1');
+
+    it('follows the resume order: an in-memory session short-circuits both restore paths', async () => {
+      await enableMessaging(world);
+      world.calls.length = 0;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+
+      expect(world.calls).not.toContain('restoreSession');
+      expect(world.calls).not.toContain('resumeSessionFromCookie');
+    });
+
+    it('follows the resume order: a valid persisted restore wins and cookie resume is never attempted', async () => {
+      await enableMessaging(world);
+      const persisted = storedValue();
+      PaykitMessagingService.clearSession();
+      window.localStorage.setItem('pubky.messaging.session.v1', persisted!);
+      world.cookieResume = 'success';
+      world.calls.length = 0;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+
+      expect(world.calls).toContain('restoreSession');
+      expect(world.calls).not.toContain('resumeSessionFromCookie');
+    });
+
+    it('resumes purely from the sign-in cookie with ZERO signer approvals and provisions the receiver', async () => {
+      // Fresh account state: no enable flow ever ran, no persisted blob, no
+      // receiver key — exactly a first visit after signing in with the
+      // combined grant.
+      world.cookieResume = 'success';
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
+      expect(world.calls).toContain('resumeSessionFromCookie');
+      expect(world.calls).not.toContain('startAuthFlow');
+      // Persisted like the approval path, so the next load takes the
+      // restoreSession fast path.
+      expect(JSON.parse(storedValue()!)).toEqual({ pubky: OWNER, exported: `exported-session:${OWNER}` });
+      // Receiver key + marker provisioned automatically on first use.
+      expect(world.calls).toContain('publishReceiverMarker');
+      await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(true);
+      const receiver = await LocalMessagingService.getReceiver(OWNER);
+      expect(receiver?.noise_secret).toHaveLength(32);
+    });
+
+    it('after a cookie resume, the next load restores from the persisted metadata without re-running cookie resume', async () => {
+      world.cookieResume = 'success';
+      await PaykitMessagingService.restorePersistedSession(OWNER);
+      const persisted = storedValue();
+      PaykitMessagingService.clearSession();
+      window.localStorage.setItem('pubky.messaging.session.v1', persisted!);
+      world.calls.length = 0;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+
+      expect(world.calls).toContain('restoreSession');
+      expect(world.calls).not.toContain('resumeSessionFromCookie');
+    });
+
+    it('falls through to cookie resume when the persisted restore is rejected (expired metadata, fresh sign-in cookie)', async () => {
+      await enableMessaging(world);
+      const persisted = storedValue();
+      PaykitMessagingService.clearSession();
+      window.localStorage.setItem('pubky.messaging.session.v1', persisted!);
+      world.restoreRejects = true;
+      world.cookieResume = 'success';
+      world.calls.length = 0;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+
+      const restoreIndex = world.calls.indexOf('restoreSession');
+      const cookieIndex = world.calls.indexOf('resumeSessionFromCookie');
+      expect(restoreIndex).toBeGreaterThanOrEqual(0);
+      expect(cookieIndex).toBeGreaterThan(restoreIndex);
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
+      expect(JSON.parse(storedValue()!)).toEqual({ pubky: OWNER, exported: `exported-session:${OWNER}` });
+    });
+
+    it('reports the honest enable state for a legacy session without the paykit scope (SessionResumeScopeMissing)', async () => {
+      world.cookieResume = 'scope-missing';
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(false);
+      expect(storedValue()).toBeNull();
+      expect(world.calls).not.toContain('publishReceiverMarker');
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).rejects.toThrow(
+        /No active messaging session/,
+      );
+    });
+
+    it('reports no session when the homeserver holds nothing behind the cookies (SessionResumeUnauthorized)', async () => {
+      world.cookieResume = 'unauthorized';
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(false);
+      expect(world.calls).toContain('resumeSessionFromCookie');
+    });
+
+    it('rejects a cookie-resumed session whose identity does not match the expected account', async () => {
+      world.cookieResume = 'success';
+      world.cookieResumePubkyOverride = COUNTERPARTY;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(false);
+      expect(PaykitMessagingService.hasActiveSession(COUNTERPARTY)).toBe(false);
+      expect(storedValue()).toBeNull();
+    });
+
+    it('link operations self-resume from the cookie alone (messages ready straight after sign-in)', async () => {
+      world.cookieResume = 'success';
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+      expect(world.calls).not.toContain('startAuthFlow');
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
+    });
+
+    it('keeps the session when receiver provisioning fails transiently and retries on the next status poll', async () => {
+      world.cookieResume = 'success';
+      world.publishMarkerFailures = 1;
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
+      await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(false);
+
+      // Next poll (the scripted failure is consumed): provisioning heals
+      // without any signer involvement, reusing the already-generated key.
+      const before = await LocalMessagingService.getReceiver(OWNER);
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+      await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(true);
+      const after = await LocalMessagingService.getReceiver(OWNER);
+      expect(after?.noise_secret).toEqual(before?.noise_secret);
     });
   });
 });
