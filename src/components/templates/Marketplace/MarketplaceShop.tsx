@@ -130,11 +130,17 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                   <Typography as="p" className="mt-2 max-w-2xl text-muted-foreground">
                     {shop.record.bio}
                   </Typography>
-                  <Typography as="p" className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="size-4" />
-                    {shop.record.location.region ? `${shop.record.location.region}, ` : ''}
-                    {shop.record.location.countryCode}
-                  </Typography>
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <Typography as="p" className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <MapPin className="size-4" />
+                      {shop.record.location.region ? `${shop.record.location.region}, ` : ''}
+                      {shop.record.location.countryCode}
+                    </Typography>
+                    <MarketplaceCommunityTags
+                      target={{ kind: TagKind.SHOP, ownerPubky: sellerPubky }}
+                      variant="inline"
+                    />
+                  </div>
                   <MarketplaceReputationHeader sellerPubky={sellerPubky} variant="full" className="mt-3" />
                 </div>
                 <div className="flex flex-col items-start gap-4 sm:items-end">
@@ -187,12 +193,6 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border py-5">
-              <CardContent className="px-5">
-                <MarketplaceCommunityTags target={{ kind: TagKind.SHOP, ownerPubky: sellerPubky }} />
               </CardContent>
             </Card>
 

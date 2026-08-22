@@ -12,6 +12,12 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 export interface MarketplaceCommunityTagsProps {
   target: MarketplaceTagTarget;
+  /**
+   * `card` (default) renders the labeled section with its explainer.
+   * `inline` renders only the chips and a compact add-tag input, for
+   * embedding in an existing row (e.g. the shop header's location line).
+   */
+  variant?: 'card' | 'inline';
 }
 
 /**
@@ -30,7 +36,7 @@ export interface MarketplaceCommunityTagsProps {
  * keywords in the listing record (`record.tags`), which stay labeled as the
  * seller's own metadata.
  */
-export function MarketplaceCommunityTags({ target }: MarketplaceCommunityTagsProps) {
+export function MarketplaceCommunityTags({ target, variant = 'card' }: MarketplaceCommunityTagsProps) {
   const { tags, handleTagAdd, handleTagToggle } = useMarketplaceTags(target);
   const { enrichedTags } = useEnrichedTags(tags);
   const { isAuthenticated, requireAuth } = useRequireAuth();
@@ -48,6 +54,35 @@ export function MarketplaceCommunityTags({ target }: MarketplaceCommunityTagsPro
 
   const viewerTags = tags.filter((t) => t.relationship);
   const taggedId = target.kind === TagKind.LISTING ? `${target.sellerPubky}:${target.listingId}` : target.ownerPubky;
+
+  if (variant === 'inline') {
+    return (
+      <Container
+        overrideDefaults
+        data-cy="marketplace-community-tags"
+        title="Community tags — added by anyone on Pubky, separate from the seller's own keywords."
+        className="flex flex-wrap items-center gap-2"
+      >
+        {tags.length > 0 && (
+          <TaggedList
+            tags={enrichedTags}
+            taggedId={taggedId}
+            taggedKind={target.kind}
+            onTagToggle={handleTagToggleWithAuth}
+          />
+        )}
+        <Container overrideDefaults className="w-40">
+          <TagInput
+            onTagAdd={handleTagAddWithAuth}
+            existingTags={tags}
+            viewerTags={viewerTags}
+            disabled={!isAuthenticated}
+            onClick={handleInputClick}
+          />
+        </Container>
+      </Container>
+    );
+  }
 
   return (
     <Container overrideDefaults data-cy="marketplace-community-tags" className="flex w-full flex-col gap-2">
