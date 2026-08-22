@@ -248,7 +248,7 @@ describe('PaykitMessagingService', () => {
       // Both scopes on purpose: the homeserver holds one session cookie per
       // user, so the messaging session must also carry the app's write scope
       // or approving it breaks every pubky.app write (see messaging-contracts).
-      expect(world.calls).toContain('startAuthFlow:/pub/pubky.app/:rw,/pub/paykit/:rw');
+      expect(world.calls).toContain('startAuthFlow:/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw');
       expect(enabled.pubky).toBe(OWNER);
       expect(enabled.receiverPath).toBe('marketplace/wallet');
       expect(world.lastPublishedMarker).toEqual({

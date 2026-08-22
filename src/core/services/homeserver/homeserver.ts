@@ -60,7 +60,18 @@ import {
   resolveOwnedSessionPath,
 } from './homeserver.utils';
 
-const CAPABILITIES = '/pub/pubky.app/:rw';
+/**
+ * The single sign-in grant. One Ring approval covers everything the app does,
+ * on purpose: the homeserver keeps ONE session cookie per user per origin, so
+ * splitting capabilities across separate approvals means each new approval
+ * clobbers the previous session (this broke all pubky.app writes when the
+ * paykit-only messaging grant landed — see `messaging-contracts.ts`).
+ * Scopes: the app's own tree, the Paykit tree (encrypted messaging), and the
+ * app's private tree (cross-device watchlist sync — `/priv/` is enforced
+ * private by the homeserver, verified empirically in
+ * `docs/ecommerce/watchlist.md`).
+ */
+const CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw';
 const PUB_PATH_PREFIX = '/pub/' as const;
 /** Default limit for list operations */
 const LIST_DEFAULT_LIMIT = 500;
