@@ -91,6 +91,25 @@ export const isMarketplaceSessionRequiredError = (error: unknown): error is AppE
 };
 
 /**
+ * True when the HOMESERVER refused a write because the browser's session
+ * cookie lacks the needed capability scope ("Session does not have write
+ * access to path"). The homeserver keeps one session cookie per user, so a
+ * session approved under an older, narrower grant (e.g. a paykit-only
+ * messaging approval from before the combined grant) silently replaces the
+ * app session and breaks every pubky.app write. The ONLY remedy is a fresh
+ * sign-in, so surfaces catching this must say exactly that instead of
+ * showing the raw 403.
+ */
+export const isHomeserverWriteScopeError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return message.includes('Session does not have write access');
+};
+
+/** The one honest remedy line for {@link isHomeserverWriteScopeError} surfaces. */
+export const HOMESERVER_WRITE_SCOPE_REMEDY =
+  'Your session no longer has write access (an older approval replaced it). Sign out and sign back in with Pubky Ring to restore it.';
+
+/**
  * Is this a "not found" error?
  * Checks both client NOT_FOUND and database RECORD_NOT_FOUND.
  */
