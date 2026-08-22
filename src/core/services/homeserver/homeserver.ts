@@ -25,6 +25,7 @@ import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError } from '@/libs/error/error.http';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
+import { signRootAuthToken } from '@/libs/identity/auth-token';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import type { Pubky as TPubkyModel } from '@/models/models.types';
@@ -51,6 +52,7 @@ import type {
 } from './homeserver.types';
 import {
   assertOk,
+  bytesToBase64,
   capabilitiesGrantWrite,
   createCancelableAuthApproval,
   getOwnedResponse,
@@ -81,6 +83,10 @@ const OWNED_PATH_PREFIXES = [PUB_PATH_PREFIX, PRIV_PATH_PREFIX] as const;
 export const PRIVATE_APP_DATA_PATH = '/priv/pubky.app/' as const;
 /** Default limit for list operations */
 const LIST_DEFAULT_LIMIT = 500;
+/** Attempts to hydrate the session right after a direct homeserver signup. */
+const SIGNUP_SESSION_RESTORE_ATTEMPTS = 3;
+/** Base delay between signup session restore attempts (multiplied by attempt number). */
+const SIGNUP_SESSION_RESTORE_DELAY_MS = 1500;
 
 type HomeserverSdkUserEvent = THomeserverUserEvent & {
   free(): void;
@@ -209,6 +215,10 @@ export class HomeserverService {
    * @returns The session
    */
   static async signUp({ keypair, signupToken }: THomeserverSignUpParams): Promise<THomeserverSessionResult> {
+    if (isStagingHomeserverDeploy()) {
+      return await this.signUpViaHomeserverUrl({ keypair, signupToken });
+    }
+
     try {
       const homeserverPublicKey = PublicKey.from(getHomeserver());
       const signer = this.getSigner(keypair);
@@ -224,6 +234,137 @@ export class HomeserverService {
         statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
         alwaysUseHomeserverError: true,
       });
+    }
+  }
+
+  /**
+   * Staging signup that bypasses PKARR resolution of the homeserver key.
+   *
+   * `signer.signup()` builds `https://<homeserver-z32>/signup` and needs the
+   * homeserver's OWN PKARR record to carry an HTTPS endpoint for that bare-key
+   * hostname. The staging homeserver's record does not resolve that way (the
+   * same reason {@link verifySignupToken} already uses {@link getHomeserverUrl}
+   * directly), so browser-key signups died with "No HTTPS endpoints found in
+   * PKARR record" while everything else — which rides `_pubky.<user>` URLs —
+   * kept working.
+   *
+   * This path replicates what `signer.signup()` does, without that lookup:
+   * 1. Sign a root-capability AuthToken locally (see `libs/identity/auth-token`)
+   *    and POST it to `{homeserverUrl}/signup?signup_token=…`. The response body
+   *    is the serialized SessionInfo and the session cookie is set by the browser.
+   * 2. Force-publish the user's `_pubky` record pointing at this homeserver
+   *    (required by {@link assertUserHomeserverAllowed} and by Nexus).
+   * 3. Hydrate a Session from the signup response (retried briefly: the
+   *    hydration revalidates via `_pubky.<user>`, which needs the record from
+   *    step 2 to propagate to the relays).
+   *
+   * Retry safety: the invite is consumed by a successful POST in step 1. If a
+   * later step fails, the thrown error is retryable, and a retried call whose
+   * POST is rejected (token already used) recovers by signing in to the
+   * now-existing account instead of failing — so retries never strand a
+   * consumed invite or a half-created account.
+   */
+  private static async signUpViaHomeserverUrl({
+    keypair,
+    signupToken,
+  }: THomeserverSignUpParams): Promise<THomeserverSessionResult> {
+    const url = `${getHomeserverUrl()}/signup?signup_token=${encodeURIComponent(signupToken)}`;
+    const errorParams = { service: ErrorService.Homeserver, operation: 'signUpViaHomeserverUrl' };
+
+    let response: Response;
+    try {
+      response = await this.getPubkySdk().client.fetch(url, {
+        method: HttpMethod.POST,
+        // The token owns its exact-length buffer; passed as ArrayBuffer because
+        // this tsconfig's BodyInit does not accept Uint8Array<ArrayBufferLike>.
+        body: signRootAuthToken(keypair.secret()).buffer as ArrayBuffer,
+        credentials: 'include',
+      });
+    } catch (error) {
+      // The homeserver was never reached, so the invite was not consumed — retryable.
+      throw Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, 'Could not reach the homeserver to sign up.', {
+        ...errorParams,
+        cause: error,
+      });
+    }
+
+    if (!response.ok) {
+      const recovered = await this.trySignInExistingAccount(keypair);
+      if (recovered) {
+        Logger.info('Signup token already consumed but account exists; recovered via sign-in');
+        return recovered;
+      }
+      throw Err.auth(AuthErrorCode.INVALID_TOKEN, 'The homeserver rejected the invite code.', {
+        ...errorParams,
+        context: { statusCode: response.status },
+      });
+    }
+
+    const sessionInfoBytes = new Uint8Array(await response.arrayBuffer());
+    Logger.debug('Direct homeserver signup succeeded', { publicKey: keypair.publicKey.z32() });
+
+    // From here on the invite is spent: only throw RETRYABLE errors (see doc comment).
+    try {
+      await this.getSigner(keypair).pkdns.publishHomeserverForce(PublicKey.from(getHomeserver()));
+    } catch (error) {
+      throw Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, 'Signed up, but publishing your key record failed.', {
+        ...errorParams,
+        cause: error,
+      });
+    }
+
+    const session = await this.restoreSignupSession(sessionInfoBytes, errorParams);
+    return { session };
+  }
+
+  /**
+   * Hydrate a Session from a `/signup` response body (serialized SessionInfo —
+   * the exact payload `session.export()` base64-encodes). Restoration
+   * revalidates against `_pubky.<user>`, so brief retries absorb relay
+   * propagation of the just-published user record.
+   */
+  private static async restoreSignupSession(
+    sessionInfoBytes: Uint8Array,
+    errorParams: { service: ErrorService; operation: string },
+  ): Promise<Session> {
+    const sessionExport = bytesToBase64(sessionInfoBytes);
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= SIGNUP_SESSION_RESTORE_ATTEMPTS; attempt++) {
+      try {
+        return await this.getPubkySdk().restoreSession(sessionExport);
+      } catch (error) {
+        lastError = error;
+        Logger.warn('Signup session restore attempt failed', { attempt, error });
+        if (attempt < SIGNUP_SESSION_RESTORE_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, SIGNUP_SESSION_RESTORE_DELAY_MS * attempt));
+        }
+      }
+    }
+
+    throw Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, 'Signed up, but could not establish your session yet.', {
+      ...errorParams,
+      cause: lastError,
+    });
+  }
+
+  /**
+   * Recovery for a signup POST rejected because the invite was already consumed
+   * by a previous attempt that died mid-flight: if this keypair's account exists,
+   * publish its record and sign in. Returns `null` when the account does not
+   * exist (i.e. the invite was genuinely invalid). Publishing before knowing the
+   * account exists is harmless — a fresh onboarding keypair with no account just
+   * leaves an inert record pointing here.
+   */
+  private static async trySignInExistingAccount(keypair: Keypair): Promise<THomeserverSessionResult | null> {
+    try {
+      const signer = this.getSigner(keypair);
+      await signer.pkdns.publishHomeserverForce(PublicKey.from(getHomeserver()));
+      const session = await signer.signin();
+      return { session };
+    } catch (error) {
+      Logger.debug('No existing account to recover during signup', { error });
+      return null;
     }
   }
 

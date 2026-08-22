@@ -33,6 +33,7 @@ const mockState = vi.hoisted(() => ({
   publicStorageList: vi.fn(),
   // Pubky methods
   getHomeserverOf: vi.fn(),
+  restoreSession: vi.fn(),
   startAuthFlow: vi.fn(),
   authFlowKindSignin: vi.fn(),
   eventStreamForUser: vi.fn(),
@@ -79,6 +80,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 vi.mock('@synonymdev/pubky', () => {
   const createMockPubkyInstance = () => ({
     getHomeserverOf: (...args: unknown[]) => mockState.getHomeserverOf(...args),
+    restoreSession: (...args: unknown[]) => mockState.restoreSession(...args),
     startAuthFlow: (...args: unknown[]) => mockState.startAuthFlow(...args),
     eventStreamForUser: (...args: unknown[]) => mockState.eventStreamForUser(...args),
     client: {
@@ -333,6 +335,109 @@ describe('HomeserverService', () => {
           // The original error message becomes the error message
           expect((error as AppError).message).toBe(originalMessage);
         }
+      });
+    });
+
+    describe('signUp (staging: direct homeserver URL)', () => {
+      const signupToken = 'AAAA-BBBB-CCCC';
+      const sessionInfoBytes = new Uint8Array([1, 2, 3, 4]);
+
+      it('POSTs a locally signed auth token to the homeserver URL and hydrates the session', async () => {
+        await withStagingHomeserverEnv(async () => {
+          const keypair = createMockKeypair();
+          const expectedSession = createMockSession();
+          mockState.clientFetch.mockResolvedValue(new Response(sessionInfoBytes, { status: 200 }));
+          mockState.restoreSession.mockResolvedValue(expectedSession);
+
+          const result = await HomeserverService.signUp({ keypair, signupToken });
+
+          expect(result).toEqual({ session: expectedSession });
+          // Never touches the PKARR-dependent SDK signup
+          expect(mockState.signup).not.toHaveBeenCalled();
+          expect(mockState.clientFetch).toHaveBeenCalledWith(
+            expect.stringContaining(`/signup?signup_token=${signupToken}`),
+            expect.objectContaining({ method: HttpMethod.POST, credentials: 'include' }),
+          );
+          const [url, init] = mockState.clientFetch.mock.calls[0] as [string, { body: ArrayBuffer }];
+          expect(url.startsWith('https://homeserver.staging.pubky.app')).toBe(true);
+          // Body is a canonical v0 root auth token (120 bytes for "/:rw")
+          expect(new Uint8Array(init.body).length).toBe(120);
+          // Publishes the user's record so the staging guard and Nexus can resolve it
+          expect(mockState.publishHomeserverForce).toHaveBeenCalled();
+          // Session is restored from the base64 of the signup response body
+          expect(mockState.restoreSession).toHaveBeenCalledWith(btoa(String.fromCharCode(...sessionInfoBytes)));
+        });
+      });
+
+      it('recovers a consumed invite by signing in when the account already exists', async () => {
+        await withStagingHomeserverEnv(async () => {
+          const keypair = createMockKeypair();
+          const expectedSession = createMockSession();
+          mockState.clientFetch.mockResolvedValue(new Response('token already used', { status: 400 }));
+          mockState.signin.mockResolvedValue(expectedSession);
+
+          const result = await HomeserverService.signUp({ keypair, signupToken });
+
+          expect(result).toEqual({ session: expectedSession });
+          expect(mockState.publishHomeserverForce).toHaveBeenCalled();
+          expect(mockState.signin).toHaveBeenCalled();
+        });
+      });
+
+      it('throws a non-retryable auth error when the invite is rejected and no account exists', async () => {
+        await withStagingHomeserverEnv(async () => {
+          const keypair = createMockKeypair();
+          mockState.clientFetch.mockResolvedValue(new Response('invalid token', { status: 401 }));
+          mockState.signin.mockRejectedValue(new Error('no account'));
+
+          await expect(HomeserverService.signUp({ keypair, signupToken })).rejects.toMatchObject({
+            category: ErrorCategory.Auth,
+            code: AuthErrorCode.INVALID_TOKEN,
+          });
+        });
+      });
+
+      it('throws a retryable server error when the homeserver is unreachable (invite not consumed)', async () => {
+        await withStagingHomeserverEnv(async () => {
+          const keypair = createMockKeypair();
+          mockState.clientFetch.mockRejectedValue(new Error('network down'));
+
+          await expect(HomeserverService.signUp({ keypair, signupToken })).rejects.toMatchObject({
+            category: ErrorCategory.Server,
+            code: ServerErrorCode.SERVICE_UNAVAILABLE,
+          });
+          expect(mockState.publishHomeserverForce).not.toHaveBeenCalled();
+        });
+      });
+
+      it('throws a retryable server error when record publishing fails after a successful POST', async () => {
+        await withStagingHomeserverEnv(async () => {
+          const keypair = createMockKeypair();
+          mockState.clientFetch.mockResolvedValue(new Response(sessionInfoBytes, { status: 200 }));
+          mockState.publishHomeserverForce.mockRejectedValue(new Error('relay 429'));
+
+          await expect(HomeserverService.signUp({ keypair, signupToken })).rejects.toMatchObject({
+            category: ErrorCategory.Server,
+            code: ServerErrorCode.SERVICE_UNAVAILABLE,
+          });
+          expect(mockState.restoreSession).not.toHaveBeenCalled();
+        });
+      });
+
+      it('retries session hydration before failing with a retryable error', async () => {
+        await withStagingHomeserverEnv(async () => {
+          const keypair = createMockKeypair();
+          const expectedSession = createMockSession();
+          mockState.clientFetch.mockResolvedValue(new Response(sessionInfoBytes, { status: 200 }));
+          mockState.restoreSession
+            .mockRejectedValueOnce(new Error('record not propagated yet'))
+            .mockResolvedValueOnce(expectedSession);
+
+          const result = await HomeserverService.signUp({ keypair, signupToken });
+
+          expect(result).toEqual({ session: expectedSession });
+          expect(mockState.restoreSession).toHaveBeenCalledTimes(2);
+        });
       });
     });
 
