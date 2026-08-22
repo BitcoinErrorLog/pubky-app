@@ -1,36 +1,35 @@
 'use client';
 
+import { useMemo } from 'react';
 import { TagKind } from '@/application/tag/tag.types';
 import { Container } from '@/atoms/Container/Container';
 import { Typography } from '@/atoms/Typography/Typography';
-import { useEnrichedTags } from '@/hooks/useEnrichedTags/useEnrichedTags';
 import { type MarketplaceTagTarget, useMarketplaceTags } from '@/hooks/useMarketplaceTags/useMarketplaceTags';
-import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
-import { TaggedList } from '@/molecules/TaggedList/TaggedList';
-import { TagInput } from '@/molecules/TagInput/TagInput';
-import { useAuthStore } from '@/stores/auth/auth.store';
+import { ClickableTagsList } from '@/organisms/ClickableTagsList/ClickableTagsList';
 
 export interface MarketplaceCommunityTagsProps {
   target: MarketplaceTagTarget;
   /**
    * `card` (default) renders the labeled section with its explainer.
-   * `inline` renders only the chips and a compact add-tag input, for
-   * embedding in an existing row (e.g. the shop header's location line).
+   * `inline` renders only the feed-style tag row, for embedding in an
+   * existing line (e.g. the shop header's location row).
    */
   variant?: 'card' | 'inline';
 }
 
 /**
- * Community tag section for a marketplace listing or shop.
- *
- * Reuses the post/user tagging building blocks (`TagInput` + `TaggedList`)
- * and the same controller flow: tags are real `PubkyAppTag` records written
- * to the tagger's homeserver targeting the canonical listing/shop URI.
+ * Community tag row for a marketplace listing or shop — the SAME visual
+ * component the feed uses on posts (`ClickableTagsList`: horizontal pills
+ * with tagger counts, character-budgeted display limiting, and the compact
+ * add button that expands into an input). Only the data source differs:
+ * marketplace tags are real `PubkyAppTag` records targeting the canonical
+ * listing/shop URI, supplied through `useMarketplaceTags` instead of the
+ * post/user tag stores (the enriched taggers are flattened back to pubkys —
+ * `ClickableTagsList` re-enriches internally).
  *
  * Read honesty: the viewer's own tags render immediately from the local
  * write-through; aggregates from other users appear only once the marketplace
- * Nexus serves tag aggregation for these targets. Until then the panel shows
- * exactly the local tags — never fabricated counts.
+ * Nexus serves tag aggregation for these targets — never fabricated counts.
  *
  * This is the community layer, deliberately separate from the seller-declared
  * keywords in the listing record (`record.tags`), which stay labeled as the
@@ -38,22 +37,25 @@ export interface MarketplaceCommunityTagsProps {
  */
 export function MarketplaceCommunityTags({ target, variant = 'card' }: MarketplaceCommunityTagsProps) {
   const { tags, handleTagAdd, handleTagToggle } = useMarketplaceTags(target);
-  const { enrichedTags } = useEnrichedTags(tags);
-  const { isAuthenticated, requireAuth } = useRequireAuth();
-  const setShowSignInDialog = useAuthStore((state) => state.setShowSignInDialog);
-
-  const handleTagToggleWithAuth = (tag: Parameters<typeof handleTagToggle>[0]) => {
-    requireAuth(() => handleTagToggle(tag));
-  };
-
-  const handleTagAddWithAuth = (label: string) => {
-    return requireAuth(() => handleTagAdd(label));
-  };
-
-  const handleInputClick = !isAuthenticated ? () => setShowSignInDialog(true) : undefined;
-
-  const viewerTags = tags.filter((t) => t.relationship);
   const taggedId = target.kind === TagKind.LISTING ? `${target.sellerPubky}:${target.listingId}` : target.ownerPubky;
+
+  const nexusTags = useMemo(
+    () => tags.map((tag) => ({ ...tag, taggers: tag.taggers.map((tagger) => tagger.id) })),
+    [tags],
+  );
+
+  const row = (
+    <ClickableTagsList
+      taggedId={taggedId}
+      taggedKind={target.kind}
+      tags={nexusTags}
+      showCount
+      showAddButton
+      addMode
+      onTagClick={(tag) => void handleTagToggle(tag)}
+      onTagAdd={(label) => void handleTagAdd(label)}
+    />
+  );
 
   if (variant === 'inline') {
     return (
@@ -63,23 +65,7 @@ export function MarketplaceCommunityTags({ target, variant = 'card' }: Marketpla
         title="Community tags — added by anyone on Pubky, separate from the seller's own keywords."
         className="flex flex-wrap items-center gap-2"
       >
-        {tags.length > 0 && (
-          <TaggedList
-            tags={enrichedTags}
-            taggedId={taggedId}
-            taggedKind={target.kind}
-            onTagToggle={handleTagToggleWithAuth}
-          />
-        )}
-        <Container overrideDefaults className="w-40">
-          <TagInput
-            onTagAdd={handleTagAddWithAuth}
-            existingTags={tags}
-            viewerTags={viewerTags}
-            disabled={!isAuthenticated}
-            onClick={handleInputClick}
-          />
-        </Container>
+        {row}
       </Container>
     );
   }
@@ -92,23 +78,7 @@ export function MarketplaceCommunityTags({ target, variant = 'card' }: Marketpla
       <Typography as="p" overrideDefaults className="text-xs text-muted-foreground">
         Added by anyone on Pubky — separate from the seller&apos;s own keywords.
       </Typography>
-      <TagInput
-        onTagAdd={handleTagAddWithAuth}
-        existingTags={tags}
-        viewerTags={viewerTags}
-        disabled={!isAuthenticated}
-        onClick={handleInputClick}
-      />
-      {tags.length > 0 && (
-        <Container overrideDefaults className="max-h-80 overflow-x-hidden overflow-y-auto pr-1">
-          <TaggedList
-            tags={enrichedTags}
-            taggedId={taggedId}
-            taggedKind={target.kind}
-            onTagToggle={handleTagToggleWithAuth}
-          />
-        </Container>
-      )}
+      {row}
     </Container>
   );
 }
