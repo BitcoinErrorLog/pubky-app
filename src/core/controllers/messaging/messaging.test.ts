@@ -49,7 +49,7 @@ describe('MessagingController inbox naming set', () => {
     mockAuth(OWNER);
     commerceModeMock.mockReturnValue('unavailable');
     syncCounterpartiesSpy = vi.spyOn(MessagingApplication, 'syncCounterparties').mockResolvedValue();
-    vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue(0);
+    vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue({ total: 0, marketplace: 0 });
   });
 
   it('names follows and followers, deduped, with the owner excluded', async () => {
@@ -100,7 +100,7 @@ describe('MessagingController inbox naming set', () => {
   });
 
   it('refreshes the device-local unread fact into the store after the pass', async () => {
-    vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue(3);
+    vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue({ total: 3, marketplace: 1 });
     mockFollowGraph({ following: [], followers: [] });
 
     await MessagingController.syncInbox();
@@ -112,12 +112,12 @@ describe('MessagingController inbox naming set', () => {
 describe('MessagingController unread and read-state facts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useMessagingStore.getState().setUnreadConversations(0);
+    useMessagingStore.getState().setUnreadConversations(0, 0);
   });
 
   it('reports 0 unread and clears the store when signed out', async () => {
     mockAuth(null);
-    useMessagingStore.getState().setUnreadConversations(5);
+    useMessagingStore.getState().setUnreadConversations(5, 2);
     const countSpy = vi.spyOn(MessagingApplication, 'getUnreadConversationCount');
 
     await expect(MessagingController.refreshUnreadCount()).resolves.toBe(0);
@@ -129,7 +129,7 @@ describe('MessagingController unread and read-state facts', () => {
   it('marks a conversation read and refreshes the unread fact', async () => {
     mockAuth(OWNER);
     const markSpy = vi.spyOn(MessagingApplication, 'markConversationRead').mockResolvedValue();
-    vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue(1);
+    vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue({ total: 1, marketplace: 1 });
 
     await MessagingController.markConversationRead(`dm:${FOLLOWED}`);
 
