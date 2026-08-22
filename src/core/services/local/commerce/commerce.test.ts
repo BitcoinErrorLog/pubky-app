@@ -263,11 +263,17 @@ describe('LocalCommerceService', () => {
     expect(await LocalCommerceService.getFavorites(COMMERCE_FIXTURE_SELLER)).toHaveLength(1);
     expect(await LocalCommerceService.isShopFollowed(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER)).toBe(true);
 
-    await LocalCommerceService.deleteFavorite(COMMERCE_FIXTURE_SELLER, listingId);
+    await LocalCommerceService.deleteFavorite(COMMERCE_FIXTURE_SELLER, listingId, 400);
     await LocalCommerceService.deleteShopFollow(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER);
 
     expect(await LocalCommerceService.isFavorite(COMMERCE_FIXTURE_SELLER, listingId)).toBe(false);
     expect(await LocalCommerceService.isShopFollowed(COMMERCE_FIXTURE_SELLER, COMMERCE_FIXTURE_BUYER)).toBe(false);
+    // The unwatch left a mergeable tombstone; re-watching clears it again.
+    expect(await LocalCommerceService.getWatchTombstones(COMMERCE_FIXTURE_SELLER)).toEqual([
+      expect.objectContaining({ listing_id: listingId, removed_at: 400 }),
+    ]);
+    await LocalCommerceService.createFavorite(COMMERCE_FIXTURE_SELLER, listingId, 500);
+    expect(await LocalCommerceService.getWatchTombstones(COMMERCE_FIXTURE_SELLER)).toEqual([]);
   });
 
   it('persists account-scoped cart quantities against real listing variants', async () => {

@@ -310,7 +310,7 @@ export type CommerceSyncJobStatus = 'pending' | 'running' | 'failed';
 export interface CommerceSyncJobModelSchema {
   id: string;
   owner_id: string;
-  entity_type: 'shop' | 'listing' | 'review' | 'review_response' | 'collection';
+  entity_type: 'shop' | 'listing' | 'review' | 'review_response' | 'collection' | 'watchlist';
   entity_id: string;
   operation: CommerceSyncJobOperation;
   status: CommerceSyncJobStatus;
@@ -342,6 +342,25 @@ export interface CommerceFavoriteModelSchema {
 }
 
 export const commerceFavoriteTableSchema = '&id, owner_id, listing_id, created_at, [owner_id+created_at]';
+
+/**
+ * A removed watch, retained so a delete wins over a stale re-add when the
+ * private watchlist document is merged across devices (see
+ * `commerce.watchlist.ts` for the merge rule). Rows are pruned to the
+ * document cap oldest-first during merge; the table only exists to make
+ * unwatch operations mergeable, it renders nothing.
+ */
+export interface CommerceWatchTombstoneModelSchema {
+  /** `${owner_id}|${listing_id}` — same identity scheme as the favorite row. */
+  id: string;
+  owner_id: string;
+  /** Composite `seller:listingId`. */
+  listing_id: string;
+  /** Epoch milliseconds when the watch was removed — the LWW merge key. */
+  removed_at: number;
+}
+
+export const commerceWatchTombstoneTableSchema = '&id, owner_id, listing_id, removed_at, [owner_id+removed_at]';
 
 /**
  * The last state of a watched listing this device actually observed — the

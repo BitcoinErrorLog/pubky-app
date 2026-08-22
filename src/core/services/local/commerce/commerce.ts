@@ -22,6 +22,7 @@ import {
   CommerceSyncJobModel,
   CommerceWatchAlertModel,
   CommerceWatchSnapshotModel,
+  CommerceWatchTombstoneModel,
 } from '@/models/commerce/commerce.models';
 import type {
   CommerceCacheStatus,
@@ -40,6 +41,7 @@ import type {
   CommerceSyncJobModelSchema,
   CommerceWatchAlertModelSchema,
   CommerceWatchSnapshotModelSchema,
+  CommerceWatchTombstoneModelSchema,
 } from '@/models/commerce/commerce.schema';
 import type { CommerceDeliveryAddressInput, CommerceShippingPresetInput } from '@/pipes/commerce/commerce.normalizer';
 
@@ -123,16 +125,89 @@ export class LocalCommerceService {
   }
 
   static async createFavorite(ownerId: string, listingId: string, now: number): Promise<void> {
-    await CommerceFavoriteModel.upsert({
-      id: this.favoriteId(ownerId, listingId),
-      owner_id: ownerId,
-      listing_id: listingId,
-      created_at: now,
+    const id = this.favoriteId(ownerId, listingId);
+    // The watch and its tombstone are two halves of one mergeable fact, so
+    // they must change together: a re-added watch clears its tombstone.
+    await db.transaction('rw', CommerceFavoriteModel.table, CommerceWatchTombstoneModel.table, async () => {
+      await CommerceFavoriteModel.upsert({
+        id,
+        owner_id: ownerId,
+        listing_id: listingId,
+        created_at: now,
+      });
+      await CommerceWatchTombstoneModel.deleteById(id);
     });
   }
 
-  static async deleteFavorite(ownerId: string, listingId: string): Promise<void> {
-    await CommerceFavoriteModel.deleteById(this.favoriteId(ownerId, listingId));
+  static async deleteFavorite(ownerId: string, listingId: string, now: number): Promise<void> {
+    const id = this.favoriteId(ownerId, listingId);
+    // The tombstone makes the removal mergeable across devices: without it a
+    // pull would resurrect the row from another device's older watch.
+    await db.transaction('rw', CommerceFavoriteModel.table, CommerceWatchTombstoneModel.table, async () => {
+      await CommerceFavoriteModel.deleteById(id);
+      await CommerceWatchTombstoneModel.upsert({
+        id,
+        owner_id: ownerId,
+        listing_id: listingId,
+        removed_at: now,
+      });
+    });
+  }
+
+  static async getWatchTombstones(ownerId: string): Promise<CommerceWatchTombstoneModelSchema[]> {
+    return await CommerceWatchTombstoneModel.findByOwner(ownerId);
+  }
+
+  /**
+   * Applies a merged watchlist state atomically: favorites and tombstones are
+   * rewritten to exactly the merged rows, and observation baselines
+   * (`commerce_watch_snapshots`) of listings the merge removed are deleted so
+   * an unwatched item can never produce another alert (same invariant as a
+   * direct unwatch).
+   */
+  static async applyWatchlistState(
+    ownerId: string,
+    items: ReadonlyMap<string, number>,
+    tombstones: ReadonlyMap<string, number>,
+  ): Promise<void> {
+    await db.transaction(
+      'rw',
+      CommerceFavoriteModel.table,
+      CommerceWatchTombstoneModel.table,
+      CommerceWatchSnapshotModel.table,
+      async () => {
+        const existingFavorites = await CommerceFavoriteModel.table.where('owner_id').equals(ownerId).toArray();
+        for (const favorite of existingFavorites) {
+          if (!items.has(favorite.listing_id)) {
+            await CommerceFavoriteModel.deleteById(favorite.id);
+            await CommerceWatchSnapshotModel.deleteById(favorite.id);
+          }
+        }
+        for (const [listingId, watchedAt] of items) {
+          await CommerceFavoriteModel.upsert({
+            id: this.favoriteId(ownerId, listingId),
+            owner_id: ownerId,
+            listing_id: listingId,
+            created_at: watchedAt,
+          });
+        }
+
+        const existingTombstones = await CommerceWatchTombstoneModel.table.where('owner_id').equals(ownerId).toArray();
+        for (const tombstone of existingTombstones) {
+          if (!tombstones.has(tombstone.listing_id)) {
+            await CommerceWatchTombstoneModel.deleteById(tombstone.id);
+          }
+        }
+        for (const [listingId, removedAt] of tombstones) {
+          await CommerceWatchTombstoneModel.upsert({
+            id: this.favoriteId(ownerId, listingId),
+            owner_id: ownerId,
+            listing_id: listingId,
+            removed_at: removedAt,
+          });
+        }
+      },
+    );
   }
 
   static async getWatchSnapshots(ownerId: string): Promise<CommerceWatchSnapshotModelSchema[]> {
@@ -639,6 +714,10 @@ export class LocalCommerceService {
 
   static async upsertSyncJob(job: CommerceSyncJobModelSchema): Promise<void> {
     await CommerceSyncJobModel.upsert(job);
+  }
+
+  static async getSyncJob(id: string) {
+    return await CommerceSyncJobModel.findById(id);
   }
 
   static async completeSyncJob(id: string): Promise<void> {

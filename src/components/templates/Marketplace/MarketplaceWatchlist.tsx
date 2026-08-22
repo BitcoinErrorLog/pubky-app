@@ -39,7 +39,7 @@ const SERVICE_AUCTION_KINDS = new Set(['outbid', 'auction_won', 'auction_ended']
 const WATCH_ALERTS_PAGE_LIMIT = 8;
 
 export function MarketplaceWatchlist() {
-  const { entries, isLoading, isSignedIn } = useMarketplaceWatchlist();
+  const { entries, isLoading, isSignedIn, watchlistSyncStatus } = useMarketplaceWatchlist();
   const alertFeed = useMarketplaceWatchAlertFeed();
   const serviceFeed = useMarketplaceNotificationFeed();
   const [isCheckingNow, setIsCheckingNow] = useState(false);
@@ -107,6 +107,21 @@ export function MarketplaceWatchlist() {
           )}
         </div>
 
+        {isSignedIn && watchlistSyncStatus === 'needs_reauth' && (
+          <Card className="border border-amber-500/40 bg-amber-500/5" data-cy="watchlist-sync-reauth-notice">
+            <CardContent className="flex flex-col gap-1 py-4">
+              <Typography as="p" className="font-medium">
+                Sync across devices needs a fresh sign-in approval
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your watchlist keeps working on this device. To sync it privately through your homeserver, sign in again
+                and approve the private-storage permission — sessions approved before that permission existed cannot
+                write it.
+              </Typography>
+            </CardContent>
+          </Card>
+        )}
+
         {!isSignedIn ? (
           <Card className="border py-10">
             <CardContent className="flex flex-col items-center gap-3 text-center">
@@ -115,8 +130,8 @@ export function MarketplaceWatchlist() {
                 Sign in to keep a watchlist
               </Heading>
               <Typography as="p" className="max-w-md text-muted-foreground">
-                Watched items are stored with your account on this device, and alerts come from checks the app runs
-                while you browse.
+                Watched items are stored with your account on this device and synced privately across your devices
+                through your homeserver. Alerts come from checks the app runs while you browse.
               </Typography>
             </CardContent>
           </Card>

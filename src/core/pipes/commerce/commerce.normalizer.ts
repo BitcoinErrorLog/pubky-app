@@ -3,6 +3,7 @@ import {
   marketplaceReviewUriBuilder,
   reviewResponseUriBuilder,
   shopUriBuilder,
+  watchlistUriBuilder,
 } from 'pubky-app-specs';
 import { z } from 'zod';
 import {
@@ -18,6 +19,8 @@ import {
   commerceShopRecordSchema,
   type CommerceTombstoneRecord,
   commerceTombstoneRecordSchema,
+  type CommerceWatchlistRecord,
+  commerceWatchlistRecordSchema,
   locksPublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
 import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
@@ -509,6 +512,15 @@ export class CommerceRecordNormalizer {
 
   static reviewResponseUri(responderPubky: unknown, reviewId: unknown): string {
     return reviewResponseUriBuilder(this.pubky(responderPubky), this.entityId(reviewId));
+  }
+
+  /** The owner's PRIVATE watchlist document URI (`pubky://<owner>/priv/pubky.app/marketplace/v1/watchlist.json`). */
+  static watchlistUri(ownerPubky: unknown): string {
+    return watchlistUriBuilder(this.pubky(ownerPubky));
+  }
+
+  static watchlistRecord(input: unknown): CommerceWatchlistRecord {
+    return this.parse(commerceWatchlistRecordSchema, input, 'watchlistRecord');
   }
 
   static reviewResponse(input: unknown): CommerceReviewResponseRecord {

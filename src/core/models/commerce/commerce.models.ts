@@ -22,6 +22,7 @@ import type {
   CommerceSyncJobModelSchema,
   CommerceWatchAlertModelSchema,
   CommerceWatchSnapshotModelSchema,
+  CommerceWatchTombstoneModelSchema,
 } from './commerce.schema';
 
 export class CommerceShopModel
@@ -445,6 +446,37 @@ export class CommerceFavoriteModel
   static async findByOwner(ownerId: string): Promise<CommerceFavoriteModelSchema[]> {
     try {
       return await this.table.where('owner_id').equals(ownerId).sortBy('created_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceWatchTombstoneModel
+  extends RecordModelBase<string, CommerceWatchTombstoneModelSchema>
+  implements CommerceWatchTombstoneModelSchema
+{
+  static table: Table<CommerceWatchTombstoneModelSchema> = db.table('commerce_watch_tombstones');
+
+  owner_id: string;
+  listing_id: string;
+  removed_at: number;
+
+  constructor(tombstone: CommerceWatchTombstoneModelSchema) {
+    super(tombstone);
+    this.owner_id = tombstone.owner_id;
+    this.listing_id = tombstone.listing_id;
+    this.removed_at = tombstone.removed_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceWatchTombstoneModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('removed_at');
     } catch (error) {
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
         service: ErrorService.Local,

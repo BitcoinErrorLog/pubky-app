@@ -1,7 +1,7 @@
 // Ops probe: publish a fresh minimal listing record from a throwaway staging
 // identity, then poll the deployed Nexus for it. Isolates whether the Nexus
 // watcher indexes marketplace listing PUTs at all.
-import { Pubky, Keypair, AuthFlowKind, PublicKey } from '@synonymdev/pubky';
+import { AuthFlowKind, Keypair, Pubky, PublicKey } from '@synonymdev/pubky';
 
 const HOMESERVER_ADMIN = 'https://admin.homeserver.staging.pubky.app/generate_signup_token';
 const ADMIN_PASSWORD = process.env.STAGING_ADMIN_PASSWORD;

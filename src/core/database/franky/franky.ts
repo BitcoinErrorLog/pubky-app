@@ -40,6 +40,7 @@ import {
   commerceWatchAlertTableSchema,
   type CommerceWatchSnapshotModelSchema,
   commerceWatchSnapshotTableSchema,
+  commerceWatchTombstoneTableSchema,
 } from '@/models/commerce/commerce.schema';
 import { type FeedModelSchema, feedTableSchema } from '@/models/feed/feed.schema';
 import { type FileDetailsModelSchema, fileDetailsTableSchema } from '@/models/file/fileDetails.schema';
@@ -237,6 +238,10 @@ export class AppDatabase extends Dexie {
         // version rather than bumping it: version 3 has never shipped, so
         // there is no upgrade path to preserve.
         commerce_watch_snapshots: commerceWatchSnapshotTableSchema,
+        // Cross-device watchlist sync tombstones — folded into the current
+        // (unreleased) DB version rather than bumping it: version 3 has never
+        // shipped, so there is no upgrade path to preserve.
+        commerce_watch_tombstones: commerceWatchTombstoneTableSchema,
         commerce_watch_alerts: commerceWatchAlertTableSchema,
         commerce_saved_searches: commerceSavedSearchTableSchema,
         // Buyer address book and seller shipping presets — folded into the

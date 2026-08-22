@@ -39,7 +39,6 @@ import type {
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { extractStatusCode, handleError } from './error.utils';
 import type {
-  PubPath,
   TGenerateSignupAuthUrlParams,
   THomeserverFetchParams,
   THomeserverListAllParams,
@@ -52,12 +51,14 @@ import type {
 } from './homeserver.types';
 import {
   assertOk,
+  capabilitiesGrantWrite,
   createCancelableAuthApproval,
   getOwnedResponse,
   isHttpUrl,
   parseResponseOrUndefined,
   PUBKY_PREFIX,
   resolveOwnedSessionPath,
+  toSdkPath,
 } from './homeserver.utils';
 
 /**
@@ -73,6 +74,11 @@ import {
  */
 const CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw';
 const PUB_PATH_PREFIX = '/pub/' as const;
+const PRIV_PATH_PREFIX = '/priv/' as const;
+/** Paths the current session owns outright: its own public and private trees. */
+const OWNED_PATH_PREFIXES = [PUB_PATH_PREFIX, PRIV_PATH_PREFIX] as const;
+/** The private subtree cross-device watchlist sync writes to. */
+export const PRIVATE_APP_DATA_PATH = '/priv/pubky.app/' as const;
 /** Default limit for list operations */
 const LIST_DEFAULT_LIMIT = 500;
 
@@ -102,7 +108,30 @@ export class HomeserverService {
 
   private static resolveOwnedSessionPath(url: string): TOwnedSessionPath | null {
     const session = useAuthStore.getState().selectSession();
-    return resolveOwnedSessionPath({ url, session, pubPathPrefix: PUB_PATH_PREFIX });
+    return resolveOwnedSessionPath({ url, session, ownedPathPrefixes: OWNED_PATH_PREFIXES });
+  }
+
+  /** Whether an authenticated session object currently exists (restored sessions included). */
+  static hasActiveSession(): boolean {
+    return useAuthStore.getState().selectSession() !== null;
+  }
+
+  /**
+   * Whether the CURRENT session's granted capabilities allow writing `path`.
+   *
+   * Reads `session.info.capabilities` — the homeserver's own statement of what
+   * this session may do — so callers can gate features on facts instead of
+   * probing for 403s. Legacy Ring sessions approved before the grant widened
+   * to include `/priv/pubky.app/:rw` return `false` for private paths until
+   * the user re-approves.
+   *
+   * Returns `false` when no session exists.
+   */
+  static canCurrentSessionWrite(path: string): boolean {
+    const session = useAuthStore.getState().selectSession();
+    const capabilities = session?.info?.capabilities;
+    if (!capabilities) return false;
+    return capabilitiesGrantWrite(capabilities, path);
   }
 
   /**
@@ -459,12 +488,12 @@ export class HomeserverService {
         }
         case HttpMethod.PUT:
           await session.storage
-            .putJson(path, bodyJson ?? {})
+            .putJson(toSdkPath(path), bodyJson ?? {})
             .catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
         case HttpMethod.DELETE:
           await session.storage
-            .delete(path)
+            .delete(toSdkPath(path))
             .catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
       }
@@ -474,7 +503,7 @@ export class HomeserverService {
     if (method !== HttpMethod.GET && !isHttpUrl(url)) {
       throw Err.validation(
         ValidationErrorCode.INVALID_INPUT,
-        `Authenticated writes must target an owned ${PUB_PATH_PREFIX}* path for the current session.`,
+        `Authenticated writes must target an owned ${PUB_PATH_PREFIX}* or ${PRIV_PATH_PREFIX}* path for the current session.`,
         {
           service: ErrorService.Homeserver,
           operation: 'request',
@@ -512,7 +541,7 @@ export class HomeserverService {
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
       try {
-        await owned.session.storage.putBytes(owned.path, blob);
+        await owned.session.storage.putBytes(toSdkPath(owned.path), blob);
         return;
       } catch (error) {
         return handleError({ error, additionalContext: { url, method: HttpMethod.PUT } });
@@ -556,8 +585,8 @@ export class HomeserverService {
     try {
       const owned = this.resolveOwnedSessionPath(baseDirectory);
       if (owned) {
-        const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as PubPath<string>);
-        const files = await owned.session.storage.list(dirPath, cursor ?? null, reverse, limit, false);
+        const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as TOwnedSessionPath['path']);
+        const files = await owned.session.storage.list(toSdkPath(dirPath), cursor ?? null, reverse, limit, false);
         Logger.debug('List successful', { baseDirectory, filesCount: files.length });
         return files;
       }
@@ -653,7 +682,7 @@ export class HomeserverService {
 
       const owned = this.resolveOwnedSessionPath(url);
       return owned
-        ? await owned.session.storage.exists(owned.path)
+        ? await owned.session.storage.exists(toSdkPath(owned.path))
         : await pubkySdk.publicStorage.exists(url as Address);
     } catch (error) {
       return handleError({

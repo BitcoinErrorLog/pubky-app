@@ -721,6 +721,9 @@ export class CommerceController {
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
     );
+    // Local write already landed (local-first); the private-document push
+    // runs behind it and reports its outcome through the sync status store.
+    void this.syncWatchlist();
   }
 
   static async commitDeleteFavorite(listingCompositeId: unknown): Promise<void> {
@@ -728,6 +731,23 @@ export class CommerceController {
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
     );
+    void this.syncWatchlist();
+  }
+
+  /**
+   * Runs one cross-device watchlist sync round (pull, merge, push) and
+   * mirrors the outcome into the commerce store for UI surfaces. Safe to call
+   * opportunistically: signed-out/sandbox rounds are skipped and leave the
+   * status at `idle`, and overlapping calls share one round-trip.
+   */
+  static async syncWatchlist(): Promise<void> {
+    const currentUserPubky = useAuthStore.getState().currentUserPubky;
+    if (!currentUserPubky) {
+      useCommerceStore.getState().setWatchlistSyncStatus('idle');
+      return;
+    }
+    const status = await CommerceApplication.syncWatchlist(currentUserPubky);
+    useCommerceStore.getState().setWatchlistSyncStatus(status === 'skipped' ? 'idle' : status);
   }
 
   /**
