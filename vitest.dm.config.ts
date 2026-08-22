@@ -20,7 +20,7 @@ export default defineConfig({
     'process.env': JSON.stringify({ NODE_ENV: 'test', NEXT_PUBLIC_APP_VERSION: '0.0.0-live' }),
     __DM_SECRET_HEX__: JSON.stringify(process.env.PAYKIT_DM_SECRET ?? ''),
     __DM_TARGET_PUBKY__: JSON.stringify(process.env.PAYKIT_DM_TARGET ?? ''),
-    __DM_LISTING_ID__: JSON.stringify(process.env.PAYKIT_DM_LISTING ?? ''),
+    __DM_NOISE_HEX__: JSON.stringify(process.env.PAYKIT_DM_NOISE ?? ''),
   },
   test: {
     name: 'marketplace-dm-live',

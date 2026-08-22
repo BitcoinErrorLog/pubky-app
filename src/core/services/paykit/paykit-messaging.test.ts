@@ -390,6 +390,39 @@ describe('PaykitMessagingService', () => {
       await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toBeNull();
     });
 
+    it('resumes a mid-handshake snapshot after a reload when the counterparty key is unchanged', async () => {
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      // Simulate a reload mid-handshake: in-memory handles die, the Dexie row survives.
+      PaykitMessagingService.clearSession();
+      await enableMessaging(world);
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+      expect(world.calls).toContain('restoreEncryptedLinkHandshake');
+      expect(world.calls).not.toContain('clearEncryptedLinkOutbox');
+    });
+
+    it('discards a mid-handshake snapshot bound to a rotated counterparty key and starts over', async () => {
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      // The counterparty reinstalls and publishes a marker with a NEW key; the
+      // persisted snapshot can never complete against it (advance() would
+      // report pending forever).
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'q'.repeat(52) });
+      PaykitMessagingService.clearSession();
+      await enableMessaging(world);
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+      expect(world.calls).not.toContain('restoreEncryptedLinkHandshake');
+      expect(world.calls).toContain('clearEncryptedLinkOutbox');
+      const row = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
+      expect(row?.remote_noise_public_key).toBe('q'.repeat(52));
+    });
+
     it('restores an established link from the persisted snapshot after a reload', async () => {
       world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
       await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);

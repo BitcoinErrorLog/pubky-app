@@ -709,6 +709,33 @@ export class PaykitMessagingService {
     }
 
     if (stored?.status === 'handshaking') {
+      // A counterparty that rotated its Noise key (reinstall, new device,
+      // cleared site data) can never finish a handshake snapshot bound to the
+      // old key — advance() would report `pending` forever. Detect the
+      // rotation against the freshly published marker and discard the
+      // unrecoverable state so discovery below starts over.
+      const currentMarker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
+      if (currentMarker && currentMarker.noisePublicKey !== stored.remote_noise_public_key) {
+        Logger.warn('Counterparty rotated its messaging key mid-handshake; discarding the stale handshake state');
+        await LocalMessagingService.deleteLink(ownerPubky, counterpartyPubky);
+        await wasmModule.clearEncryptedLinkOutbox(
+          session.handle,
+          receiver.noise_secret,
+          counterpartyPubky,
+          stored.remote_noise_public_key,
+          stored.local_receiver_path,
+          stored.remote_receiver_path,
+        );
+        return await this.discoverAndStart(
+          wasmModule,
+          session,
+          receiver,
+          ownerPubky,
+          counterpartyPubky,
+          currentMarker,
+          allowInitiate,
+        );
+      }
       try {
         const handle = (await wasmModule.restoreEncryptedLinkHandshake(
           session.handle,
@@ -745,6 +772,30 @@ export class PaykitMessagingService {
     const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
     if (!marker) return allowInitiate ? { status: 'not-enrolled' } : { status: 'none' };
 
+    return await this.discoverAndStart(
+      wasmModule,
+      session,
+      receiver,
+      ownerPubky,
+      counterpartyPubky,
+      marker,
+      allowInitiate,
+    );
+  }
+
+  /**
+   * Fresh-start branch shared by first contact and post-rotation recovery:
+   * answers a queued inbound handshake if one exists, otherwise initiates.
+   */
+  private static async discoverAndStart(
+    wasmModule: PaykitWasmModule,
+    session: ActiveSession,
+    receiver: { noise_secret: Uint8Array; receiver_path: string },
+    ownerPubky: string,
+    counterpartyPubky: string,
+    marker: CounterpartyMessagingMarker,
+    allowInitiate: boolean,
+  ): Promise<MessagingProbeState> {
     const inbound = await this.probeInboundHandshake(wasmModule, session, receiver, counterpartyPubky, marker);
     if (inbound) {
       return await this.adoptHandshakeProgress(ownerPubky, counterpartyPubky, marker, receiver.receiver_path, inbound);

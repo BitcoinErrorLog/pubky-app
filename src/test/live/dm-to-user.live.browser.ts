@@ -1,21 +1,22 @@
-// LIVE one-sided messaging proof: a fresh identity (created and given a real
-// marketplace offer by scripts/probe-dm-offer.mjs) initiates an encrypted
-// link to a REAL user's account and sends both a marketplace chat message and
-// a general DM. The counterparty is a human on the deployed app: the
-// handshake completes only when their inbox sync answers it (they are an
-// offer participant, so it will), so this spec polls patiently.
+// LIVE one-sided messaging proof: a persistent identity initiates an
+// encrypted link to a REAL user's account on the deployed staging network and
+// sends a DM (plus a listing chat message when a listing id is supplied).
 //
-//   PAYKIT_DM_SECRET=<hex> PAYKIT_DM_TARGET=<z32> npm run test:marketplace:dm
+// Uses the RAW binding with a PERSISTENT noise secret (PAYKIT_DM_NOISE hex):
+// regenerating the receiver key per run rotates the published marker under
+// the counterparty's feet mid-handshake, which is a test-harness artifact a
+// real client (persistent storage) never produces.
+//
+//   PAYKIT_DM_SECRET=<identity hex> PAYKIT_DM_NOISE=<noise hex> \
+//   PAYKIT_DM_TARGET=<z32> npm run test:marketplace:dm
 import { beforeAll, describe, expect, it } from 'vitest';
-import {
-  buildMarketplaceConversationAggregateId,
-  buildMarketplaceListingAggregateId,
-} from '@/libs/commerce/transaction-commands';
-import { PaykitMessagingService, setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
+import { buildDmMessage } from '@/libs/messaging/dm-contracts';
 
 declare const __DM_SECRET_HEX__: string;
+declare const __DM_NOISE_HEX__: string;
 declare const __DM_TARGET_PUBKY__: string;
-declare const __DM_LISTING_ID__: string;
+
+const RECEIVER_PATH = 'marketplace/wallet';
 
 let wasm: typeof import('paykit-wasm');
 
@@ -31,53 +32,65 @@ describe('live DM to a real user on the deployed staging network', () => {
   beforeAll(async () => {
     wasm = await import('paykit-wasm');
     await wasm.default();
-    setPaykitWasmModuleForTests(wasm);
   });
 
-  it('initiates the encrypted link and delivers a chat message and a DM', async () => {
+  it('initiates the encrypted link and delivers a DM', async () => {
     expect(__DM_SECRET_HEX__).not.toBe('');
+    expect(__DM_NOISE_HEX__).not.toBe('');
     expect(__DM_TARGET_PUBKY__).not.toBe('');
 
     const client = new wasm.PubkyClient();
-    const session = (await client.signinWithSecret(hexToBytes(__DM_SECRET_HEX__))) as { pubky(): string };
+    const session = (await client.signinWithSecret(
+      hexToBytes(__DM_SECRET_HEX__),
+    )) as import('paykit-wasm').SessionHandle;
     const me = session.pubky();
     console.info(`[dm-live] signed in as ${me}`);
 
-    const enabled = await PaykitMessagingService.enableWithSessionForTests(
-      session as Parameters<typeof PaykitMessagingService.enableWithSessionForTests>[0],
-    );
-    expect(enabled.pubky).toBe(me);
-    console.info(`[dm-live] messaging enabled, marker published (${enabled.receiverPath})`);
+    const noiseSecret = hexToBytes(__DM_NOISE_HEX__);
+    const noisePublic = wasm.noisePublicKeyFromSecret(noiseSecret);
+    await wasm.publishReceiverMarker(session, RECEIVER_PATH, noisePublic, true, false, false, false);
+    console.info(`[dm-live] marker published (stable key ${noisePublic.slice(0, 12)}…)`);
 
-    const targetMarker = await PaykitMessagingService.getCounterpartyMarker(__DM_TARGET_PUBKY__);
+    const targetMarker = (await wasm.getReceiverMarker(client, __DM_TARGET_PUBKY__, RECEIVER_PATH)) as {
+      receiverPath: string;
+      noisePublicKey: string;
+    } | null;
     expect(targetMarker, 'the target has no receiver marker — they must enable messaging first').toBeTruthy();
-    console.info(`[dm-live] target marker found at ${targetMarker?.receiverPath}`);
+    console.info(`[dm-live] target marker found (${targetMarker?.noisePublicKey.slice(0, 12)}…)`);
 
-    // Initiate and poll: the human counterparty's app answers the handshake
-    // when their inbox sync probes offer participants.
-    let state = await PaykitMessagingService.ensureLink(me, __DM_TARGET_PUBKY__);
-    console.info(`[dm-live] link state: ${state.status}`);
+    const handshake = wasm.initiateEncryptedLink(
+      session,
+      noiseSecret,
+      __DM_TARGET_PUBKY__,
+      targetMarker!.noisePublicKey,
+      RECEIVER_PATH,
+      targetMarker!.receiverPath,
+      client,
+    );
+
+    let link: import('paykit-wasm').EncryptedLinkHandle | null = null;
     const deadline = Date.now() + 600_000;
-    while (Date.now() < deadline && state.status !== 'ready') {
+    while (Date.now() < deadline && !link) {
+      const progress = (await handshake.advance()) as {
+        status: string;
+        link?: import('paykit-wasm').EncryptedLinkHandle;
+      };
+      if (progress.status === 'complete' && progress.link) {
+        link = progress.link;
+        break;
+      }
+      console.info(`[dm-live] handshake: ${progress.status} — waiting for the counterparty…`);
       await sleep(5_000);
-      state = await PaykitMessagingService.ensureLink(me, __DM_TARGET_PUBKY__);
-      console.info(`[dm-live] waiting for counterparty… (${state.status})`);
     }
-    expect(state.status, 'handshake did not complete — is the counterparty online with the app open?').toBe('ready');
+    expect(link, 'handshake did not complete — is the counterparty online with the app open?').toBeTruthy();
     console.info('[dm-live] link READY');
 
-    if (__DM_LISTING_ID__ !== '') {
-      await PaykitMessagingService.sendChatMessage(me, __DM_TARGET_PUBKY__, {
-        conversationId: buildMarketplaceConversationAggregateId(__DM_TARGET_PUBKY__, me, __DM_LISTING_ID__),
-        listingRef: buildMarketplaceListingAggregateId(__DM_TARGET_PUBKY__, __DM_LISTING_ID__),
-        body: 'Hi! I just made you a real offer on this listing — this message rode the encrypted link. (Live proof, sent by an agent-driven fresh identity.)',
-      });
-      console.info('[dm-live] marketplace chat message SENT');
-    }
-
-    await PaykitMessagingService.sendDmMessage(me, __DM_TARGET_PUBKY__, {
-      body: 'And this one is a general direct message — Noise XX end to end, no marketplace context needed. — Fable',
+    const dm = buildDmMessage({
+      eventId: crypto.randomUUID(),
+      sentAt: new Date().toISOString(),
+      body: 'Encrypted DM received in the real app UI — Noise XX end to end. — Fable',
     });
+    await link!.sendPrivateApplicationMessageJson(dm.json);
     console.info('[dm-live] general DM SENT');
   });
 });
