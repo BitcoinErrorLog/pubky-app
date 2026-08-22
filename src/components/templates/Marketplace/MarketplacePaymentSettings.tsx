@@ -24,6 +24,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksConnect } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceGetPaidSettings } from '@/organisms/Marketplace/MarketplaceGetPaidSettings';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
 export function MarketplacePaymentSettings() {
@@ -151,6 +152,8 @@ export function MarketplacePaymentSettings() {
             </Button>
           </CardContent>
         </Card>
+
+        <MarketplaceGetPaidSettings />
 
         <Card className="border">
           <CardContent className="grid gap-5 px-6">

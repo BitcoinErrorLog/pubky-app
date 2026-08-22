@@ -372,10 +372,16 @@ export class HomeserverService {
    *
    * @returns The authorization URL to show the signer, a lazy `awaitToken`, and a cancel
    */
-  static generateAuthTokenFlow(): TGenerateAuthTokenFlowResult {
+  /**
+   * @param capabilities Optional capability string shown verbatim on the
+   * signer. Empty (the default) requests a plain sign-in token; a scoped
+   * string (e.g. the Paykit claim scope) yields a token carrying exactly
+   * those capabilities, which some verifiers require and check exactly.
+   */
+  static generateAuthTokenFlow(capabilities: Capabilities = ''): TGenerateAuthTokenFlowResult {
     try {
       const pubkySdk = this.getPubkySdk();
-      const flow = pubkySdk.startAuthFlow('', AuthFlowKind.signin(), getDefaultHttpRelay());
+      const flow = pubkySdk.startAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
       const authorizationUrl = flow.authorizationUrl;
       let freed = false;
       const free = () => {

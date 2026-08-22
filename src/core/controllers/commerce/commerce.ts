@@ -7,6 +7,7 @@ import {
 } from '@/config/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
+import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -250,6 +251,58 @@ export class CommerceController {
       CommerceRecordNormalizer.pubky(sellerPubky),
       CommerceRecordNormalizer.entityId(listingId),
     );
+  }
+
+  // --- Seller-configurable payment methods (durable service only) ----------
+
+  /** A seller's publicly visible payment rails (bitcoin/stripe/paypal). */
+  static async getSellerPaymentConfig(sellerPubky: unknown) {
+    return await CommerceApplication.getSellerPaymentConfig(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
+  /** The current user's own stored payment configuration, or null. */
+  static async getMyPaymentConfig() {
+    return await CommerceApplication.getMyPaymentConfig(this.getCurrentUserPubky());
+  }
+
+  /** Saves the current user's own payment configuration. */
+  static async putMyPaymentConfig(input: {
+    bitcoinEnabled: boolean;
+    stripePaymentLink: string | null;
+    stripeRestrictedKey?: string;
+    paypalMerchantEmail: string | null;
+  }) {
+    return await CommerceApplication.putMyPaymentConfig(this.getCurrentUserPubky(), input);
+  }
+
+  /** Buyer's one-shot payment-method binding for an order. */
+  static async bindPaymentMethod(orderId: string, method: PaymentMethodKind) {
+    return await CommerceApplication.bindPaymentMethod(this.getCurrentUserPubky(), orderId, method);
+  }
+
+  /** Asks the service to verify a Stripe payment with the seller's restricted key. */
+  static async verifyStripePayment(orderId: string) {
+    return await CommerceApplication.verifyStripePayment(this.getCurrentUserPubky(), orderId);
+  }
+
+  /** Buyer's PayPal payment report (attestation, never advances payment). */
+  static async markFiatPaid(orderId: string, transactionRef?: string) {
+    return await CommerceApplication.markFiatPaid(this.getCurrentUserPubky(), orderId, transactionRef);
+  }
+
+  /** Seller's PayPal receipt confirmation — this is what pays the order. */
+  static async confirmFiatReceived(orderId: string) {
+    return await CommerceApplication.confirmFiatReceived(this.getCurrentUserPubky(), orderId);
+  }
+
+  /** Manual watch-only xpub claim flow against paykit-server. */
+  static beginPaykitClaimFlow(accountXpub: string) {
+    return CommerceApplication.beginPaykitClaimFlow(accountXpub);
+  }
+
+  /** Whether the current user already has a claimed watch-only account. */
+  static async isOwnPaykitAccountClaimed() {
+    return await CommerceApplication.isPaykitAccountClaimed(this.getCurrentUserPubky());
   }
 
   /**

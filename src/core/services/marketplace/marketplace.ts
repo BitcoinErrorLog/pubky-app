@@ -2,6 +2,11 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
+import type {
+  PaymentMethodKind,
+  SellerPaymentConfig,
+  SellerPaymentConfigOwnView,
+} from '@/libs/commerce/payment-methods';
 import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
@@ -389,6 +394,57 @@ export class MarketplaceGatewayService {
   static async getOrderEvidence(actor: string, orderId: string): Promise<MarketplaceDisputeCaseFile | null> {
     this.assertTransactionServiceOnly('getOrderEvidence');
     return await MarketplaceTransactionService.getOrderEvidence(actor, orderId);
+  }
+
+  /**
+   * Seller-configurable payment methods — durable service only (the sandbox
+   * has no payment rails). See `MarketplaceTransactionService` for the
+   * endpoint semantics.
+   */
+  static async getSellerPaymentConfig(sellerPubky: string): Promise<SellerPaymentConfig> {
+    this.assertTransactionServiceOnly('getSellerPaymentConfig');
+    return await MarketplaceTransactionService.getSellerPaymentConfig(sellerPubky);
+  }
+
+  static async getMyPaymentConfig(actor: string): Promise<SellerPaymentConfigOwnView | null> {
+    this.assertTransactionServiceOnly('getMyPaymentConfig');
+    return await MarketplaceTransactionService.getMyPaymentConfig(actor);
+  }
+
+  static async putMyPaymentConfig(
+    actor: string,
+    input: {
+      bitcoinEnabled: boolean;
+      stripePaymentLink: string | null;
+      stripeRestrictedKey?: string;
+      paypalMerchantEmail: string | null;
+    },
+  ): Promise<SellerPaymentConfigOwnView> {
+    this.assertTransactionServiceOnly('putMyPaymentConfig');
+    return await MarketplaceTransactionService.putMyPaymentConfig(actor, input);
+  }
+
+  static async bindPaymentMethod(actor: string, orderId: string, method: PaymentMethodKind): Promise<MarketplaceOrder> {
+    this.assertTransactionServiceOnly('bindPaymentMethod');
+    return await MarketplaceTransactionService.bindPaymentMethod(actor, orderId, method);
+  }
+
+  static async verifyStripePayment(
+    actor: string,
+    orderId: string,
+  ): Promise<{ verified: boolean; order: MarketplaceOrder | null }> {
+    this.assertTransactionServiceOnly('verifyStripePayment');
+    return await MarketplaceTransactionService.verifyStripePayment(actor, orderId);
+  }
+
+  static async markFiatPaid(actor: string, orderId: string, transactionRef?: string): Promise<MarketplaceOrder> {
+    this.assertTransactionServiceOnly('markFiatPaid');
+    return await MarketplaceTransactionService.markFiatPaid(actor, orderId, transactionRef);
+  }
+
+  static async confirmFiatReceived(actor: string, orderId: string): Promise<MarketplaceOrder> {
+    this.assertTransactionServiceOnly('confirmFiatReceived');
+    return await MarketplaceTransactionService.confirmFiatReceived(actor, orderId);
   }
 
   static async getReports(actor: string): Promise<MarketplaceReport[]> {

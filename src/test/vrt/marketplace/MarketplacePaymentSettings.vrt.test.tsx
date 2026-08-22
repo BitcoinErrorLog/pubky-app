@@ -1,6 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplacePaymentSettings } from '@/templates/Marketplace/MarketplacePaymentSettings';
@@ -21,6 +21,17 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getPaykitSetupUrl: () => 'https://paykit.example/setup',
+    getMyPaymentConfig: vi.fn(async () => ({
+      bitcoinEnabled: true,
+      stripePaymentLink: 'https://buy.stripe.com/test_fixture',
+      paypalMerchantEmail: 'seller@example.com',
+      stripeRestrictedKeySet: true,
+      updatedAt: '2026-08-22T12:00:00.000Z',
+    })),
+    isOwnPaykitAccountClaimed: vi.fn(async () => true),
+    beginPaykitClaimFlow: vi.fn(),
+    putMyPaymentConfig: vi.fn(),
+    beginMarketplaceSessionConnect: vi.fn(),
   },
 }));
 
@@ -36,6 +47,19 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('Marketplace payment settings — visual regression', () => {
+  beforeEach(async () => {
+    // The Get paid section requires a marketplace session; a fixture session
+    // makes the full form render deterministically in every baseline.
+    const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
+    useCommerceStore.setState({
+      marketplaceSession: {
+        pubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+        capabilities: '/pub/pubky.app/:rw',
+        expiresAt: '2026-09-21T12:00:00.000Z',
+      },
+    });
+  });
+
   it('renders the payments and Locks setup at desktop viewport', async () => {
     view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
 

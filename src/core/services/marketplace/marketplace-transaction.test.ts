@@ -719,4 +719,115 @@ describe('MarketplaceTransactionService read projections', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
   });
+
+  describe('seller payment methods', () => {
+    beforeEach(() => {
+      config.mode = 'transaction-service';
+      MarketplaceSessionService.clearSession();
+    });
+
+    it('reads a seller payment config publicly, without any session', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          bitcoin_available: true,
+          stripe_payment_link: 'https://buy.stripe.com/test_abc',
+          paypal_merchant_email: 'seller@example.com',
+        }),
+      );
+
+      const configView = await MarketplaceTransactionService.getSellerPaymentConfig(OTHER_ACTOR);
+
+      expect(configView).toEqual({
+        bitcoinAvailable: true,
+        stripePaymentLink: 'https://buy.stripe.com/test_abc',
+        paypalMerchantEmail: 'seller@example.com',
+      });
+      const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`http://127.0.0.1:8080/v0/sellers/${OTHER_ACTOR}/payment-config`);
+      expect(init.headers).toEqual(expect.not.objectContaining({ authorization: expect.anything() }));
+    });
+
+    it('saves the own config with the bearer, omitting the key unless provided, and never gets it back', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          ok: true,
+          payment_config: {
+            bitcoin_enabled: true,
+            stripe_payment_link: 'https://buy.stripe.com/test_abc',
+            paypal_merchant_email: null,
+            stripe_restricted_key_set: true,
+            updated_at: '2026-08-22T12:00:00.000Z',
+          },
+        }),
+      );
+
+      const saved = await MarketplaceTransactionService.putMyPaymentConfig(ACTOR, {
+        bitcoinEnabled: true,
+        stripePaymentLink: 'https://buy.stripe.com/test_abc',
+        paypalMerchantEmail: null,
+      });
+
+      expect(saved.stripeRestrictedKeySet).toBe(true);
+      expect(Object.keys(saved)).not.toContain('stripeRestrictedKey');
+      const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body).not.toHaveProperty('stripe_restricted_key');
+      expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+    });
+
+    it('sends the restricted key on the wire only when the seller supplies one', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          ok: true,
+          payment_config: {
+            bitcoin_enabled: false,
+            stripe_payment_link: null,
+            paypal_merchant_email: null,
+            stripe_restricted_key_set: true,
+            updated_at: '2026-08-22T12:00:00.000Z',
+          },
+        }),
+      );
+
+      await MarketplaceTransactionService.putMyPaymentConfig(ACTOR, {
+        bitcoinEnabled: false,
+        stripePaymentLink: null,
+        stripeRestrictedKey: 'rk_test_12345678',
+        paypalMerchantEmail: null,
+      });
+
+      const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body.stripe_restricted_key).toBe('rk_test_12345678');
+    });
+
+    it('surfaces the service error envelope message and reason on a refused binding', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(409, {
+          ok: false,
+          error: {
+            code: 'INVALID_STATE',
+            message: 'A different payment method is already bound to this order.',
+            reason: 'payment_method_already_bound',
+          },
+        }),
+      );
+
+      await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'stripe')).rejects.toMatchObject({
+        message: 'A different payment method is already bound to this order.',
+      });
+    });
+
+    it('reports an honest not-found verification without touching the order', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { ok: true, verified: false, status: 'not_found' }));
+
+      const result = await MarketplaceTransactionService.verifyStripePayment(ACTOR, ORDER_ID);
+
+      expect(result).toEqual({ verified: false, order: null });
+    });
+  });
 });

@@ -114,8 +114,11 @@ export const marketplacePaymentSchema = z
     revision: z.number().int().positive(),
     // `locks` after `payment.register_locks`: the payment permanently refuses
     // sandbox advancement and only the service's independent Locks
-    // verification can confirm it.
-    adapter: z.enum(['sandbox', 'locks']),
+    // verification can confirm it. Binding a payment method rewrites the
+    // adapter to the bound rail: `paykit` (physical bitcoin via the seller's
+    // claimed watch-only account), `stripe` (processor-verified), or
+    // `paypal` (seller-attested).
+    adapter: z.enum(['sandbox', 'locks', 'paykit', 'stripe', 'paypal']),
     state: z.enum(['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review']),
     confirmations: z.number().int().min(0).max(6),
     // Withheld by the durable service: a bundle id is bearer material, so
@@ -229,6 +232,25 @@ export const marketplaceOrderSchema = z
         }),
       )
       .optional(),
+    // Seller-configurable payment method surface (durable service only;
+    // absent on sandbox orders and on durable orders predating the feature).
+    // `paymentMethod` stays null until the buyer binds one — one-shot per
+    // order. `fiatCheckoutUrl` is the service-built checkout URL snapshot
+    // taken at binding (Stripe payment link with `client_reference_id`, or
+    // the PayPal web-accept URL with the order id in `custom`).
+    paymentMethod: z.enum(['bitcoin', 'stripe', 'paypal']).nullable().optional(),
+    fiatCheckoutUrl: z.string().nullable().optional(),
+    // How the bound fiat rail is verified: Stripe is `processor` (the
+    // service checks with the seller's restricted key), PayPal is
+    // `seller-attested` (buyer reports, seller confirms). Deliberately
+    // visible to both parties.
+    fiatVerification: z.enum(['processor', 'seller-attested']).nullable().optional(),
+    paymentReportedAt: z.string().nullable().optional(),
+    fiatTransactionRef: z.string().nullable().optional(),
+    // Physical-bitcoin orders: the Paykit payment-request reference and the
+    // worker-observed request state (`pending`/`detected`/`confirmed`).
+    paykitRequestReference: z.string().nullable().optional(),
+    paykitRequestState: z.string().nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })

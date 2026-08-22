@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import {
+  type PaymentMethodKind,
+  type SellerPaymentConfig,
+  type SellerPaymentConfigOwnView,
+  sellerPaymentConfigOwnViewSchema,
+  sellerPaymentConfigSchema,
+} from '@/libs/commerce/payment-methods';
+import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
   marketplaceCommandResponseSchema,
@@ -374,6 +381,194 @@ export class MarketplaceTransactionService {
    * the endpoint is role-gated (`nullOnForbidden`), where 403 means "the
    * session's pubky does not hold the required role".
    */
+  /**
+   * `GET /v0/sellers/{pubky}/payment-config` — deliberately public (no
+   * bearer): buyers see a seller's available rails before committing to an
+   * order. `bitcoinAvailable` is service-verified against paykit-server
+   * (enabled AND actually claimed); a paykit outage surfaces as an error,
+   * never a silent `false`.
+   */
+  static async getSellerPaymentConfig(sellerPubky: string): Promise<SellerPaymentConfig> {
+    this.assertTransactionServiceMode('getSellerPaymentConfig');
+    const url = `${getMarketplaceUrl()}/v0/sellers/${encodeURIComponent(sellerPubky)}/payment-config`;
+    const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getSellerPaymentConfig');
+    await this.throwPaymentMethodError(response, 'getSellerPaymentConfig');
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getSellerPaymentConfig', url);
+    return this.parseProjection(
+      'getSellerPaymentConfig',
+      sellerPaymentConfigSchema,
+      toCamelCaseWire(raw),
+      'Marketplace returned an invalid seller payment configuration.',
+    );
+  }
+
+  /**
+   * `GET /v0/sellers/me/payment-config` — the seller's own STORED
+   * configuration (no paykit availability lookup). `null` when nothing was
+   * ever saved.
+   */
+  static async getMyPaymentConfig(actor: string): Promise<SellerPaymentConfigOwnView | null> {
+    const raw = await this.readProjection('getMyPaymentConfig', actor, '/v0/sellers/me/payment-config');
+    const parsed = this.parseProjection(
+      'getMyPaymentConfig',
+      z.object({ paymentConfig: sellerPaymentConfigOwnViewSchema.nullable() }),
+      raw,
+      'Marketplace returned an invalid payment configuration.',
+    );
+    return parsed.paymentConfig;
+  }
+
+  /**
+   * `PUT /v0/sellers/me/payment-config` — the seller's own rails. The Stripe
+   * restricted key is write-only: send it to set it, send `''` to clear it,
+   * omit it to keep the stored one; only `stripeRestrictedKeySet` ever comes
+   * back.
+   */
+  static async putMyPaymentConfig(
+    actor: string,
+    input: {
+      bitcoinEnabled: boolean;
+      stripePaymentLink: string | null;
+      stripeRestrictedKey?: string;
+      paypalMerchantEmail: string | null;
+    },
+  ): Promise<SellerPaymentConfigOwnView> {
+    const raw = await this.paymentMethodRequest('putMyPaymentConfig', actor, '/v0/sellers/me/payment-config', {
+      method: 'PUT',
+      body: input,
+    });
+    const parsed = this.parseProjection(
+      'putMyPaymentConfig',
+      z.object({ paymentConfig: sellerPaymentConfigOwnViewSchema }),
+      raw,
+      'Marketplace returned an invalid payment configuration response.',
+    );
+    return parsed.paymentConfig;
+  }
+
+  /**
+   * `POST /v0/orders/{id}/payment-method` — one-shot buyer binding. Binding
+   * `bitcoin` creates the signed Paykit payment request inside the same
+   * transaction, so a paykit refusal leaves the order unbound and retryable.
+   */
+  static async bindPaymentMethod(actor: string, orderId: string, method: PaymentMethodKind): Promise<MarketplaceOrder> {
+    const raw = await this.paymentMethodRequest(
+      'bindPaymentMethod',
+      actor,
+      `/v0/orders/${encodeURIComponent(orderId)}/payment-method`,
+      { method: 'POST', body: { method } },
+    );
+    return this.parseOrderEnvelope('bindPaymentMethod', raw);
+  }
+
+  /**
+   * `POST /v0/orders/{id}/fiat/verify` — Stripe only. The service checks the
+   * seller's own Stripe account with their stored restricted key and pays the
+   * order on an exact match; `verified: false` is an honest "not found yet",
+   * not a failure.
+   */
+  static async verifyStripePayment(
+    actor: string,
+    orderId: string,
+  ): Promise<{ verified: boolean; order: MarketplaceOrder | null }> {
+    const raw = await this.paymentMethodRequest(
+      'verifyStripePayment',
+      actor,
+      `/v0/orders/${encodeURIComponent(orderId)}/fiat/verify`,
+      { method: 'POST', body: {} },
+    );
+    const parsed = this.parseProjection(
+      'verifyStripePayment',
+      z.object({ verified: z.boolean(), order: marketplaceOrderSchema.optional() }),
+      raw,
+      'Marketplace returned an invalid fiat verification response.',
+    );
+    return { verified: parsed.verified, order: parsed.order ?? null };
+  }
+
+  /** `POST /v0/orders/{id}/fiat/mark-paid` — buyer's PayPal payment report; never advances the payment itself. */
+  static async markFiatPaid(actor: string, orderId: string, transactionRef?: string): Promise<MarketplaceOrder> {
+    const raw = await this.paymentMethodRequest(
+      'markFiatPaid',
+      actor,
+      `/v0/orders/${encodeURIComponent(orderId)}/fiat/mark-paid`,
+      { method: 'POST', body: transactionRef ? { transactionRef } : {} },
+    );
+    return this.parseOrderEnvelope('markFiatPaid', raw);
+  }
+
+  /** `POST /v0/orders/{id}/fiat/confirm-received` — the seller's confirmation pays a PayPal order. */
+  static async confirmFiatReceived(actor: string, orderId: string): Promise<MarketplaceOrder> {
+    const raw = await this.paymentMethodRequest(
+      'confirmFiatReceived',
+      actor,
+      `/v0/orders/${encodeURIComponent(orderId)}/fiat/confirm-received`,
+      { method: 'POST', body: {} },
+    );
+    return this.parseOrderEnvelope('confirmFiatReceived', raw);
+  }
+
+  private static async paymentMethodRequest(
+    operation: string,
+    actor: string,
+    path: string,
+    request: { method: 'PUT' | 'POST'; body: unknown },
+  ): Promise<unknown> {
+    this.assertTransactionServiceMode(operation);
+    const session = this.requireSession(operation, actor);
+    const url = `${getMarketplaceUrl()}${path}`;
+    const response = await safeFetch(
+      url,
+      {
+        method: request.method,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session.token}` },
+        body: JSON.stringify(toSnakeCaseWire(request.body)),
+      },
+      ErrorService.Marketplace,
+      operation,
+    );
+    this.throwIfSessionRejected(response.status, operation);
+    await this.throwPaymentMethodError(response, operation);
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
+    return toCamelCaseWire(raw);
+  }
+
+  /**
+   * The payment-methods surface answers failures with
+   * `{ok:false, error:{code, message, reason}}`. The server's `message` is
+   * already user-facing and the `reason` sub-code (`stripe_key_invalid`,
+   * `method_unavailable`, `payment_method_already_bound`, …) rides along in
+   * the error context for callers that branch on it.
+   */
+  private static async throwPaymentMethodError(response: Response, operation: string): Promise<void> {
+    if (response.ok) return;
+    let reason: string | undefined;
+    let message: string | undefined;
+    try {
+      const body = (await response.clone().json()) as { error?: { message?: string; reason?: string } };
+      reason = body.error?.reason;
+      message = body.error?.message;
+    } catch {
+      // A non-JSON failure body falls through to the generic parse error.
+    }
+    if (!message) return;
+    throw Err.client(ClientErrorCode.BAD_REQUEST, message, {
+      service: ErrorService.Marketplace,
+      operation,
+      context: { statusCode: response.status, reason },
+    });
+  }
+
+  private static parseOrderEnvelope(operation: string, raw: unknown): MarketplaceOrder {
+    const parsed = this.parseProjection(
+      operation,
+      z.object({ order: marketplaceOrderSchema }),
+      raw,
+      'Marketplace returned an invalid order response.',
+    );
+    return parsed.order;
+  }
+
   private static async readProjection(
     operation: string,
     actor: string,

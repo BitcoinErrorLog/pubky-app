@@ -1,13 +1,24 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock3, Download, FileWarning, KeyRound, LoaderCircle, WalletCards } from 'lucide-react';
+import {
+  Banknote,
+  CheckCircle2,
+  Clock3,
+  CreditCard,
+  Download,
+  FileWarning,
+  KeyRound,
+  LoaderCircle,
+  WalletCards,
+} from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
-import { type CommerceAdapterMode, isLocksPaykitCommerceMode } from '@/config/commerce';
+import { type CommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksPayment } from '@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment';
+import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
 import { type BuyerVisiblePaymentStatus, buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
@@ -101,10 +112,20 @@ export function MarketplacePaymentStatusCard({
     onPaymentChanged,
   });
 
-  if (!payment) return null;
-
-  const visibleStatus = buyerVisiblePaymentStatus(payment.state);
+  const isDurable = isDurableCommerceMode(adapterMode);
+  const visibleStatus = payment ? buyerVisiblePaymentStatus(payment.state) : null;
   const isAwaiting = visibleStatus === 'awaiting_entitlement';
+  // Digital Locks orders keep the Locks/Paykit flow; everything else in the
+  // durable modes goes through the seller-configured payment methods.
+  const usesMethodFlow = isDurable && isAwaiting && !digitalLock;
+  const methodPayment = useMarketplaceOrderPayment({
+    order,
+    enabled: usesMethodFlow && isBuyer,
+    onPaymentChanged,
+  });
+  const [paypalTransactionRef, setPaypalTransactionRef] = useState('');
+
+  if (!payment || visibleStatus === null) return null;
 
   return (
     <div className="grid gap-3 rounded-xl border p-4">
@@ -113,6 +134,9 @@ export function MarketplacePaymentStatusCard({
           {BUYER_VISIBLE_STATUS_LABELS[visibleStatus]}
         </Badge>
         {payment.adapter === 'locks' && <Badge variant="secondary">Locks/Paykit</Badge>}
+        {order.paymentMethod === 'bitcoin' && <Badge variant="secondary">₿ Bitcoin</Badge>}
+        {order.paymentMethod === 'stripe' && <Badge variant="secondary">Card (Stripe)</Badge>}
+        {order.paymentMethod === 'paypal' && <Badge variant="secondary">PayPal</Badge>}
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
 
@@ -157,19 +181,217 @@ export function MarketplacePaymentStatusCard({
         </div>
       )}
 
-      {/* Durable mode without payment rails: the order honestly waits. */}
-      {adapterMode === 'transaction-service' && isBuyer && isAwaiting && (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          Real payments are not enabled in this deployment, and this client never simulates them against the durable
-          service — the order stays awaiting payment.
-        </Typography>
+      {/* Seller-configured payment methods: the buyer picks a rail. */}
+      {usesMethodFlow && isBuyer && !order.paymentMethod && (
+        <div className="grid gap-2">
+          {methodPayment.configError ? (
+            <Typography as="p" role="alert" className="text-sm text-amber-300">
+              {methodPayment.configError}
+            </Typography>
+          ) : methodPayment.availableMethods === null ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <LoaderCircle className="size-4 animate-spin" />
+              Loading the seller&rsquo;s payment methods…
+            </div>
+          ) : methodPayment.availableMethods.length === 0 ? (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              The seller has not set up any payment methods yet, so this order cannot be paid right now. Message the
+              seller — once they configure a method in their payment settings, it appears here.
+            </Typography>
+          ) : (
+            <>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Choose how to pay. Every method pays the seller directly — this marketplace never holds funds.
+              </Typography>
+              <div className="flex flex-wrap gap-2">
+                {methodPayment.availableMethods.includes('bitcoin') && (
+                  <Button
+                    size="sm"
+                    className="rounded-full"
+                    disabled={methodPayment.pendingAction !== null}
+                    onClick={() => void methodPayment.bind('bitcoin')}
+                  >
+                    <WalletCards className="mr-2 size-4" />₿ Bitcoin
+                  </Button>
+                )}
+                {methodPayment.availableMethods.includes('stripe') && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="rounded-full"
+                    disabled={methodPayment.pendingAction !== null}
+                    onClick={() => void methodPayment.bind('stripe')}
+                  >
+                    <CreditCard className="mr-2 size-4" />
+                    Card (Stripe)
+                  </Button>
+                )}
+                {methodPayment.availableMethods.includes('paypal') && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="rounded-full"
+                    disabled={methodPayment.pendingAction !== null}
+                    onClick={() => void methodPayment.bind('paypal')}
+                  >
+                    <Banknote className="mr-2 size-4" />
+                    PayPal
+                  </Button>
+                )}
+              </div>
+              {methodPayment.pendingAction === 'bind' && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Setting up the payment…
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
 
-      {/* locks-paykit: the real buyer flow. */}
-      {isLocksPaykit && isBuyer && isAwaiting && !digitalLock && (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          This order has no Locks-guarded digital item, so no Paykit payment request can be created for it yet.
-        </Typography>
+      {/* Bound bitcoin: the private Paykit request is out; the service confirms independently. */}
+      {usesMethodFlow && isBuyer && order.paymentMethod === 'bitcoin' && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" />
+          The Bitcoin payment request was delivered privately to your wallet via Paykit. This page updates once the
+          marketplace independently verifies the payment on-chain.
+        </div>
+      )}
+
+      {/* Bound stripe: hosted checkout + processor verification. */}
+      {usesMethodFlow && isBuyer && order.paymentMethod === 'stripe' && order.fiatCheckoutUrl && (
+        <div className="grid gap-2">
+          <Typography as="p" className="text-sm text-muted-foreground">
+            Pay through the seller&rsquo;s Stripe checkout, then verify — the marketplace checks the payment against the
+            seller&rsquo;s own Stripe account.
+          </Typography>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" className="rounded-full">
+              <a href={order.fiatCheckoutUrl} target="_blank" rel="noopener noreferrer">
+                <CreditCard className="mr-2 size-4" />
+                Open Stripe checkout
+              </a>
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full"
+              disabled={methodPayment.pendingAction !== null}
+              onClick={() => void methodPayment.verifyStripe()}
+            >
+              {methodPayment.pendingAction === 'verify' ? (
+                <LoaderCircle className="mr-2 size-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 size-4" />
+              )}
+              I&rsquo;ve paid — verify
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Bound paypal: hosted checkout + buyer report; the seller's confirmation pays the order. */}
+      {usesMethodFlow && isBuyer && order.paymentMethod === 'paypal' && order.fiatCheckoutUrl && (
+        <div className="grid gap-2">
+          {order.paymentReportedAt ? (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              You reported this payment{order.fiatTransactionRef ? ` (ref ${order.fiatTransactionRef})` : ''}. The order
+              completes once the seller confirms receipt in their PayPal account — there is no automatic verification on
+              this rail.
+            </Typography>
+          ) : (
+            <>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Pay through PayPal, then report it here. The seller confirms receipt to complete the payment — both
+                steps are recorded on the order.
+              </Typography>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button asChild size="sm" className="rounded-full">
+                  <a href={order.fiatCheckoutUrl} target="_blank" rel="noopener noreferrer">
+                    <Banknote className="mr-2 size-4" />
+                    Open PayPal checkout
+                  </a>
+                </Button>
+                <input
+                  value={paypalTransactionRef}
+                  onChange={(event) => setPaypalTransactionRef(event.target.value)}
+                  placeholder="PayPal transaction ID (optional)"
+                  className="h-9 max-w-56 rounded-md border bg-transparent px-3 text-sm"
+                  aria-label="PayPal transaction ID"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="rounded-full"
+                  disabled={methodPayment.pendingAction !== null}
+                  onClick={() => void methodPayment.markPaid(paypalTransactionRef)}
+                >
+                  {methodPayment.pendingAction === 'mark-paid' ? (
+                    <LoaderCircle className="mr-2 size-4 animate-spin" />
+                  ) : null}
+                  I&rsquo;ve paid
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Seller side: the PayPal receipt confirmation is what pays the order. */}
+      {usesMethodFlow && !isBuyer && order.paymentMethod === 'paypal' && (
+        <div className="grid gap-2">
+          {order.paymentReportedAt ? (
+            <>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                The buyer reported a PayPal payment
+                {order.fiatTransactionRef ? ` (ref ${order.fiatTransactionRef})` : ''}. Check your PayPal account;
+                confirming receipt marks this order paid.
+              </Typography>
+              <Button
+                size="sm"
+                className="w-fit rounded-full"
+                disabled={methodPayment.pendingAction !== null}
+                onClick={() => void methodPayment.confirmReceived()}
+              >
+                {methodPayment.pendingAction === 'confirm' ? (
+                  <LoaderCircle className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 size-4" />
+                )}
+                Confirm payment received
+              </Button>
+            </>
+          ) : (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Awaiting the buyer&rsquo;s PayPal payment. You will be asked to confirm receipt once they report it.
+            </Typography>
+          )}
+        </div>
+      )}
+
+      {/* Seller side, stripe: either party may trigger processor verification. */}
+      {usesMethodFlow && !isBuyer && order.paymentMethod === 'stripe' && (
+        <div className="grid gap-2">
+          <Typography as="p" className="text-sm text-muted-foreground">
+            The buyer pays through your Stripe checkout. Verification runs against your Stripe account with your
+            restricted key — you can trigger it too.
+          </Typography>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-fit rounded-full"
+            disabled={methodPayment.pendingAction !== null}
+            onClick={() => void methodPayment.verifyStripe()}
+          >
+            {methodPayment.pendingAction === 'verify' ? (
+              <LoaderCircle className="mr-2 size-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 size-4" />
+            )}
+            Check for payment
+          </Button>
+        </div>
       )}
       {isLocksPaykit && isBuyer && isAwaiting && digitalLock && !locks.correlation && (
         <div className="grid gap-2">

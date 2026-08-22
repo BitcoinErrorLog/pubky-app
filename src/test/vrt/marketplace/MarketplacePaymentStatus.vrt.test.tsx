@@ -35,6 +35,11 @@ const view = vi.hoisted(() => ({
     error: null as string | null,
     pollExhausted: false,
   },
+  sellerConfig: {
+    bitcoinAvailable: true,
+    stripePaymentLink: 'https://buy.stripe.com/test_fixture' as string | null,
+    paypalMerchantEmail: 'seller@example.com' as string | null,
+  },
 }));
 
 vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => ({
@@ -59,6 +64,11 @@ vi.mock('@/controllers/commerce/commerce', async () => {
           minimumConfirmations: 1,
         },
       })),
+      getSellerPaymentConfig: vi.fn(async () => view.sellerConfig),
+      bindPaymentMethod: vi.fn(async () => ({})),
+      verifyStripePayment: vi.fn(async () => ({ verified: false, order: null })),
+      markFiatPaid: vi.fn(async () => ({})),
+      confirmFiatReceived: vi.fn(async () => ({})),
     },
   };
 });
@@ -89,7 +99,13 @@ function Harness({ children }: { children: React.ReactNode }) {
 async function renderCard(
   paymentState: 'awaiting_entitlement' | 'detected' | 'confirmed' | 'expired' | 'manual_review',
   adapterMode: 'sandbox' | 'transaction-service' | 'locks-paykit',
-  options: { adapter?: 'sandbox' | 'locks'; orderState?: 'pending_payment' | 'paid'; viewport?: object } = {},
+  options: {
+    adapter?: 'sandbox' | 'locks';
+    orderState?: 'pending_payment' | 'paid';
+    orderOverrides?: Record<string, unknown>;
+    isBuyer?: boolean;
+    viewport?: object;
+  } = {},
 ) {
   const { createOrderFixture, createPaymentFixture } = await fixtures;
   const payment = createPaymentFixture(paymentState, {
@@ -98,13 +114,14 @@ async function renderCard(
   });
   const order = createOrderFixture(options.orderState ?? (paymentState === 'confirmed' ? 'paid' : 'pending_payment'), {
     paymentId: payment.id,
+    ...(options.orderOverrides ?? {}),
   });
   return await renderForVRT(
     <Harness>
       <MarketplacePaymentStatusCard
         order={order}
         payment={payment}
-        isBuyer
+        isBuyer={options.isBuyer ?? true}
         adapterMode={adapterMode}
         advancePayment={async () => false}
         onPaymentChanged={() => {}}
@@ -202,10 +219,91 @@ describe('Marketplace payment status card — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-manual-review-desktop');
   });
 
-  it('renders the honest awaiting note in transaction-service mode at desktop viewport', async () => {
+  it('renders the payment method picker with the seller-configured rails at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service');
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-durable-awaiting-desktop');
+    await expect.element(screen.getByText('₿ Bitcoin')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-picker-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders the honest empty state when the seller configured no payment methods', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const previous = view.sellerConfig;
+    view.sellerConfig = { bitcoinAvailable: false, stripePaymentLink: null, paypalMerchantEmail: null };
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service');
+    await expect.element(screen.getByText(/has not set up any payment methods/)).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-none-desktop');
+    view.sellerConfig = previous;
+    view.locks.enabled = true;
+  });
+
+  it('renders the bound bitcoin wait state at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      orderOverrides: { paymentMethod: 'bitcoin', paykitRequestState: 'pending' },
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-bitcoin-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders the bound stripe checkout and verify affordances at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      orderOverrides: {
+        paymentMethod: 'stripe',
+        fiatCheckoutUrl: 'https://buy.stripe.com/test_fixture?client_reference_id=order-1',
+        fiatVerification: 'processor',
+      },
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-stripe-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders the buyer paypal report affordances at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      orderOverrides: {
+        paymentMethod: 'paypal',
+        fiatCheckoutUrl: 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=seller%40example.com',
+        fiatVerification: 'seller-attested',
+      },
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-paypal-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders the buyer paypal reported state at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      orderOverrides: {
+        paymentMethod: 'paypal',
+        fiatCheckoutUrl: 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=seller%40example.com',
+        fiatVerification: 'seller-attested',
+        paymentReportedAt: '2026-08-22T12:00:00.000Z',
+        fiatTransactionRef: '7AB12345CD678901E',
+      },
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-method-paypal-reported-desktop',
+    );
+    view.locks.enabled = true;
+  });
+
+  it('renders the seller paypal receipt confirmation at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      isBuyer: false,
+      orderOverrides: {
+        paymentMethod: 'paypal',
+        fiatCheckoutUrl: 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=seller%40example.com',
+        fiatVerification: 'seller-attested',
+        paymentReportedAt: '2026-08-22T12:00:00.000Z',
+        fiatTransactionRef: '7AB12345CD678901E',
+      },
+    });
+    await expect.element(screen.getByText('Confirm payment received')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-paypal-confirm-desktop');
     view.locks.enabled = true;
   });
 

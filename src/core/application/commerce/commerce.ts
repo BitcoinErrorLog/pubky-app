@@ -21,6 +21,7 @@ import {
   type CommerceShopRecord,
   type CommerceWatchlistRecord,
 } from '@/libs/commerce/marketplace-records';
+import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
   buildMarketplaceListingAggregateId,
@@ -82,6 +83,7 @@ import {
   type MarketplaceOrder,
   type MarketplacePayment,
 } from '@/services/marketplace/marketplace';
+import { MarketplacePaykitClaimService } from '@/services/marketplace/marketplace-paykit-claim';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/nexus/marketplace/marketplace.types';
@@ -348,6 +350,57 @@ export class CommerceApplication {
 
   static async getMarketplacePayment(actorPubky: string, paymentId: string) {
     return await MarketplaceGatewayService.getPayment(actorPubky, paymentId);
+  }
+
+  // --- Seller-configurable payment methods (durable service only) ----------
+
+  static async getSellerPaymentConfig(sellerPubky: string) {
+    return await MarketplaceGatewayService.getSellerPaymentConfig(sellerPubky);
+  }
+
+  static async getMyPaymentConfig(actorPubky: string) {
+    return await MarketplaceGatewayService.getMyPaymentConfig(actorPubky);
+  }
+
+  static async putMyPaymentConfig(
+    actorPubky: string,
+    input: {
+      bitcoinEnabled: boolean;
+      stripePaymentLink: string | null;
+      stripeRestrictedKey?: string;
+      paypalMerchantEmail: string | null;
+    },
+  ) {
+    return await MarketplaceGatewayService.putMyPaymentConfig(actorPubky, input);
+  }
+
+  static async bindPaymentMethod(actorPubky: string, orderId: string, method: PaymentMethodKind) {
+    return await MarketplaceGatewayService.bindPaymentMethod(actorPubky, orderId, method);
+  }
+
+  static async verifyStripePayment(actorPubky: string, orderId: string) {
+    return await MarketplaceGatewayService.verifyStripePayment(actorPubky, orderId);
+  }
+
+  static async markFiatPaid(actorPubky: string, orderId: string, transactionRef?: string) {
+    return await MarketplaceGatewayService.markFiatPaid(actorPubky, orderId, transactionRef);
+  }
+
+  static async confirmFiatReceived(actorPubky: string, orderId: string) {
+    return await MarketplaceGatewayService.confirmFiatReceived(actorPubky, orderId);
+  }
+
+  /**
+   * Manual watch-only account claim against paykit-server — the same
+   * registration Bitkit performs, driven by a pasted xpub plus a
+   * claim-scoped signer approval. The identity secret never enters the app.
+   */
+  static beginPaykitClaimFlow(accountXpub: string) {
+    return MarketplacePaykitClaimService.beginClaimFlow(accountXpub);
+  }
+
+  static async isPaykitAccountClaimed(pubky: string) {
+    return await MarketplacePaykitClaimService.isAccountClaimed(pubky);
   }
 
   static async getMarketplaceReceipt(actorPubky: string, receiptId: string) {
