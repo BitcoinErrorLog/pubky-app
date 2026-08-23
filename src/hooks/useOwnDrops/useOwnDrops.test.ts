@@ -22,6 +22,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     fetchDrop: vi.fn(),
     getOwnDrop: vi.fn(),
+    listOwnDropIds: vi.fn(async () => []),
   },
 }));
 
@@ -95,5 +96,41 @@ describe('useOwnDrops', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.rows).toEqual([]);
     expect(CommerceController.fetchDrop).not.toHaveBeenCalled();
+  });
+
+  it('enumerates from the homeserver directory listing and merges the local index without duplicates', async () => {
+    // Published from ANOTHER device: only the directory listing knows it.
+    vi.mocked(CommerceController.listOwnDropIds).mockResolvedValue(['from_other_device', 'shared']);
+    // Published from this browser moments ago: only the local index knows it.
+    rememberOwnDrop(SELLER, 'shared');
+    rememberOwnDrop(SELLER, 'just_published');
+    vi.mocked(CommerceController.fetchDrop).mockImplementation(
+      async (_owner, dropId) => ({ dropId, startsAt: '2026-08-01T10:00:00.000Z' }) as never,
+    );
+    vi.mocked(CommerceController.getOwnDrop).mockResolvedValue(null);
+
+    const { result } = renderHook(() => useOwnDrops());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.rows.map((row) => row.dropId).sort()).toEqual([
+      'from_other_device',
+      'just_published',
+      'shared',
+    ]);
+  });
+
+  it('degrades to the local index alone when the directory listing is unreachable', async () => {
+    vi.mocked(CommerceController.listOwnDropIds).mockRejectedValue(new Error('homeserver unreachable'));
+    rememberOwnDrop(SELLER, 'local_only');
+    vi.mocked(CommerceController.fetchDrop).mockResolvedValue({
+      dropId: 'local_only',
+      startsAt: '2026-08-01T10:00:00.000Z',
+    } as never);
+    vi.mocked(CommerceController.getOwnDrop).mockResolvedValue(null);
+
+    const { result } = renderHook(() => useOwnDrops());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.rows.map((row) => row.dropId)).toEqual(['local_only']);
   });
 });

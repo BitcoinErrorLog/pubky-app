@@ -246,6 +246,11 @@ export class CommerceController {
     return await CommerceApplication.fetchDrop(ownerPubky, dropId);
   }
 
+  /** The current user's published drop ids, listed from their homeserver. */
+  static async listOwnDropIds() {
+    return await CommerceApplication.listOwnDropIds(this.getCurrentUserPubky());
+  }
+
   /** Authoritative public drop state from the transaction service. */
   static async getPublicDrop(sellerPubky: string, dropId: string) {
     return await CommerceApplication.getPublicDrop(sellerPubky, dropId);

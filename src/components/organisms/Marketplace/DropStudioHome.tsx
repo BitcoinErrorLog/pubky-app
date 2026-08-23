@@ -93,7 +93,7 @@ export function DropStudioHome() {
                 <Card className="border-dashed py-4">
                   <CardContent className="px-5">
                     <Typography as="p" className="text-sm text-muted-foreground">
-                      No drops on this device yet — compose your first one below.
+                      No drops published yet — compose your first one below.
                     </Typography>
                   </CardContent>
                 </Card>
@@ -105,8 +105,8 @@ export function DropStudioHome() {
                 </ul>
               )}
               <Typography as="p" className="text-xs text-muted-foreground">
-                This list is kept on this device (drops you published from this browser). Drops published elsewhere are
-                not shown here, but their records remain on your homeserver and the service keeps enforcing them.
+                Listed from the drops directory on your homeserver, so drops published from any device appear here. Each
+                row is re-read from your homeserver record and the transaction service before anything renders.
               </Typography>
             </section>
 

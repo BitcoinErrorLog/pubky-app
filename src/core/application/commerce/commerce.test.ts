@@ -6,6 +6,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { CommerceCatalogEntryModel, CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { LocalMarketplaceTagService } from '@/services/local/tag/marketplace/tag.marketplace';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
@@ -303,6 +304,22 @@ describe('CommerceApplication', () => {
       });
       expect(execute).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('lists own drop ids from the homeserver drops directory, ignoring non-id entries', async () => {
+    const base = `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/drops/`;
+    vi.spyOn(HomeserverService, 'listAll').mockResolvedValue([
+      `${base}drop_summer_01`,
+      `${base}drop_autumn_02`,
+      `${base}nested/never-an-id`,
+      base,
+    ]);
+
+    await expect(CommerceApplication.listOwnDropIds(COMMERCE_FIXTURE_SELLER)).resolves.toEqual([
+      'drop_summer_01',
+      'drop_autumn_02',
+    ]);
+    expect(HomeserverService.listAll).toHaveBeenCalledWith({ baseDirectory: base });
   });
 
   it('deletes a listing from the homeserver, then every local cache, then its media', async () => {

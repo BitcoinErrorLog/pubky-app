@@ -1877,6 +1877,18 @@ export class CommerceApplication {
   }
 
   /**
+   * Enumerates the drop ids published on an owner's homeserver by listing
+   * the drops directory — the authoritative enumeration (works across
+   * devices, unlike any local publish memo). Ids only; callers hydrate each
+   * record/projection themselves and render read failures per row.
+   */
+  static async listOwnDropIds(ownerPubky: string): Promise<string[]> {
+    const baseDirectory = `pubky://${ownerPubky}/pub/pubky.app/marketplace/v1/drops/`;
+    const urls = await HomeserverService.listAll({ baseDirectory });
+    return urls.map((url) => url.slice(baseDirectory.length)).filter((id) => id.length > 0 && !id.includes('/'));
+  }
+
+  /**
    * The transaction service's authoritative drop state (public projection,
    * stock redaction server-side, `serverTime` for countdown correction).
    * Null when unregistered or in sandbox mode — callers render absence.

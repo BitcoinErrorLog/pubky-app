@@ -28,12 +28,15 @@ export interface UseOwnDropsResult {
 }
 
 /**
- * The seller's drops for the drops home, enumerated from the device-local
- * publish index (see `drop-index.ts` for why) and then re-read from BOTH
- * authorities: the homeserver record (title, schedule intent) and the
- * service's seller projection (state, revision). Rows sort newest launch
- * first. Every read failure renders as honest absence on its own row —
- * a missing projection never hides the record and vice versa.
+ * The seller's drops for the drops home, enumerated from the homeserver's
+ * drops directory (`CommerceController.listOwnDropIds` — authoritative,
+ * works across devices), merged with the device-local publish index as a
+ * freshness supplement for ids published moments ago. Each id is then
+ * re-read from BOTH authorities: the homeserver record (title, schedule
+ * intent) and the service's seller projection (state, revision). Rows sort
+ * newest launch first. Every read failure renders as honest absence on its
+ * own row — a missing projection never hides the record and vice versa;
+ * an unreachable directory listing degrades to the local index alone.
  */
 export function useOwnDrops(): UseOwnDropsResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
@@ -47,7 +50,9 @@ export function useOwnDrops(): UseOwnDropsResult {
       setIsLoading(false);
       return;
     }
-    const dropIds = readOwnDropIndex(currentUserPubky);
+    const listed = await CommerceController.listOwnDropIds().catch(() => [] as string[]);
+    const remembered = readOwnDropIndex(currentUserPubky);
+    const dropIds = [...new Set([...listed, ...remembered])];
     const loaded = await Promise.all(
       dropIds.map(async (dropId): Promise<OwnDropRow> => {
         const [record, drop] = await Promise.all([

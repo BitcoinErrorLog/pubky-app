@@ -2,16 +2,13 @@
  * Device-local index of the drop ids this account has published FROM THIS
  * BROWSER, keyed per account in localStorage.
  *
- * Why it exists (honest limitation, reported in the drops-home UI): drop
- * records live on the seller's homeserver, but the client has no controller
- * method to list the drops directory yet (`HomeserverService.listAll` exists
- * at the service layer only, and services are not callable from hooks). Until
- * a `CommerceController.listOwnDrops()` lands, this index is how the drops
- * home enumerates — it is NEVER treated as authority: every remembered id is
- * re-read from the homeserver record (`fetchDrop`) and the transaction
- * service (`getOwnDrop`) before anything renders, and ids whose record is
- * gone can be forgotten. Drops published from another browser simply do not
- * appear here; their records remain intact on the homeserver.
+ * Enumeration authority is `CommerceController.listOwnDropIds()` (the
+ * homeserver drops directory, cross-device). This index is only a freshness
+ * supplement merged in by `useOwnDrops` — it keeps a drop published moments
+ * ago visible even if a directory listing lags or fails, and it is NEVER
+ * treated as authority: every id is re-read from the homeserver record
+ * (`fetchDrop`) and the transaction service (`getOwnDrop`) before anything
+ * renders.
  */
 
 const STORAGE_KEY_PREFIX = 'marketplace:own-drops:';
