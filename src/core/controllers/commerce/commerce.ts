@@ -231,6 +231,58 @@ export class CommerceController {
   }
 
   /**
+   * Publishes the portable order receipt for every eligible paid order to
+   * the current user's own homeserver (credible exit for orders). Missing
+   * publications self-heal on the next orders load.
+   */
+  static async publishOrderReceipts(orders: MarketplaceOrder[]) {
+    return await CommerceApplication.publishOrderReceipts(this.getCurrentUserPubky(), orders);
+  }
+
+  // --- Drops (ADR 0026) ---
+
+  /** Canonical seller-signed drop record from the homeserver. */
+  static async fetchDrop(ownerPubky: string, dropId: string) {
+    return await CommerceApplication.fetchDrop(ownerPubky, dropId);
+  }
+
+  /** Authoritative public drop state from the transaction service. */
+  static async getPublicDrop(sellerPubky: string, dropId: string) {
+    return await CommerceApplication.getPublicDrop(sellerPubky, dropId);
+  }
+
+  /** The current seller's full-detail drop read (mission control). */
+  static async getOwnDrop(dropId: string) {
+    const pubky = this.getCurrentUserPubky();
+    return await CommerceApplication.getSellerDrop(pubky, pubky, dropId);
+  }
+
+  /** The current buyer's per-drop allowance (ready check). */
+  static async getDropReadyCheck(sellerPubky: string, dropId: string) {
+    return await CommerceApplication.getDropReadyCheck(this.getCurrentUserPubky(), sellerPubky, dropId);
+  }
+
+  /** Convergent drop registration from the seller's homeserver record. */
+  static async syncDropRegistration(sellerPubky: string, dropId: string) {
+    return await CommerceApplication.syncDropRegistration(this.getCurrentUserPubky(), sellerPubky, dropId);
+  }
+
+  /** Publishes the seller-signed drop record (specs-validated) to the homeserver. */
+  static async publishDrop(record: unknown) {
+    return await CommerceApplication.commitPublishDrop(CommerceRecordNormalizer.drop(record));
+  }
+
+  /** Seller kill switch: announced/live → ended_cancelled (CAS). */
+  static async cancelDrop(dropId: string, expectedRevision: number) {
+    return await CommerceApplication.cancelDrop(this.getCurrentUserPubky(), dropId, expectedRevision);
+  }
+
+  /** Returns an ENDED drop's listings to ordinary open sale (CAS). */
+  static async releaseDropListings(dropId: string, expectedRevision: number) {
+    return await CommerceApplication.releaseDropListings(this.getCurrentUserPubky(), dropId, expectedRevision);
+  }
+
+  /**
    * Self-heal: registers an own listing with the transaction service when it
    * has no aggregate there (published before durable-mode registration
    * existed, or while registration failed). Idempotent.

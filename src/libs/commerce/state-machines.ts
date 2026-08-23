@@ -1,6 +1,7 @@
 import type {
   AuctionState,
   DisputeState,
+  DropState,
   ListingState,
   OfferState,
   OrderState,
@@ -106,6 +107,14 @@ export const disputeTransitions = {
   resolved: [],
 } as const satisfies TransitionMap<DisputeState>;
 
+export const dropTransitions = {
+  announced: ['live', 'ended_closed', 'ended_cancelled'],
+  live: ['ended_sold_out', 'ended_closed', 'ended_cancelled'],
+  ended_sold_out: [],
+  ended_closed: [],
+  ended_cancelled: [],
+} as const satisfies TransitionMap<DropState>;
+
 /**
  * Every aggregate machine, keyed exactly as in the service's contract artifact.
  * The contract-drift test iterates this registry against the vendored JSON, so
@@ -121,6 +130,7 @@ export const commerceAggregateMachines = {
   report: { initial: 'open', transitions: reportTransitions },
   return: { initial: 'requested', transitions: returnTransitions },
   dispute: { initial: 'open', transitions: disputeTransitions },
+  drop: { initial: 'announced', transitions: dropTransitions },
 } as const;
 
 export function canTransitionListing(from: ListingState, to: ListingState): boolean {

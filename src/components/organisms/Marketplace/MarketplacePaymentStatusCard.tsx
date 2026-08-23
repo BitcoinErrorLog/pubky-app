@@ -137,8 +137,20 @@ export function MarketplacePaymentStatusCard({
         {order.paymentMethod === 'bitcoin' && <Badge variant="secondary">₿ Bitcoin</Badge>}
         {order.paymentMethod === 'stripe' && <Badge variant="secondary">Card (Stripe)</Badge>}
         {order.paymentMethod === 'paypal' && <Badge variant="secondary">PayPal</Badge>}
+        {/* How the fiat rail is verified is a fact both parties should see on
+            the order forever, not only in the pre-payment copy: Stripe pulls
+            truth from the processor; PayPal is the seller saying so. */}
+        {order.fiatVerification === 'processor' && <Badge variant="secondary">Processor-verified</Badge>}
+        {order.fiatVerification === 'seller-attested' && <Badge variant="outline">Seller-attested</Badge>}
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
+
+      {visibleStatus === 'confirmed' && order.fiatVerification === 'seller-attested' && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          This payment was confirmed by the seller reporting receipt in their own PayPal account — not by automatic
+          processor verification. The confirmation is the seller&rsquo;s attestation.
+        </Typography>
+      )}
 
       {visibleStatus === 'expired' && (
         <Typography as="p" className="text-sm text-muted-foreground">

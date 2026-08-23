@@ -37,6 +37,9 @@ export enum COLLECTION_ROUTES {
 export enum MARKETPLACE_ROUTES {
   LISTING = '/marketplace/listing',
   SHOP = '/marketplace/shop',
+  DROPS = '/marketplace/drops',
+  DROP = '/marketplace/drop',
+  SELL_DROPS = '/marketplace/sell/drops',
   MY_SHOP = '/marketplace/my-shop',
   SELL = '/marketplace/sell',
   DASHBOARD = '/marketplace/dashboard',
@@ -184,6 +187,8 @@ export function isDynamicPublicRoute(pathname: string): boolean {
     case matchSingleCollectionRoute(pathname) !== null:
     case matchMarketplaceListingRoute(pathname) !== null:
     case matchMarketplaceShopRoute(pathname) !== null:
+    // Drop pages are public hype surfaces, like listings and shops.
+    case matchMarketplaceDropRoute(pathname) !== null:
       return true;
     default:
       return false;
@@ -374,6 +379,18 @@ export function getMarketplaceListingEditRoute(sellerPubky: string, listingId: s
 
 export function getMarketplaceShopRoute(sellerPubky: string): string {
   return `${MARKETPLACE_ROUTES.SHOP}/${sellerPubky}`;
+}
+
+export function getMarketplaceDropRoute(sellerPubky: string, dropId: string): string {
+  return `${MARKETPLACE_ROUTES.DROP}/${sellerPubky}/${dropId}`;
+}
+
+export function matchMarketplaceDropRoute(pathname: string): { sellerPubky: string; dropId: string } | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'marketplace' || segments[1] !== 'drop' || segments.length !== 4) {
+    return null;
+  }
+  return { sellerPubky: segments[2], dropId: segments[3] };
 }
 
 export function matchMarketplaceShopRoute(pathname: string): { sellerPubky: string } | null {

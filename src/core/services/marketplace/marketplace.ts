@@ -96,12 +96,15 @@ export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSch
 export type {
   MarketplaceDisputeCaseFile,
   MarketplaceDisputeEvidence,
+  MarketplaceDropReadyCheck,
   MarketplaceListingProjection,
   MarketplaceNotification,
   MarketplaceOffer,
   MarketplaceOrder,
   MarketplacePayment,
+  MarketplacePublicDrop,
   MarketplaceReceipt,
+  MarketplaceSellerDrop,
 } from './marketplace-projections';
 export type { MarketplaceReport } from './marketplace-transaction';
 
@@ -198,6 +201,51 @@ export class MarketplaceGatewayService {
   static async getBandConsent(actor: string, sellerPubky: string): Promise<boolean | null> {
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getBandConsent(actor, sellerPubky);
+    }
+    return null;
+  }
+
+  /**
+   * The durable service's deterministic receipt attestation for the
+   * portable order-receipt document. Null in sandbox mode — the sandbox has
+   * no attestor and no receipts worth exporting.
+   */
+  static async getReceiptAttestation(actor: string, receiptId: string) {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      return await MarketplaceTransactionService.getReceiptAttestation(actor, receiptId);
+    }
+    return null;
+  }
+
+  /**
+   * Drops exist only against the durable service (ADR 0026: server time is
+   * the feature). Every read returns null in sandbox mode, and callers
+   * render honest absence.
+   */
+  static async getPublicDrop(sellerPubky: string, dropId: string) {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      return await MarketplaceTransactionService.getPublicDrop(sellerPubky, dropId);
+    }
+    return null;
+  }
+
+  static async getDrop(actor: string, aggregateId: string) {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      return await MarketplaceTransactionService.getDrop(actor, aggregateId);
+    }
+    return null;
+  }
+
+  static async getDropReadyCheck(actor: string, aggregateId: string) {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      return await MarketplaceTransactionService.getDropReadyCheck(actor, aggregateId);
+    }
+    return null;
+  }
+
+  static async getEditionAttestation(actor: string, receiptId: string) {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      return await MarketplaceTransactionService.getEditionAttestation(actor, receiptId);
     }
     return null;
   }

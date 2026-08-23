@@ -151,6 +151,13 @@ export const reportStateSchema = z.enum(['open', 'dismissed', 'actioned']);
 export const returnStateSchema = z.enum(['requested', 'approved', 'received', 'refunded']);
 export const disputeStateSchema = z.enum(['open', 'resolved']);
 
+/**
+ * Drop lifecycle (ADR 0026). `live` begins at server-time `startsAt`;
+ * `ended_sold_out` is terminal paid-out quantity, `ended_closed` the
+ * schedule's end, `ended_cancelled` the seller's kill switch.
+ */
+export const dropStateSchema = z.enum(['announced', 'live', 'ended_sold_out', 'ended_closed', 'ended_cancelled']);
+
 export type CommerceJsonValue =
   | null
   | boolean
@@ -169,3 +176,4 @@ export type OrderState = z.infer<typeof orderStateSchema>;
 export type ReportState = z.infer<typeof reportStateSchema>;
 export type ReturnState = z.infer<typeof returnStateSchema>;
 export type DisputeState = z.infer<typeof disputeStateSchema>;
+export type DropState = z.infer<typeof dropStateSchema>;

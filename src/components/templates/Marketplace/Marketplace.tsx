@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   Bell,
+  CalendarClock,
   Gavel,
   HandCoins,
   Heart,
@@ -19,7 +20,9 @@ import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import { isDurableCommerceMode } from '@/config/commerce';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
 import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismissal/useMarketplacePromoDismissal';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
@@ -129,6 +132,37 @@ export function Marketplace() {
             </Button>
           </div>
         </section>
+
+        {/* Drops entry (ADR 0026): durable modes only — drops are enforced by
+            the transaction service's clock, so the shelf never appears where
+            no such authority exists. */}
+        {isDurableCommerceMode(adapterMode) && (
+          <section
+            aria-label="Drops"
+            className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card p-5"
+          >
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-brand/15 p-2 text-brand">
+                <CalendarClock className="size-5" />
+              </div>
+              <div>
+                <Heading level={2} size="md">
+                  Drops
+                </Heading>
+                <Typography as="p" className="mt-1 max-w-xl text-sm text-muted-foreground">
+                  Timed, limited releases on a server-enforced clock — no fake queues, no invented stock, editions you
+                  own on your homeserver.
+                </Typography>
+              </div>
+            </div>
+            <Button asChild className="rounded-full">
+              <Link href={MARKETPLACE_ROUTES.DROPS} overrideDefaults>
+                Browse drops
+                <ArrowRight className="ml-2 size-4" />
+              </Link>
+            </Button>
+          </section>
+        )}
 
         {showPromo && (
           <section

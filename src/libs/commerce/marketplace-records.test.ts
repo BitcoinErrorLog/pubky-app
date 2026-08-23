@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
 import {
   commerceCollectionRecordSchema,
+  commerceDropRecordSchema,
   type CommerceListingRecord,
   commerceListingRecordSchema,
+  commerceOrderReceiptRecordSchema,
   commercePublicRecordSchema,
   commerceReviewRecordSchema,
   commerceShopRecordSchema,
@@ -409,6 +411,126 @@ describe('other public marketplace records', () => {
         vacationMode: false,
       }).success,
     ).toBe(true);
+  });
+
+  it('accepts a valid drop record and rejects every cross-field violation', () => {
+    const drop = {
+      schemaVersion: COMMERCE_CONTRACT_VERSION,
+      recordType: 'drop',
+      ownerPubky: SELLER_PUBKY,
+      revision: 1,
+      createdAt: CREATED_AT,
+      updatedAt: UPDATED_AT,
+      dropId: 'drop_summer_01',
+      title: 'Summer Capsule',
+      description: 'Ten pieces, one afternoon.',
+      media: [],
+      format: 'fcfs',
+      startsAt: '2026-09-01T17:00:00.000Z',
+      endsAt: '2026-09-01T19:00:00.000Z',
+      listingIds: ['boots_01', 'boots_02'],
+      totalQuantity: 10,
+      perBuyerLimit: 2,
+      stockDisplay: 'bands',
+    };
+
+    expect(commerceDropRecordSchema.safeParse(drop).success).toBe(true);
+    // endsAt is optional (sell-out-only drops).
+    expect(commerceDropRecordSchema.safeParse({ ...drop, endsAt: undefined }).success).toBe(true);
+
+    expect(commerceDropRecordSchema.safeParse({ ...drop, endsAt: drop.startsAt }).success).toBe(false);
+    expect(commerceDropRecordSchema.safeParse({ ...drop, perBuyerLimit: 11 }).success).toBe(false);
+    expect(commerceDropRecordSchema.safeParse({ ...drop, listingIds: ['boots_01', 'boots_01'] }).success).toBe(false);
+    expect(commerceDropRecordSchema.safeParse({ ...drop, listingIds: [] }).success).toBe(false);
+    expect(commerceDropRecordSchema.safeParse({ ...drop, format: 'raffle' }).success).toBe(false);
+    expect(commerceDropRecordSchema.safeParse({ ...drop, stockDisplay: 'fake' }).success).toBe(false);
+    expect(commerceDropRecordSchema.safeParse({ ...drop, totalQuantity: 0 }).success).toBe(false);
+    expect(commerceDropRecordSchema.safeParse({ ...drop, surprise: true }).success).toBe(false);
+  });
+
+  it('accepts edition fields on a receipt only together and consistent', () => {
+    const receipt = {
+      schemaVersion: COMMERCE_CONTRACT_VERSION,
+      recordType: 'order_receipt',
+      ownerPubky: BUYER_PUBKY,
+      revision: 1,
+      createdAt: CREATED_AT,
+      updatedAt: UPDATED_AT,
+      role: 'buyer',
+      receiptId: '018f47d2-6a27-7c23-a49d-6b21bb770201',
+      orderId: '018f47d2-6a27-7c23-a49d-6b21bb770200',
+      buyerPubky: BUYER_PUBKY,
+      sellerPubky: SELLER_PUBKY,
+      total: { amountMinor: 14796, currency: 'USD', exponent: 2 },
+      paidAt: CREATED_AT,
+      receiptAttestation: 'a'.repeat(64),
+    };
+    const edition = { dropId: 'drop_summer_01', edition: 7, of: 100 };
+
+    expect(commerceOrderReceiptRecordSchema.safeParse(receipt).success).toBe(true);
+    expect(
+      commerceOrderReceiptRecordSchema.safeParse({
+        ...receipt,
+        editionAttestation: 'b'.repeat(64),
+        drop: edition,
+      }).success,
+    ).toBe(true);
+    // One without the other, and inconsistent counts, are refused.
+    expect(commerceOrderReceiptRecordSchema.safeParse({ ...receipt, editionAttestation: 'b'.repeat(64) }).success).toBe(
+      false,
+    );
+    expect(commerceOrderReceiptRecordSchema.safeParse({ ...receipt, drop: edition }).success).toBe(false);
+    expect(
+      commerceOrderReceiptRecordSchema.safeParse({
+        ...receipt,
+        editionAttestation: 'b'.repeat(64),
+        drop: { ...edition, of: 3 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts a shop declaring its transaction-service authority, and rejects malformed declarations', () => {
+    const shop = {
+      schemaVersion: COMMERCE_CONTRACT_VERSION,
+      recordType: 'shop',
+      ownerPubky: SELLER_PUBKY,
+      revision: 1,
+      createdAt: CREATED_AT,
+      updatedAt: UPDATED_AT,
+      name: 'Satoshi Vintage',
+      bio: 'Circular fashion and Bitcoin.',
+      location: { countryCode: 'US', region: 'NY' },
+      shippingPolicy: 'Ships within three business days.',
+      returnPolicy: 'Returns accepted within 30 days.',
+      vacationMode: false,
+    };
+
+    expect(
+      commerceShopRecordSchema.safeParse({ ...shop, transactionService: 'https://market.example.com' }).success,
+    ).toBe(true);
+    expect(
+      commerceShopRecordSchema.safeParse({ ...shop, transactionService: 'https://market.example.com/api' }).success,
+    ).toBe(true);
+    // http, credentials, query, fragment, and oversized URLs are refused.
+    expect(
+      commerceShopRecordSchema.safeParse({ ...shop, transactionService: 'http://market.example.com' }).success,
+    ).toBe(false);
+    expect(
+      commerceShopRecordSchema.safeParse({ ...shop, transactionService: 'https://a:b@market.example.com' }).success,
+    ).toBe(false);
+    expect(
+      commerceShopRecordSchema.safeParse({ ...shop, transactionService: 'https://market.example.com/?x=1' }).success,
+    ).toBe(false);
+    expect(
+      commerceShopRecordSchema.safeParse({ ...shop, transactionService: 'https://market.example.com/#frag' }).success,
+    ).toBe(false);
+    expect(
+      commerceShopRecordSchema.safeParse({
+        ...shop,
+        transactionService: `https://market.example.com/${'a'.repeat(300)}`,
+      }).success,
+    ).toBe(false);
+    expect(commerceShopRecordSchema.safeParse({ ...shop, transactionService: 'not a url' }).success).toBe(false);
   });
 
   it('accepts a transaction-attested public review', () => {

@@ -243,6 +243,31 @@ export const commerceDigitalLockSchema = z
   })
   .strict();
 
+/**
+ * The seller-declared transaction-service authority (specs
+ * `0.6.2-marketplace.7`, `shop.transactionService`): an HTTPS base URL with
+ * no credentials, query, or fragment. Mirrors the specs fork's validation so
+ * a record either parses identically on both sides or on neither.
+ */
+const commerceTransactionServiceSchema = z
+  .string()
+  .max(300)
+  .refine((value) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      return false;
+    }
+    return (
+      parsed.protocol === 'https:' &&
+      parsed.username === '' &&
+      parsed.password === '' &&
+      parsed.search === '' &&
+      parsed.hash === ''
+    );
+  }, 'Expected a plain https URL without credentials, query, or fragment');
+
 const commerceShopRecordSchemaInner = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('shop'),
@@ -254,6 +279,9 @@ const commerceShopRecordSchemaInner = commercePublicRecordBaseSchema
     shippingPolicy: z.string().trim().max(COMMERCE_SHOP_POLICY_MAX_CHARS),
     returnPolicy: z.string().trim().max(COMMERCE_SHOP_POLICY_MAX_CHARS),
     vacationMode: z.boolean(),
+    // Optional since 0.6.2-marketplace.7; absent on every earlier record.
+    // See docs/ecommerce/multi-operator.md for the routing semantics.
+    transactionService: commerceTransactionServiceSchema.optional(),
     createdAt: commerceTimestampSchema,
     updatedAt: commerceTimestampSchema,
   })
@@ -691,6 +719,112 @@ const commerceWatchlistRecordSchemaInner = commercePublicRecordBaseSchema
     validateUniqueValues(keys, ['items'], 'Watchlist listing keys must be unique across items and tombstones', context);
   });
 
+/**
+ * The public drop record (specs `0.6.2-marketplace.8`, ADR 0026): the
+ * seller-signed announcement of a timed, limited release at
+ * `/pub/pubky.app/marketplace/v1/drops/{dropId}`. `startsAt`/`endsAt` are
+ * the seller's stated intent — the transaction service's drop aggregate is
+ * the enforced schedule, and the UI must never render `live`, remaining
+ * stock, or `sold out` from this record alone.
+ */
+const commerceDropRecordSchemaInner = commercePublicRecordBaseSchema
+  .extend({
+    recordType: z.literal('drop'),
+    dropId: commerceEntityIdSchema,
+    title: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(2000),
+    media: z.array(marketplacePublicUriSchema).max(10).default([]),
+    format: z.literal('fcfs'),
+    startsAt: commerceTimestampSchema,
+    endsAt: commerceTimestampSchema.optional(),
+    listingIds: z.array(commerceEntityIdSchema).min(1).max(20),
+    totalQuantity: z.number().int().min(1).max(1_000_000),
+    perBuyerLimit: z.number().int().min(1).max(100),
+    stockDisplay: z.enum(['exact', 'bands', 'hidden']),
+    createdAt: commerceTimestampSchema,
+    updatedAt: commerceTimestampSchema,
+  })
+  .strict()
+  .superRefine((drop, context) => {
+    validateRecordDates(drop, context);
+    if (drop.endsAt !== undefined && Date.parse(drop.endsAt) <= Date.parse(drop.startsAt)) {
+      context.addIssue({ code: 'custom', path: ['endsAt'], message: 'endsAt must be after startsAt' });
+    }
+    if (drop.perBuyerLimit > drop.totalQuantity) {
+      context.addIssue({
+        code: 'custom',
+        path: ['perBuyerLimit'],
+        message: 'perBuyerLimit cannot exceed totalQuantity',
+      });
+    }
+    validateUniqueValues(drop.listingIds, ['listingIds'], 'Drop listing ids must be unique', context);
+  });
+
+/**
+ * The portable order receipt (specs `0.6.2-marketplace.7`): a PRIVATE
+ * record at `/priv/pubky.app/marketplace/v1/receipts/{receiptId}` the buyer
+ * or seller writes to their OWN homeserver, carrying the service-signed
+ * `pubky-order-receipt+v1` JWS so purchase history stays verifiable after
+ * the marketplace operator disappears. Never indexed, never public.
+ */
+const commerceOrderReceiptRecordSchemaInner = commercePublicRecordBaseSchema
+  .extend({
+    recordType: z.literal('order_receipt'),
+    role: z.enum(['buyer', 'seller']),
+    receiptId: z.uuid(),
+    orderId: z.uuid(),
+    buyerPubky: commercePubkySchema,
+    sellerPubky: commercePubkySchema,
+    total: commerceMoneySchema,
+    paidAt: commerceTimestampSchema,
+    receiptAttestation: z
+      .string()
+      .min(32)
+      .max(4_096)
+      .regex(/^[A-Za-z0-9._~-]+$/),
+    // Both optional fields arrived in specs 0.6.2-marketplace.8 (ADR 0026):
+    // a drop order's edition proof. Present together or absent together.
+    editionAttestation: z
+      .string()
+      .min(32)
+      .max(4_096)
+      .regex(/^[A-Za-z0-9._~-]+$/)
+      .optional(),
+    drop: z
+      .object({
+        dropId: commerceEntityIdSchema,
+        edition: z.number().int().min(1),
+        of: z.number().int().min(1),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((receipt, context) => {
+    validateRecordDates(receipt, context);
+    const partyForRole = receipt.role === 'buyer' ? receipt.buyerPubky : receipt.sellerPubky;
+    if (receipt.ownerPubky !== partyForRole) {
+      context.addIssue({
+        code: 'custom',
+        path: ['role'],
+        message: 'The record owner must be the party its role names',
+      });
+    }
+    if (receipt.buyerPubky === receipt.sellerPubky) {
+      context.addIssue({ code: 'custom', path: ['sellerPubky'], message: 'Buyer and seller must differ' });
+    }
+    if ((receipt.editionAttestation === undefined) !== (receipt.drop === undefined)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['editionAttestation'],
+        message: 'editionAttestation and drop must be present together',
+      });
+    }
+    if (receipt.drop !== undefined && receipt.drop.of < receipt.drop.edition) {
+      context.addIssue({ code: 'custom', path: ['drop'], message: 'of cannot be less than edition' });
+    }
+  });
+
 export const commerceShopRecordSchema = z.preprocess(stripSerializedNulls, commerceShopRecordSchemaInner);
 export const commerceListingRecordSchema = z.preprocess(stripSerializedNulls, commerceListingRecordSchemaInner);
 export const commerceReviewRecordSchema = z.preprocess(stripSerializedNulls, commerceReviewRecordSchemaInner);
@@ -700,6 +834,11 @@ export const commerceReviewResponseRecordSchema = z.preprocess(
 );
 export const commerceCollectionRecordSchema = z.preprocess(stripSerializedNulls, commerceCollectionRecordSchemaInner);
 export const commerceWatchlistRecordSchema = z.preprocess(stripSerializedNulls, commerceWatchlistRecordSchemaInner);
+export const commerceOrderReceiptRecordSchema = z.preprocess(
+  stripSerializedNulls,
+  commerceOrderReceiptRecordSchemaInner,
+);
+export const commerceDropRecordSchema = z.preprocess(stripSerializedNulls, commerceDropRecordSchemaInner);
 
 export type CommerceShopRecord = z.infer<typeof commerceShopRecordSchema>;
 export type CommerceListingRecord = z.infer<typeof commerceListingRecordSchema>;
@@ -707,6 +846,8 @@ export type CommerceReviewRecord = z.infer<typeof commerceReviewRecordSchema>;
 export type CommerceReviewResponseRecord = z.infer<typeof commerceReviewResponseRecordSchema>;
 export type CommerceCollectionRecord = z.infer<typeof commerceCollectionRecordSchema>;
 export type CommerceWatchlistRecord = z.infer<typeof commerceWatchlistRecordSchema>;
+export type CommerceOrderReceiptRecord = z.infer<typeof commerceOrderReceiptRecordSchema>;
+export type CommerceDropRecord = z.infer<typeof commerceDropRecordSchema>;
 export type CommerceWatchlistRecordItem = CommerceWatchlistRecord['items'][number];
 export type CommerceWatchlistRecordTombstone = CommerceWatchlistRecord['tombstones'][number];
 export type CommerceTombstoneRecord = z.infer<typeof commerceTombstoneRecordSchema>;

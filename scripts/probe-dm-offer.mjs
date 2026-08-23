@@ -4,7 +4,7 @@
 // participant the seller's inbox sync will probe, so the phase-2 encrypted
 // handshake can complete. Prints the identity secret hex for phase 2.
 //   STAGING_ADMIN_PASSWORD=... node scripts/probe-dm-offer.mjs <sellerPubky> <listingId>
-import { Pubky, Keypair, AuthFlowKind, PublicKey } from '@synonymdev/pubky';
+import { AuthFlowKind, Keypair, Pubky, PublicKey } from '@synonymdev/pubky';
 
 const SERVICE_URL = process.env.MARKETPLACE_SERVICE_URL ?? 'https://marketplace-service-production.up.railway.app';
 const HOMESERVER_ADMIN = 'https://admin.homeserver.staging.pubky.app/generate_signup_token';

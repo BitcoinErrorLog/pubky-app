@@ -4,6 +4,7 @@ import { commerceAggregateMachines } from './state-machines';
 import {
   auctionStateSchema,
   disputeStateSchema,
+  dropStateSchema,
   listingStateSchema,
   offerStateSchema,
   orderStateSchema,
@@ -53,6 +54,7 @@ const stateEnumsByAggregate = {
   report: reportStateSchema,
   return: returnStateSchema,
   dispute: disputeStateSchema,
+  drop: dropStateSchema,
 } as const;
 
 function clientEdges(transitions: Readonly<Record<string, readonly string[]>>): string[] {

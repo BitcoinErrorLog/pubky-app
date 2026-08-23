@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
+import { commercePubkySchema, dropStateSchema } from '@/libs/commerce/transaction-contracts';
 
 /**
  * Read-projection schemas shared by BOTH marketplace transports.
@@ -251,6 +251,10 @@ export const marketplaceOrderSchema = z
     // worker-observed request state (`pending`/`detected`/`confirmed`).
     paykitRequestReference: z.string().nullable().optional(),
     paykitRequestState: z.string().nullable().optional(),
+    // Drop orders (ADR 0026): the bound drop aggregate and, once paid, the
+    // gapless edition number assigned inside the exactly-once confirmation.
+    dropAggregateId: z.string().nullable().optional(),
+    edition: z.number().int().min(1).nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -265,6 +269,52 @@ export const marketplaceOrderSchema = z
  * dispute participants plus configured moderators, and moderator reads are
  * audited server-side in the same transaction as the read.
  */
+/**
+ * The PUBLIC drop projection (`GET /v0/drops/{seller}/{dropId}`, ADR 0026):
+ * the transaction service's authoritative drop state, with stock redaction
+ * applied SERVER-side per the seller's `stockDisplay` policy — `exact`
+ * carries `remaining`, `bands` carries `remainingBand`, `hidden` carries
+ * neither. `serverTime` is the service clock the client corrects
+ * countdowns from. Never render `live`/`sold out` from any other source.
+ */
+export const marketplacePublicDropSchema = z
+  .object({
+    sellerPubky: commercePubkySchema,
+    dropId: z.string().min(1),
+    aggregateId: z.string().min(1),
+    state: dropStateSchema,
+    format: z.literal('fcfs'),
+    startsAt: z.string(),
+    endsAt: z.string().nullable().optional(),
+    stockDisplay: z.enum(['exact', 'bands', 'hidden']),
+    totalQuantity: z.number().int().positive(),
+    perBuyerLimit: z.number().int().positive(),
+    remaining: z.number().int().min(0).nullable().optional(),
+    remainingBand: z.enum(['plenty', 'low', 'last_few']).nullable().optional(),
+    revision: z.number().int().positive(),
+    serverTime: z.string(),
+  })
+  .passthrough();
+
+/** The seller's own full-detail drop read (`GET /v1/drops/{aggregateId}`). */
+export const marketplaceSellerDropSchema = marketplacePublicDropSchema
+  .extend({
+    remaining: z.number().int().min(0),
+    paidQuantity: z.number().int().min(0),
+    buyerCount: z.number().int().min(0),
+    listingIds: z.array(z.string().min(1)).optional(),
+  })
+  .passthrough();
+
+/** The buyer's ready-check read (`GET /v1/drops/{aggregateId}/me`). */
+export const marketplaceDropReadyCheckSchema = z
+  .object({
+    purchased: z.number().int().min(0),
+    perBuyerLimit: z.number().int().positive(),
+    remainingAllowance: z.number().int().min(0),
+  })
+  .passthrough();
+
 export const marketplaceDisputeEvidenceSchema = z
   .object({
     id: z.uuid(),
@@ -300,5 +350,8 @@ export type MarketplaceListingProjection = z.infer<typeof marketplaceListingProj
 export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSchema>;
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;
 export type MarketplaceOrder = z.infer<typeof marketplaceOrderSchema>;
+export type MarketplacePublicDrop = z.infer<typeof marketplacePublicDropSchema>;
+export type MarketplaceSellerDrop = z.infer<typeof marketplaceSellerDropSchema>;
+export type MarketplaceDropReadyCheck = z.infer<typeof marketplaceDropReadyCheckSchema>;
 export type MarketplacePayment = z.infer<typeof marketplacePaymentSchema>;
 export type MarketplaceReceipt = z.infer<typeof marketplaceReceiptSchema>;

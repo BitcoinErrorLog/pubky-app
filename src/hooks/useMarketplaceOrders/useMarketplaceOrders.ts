@@ -203,6 +203,10 @@ async function loadOrders(
     setOrders(views);
     setError(null);
     setNeedsSession(false);
+    // Portable order receipts (credible exit): best-effort publication of
+    // any missing signed receipt document to the user's own homeserver.
+    // Failures are logged in the application layer and retry on next load.
+    void CommerceController.publishOrderReceipts(orders).catch(() => undefined);
   } catch (loadError) {
     // A missing/expired marketplace session is not a dead end: flag it so the
     // surface renders the session-connect affordance with the real guidance.

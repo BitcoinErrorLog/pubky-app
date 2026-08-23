@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, History, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, History, Rocket, ShieldCheck } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -10,6 +10,7 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useCreateMarketplaceListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
@@ -66,6 +67,29 @@ export function MarketplaceSell() {
           <Link href={MARKETPLACE_ROUTES.SETTINGS} className="mt-2 inline-flex">
             Configure Paykit and Locks for digital delivery
           </Link>
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <Rocket className="mt-0.5 size-5 shrink-0 text-brand" />
+            <div>
+              <Typography as="p" className="font-semibold">
+                Drops — timed limited releases
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                {isDurableCommerceMode(getCommerceAdapterMode())
+                  ? 'Bundle listings into a scheduled, capped release the transaction service enforces on server time.'
+                  : 'Unavailable in this mode: drops require the durable transaction service — server time is the feature.'}
+              </Typography>
+            </div>
+          </div>
+          {isDurableCommerceMode(getCommerceAdapterMode()) && (
+            <Button asChild variant="secondary" className="shrink-0 rounded-full">
+              <Link href={MARKETPLACE_ROUTES.SELL_DROPS} overrideDefaults>
+                Open Drop Studio
+              </Link>
+            </Button>
+          )}
         </div>
 
         {listing.restoredDraft && (

@@ -7,15 +7,22 @@ import {
   COMMERCE_WATCH_CHECK_MAX_ITEMS,
   COMMERCE_WATCH_ENDING_SOON_THRESHOLD_MS,
   getCommerceAdapterMode,
+  getMarketplaceUrl,
   isDurableCommerceMode,
   isTransactionalCommerceMode,
   MARKETPLACE_FOLLOWED_SHELF_MAX_SELLER_FETCHES,
 } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
-import { extractReviewAttestation, verifyOwnReviewAttestation } from '@/libs/commerce/attestation';
+import {
+  extractReviewAttestation,
+  verifyOwnDropEdition,
+  verifyOwnOrderReceipt,
+  verifyOwnReviewAttestation,
+} from '@/libs/commerce/attestation';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import {
   type CommerceDigitalLock,
+  type CommerceDropRecord,
   type CommerceListingRecord,
   commerceReviewRecordSchema,
   type CommerceShopRecord,
@@ -24,6 +31,7 @@ import {
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
+  buildMarketplaceDropAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplacePaymentAggregateId,
   type MarketplaceCommand,
@@ -291,7 +299,61 @@ export class CommerceApplication {
   }
 
   static async executeMarketplaceCommand(actorPubky: string, command: MarketplaceCommand) {
+    await this.assertSellerAuthorityRoutable(command);
     return await MarketplaceGatewayService.execute(actorPubky, command);
+  }
+
+  /**
+   * The multi-operator mismatch guard (docs/ecommerce/multi-operator.md,
+   * increment 1). A seller's shop record may declare the transaction-service
+   * authority it sells through (`shop.transactionService`, specs
+   * `0.6.2-marketplace.7`). This client cannot route to arbitrary services
+   * yet, so when a listing-aggregate command targets a seller whose declared
+   * authority is a DIFFERENT origin than this deployment's configured
+   * service, the command is refused with an honest message — instead of
+   * silently registering the seller's listing into an authority they never
+   * declared.
+   *
+   * Deliberately fail-open on absence: no shop record, no declared field, an
+   * unreadable homeserver, or a sandbox deployment all keep today's
+   * behavior. The declaration is the seller's routing statement, not a
+   * security boundary — the transaction service authenticates actors itself.
+   */
+  private static async assertSellerAuthorityRoutable(command: MarketplaceCommand): Promise<void> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return;
+    const aggregateId = typeof command.aggregateId === 'string' ? command.aggregateId : '';
+    if (!aggregateId.startsWith('listing:')) return;
+    const sellerPubky = aggregateId.slice('listing:'.length, 'listing:'.length + 52);
+    if (sellerPubky.length !== 52) return;
+
+    let declared: string | undefined;
+    try {
+      declared = (await this.getOrFetchShop(sellerPubky)).transactionService;
+    } catch {
+      return;
+    }
+    if (!declared) return;
+
+    const configured = getMarketplaceUrl();
+    let declaredOrigin: string;
+    let configuredOrigin: string;
+    try {
+      declaredOrigin = new URL(declared).origin;
+      configuredOrigin = new URL(configured).origin;
+    } catch {
+      return;
+    }
+    if (declaredOrigin === configuredOrigin) return;
+
+    throw Err.validation(
+      ValidationErrorCode.INVALID_INPUT,
+      `This seller sells through a different marketplace service (${declaredOrigin}). This deployment routes commerce to ${configuredOrigin} and cannot transact with their shop yet.`,
+      {
+        service: ErrorService.Marketplace,
+        operation: 'assertSellerAuthorityRoutable',
+        context: { sellerPubky, declaredOrigin, configuredOrigin, kind: command.kind },
+      },
+    );
   }
 
   /**
@@ -846,6 +908,130 @@ export class CommerceApplication {
   /** 403 (scope refused) or 401 (session rejected) on the private document. */
   private static isPrivateAccessDenied(error: unknown): boolean {
     return hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED);
+  }
+
+  // ---------------------------------------------------------------------
+  // Portable order receipts (PRIVATE homeserver documents)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Session-scoped memo of receipt URLs confirmed present on the owner's
+   * homeserver, so one browsing session re-reads each private receipt path
+   * at most once. Keyed by the full owner-scoped URL, so an account switch
+   * cannot bleed publication state across identities.
+   */
+  private static publishedReceiptUrls = new Set<string>();
+
+  /** Test support: clears the session-scoped published-receipt memo. */
+  static resetReceiptPublicationMemo(): void {
+    this.publishedReceiptUrls.clear();
+  }
+
+  /**
+   * Publishes the portable order receipt for every eligible paid order to
+   * the CURRENT user's own homeserver
+   * (`/priv/pubky.app/marketplace/v1/receipts/{receiptId}`, specs
+   * `0.6.2-marketplace.7`) — the "credible exit for orders" record: killing
+   * the marketplace operator must still leave a signed, verifiable purchase
+   * history on the participants' homeservers.
+   *
+   * The document embeds the service attestor's deterministic
+   * `pubky-order-receipt+v1` JWS (re-fetchable idempotently), and the
+   * record's fields are taken from the VERIFIED claims, never from local
+   * projections, so record and attestation cannot disagree. The client
+   * re-runs the offline verification recipe before every PUT and refuses to
+   * publish anything that does not verify.
+   *
+   * Failure semantics mirror the watchlist document: capability is decided
+   * from session facts, absence of an attestor is an honest no-op, and a
+   * failed PUT simply retries on the next orders-surface load (the
+   * homeserver read is the durable "already published" check — no local
+   * marker table to drift).
+   */
+  static async publishOrderReceipts(ownerPubky: string, orders: MarketplaceOrder[]): Promise<void> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return;
+    if (!HomeserverService.hasActiveSession()) return;
+    if (!HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH)) return;
+
+    const eligible = orders.filter(
+      (order) =>
+        typeof order.receiptId === 'string' && (order.buyerPubky === ownerPubky || order.sellerPubky === ownerPubky),
+    );
+
+    for (const order of eligible) {
+      const receiptId = order.receiptId as string;
+      const url = CommerceRecordNormalizer.orderReceiptUri(ownerPubky, receiptId);
+      if (this.publishedReceiptUrls.has(url)) continue;
+      try {
+        try {
+          await CommerceHomeserverService.fetchJson(url);
+          this.publishedReceiptUrls.add(url);
+          continue;
+        } catch (error) {
+          if (this.isPrivateAccessDenied(error)) return;
+          if (!(isAppError(error) && isNotFound(error))) throw error;
+        }
+
+        const attestation = await MarketplaceGatewayService.getReceiptAttestation(ownerPubky, receiptId);
+        if (attestation === null) return;
+
+        // Drop orders additionally carry a `pubky-drop-edition+v1` proof
+        // ("edition N of M") in the same portable document (ADR 0026). Its
+        // absence for a non-drop order is honest, not a failure.
+        const editionAttestation =
+          typeof order.dropAggregateId === 'string'
+            ? await MarketplaceGatewayService.getEditionAttestation(ownerPubky, receiptId)
+            : null;
+
+        const { claims } = attestation;
+        const body = {
+          schemaVersion: 1,
+          recordType: 'order_receipt',
+          ownerPubky,
+          revision: 1,
+          createdAt: claims.paidAt,
+          updatedAt: claims.paidAt,
+          role: claims.buyer === ownerPubky ? 'buyer' : 'seller',
+          receiptId: claims.receipt,
+          orderId: claims.order,
+          buyerPubky: claims.buyer,
+          sellerPubky: claims.seller,
+          total: { amountMinor: claims.totalMinor, currency: claims.currency, exponent: claims.exponent },
+          paidAt: claims.paidAt,
+          receiptAttestation: attestation.jws,
+          ...(editionAttestation !== null
+            ? {
+                editionAttestation: editionAttestation.jws,
+                drop: {
+                  dropId: editionAttestation.claims.drop,
+                  edition: editionAttestation.claims.edition,
+                  of: editionAttestation.claims.of,
+                },
+              }
+            : {}),
+        };
+        const { PubkySpecsBuilder } = await import('pubky-app-specs');
+        const built = new PubkySpecsBuilder(ownerPubky).createMarketplaceOrderReceipt(body);
+        const record = CommerceRecordNormalizer.orderReceiptRecord(built.order_receipt.toJson());
+        if (verifyOwnOrderReceipt({ ...record }) === null) {
+          Logger.warn('Refusing to publish an order receipt whose attestation does not verify', { url });
+          continue;
+        }
+        if (record.editionAttestation !== undefined && verifyOwnDropEdition({ ...record }) === null) {
+          Logger.warn('Refusing to publish an order receipt whose edition attestation does not verify', { url });
+          continue;
+        }
+        try {
+          await CommerceHomeserverService.putJson(url, { ...record });
+        } catch (error) {
+          if (this.isPrivateAccessDenied(error)) return;
+          throw error;
+        }
+        this.publishedReceiptUrls.add(url);
+      } catch (error) {
+        Logger.warn('Order receipt publication failed; it will retry on the next orders load', { url, error });
+      }
+    }
   }
 
   static async getWatchAlerts(ownerPubky: string): Promise<CommerceWatchAlertModelSchema[]> {
@@ -1680,6 +1866,124 @@ export class CommerceApplication {
    * durable-mode registration existed. Convergent: `expectedRevision` is
    * always 0 and a pre-existing aggregate is a no-op success.
    */
+  // ---------------------------------------------------------------------
+  // Drops (ADR 0026)
+  // ---------------------------------------------------------------------
+
+  /** Fetches the canonical seller-signed drop record from the homeserver. */
+  static async fetchDrop(ownerPubky: string, dropId: string): Promise<CommerceDropRecord> {
+    const url = CommerceRecordNormalizer.dropUri(ownerPubky, dropId);
+    return CommerceRecordNormalizer.drop(await CommerceHomeserverService.fetchJson(url));
+  }
+
+  /**
+   * The transaction service's authoritative drop state (public projection,
+   * stock redaction server-side, `serverTime` for countdown correction).
+   * Null when unregistered or in sandbox mode — callers render absence.
+   */
+  static async getPublicDrop(sellerPubky: string, dropId: string) {
+    return await MarketplaceGatewayService.getPublicDrop(sellerPubky, dropId);
+  }
+
+  static async getSellerDrop(actorPubky: string, sellerPubky: string, dropId: string) {
+    return await MarketplaceGatewayService.getDrop(actorPubky, buildMarketplaceDropAggregateId(sellerPubky, dropId));
+  }
+
+  static async getDropReadyCheck(actorPubky: string, sellerPubky: string, dropId: string) {
+    return await MarketplaceGatewayService.getDropReadyCheck(
+      actorPubky,
+      buildMarketplaceDropAggregateId(sellerPubky, dropId),
+    );
+  }
+
+  /**
+   * Publishes the seller-signed drop record to the seller's own homeserver.
+   * The record is validated through the vendored specs builder before the
+   * PUT (the same guarantee every published marketplace record gets); the
+   * caller follows up with {@link syncDropRegistration} so the transaction
+   * service registers the enforced schedule — the studio renders the two
+   * truths (record published / service registered) separately.
+   */
+  static async commitPublishDrop(record: CommerceDropRecord): Promise<void> {
+    const { PubkySpecsBuilder } = await import('pubky-app-specs');
+    const built = new PubkySpecsBuilder(record.ownerPubky).createMarketplaceDrop({ ...record });
+    const validated = CommerceRecordNormalizer.drop(built.marketplace_drop.toJson());
+    const url = CommerceRecordNormalizer.dropUri(validated.ownerPubky, validated.dropId);
+    await CommerceHomeserverService.putJson(url, { ...validated });
+  }
+
+  /**
+   * Convergent drop registration from the seller-signed homeserver record —
+   * `listing.sync`'s doctrine applied to drops. Any authenticated actor.
+   */
+  static async syncDropRegistration(
+    actorPubky: string,
+    sellerPubky: string,
+    dropId: string,
+  ): Promise<MarketplaceCommandResponse> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Drops require the durable transaction service.', {
+        service: ErrorService.Marketplace,
+        operation: 'syncDropRegistration',
+      });
+    }
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceDropAggregateId(sellerPubky, dropId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'drop.sync',
+      payload: { sellerPubky, dropId },
+    });
+    return await MarketplaceGatewayService.execute(actorPubky, command);
+  }
+
+  /**
+   * Seller-only drop lifecycle commands, both CAS-guarded with the freshly
+   * read revision: `drop.cancel` (kill switch, announced/live) and
+   * `drop.release_listings` (return an ENDED drop's listings to open sale).
+   */
+  static async cancelDrop(
+    actorPubky: string,
+    dropId: string,
+    expectedRevision: number,
+  ): Promise<MarketplaceCommandResponse> {
+    return await this.executeDropLifecycleCommand(actorPubky, dropId, expectedRevision, 'drop.cancel');
+  }
+
+  static async releaseDropListings(
+    actorPubky: string,
+    dropId: string,
+    expectedRevision: number,
+  ): Promise<MarketplaceCommandResponse> {
+    return await this.executeDropLifecycleCommand(actorPubky, dropId, expectedRevision, 'drop.release_listings');
+  }
+
+  private static async executeDropLifecycleCommand(
+    actorPubky: string,
+    dropId: string,
+    expectedRevision: number,
+    kind: 'drop.cancel' | 'drop.release_listings',
+  ): Promise<MarketplaceCommandResponse> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Drops require the durable transaction service.', {
+        service: ErrorService.Marketplace,
+        operation: kind,
+      });
+    }
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceDropAggregateId(actorPubky, dropId),
+      expectedRevision,
+      issuedAt: new Date().toISOString(),
+      kind,
+      payload: {},
+    });
+    return await MarketplaceGatewayService.execute(actorPubky, command);
+  }
+
   static async syncListingRegistration(
     actorPubky: string,
     sellerPubky: string,

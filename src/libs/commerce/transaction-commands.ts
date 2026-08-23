@@ -94,6 +94,36 @@ export const reserveInventoryCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+/**
+ * `drop.sync` (ADR 0026): convergent registration of a drop aggregate from
+ * the seller-signed homeserver record — same doctrine as `listing.sync`
+ * (any authenticated actor, `expectedRevision` 0, no-op on non-advancing
+ * record revisions). The service refuses to change caps/schedule/listings
+ * once the drop is live: terms are locked at launch.
+ */
+export const syncDropCommandSchema = createCommerceCommandSchema(
+  'drop.sync',
+  z
+    .object({
+      sellerPubky: commercePubkySchema,
+      dropId: commerceEntityIdSchema,
+    })
+    .strict(),
+);
+
+/** `drop.cancel` (seller only, CAS): announced/live → `ended_cancelled`. */
+export const cancelDropCommandSchema = createCommerceCommandSchema('drop.cancel', z.object({}).strict());
+
+/**
+ * `drop.release_listings` (seller only, CAS, ended drops only): removes the
+ * drop's listing bindings from gating so remaining stock sells as ordinary
+ * open inventory again.
+ */
+export const releaseDropListingsCommandSchema = createCommerceCommandSchema(
+  'drop.release_listings',
+  z.object({}).strict(),
+);
+
 const offerTermsSchema = z
   .object({
     amount: commercePositiveMoneySchema,
@@ -392,6 +422,9 @@ export const marketplaceCommandSchema = z.union([
   registerListingCommandSchema,
   syncListingCommandSchema,
   reserveInventoryCommandSchema,
+  syncDropCommandSchema,
+  cancelDropCommandSchema,
+  releaseDropListingsCommandSchema,
   createOfferCommandSchema,
   counterOfferCommandSchema,
   acceptOfferCommandSchema,
@@ -447,6 +480,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'order',
             'review',
             'report',
+            'drop',
           ]),
         })
         .passthrough(),
@@ -468,6 +502,9 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
 
 export type RegisterListingCommand = z.infer<typeof registerListingCommandSchema>;
 export type SyncListingCommand = z.infer<typeof syncListingCommandSchema>;
+export type SyncDropCommand = z.infer<typeof syncDropCommandSchema>;
+export type CancelDropCommand = z.infer<typeof cancelDropCommandSchema>;
+export type ReleaseDropListingsCommand = z.infer<typeof releaseDropListingsCommandSchema>;
 export type ReserveInventoryCommand = z.infer<typeof reserveInventoryCommandSchema>;
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;
@@ -514,6 +551,10 @@ export function isMarketplaceRevisionConflict(response: MarketplaceCommandRespon
 
 export function buildMarketplaceListingAggregateId(sellerPubky: string, listingId: string): string {
   return `listing:${sellerPubky}_${listingId}`;
+}
+
+export function buildMarketplaceDropAggregateId(sellerPubky: string, dropId: string): string {
+  return `drop:${sellerPubky}_${dropId}`;
 }
 
 export function buildMarketplaceOfferAggregateId(offerId: string): string {

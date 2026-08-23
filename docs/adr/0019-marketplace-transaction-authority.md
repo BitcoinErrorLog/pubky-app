@@ -6,6 +6,8 @@ Accepted — 2026-08-19
 
 > **Current state (2026-08-21)**: the architecture this ADR describes is implemented. The durable Marketplace Transaction Service exists per [ADR 0022](0022-marketplace-transaction-service-rust.md) ([`BitcoinErrorLog/pubky-marketplace-service`](https://github.com/BitcoinErrorLog/pubky-marketplace-service), Rust + PostgreSQL, Pubky AuthToken authentication, deployed on Railway for staging), and the client's `transaction-service`/`locks-paykit` modes run against it. The in-memory `services/marketplace/` adapter remains what this note said it was — the labeled sandbox for local development only, never deployed as authority. [`../ecommerce/status.md`](../ecommerce/status.md) tracks what is real per mode.
 
+> **Amendment (2026-08-23) — ledger scope**: this ADR originally required "integer-minor-unit double-entry ledger postings." What the service implements — deliberately — is an integer-minor-unit **quantity ledger** (`available`/`reserved`/`sold` with a balance CHECK constraint) plus durable receipts and payment events recording **externally settled** value. The service never custodies, observes, or moves funds (§7); every settlement it records is an external fact (an on-chain payment observed by Paykit Server, a processor-verified fiat charge, or a seller attestation labeled as such). A double-entry postings journal over accounts the service does not hold would add ceremony, not integrity. Double-entry postings become mandatory the moment the service holds any balance of its own — operator fees, escrow, credits, or payouts — and must land **before** any such feature is enabled. Normative text below is corrected to match.
+
 ## Context
 
 Pubky App is local-first. Existing posts, profiles, follows, bookmarks, and settings can commit to Dexie first and synchronize to a user's homeserver because one user owns each write and temporary divergence is acceptable.
@@ -53,7 +55,7 @@ The service owns:
 - proxy-bid ordering, anti-sniping, and auction close;
 - checkout idempotency and immutable order snapshots;
 - payment/Locks correlation and reconciliation;
-- integer-minor-unit double-entry ledger postings;
+- the integer-minor-unit quantity ledger (available/reserved/sold) and durable receipts recording externally settled payments (see the ledger-scope amendment above);
 - fulfillment, cancellation, return, external refund, dispute, and review eligibility;
 - role-scoped support, risk, finance, and moderation commands;
 - append-only aggregate events and audit records;
@@ -92,7 +94,7 @@ Each accepted command atomically persists:
 
 1. the aggregate state/revision;
 2. one immutable domain event;
-3. any balanced ledger transaction;
+3. any inventory quantity movement (balance-checked) and any receipt;
 4. the idempotency result;
 5. complete outbox intents.
 
@@ -103,7 +105,7 @@ Uniqueness and check constraints enforce:
 - non-negative inventory and one reservation conversion/release;
 - one payment-confirmed event per payment/order;
 - cumulative external refunds not exceeding confirmed value;
-- balanced ledger transaction debits and credits;
+- inventory quantity movements that always balance (available + reserved + sold is conserved);
 - one participant review per order/item/role;
 - one current aggregate revision.
 
@@ -232,8 +234,8 @@ Mandatory tests:
 - 100 concurrent proxy bids produce one deterministic leader and one close result;
 - exact replay returns one result; changed replay conflicts;
 - worker crash/restart does not lose or duplicate complete outbox intents;
-- duplicate/reordered Locks completion creates one payment event and ledger result;
-- every ledger transaction balances and cumulative refund cannot exceed confirmed value;
+- duplicate/reordered Locks completion creates one payment event and one receipt;
+- every inventory quantity movement balances and cumulative refund cannot exceed confirmed value;
 - object-level authorization rejects every cross-user order/message/evidence query;
 - account switch clears or isolates all private Dexie projections;
 - backup/restore does not replay external side effects.

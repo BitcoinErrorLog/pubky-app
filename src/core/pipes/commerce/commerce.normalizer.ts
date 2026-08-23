@@ -1,6 +1,8 @@
 import {
+  dropUriBuilder,
   listingUriBuilder,
   marketplaceReviewUriBuilder,
+  orderReceiptUriBuilder,
   reviewResponseUriBuilder,
   shopUriBuilder,
   watchlistUriBuilder,
@@ -9,8 +11,12 @@ import { z } from 'zod';
 import {
   type CommerceCollectionRecord,
   commerceCollectionRecordSchema,
+  type CommerceDropRecord,
+  commerceDropRecordSchema,
   type CommerceListingRecord,
   commerceListingRecordSchema,
+  type CommerceOrderReceiptRecord,
+  commerceOrderReceiptRecordSchema,
   type CommerceReviewRecord,
   commerceReviewRecordSchema,
   type CommerceReviewResponseRecord,
@@ -521,6 +527,22 @@ export class CommerceRecordNormalizer {
 
   static watchlistRecord(input: unknown): CommerceWatchlistRecord {
     return this.parse(commerceWatchlistRecordSchema, input, 'watchlistRecord');
+  }
+
+  static orderReceiptUri(ownerPubky: unknown, receiptId: unknown): string {
+    return orderReceiptUriBuilder(this.pubky(ownerPubky), z.uuid().parse(receiptId));
+  }
+
+  static orderReceiptRecord(input: unknown): CommerceOrderReceiptRecord {
+    return this.parse(commerceOrderReceiptRecordSchema, input, 'orderReceiptRecord');
+  }
+
+  static dropUri(ownerPubky: unknown, dropId: unknown): string {
+    return dropUriBuilder(this.pubky(ownerPubky), z.string().min(1).parse(dropId));
+  }
+
+  static drop(input: unknown): CommerceDropRecord {
+    return this.parse(commerceDropRecordSchema, input, 'drop');
   }
 
   static reviewResponse(input: unknown): CommerceReviewResponseRecord {

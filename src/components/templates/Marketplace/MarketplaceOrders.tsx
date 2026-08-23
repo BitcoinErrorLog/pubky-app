@@ -14,6 +14,7 @@ import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplac
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
 import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
@@ -88,6 +89,7 @@ export function MarketplaceOrders() {
                       <div className="mb-3 flex flex-wrap gap-2">
                         <Badge>{isBuyer ? 'Purchase' : 'Sale'}</Badge>
                         <Badge variant="secondary">{order.state.replaceAll('_', ' ')}</Badge>
+                        <DropEditionBadge order={order} />
                       </div>
                       {order.lines.map((line) => (
                         <div key={line.listingAggregateId}>
@@ -111,9 +113,12 @@ export function MarketplaceOrders() {
                         Tax {formatCommerceMoney(order.tax)}
                       </Typography>
                       {receipt && (
-                        <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                          <ReceiptText className="size-4 text-brand" />
-                          Receipt integrity {receipt.contentHash.slice(0, 12)}…
+                        <div className="mt-3 flex flex-col gap-1">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <ReceiptText className="size-4 text-brand" />
+                            Receipt integrity {receipt.contentHash.slice(0, 12)}…
+                          </div>
+                          <DropEditionReceiptLine order={order} />
                         </div>
                       )}
                       {order.shipment && (

@@ -1,4 +1,8 @@
-import { verifyPurchaseAttestation } from 'pubky-app-specs';
+import {
+  verifyDropEditionAttestation,
+  verifyOrderReceiptAttestation,
+  verifyPurchaseAttestation,
+} from 'pubky-app-specs';
 import { z } from 'zod';
 import type { CommerceReviewRecord } from '@/libs/commerce/marketplace-records';
 
@@ -51,6 +55,107 @@ export function extractReviewAttestation(result: Record<string, unknown>): Marke
   if (!('attestation' in result)) return null;
   const parsed = marketplaceAttestationSchema.safeParse(result.attestation);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The receipt attestation as `GET /v1/receipts/{id}/attestation` returns it:
+ * a compact JWS (EdDSA, `typ: pubky-order-receipt+v1`) plus its decoded
+ * claims, camelCased by the wire-casing boundary. Unlike the public
+ * purchase attestation, the `order` claim is the raw order UUID — the
+ * receipt document lives under the owner's `/priv/` tree, so there is no
+ * observer to redact from. Issuance is deterministic per receipt.
+ */
+export const marketplaceReceiptAttestationSchema = z
+  .object({
+    jws: z
+      .string()
+      .min(32)
+      .max(4_096)
+      .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/),
+    claims: z
+      .object({
+        v: z.literal(1),
+        iss: z.string().length(52),
+        buyer: z.string().length(52),
+        seller: z.string().length(52),
+        order: z.uuid(),
+        receipt: z.uuid(),
+        totalMinor: z.number().int().positive(),
+        currency: z.string().min(1),
+        exponent: z.number().int().min(0),
+        paidAt: z.string().min(1),
+        iat: z.number().int().positive(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type MarketplaceReceiptAttestation = z.infer<typeof marketplaceReceiptAttestationSchema>;
+
+/**
+ * The drop-edition attestation as `GET /v1/receipts/{id}/edition-attestation`
+ * returns it (ADR 0026): a compact JWS (`typ: pubky-drop-edition+v1`)
+ * proving "edition N of M of drop D" for a paid drop order. Deterministic
+ * per receipt; embedded in the portable receipt document alongside (never
+ * inside) the receipt attestation so existing receipt verifiers are
+ * untouched.
+ */
+export const marketplaceEditionAttestationSchema = z
+  .object({
+    jws: z
+      .string()
+      .min(32)
+      .max(4_096)
+      .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/),
+    claims: z
+      .object({
+        v: z.literal(1),
+        iss: z.string().length(52),
+        buyer: z.string().length(52),
+        seller: z.string().length(52),
+        drop: z.string().min(1),
+        edition: z.number().int().min(1),
+        of: z.number().int().min(1),
+        receipt: z.uuid(),
+        iat: z.number().int().positive(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type MarketplaceEditionAttestation = z.infer<typeof marketplaceEditionAttestationSchema>;
+
+/**
+ * Offline verification of a portable receipt's embedded drop-edition
+ * attestation via the specs crate: parse, Ed25519 against the
+ * self-certifying `iss`, and full claim/record binding (requires the
+ * record's `editionAttestation` AND `drop` object together). Returns the
+ * verified issuer pubky or null; `iss` trust stays display policy.
+ */
+export function verifyOwnDropEdition(record: Record<string, unknown>): string | null {
+  try {
+    const claims = verifyDropEditionAttestation({ ...record }) as { iss?: unknown };
+    return typeof claims.iss === 'string' ? claims.iss : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs the offline verification recipe on a portable order-receipt record's
+ * embedded attestation via the specs crate (the normative implementation):
+ * parse, verify the Ed25519 signature against the self-certifying `iss`
+ * pubky, and check every claim binding against the record. Returns the
+ * verified issuer pubky, or null when anything fails. Whether `iss` is a
+ * *trusted* attestor remains display policy — same doctrine as reviews.
+ */
+export function verifyOwnOrderReceipt(record: Record<string, unknown>): string | null {
+  try {
+    const claims = verifyOrderReceiptAttestation({ ...record }) as { iss?: unknown };
+    return typeof claims.iss === 'string' ? claims.iss : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

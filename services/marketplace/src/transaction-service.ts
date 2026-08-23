@@ -773,6 +773,13 @@ export class MarketplaceTransactionService {
         // service-side sync exists only on the durable service. Refuse
         // honestly rather than fabricate a registration.
         return failure('INVALID_COMMAND', 'Listing sync is not available on the sandbox service.');
+      case 'drop.sync':
+      case 'drop.cancel':
+      case 'drop.release_listings':
+        // Drops are durable-only by design (ADR 0026): server time is the
+        // feature, and the sandbox has neither a homeserver nor a real
+        // clock authority. Refuse honestly rather than simulate scarcity.
+        return failure('INVALID_COMMAND', 'Drops are not available on the sandbox service.');
       case 'inventory.reserve':
         return this.reserveInventory(actorPubky, command);
       case 'offer.create':

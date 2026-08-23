@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import {
+  type MarketplaceEditionAttestation,
+  marketplaceEditionAttestationSchema,
+  type MarketplaceReceiptAttestation,
+  marketplaceReceiptAttestationSchema,
+} from '@/libs/commerce/attestation';
+import {
   type PaymentMethodKind,
   type SellerPaymentConfig,
   type SellerPaymentConfigOwnView,
@@ -23,6 +29,8 @@ import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
   type MarketplaceDisputeCaseFile,
   marketplaceDisputeCaseFileSchema,
+  type MarketplaceDropReadyCheck,
+  marketplaceDropReadyCheckSchema,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
   type MarketplaceNotification,
@@ -33,8 +41,12 @@ import {
   marketplaceOrderSchema,
   type MarketplacePayment,
   marketplacePaymentSchema,
+  type MarketplacePublicDrop,
+  marketplacePublicDropSchema,
   type MarketplaceReceipt,
   marketplaceReceiptSchema,
+  type MarketplaceSellerDrop,
+  marketplaceSellerDropSchema,
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
 
@@ -58,6 +70,9 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'listing.register',
   'listing.sync',
   'inventory.reserve',
+  'drop.sync',
+  'drop.cancel',
+  'drop.release_listings',
   'checkout.create',
   'offer.create',
   'offer.counter',
@@ -356,6 +371,102 @@ export class MarketplaceTransactionService {
       raw,
       'Marketplace returned an invalid review attestation.',
     ).attestation;
+  }
+
+  /**
+   * `GET /v1/receipts/{id}/attestation`: the compact JWS the service's
+   * attestor signs over the receipt's facts (participants, order/receipt
+   * ids, total, `paid_at`), for the portable receipt document the buyer or
+   * seller publishes to their own homeserver. Issuance is deterministic per
+   * receipt, so re-fetching for re-publication is idempotent. Null when the
+   * receipt is absent/foreign or the deployment has no attestor.
+   */
+  static async getReceiptAttestation(actor: string, receiptId: string): Promise<MarketplaceReceiptAttestation | null> {
+    const raw = await this.readProjection(
+      'getReceiptAttestation',
+      actor,
+      `/v1/receipts/${encodeURIComponent(receiptId)}/attestation`,
+      { nullOnNotFound: true },
+    );
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getReceiptAttestation',
+      z.object({ receiptAttestation: marketplaceReceiptAttestationSchema }),
+      raw,
+      'Marketplace returned an invalid receipt attestation.',
+    ).receiptAttestation;
+  }
+
+  /**
+   * `GET /v0/drops/{seller}/{dropId}` — deliberately public (no bearer):
+   * the transaction service's authoritative drop state, with stock
+   * redaction applied server-side and `serverTime` for countdown
+   * correction. Null when the drop is not registered.
+   */
+  static async getPublicDrop(sellerPubky: string, dropId: string): Promise<MarketplacePublicDrop | null> {
+    this.assertTransactionServiceMode('getPublicDrop');
+    const url = `${getMarketplaceUrl()}/v0/drops/${encodeURIComponent(sellerPubky)}/${encodeURIComponent(dropId)}`;
+    const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getPublicDrop');
+    if (response.status === 404) return null;
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getPublicDrop', url);
+    return this.parseProjection(
+      'getPublicDrop',
+      z.object({ drop: marketplacePublicDropSchema }),
+      toCamelCaseWire(raw),
+      'Marketplace returned an invalid public drop projection.',
+    ).drop;
+  }
+
+  /** `GET /v1/drops/{aggregateId}` — the seller's own full-detail drop read. */
+  static async getDrop(actor: string, aggregateId: string): Promise<MarketplaceSellerDrop | null> {
+    const raw = await this.readProjection('getDrop', actor, `/v1/drops/${encodeURIComponent(aggregateId)}`, {
+      nullOnNotFound: true,
+    });
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getDrop',
+      z.object({ drop: marketplaceSellerDropSchema }),
+      raw,
+      'Marketplace returned an invalid drop projection.',
+    ).drop;
+  }
+
+  /** `GET /v1/drops/{aggregateId}/me` — the buyer's ready-check allowance. */
+  static async getDropReadyCheck(actor: string, aggregateId: string): Promise<MarketplaceDropReadyCheck | null> {
+    const raw = await this.readProjection(
+      'getDropReadyCheck',
+      actor,
+      `/v1/drops/${encodeURIComponent(aggregateId)}/me`,
+      { nullOnNotFound: true },
+    );
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getDropReadyCheck',
+      marketplaceDropReadyCheckSchema,
+      raw,
+      'Marketplace returned an invalid drop ready-check.',
+    );
+  }
+
+  /**
+   * `GET /v1/receipts/{id}/edition-attestation`: the deterministic
+   * `pubky-drop-edition+v1` JWS for a paid drop order's receipt. Null for
+   * non-drop orders, absent/foreign receipts, or attestor-less deployments.
+   */
+  static async getEditionAttestation(actor: string, receiptId: string): Promise<MarketplaceEditionAttestation | null> {
+    const raw = await this.readProjection(
+      'getEditionAttestation',
+      actor,
+      `/v1/receipts/${encodeURIComponent(receiptId)}/edition-attestation`,
+      { nullOnNotFound: true },
+    );
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getEditionAttestation',
+      z.object({ editionAttestation: marketplaceEditionAttestationSchema }),
+      raw,
+      'Marketplace returned an invalid edition attestation.',
+    ).editionAttestation;
   }
 
   /**

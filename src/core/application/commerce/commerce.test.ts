@@ -220,6 +220,91 @@ describe('CommerceApplication', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  describe('multi-operator mismatch guard (docs/ecommerce/multi-operator.md, increment 1)', () => {
+    const command = {
+      version: 1 as const,
+      commandId: '018f47d2-6a27-7c23-a49d-6b21bb770140',
+      aggregateId: `listing:${COMMERCE_FIXTURE_SELLER}_boots_01`,
+      expectedRevision: 1,
+      issuedAt: '2026-08-23T12:00:00.000Z',
+      kind: 'checkout.create',
+      payload: {},
+    } as never;
+
+    const shopModelWith = (transactionService?: string) => {
+      const record = { ...createCommerceShopFixture(), ...(transactionService ? { transactionService } : {}) };
+      return new CommerceShopModel({
+        id: COMMERCE_FIXTURE_SELLER,
+        owner_id: COMMERCE_FIXTURE_SELLER,
+        record,
+        revision: 1,
+        sync_status: 'synced',
+        updated_at: Date.parse(record.updatedAt),
+      });
+    };
+
+    it('refuses a listing-aggregate command when the shop declares a different service origin', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(commerceConfig, 'getMarketplaceUrl').mockReturnValue('https://service.this-deployment.example');
+      vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(shopModelWith('https://other-operator.example'));
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+      await expect(CommerceApplication.executeMarketplaceCommand('actor', command)).rejects.toThrow(
+        'sells through a different marketplace service',
+      );
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('passes when the declared origin matches the configured service', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(commerceConfig, 'getMarketplaceUrl').mockReturnValue('https://service.this-deployment.example');
+      vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(
+        shopModelWith('https://service.this-deployment.example/api'),
+      );
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({ ok: true } as never);
+
+      await expect(CommerceApplication.executeMarketplaceCommand('actor', command)).resolves.toEqual({ ok: true });
+      expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it('passes when the shop declares nothing', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(commerceConfig, 'getMarketplaceUrl').mockReturnValue('https://service.this-deployment.example');
+      vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(shopModelWith());
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({ ok: true } as never);
+
+      await expect(CommerceApplication.executeMarketplaceCommand('actor', command)).resolves.toEqual({ ok: true });
+      expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it('fails open when the shop record cannot be read at all', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(commerceConfig, 'getMarketplaceUrl').mockReturnValue('https://service.this-deployment.example');
+      vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(null);
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(new Error('homeserver unreachable'));
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({ ok: true } as never);
+
+      await expect(CommerceApplication.executeMarketplaceCommand('actor', command)).resolves.toEqual({ ok: true });
+      expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it('does not guard sandbox commands or non-listing aggregates', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue(shopModelWith('https://other-operator.example'));
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({ ok: true } as never);
+
+      await expect(CommerceApplication.executeMarketplaceCommand('actor', command)).resolves.toEqual({ ok: true });
+
+      vi.mocked(commerceConfig.getCommerceAdapterMode).mockReturnValue('transaction-service');
+      vi.spyOn(commerceConfig, 'getMarketplaceUrl').mockReturnValue('https://service.this-deployment.example');
+      const orderCommand = { ...(command as Record<string, unknown>), aggregateId: 'order:some-order-id' } as never;
+      await expect(CommerceApplication.executeMarketplaceCommand('actor', orderCommand)).resolves.toEqual({
+        ok: true,
+      });
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('deletes a listing from the homeserver, then every local cache, then its media', async () => {
     const record = createCommerceListingFixture();
     const compositeId = `${record.ownerPubky}:${record.listingId}`;
