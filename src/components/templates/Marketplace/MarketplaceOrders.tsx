@@ -109,8 +109,10 @@ export function MarketplaceOrders() {
                         <MarketplaceIndicativePrice money={order.total} className="text-sm font-normal" />
                       </Typography>
                       <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                        Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)} ·
-                        Tax {formatCommerceMoney(order.tax)}
+                        Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
+                        {/* The service never computes tax; the line only exists
+                            on legacy orders that carried the prototype's 8%. */}
+                        {order.tax.amountMinor > 0 ? <> · Tax {formatCommerceMoney(order.tax)}</> : null}
                       </Typography>
                       {receipt && (
                         <div className="mt-3 flex flex-col gap-1">

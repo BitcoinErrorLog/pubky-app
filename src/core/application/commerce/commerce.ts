@@ -24,6 +24,7 @@ import {
   type CommerceDigitalLock,
   type CommerceDropRecord,
   type CommerceListingRecord,
+  commerceListingShippingMinor,
   commerceReviewRecordSchema,
   type CommerceShopRecord,
   type CommerceWatchlistRecord,
@@ -2120,6 +2121,7 @@ export class CommerceApplication {
         contentHash: listing.media[0].contentHash,
         quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
         unitPrice,
+        shippingMinor: commerceListingShippingMinor(listing.shippingOptions),
         saleFormat: listing.sale.format,
         auctionTerms:
           listing.sale.format === 'auction'

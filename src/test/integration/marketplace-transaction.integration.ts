@@ -98,6 +98,7 @@ describe('marketplace transaction service integration', () => {
         contentHash: 'a'.repeat(64),
         quantity: 5,
         unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+        shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
       },
     };
@@ -224,6 +225,7 @@ describe('marketplace transaction service integration', () => {
         contentHash: 'c'.repeat(64),
         quantity: 5,
         unitPrice: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+        shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
       }),
     );

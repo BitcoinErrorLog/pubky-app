@@ -416,6 +416,7 @@ describe('locks-paykit live purchase (composed environment)', () => {
         contentHash: resourceHash,
         quantity: 3,
         unitPrice: { amountMinor: AMOUNT_SATS, currency: 'BTC', exponent: 8 },
+        shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
       },
     });

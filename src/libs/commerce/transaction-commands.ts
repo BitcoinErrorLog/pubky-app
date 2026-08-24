@@ -26,6 +26,10 @@ const registerListingPayloadSchema = z
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
     quantity: z.number().int().positive().max(1_000_000),
     unitPrice: commercePositiveMoneySchema,
+    // Flat seller-signed shipping per order line in the listing currency's
+    // minor units (0 = free / not configured): the cheapest priceable option
+    // among the record's shippingOptions.
+    shippingMinor: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
     saleFormat: z.enum(['fixed_price', 'auction']).default('fixed_price'),
     auctionTerms: auctionTermsSchema.optional(),
   })

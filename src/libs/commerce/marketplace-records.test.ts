@@ -5,6 +5,7 @@ import {
   commerceDropRecordSchema,
   type CommerceListingRecord,
   commerceListingRecordSchema,
+  commerceListingShippingMinor,
   commerceOrderReceiptRecordSchema,
   commercePublicRecordSchema,
   commerceReviewRecordSchema,
@@ -119,6 +120,43 @@ function makeAuctionListing(): CommerceListingRecord {
   };
   return listing;
 }
+
+describe('commerceListingShippingMinor', () => {
+  it('picks the cheapest priceable option, skipping calculated ones', () => {
+    expect(
+      commerceListingShippingMinor([
+        {
+          id: 'calc',
+          pricing: 'calculated',
+          label: 'Carrier calculated',
+          provider: 'ups',
+          serviceCode: 'ground',
+          estimatedMinDays: 2,
+          estimatedMaxDays: 7,
+        },
+        { id: 'flat_a', pricing: 'flat', label: 'Standard', price: usd(500), estimatedMinDays: 2, estimatedMaxDays: 7 },
+        {
+          id: 'flat_b',
+          pricing: 'flat',
+          label: 'Express',
+          price: usd(1_500),
+          estimatedMinDays: 1,
+          estimatedMaxDays: 2,
+        },
+      ]),
+    ).toBe(500);
+  });
+
+  it('treats a free option as zero and no options as zero', () => {
+    expect(
+      commerceListingShippingMinor([
+        { id: 'free', pricing: 'free', label: 'Free shipping', estimatedMinDays: 2, estimatedMaxDays: 7 },
+        { id: 'flat', pricing: 'flat', label: 'Express', price: usd(1_500), estimatedMinDays: 1, estimatedMaxDays: 2 },
+      ]),
+    ).toBe(0);
+    expect(commerceListingShippingMinor([])).toBe(0);
+  });
+});
 
 describe('commerceListingRecordSchema', () => {
   it('accepts a complete fixed-price physical listing', () => {

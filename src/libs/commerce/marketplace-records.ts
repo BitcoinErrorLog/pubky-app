@@ -188,6 +188,23 @@ export const commerceShippingOptionSchema = z
     }
   });
 
+export type CommerceShippingOption = z.infer<typeof commerceShippingOptionSchema>;
+
+/**
+ * The flat shipping the transaction service charges per order line for this
+ * listing, in the listing currency's minor units: the cheapest PRICEABLE
+ * option the seller signed — `free` is 0, `flat` is its price. `calculated`
+ * options cannot be priced client- or service-side yet and are skipped.
+ * No options (digital goods) or none priceable means no shipping charge.
+ * Mirrors the service's `shipping_minor_from_options` derivation exactly.
+ */
+export function commerceListingShippingMinor(shippingOptions: readonly CommerceShippingOption[]): number {
+  const priceable = shippingOptions
+    .map((option) => (option.pricing === 'free' ? 0 : option.pricing === 'flat' ? option.price.amountMinor : null))
+    .filter((amount): amount is number => amount !== null && amount >= 0);
+  return priceable.length > 0 ? Math.min(...priceable) : 0;
+}
+
 export const commercePackageSchema = z
   .object({
     weightGrams: z.number().int().positive().max(1_000_000),
