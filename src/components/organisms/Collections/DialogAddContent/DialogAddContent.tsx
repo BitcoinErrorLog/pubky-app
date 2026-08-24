@@ -2,7 +2,7 @@
 
 import { type ComponentPropsWithoutRef, type ComponentRef, forwardRef, type SyntheticEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Library, MessageCircle, Plus, Repeat, SquarePlus } from 'lucide-react';
+import { ClipboardPaste, Library, MessageCircle, Plus, Repeat, SquarePlus } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardFooter, CardHeader, CardTitle } from '@/atoms/Card/Card';
@@ -204,7 +204,12 @@ function UrlPasteCard({ addContentForm }: { addContentForm: ReturnType<typeof us
           loading={addContentForm.isPending}
           loadingText={'Adding...'}
           onPaste={addContentForm.handlePaste}
-          className="mb-0 h-auto gap-2 border-input bg-background/10! px-6 py-4 font-medium shadow-xs has-[input[aria-invalid=true]]:border-red-500"
+          icon={<ClipboardPaste className="size-4" />}
+          iconPosition="right"
+          iconAriaLabel="Paste"
+          onClickIcon={() => void addContentForm.pasteFromClipboard()}
+          iconClassName="mr-0 size-6 shrink-0 rounded-full text-foreground hover:bg-accent/50 hover:text-accent-foreground"
+          className="mb-0 h-auto gap-3 border-input bg-background/10! px-6 py-4 font-medium shadow-xs has-[input[aria-invalid=true]]:border-red-500"
           inputClassName="h-auto p-0 shadow-none"
           dataCy="add-content-url-input"
         />
