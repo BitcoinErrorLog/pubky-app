@@ -248,8 +248,13 @@ ledger).
 ## Explicitly not included (honest boundaries)
 
 - Real funds anywhere: mainnet is gated on the independent security review
-- Seller-direct fiat payouts (Stripe Connect / PayPal Platform): designed,
-  not built
+- Platform-mediated fiat collection and payouts (Stripe Connect / PayPal
+  Platform — the operator collecting buyer funds and then disbursing to
+  sellers): deliberately absent, not pending. Sellers are paid DIRECTLY
+  into their own Stripe/PayPal accounts (see Payments — seller-configured
+  rails, buyer pays the seller's own hosted checkout), so no payout leg
+  exists to build. Connect-style onboarding would only become relevant if
+  the marketplace ever took custody or platform fees, which it does not.
 - Nexus review backfill migration for pre-deployment history (documented
   requirement for pointing a shared Nexus at old event logs)
 - Messaging backup-key encryption (open product decision, disclosed in UI)
