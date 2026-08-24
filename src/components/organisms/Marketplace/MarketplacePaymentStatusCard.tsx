@@ -139,12 +139,21 @@ export function MarketplacePaymentStatusCard({
         {order.paymentMethod === 'paypal' && <Badge variant="secondary">PayPal</Badge>}
         {/* How the fiat rail is verified is a fact both parties should see on
             the order forever, not only in the pre-payment copy: Stripe pulls
-            truth from the processor; PayPal is the seller saying so. */}
+            truth from the processor; a gateway-notified PayPal payment was
+            confirmed by PayPal's own verified notification; seller-attested
+            is the seller saying so. */}
         {order.fiatVerification === 'processor' && <Badge variant="secondary">Processor-verified</Badge>}
+        {order.fiatVerification === 'gateway-notified' && <Badge variant="secondary">PayPal-verified</Badge>}
         {order.fiatVerification === 'seller-attested' && <Badge variant="outline">Seller-attested</Badge>}
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
 
+      {visibleStatus === 'confirmed' && order.fiatVerification === 'gateway-notified' && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          This payment was confirmed automatically by a verified notification from PayPal&rsquo;s servers, matched
+          against the seller&rsquo;s configured PayPal address and the exact order total.
+        </Typography>
+      )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'seller-attested' && (
         <Typography as="p" className="text-sm text-muted-foreground">
           This payment was confirmed by the seller reporting receipt in their own PayPal account — not by automatic
@@ -305,20 +314,22 @@ export function MarketplacePaymentStatusCard({
         </div>
       )}
 
-      {/* Bound paypal: hosted checkout + buyer report; the seller's confirmation pays the order. */}
+      {/* Bound paypal: hosted checkout; PayPal's verified notification pays
+          the order automatically. The buyer report + seller confirmation
+          remain as the fallback when no notification arrives. */}
       {usesMethodFlow && isBuyer && order.paymentMethod === 'paypal' && order.fiatCheckoutUrl && (
         <div className="grid gap-2">
           {order.paymentReportedAt ? (
             <Typography as="p" className="text-sm text-muted-foreground">
               You reported this payment{order.fiatTransactionRef ? ` (ref ${order.fiatTransactionRef})` : ''}. The order
-              completes once the seller confirms receipt in their PayPal account — there is no automatic verification on
-              this rail.
+              completes when PayPal&rsquo;s notification arrives or the seller confirms receipt in their PayPal account.
             </Typography>
           ) : (
             <>
               <Typography as="p" className="text-sm text-muted-foreground">
-                Pay through PayPal, then report it here. The seller confirms receipt to complete the payment — both
-                steps are recorded on the order.
+                Pay through PayPal — this page updates by itself once PayPal confirms the payment to the marketplace,
+                usually within seconds. If it doesn&rsquo;t, you can report the payment here as a fallback and the
+                seller confirms receipt.
               </Typography>
               <div className="flex flex-wrap items-center gap-2">
                 <Button asChild size="sm" className="rounded-full">
@@ -378,7 +389,8 @@ export function MarketplacePaymentStatusCard({
             </>
           ) : (
             <Typography as="p" className="text-sm text-muted-foreground">
-              Awaiting the buyer&rsquo;s PayPal payment. You will be asked to confirm receipt once they report it.
+              Awaiting the buyer&rsquo;s PayPal payment. PayPal&rsquo;s notification usually completes the order
+              automatically; if the buyer reports the payment instead, you will be asked to confirm receipt.
             </Typography>
           )}
         </div>

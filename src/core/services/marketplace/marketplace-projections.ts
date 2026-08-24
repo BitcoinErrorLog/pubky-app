@@ -242,9 +242,11 @@ export const marketplaceOrderSchema = z
     fiatCheckoutUrl: z.string().nullable().optional(),
     // How the bound fiat rail is verified: Stripe is `processor` (the
     // service checks with the seller's restricted key), PayPal is
-    // `seller-attested` (buyer reports, seller confirms). Deliberately
-    // visible to both parties.
-    fiatVerification: z.enum(['processor', 'seller-attested']).nullable().optional(),
+    // `gateway-notified` when a postback-verified IPN from PayPal's servers
+    // paid the order automatically, or `seller-attested` as the fallback
+    // (buyer reports, seller confirms). Deliberately visible to both
+    // parties.
+    fiatVerification: z.enum(['processor', 'gateway-notified', 'seller-attested']).nullable().optional(),
     paymentReportedAt: z.string().nullable().optional(),
     fiatTransactionRef: z.string().nullable().optional(),
     // Physical-bitcoin orders: the Paykit payment-request reference and the

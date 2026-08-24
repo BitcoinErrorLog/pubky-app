@@ -218,8 +218,9 @@ export function MarketplaceGetPaidSettings() {
                   PayPal
                 </Label>
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  Buyers pay your PayPal account directly. There is no processor verification on this rail: the buyer
-                  reports the payment and you confirm receipt on the order — both steps are recorded.
+                  Buyers pay your PayPal account directly. PayPal notifies the marketplace when a payment completes
+                  (verified against this address and the exact order total), so orders usually mark themselves paid. If
+                  no notification arrives, the buyer reports the payment and you confirm receipt on the order.
                 </Typography>
               </div>
               <Input
