@@ -2084,7 +2084,18 @@ export class CommerceApplication {
   private static async registerListing(listing: CommerceListingRecord): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
-    if (existing?.serverRevision) return;
+    if (existing?.serverRevision) {
+      // Already registered: EDITS must still reach the authority. `listing.sync`
+      // is convergent — the service re-reads the seller-signed record and
+      // updates the aggregate's terms when the record revision advanced, or
+      // no-ops when nothing changed. Skipping here (the old behavior) left
+      // the service charging a stale price after every edit. The sandbox has
+      // no homeserver to sync from, so it keeps the skip.
+      if (isDurableCommerceMode(getCommerceAdapterMode())) {
+        await this.syncListingRegistration(listing.ownerPubky, listing.ownerPubky, listing.listingId);
+      }
+      return;
+    }
     const unitPrice = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
     const command = CommerceRecordNormalizer.marketplaceCommand({
       version: 1,

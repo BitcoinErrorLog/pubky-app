@@ -30,7 +30,16 @@ const signupToken = (await tokenResponse.text()).trim();
 const keypair = Keypair.random();
 const pubky = new Pubky();
 const signer = pubky.signer(keypair);
-await signer.signup(PublicKey.from(HOMESERVER_PUBKY), signupToken);
+// Signup is best-effort: the staging homeserver's own PKARR record resolves
+// no HTTPS endpoint for the SDK's bare-key signup URL (the app bypasses this
+// via getHomeserverUrl — see HomeserverService.signUpViaHomeserverUrl), and
+// this probe never touches the probe identity's homeserver anyway — the
+// marketplace session AuthToken travels over the HTTP relay.
+try {
+  await signer.signup(PublicKey.from(HOMESERVER_PUBKY), signupToken);
+} catch (error) {
+  console.warn(`signup skipped (${error?.message?.split('\n')[0] ?? error}); continuing with a homeserver-less identity`);
+}
 console.log(`probe identity: ${keypair.publicKey.z32()}`);
 
 // Same shape as HomeserverService.generateAuthTokenFlow + signer approval.

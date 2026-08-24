@@ -145,7 +145,7 @@ describe('CommerceApplication', () => {
     );
   });
 
-  it('skips transaction-service registration when the listing is already registered', async () => {
+  it('skips transaction-service registration when the listing is already registered (sandbox)', async () => {
     const record = createCommerceListingFixture();
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
     vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
@@ -158,6 +158,29 @@ describe('CommerceApplication', () => {
     await CommerceApplication.commitUpsertListing(record);
 
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('syncs an already-registered listing on republish so edits reach the authority (durable)', async () => {
+    const record = createCommerceListingFixture();
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue({ serverRevision: 4 } as never);
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({ ok: true } as never);
+
+    const result = await CommerceApplication.commitUpsertListing(record);
+
+    // The convergent sync — never a fresh register — carries the edit.
+    expect(execute).toHaveBeenCalledWith(
+      record.ownerPubky,
+      expect.objectContaining({
+        kind: 'listing.sync',
+        payload: { sellerPubky: record.ownerPubky, listingId: record.listingId },
+      }),
+    );
+    expect(result).toEqual({ registered: true });
   });
 
   it('publishes a listing without registration when the marketplace adapter is unavailable', async () => {
