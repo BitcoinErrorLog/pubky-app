@@ -22,7 +22,11 @@ export class ExchangerateService {
    * @throws {AppError} If the API request fails, response is invalid, or BTCUSD ticker is not found
    */
   private static async getBtcUsdRate(): Promise<number> {
-    const exchangeRateApi = getExchangeRateApi();
+    // Browsers go through the same-origin `/api/fx-rate` proxy: the upstream
+    // sends no CORS headers, so a direct browser fetch is blocked on every
+    // deployed origin. Server-side callers (and the proxy route itself) hit
+    // the configured upstream directly.
+    const exchangeRateApi = typeof window === 'undefined' ? getExchangeRateApi() : '/api/fx-rate';
     const response = await safeFetch(
       exchangeRateApi,
       { method: HttpMethod.GET },

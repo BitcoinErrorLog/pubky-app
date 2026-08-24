@@ -20,6 +20,7 @@ import {
   gramsFromWeightInput,
   millimetersFromDimensionInput,
 } from '@/libs/commerce/units';
+import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {
@@ -137,7 +138,8 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
         await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;
         toast({ title: 'Listing published', description: 'Your owner-signed listing is now available.' });
-      } catch {
+      } catch (error) {
+        Logger.error('Failed to publish a marketplace listing', { draftId, error });
         toast({ variant: 'error', description: 'Could not publish this listing.' });
       }
     })();
