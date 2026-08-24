@@ -24,6 +24,7 @@ import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { formatPackageDimensions, formatWeight } from '@/libs/commerce/units';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceAuctionPanel } from '@/organisms/Marketplace/MarketplaceAuctionPanel';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCommunityTags';
 import { MarketplaceDigitalDeliveryNotice } from '@/organisms/Marketplace/MarketplaceDigitalDeliveryNotice';
@@ -369,6 +370,16 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             </div>
 
             {record.digitalLock && <MarketplaceDigitalDeliveryNotice adapterMode={adapterMode} />}
+
+            {record.sale.format === 'auction' && (
+              <MarketplaceAuctionPanel
+                sellerPubky={sellerPubky}
+                listingId={listingId}
+                auction={negotiation.projection?.auction ?? null}
+                scheduledEndsAt={record.sale.endsAt ?? null}
+                isSignedIn={Boolean(currentUserPubky)}
+              />
+            )}
 
             {/* flex-wrap: four buttons exceed narrow viewports' min-content width,
                 and a non-wrapping row would overflow the grid column — clipping

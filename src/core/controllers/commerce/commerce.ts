@@ -461,6 +461,16 @@ export class CommerceController {
     );
   }
 
+  /** The auction's visible-price bid history (durable service, signed-in). */
+  static async getMarketplaceListingBids(ownerPubky: unknown, listingId: unknown) {
+    const owner = CommerceRecordNormalizer.pubky(ownerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    return await CommerceApplication.getMarketplaceListingBids(
+      useAuthStore.getState().currentUserPubky,
+      buildMarketplaceListingAggregateId(owner, id),
+    );
+  }
+
   static async getMarketplaceConversations() {
     return await CommerceApplication.getMarketplaceConversations(this.getCurrentUserPubky());
   }

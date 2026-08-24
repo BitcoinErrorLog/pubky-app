@@ -47,6 +47,35 @@ export const marketplaceListingProjectionSchema = z
   })
   .passthrough();
 
+/**
+ * The auction's public bid history: the VISIBLE price progression only.
+ * Proxy maximums stay secret forever on the service; bids recorded before
+ * the visible price existed carry `visibleAmount: null` rather than an
+ * invented figure. `serverTime` corrects the end-of-auction countdown —
+ * auctions run exclusively on the service clock.
+ */
+export const marketplaceBidHistorySchema = z.object({
+  bids: z.array(
+    z.object({
+      sequence: z.number().int().positive(),
+      bidderPubky: commercePubkySchema,
+      visibleAmount: marketplaceMoneySchema.nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+  auction: z
+    .object({
+      endsAt: z.string(),
+      status: z.string(),
+      bidCount: z.number().int().nonnegative(),
+    })
+    .passthrough()
+    .nullable(),
+  serverTime: z.string(),
+});
+
+export type MarketplaceBidHistory = z.infer<typeof marketplaceBidHistorySchema>;
+
 export const marketplaceNotificationSchema = z
   .object({
     id: z.uuid(),

@@ -26,6 +26,7 @@ import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
+  type MarketplaceBidHistory,
   type MarketplaceDisputeCaseFile,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
@@ -101,6 +102,7 @@ export type MarketplaceConversation = z.infer<typeof conversationSchema>;
 export type MarketplaceNotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
 export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSchema>;
 export type {
+  MarketplaceBidHistory,
   MarketplaceDisputeCaseFile,
   MarketplaceDisputeEvidence,
   MarketplaceDropReadyCheck,
@@ -179,6 +181,11 @@ export class MarketplaceGatewayService {
    * that mode needs the signed-in actor to bind the session; the sandbox
    * endpoint is unauthenticated and ignores the actor.
    */
+  static async getListingBids(actor: string | null, aggregateId: string): Promise<MarketplaceBidHistory | null> {
+    this.assertTransactionServiceOnly('getListingBids');
+    return await MarketplaceTransactionService.getListingBids(this.requireActor('getListingBids', actor), aggregateId);
+  }
+
   static async getListing(actor: string | null, aggregateId: string): Promise<MarketplaceListingProjection | null> {
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getListing(this.requireActor('getListing', actor), aggregateId);

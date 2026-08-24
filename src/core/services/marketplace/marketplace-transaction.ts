@@ -37,6 +37,8 @@ import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
+  type MarketplaceBidHistory,
+  marketplaceBidHistorySchema,
   type MarketplaceDisputeCaseFile,
   marketplaceDisputeCaseFileSchema,
   type MarketplaceDropReadyCheck,
@@ -225,6 +227,27 @@ export class MarketplaceTransactionService {
       marketplaceListingProjectionSchema,
       raw,
       'Marketplace returned an invalid listing projection.',
+    );
+  }
+
+  /**
+   * `GET /v1/listings/{aggregateId}/bids`: the auction's bid history as the
+   * visible price progression (never anyone's proxy maximum), with the live
+   * auction terms and the service clock for countdown correction.
+   */
+  static async getListingBids(actor: string, aggregateId: string): Promise<MarketplaceBidHistory | null> {
+    const raw = await this.readProjection(
+      'getListingBids',
+      actor,
+      `/v1/listings/${encodeURIComponent(aggregateId)}/bids`,
+      { nullOnNotFound: true },
+    );
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getListingBids',
+      marketplaceBidHistorySchema,
+      raw,
+      'Marketplace returned an invalid bid history.',
     );
   }
 
