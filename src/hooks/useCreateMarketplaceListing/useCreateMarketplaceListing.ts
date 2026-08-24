@@ -49,6 +49,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const [restoredDraft, setRestoredDraft] = useState(false);
   const draftReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingListingIdRef = useRef<string | null>(null);
   const form = useForm<CreateMarketplaceListingData>({
     resolver: zodResolver(createMarketplaceListingSchema),
     defaultValues: createMarketplaceListingDefaults,
@@ -131,13 +132,30 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
         return;
       }
 
+      // One listing id per draft, held across retries: a submit that fails
+      // AFTER the homeserver PUT must overwrite the same record when
+      // retried, never publish a duplicate.
+      pendingListingIdRef.current ??= crypto.randomUUID().replaceAll('-', '');
+
       try {
         await uploadListingMedia(preparedMedia.uploads);
-        const listing = buildListingRecord(currentUserPubky, data, preparedMedia.media);
-        await CommerceController.commitUpsertListing(listing);
+        const listing = buildListingRecord(currentUserPubky, data, preparedMedia.media, pendingListingIdRef.current);
+        const { registered } = await CommerceController.commitUpsertListing(listing);
         await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;
-        toast({ title: 'Listing published', description: 'Your owner-signed listing is now available.' });
+        pendingListingIdRef.current = null;
+        if (registered) {
+          toast({ title: 'Listing published', description: 'Your owner-signed listing is now available.' });
+        } else {
+          // Two truths, reported separately (same discipline as the Drop
+          // Studio): the record IS on the homeserver; only the service
+          // registration is missing, and it self-heals once a session exists.
+          toast({
+            title: 'Listing published — registration pending',
+            description:
+              'Your owner-signed listing is on your homeserver, but it is not buyable yet: connect a marketplace session and it will register automatically.',
+          });
+        }
       } catch (error) {
         Logger.error('Failed to publish a marketplace listing', { draftId, error });
         toast({ variant: 'error', description: 'Could not publish this listing.' });
@@ -151,6 +169,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     form.reset({ ...createMarketplaceListingDefaults, measurementSystem });
     media.reset();
     setRestoredDraft(false);
+    pendingListingIdRef.current = null;
     draftReadyRef.current = false;
     void CommerceController.commitDeleteListingDraft(draftId);
     setDraftId(crypto.randomUUID().replaceAll('-', ''));
@@ -227,9 +246,9 @@ function buildListingRecord(
   ownerPubky: string,
   data: CreateMarketplaceListingData,
   media: ListingMediaRecord[],
+  listingId: string,
 ): CommerceListingRecord {
   const now = new Date();
-  const listingId = crypto.randomUUID().replaceAll('-', '');
   const asset = assetForListingCurrency(data.currency);
   const unitPrice = amountInputToMoney(data.price, asset);
   const sale: CommerceListingRecord['sale'] =

@@ -68,7 +68,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitUpdateListingDraft: vi.fn(),
     commitDeleteListingDraft: vi.fn(),
     commitCreateMedia: vi.fn(),
-    commitUpsertListing: vi.fn(),
+    commitUpsertListing: vi.fn(async () => ({ registered: true })),
   },
 }));
 
@@ -123,6 +123,66 @@ describe('useCreateMarketplaceListing', () => {
     });
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
+  });
+
+  it('reports the two truths separately when the record published but service registration failed', async () => {
+    vi.mocked(CommerceController.commitUpsertListing).mockResolvedValueOnce({ registered: false });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Vintage leather boots');
+      result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
+      result.current.form.setValue('price', '125.00');
+      result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    let createdId: string | null = null;
+    await act(async () => {
+      createdId = await result.current.submit();
+    });
+
+    // Publishing SUCCEEDED — the submit reports it as such, with the honest
+    // registration caveat, and the draft is consumed (no duplicate on retry).
+    expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published — registration pending' }));
+    expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalled();
+  });
+
+  it('reuses the same listing id when a failed submit is retried — never a duplicate record', async () => {
+    let uuidCounter = 0;
+    vi.mocked(globalThis.crypto.randomUUID).mockImplementation(
+      () => `018f47d2-6a27-7c23-a49d-6b21bb7702${String(20 + uuidCounter++).padStart(2, '0')}`,
+    );
+    vi.mocked(CommerceController.commitUpsertListing)
+      .mockRejectedValueOnce(new Error('homeserver unreachable'))
+      .mockResolvedValueOnce({ registered: true });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Vintage leather boots');
+      result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
+      result.current.form.setValue('price', '125.00');
+      result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ variant: 'error', description: 'Could not publish this listing.' }),
+    );
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const firstAttempt = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0] as { listingId: string };
+    const retryAttempt = vi.mocked(CommerceController.commitUpsertListing).mock.calls[1][0] as { listingId: string };
+    expect(retryAttempt.listingId).toBe(firstAttempt.listingId);
   });
 
   it('publishes a bitcoin-priced listing as BTC money with exponent 8', async () => {

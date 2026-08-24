@@ -1816,7 +1816,7 @@ export class CommerceApplication {
     await LocalCommerceService.completeSyncJob(job.id);
   }
 
-  static async commitUpsertListing(record: CommerceListingRecord): Promise<void> {
+  static async commitUpsertListing(record: CommerceListingRecord): Promise<{ registered: boolean }> {
     const now = Date.now();
     const url = CommerceRecordNormalizer.listingUri(record.ownerPubky, record.listingId);
     const publishJob = this.createSyncJob({
@@ -1839,9 +1839,25 @@ export class CommerceApplication {
     // no aggregate for the listing, so checkout/offers/bids dead-end. (This
     // was sandbox-only once — a relic that left durable-mode listings
     // unregistered and therefore un-buyable.)
+    //
+    // A registration failure must NOT unwind the publish that already
+    // happened: the record is on the homeserver, and reporting the whole
+    // commit as failed made sellers retry into duplicate listings. The two
+    // truths (published / registered) are returned separately; an
+    // unregistered listing self-heals through ensureListingRegistered /
+    // listing.sync once a marketplace session exists.
     if (getCommerceAdapterMode() !== 'unavailable') {
-      await this.registerListing(record);
+      try {
+        await this.registerListing(record);
+      } catch (error) {
+        Logger.warn('Listing published but service registration failed; it will self-heal from owner surfaces', {
+          listing: `${record.ownerPubky}:${record.listingId}`,
+          error,
+        });
+        return { registered: false };
+      }
     }
+    return { registered: true };
   }
 
   /**

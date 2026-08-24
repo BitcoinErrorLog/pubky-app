@@ -992,10 +992,10 @@ export class CommerceController {
     await this.withPending(`shop:${record.ownerPubky}`, () => CommerceApplication.commitUpsertShop(record));
   }
 
-  static async commitUpsertListing(input: unknown): Promise<void> {
+  static async commitUpsertListing(input: unknown): Promise<{ registered: boolean }> {
     const record = CommerceRecordNormalizer.listing(input);
     this.assertCurrentUserOwns(record.ownerPubky);
-    await this.withPending(`${record.ownerPubky}:${record.listingId}`, () =>
+    return await this.withPending(`${record.ownerPubky}:${record.listingId}`, () =>
       CommerceApplication.commitUpsertListing(record),
     );
   }
@@ -1034,11 +1034,11 @@ export class CommerceController {
     return useAuthStore.getState().selectCurrentUserPubky();
   }
 
-  private static async withPending(entityId: string, operation: () => Promise<void>): Promise<void> {
+  private static async withPending<T>(entityId: string, operation: () => Promise<T>): Promise<T> {
     const store = useCommerceStore.getState();
     store.setEntityPending(entityId, true);
     try {
-      await operation();
+      return await operation();
     } finally {
       useCommerceStore.getState().setEntityPending(entityId, false);
     }

@@ -85,8 +85,8 @@ describe('CommerceController', () => {
 
   it('marks a valid listing pending only while its application workflow runs', async () => {
     let finish: (() => void) | undefined;
-    const workflow = new Promise<void>((resolve) => {
-      finish = resolve;
+    const workflow = new Promise<{ registered: boolean }>((resolve) => {
+      finish = () => resolve({ registered: true });
     });
     vi.spyOn(CommerceApplication, 'commitUpsertListing').mockReturnValue(workflow);
     const listing = createCommerceListingFixture();
