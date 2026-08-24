@@ -1345,4 +1345,34 @@ Even more specific information.`}
     const { container } = render(<PostText content="Content with custom class" className="my-custom-class" />);
     expect(container.firstChild).toMatchSnapshot();
   });
+
+  describe('Structured (whole-JSON) post bodies', () => {
+    it('renders a JSON-object body as a labeled structured block, verbatim and pretty-printed', () => {
+      render(<PostText content='{"lock_title":"Robot boxing","teaser_description":"news!"}' />);
+
+      expect(screen.getByText('Structured data')).toBeInTheDocument();
+      const block = screen.getByText(/"lock_title": "Robot boxing"/);
+      expect(block.tagName).toBe('PRE');
+      expect(block).toHaveTextContent('"teaser_description": "news!"');
+    });
+
+    it('collapses a long structured body behind Show more and expands in place', () => {
+      const bigObject = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`key_${index}`, index]));
+      render(<PostText content={JSON.stringify(bigObject)} />);
+
+      const pre = screen.getByText(/"key_0": 0/);
+      expect(pre).not.toHaveTextContent('"key_29"');
+      expect(pre).toHaveTextContent('…');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show full structured post content' }));
+      expect(screen.getByText(/"key_0": 0/)).toHaveTextContent('"key_29": 29');
+    });
+
+    it('does not treat ordinary text mentioning JSON as structured', () => {
+      render(<PostText content='look at this: {"a":1}' />);
+
+      expect(screen.queryByText('Structured data')).not.toBeInTheDocument();
+      expect(screen.getByText(/look at this/)).toBeInTheDocument();
+    });
+  });
 });

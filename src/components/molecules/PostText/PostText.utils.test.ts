@@ -5,6 +5,7 @@ import { asInvalid } from '@/test-utils/type-assertions';
 import { POST_TEXT_PREVIEW_MAX_LINES, TRUNCATION_LIMIT } from './PostText.constants';
 import {
   extractTextFromChildren,
+  formatStructuredPostBody,
   remarkDisallowMarkdownLinks,
   remarkExtractFirstParagraph,
   remarkHashtags,
@@ -1903,5 +1904,30 @@ describe('remarkExtractFirstParagraph', () => {
       expect(emphasisChildren.length).toBeGreaterThan(0);
       expect((emphasisChildren[0] as Text).value.length).toBeLessThan(longEmphasizedText.length);
     });
+  });
+});
+
+describe('formatStructuredPostBody', () => {
+  it('pretty-prints a body that is one whole JSON object', () => {
+    const result = formatStructuredPostBody('{"lock_title":"Robot boxing","teaser_description":"news!"}');
+    expect(result).toBe('{\n  "lock_title": "Robot boxing",\n  "teaser_description": "news!"\n}');
+  });
+
+  it('accepts arrays and tolerates surrounding whitespace', () => {
+    expect(formatStructuredPostBody('  [1, 2, 3]\n')).toBe('[\n  1,\n  2,\n  3\n]');
+  });
+
+  it('leaves JSON scalars as ordinary text — quoting a number is not structured data', () => {
+    expect(formatStructuredPostBody('42')).toBeNull();
+    expect(formatStructuredPostBody('"hello"')).toBeNull();
+    expect(formatStructuredPostBody('null')).toBeNull();
+    expect(formatStructuredPostBody('true')).toBeNull();
+  });
+
+  it('leaves invalid JSON and mixed bodies as ordinary text', () => {
+    expect(formatStructuredPostBody('{"broken": ')).toBeNull();
+    expect(formatStructuredPostBody('look at this: {"a":1}')).toBeNull();
+    expect(formatStructuredPostBody('{"a":1} trailing words')).toBeNull();
+    expect(formatStructuredPostBody('plain text post')).toBeNull();
   });
 });

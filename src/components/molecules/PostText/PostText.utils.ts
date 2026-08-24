@@ -335,6 +335,30 @@ const getLineLimitedPostPreviewText = (text: string, maxLines = POST_TEXT_PREVIE
   return text;
 };
 
+/**
+ * Detects a post body that is one whole JSON object or array (bot/tool
+ * output — e.g. external Locks creator tooling publishing preview posts as
+ * raw JSON). Returns the pretty-printed form for the structured-post
+ * treatment, or null for everything else. Deliberately strict: the ENTIRE
+ * trimmed body must parse, and scalars ("42", quoted strings, null) stay
+ * ordinary text — only object/array bodies get the treatment. No schema is
+ * interpreted; the content is shown verbatim, just legibly.
+ */
+export const formatStructuredPostBody = (text: string): string | null => {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed === null || typeof parsed !== 'object') return null;
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return null;
+  }
+};
+
+/** Line count above which a structured post body collapses behind Show more. */
+export const STRUCTURED_POST_PREVIEW_LINES = 10;
+
 export const truncatePostPreviewText = (text: string): string | null => {
   const meaningfulText = text.trimEnd();
   const lineLimitedText = getLineLimitedPostPreviewText(meaningfulText);

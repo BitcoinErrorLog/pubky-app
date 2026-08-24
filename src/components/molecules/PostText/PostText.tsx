@@ -13,12 +13,14 @@ import { PostCodeBlock } from '../PostCodeBlock/PostCodeBlock';
 import { PostHashtags } from '../PostHashtags/PostHashtags';
 import { PostTextProps, RemarkAnchorProps } from './PostText.types';
 import {
+  formatStructuredPostBody,
   remarkDisallowMarkdownLinks,
   remarkExtractFirstParagraph,
   remarkHashtags,
   remarkMentions,
   remarkPlaintextCodeblock,
   remarkPlaintextTables,
+  STRUCTURED_POST_PREVIEW_LINES,
   truncatePostPreviewText,
 } from './PostText.utils';
 
@@ -44,7 +46,13 @@ export const PostText = memo(function PostText({ content, isArticle, onLinkClick
   const onPostPage = pathname.startsWith(POST_ROUTES.POST);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const contentTruncated = !isArticle && !onPostPage && !isExpanded ? truncatePostPreviewText(content) : null;
+  // A body that is one whole JSON object/array (bot or tool output) renders
+  // as a labeled structured block instead of a paragraph of braces — shown
+  // verbatim, never interpreted.
+  const structuredBody = useMemo(() => formatStructuredPostBody(content), [content]);
+
+  const contentTruncated =
+    !structuredBody && !isArticle && !onPostPage && !isExpanded ? truncatePostPreviewText(content) : null;
   const showMoreButton = Boolean(contentTruncated);
 
   const remarkPlugins = [
@@ -76,6 +84,37 @@ export const PostText = memo(function PostText({ content, isArticle, onLinkClick
     ],
     [isArticle],
   );
+
+  if (structuredBody) {
+    const lines = structuredBody.split('\n');
+    const collapsed = !onPostPage && !isExpanded && lines.length > STRUCTURED_POST_PREVIEW_LINES;
+    const visibleBody = collapsed ? `${lines.slice(0, STRUCTURED_POST_PREVIEW_LINES).join('\n')}\n…` : structuredBody;
+
+    return (
+      <Container data-cy="post-text" overrideDefaults className={cn('wrap-anywhere', className)}>
+        <Container overrideDefaults className="rounded-md border border-border bg-muted/30 px-3 py-2">
+          <span className="text-xs text-muted-foreground">Structured data</span>
+          <pre className="mt-1 overflow-x-auto font-mono text-sm leading-5 whitespace-pre-wrap text-secondary-foreground">
+            {visibleBody}
+          </pre>
+        </Container>
+        {collapsed && (
+          <Button
+            overrideDefaults
+            type="button"
+            aria-label="Show full structured post content"
+            className="mt-2 cursor-pointer text-brand transition-colors hover:text-brand/80"
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsExpanded(true);
+            }}
+          >
+            Show more
+          </Button>
+        )}
+      </Container>
+    );
+  }
 
   return (
     <Container
