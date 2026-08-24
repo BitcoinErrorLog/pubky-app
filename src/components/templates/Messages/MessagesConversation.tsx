@@ -109,12 +109,16 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
               <EncryptedConversationBody
                 conversation={conversation}
                 counterpartyLabel={displayName}
-                composerDisabled
+                composerPlaceholder={`Message ${displayName}`}
                 emptyPrompt=""
               >
-                <Typography as="p" role="status" className="text-sm text-muted-foreground">
-                  Invitation sent — waiting for <span className="font-semibold">{displayName}</span> to open their
-                  encrypted messages. The encrypted handshake needs both sides, so you can write once they answer.
+                <Typography
+                  as="p"
+                  role="status"
+                  className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
+                >
+                  Their messenger hasn&apos;t responded yet — messages you send are queued on this device and deliver
+                  automatically when it does.
                 </Typography>
               </EncryptedConversationBody>
             )}
@@ -123,12 +127,16 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
               <EncryptedConversationBody
                 conversation={conversation}
                 counterpartyLabel={displayName}
-                composerDisabled
+                composerPlaceholder={`Message ${displayName}`}
                 emptyPrompt=""
               >
-                <Typography as="p" role="status" className="text-sm text-muted-foreground">
-                  Securing this conversation — answering <span className="font-semibold">{displayName}</span>&apos;s
-                  encrypted handshake. It completes the next time their device checks in.
+                <Typography
+                  as="p"
+                  role="status"
+                  className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
+                >
+                  Still securing this conversation — messages you send are queued on this device and deliver
+                  automatically once the encrypted handshake completes.
                 </Typography>
               </EncryptedConversationBody>
             )}
@@ -137,7 +145,6 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
               <EncryptedConversationBody
                 conversation={conversation}
                 counterpartyLabel={displayName}
-                composerDisabled={false}
                 composerPlaceholder={`Message ${displayName}`}
                 emptyPrompt="Say hello. Messages are end-to-end encrypted; only the two of you can read them."
               />

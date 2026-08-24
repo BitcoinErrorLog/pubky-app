@@ -1,16 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCommercePollIntervalMs } from '@/config/commerce';
 import { MessagingController } from '@/controllers/messaging/messaging';
 import { bodyByteSize } from '@/libs/commerce/messaging-contracts';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { buildDmConversationId, dmBodyBudget } from '@/libs/messaging/dm-contracts';
-import type { CommerceMessagingMessageModelSchema } from '@/models/messaging/messaging.schema';
+import { toast } from '@/molecules/Toaster/use-toast';
 import type { MessagingLinkState } from '@/services/paykit/paykit-messaging';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
-import type { UseEncryptedConversationReturn } from '../useEncryptedConversation/useEncryptedConversation.types';
+import type {
+  ConversationThreadItem,
+  EncryptedSendOutcome,
+  UseEncryptedConversationReturn,
+} from '../useEncryptedConversation/useEncryptedConversation.types';
 
 /**
  * Drives one general direct-message conversation while its surface is OPEN.
@@ -18,6 +22,10 @@ import type { UseEncryptedConversationReturn } from '../useEncryptedConversation
  * `useEncryptedConversation` — the two ride the same Encrypted Link per
  * counterparty; only the message kind and the conversation identity differ
  * (a DM conversation is keyed by the counterparty pubky, no listing).
+ *
+ * While the handshake is pending the composer is NOT blocked: sends queue
+ * device-locally (rendered honestly as "Queued", never as sent) and deliver
+ * automatically the moment the link becomes ready.
  *
  * Polling is bounded and abortable by construction — it runs only while
  * `active` is true AND the page is visible, resumes on focus, and stops on
@@ -29,12 +37,14 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
   const enabledPubky = useMessagingStore((state) => state.enabledPubky);
   const [status, setStatus] = useState<UseEncryptedConversationReturn['status']>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [messages, setMessages] = useState<CommerceMessagingMessageModelSchema[]>([]);
+  const [thread, setThread] = useState<ConversationThreadItem[]>([]);
   const [receiverProvisioned, setReceiverProvisioned] = useState(false);
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // The "your message is queued" toast fires once per surface, not per send.
+  const queuedToastShownRef = useRef(false);
 
   const conversationId = useMemo(() => buildDmConversationId(counterpartyPubky), [counterpartyPubky]);
   // The DM envelope has no variable-width fields outside the body, so the
@@ -42,10 +52,16 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
   const bodyBudgetBytes = useMemo(() => dmBodyBudget(), []);
   const draftBytes = useMemo(() => bodyByteSize(draft.trim()), [draft]);
 
-  const loadMessages = useCallback(async () => {
+  const loadThread = useCallback(async () => {
     try {
-      const history = await MessagingController.getConversationMessages(conversationId);
-      setMessages(history);
+      const [history, queued] = await Promise.all([
+        MessagingController.getConversationMessages(conversationId),
+        MessagingController.getQueuedConversationMessages(conversationId),
+      ]);
+      setThread([
+        ...history.map((message) => ({ deliveryState: 'sent' as const, message })),
+        ...queued.map((row) => ({ deliveryState: 'queued' as const, queued: row })),
+      ]);
       if (history.length > 0) {
         // The surface is open and showing these rows: advance the read checkpoint.
         await MessagingController.markConversationRead(conversationId);
@@ -71,9 +87,11 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     const poll = async () => {
       if (cancelled || document.hidden) return;
       try {
-        const { state, received } = await MessagingController.pollDmConversation(counterpartyPubky);
+        const { state, received, flushed } = await MessagingController.pollDmConversation(counterpartyPubky);
         applyLinkState(state);
-        if (received.length > 0) await loadMessages();
+        // A flush turned queued rows into real sent history — reload so the
+        // queued bubbles are replaced by their sent records.
+        if (received.length > 0 || flushed > 0) await loadThread();
       } catch (error) {
         if (cancelled) return;
         Logger.error('DM conversation poll failed', { error });
@@ -85,7 +103,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     const begin = async () => {
       setStatus('loading');
       setErrorMessage(null);
-      await loadMessages();
+      await loadThread();
       try {
         const messagingStatus = await MessagingController.getMessagingStatus();
         if (cancelled) return;
@@ -96,6 +114,8 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
         }
         const opened = await MessagingController.openDmConversation(counterpartyPubky);
         applyLinkState(opened.state);
+        // Opening flushes queued rows when the link is ready — show the result.
+        if (opened.state.status === 'ready') await loadThread();
       } catch (error) {
         if (cancelled) return;
         Logger.error('Failed to open the DM conversation', { error });
@@ -120,38 +140,54 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
       document.removeEventListener('visibilitychange', onVisibilityChange);
       if (timer !== null) window.clearInterval(timer);
     };
-  }, [active, enabledPubky, refreshNonce, counterpartyPubky, loadMessages]);
+  }, [active, enabledPubky, refreshNonce, counterpartyPubky, loadThread]);
 
-  const send = useCallback(async (): Promise<boolean> => {
+  const send = useCallback(async (): Promise<EncryptedSendOutcome> => {
     const body = draft.trim();
-    if (!body || isSending) return false;
+    if (!body || isSending) return 'failed';
     if (draftBytes > bodyBudgetBytes) {
       setSendError(`Message is ${draftBytes - bodyBudgetBytes} bytes over the encrypted transport limit.`);
-      return false;
+      return 'failed';
     }
     setIsSending(true);
     setSendError(null);
     try {
-      await MessagingController.sendDmMessage(counterpartyPubky, body);
+      const outcome = await MessagingController.sendOrQueueDmMessage(counterpartyPubky, body);
       setDraft('');
-      await loadMessages();
-      return true;
+      await loadThread();
+      if (!outcome.delivered && !queuedToastShownRef.current) {
+        queuedToastShownRef.current = true;
+        toast({ description: 'Queued — will deliver automatically' });
+      }
+      return outcome.delivered ? 'delivered' : 'queued';
     } catch (error) {
       Logger.error('Failed to send a direct message', { error });
       // The draft is kept: a failed send loses nothing the user typed.
       setSendError(getErrorMessage(error));
-      return false;
+      return 'failed';
     } finally {
       setIsSending(false);
     }
-  }, [draft, isSending, draftBytes, bodyBudgetBytes, counterpartyPubky, loadMessages]);
+  }, [draft, isSending, draftBytes, bodyBudgetBytes, counterpartyPubky, loadThread]);
+
+  const cancelQueued = useCallback(
+    async (id: string) => {
+      try {
+        await MessagingController.cancelQueuedMessage(id);
+        await loadThread();
+      } catch (error) {
+        Logger.warn('Failed to cancel a queued message', { error });
+      }
+    },
+    [loadThread],
+  );
 
   const refresh = useCallback(() => setRefreshNonce((nonce) => nonce + 1), []);
 
   return {
     status,
     errorMessage,
-    messages,
+    thread,
     receiverProvisioned,
     draft,
     setDraft,
@@ -160,6 +196,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     isSending,
     sendError,
     send,
+    cancelQueued,
     refresh,
   };
 }

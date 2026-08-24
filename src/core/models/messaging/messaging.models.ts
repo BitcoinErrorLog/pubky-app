@@ -8,6 +8,7 @@ import type {
   CommerceMessagingConversationModelSchema,
   CommerceMessagingLinkModelSchema,
   CommerceMessagingMessageModelSchema,
+  CommerceMessagingOutboxModelSchema,
   CommerceMessagingReceiverModelSchema,
 } from './messaging.schema';
 
@@ -162,6 +163,70 @@ export class CommerceMessagingMessageModel
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by conversation`, {
         service: ErrorService.Local,
         operation: 'findByConversation',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceMessagingOutboxModel
+  extends RecordModelBase<string, CommerceMessagingOutboxModelSchema>
+  implements CommerceMessagingOutboxModelSchema
+{
+  static table: Table<CommerceMessagingOutboxModelSchema> = db.table('commerce_messaging_outbox');
+
+  owner_pubky: string;
+  counterparty_pubky: string;
+  kind: CommerceMessagingOutboxModelSchema['kind'];
+  conversation_id: string | null;
+  listing_ref: string | null;
+  body: string;
+  queued_at: number;
+  attempts: number;
+  last_attempt_at: number | null;
+  last_error: string | null;
+
+  constructor(row: CommerceMessagingOutboxModelSchema) {
+    super(row);
+    this.owner_pubky = row.owner_pubky;
+    this.counterparty_pubky = row.counterparty_pubky;
+    this.kind = row.kind;
+    this.conversation_id = row.conversation_id;
+    this.listing_ref = row.listing_ref;
+    this.body = row.body;
+    this.queued_at = row.queued_at;
+    this.attempts = row.attempts;
+    this.last_attempt_at = row.last_attempt_at;
+    this.last_error = row.last_error;
+  }
+
+  /** Queued rows toward one counterparty in queue (flush) order. */
+  static async findByOwnerAndCounterparty(
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<CommerceMessagingOutboxModelSchema[]> {
+    try {
+      const rows = await this.table.where({ owner_pubky: ownerPubky, counterparty_pubky: counterpartyPubky }).toArray();
+      return rows.sort((left, right) => left.queued_at - right.queued_at);
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by counterparty`, {
+        service: ErrorService.Local,
+        operation: 'findByOwnerAndCounterparty',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+
+  static async findByOwner(ownerPubky: string): Promise<CommerceMessagingOutboxModelSchema[]> {
+    try {
+      const rows = await this.table.where('owner_pubky').equals(ownerPubky).toArray();
+      return rows.sort((left, right) => left.queued_at - right.queued_at);
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
         context: { table: this.table.name },
         cause: error,
       });

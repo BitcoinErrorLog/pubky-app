@@ -23,7 +23,7 @@ const inboxView = vi.hoisted(() => ({
 const dmView = vi.hoisted(() => ({
   status: 'ready' as string,
   errorMessage: null as string | null,
-  messages: [] as unknown[],
+  thread: [] as unknown[],
   receiverProvisioned: false,
   draft: '',
   bodyBudgetBytes: 862,
@@ -56,6 +56,27 @@ function dmConversationFixture(unread: boolean) {
       sent_at: '2026-08-20T12:00:00.000Z',
       recorded_at: 1_755_691_200_000,
     },
+    lastQueued: null,
+  };
+}
+
+function queuedDmConversationFixture() {
+  const base = dmConversationFixture(false);
+  return {
+    ...base,
+    lastQueued: {
+      id: '00000000-0000-4000-8000-000000000910',
+      owner_pubky: OWNER,
+      counterparty_pubky: DM_COUNTERPARTY,
+      kind: 'dm',
+      conversation_id: null,
+      listing_ref: null,
+      body: 'See you there — saving you a seat.',
+      queued_at: 1_755_777_700_000,
+      attempts: 0,
+      last_attempt_at: null,
+      last_error: null,
+    },
   };
 }
 
@@ -83,20 +104,43 @@ function listingConversationFixture() {
       sent_at: '2026-08-19T12:00:00.000Z',
       recorded_at: 1_755_604_800_000,
     },
+    lastQueued: null,
   };
 }
 
 function dmMessageFixture(id: string, direction: 'sent' | 'received', body: string, recordedAt: number) {
   return {
-    id: `${OWNER}:${id}`,
-    owner_id: OWNER,
-    conversation_id: `dm:${DM_COUNTERPARTY}`,
-    listing_ref: null,
-    counterparty_pubky: DM_COUNTERPARTY,
-    direction,
-    body,
-    sent_at: '2026-08-20T12:00:00.000Z',
-    recorded_at: recordedAt,
+    deliveryState: 'sent' as const,
+    message: {
+      id: `${OWNER}:${id}`,
+      owner_id: OWNER,
+      conversation_id: `dm:${DM_COUNTERPARTY}`,
+      listing_ref: null,
+      counterparty_pubky: DM_COUNTERPARTY,
+      direction,
+      body,
+      sent_at: '2026-08-20T12:00:00.000Z',
+      recorded_at: recordedAt,
+    },
+  };
+}
+
+function dmQueuedFixture(id: string, body: string, queuedAt: number, lastError: string | null = null) {
+  return {
+    deliveryState: 'queued' as const,
+    queued: {
+      id,
+      owner_pubky: OWNER,
+      counterparty_pubky: DM_COUNTERPARTY,
+      kind: 'dm' as const,
+      conversation_id: null,
+      listing_ref: null,
+      body,
+      queued_at: queuedAt,
+      attempts: lastError === null ? 0 : 1,
+      last_attempt_at: lastError === null ? null : queuedAt + 1,
+      last_error: lastError,
+    },
   };
 }
 
@@ -124,7 +168,7 @@ vi.mock('@/hooks/useDmConversation/useDmConversation', () => ({
   useDmConversation: () => ({
     status: dmView.status,
     errorMessage: dmView.errorMessage,
-    messages: dmView.messages,
+    thread: dmView.thread,
     receiverProvisioned: dmView.receiverProvisioned,
     draft: dmView.draft,
     setDraft: vi.fn(),
@@ -132,7 +176,8 @@ vi.mock('@/hooks/useDmConversation/useDmConversation', () => ({
     draftBytes: dmView.draftBytes,
     isSending: dmView.isSending,
     sendError: dmView.sendError,
-    send: vi.fn(async () => true),
+    send: vi.fn(async () => 'queued'),
+    cancelQueued: vi.fn(async () => {}),
     refresh: vi.fn(),
   }),
 }));
@@ -171,7 +216,7 @@ describe('Messages area — visual regression', () => {
     inboxView.errorMessage = null;
     dmView.status = 'ready';
     dmView.errorMessage = null;
-    dmView.messages = [];
+    dmView.thread = [];
     dmView.receiverProvisioned = false;
     dmView.draft = '';
     dmView.draftBytes = 0;
@@ -223,7 +268,7 @@ describe('Messages area — visual regression', () => {
   });
 
   it('renders a ready DM conversation with messages at desktop viewport', async () => {
-    dmView.messages = [
+    dmView.thread = [
       dmMessageFixture('d1', 'sent', 'Hey! Long time.', 10),
       dmMessageFixture('d2', 'received', 'Hey — are you going to the meetup on Saturday?', 20),
       dmMessageFixture('d3', 'sent', 'Planning to. Want to share a ride?', 30),
@@ -238,7 +283,7 @@ describe('Messages area — visual regression', () => {
   });
 
   it('renders a ready DM conversation at mobile viewport', async () => {
-    dmView.messages = [
+    dmView.thread = [
       dmMessageFixture('d1', 'sent', 'Hey! Long time.', 10),
       dmMessageFixture('d2', 'received', 'Hey — are you going to the meetup on Saturday?', 20),
     ];
@@ -265,5 +310,30 @@ describe('Messages area — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-handshake-desktop');
+  });
+
+  it('renders queued DM messages with cancel affordances while the handshake is pending at desktop viewport', async () => {
+    dmView.status = 'handshaking-initiator';
+    dmView.thread = [
+      dmQueuedFixture('00000000-0000-4000-8000-000000000911', 'Hey! Long time.', 10),
+      dmQueuedFixture(
+        '00000000-0000-4000-8000-000000000912',
+        'This one hit a transient failure.',
+        20,
+        'The homeserver write failed.',
+      ),
+    ];
+
+    const screen = await renderForVRT(<MessagesConversation counterpartyPubky={DM_COUNTERPARTY} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-queued-desktop');
+  });
+
+  it('renders the conversation list with a Queued preview when the newest item awaits delivery', async () => {
+    inboxView.conversations = [queuedDmConversationFixture(), listingConversationFixture()];
+
+    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-list-queued-preview-desktop');
   });
 });

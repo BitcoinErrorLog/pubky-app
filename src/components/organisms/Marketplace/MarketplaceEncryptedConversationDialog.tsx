@@ -92,29 +92,33 @@ export function MarketplaceEncryptedConversationDialog({
         )}
 
         {conversation.status === 'handshaking-initiator' && (
-          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} composerDisabled>
-            <Typography as="p" role="status" className="text-sm text-muted-foreground">
-              Invitation sent — waiting for <span className="font-semibold">{counterpartyLabel}</span> to open their
-              encrypted messages. The encrypted handshake needs both sides, so you can write once they answer.
+          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel}>
+            <Typography
+              as="p"
+              role="status"
+              className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
+            >
+              Their messenger hasn&apos;t responded yet — messages you send are queued on this device and deliver
+              automatically when it does.
             </Typography>
           </EncryptedConversationBody>
         )}
 
         {conversation.status === 'handshaking-responder' && (
-          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} composerDisabled>
-            <Typography as="p" role="status" className="text-sm text-muted-foreground">
-              Securing this conversation — answering <span className="font-semibold">{counterpartyLabel}</span>&apos;s
-              encrypted handshake. It completes the next time their device checks in.
+          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel}>
+            <Typography
+              as="p"
+              role="status"
+              className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
+            >
+              Still securing this conversation — messages you send are queued on this device and deliver automatically
+              once the encrypted handshake completes.
             </Typography>
           </EncryptedConversationBody>
         )}
 
         {conversation.status === 'ready' && (
-          <EncryptedConversationBody
-            conversation={conversation}
-            counterpartyLabel={counterpartyLabel}
-            composerDisabled={false}
-          />
+          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} />
         )}
 
         {conversation.status === 'error' && (

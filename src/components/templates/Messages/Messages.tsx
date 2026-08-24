@@ -115,8 +115,14 @@ export function Messages() {
 }
 
 function conversationPreview(conversation: MessagingConversationSummary): string {
-  return conversation.lastMessage
-    ? `${conversation.lastMessage.direction === 'sent' ? 'You: ' : ''}${conversation.lastMessage.body}`
+  const { lastMessage, lastQueued } = conversation;
+  // The newest item can be a device-locally QUEUED message — say so instead
+  // of pretending it was sent.
+  if (lastQueued && (!lastMessage || lastQueued.queued_at > lastMessage.recorded_at)) {
+    return `Queued: ${lastQueued.body}`;
+  }
+  return lastMessage
+    ? `${lastMessage.direction === 'sent' ? 'You: ' : ''}${lastMessage.body}`
     : 'Conversation started — no messages yet';
 }
 

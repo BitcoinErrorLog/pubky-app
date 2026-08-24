@@ -476,16 +476,21 @@ export class PaykitMessagingService {
    * anyway. On success the message row is persisted (direction `sent`) and
    * THEN the advanced link snapshot; a failure leaves no message row behind —
    * the UI keeps the draft and shows the real error.
+   *
+   * `eventId` is normally minted here; the outbox flush passes the queued
+   * row's UUID instead, so a crash between a successful send and the row
+   * delete replays idempotently (receivers and local history dedupe by
+   * `event_id`) rather than double-delivering.
    */
   static async sendChatMessage(
     ownerPubky: string,
     counterpartyPubky: string,
-    input: { conversationId: string; listingRef: string; body: string },
+    input: { conversationId: string; listingRef: string; body: string; eventId?: string },
   ): Promise<MarketplaceChatMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendChatMessage');
       const { message, json } = buildChatMessage({
-        eventId: crypto.randomUUID(),
+        eventId: input.eventId ?? crypto.randomUUID(),
         conversationId: input.conversationId,
         listingRef: input.listingRef,
         sentAt: new Date().toISOString(),
@@ -508,17 +513,18 @@ export class PaykitMessagingService {
    * Sends one general direct message over the same established link the
    * marketplace kinds ride. The DM conversation identity IS the counterparty
    * pubky (`dm:{counterparty}`); same ceiling, same persistence ordering, and
-   * a failed send leaves no row behind.
+   * a failed send leaves no row behind. `eventId` follows the same outbox
+   * contract as {@link sendChatMessage}.
    */
   static async sendDmMessage(
     ownerPubky: string,
     counterpartyPubky: string,
-    input: { body: string },
+    input: { body: string; eventId?: string },
   ): Promise<PubkyAppDmMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendDmMessage');
       const { message, json } = buildDmMessage({
-        eventId: crypto.randomUUID(),
+        eventId: input.eventId ?? crypto.randomUUID(),
         sentAt: new Date().toISOString(),
         body: input.body,
       });

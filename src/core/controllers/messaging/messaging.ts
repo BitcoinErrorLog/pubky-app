@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { MESSAGING_SYNC_MAX_COUNTERPARTIES, MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
@@ -101,6 +102,25 @@ export class MessagingController {
     });
   }
 
+  /**
+   * Queue-aware listing-chat send: delivers directly when the link is ready,
+   * otherwise queues the message device-locally (validated against the same
+   * byte ceiling) for automatic delivery. The result distinguishes the two —
+   * the UI never labels a queued message sent.
+   */
+  static async sendOrQueueMessage(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown, body: string) {
+    const { ownerPubky, counterpartyPubky, conversationId, listingRef } = this.resolveConversation(
+      sellerPubky,
+      buyerPubky,
+      listingId,
+    );
+    return await MessagingApplication.sendOrQueueMessage(ownerPubky, counterpartyPubky, {
+      conversationId,
+      listingRef,
+      body,
+    });
+  }
+
   /** Opens (or resumes) the general DM conversation with a counterparty. */
   static async openDmConversation(counterpartyPubky: unknown) {
     const ownerPubky = this.getCurrentUserPubky();
@@ -124,11 +144,34 @@ export class MessagingController {
     );
   }
 
+  /** Queue-aware DM send — same contract as {@link sendOrQueueMessage}. */
+  static async sendOrQueueDmMessage(counterpartyPubky: unknown, body: string) {
+    const ownerPubky = this.getCurrentUserPubky();
+    return await MessagingApplication.sendOrQueueDmMessage(
+      ownerPubky,
+      CommerceRecordNormalizer.pubky(counterpartyPubky),
+      body,
+    );
+  }
+
   static async getConversationMessages(conversationId: unknown) {
     return await MessagingApplication.getConversationMessages(
       this.getCurrentUserPubky(),
       this.normalizeConversationId(conversationId),
     );
+  }
+
+  /** Device-locally queued (not yet sent) messages of one conversation, oldest first. */
+  static async getQueuedConversationMessages(conversationId: unknown) {
+    return await MessagingApplication.getQueuedMessagesForConversation(
+      this.getCurrentUserPubky(),
+      this.normalizeConversationId(conversationId),
+    );
+  }
+
+  /** Deletes one of the signed-in user's queued messages while it is still queued. */
+  static async cancelQueuedMessage(id: unknown): Promise<void> {
+    await MessagingApplication.cancelQueuedMessage(this.getCurrentUserPubky(), this.normalizeOutboxId(id));
   }
 
   static async getConversations() {
@@ -274,6 +317,15 @@ export class MessagingController {
     throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Invalid messaging conversation id.', {
       service: ErrorService.Local,
       operation: 'normalizeConversationId',
+    });
+  }
+
+  /** Outbox row ids are queue-time UUIDs (see the outbox schema). */
+  private static normalizeOutboxId(input: unknown): string {
+    if (typeof input === 'string' && z.uuid().safeParse(input).success) return input;
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Invalid queued message id.', {
+      service: ErrorService.Local,
+      operation: 'normalizeOutboxId',
     });
   }
 

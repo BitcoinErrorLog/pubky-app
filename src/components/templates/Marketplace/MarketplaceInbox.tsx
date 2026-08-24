@@ -130,9 +130,15 @@ function EncryptedInbox() {
 function EncryptedConversationRow({ conversation }: { conversation: MessagingConversationSummary }) {
   const parsed = parseConversationAggregateId(conversation.conversation_id);
   if (!parsed) return null;
-  const preview = conversation.lastMessage
-    ? `${conversation.lastMessage.direction === 'sent' ? 'You: ' : ''}${conversation.lastMessage.body}`
-    : 'Conversation started — no messages yet';
+  const { lastMessage, lastQueued } = conversation;
+  // The newest item can be a device-locally QUEUED message — say so instead
+  // of pretending it was sent.
+  const preview =
+    lastQueued && (!lastMessage || lastQueued.queued_at > lastMessage.recorded_at)
+      ? `Queued: ${lastQueued.body}`
+      : lastMessage
+        ? `${lastMessage.direction === 'sent' ? 'You: ' : ''}${lastMessage.body}`
+        : 'Conversation started — no messages yet';
 
   return (
     <MarketplaceEncryptedConversationDialog

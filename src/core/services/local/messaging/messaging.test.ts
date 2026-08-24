@@ -3,8 +3,10 @@ import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
   CommerceMessagingMessageModel,
+  CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
 } from '@/models/messaging/messaging.models';
+import type { CommerceMessagingOutboxModelSchema } from '@/models/messaging/messaging.schema';
 import { LocalMessagingService } from './messaging';
 
 const OWNER = 'a'.repeat(52);
@@ -24,6 +26,23 @@ function messageRow(eventSuffix: string, recordedAt: number) {
   };
 }
 
+function outboxRow(overrides: Partial<CommerceMessagingOutboxModelSchema> = {}): CommerceMessagingOutboxModelSchema {
+  return {
+    id: crypto.randomUUID(),
+    owner_pubky: OWNER,
+    counterparty_pubky: COUNTERPARTY,
+    kind: 'chat',
+    conversation_id: CONVERSATION_ID,
+    listing_ref: `listing:${COUNTERPARTY}:L1`,
+    body: 'queued body',
+    queued_at: 100,
+    attempts: 0,
+    last_attempt_at: null,
+    last_error: null,
+    ...overrides,
+  };
+}
+
 describe('LocalMessagingService', () => {
   beforeEach(async () => {
     await Promise.all([
@@ -31,6 +50,7 @@ describe('LocalMessagingService', () => {
       CommerceMessagingLinkModel.clear(),
       CommerceMessagingConversationModel.clear(),
       CommerceMessagingMessageModel.clear(),
+      CommerceMessagingOutboxModel.clear(),
     ]);
   });
 
@@ -173,6 +193,49 @@ describe('LocalMessagingService', () => {
     await expect(
       LocalMessagingService.updateLinkSnapshot(OWNER, COUNTERPARTY, new Uint8Array([1]), 'established', 1),
     ).rejects.toThrow(/No messaging link row/);
+  });
+
+  it('returns queued outbox rows toward a counterparty in queue order', async () => {
+    await LocalMessagingService.enqueueOutboxMessage(outboxRow({ body: 'second', queued_at: 200 }));
+    await LocalMessagingService.enqueueOutboxMessage(outboxRow({ body: 'first', queued_at: 100 }));
+    // Another counterparty's row never leaks into this pair's queue.
+    await LocalMessagingService.enqueueOutboxMessage(outboxRow({ counterparty_pubky: 'y'.repeat(52), queued_at: 50 }));
+    const rows = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+    expect(rows.map(({ body }) => body)).toEqual(['first', 'second']);
+  });
+
+  it('scopes queued rows to their owner account', async () => {
+    await LocalMessagingService.enqueueOutboxMessage(outboxRow({ body: 'mine' }));
+    await LocalMessagingService.enqueueOutboxMessage(outboxRow({ owner_pubky: COUNTERPARTY, body: 'theirs' }));
+    const mine = await LocalMessagingService.getQueuedMessagesByOwner(OWNER);
+    expect(mine.map(({ body }) => body)).toEqual(['mine']);
+  });
+
+  it('records a failed flush attempt without touching the queued body', async () => {
+    const row = outboxRow();
+    await LocalMessagingService.enqueueOutboxMessage(row);
+    await LocalMessagingService.recordOutboxFailure(OWNER, row.id, 'link dropped', 500);
+    const [stored] = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+    expect(stored).toMatchObject({
+      body: 'queued body',
+      attempts: 1,
+      last_attempt_at: 500,
+      last_error: 'link dropped',
+    });
+  });
+
+  it('deletes queued rows only for their owner (account isolation)', async () => {
+    const row = outboxRow();
+    await LocalMessagingService.enqueueOutboxMessage(row);
+    // A different account can neither delete nor mutate the row.
+    await LocalMessagingService.deleteOutboxMessage(COUNTERPARTY, row.id);
+    await LocalMessagingService.recordOutboxFailure(COUNTERPARTY, row.id, 'not yours', 1);
+    let rows = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].last_error).toBeNull();
+    await LocalMessagingService.deleteOutboxMessage(OWNER, row.id);
+    rows = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+    expect(rows).toHaveLength(0);
   });
 
   it('persists and updates link rows keyed by owner and counterparty', async () => {

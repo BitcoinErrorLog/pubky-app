@@ -5,12 +5,14 @@ import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
   CommerceMessagingMessageModel,
+  CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
 } from '@/models/messaging/messaging.models';
 import type {
   CommerceMessagingConversationModelSchema,
   CommerceMessagingLinkModelSchema,
   CommerceMessagingMessageModelSchema,
+  CommerceMessagingOutboxModelSchema,
   CommerceMessagingReceiverModelSchema,
 } from '@/models/messaging/messaging.schema';
 
@@ -155,6 +157,51 @@ export class LocalMessagingService {
    */
   static async upsertMessage(eventId: string, message: Omit<CommerceMessagingMessageModelSchema, 'id'>): Promise<void> {
     await CommerceMessagingMessageModel.upsert({ ...message, id: `${message.owner_id}:${eventId}` });
+  }
+
+  // --- queued-message outbox -------------------------------------------------
+  // Device-local plaintext rows for messages composed while the Encrypted
+  // Link was not ready. Same at-rest posture as history (see the schema file
+  // header); cleared with every other table on sign-out (`clearDatabase()`).
+
+  static async enqueueOutboxMessage(row: CommerceMessagingOutboxModelSchema): Promise<void> {
+    await CommerceMessagingOutboxModel.upsert(row);
+  }
+
+  /** Queued rows toward one counterparty, oldest first — the flush order. */
+  static async getQueuedMessages(
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<CommerceMessagingOutboxModelSchema[]> {
+    return await CommerceMessagingOutboxModel.findByOwnerAndCounterparty(ownerPubky, counterpartyPubky);
+  }
+
+  /** All of one account's queued rows, oldest first. */
+  static async getQueuedMessagesByOwner(ownerPubky: string): Promise<CommerceMessagingOutboxModelSchema[]> {
+    return await CommerceMessagingOutboxModel.findByOwner(ownerPubky);
+  }
+
+  /**
+   * Deletes one queued row, but only when it belongs to `ownerPubky` —
+   * account isolation for cancel and flush alike. A missing row is a no-op
+   * (it was already delivered or cancelled).
+   */
+  static async deleteOutboxMessage(ownerPubky: string, id: string): Promise<void> {
+    const row = await CommerceMessagingOutboxModel.findById(id);
+    if (!row || row.owner_pubky !== ownerPubky) return;
+    await CommerceMessagingOutboxModel.deleteById(id);
+  }
+
+  /** Records one failed flush attempt on a queued row (attempts, time, error). */
+  static async recordOutboxFailure(ownerPubky: string, id: string, error: string, now: number): Promise<void> {
+    const row = await CommerceMessagingOutboxModel.findById(id);
+    if (!row || row.owner_pubky !== ownerPubky) return;
+    await CommerceMessagingOutboxModel.upsert({
+      ...row,
+      attempts: row.attempts + 1,
+      last_attempt_at: now,
+      last_error: error,
+    });
   }
 
   private static linkId(ownerId: string, counterpartyPubky: string): string {

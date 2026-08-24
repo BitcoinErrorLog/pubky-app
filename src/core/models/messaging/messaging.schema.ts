@@ -18,6 +18,10 @@
  *   device-local. Do not sync, export, or log them.
  * - `commerce_messaging_messages.body` is plaintext message history, local to
  *   this device by design. Bodies never enter logs, telemetry, or projections.
+ * - `commerce_messaging_outbox.body` is a plaintext message that has NOT been
+ *   sent yet: it waits on this device until the Encrypted Link is ready. Same
+ *   at-rest posture as history — device-local, unencrypted pending the
+ *   backup-key decision, never synced, logged, or projected.
  */
 
 /**
@@ -157,4 +161,57 @@ export const commerceMessagingMessageTableSchema = [
   'counterparty_pubky',
   'recorded_at',
   '[owner_id+conversation_id]',
+].join(', ');
+
+/**
+ * Which real send method a queued message flushes through: `chat` is a
+ * marketplace listing message (`marketplace.chat_message.v0`), `dm` a general
+ * direct message (`pubky_app.dm.v0`).
+ */
+export type CommerceMessagingOutboxKind = 'chat' | 'dm';
+
+/**
+ * One message the user composed while the Encrypted Link to the counterparty
+ * was NOT ready (handshake pending). It is queued on THIS device only and is
+ * delivered automatically — via the same real send path as a live send — the
+ * moment the link becomes ready. The UI labels these rows "Queued" and never
+ * as sent: a row exists here precisely BECAUSE nothing was sent yet.
+ *
+ * `id` is a queue-time UUID that becomes the envelope `event_id` when the
+ * row is flushed, so a crash between a successful send and the row delete
+ * replays idempotently (receivers and local history dedupe by `event_id`)
+ * instead of double-delivering.
+ *
+ * Device-local plaintext like all messaging state (see file header): same
+ * at-rest posture as history and link snapshots, unencrypted pending the
+ * backup-key decision, cleared with every other table on sign-out/account
+ * switch (`clearDatabase()` wipes all Dexie tables).
+ */
+export interface CommerceMessagingOutboxModelSchema {
+  /** Queue-time UUID; reused as the envelope `event_id` at flush time. */
+  id: string;
+  owner_pubky: string;
+  counterparty_pubky: string;
+  kind: CommerceMessagingOutboxKind;
+  /** Listing conversation aggregate id for `chat` rows; `null` for DMs. */
+  conversation_id: string | null;
+  /** `listing:{seller}:{listingId}` for `chat` rows; `null` for DMs. */
+  listing_ref: string | null;
+  /** Plaintext body, validated against the live-send byte ceiling at queue time. */
+  body: string;
+  /** Queue time — the flush order within one (owner, counterparty) pair. */
+  queued_at: number;
+  /** Failed flush attempts so far (0 until a flush actually failed). */
+  attempts: number;
+  last_attempt_at: number | null;
+  /** Message of the last failed flush attempt; `null` until a flush failed. */
+  last_error: string | null;
+}
+
+export const commerceMessagingOutboxTableSchema = [
+  '&id',
+  'owner_pubky',
+  'counterparty_pubky',
+  'queued_at',
+  '[owner_pubky+counterparty_pubky]',
 ].join(', ');

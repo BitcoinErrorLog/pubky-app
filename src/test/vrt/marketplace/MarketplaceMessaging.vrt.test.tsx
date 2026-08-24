@@ -25,24 +25,46 @@ function fixedMessage(
   direction: 'sent' | 'received',
   body: string,
   recordedAt: number,
-): CommerceMessagingMessageModelSchema {
+): { deliveryState: 'sent'; message: CommerceMessagingMessageModelSchema } {
   return {
-    id,
-    owner_id: BUYER,
-    conversation_id: CONVERSATION_ID,
-    listing_ref: `listing:${SELLER}:${LISTING_ID}`,
-    counterparty_pubky: SELLER,
-    direction,
-    body,
-    sent_at: '2026-08-20T12:00:00.000Z',
-    recorded_at: recordedAt,
+    deliveryState: 'sent',
+    message: {
+      id,
+      owner_id: BUYER,
+      conversation_id: CONVERSATION_ID,
+      listing_ref: `listing:${SELLER}:${LISTING_ID}`,
+      counterparty_pubky: SELLER,
+      direction,
+      body,
+      sent_at: '2026-08-20T12:00:00.000Z',
+      recorded_at: recordedAt,
+    },
+  };
+}
+
+function fixedQueued(id: string, body: string, queuedAt: number, lastError: string | null = null) {
+  return {
+    deliveryState: 'queued' as const,
+    queued: {
+      id,
+      owner_pubky: BUYER,
+      counterparty_pubky: SELLER,
+      kind: 'chat' as const,
+      conversation_id: CONVERSATION_ID,
+      listing_ref: `listing:${SELLER}:${LISTING_ID}`,
+      body,
+      queued_at: queuedAt,
+      attempts: lastError === null ? 0 : 1,
+      last_attempt_at: lastError === null ? null : queuedAt + 1,
+      last_error: lastError,
+    },
   };
 }
 
 const conversationView = vi.hoisted(() => ({
   status: 'ready' as string,
   errorMessage: null as string | null,
-  messages: [] as unknown[],
+  thread: [] as unknown[],
   receiverProvisioned: false,
   draft: '',
   bodyBudgetBytes: 620,
@@ -71,7 +93,7 @@ vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
   useEncryptedConversation: () => ({
     status: conversationView.status,
     errorMessage: conversationView.errorMessage,
-    messages: conversationView.messages,
+    thread: conversationView.thread,
     receiverProvisioned: conversationView.receiverProvisioned,
     draft: conversationView.draft,
     setDraft: vi.fn(),
@@ -79,7 +101,8 @@ vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
     draftBytes: conversationView.draftBytes,
     isSending: conversationView.isSending,
     sendError: conversationView.sendError,
-    send: vi.fn(async () => true),
+    send: vi.fn(async () => 'queued'),
+    cancelQueued: vi.fn(async () => {}),
     refresh: vi.fn(),
   }),
 }));
@@ -126,7 +149,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
   beforeEach(() => {
     conversationView.status = 'ready';
     conversationView.errorMessage = null;
-    conversationView.messages = [];
+    conversationView.thread = [];
     conversationView.receiverProvisioned = false;
     conversationView.draft = '';
     conversationView.draftBytes = 0;
@@ -139,7 +162,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
   });
 
   it('renders the active conversation with messages and byte budget at desktop viewport', async () => {
-    conversationView.messages = [
+    conversationView.thread = [
       fixedMessage('m1', 'sent', 'Is this still available?', 10),
       fixedMessage('m2', 'received', 'Yes — happy to answer questions.', 20),
       fixedMessage('m3', 'sent', 'Great. Does the price include shipping to Lisbon?', 30),
@@ -153,7 +176,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
   });
 
   it('renders the active conversation at mobile viewport', async () => {
-    conversationView.messages = [
+    conversationView.thread = [
       fixedMessage('m1', 'sent', 'Is this still available?', 10),
       fixedMessage('m2', 'received', 'Yes — happy to answer questions.', 20),
     ];
@@ -173,7 +196,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
   });
 
   it('renders the send-failure state with the kept draft at desktop viewport', async () => {
-    conversationView.messages = [fixedMessage('m1', 'sent', 'First message went through.', 10)];
+    conversationView.thread = [fixedMessage('m1', 'sent', 'First message went through.', 10)];
     conversationView.draft = 'This one failed to send.';
     conversationView.draftBytes = 24;
     conversationView.sendError = 'The homeserver write failed. Your draft is kept — try again.';
@@ -189,6 +212,34 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-handshake-initiator-desktop');
+  });
+
+  it('renders queued messages with cancel affordances while the handshake is pending at desktop viewport', async () => {
+    conversationView.status = 'handshaking-initiator';
+    conversationView.thread = [
+      fixedQueued('00000000-0000-4000-8000-000000000901', 'Is this still available?', 10),
+      fixedQueued('00000000-0000-4000-8000-000000000902', 'Happy to pick it up in person too.', 20),
+    ];
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-queued-pending-desktop');
+  });
+
+  it('renders a queued message whose last flush attempt failed (honest retry note) at desktop viewport', async () => {
+    conversationView.status = 'handshaking-initiator';
+    conversationView.thread = [
+      fixedQueued(
+        '00000000-0000-4000-8000-000000000903',
+        'This one hit a transient failure.',
+        10,
+        'The homeserver write failed.',
+      ),
+    ];
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-queued-retrying-desktop');
   });
 
   it('renders the answering-handshake (responder) state at desktop viewport', async () => {

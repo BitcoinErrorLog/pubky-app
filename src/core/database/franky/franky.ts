@@ -52,6 +52,8 @@ import {
   commerceMessagingLinkTableSchema,
   type CommerceMessagingMessageModelSchema,
   commerceMessagingMessageTableSchema,
+  type CommerceMessagingOutboxModelSchema,
+  commerceMessagingOutboxTableSchema,
   type CommerceMessagingReceiverModelSchema,
   commerceMessagingReceiverTableSchema,
 } from '@/models/messaging/messaging.schema';
@@ -181,6 +183,8 @@ export class AppDatabase extends Dexie {
   commerce_messaging_links!: Dexie.Table<CommerceMessagingLinkModelSchema>;
   commerce_messaging_conversations!: Dexie.Table<CommerceMessagingConversationModelSchema>;
   commerce_messaging_messages!: Dexie.Table<CommerceMessagingMessageModelSchema>;
+  // Device-local queued outbound messages awaiting a ready Encrypted Link
+  commerce_messaging_outbox!: Dexie.Table<CommerceMessagingOutboxModelSchema>;
   // Marketplace community tags (listing/shop targets), kind-prefixed row ids
   marketplace_tags!: Dexie.Table<TagCollectionModelSchema<string>>;
   // Hot tags
@@ -256,6 +260,10 @@ export class AppDatabase extends Dexie {
         commerce_messaging_links: commerceMessagingLinkTableSchema,
         commerce_messaging_conversations: commerceMessagingConversationTableSchema,
         commerce_messaging_messages: commerceMessagingMessageTableSchema,
+        // Queued-message outbox — folded into the current (unreleased) DB
+        // version rather than bumping it: version 3 has never shipped, so
+        // there is no upgrade path to preserve.
+        commerce_messaging_outbox: commerceMessagingOutboxTableSchema,
         // Marketplace community tags — folded into the current (unreleased)
         // DB version rather than bumping it: version 3 has never shipped, so
         // there is no upgrade path to preserve.

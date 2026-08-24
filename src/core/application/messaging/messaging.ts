@@ -1,8 +1,18 @@
-import type { MarketplaceChatMessage } from '@/libs/commerce/messaging-contracts';
-import { buildDmConversationId, type PubkyAppDmMessage } from '@/libs/messaging/dm-contracts';
+import { buildChatMessage, type MarketplaceChatMessage } from '@/libs/commerce/messaging-contracts';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import { getErrorMessage } from '@/libs/error/error.utils';
+import {
+  buildDmConversationId,
+  buildDmMessage,
+  parseDmConversationId,
+  type PubkyAppDmMessage,
+} from '@/libs/messaging/dm-contracts';
 import type {
   CommerceMessagingConversationModelSchema,
   CommerceMessagingMessageModelSchema,
+  CommerceMessagingOutboxModelSchema,
 } from '@/models/messaging/messaging.schema';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import {
@@ -25,6 +35,30 @@ export type MessagingStatus = {
 
 export type MessagingConversationSummary = CommerceMessagingConversationModelSchema & {
   lastMessage: CommerceMessagingMessageModelSchema | null;
+  /**
+   * The newest device-locally QUEUED (not yet sent) message for this
+   * conversation, or `null`. Inbox previews use it to say "Queued: …" when
+   * the newest item awaits delivery, instead of pretending it was sent.
+   */
+  lastQueued: CommerceMessagingOutboxModelSchema | null;
+};
+
+/**
+ * The truthful result of a queue-aware send. `delivered: true` means the
+ * binding actually sent the message over the ready link — exactly the old
+ * direct-send path. `delivered: false` means NOTHING was sent: the message
+ * was validated against the same byte ceiling as a live send and persisted
+ * as a device-local outbox row that flushes automatically once the link is
+ * ready. The UI must never render a queued row as sent.
+ */
+export type MessagingSendOutcome<TMessage> =
+  | { delivered: true; message: TMessage }
+  | { delivered: false; queued: CommerceMessagingOutboxModelSchema };
+
+/** One bounded outbox flush pass: how many rows were actually sent, how many remain queued. */
+export type MessagingOutboxFlushResult = {
+  delivered: number;
+  remaining: number;
 };
 
 /**
@@ -97,6 +131,12 @@ export class MessagingApplication {
         updated_at: Date.now(),
       });
     }
+    // Opening a conversation can be the first moment the link is READY on
+    // this device (e.g. the counterparty answered while it was closed) —
+    // deliver anything queued right away.
+    if (state.status === 'ready') {
+      await this.flushOutbox(ownerPubky, counterpartyPubky);
+    }
     return state;
   }
 
@@ -118,25 +158,32 @@ export class MessagingApplication {
         updated_at: Date.now(),
       });
     }
+    // Same flush-on-open rule as listing conversations — the shared link
+    // carries both kinds, so any queued row can deliver the moment it's ready.
+    if (state.status === 'ready') {
+      await this.flushOutbox(ownerPubky, counterpartyPubky);
+    }
     return state;
   }
 
   /**
    * One bounded poll step for an open conversation with this counterparty:
-   * advance the handshake if still queued, receive pending messages if the
-   * link is ready. Kind-agnostic by construction — the shared link drains
-   * BOTH message kinds and each is persisted into its own conversation.
-   * Callers own scheduling (poll only while the surface is mounted and
-   * visible).
+   * advance the handshake if still queued, and — once the link is ready —
+   * flush any device-locally queued messages (this poll is the moment the
+   * link can have JUST become ready), then receive pending messages.
+   * Kind-agnostic by construction — the shared link drains BOTH message
+   * kinds and each is persisted into its own conversation. Callers own
+   * scheduling (poll only while the surface is mounted and visible).
    */
   static async pollConversation(
     ownerPubky: string,
     counterpartyPubky: string,
-  ): Promise<{ state: MessagingLinkState; received: ReceivedMessage[] }> {
+  ): Promise<{ state: MessagingLinkState; received: ReceivedMessage[]; flushed: number }> {
     const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
-    if (state.status !== 'ready') return { state, received: [] };
+    if (state.status !== 'ready') return { state, received: [], flushed: 0 };
+    const { delivered } = await this.flushOutbox(ownerPubky, counterpartyPubky);
     const received = await PaykitMessagingService.receiveMessages(ownerPubky, counterpartyPubky);
-    return { state, received };
+    return { state, received, flushed: delivered };
   }
 
   static async sendMessage(
@@ -149,6 +196,202 @@ export class MessagingApplication {
 
   static async sendDmMessage(ownerPubky: string, counterpartyPubky: string, body: string): Promise<PubkyAppDmMessage> {
     return await PaykitMessagingService.sendDmMessage(ownerPubky, counterpartyPubky, { body });
+  }
+
+  /**
+   * Queue-aware send for a listing conversation. If the Encrypted Link is
+   * ready, the message is sent directly — exactly like {@link sendMessage} —
+   * and the result says `delivered: true`. Otherwise the body is validated
+   * against the SAME serialized byte ceiling a live send enforces and
+   * persisted as a device-local outbox row (`delivered: false`), which
+   * flushes automatically the moment the link becomes ready. A message is
+   * never reported sent unless the binding actually sent it.
+   */
+  static async sendOrQueueMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    input: { conversationId: string; listingRef: string; body: string },
+  ): Promise<MessagingSendOutcome<MarketplaceChatMessage>> {
+    const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
+    if (state.status === 'ready') {
+      // Older queued rows must deliver FIRST or the thread order would lie.
+      // If the flush stalls on a failure, this message queues behind them.
+      const { remaining } = await this.flushOutbox(ownerPubky, counterpartyPubky);
+      if (remaining === 0) {
+        return { delivered: true, message: await this.sendMessage(ownerPubky, counterpartyPubky, input) };
+      }
+    }
+    return {
+      delivered: false,
+      queued: await this.enqueueMessage(ownerPubky, counterpartyPubky, { ...input, kind: 'chat' }),
+    };
+  }
+
+  /** Queue-aware DM send — same contract as {@link sendOrQueueMessage}. */
+  static async sendOrQueueDmMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    body: string,
+  ): Promise<MessagingSendOutcome<PubkyAppDmMessage>> {
+    const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
+    if (state.status === 'ready') {
+      const { remaining } = await this.flushOutbox(ownerPubky, counterpartyPubky);
+      if (remaining === 0) {
+        return { delivered: true, message: await this.sendDmMessage(ownerPubky, counterpartyPubky, body) };
+      }
+    }
+    return {
+      delivered: false,
+      queued: await this.enqueueMessage(ownerPubky, counterpartyPubky, {
+        kind: 'dm',
+        conversationId: null,
+        listingRef: null,
+        body,
+      }),
+    };
+  }
+
+  /**
+   * Validates a message against the live-send byte ceiling and persists it
+   * as an outbox row. The queue-time UUID doubles as the flush-time envelope
+   * `event_id`, and the envelope's fixed-width fields (UUID, ISO timestamp)
+   * make this validation byte-exact for the eventual send — an oversized
+   * body is rejected HERE with the same typed error a live send throws.
+   */
+  private static async enqueueMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    input:
+      | { kind: 'chat'; conversationId: string; listingRef: string; body: string }
+      | {
+          kind: 'dm';
+          conversationId: null;
+          listingRef: null;
+          body: string;
+        },
+  ): Promise<CommerceMessagingOutboxModelSchema> {
+    const id = crypto.randomUUID();
+    const sentAtProbe = new Date().toISOString();
+    const { message } =
+      input.kind === 'chat'
+        ? buildChatMessage({
+            eventId: id,
+            conversationId: input.conversationId,
+            listingRef: input.listingRef,
+            sentAt: sentAtProbe,
+            body: input.body,
+          })
+        : buildDmMessage({ eventId: id, sentAt: sentAtProbe, body: input.body });
+    // `queued_at` IS the flush order, so it must be strictly increasing per
+    // (owner, counterparty) — two sends inside one millisecond would
+    // otherwise tie and flush in arbitrary order.
+    const existing = await LocalMessagingService.getQueuedMessages(ownerPubky, counterpartyPubky);
+    const lastQueuedAt = existing.at(-1)?.queued_at ?? 0;
+    const row: CommerceMessagingOutboxModelSchema = {
+      id,
+      owner_pubky: ownerPubky,
+      counterparty_pubky: counterpartyPubky,
+      kind: input.kind,
+      conversation_id: input.conversationId,
+      listing_ref: input.listingRef,
+      // The trimmed body from the validated envelope — what a flush will send.
+      body: message.body,
+      queued_at: Math.max(Date.now(), lastQueuedAt + 1),
+      attempts: 0,
+      last_attempt_at: null,
+      last_error: null,
+    };
+    await LocalMessagingService.enqueueOutboxMessage(row);
+    return row;
+  }
+
+  /** In-flight flush per `${owner}:${counterparty}`, so overlapping triggers share one pass and never double-send. */
+  private static outboxFlushInFlight = new Map<string, Promise<MessagingOutboxFlushResult>>();
+
+  /**
+   * Delivers this counterparty's queued messages IN QUEUE ORDER over the
+   * ready link, through the same real send methods a live send uses. Each
+   * row is deleted only AFTER its send succeeded; the first failure records
+   * `last_error`/`attempts` on the failing row and STOPS the pass, so order
+   * is preserved and the next flush resumes from that row. Bounded (one pass
+   * over the rows present at start) and reentrancy-safe (concurrent callers
+   * share the in-flight pass).
+   */
+  static async flushOutbox(ownerPubky: string, counterpartyPubky: string): Promise<MessagingOutboxFlushResult> {
+    const key = `${ownerPubky}:${counterpartyPubky}`;
+    const inFlight = this.outboxFlushInFlight.get(key);
+    if (inFlight) return await inFlight;
+    const run = this.runOutboxFlush(ownerPubky, counterpartyPubky).finally(() => {
+      this.outboxFlushInFlight.delete(key);
+    });
+    this.outboxFlushInFlight.set(key, run);
+    return await run;
+  }
+
+  private static async runOutboxFlush(
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<MessagingOutboxFlushResult> {
+    const rows = await LocalMessagingService.getQueuedMessages(ownerPubky, counterpartyPubky);
+    let delivered = 0;
+    for (const row of rows) {
+      try {
+        if (row.kind === 'chat' && row.conversation_id !== null && row.listing_ref !== null) {
+          await PaykitMessagingService.sendChatMessage(ownerPubky, counterpartyPubky, {
+            conversationId: row.conversation_id,
+            listingRef: row.listing_ref,
+            body: row.body,
+            eventId: row.id,
+          });
+        } else if (row.kind === 'dm') {
+          await PaykitMessagingService.sendDmMessage(ownerPubky, counterpartyPubky, {
+            body: row.body,
+            eventId: row.id,
+          });
+        } else {
+          // A chat row without its conversation references cannot be sent and
+          // enqueueMessage never writes one; treat it as a failed attempt so
+          // it stays visible (and cancellable) instead of vanishing silently.
+          throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Queued message is missing its conversation.', {
+            service: ErrorService.Local,
+            operation: 'runOutboxFlush',
+          });
+        }
+        await LocalMessagingService.deleteOutboxMessage(ownerPubky, row.id);
+        delivered += 1;
+      } catch (error) {
+        await LocalMessagingService.recordOutboxFailure(ownerPubky, row.id, getErrorMessage(error), Date.now());
+        return { delivered, remaining: rows.length - delivered };
+      }
+    }
+    return { delivered, remaining: 0 };
+  }
+
+  /**
+   * Deletes one queued message — possible only while it is still queued (a
+   * row that already flushed no longer exists, so the delete is a no-op and
+   * the message stays honestly sent).
+   */
+  static async cancelQueuedMessage(ownerPubky: string, id: string): Promise<void> {
+    await LocalMessagingService.deleteOutboxMessage(ownerPubky, id);
+  }
+
+  /**
+   * The device-locally queued (not yet sent) messages belonging to one
+   * conversation, oldest first — what the conversation hooks merge after the
+   * sent/received history.
+   */
+  static async getQueuedMessagesForConversation(
+    ownerPubky: string,
+    conversationId: string,
+  ): Promise<CommerceMessagingOutboxModelSchema[]> {
+    const dm = parseDmConversationId(conversationId);
+    if (dm) {
+      const rows = await LocalMessagingService.getQueuedMessages(ownerPubky, dm.counterpartyPubky);
+      return rows.filter((row) => row.kind === 'dm');
+    }
+    const rows = await LocalMessagingService.getQueuedMessagesByOwner(ownerPubky);
+    return rows.filter((row) => row.kind === 'chat' && row.conversation_id === conversationId);
   }
 
   /** Moves the device-local read checkpoint of one conversation to now. */
@@ -174,10 +417,16 @@ export class MessagingApplication {
 
   static async getConversations(ownerPubky: string): Promise<MessagingConversationSummary[]> {
     const conversations = await LocalMessagingService.getConversationsByOwner(ownerPubky);
+    const queued = await LocalMessagingService.getQueuedMessagesByOwner(ownerPubky);
     return await Promise.all(
       conversations.map(async (conversation) => {
         const messages = await LocalMessagingService.getMessages(ownerPubky, conversation.conversation_id);
-        return { ...conversation, lastMessage: messages.at(-1) ?? null };
+        const queuedHere = queued.filter((row) =>
+          row.kind === 'dm'
+            ? buildDmConversationId(row.counterparty_pubky) === conversation.conversation_id
+            : row.conversation_id === conversation.conversation_id,
+        );
+        return { ...conversation, lastMessage: messages.at(-1) ?? null, lastQueued: queuedHere.at(-1) ?? null };
       }),
     );
   }
@@ -212,6 +461,9 @@ export class MessagingApplication {
     for (const counterparty of [...known].slice(0, MESSAGING_SYNC_MAX_COUNTERPARTIES)) {
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
       if (state.status === 'ready') {
+        // The probe may have JUST completed the handshake — deliver anything
+        // queued toward this counterparty before draining inbound messages.
+        await this.flushOutbox(ownerPubky, counterparty);
         await PaykitMessagingService.receiveMessages(ownerPubky, counterparty);
       }
     }
