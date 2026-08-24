@@ -260,9 +260,13 @@ export class AppDatabase extends Dexie {
         commerce_messaging_links: commerceMessagingLinkTableSchema,
         commerce_messaging_conversations: commerceMessagingConversationTableSchema,
         commerce_messaging_messages: commerceMessagingMessageTableSchema,
-        // Queued-message outbox — folded into the current (unreleased) DB
-        // version rather than bumping it: version 3 has never shipped, so
-        // there is no upgrade path to preserve.
+        // Queued-message outbox. Adding this table REQUIRED bumping
+        // NEXT_PUBLIC_DB_VERSION (3 → 4): version 3 HAD shipped, and a
+        // schema change under a shipped version leaves existing browsers
+        // with a mismatched store set that breaks every local write. The
+        // app's upgrade path is mismatch → delete-and-recreate the local
+        // cache (device-local state resets; homeserver-synced state
+        // rehydrates).
         commerce_messaging_outbox: commerceMessagingOutboxTableSchema,
         // Marketplace community tags — folded into the current (unreleased)
         // DB version rather than bumping it: version 3 has never shipped, so

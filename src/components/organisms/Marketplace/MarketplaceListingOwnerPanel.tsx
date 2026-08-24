@@ -19,6 +19,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
+import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
@@ -80,7 +81,11 @@ export function MarketplaceListingOwnerPanel({ record }: MarketplaceListingOwner
       await CommerceController.commitDeleteListing(record.ownerPubky, record.listingId);
       toast({ title: 'Listing deleted', description: 'The owner-signed record was removed from your homeserver.' });
       router.push(MARKETPLACE_ROUTES.DASHBOARD);
-    } catch {
+    } catch (error) {
+      Logger.error('Failed to delete a marketplace listing', {
+        listing: `${record.ownerPubky}:${record.listingId}`,
+        error,
+      });
       toast({ variant: 'error', description: 'Could not delete this listing.' });
       setIsMutating(false);
       setConfirmingDelete(false);
