@@ -8,6 +8,7 @@ import {
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
+import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -345,6 +346,29 @@ export class CommerceController {
   /** Buyer's PayPal payment report (attestation, never advances payment). */
   static async markFiatPaid(orderId: string, transactionRef?: string) {
     return await CommerceApplication.markFiatPaid(this.getCurrentUserPubky(), orderId, transactionRef);
+  }
+
+  /** The seller's own Shippo shipping configuration (token is write-only). */
+  static async getMyShippingConfig() {
+    return await CommerceApplication.getMyShippingConfig(this.getCurrentUserPubky());
+  }
+
+  static async putMyShippingConfig(input: { shippoApiKey?: string; shipFrom: ShipFromAddress | null }) {
+    return await CommerceApplication.putMyShippingConfig(this.getCurrentUserPubky(), input);
+  }
+
+  /** Real Shippo rates for a paid order's delivery address (seller only). */
+  static async quoteShippingRates(orderId: string, parcel: ShippingParcel) {
+    return await CommerceApplication.quoteShippingRates(this.getCurrentUserPubky(), orderId, parcel);
+  }
+
+  /** Purchases the selected rate on the seller's own Shippo account (real money). */
+  static async purchaseShippingLabel(orderId: string, rateId: string) {
+    return await CommerceApplication.purchaseShippingLabel(this.getCurrentUserPubky(), orderId, rateId);
+  }
+
+  static async getShippingLabel(orderId: string) {
+    return await CommerceApplication.getShippingLabel(this.getCurrentUserPubky(), orderId);
   }
 
   /** Seller's PayPal receipt confirmation — this is what pays the order. */

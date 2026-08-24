@@ -7,6 +7,13 @@ import type {
   SellerPaymentConfig,
   SellerPaymentConfigOwnView,
 } from '@/libs/commerce/payment-methods';
+import type {
+  SellerShippingConfig,
+  ShipFromAddress,
+  ShippingLabel,
+  ShippingParcel,
+  ShippoRate,
+} from '@/libs/commerce/shipping';
 import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
@@ -493,6 +500,34 @@ export class MarketplaceGatewayService {
   static async confirmFiatReceived(actor: string, orderId: string): Promise<MarketplaceOrder> {
     this.assertTransactionServiceOnly('confirmFiatReceived');
     return await MarketplaceTransactionService.confirmFiatReceived(actor, orderId);
+  }
+
+  static async getMyShippingConfig(actor: string): Promise<SellerShippingConfig | null> {
+    this.assertTransactionServiceOnly('getMyShippingConfig');
+    return await MarketplaceTransactionService.getMyShippingConfig(actor);
+  }
+
+  static async putMyShippingConfig(
+    actor: string,
+    input: { shippoApiKey?: string; shipFrom: ShipFromAddress | null },
+  ): Promise<SellerShippingConfig> {
+    this.assertTransactionServiceOnly('putMyShippingConfig');
+    return await MarketplaceTransactionService.putMyShippingConfig(actor, input);
+  }
+
+  static async quoteShippingRates(actor: string, orderId: string, parcel: ShippingParcel): Promise<ShippoRate[]> {
+    this.assertTransactionServiceOnly('quoteShippingRates');
+    return await MarketplaceTransactionService.quoteShippingRates(actor, orderId, parcel);
+  }
+
+  static async purchaseShippingLabel(actor: string, orderId: string, rateId: string): Promise<ShippingLabel> {
+    this.assertTransactionServiceOnly('purchaseShippingLabel');
+    return await MarketplaceTransactionService.purchaseShippingLabel(actor, orderId, rateId);
+  }
+
+  static async getShippingLabel(actor: string, orderId: string): Promise<ShippingLabel | null> {
+    this.assertTransactionServiceOnly('getShippingLabel');
+    return await MarketplaceTransactionService.getShippingLabel(actor, orderId);
   }
 
   static async getReports(actor: string): Promise<MarketplaceReport[]> {

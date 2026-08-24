@@ -17,6 +17,7 @@ import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schem
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/MarketplacePackingSlipDialog';
+import { MarketplaceShippingLabelDialog } from '@/organisms/Marketplace/MarketplaceShippingLabelDialog';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 
 export function MarketplaceOrderActions({
@@ -118,9 +119,12 @@ export function MarketplaceOrderActions({
           </Button>
         )}
         {!isBuyer && ['paid', 'processing'].includes(order.state) && (
-          <Button size="sm" className="rounded-full" onClick={() => begin('ship')}>
-            Add tracking
-          </Button>
+          <>
+            <Button size="sm" className="rounded-full" onClick={() => begin('ship')}>
+              Add tracking
+            </Button>
+            <MarketplaceShippingLabelDialog order={order} actOnOrder={actOnOrder} />
+          </>
         )}
         {!isBuyer && ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state) && (
           <MarketplacePackingSlipDialog order={order} />
