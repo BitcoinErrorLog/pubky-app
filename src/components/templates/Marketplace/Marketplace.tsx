@@ -23,6 +23,8 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isDurableCommerceMode } from '@/config/commerce';
+import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
+import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
 import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismissal/useMarketplacePromoDismissal';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
@@ -41,6 +43,11 @@ export function Marketplace() {
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const { listings, facetPool, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
+  // Honest badges (see the hooks' contracts): the cart count is exactly what
+  // the cart page shows; the activity count is device-local unread — never a
+  // server-claimed read state, which the durable service does not have.
+  const cartCount = useMarketplaceCartCount();
+  const activityUnreadCount = useMarketplaceActivityUnread();
   // Visiting the marketplace (or refocusing its tab) runs the bounded
   // watchlist detection pass — the app has no background daemon.
   useMarketplaceWatchDetection();
@@ -106,22 +113,30 @@ export function Marketplace() {
               <Heart className="mr-2 size-4" />
               Watchlist
             </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
-            >
-              <ShoppingCart className="mr-2 size-4" />
-              Cart
-            </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.NOTIFICATIONS))}
-            >
-              <Bell className="mr-2 size-4" />
-              Activity
-            </Button>
+            <span className="relative inline-flex">
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                aria-label={cartCount > 0 ? `Cart, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}` : undefined}
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
+              >
+                <ShoppingCart className="mr-2 size-4" />
+                Cart
+              </Button>
+              <NavPillCountBadge count={cartCount} dataCy="marketplace-nav-cart" />
+            </span>
+            <span className="relative inline-flex">
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                aria-label={activityUnreadCount > 0 ? `Activity, ${activityUnreadCount} unread` : undefined}
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.NOTIFICATIONS))}
+              >
+                <Bell className="mr-2 size-4" />
+                Activity
+              </Button>
+              <NavPillCountBadge count={activityUnreadCount} dataCy="marketplace-nav-activity" />
+            </span>
             <Button
               variant="ghost"
               className="rounded-full"
@@ -260,5 +275,24 @@ export function Marketplace() {
         </section>
       </Container>
     </ContentLayout>
+  );
+}
+
+/**
+ * The header navigation's honest unread badge, mirrored for the marketplace
+ * nav pills: same atoms, placement, and 21+ cap; zero renders nothing.
+ */
+function NavPillCountBadge({ count, dataCy }: { count: number; dataCy: string }) {
+  if (count <= 0) return null;
+  return (
+    <Badge
+      data-cy={`${dataCy}-counter`}
+      className="absolute -right-1 -bottom-1 h-5 w-5 rounded-full bg-brand shadow-sm"
+      variant="secondary"
+    >
+      <Typography className={cn('font-semibold text-primary-foreground', count > 21 && 'text-xs')} size="xs">
+        {count > 21 ? '21+' : count}
+      </Typography>
+    </Badge>
   );
 }

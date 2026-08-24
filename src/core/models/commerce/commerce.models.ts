@@ -5,6 +5,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { RecordModelBase } from '@/models/shared/base/record/baseRecord';
 import type {
+  CommerceActivityCheckpointModelSchema,
   CommerceCartItemModelSchema,
   CommerceCatalogEntryModelSchema,
   CommerceDeliveryAddressModelSchema,
@@ -670,6 +671,22 @@ export class CommerceWatchAlertModel
         cause: error,
       });
     }
+  }
+}
+
+export class CommerceActivityCheckpointModel
+  extends RecordModelBase<string, CommerceActivityCheckpointModelSchema>
+  implements CommerceActivityCheckpointModelSchema
+{
+  static table: Table<CommerceActivityCheckpointModelSchema> = db.table('commerce_activity_checkpoints');
+
+  owner_id: string;
+  last_read_at: number;
+
+  constructor(checkpoint: CommerceActivityCheckpointModelSchema) {
+    super(checkpoint);
+    this.owner_id = checkpoint.owner_id;
+    this.last_read_at = checkpoint.last_read_at;
   }
 }
 

@@ -447,6 +447,24 @@ export interface CommerceWatchAlertModelSchema {
 export const commerceWatchAlertTableSchema =
   '&id, owner_id, listing_id, kind, created_at, seen_at, [owner_id+created_at]';
 
+/**
+ * The device-local read checkpoint behind the marketplace Activity badge —
+ * the same doctrine as the messaging conversations' `last_read_at`: the
+ * durable service stores no notification read state (a count the user could
+ * never clear would be a lie), so the badge counts only service rows newer
+ * than the last time THIS device opened an activity surface, and opening one
+ * moves the checkpoint. One row per account; never synced anywhere.
+ */
+export interface CommerceActivityCheckpointModelSchema {
+  /** The owner pubky — one checkpoint row per account on this device. */
+  id: string;
+  owner_id: string;
+  /** Device-local read checkpoint (ms epoch): rows created after this count as new. */
+  last_read_at: number;
+}
+
+export const commerceActivityCheckpointTableSchema = '&id, owner_id, last_read_at';
+
 /** The catalog filter/search combination a saved search replays. */
 export interface CommerceSavedSearchParams {
   query: string;

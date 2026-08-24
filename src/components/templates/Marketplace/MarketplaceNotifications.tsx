@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { ArrowLeft, Bell, Eye, Gavel, HandCoins, MessageCircle } from 'lucide-react';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -10,11 +11,13 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications/useMarketplaceNotifications';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import {
@@ -22,6 +25,7 @@ import {
   getWatchAlertHeadline,
 } from '@/organisms/MarketplaceWatchAlertItem/MarketplaceWatchAlertItem.utils';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 /** Device-local alerts shown on this page before the service-delivered list. */
 const WATCH_ALERTS_SECTION_LIMIT = 6;
@@ -41,6 +45,24 @@ export function MarketplaceNotifications() {
   const watchAlerts = useMarketplaceWatchAlertFeed();
   // Opening the commerce activity page also runs the bounded watchlist check.
   useMarketplaceWatchDetection();
+
+  // Re-run once the session is restored, since the writes are account-scoped.
+  const isAuthenticated = useAuthStore((state) => state.session !== null);
+
+  // Visiting this surface clears the device-local read state behind the
+  // marketplace Activity badge: watch alerts get their real local `seen_at`
+  // (the mount-frozen highlights above stay visible), and the activity read
+  // checkpoint advances to now — the honest, device-local substitute for the
+  // read state the durable service does not store. Sandbox service rows keep
+  // their REAL read state and clear only via the Mark all read button.
+  const markAllWatchAlertsSeen = watchAlerts.markAllSeen;
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void markAllWatchAlertsSeen();
+    CommerceController.markActivityRead().catch((error) => {
+      Logger.warn('Failed to advance the activity read checkpoint', { error });
+    });
+  }, [isAuthenticated, markAllWatchAlertsSeen]);
 
   const setPreference = (key: 'messages' | 'offers' | 'bids' | 'auctions', checked: boolean) => {
     if (!preferences) return;

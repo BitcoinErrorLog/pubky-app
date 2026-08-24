@@ -5,6 +5,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError } from '@/libs/error/error.utils';
 import {
+  CommerceActivityCheckpointModel,
   CommerceCartItemModel,
   CommerceCatalogEntryModel,
   CommerceDeliveryAddressModel,
@@ -283,6 +284,27 @@ export class LocalCommerceService {
         cause: error,
       });
     }
+  }
+
+  /**
+   * The device-local activity read checkpoint (ms epoch); `0` means this
+   * device never opened an activity surface for this account.
+   */
+  static async getActivityReadCheckpoint(ownerId: string): Promise<number> {
+    const checkpoint = await CommerceActivityCheckpointModel.findById(ownerId);
+    return checkpoint?.last_read_at ?? 0;
+  }
+
+  /**
+   * Moves the device-local activity read checkpoint forward (never
+   * backward). Called when an activity surface is actually showing its rows
+   * — the honest substitute for the read state the durable service does not
+   * store (same doctrine as the messaging conversations' `last_read_at`).
+   */
+  static async markActivityRead(ownerId: string, now: number): Promise<void> {
+    const current = await CommerceActivityCheckpointModel.findById(ownerId);
+    if (current && current.last_read_at >= now) return;
+    await CommerceActivityCheckpointModel.upsert({ id: ownerId, owner_id: ownerId, last_read_at: now });
   }
 
   static async getSavedSearches(ownerId: string): Promise<CommerceSavedSearchModelSchema[]> {

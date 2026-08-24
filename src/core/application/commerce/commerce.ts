@@ -1046,6 +1046,14 @@ export class CommerceApplication {
     await LocalCommerceService.markWatchAlertsSeen(ownerPubky, Date.now());
   }
 
+  static async getActivityReadCheckpoint(ownerPubky: string): Promise<number> {
+    return await LocalCommerceService.getActivityReadCheckpoint(ownerPubky);
+  }
+
+  static async markActivityRead(ownerPubky: string): Promise<void> {
+    await LocalCommerceService.markActivityRead(ownerPubky, Date.now());
+  }
+
   /**
    * One bounded watchlist detection pass: re-observes the most recently
    * watched items and derives alerts from what actually changed against the

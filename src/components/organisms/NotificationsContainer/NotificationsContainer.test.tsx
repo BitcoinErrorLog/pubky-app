@@ -19,6 +19,18 @@ vi.mock('@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed', () 
   useMarketplaceWatchAlertFeed: () => ({ items: [], markAllSeen: vi.fn(async () => {}) }),
 }));
 
+// The entry effect advances the device-local activity read checkpoint; the
+// real controller would reach for the (mocked-away) auth store internals.
+// The feed hook's controller reads are stubbed for the same reason.
+const mockMarkActivityRead = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    markActivityRead: mockMarkActivityRead,
+    getMarketplaceFeedNotifications: vi.fn(async () => []),
+    markAllMarketplaceNotificationsRead: vi.fn(async () => {}),
+  },
+}));
+
 // Mock useNotifications hook
 vi.mock('@/hooks/useNotifications/useNotifications', () => ({
   useNotifications: vi.fn(() => ({
@@ -121,6 +133,7 @@ vi.mock('@/organisms/NotificationsList/NotificationsList', () => ({
 describe('NotificationsContainer', () => {
   beforeEach(() => {
     authStoreState.session = {};
+    mockMarkActivityRead.mockClear();
   });
 
   it('renders without errors', () => {
@@ -290,6 +303,9 @@ describe('NotificationsContainer', () => {
     });
     const { unmount } = render(<NotificationsContainer />);
     expect(markAllAsRead).toHaveBeenCalledTimes(1);
+    // Seeing the interleaved commerce rows here also advances the
+    // device-local activity read checkpoint behind the marketplace badge.
+    expect(mockMarkActivityRead).toHaveBeenCalledTimes(1);
     unmount();
     expect(markAllAsRead).toHaveBeenCalledTimes(1);
   });
@@ -322,6 +338,7 @@ describe('NotificationsContainer', () => {
     render(<NotificationsContainer />);
 
     expect(markAllAsRead).not.toHaveBeenCalled();
+    expect(mockMarkActivityRead).not.toHaveBeenCalled();
   });
 
   it('matches snapshot', () => {

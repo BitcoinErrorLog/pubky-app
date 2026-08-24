@@ -6,6 +6,8 @@ import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { type BookmarkModelSchema, bookmarkTableSchema } from '@/models/bookmark/bookmark.schema';
 import {
+  type CommerceActivityCheckpointModelSchema,
+  commerceActivityCheckpointTableSchema,
   type CommerceCartItemModelSchema,
   commerceCartItemTableSchema,
   type CommerceCatalogEntryModelSchema,
@@ -173,6 +175,9 @@ export class AppDatabase extends Dexie {
   commerce_watch_snapshots!: Dexie.Table<CommerceWatchSnapshotModelSchema>;
   commerce_watch_alerts!: Dexie.Table<CommerceWatchAlertModelSchema>;
   commerce_saved_searches!: Dexie.Table<CommerceSavedSearchModelSchema>;
+  // Device-local activity read checkpoint behind the marketplace Activity
+  // badge (see commerce.schema.ts header) — one row per account.
+  commerce_activity_checkpoints!: Dexie.Table<CommerceActivityCheckpointModelSchema>;
   // Private delivery details and seller authoring templates — device-local
   // only, never on the homeserver (see commerce.schema.ts headers).
   commerce_delivery_addresses!: Dexie.Table<CommerceDeliveryAddressModelSchema>;
@@ -248,6 +253,10 @@ export class AppDatabase extends Dexie {
         commerce_watch_tombstones: commerceWatchTombstoneTableSchema,
         commerce_watch_alerts: commerceWatchAlertTableSchema,
         commerce_saved_searches: commerceSavedSearchTableSchema,
+        // Activity read checkpoint — folded into DB version 4 rather than
+        // bumping again: the 3 → 4 bump (the queued-message outbox below)
+        // has not shipped yet, so there is no upgrade path to preserve.
+        commerce_activity_checkpoints: commerceActivityCheckpointTableSchema,
         // Buyer address book and seller shipping presets — folded into the
         // current (unreleased) DB version rather than bumping it: version 3
         // has never shipped, so there is no upgrade path to preserve.

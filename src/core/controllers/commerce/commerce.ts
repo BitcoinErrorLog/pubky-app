@@ -890,6 +890,27 @@ export class CommerceController {
     await CommerceApplication.markWatchAlertsSeen(this.getCurrentUserPubky());
   }
 
+  /**
+   * The signed-in user's device-local activity read checkpoint (ms epoch;
+   * `0` when signed out or never visited). Service notifications created
+   * after it count as new on the marketplace Activity badge.
+   */
+  static async getActivityReadCheckpoint(): Promise<number> {
+    if (!useAuthStore.getState().currentUserPubky) return 0;
+    return await CommerceApplication.getActivityReadCheckpoint(this.getCurrentUserPubky());
+  }
+
+  /**
+   * Advances the signed-in user's device-local activity read checkpoint to
+   * now. Deliberately NOT service-side read state — the durable service has
+   * none — it only records that THIS device showed an activity surface, the
+   * same doctrine as the Messages read checkpoint.
+   */
+  static async markActivityRead(): Promise<void> {
+    if (!useAuthStore.getState().currentUserPubky) return;
+    await CommerceApplication.markActivityRead(this.getCurrentUserPubky());
+  }
+
   static async getSavedSearches() {
     if (!useAuthStore.getState().currentUserPubky) return [];
     return await CommerceApplication.getSavedSearches(this.getCurrentUserPubky());

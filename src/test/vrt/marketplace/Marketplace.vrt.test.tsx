@@ -64,6 +64,15 @@ vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () 
   useMarketplaceWatchDetection: () => {},
 }));
 
+// Nav badges read live Dexie/service state; zero keeps these baselines at the
+// no-badge nav (populated badges are captured in MarketplaceNavBadges VRT).
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 0,
+}));
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 0,
+}));
+
 vi.mock('@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches', () => ({
   useMarketplaceSavedSearches: () => ({
     searches: [

@@ -4,10 +4,12 @@ import { useEffect } from 'react';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll/useInfiniteScroll';
 import { useMarketplaceNotificationFeed } from '@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useNotifications } from '@/hooks/useNotifications/useNotifications';
+import { Logger } from '@/libs/logger/logger';
 import { NotificationsEmpty } from '@/molecules/NotificationsEmpty/NotificationsEmpty';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { NotificationsList } from '../NotificationsList/NotificationsList';
@@ -93,6 +95,13 @@ export function NotificationsContainer() {
     markAllAsRead();
     void markAllMarketplaceRead();
     void markAllWatchAlertsSeen();
+    // This surface shows the same commerce rows the marketplace Activity
+    // page does, so seeing them here also advances the device-local activity
+    // read checkpoint — the marketplace nav badge must not keep claiming
+    // "new" for rows this device already displayed.
+    CommerceController.markActivityRead().catch((error) => {
+      Logger.warn('Failed to advance the activity read checkpoint', { error });
+    });
   }, [markAllAsRead, markAllMarketplaceRead, markAllWatchAlertsSeen, isAuthenticated]);
 
   if (isLoading) {

@@ -3,14 +3,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildFeatureDiscoveryStorageKey, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
-import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
+import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { Marketplace } from '@/templates/Marketplace/Marketplace';
 
 /**
- * The drops entry on the marketplace home (ADR 0026): rendered ONLY in the
- * durable modes — the sandbox baseline proves its absence, since drops need
- * the transaction service's clock and the shelf must not advertise a
- * feature the deployment cannot honor.
+ * The honest count badges on the marketplace nav pills: the Cart badge shows
+ * exactly what the cart page shows, and the Activity badge shows the
+ * device-local unread count (see the hooks' contracts). Zero renders NO
+ * badge — that state is asserted here explicitly, not just implied by the
+ * plain-nav baselines in Marketplace.vrt.
  */
 
 vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
 
 const VRT_USER_PUBKY = vi.hoisted(() => 'y'.repeat(52));
 
-const catalogView = vi.hoisted(() => ({ adapterMode: 'transaction-service' as string }));
+const badgeCounts = vi.hoisted(() => ({ cart: 0, activity: 0 }));
 
 const fixtures = vi.hoisted(async () => {
   const { createCommerceSandboxCatalog } = await import('@/libs/commerce/sandbox-catalog');
@@ -55,7 +56,7 @@ vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
       facetPool: catalog.listings,
       shopsBySeller: catalog.shopsBySeller,
       isLoading: false,
-      adapterMode: catalogView.adapterMode,
+      adapterMode: 'sandbox',
     }),
   };
 });
@@ -68,13 +69,13 @@ vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () 
   useMarketplaceWatchDetection: () => {},
 }));
 
-// Nav badges read live Dexie/service state; zero keeps these baselines at the
-// no-badge nav (populated badges are captured in MarketplaceNavBadges VRT).
+// The badge hooks are the units under their own tests; VRT pins their output
+// so the capture shows the rendered badge states deterministically.
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
-  useMarketplaceCartCount: () => 0,
+  useMarketplaceCartCount: () => badgeCounts.cart,
 }));
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
-  useMarketplaceActivityUnread: () => 0,
+  useMarketplaceActivityUnread: () => badgeCounts.activity,
 }));
 
 vi.mock('@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches', () => ({
@@ -96,27 +97,50 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
 
-describe('Marketplace home drops entry — visual regression', () => {
+describe('Marketplace nav badges — visual regression', () => {
   beforeEach(() => {
+    badgeCounts.cart = 0;
+    badgeCounts.activity = 0;
     window.localStorage.clear();
-    // The promo is captured by Marketplace.vrt; dismissing it here keeps this
-    // baseline focused on the drops entry between the tools and the catalog.
+    // The promo is captured by Marketplace.vrt; dismissing it keeps these
+    // baselines focused on the nav pills.
     window.localStorage.setItem(
       buildFeatureDiscoveryStorageKey(VRT_USER_PUBKY, MARKETPLACE_PROMO_STORAGE_ID),
       'dismissed',
     );
   });
 
-  it('renders the drops entry on the home in durable mode at desktop viewport', async () => {
-    catalogView.adapterMode = 'transaction-service';
+  it('renders the Cart and Activity badges populated at desktop viewport', async () => {
+    badgeCounts.cart = 3;
+    badgeCounts.activity = 5;
+
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect.element(screen.getByText('Browse drops')).toBeInTheDocument();
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-home-drops-entry-desktop');
+    await expect.element(screen.getByLabelText('Cart, 3 items')).toBeInTheDocument();
+    await expect.element(screen.getByLabelText('Activity, 5 unread')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-nav-badges-desktop');
   });
 
-  it('renders NO drops entry in sandbox mode at desktop viewport', async () => {
-    catalogView.adapterMode = 'sandbox';
+  it('caps the displayed count at 21+ like the header badge at desktop viewport', async () => {
+    badgeCounts.cart = 2;
+    badgeCounts.activity = 25;
+
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-home-no-drops-entry-desktop');
+    await expect.element(screen.getByText('21+')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-nav-badges-capped-desktop');
+  });
+
+  it('renders NO badges at zero counts at desktop viewport', async () => {
+    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    expect(document.querySelector('[data-cy="marketplace-nav-cart-counter"]')).toBeNull();
+    expect(document.querySelector('[data-cy="marketplace-nav-activity-counter"]')).toBeNull();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-nav-badges-zero-desktop');
+  });
+
+  it('renders the populated badges at mobile viewport', async () => {
+    badgeCounts.cart = 1;
+    badgeCounts.activity = 2;
+
+    const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-nav-badges-mobile');
   });
 });

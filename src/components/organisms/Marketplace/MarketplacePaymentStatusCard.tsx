@@ -213,7 +213,9 @@ export function MarketplacePaymentStatusCard({
           ) : (
             <>
               <Typography as="p" className="text-sm text-muted-foreground">
-                Choose how to pay. Every method pays the seller directly — this marketplace never holds funds.
+                Choose how to pay. Every method pays the seller directly — this marketplace never holds funds. The item
+                is reserved for you only once a payment starts, and the reservation lapses if the payment isn&rsquo;t
+                completed in time.
               </Typography>
               <div className="flex flex-wrap gap-2">
                 {methodPayment.availableMethods.includes('bitcoin') && (

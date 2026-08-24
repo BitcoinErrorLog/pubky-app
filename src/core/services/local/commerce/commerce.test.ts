@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/database/franky/franky';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
+  CommerceActivityCheckpointModel,
   CommerceCartItemModel,
   CommerceCatalogEntryModel,
   CommerceDeliveryAddressModel,
@@ -50,6 +51,7 @@ describe('LocalCommerceService', () => {
       CommerceSavedSearchModel.table.clear(),
       CommerceDeliveryAddressModel.table.clear(),
       CommerceShippingPresetModel.table.clear(),
+      CommerceActivityCheckpointModel.table.clear(),
     ]);
   });
 
@@ -561,6 +563,29 @@ describe('LocalCommerceService', () => {
     it('keeps presets account-scoped', async () => {
       await LocalCommerceService.upsertShippingPreset(COMMERCE_FIXTURE_SELLER, 'p1', presetInput('Standard'), 100);
       expect(await LocalCommerceService.getShippingPresets(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+    });
+  });
+
+  describe('activity read checkpoint', () => {
+    it('defaults to zero for an account this device never opened an activity surface for', async () => {
+      expect(await LocalCommerceService.getActivityReadCheckpoint(COMMERCE_FIXTURE_BUYER)).toBe(0);
+    });
+
+    it('advances on visit and never moves backward', async () => {
+      await LocalCommerceService.markActivityRead(COMMERCE_FIXTURE_BUYER, 1_000);
+      expect(await LocalCommerceService.getActivityReadCheckpoint(COMMERCE_FIXTURE_BUYER)).toBe(1_000);
+
+      await LocalCommerceService.markActivityRead(COMMERCE_FIXTURE_BUYER, 2_000);
+      expect(await LocalCommerceService.getActivityReadCheckpoint(COMMERCE_FIXTURE_BUYER)).toBe(2_000);
+
+      // A stale clock (or an out-of-order call) must not resurrect "new" rows.
+      await LocalCommerceService.markActivityRead(COMMERCE_FIXTURE_BUYER, 500);
+      expect(await LocalCommerceService.getActivityReadCheckpoint(COMMERCE_FIXTURE_BUYER)).toBe(2_000);
+    });
+
+    it('keeps checkpoints account-scoped', async () => {
+      await LocalCommerceService.markActivityRead(COMMERCE_FIXTURE_BUYER, 1_000);
+      expect(await LocalCommerceService.getActivityReadCheckpoint(COMMERCE_FIXTURE_SELLER)).toBe(0);
     });
   });
 });
