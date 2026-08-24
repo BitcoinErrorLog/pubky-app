@@ -150,6 +150,73 @@ mainstream drop platform offers.
 until quantity clears. Adjacent to the existing auction machinery but a new
 sale format; deferred until demand exists.
 
+## Seller-configured claim requirements (claim policy)
+
+Directive from the owner (2026-08-24): what a claim requires is the
+SELLER's decision, declared per drop. The one-size claim (lock the unit,
+hold it for a fixed window) becomes just the default of a `claimPolicy`
+object on the drop record. The policy has three independent axes:
+
+**1. The hold — what secures a claimed unit:**
+
+- `none` (default): the claim locks the unit for the drop's claim window
+  (server-time, bounded); payment must start within it or the unit
+  restocks. This is exactly the model the "only a payment locks an item"
+  inventory rework implements for drops.
+- `down_payment { amountMinor | percent }`: the claim is secured only once
+  a REAL partial payment lands — a genuine payment through the same rails
+  (Locks-verified BTC or a seller-direct fiat charge for the deposit
+  amount), verified exactly like any payment. The balance is due within
+  the payment window; a lapsed balance forfeits or refunds the deposit per
+  the seller's declared `depositForfeiture` policy (`kept` | `refunded`),
+  shown to the buyer BEFORE claiming. The service still never holds funds:
+  the deposit goes seller-direct, and forfeiture/refund are the same
+  external-evidence flows as every refund today.
+- `full_payment`: claiming IS paying — the claim button starts the full
+  payment immediately and the unit locks only when payment starts (the
+  ordinary-listing rule applied to drops, for sellers who want zero
+  unpaid holds).
+
+**2. Rail restriction:** `paymentMethods` — the subset of the seller's
+configured rails valid for this drop (e.g. bitcoin-only drops). Enforced at
+the lock point; the drop page shows the restriction before T-0 so the ready
+check can stage the right rail.
+
+**3. Eligibility gates** (who may claim at all — evaluated at claim time,
+each with its honest disclosure):
+
+- `prior_customer`: buyer presents a purchase attestation from this seller
+  (the ADR 0024 JWS they already hold); the service verifies signature +
+  its own attestor `iss`. Strong, first-party verifiable.
+- `tag_from_key { issuerPubky, label }`: the buyer's profile must carry a
+  specific tag from a specific key — e.g. a community operator's key
+  tagging members. Verifiable with the same authority doctrine as
+  `listing.sync`: tags are public records on the ISSUER's homeserver, so
+  the service fetches the tag record from the issuer's own path — only the
+  issuer can write there, so the gate cannot be forged by the buyer.
+  Disclosure: the issuer can tag anyone at any time; this gates on the
+  issuer's say-so, nothing more.
+- `follower`: buyer follows the seller now (backdating not provable —
+  disclosed, as in the D4 plan).
+- `early_access_credential`: a live Locks credential (paid pass) — also
+  usable for `presaleStartsAt`.
+- `invite_token`: a seller-signed invite delivered over E2EE DM.
+
+Gates compose with AND semantics; the drop record carries the policy in
+the sealed-terms commitment when sealed (a seller cannot quietly loosen or
+tighten gates after hype). The Studio explains each axis in plain fairness
+language and the drop page states requirements before T-0 — a buyer must
+never discover a gate by being refused at the moment of the race.
+
+Sequencing: `claimPolicy` lands as a specs bump (closed-world object,
+absent = the `none` default, so every existing drop record stays valid);
+service enforcement at the claim/lock points; Studio + drop-page surfaces.
+`down_payment` is the largest slice (a second partial-payment object per
+order) and rides after the payment-window rework settles; `tag_from_key`,
+`paymentMethods`, and `full_payment` are small once the policy plumbing
+exists. This section supersedes the narrower "Access-gated drops" phase
+D4 scope below, which becomes the eligibility-gate slice of the policy.
+
 ## Access-gated drops (Locks as the door)
 
 Locks' whole design is "verify a criterion, issue a time-bounded
