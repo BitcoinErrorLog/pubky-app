@@ -51,9 +51,22 @@ mean exactly that.
   - Edit, unlist/relist (fixed-price), delete, copy public link
   - Owner panel self-heals transaction-service registration (re-runs on
     session connect)
+- **Drop Studio**
+  - Compose FCFS drops over existing listings at `/marketplace/sell/drops`:
+    schedule, total and per-buyer caps, stock-display policy
+    (exact / bands / hidden)
+  - Two-truth publish status — record on the seller's homeserver and
+    registered with the transaction service, shown separately (the same
+    honesty split listings have)
+  - Mission control during the window (visibility-bounded polling),
+    typed-CANCEL kill switch, post-end release of remaining stock back to
+    open sale
 - **Shop profile**
   - Shop record on the seller's homeserver: name, bio, avatar and banner
     uploads, vacation mode
+  - Optional `transactionService` authority declaration in the record
+    (specs `0.6.2-marketplace.7`); the editor deliberately does not offer
+    the field yet (see the multi-operator guard under Buying)
 - **Digital delivery**
   - Locks-guarded content entitlements delivered on completed payment
 
@@ -76,6 +89,26 @@ transaction service (PostgreSQL, exactly-one-winner concurrency proofs).
 - **Auctions**
   - Bids with reserve prices, minimum increments, anti-sniping extensions;
     scheduled close workers; `auction_won` / `auction_ended` notifications
+- **Drops (FCFS, ADR 0026 phase D1)** — durable modes only; live-proven
+  two-buyer race on the deployed staging stack (2026-08-23)
+  - Drops calendar (`/marketplace/drops`, fed by the Nexus drops stream
+    with estimate-labeled buckets) and drop pages with server-corrected
+    countdowns; `live` and `sold out` render only from the service's
+    public projection
+  - Pre-launch **ready check** (session, delivery address, per-buyer
+    allowance staged before T-0); the claim is the normal checkout with
+    the service's refusal copy verbatim — no fake queues, ever
+  - Server-side stock redaction honoring the seller's display policy;
+    total and per-buyer caps constraint-enforced with 100-way concurrency
+    proofs; seller kill switch and post-end listing release
+  - Gapless edition numbers assigned inside exactly-once payment
+    confirmation; edition badges on paid drop orders
+- **Multi-operator guard**
+  - When a shop record declares a `transactionService` whose origin
+    differs from the configured service, the client surfaces the declared
+    authority and refuses to send that seller's transactional commands to
+    a service the seller never declared; per-shop routing itself is
+    designed, not built (see [`multi-operator.md`](multi-operator.md))
 - **Orders**
   - Full lifecycle: awaiting payment → paid → shipped (carrier + tracking,
     soft carrier vocabulary) → delivered → completed
@@ -106,6 +139,11 @@ ledger).
     as hints with authoritative order pulls; same settlement machine
   - Buyer-side processor choice at checkout when both are configured;
     binding is permanent per purchase
+- **Verification labeling**
+  - Payment status card badges keep the two truth origins visibly
+    distinct: **Processor-verified** (truth pulled from Stripe/PayPal) vs
+    **Seller-attested** (the seller's own confirmation, labeled as
+    exactly that)
 - **Sessions and auth**
   - Marketplace transaction session from a Pubky AuthToken (single-use,
     verified with `pubky-common`), bearer token with 30-day TTL, persisted
@@ -113,6 +151,16 @@ ledger).
 
 ## 5. Trust and reputation
 
+- **Portable order receipts and drop editions (credible exit)**
+  - Every paid order's receipt is issued as a deterministic signed JWS
+    (`pubky-order-receipt+v1`, Ed25519 attestor key) and published to each
+    participant's own homeserver under the enforced-private `/priv` tree
+  - The offline verification recipe re-runs before every publication;
+    deleting the operator leaves both parties a verifiable purchase
+    history
+  - Paid drop orders additionally embed a `pubky-drop-edition+v1`
+    attestation ("edition N of M") — a second JWS, so existing receipt
+    verifiers are untouched
 - **Attested reviews**
   - Per-order reviews attested by the transaction service (JWS, Ed25519,
     salted order refs); 24-hour edit window with `edited_late` flags
@@ -177,13 +225,16 @@ ledger).
 ## 9. Infrastructure and operations
 
 - **Transaction service** (Rust): event-sourced PostgreSQL with outbox,
-  registration drain, auction close, reservation expiry workers; health,
-  readiness, metrics; Docker + Railway deploy
-- **Marketplace Nexus** (fork): listing/shop/review/tag indexing, reputation
-  aggregation, auction-terms backfill migration, replay runbooks, poll
-  deadlines against dead homeservers
+  registration drain, auction close, reservation expiry, and drop
+  open/close workers; server-time drop gating with gapless edition
+  assignment; health, readiness, metrics; Docker + Railway deploy
+- **Marketplace Nexus** (fork): listing/shop/review/tag/drop indexing
+  (`/v0/stream/drops` + per-drop projections), reputation aggregation,
+  auction-terms backfill migration, replay runbooks, poll deadlines
+  against dead homeservers
 - **Specs fork** (`pubky-app-specs`): marketplace objects (listing, shop,
-  review, response, attestation, private watchlist), entity-ID validation,
+  review, response, attestation, private watchlist, portable order
+  receipt with edition attestation, drop record), entity-ID validation,
   WASM/npm packaging
 - **Fiat verifier gateway** (Rust): Stripe + PayPal bridging to Locks,
   fail-closed configuration, live-mode guards

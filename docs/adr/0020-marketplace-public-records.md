@@ -4,7 +4,7 @@
 
 Accepted — 2026-08-19
 
-> **Current state (2026-08-21)**: the marketplace objects (shop, listing, review — later joined by purchase attestations and review responses) are registered and validated in the `pubky-app-specs` fork (`BitcoinErrorLog/pubky-app-specs`, branch `feat/marketplace-objects-0.6.x`, releases `v0.6.2-marketplace.1`–`.4`), which this client vendors and the marketplace Nexus parses for indexing. Two path details changed from the v1 sketch below when the specs landed: listing/review paths carry no `.json` suffix (only the `shop.json` singleton keeps one), and listing/review IDs follow the specs' timestamp/hash ID rules. Namespace choice is recorded in [ADR 0021](0021-marketplace-record-namespace.md).
+> **Current state (2026-08-23)**: the marketplace objects (shop, listing, review — later joined by purchase attestations, review responses, the private watchlist, portable order receipts with edition attestations, and drop records) are registered and validated in the `pubky-app-specs` fork (`BitcoinErrorLog/pubky-app-specs`, branches `feat/marketplace-objects-0.6.x` and then `marketplace-4-build`, releases `v0.6.2-marketplace.1`–`.8`), which this client vendors and the marketplace Nexus parses for indexing. Two path details changed from the v1 sketch below when the specs landed: listing/review paths carry no `.json` suffix (only the `shop.json` singleton keeps one), and listing/review IDs follow the specs' timestamp/hash ID rules. Namespace choice is recorded in [ADR 0021](0021-marketplace-record-namespace.md).
 
 ## Context
 

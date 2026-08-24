@@ -1,8 +1,14 @@
 # Drops: Timed, Limited Product Distribution
 
-Status: design (2026-08-23). Nothing here is built. This document is the
-strategy and phased plan for a "drops" feature set — pre-launched, launched,
-and ended releases of limited items — designed around what Pubky, the
+Status: D1 shipped; D2+ remain design (2026-08-23). Phase D1 — FCFS drops
+with gapless attested editions, the shopper and merchant surfaces, and
+Nexus indexing — is BUILT end to end and live-proven on the deployed
+staging stack (see the proof-ledger row "FCFS drop two-buyer race
+(2026-08-23)" in [`status.md`](status.md)). D2 (sealed pre-commitment),
+D3 (auditable raffles), D3.5 (paid entry), D4 (gated drops), and D5
+(dutch) remain design/plan. The rest of this document is the strategy and
+phased plan for the full "drops" feature set — pre-launched, launched, and
+ended releases of limited items — designed around what Pubky, the
 transaction service, Nexus, Paykit, and Locks each actually guarantee.
 
 ## Why drops fit this stack
@@ -386,7 +392,7 @@ ADR: drop authority split, formats, sealed-commitment canonicalization,
 edition attestation as separate JWS. Specs fork: drop record + validation +
 tests (one bump, includes `editionAttestation` on the receipt record).
 
-**D1 — FCFS drops end to end (the MVP, medium-large).**
+**D1 — FCFS drops end to end (the MVP, medium-large).** _(shipped — see [`status.md`](status.md))_
 Service: drop aggregate, `drop.sync`, schedule gate on checkout/reserve,
 total + per-buyer caps with concurrency proofs at both boundaries, edition
 sequence in `confirm_order`, `drop_started`/`drop_ended` outbox to

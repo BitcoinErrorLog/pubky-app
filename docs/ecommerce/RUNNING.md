@@ -76,9 +76,10 @@ Because a dedicated marketplace-indexing Nexus is deployed separately from the m
 npm run typecheck
 npm run lint
 npm run test -- src/core src/components src/hooks   # unit
-npm run test:marketplace                            # sandbox service (47 tests)
+npm run test:marketplace                            # sandbox service (115 tests)
 npm run test:marketplace:service                    # durable Rust service transport, needs it running (see below)
 npm run test:marketplace:locks                      # LIVE real-payment purchase, needs the composed stack (see below)
+npm run test:marketplace:drops                      # LIVE FCFS drop race on the deployed staging stack (see below)
 npm run test:vrt                                    # visual regression, needs browsers
 ```
 
@@ -221,6 +222,23 @@ npm run test:marketplace:cross-account
 ```
 
 The harness prints the throwaway identity secrets it generates; if a run fails after signup (tokens consumed), re-run with `MARKETPLACE_STAGING_SECRET_A`/`MARKETPLACE_STAGING_SECRET_B` instead of tokens to sign back in. It passed against the live staging homeserver on 2026-08-21.
+
+## Drops (durable modes only)
+
+Drops (ADR 0026, phase D1 — FCFS) run only against the durable transaction service: server time is the feature, so sandbox mode gets no drops and shows the affordances as unavailable, labeled. With the app in `transaction-service` (or `locks-paykit`) mode:
+
+- **Shopper surfaces.** The drops calendar at `/marketplace/drops` (fed by the dedicated Nexus's `GET /v0/stream/drops`; it degrades honestly to an empty state when the configured index lacks the stream) and the drop page at `/marketplace/drop/{seller}/{dropId}` — server-corrected countdown, the pre-T-0 **ready check** (session + address + per-buyer allowance staged before launch), the FCFS claim through the existing checkout path with the service's refusal copy rendered verbatim (never a fake queue), and the ended/archive states. Paid drop orders show their edition badge on the orders timeline; the "Edition N of M" line renders only from the offline-verified `pubky-drop-edition+v1` attestation.
+- **Merchant surfaces.** The **Drop Studio** at `/marketplace/sell/drops`: a composer over existing listings with the two-truth publish status (record on your homeserver / registered with the service — the same split listings have), mission control with visibility-bounded polling during the window, a typed-CANCEL kill switch, and post-end release-listings returning remaining stock to open sale.
+
+**Sandbox payment advancement on staging.** The deployed staging service runs with `SANDBOX_PAYMENTS_ENABLED=true`, so buyer-driven sandbox payment advancement works there — staging handles no real orders, and the sandbox path stands in for a real payment rail. The service-side gate defaults to `false`, and per the service README it **must stay `false` on any deployment handling real orders**: with the flag at its default the service rejects `payment.sandbox_advance` outright regardless of what any client sends (the client's own transport allowlist refuses to send it at all — a courtesy, not the boundary).
+
+To prove the whole D1 path live — real records and `drop.sync` on the deployed stack, two real buyers racing the last unit, exactly one winner, terminal sell-out, gapless edition, offline-verified attestation inside the portable receipt on the winner's own homeserver:
+
+```bash
+npm run test:marketplace:drops
+```
+
+It needs three single-use staging signup tokens (`MARKETPLACE_STAGING_SIGNUP_TOKEN_SELLER`, `MARKETPLACE_STAGING_SIGNUP_TOKEN_BUYER_A`, `MARKETPLACE_STAGING_SIGNUP_TOKEN_BUYER_B` — one per identity) or, on re-runs, a saved-identities JSON file whose path OUTSIDE the repo is supplied at run time via `MARKETPLACE_STAGING_DROP_IDENTITIES_FILE`; the harness writes that file itself on the first successful signup and prefers it afterward so tokens are not burned. `MARKETPLACE_SERVICE_URL` and `MARKETPLACE_NEXUS_URL` override the deployed defaults. Tokens, secrets, and the identities-file path are never committed. Like the other staging proofs, it is run-on-demand, never a standing gate. It passed on 2026-08-23 — see the proof ledger in [`status.md`](status.md).
 
 ## Running a real Locks/Paykit payment (`locks-paykit` mode)
 
