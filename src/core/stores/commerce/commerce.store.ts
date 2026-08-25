@@ -25,6 +25,7 @@ export const useCommerceStore = create<CommerceStore>()(
         set({ conditions: [...new Set(conditions)] }, false, CommerceActionTypes.SET_CONDITIONS),
       setPriceRange: (minimumPriceMinor, maximumPriceMinor) =>
         set({ minimumPriceMinor, maximumPriceMinor }, false, CommerceActionTypes.SET_PRICE_RANGE),
+      setCountryCode: (countryCode) => set({ countryCode }, false, CommerceActionTypes.SET_COUNTRY),
       setSort: (sort) => set({ sort }, false, CommerceActionTypes.SET_SORT),
       setLayout: (layout) => set({ layout }, false, CommerceActionTypes.SET_LAYOUT),
       setSelectedListingId: (selectedListingId) =>
@@ -55,6 +56,7 @@ export const useCommerceStore = create<CommerceStore>()(
             conditions: commerceInitialState.conditions,
             minimumPriceMinor: commerceInitialState.minimumPriceMinor,
             maximumPriceMinor: commerceInitialState.maximumPriceMinor,
+            countryCode: commerceInitialState.countryCode,
             sort: commerceInitialState.sort,
           },
           false,

@@ -28,6 +28,8 @@ function filters(overrides: Partial<MarketplaceCatalogFilters> = {}): Marketplac
     conditions: [],
     minimumPriceMinor: null,
     maximumPriceMinor: null,
+    countryCode: null,
+    // (location filtering is covered in its own test below)
     sort: 'newest',
     ...overrides,
   };
@@ -130,6 +132,16 @@ describe('buildMarketplaceCatalogItems', () => {
 });
 
 describe('filterMarketplaceCatalog', () => {
+  it('filters by the seller-declared item location', () => {
+    const items = catalogItems();
+    // Every sandbox fixture declares US: US matches everything, HR nothing,
+    // and null means anywhere.
+    expect(filterMarketplaceCatalog(items, filters({ countryCode: 'US' }))).toHaveLength(
+      filterMarketplaceCatalog(items, filters()).length,
+    );
+    expect(filterMarketplaceCatalog(items, filters({ countryCode: 'HR' }))).toHaveLength(0);
+  });
+
   it('searches title, description, and tags case-insensitively', () => {
     const results = filterMarketplaceCatalog(catalogItems(), filters({ query: 'JAZZ' }));
 

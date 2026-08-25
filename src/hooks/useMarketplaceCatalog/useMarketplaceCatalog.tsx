@@ -20,6 +20,7 @@ export function useMarketplaceCatalog() {
   const conditions = useCommerceStore((state) => state.conditions);
   const minimumPriceMinor = useCommerceStore((state) => state.minimumPriceMinor);
   const maximumPriceMinor = useCommerceStore((state) => state.maximumPriceMinor);
+  const countryCode = useCommerceStore((state) => state.countryCode);
   const sort = useCommerceStore((state) => state.sort);
   const adapterMode = getCommerceAdapterMode();
 
@@ -32,7 +33,7 @@ export function useMarketplaceCatalog() {
 
     let active = true;
     setIsRefreshing(true);
-    CommerceController.fetchCatalogListings({ saleFormat, conditions, sort })
+    CommerceController.fetchCatalogListings({ saleFormat, conditions, sort, countryCode })
       .catch((error) => {
         // The catalog keeps rendering from the local cache when the index is
         // unreachable; discovery just does not widen until it comes back.
@@ -45,7 +46,7 @@ export function useMarketplaceCatalog() {
     return () => {
       active = false;
     };
-  }, [adapterMode, saleFormat, conditions, sort]);
+  }, [adapterMode, saleFormat, conditions, sort, countryCode]);
 
   // The grid renders from both catalog sources: index projections cached by
   // discovery (no homeserver round-trips) and canonical records that are
@@ -62,6 +63,7 @@ export function useMarketplaceCatalog() {
     conditions,
     minimumPriceMinor,
     maximumPriceMinor,
+    countryCode,
     sort,
   });
   const listings = applyMarketplaceAttributeFilters(facetPool, attributeFilters);

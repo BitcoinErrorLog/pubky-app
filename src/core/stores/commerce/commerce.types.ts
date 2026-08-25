@@ -38,6 +38,8 @@ export interface CommerceState {
   conditions: CommerceConditionFilter[];
   minimumPriceMinor: number | null;
   maximumPriceMinor: number | null;
+  /** Seller-declared item location filter: ISO-3166-1 alpha-2, null = anywhere. */
+  countryCode: string | null;
   sort: CommerceSort;
   layout: CommerceLayout;
   selectedListingId: string | null;
@@ -53,6 +55,7 @@ export interface CommerceActions {
   setSaleFormat: (saleFormat: CommerceSaleFormatFilter) => void;
   setConditions: (conditions: CommerceConditionFilter[]) => void;
   setPriceRange: (minimumPriceMinor: number | null, maximumPriceMinor: number | null) => void;
+  setCountryCode: (countryCode: string | null) => void;
   setSort: (sort: CommerceSort) => void;
   setLayout: (layout: CommerceLayout) => void;
   setSelectedListingId: (listingId: string | null) => void;
@@ -73,6 +76,7 @@ export const commerceInitialState: CommerceState = {
   conditions: [],
   minimumPriceMinor: null,
   maximumPriceMinor: null,
+  countryCode: null,
   sort: 'recommended',
   layout: 'grid',
   selectedListingId: null,
@@ -88,6 +92,7 @@ export enum CommerceActionTypes {
   SET_SALE_FORMAT = 'SET_SALE_FORMAT',
   SET_CONDITIONS = 'SET_CONDITIONS',
   SET_PRICE_RANGE = 'SET_PRICE_RANGE',
+  SET_COUNTRY = 'SET_COUNTRY',
   SET_SORT = 'SET_SORT',
   SET_LAYOUT = 'SET_LAYOUT',
   SET_SELECTED_LISTING = 'SET_SELECTED_LISTING',

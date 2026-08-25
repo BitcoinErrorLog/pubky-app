@@ -136,11 +136,13 @@ export class CommerceController {
     saleFormat: CommerceSaleFormatFilter;
     conditions: CommerceConditionFilter[];
     sort: CommerceSort;
+    countryCode?: string | null;
   }): Promise<void> {
     await CommerceApplication.fetchCatalogListings({
       ...(filters.saleFormat !== 'all' ? { saleFormat: filters.saleFormat } : {}),
       ...(filters.conditions.length === 1 ? { condition: filters.conditions[0] } : {}),
       ...(filters.sort === 'ending_soon' ? { endingSoonest: true } : {}),
+      ...(filters.countryCode ? { country: filters.countryCode } : {}),
     });
   }
 

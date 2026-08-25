@@ -70,6 +70,8 @@ export interface MarketplaceCatalogFilters {
   conditions: CommerceConditionFilter[];
   minimumPriceMinor: number | null;
   maximumPriceMinor: number | null;
+  /** Seller-declared item location: ISO-3166-1 alpha-2, null = anywhere. */
+  countryCode: string | null;
   sort: CommerceSort;
 }
 
@@ -178,7 +180,8 @@ export function filterMarketplaceCatalog(
       (filters.saleFormat === 'all' || item.saleFormat === filters.saleFormat) &&
       (filters.conditions.length === 0 || filters.conditions.includes(item.condition)) &&
       (filters.minimumPriceMinor === null || item.price.amountMinor >= filters.minimumPriceMinor) &&
-      (filters.maximumPriceMinor === null || item.price.amountMinor <= filters.maximumPriceMinor)
+      (filters.maximumPriceMinor === null || item.price.amountMinor <= filters.maximumPriceMinor) &&
+      (filters.countryCode === null || item.location.countryCode === filters.countryCode)
     );
   });
 

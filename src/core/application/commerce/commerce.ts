@@ -124,6 +124,8 @@ export interface CommerceCatalogStreamFilters {
    * That stream contains only auction listings by definition.
    */
   endingSoonest?: boolean;
+  /** Seller-declared item location: ISO-3166-1 alpha-2 country code. */
+  country?: string;
 }
 
 /**
@@ -1369,6 +1371,7 @@ export class CommerceApplication {
       ...(filters.saleFormat ? { sale_format: filters.saleFormat } : {}),
       ...(filters.condition ? { condition: filters.condition } : {}),
       ...(filters.endingSoonest ? { sorting: 'ends_at' as const, order: 'ascending' as const } : {}),
+      ...(filters.country ? { country: filters.country } : {}),
     });
     const entries = CommerceRecordNormalizer.nexusListingStream(payload);
     await LocalCommerceService.bulkUpsertCatalogEntries(entries);

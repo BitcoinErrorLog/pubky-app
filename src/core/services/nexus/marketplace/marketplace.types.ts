@@ -205,6 +205,8 @@ export type TListingStreamParams = {
   min_price?: number;
   max_price?: number;
   currency?: string;
+  /** Seller-declared item location: ISO-3166-1 alpha-2 country code. */
+  country?: string;
   order?: NexusSortOrder;
   sorting?: NexusListingStreamSorting;
   skip?: number;

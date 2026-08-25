@@ -473,6 +473,12 @@ export interface CommerceSavedSearchParams {
   conditions: ('new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'for_parts')[];
   minimumPriceMinor: number | null;
   maximumPriceMinor: number | null;
+  /**
+   * Seller-declared item location (ISO-3166-1 alpha-2), null = anywhere.
+   * Optional because rows persisted before the filter existed lack it;
+   * readers coalesce to null.
+   */
+  countryCode?: string | null;
   sort: 'recommended' | 'newest' | 'price_low' | 'price_high' | 'ending_soon';
 }
 

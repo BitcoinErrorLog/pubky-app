@@ -70,6 +70,7 @@ describe('useMarketplaceCatalog', () => {
         saleFormat: 'all',
         conditions: [],
         sort: 'recommended',
+        countryCode: null,
       }),
     );
   });
@@ -135,6 +136,7 @@ describe('useMarketplaceCatalog', () => {
         saleFormat: 'all',
         conditions: [],
         sort: 'recommended',
+        countryCode: null,
       }),
     );
 
@@ -145,6 +147,7 @@ describe('useMarketplaceCatalog', () => {
         saleFormat: 'auction',
         conditions: [],
         sort: 'recommended',
+        countryCode: null,
       }),
     );
     expect(mockFetchCatalogListings).toHaveBeenCalledTimes(2);
@@ -162,6 +165,7 @@ describe('useMarketplaceCatalog', () => {
         saleFormat: 'all',
         conditions: [],
         sort: 'ending_soon',
+        countryCode: null,
       }),
     );
   });

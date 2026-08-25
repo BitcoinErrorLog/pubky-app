@@ -9,7 +9,9 @@ export function matchSavedSearch(
   items: MarketplaceCatalogItem[],
   params: CommerceSavedSearchParams,
 ): MarketplaceCatalogItem[] {
-  return filterMarketplaceCatalog(items, params);
+  // Legacy rows persisted before the location filter existed carry no
+  // countryCode; they mean "anywhere".
+  return filterMarketplaceCatalog(items, { ...params, countryCode: params.countryCode ?? null });
 }
 
 export interface SavedSearchMatchSummary {

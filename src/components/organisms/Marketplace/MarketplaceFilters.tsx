@@ -33,20 +33,43 @@ export interface MarketplaceFiltersProps {
   facetPool?: MarketplaceCatalogItem[];
 }
 
+/** `US` → `United States`; falls back to the raw code for unknown values. */
+function countryLabel(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export function MarketplaceFilters({ resultCount, facetPool = [] }: MarketplaceFiltersProps) {
   const query = useCommerceStore((state) => state.query);
   const categoryId = useCommerceStore((state) => state.categoryId);
   const attributeFilters = useCommerceStore((state) => state.attributeFilters);
   const saleFormat = useCommerceStore((state) => state.saleFormat);
+  const countryCode = useCommerceStore((state) => state.countryCode);
   const sort = useCommerceStore((state) => state.sort);
   const layout = useCommerceStore((state) => state.layout);
   const setQuery = useCommerceStore((state) => state.setQuery);
   const setCategoryId = useCommerceStore((state) => state.setCategoryId);
   const setAttributeFilter = useCommerceStore((state) => state.setAttributeFilter);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
+  const setCountryCode = useCommerceStore((state) => state.setCountryCode);
   const setSort = useCommerceStore((state) => state.setSort);
   const setLayout = useCommerceStore((state) => state.setLayout);
   const resetFilters = useCommerceStore((state) => state.resetFilters);
+
+  // The seller-declared item locations actually present in the visible
+  // catalog, with counts. The active selection stays listed even when it
+  // currently matches nothing (the pool is filtered by it), so it can
+  // always be seen and cleared.
+  const countryCounts = new Map<string, number>();
+  for (const item of facetPool) {
+    const code = item.location.countryCode;
+    if (code) countryCounts.set(code, (countryCounts.get(code) ?? 0) + 1);
+  }
+  if (countryCode && !countryCounts.has(countryCode)) countryCounts.set(countryCode, 0);
+  const countryOptions = [...countryCounts.entries()].sort(([left], [right]) => left.localeCompare(right));
 
   return (
     <section aria-label="Marketplace filters" className="flex flex-col gap-4">
@@ -74,6 +97,23 @@ export function MarketplaceFilters({ resultCount, facetPool = [] }: MarketplaceF
               <SelectItem value="all">All formats</SelectItem>
               <SelectItem value="fixed_price">Buy now</SelectItem>
               <SelectItem value="auction">Auctions</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={countryCode ?? 'anywhere'}
+            onValueChange={(value) => setCountryCode(value === 'anywhere' ? null : value)}
+          >
+            <SelectTrigger aria-label="Item location" className="h-11 min-w-32 rounded-full border px-4">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="anywhere">Anywhere</SelectItem>
+              {countryOptions.map(([code, count]) => (
+                <SelectItem key={code} value={code}>
+                  {countryLabel(code)} · {count}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -124,7 +164,9 @@ export function MarketplaceFilters({ resultCount, facetPool = [] }: MarketplaceF
       <MarketplaceCategoryNavigation
         categoryId={categoryId}
         onSelect={setCategoryId}
-        showClear={!!(query || categoryId || saleFormat !== 'all' || Object.keys(attributeFilters).length > 0)}
+        showClear={
+          !!(query || categoryId || saleFormat !== 'all' || countryCode || Object.keys(attributeFilters).length > 0)
+        }
         onClear={resetFilters}
       />
 

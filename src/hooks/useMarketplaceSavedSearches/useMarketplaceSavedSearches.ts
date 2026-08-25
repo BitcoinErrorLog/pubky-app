@@ -135,6 +135,7 @@ export function useMarketplaceSavedSearches() {
       conditions: state.conditions,
       minimumPriceMinor: state.minimumPriceMinor,
       maximumPriceMinor: state.maximumPriceMinor,
+      countryCode: state.countryCode,
       sort: state.sort,
     };
     try {
@@ -160,6 +161,7 @@ export function useMarketplaceSavedSearches() {
     store.setSaleFormat(search.params.saleFormat);
     store.setConditions(search.params.conditions);
     store.setPriceRange(search.params.minimumPriceMinor, search.params.maximumPriceMinor);
+    store.setCountryCode(search.params.countryCode ?? null);
     store.setSort(search.params.sort);
     try {
       await CommerceController.acknowledgeSavedSearch(search.id);

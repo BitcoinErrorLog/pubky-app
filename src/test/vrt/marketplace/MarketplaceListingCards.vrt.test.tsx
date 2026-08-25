@@ -181,6 +181,7 @@ const fixtures = vi.hoisted(async () => {
       conditions: [],
       minimumPriceMinor: null,
       maximumPriceMinor: null,
+      countryCode: null,
       sort: 'ending_soon',
     }),
     shopNames: new Map([
