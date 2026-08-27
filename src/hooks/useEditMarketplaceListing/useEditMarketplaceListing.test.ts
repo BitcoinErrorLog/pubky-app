@@ -131,6 +131,27 @@ describe('useEditMarketplaceListing', () => {
     });
   });
 
+  it('round-trips unknown record members through an edit (open-world records)', async () => {
+    // A member added by a newer writer that this client knows nothing about
+    // must survive a read-modify-write untouched (social/v1 alignment).
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(
+      structuredClone({ ...publishedRecord, futureField: { promo: 'launch-week' } }),
+    );
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    act(() => {
+      result.current.form.setValue('title', 'Vintage leather boots — resoled');
+    });
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const updated = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0] as Record<string, unknown>;
+    expect(updated.futureField).toEqual({ promo: 'launch-week' });
+    expect(updated.title).toBe('Vintage leather boots — resoled');
+  });
+
   it('hydrates structured attributes into the form and preserves foreign attributes verbatim', async () => {
     const recordWithAttributes = {
       ...structuredClone(publishedRecord),

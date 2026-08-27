@@ -23,8 +23,6 @@ import {
   commerceReviewResponseRecordSchema,
   type CommerceShopRecord,
   commerceShopRecordSchema,
-  type CommerceTombstoneRecord,
-  commerceTombstoneRecordSchema,
   type CommerceWatchlistRecord,
   commerceWatchlistRecordSchema,
   locksPublicUriSchema,
@@ -302,10 +300,6 @@ export class CommerceRecordNormalizer {
 
   static collection(input: unknown): CommerceCollectionRecord {
     return this.parse(commerceCollectionRecordSchema, input, 'collection');
-  }
-
-  static tombstone(input: unknown): CommerceTombstoneRecord {
-    return this.parse(commerceTombstoneRecordSchema, input, 'tombstone');
   }
 
   static pubky(input: unknown): string {

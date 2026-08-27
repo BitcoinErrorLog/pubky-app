@@ -18,9 +18,12 @@ describe('CommerceRecordNormalizer', () => {
   });
 
   it('returns structured validation issues without copying the rejected payload', () => {
+    // An invalid enum value carrying a sensitive string: the error must be
+    // structured, never a copy of the payload. (Unknown fields no longer
+    // fail — records are open-world — so the trigger is a real violation.)
     const listing = {
       ...createCommerceListingFixture(),
-      deliveryAddress: 'private-address',
+      condition: 'private-address',
     };
 
     try {

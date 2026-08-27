@@ -34,6 +34,14 @@ import {
   commerceTimestampSchema,
 } from './transaction-contracts';
 
+// Forward-compat contract (social/v1 alignment): every record schema in this
+// file is OPEN-WORLD — unknown members pass through parsing and MUST survive
+// a read-modify-write (edit paths spread the fetched record before applying
+// form values). This is what lets record shapes grow additively without
+// breaking older clients. The transaction-service command schemas
+// (transaction-commands.ts) are a service API contract, not records, and
+// remain strict.
+
 const commercePublicRecordBaseSchema = z
   .object({
     schemaVersion: z.literal(COMMERCE_CONTRACT_VERSION),
@@ -42,7 +50,7 @@ const commercePublicRecordBaseSchema = z
     createdAt: commerceTimestampSchema,
     updatedAt: commerceTimestampSchema,
   })
-  .strict();
+  .passthrough();
 
 export const commerceCountryCodeSchema = z.string().regex(/^[A-Z]{2}$/, 'Expected an ISO 3166-1 alpha-2 code');
 
@@ -51,7 +59,7 @@ export const commercePublicLocationSchema = z
     countryCode: commerceCountryCodeSchema,
     region: z.string().trim().min(1).max(100).optional(),
   })
-  .strict();
+  .passthrough();
 
 export const marketplacePublicUriSchema = z
   .string()
@@ -80,7 +88,7 @@ export const commerceMediaSchema = z
     durationMs: z.number().int().positive().optional(),
     altText: z.string().trim().min(1).max(COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS),
   })
-  .strict()
+  .passthrough()
   .superRefine((media, context) => {
     if (media.type === 'video' && media.durationMs === undefined) {
       context.addIssue({
@@ -108,7 +116,7 @@ export const commerceVariantSchema = z
     mediaIds: z.array(commerceEntityIdSchema).max(COMMERCE_LISTING_MAX_MEDIA).default([]),
     enabled: z.boolean().default(true),
   })
-  .strict()
+  .passthrough()
   .superRefine((variant, context) => {
     if (Object.keys(variant.options).length > COMMERCE_LISTING_MAX_OPTION_DIMENSIONS) {
       context.addIssue({
@@ -125,7 +133,7 @@ const fixedPriceSaleSchema = z
     unitPrice: commercePositiveMoneySchema,
     acceptsOffers: z.boolean(),
   })
-  .strict();
+  .passthrough();
 
 const auctionSaleSchema = z
   .object({
@@ -139,7 +147,7 @@ const auctionSaleSchema = z
     antiSnipingWindowSeconds: z.number().int().min(0).max(3_600),
     antiSnipingExtensionSeconds: z.number().int().min(0).max(3_600),
   })
-  .strict();
+  .passthrough();
 
 export const commerceSaleSchema = z.discriminatedUnion('format', [fixedPriceSaleSchema, auctionSaleSchema]);
 
@@ -151,7 +159,7 @@ const freeShippingOptionSchema = z
     estimatedMinDays: z.number().int().min(0).max(365),
     estimatedMaxDays: z.number().int().min(0).max(365),
   })
-  .strict();
+  .passthrough();
 
 const flatShippingOptionSchema = z
   .object({
@@ -162,7 +170,7 @@ const flatShippingOptionSchema = z
     estimatedMinDays: z.number().int().min(0).max(365),
     estimatedMaxDays: z.number().int().min(0).max(365),
   })
-  .strict();
+  .passthrough();
 
 const calculatedShippingOptionSchema = z
   .object({
@@ -174,7 +182,7 @@ const calculatedShippingOptionSchema = z
     estimatedMinDays: z.number().int().min(0).max(365),
     estimatedMaxDays: z.number().int().min(0).max(365),
   })
-  .strict();
+  .passthrough();
 
 export const commerceShippingOptionSchema = z
   .discriminatedUnion('pricing', [freeShippingOptionSchema, flatShippingOptionSchema, calculatedShippingOptionSchema])
@@ -212,7 +220,7 @@ export const commercePackageSchema = z
     widthMillimeters: z.number().int().positive().max(100_000),
     heightMillimeters: z.number().int().positive().max(100_000),
   })
-  .strict();
+  .passthrough();
 
 export const commerceReturnPolicySchema = z
   .object({
@@ -221,7 +229,7 @@ export const commerceReturnPolicySchema = z
     buyerPaysReturnShipping: z.boolean(),
     details: z.string().trim().max(COMMERCE_SHOP_POLICY_MAX_CHARS).optional(),
   })
-  .strict()
+  .passthrough()
   .superRefine((policy, context) => {
     if (policy.acceptsReturns && policy.returnWindowDays === undefined) {
       context.addIssue({
@@ -258,7 +266,7 @@ export const commerceDigitalLockSchema = z
     resourceHash: z.string().regex(/^[a-f0-9]{64}$/, 'Expected a lowercase BLAKE3 hash'),
     minimumConfirmations: z.number().int().min(0).max(6),
   })
-  .strict();
+  .passthrough();
 
 /**
  * The seller-declared transaction-service authority (specs
@@ -302,7 +310,7 @@ const commerceShopRecordSchemaInner = commercePublicRecordBaseSchema
     createdAt: commerceTimestampSchema,
     updatedAt: commerceTimestampSchema,
   })
-  .strict()
+  .passthrough()
   .superRefine(validateRecordDates);
 
 const commerceAttributeValueSchema = z
@@ -378,7 +386,7 @@ const commerceListingRecordSchemaInner = commercePublicRecordBaseSchema
     digitalLock: commerceDigitalLockSchema.optional(),
     adultOnly: z.boolean(),
   })
-  .strict()
+  .passthrough()
   .superRefine((listing, context) => {
     validateRecordDates(listing, context);
     validateUniqueValues(
@@ -540,7 +548,7 @@ const commerceReviewRecordSchemaInner = commercePublicRecordBaseSchema
         shipping: z.number().int().min(1).max(5).optional(),
         communication: z.number().int().min(1).max(5).optional(),
       })
-      .strict(),
+      .passthrough(),
     text: z.string().trim().min(1).max(COMMERCE_REVIEW_TEXT_MAX_CHARS),
     eligibilityAttestation: z
       .string()
@@ -548,7 +556,7 @@ const commerceReviewRecordSchemaInner = commercePublicRecordBaseSchema
       .max(4_096)
       .regex(/^[A-Za-z0-9._~-]+$/),
   })
-  .strict()
+  .passthrough()
   .superRefine(validateRecordDates);
 
 /**
@@ -572,7 +580,7 @@ const commerceReviewResponseRecordSchemaInner = commercePublicRecordBaseSchema
       ),
     text: z.string().trim().min(1).max(COMMERCE_REVIEW_TEXT_MAX_CHARS),
   })
-  .strict()
+  .passthrough()
   .superRefine(validateRecordDates);
 
 const commerceCollectionRecordSchemaInner = commercePublicRecordBaseSchema
@@ -584,21 +592,17 @@ const commerceCollectionRecordSchemaInner = commercePublicRecordBaseSchema
     listingIds: z.array(commerceEntityIdSchema).max(200),
     coverMediaUrl: marketplacePublicUriSchema.optional(),
   })
-  .strict()
+  .passthrough()
   .superRefine((collection, context) => {
     validateRecordDates(collection, context);
     validateUniqueValues(collection.listingIds, ['listingIds'], 'Collection listing ids must be unique', context);
   });
 
-export const commerceTombstoneRecordSchema = commercePublicRecordBaseSchema
-  .extend({
-    recordType: z.literal('tombstone'),
-    targetType: z.enum(['shop', 'listing', 'review', 'collection']),
-    targetId: commerceEntityIdSchema,
-    reason: z.enum(['deleted', 'removed', 'replaced']),
-  })
-  .strict()
-  .superRefine(validateRecordDates);
+// Deletion note (social/v1 alignment, ADR 0020 as amended): ABSENCE is the
+// tombstone. Deletes remove the record file; no tombstone record type exists.
+// The substrate cannot enforce a tombstone against the owner's own writes,
+// public tombstones would leak deletion metadata forever, and receipt JWSes
+// keep a buyer's history verifiable after a listing disappears.
 
 export const commercePublicRecordSchema = z.preprocess(
   stripSerializedNulls,
@@ -607,7 +611,6 @@ export const commercePublicRecordSchema = z.preprocess(
     commerceListingRecordSchemaInner,
     commerceReviewRecordSchemaInner,
     commerceCollectionRecordSchemaInner,
-    commerceTombstoneRecordSchema,
   ]),
 );
 
@@ -704,7 +707,7 @@ const commerceWatchlistItemSchema = z
     listingId: commerceEntityIdSchema,
     watchedAtMs: commerceEpochMillisSchema,
   })
-  .strict();
+  .passthrough();
 
 const commerceWatchlistTombstoneSchema = z
   .object({
@@ -712,7 +715,7 @@ const commerceWatchlistTombstoneSchema = z
     listingId: commerceEntityIdSchema,
     removedAtMs: commerceEpochMillisSchema,
   })
-  .strict();
+  .passthrough();
 
 /**
  * The PRIVATE watchlist document at `/priv/pubky.app/marketplace/v1/watchlist.json`
@@ -727,7 +730,7 @@ const commerceWatchlistRecordSchemaInner = commercePublicRecordBaseSchema
     items: z.array(commerceWatchlistItemSchema).max(500),
     tombstones: z.array(commerceWatchlistTombstoneSchema).max(500),
   })
-  .strict()
+  .passthrough()
   .superRefine((watchlist, context) => {
     validateRecordDates(watchlist, context);
     const keys = [...watchlist.items, ...watchlist.tombstones].map(
@@ -761,7 +764,7 @@ const commerceDropRecordSchemaInner = commercePublicRecordBaseSchema
     createdAt: commerceTimestampSchema,
     updatedAt: commerceTimestampSchema,
   })
-  .strict()
+  .passthrough()
   .superRefine((drop, context) => {
     validateRecordDates(drop, context);
     if (drop.endsAt !== undefined && Date.parse(drop.endsAt) <= Date.parse(drop.startsAt)) {
@@ -813,10 +816,10 @@ const commerceOrderReceiptRecordSchemaInner = commercePublicRecordBaseSchema
         edition: z.number().int().min(1),
         of: z.number().int().min(1),
       })
-      .strict()
+      .passthrough()
       .optional(),
   })
-  .strict()
+  .passthrough()
   .superRefine((receipt, context) => {
     validateRecordDates(receipt, context);
     const partyForRole = receipt.role === 'buyer' ? receipt.buyerPubky : receipt.sellerPubky;
@@ -867,5 +870,4 @@ export type CommerceOrderReceiptRecord = z.infer<typeof commerceOrderReceiptReco
 export type CommerceDropRecord = z.infer<typeof commerceDropRecordSchema>;
 export type CommerceWatchlistRecordItem = CommerceWatchlistRecord['items'][number];
 export type CommerceWatchlistRecordTombstone = CommerceWatchlistRecord['tombstones'][number];
-export type CommerceTombstoneRecord = z.infer<typeof commerceTombstoneRecordSchema>;
 export type CommercePublicRecord = z.infer<typeof commercePublicRecordSchema>;

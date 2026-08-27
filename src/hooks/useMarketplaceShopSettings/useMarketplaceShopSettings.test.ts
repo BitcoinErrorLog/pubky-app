@@ -121,6 +121,29 @@ describe('useMarketplaceShopSettings', () => {
     );
   });
 
+  it('round-trips unedited and unknown record members through a save (open-world records)', async () => {
+    // transactionService is a real optional field this form does not edit;
+    // futureField stands in for a member added by a newer writer. Both must
+    // survive the read-modify-write untouched (social/v1 alignment).
+    vi.mocked(CommerceController.getOrFetchShop).mockResolvedValue({
+      ...publishedShop,
+      transactionService: 'https://service.example',
+      futureField: { promo: true },
+    } as never);
+
+    const { result } = renderHook(() => useMarketplaceShopSettings());
+    await waitFor(() => expect(result.current.hasShop).toBe(true));
+    await act(() => result.current.submit());
+
+    expect(CommerceController.commitUpsertShop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionService: 'https://service.example',
+        futureField: { promo: true },
+        revision: 4,
+      }),
+    );
+  });
+
   it('falls back to the local cache when the homeserver is unreachable', async () => {
     vi.mocked(CommerceController.getOrFetchShop).mockRejectedValue(new Error('offline'));
     vi.mocked(CommerceController.getShop).mockResolvedValue({ record: publishedShop } as never);

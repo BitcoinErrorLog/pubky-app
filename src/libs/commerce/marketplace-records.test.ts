@@ -7,10 +7,8 @@ import {
   commerceListingRecordSchema,
   commerceListingShippingMinor,
   commerceOrderReceiptRecordSchema,
-  commercePublicRecordSchema,
   commerceReviewRecordSchema,
   commerceShopRecordSchema,
-  commerceTombstoneRecordSchema,
   locksPublicUriSchema,
   marketplacePublicUriSchema,
 } from './marketplace-records';
@@ -230,13 +228,16 @@ describe('commerceListingRecordSchema', () => {
     ).toBe(false);
   });
 
-  it('rejects unknown fields so private data cannot hitchhike on public records', () => {
+  it('accepts and preserves unknown members (open-world records, social/v1 alignment)', () => {
     const listing = {
       ...makeFixedListing(),
-      deliveryAddress: 'private',
+      futureField: { anything: true },
     };
 
-    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
+    const parsed = commerceListingRecordSchema.parse(listing);
+    // Round-trip: the unknown member survives parse so a read-modify-write
+    // by this client never strips what a newer writer added.
+    expect((parsed as Record<string, unknown>).futureField).toEqual({ anything: true });
   });
 
   it('rejects an updated timestamp before creation', () => {
@@ -483,7 +484,10 @@ describe('other public marketplace records', () => {
     expect(commerceDropRecordSchema.safeParse({ ...drop, format: 'raffle' }).success).toBe(false);
     expect(commerceDropRecordSchema.safeParse({ ...drop, stockDisplay: 'fake' }).success).toBe(false);
     expect(commerceDropRecordSchema.safeParse({ ...drop, totalQuantity: 0 }).success).toBe(false);
-    expect(commerceDropRecordSchema.safeParse({ ...drop, surprise: true }).success).toBe(false);
+    // Open-world: unknown members pass through (social/v1 alignment). The
+    // SERVICE still rejects unknown drop fields at its signing boundary —
+    // enforcement terms a seller did not sign are refused there, not here.
+    expect(commerceDropRecordSchema.safeParse({ ...drop, surprise: true }).success).toBe(true);
   });
 
   it('accepts edition fields on a receipt only together and consistent', () => {
@@ -612,23 +616,6 @@ describe('other public marketplace records', () => {
     });
 
     expect(result.success).toBe(false);
-  });
-
-  it('accepts a minimal versioned tombstone through the public record union', () => {
-    const tombstone = {
-      schemaVersion: COMMERCE_CONTRACT_VERSION,
-      recordType: 'tombstone' as const,
-      ownerPubky: SELLER_PUBKY,
-      revision: 2,
-      createdAt: CREATED_AT,
-      updatedAt: UPDATED_AT,
-      targetType: 'listing' as const,
-      targetId: 'boots_01',
-      reason: 'deleted' as const,
-    };
-
-    expect(commerceTombstoneRecordSchema.safeParse(tombstone).success).toBe(true);
-    expect(commercePublicRecordSchema.safeParse(tombstone).success).toBe(true);
   });
 });
 

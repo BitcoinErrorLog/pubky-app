@@ -2,7 +2,15 @@
 
 ## Status
 
-Accepted — 2026-08-19
+Accepted — 2026-08-19. Amended — 2026-08-27 (social/v1 alignment): two rules
+below are REVERSED, marked inline. Records are now open-world (unknown members
+are tolerated on parse and preserved on rewrite), and deletion publishes no
+tombstone — absence is the tombstone. Rationale: the planned social/v1 spec
+forbids closed-world records because they make additive growth impossible, and
+rejects durable tombstones because the substrate cannot enforce them against
+the owner's own writes while public ones leak deletion metadata forever; the
+receipt JWS keeps a buyer's history verifiable after a listing disappears. The
+full v1 migration is designed in [ADR 0027](0027-social-v1-migration.md).
 
 > **Current state (2026-08-23)**: the marketplace objects (shop, listing, review — later joined by purchase attestations, review responses, the private watchlist, portable order receipts with edition attestations, and drop records) are registered and validated in the `pubky-app-specs` fork (`BitcoinErrorLog/pubky-app-specs`, branches `feat/marketplace-objects-0.6.x` and then `marketplace-4-build`, releases `v0.6.2-marketplace.1`–`.8`), which this client vendors and the marketplace Nexus parses for indexing. Two path details changed from the v1 sketch below when the specs landed: listing/review paths carry no `.json` suffix (only the `shop.json` singleton keeps one), and listing/review IDs follow the specs' timestamp/hash ID rules. Namespace choice is recorded in [ADR 0021](0021-marketplace-record-namespace.md).
 
@@ -40,13 +48,18 @@ The owner homeserver remains canonical for authored public content. The protocol
 
 Rules:
 
-- every object is closed-world JSON and rejects unknown fields;
+- ~~every object is closed-world JSON and rejects unknown fields~~ REVERSED
+  2026-08-27: every object is OPEN-WORLD JSON — unknown members are tolerated
+  on parse and preserved on rewrite (the JWS attestation claim structs stay
+  strict as a verification-boundary exception);
 - every object carries `schema_version`, owner Pubky, stable path-safe ID, revision, `created_at`, and `updated_at`;
 - IDs are random and never derived from title, price, email, address, or another sensitive field;
 - object identity is `{owner_pubky}:{object_id}`;
 - revision starts at 1 and increases exactly by 1 for each owner-authored replacement;
 - timestamps are RFC 3339, but owner timestamps never decide transaction deadlines;
-- deletion publishes a minimal tombstone before best-effort later cleanup;
+- ~~deletion publishes a minimal tombstone before best-effort later cleanup~~
+  REVERSED 2026-08-27: deletion removes the record; ABSENCE is the tombstone
+  (no tombstone record type exists — the write path never shipped one);
 - readers validate owner/path agreement before using content;
 - unsupported schema versions render an honest unsupported state and cannot transact.
 

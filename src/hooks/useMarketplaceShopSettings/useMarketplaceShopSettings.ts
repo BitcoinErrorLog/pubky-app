@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { getErrorMessage, HOMESERVER_WRITE_SCOPE_REMEDY, isHomeserverWriteScopeError } from '@/libs/error/error.utils';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
@@ -146,6 +147,10 @@ export function useMarketplaceShopSettings() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const [revision, setRevision] = useState(0);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
+  // The full fetched record, spread on save so members this form does not
+  // edit — transactionService, and any field a newer writer added — survive
+  // the read-modify-write (open-world records, social/v1 alignment).
+  const [existingRecord, setExistingRecord] = useState<CommerceShopRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const avatar = useShopImageSlot(IMAGE_MAX_RAW_SIZE);
@@ -173,18 +178,8 @@ export function useMarketplaceShopSettings() {
         else setIsLoading(false);
       });
 
-    function hydrate(record: {
-      revision: number;
-      createdAt: string;
-      name: string;
-      bio: string;
-      location: { countryCode: string; region?: string };
-      avatarUrl?: string;
-      bannerUrl?: string;
-      shippingPolicy: string;
-      returnPolicy: string;
-      vacationMode: boolean;
-    }) {
+    function hydrate(record: CommerceShopRecord) {
+      setExistingRecord(record);
       setRevision(record.revision);
       setCreatedAt(record.createdAt);
       setAvatarExisting(record.avatarUrl);
@@ -241,6 +236,8 @@ export function useMarketplaceShopSettings() {
 
       try {
         await CommerceController.commitUpsertShop({
+          // Unedited members of the fetched record survive the save verbatim.
+          ...(existingRecord ?? {}),
           schemaVersion: COMMERCE_CONTRACT_VERSION,
           recordType: 'shop',
           ownerPubky: currentUserPubky,
