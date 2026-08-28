@@ -73,6 +73,10 @@ export function MarketplaceSessionConnectDialog({ onConnected }: { onConnected?:
           against the transaction service until the session expires or you sign out. The session stays on this device
           across tabs, reloads, and restarts.
         </Typography>
+        <Typography as="p" className="text-sm text-muted-foreground">
+          Ring will show an empty permission list — that is correct. This approval only proves your identity to the
+          marketplace service; it grants no read or write access to anything on your homeserver.
+        </Typography>
 
         {session.status === 'error' ? (
           <div className="grid gap-3">
