@@ -103,6 +103,9 @@ describe('pubky_app.dm.v0 direct message contract', () => {
     expect(decodeDmMessage(JSON.stringify({ ...message, sent_at: 1756742400.5 }))).toBeNull();
     expect(decodeDmMessage(JSON.stringify({ ...message, sent_at: 0 }))).toBeNull();
     expect(decodeDmMessage(JSON.stringify({ ...message, sent_at: null }))).toBeNull();
+    expect(decodeDmMessage(JSON.stringify({ ...message, sent_at: 1e30 }))).toBeNull();
+    expect(decodeDmMessage(JSON.stringify({ ...message, sent_at: 8.64e15 + 1 }))).toBeNull();
+    expect(decodeDmMessage(JSON.stringify({ ...message, sent_at: 2 ** 53 + 1 }))).toBeNull();
   });
 
   it('decodes a Hypercolor-shaped pubky_app.dm.v0 envelope', () => {

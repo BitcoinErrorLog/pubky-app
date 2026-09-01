@@ -114,6 +114,9 @@ describe('marketplace chat message contract', () => {
     expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: undefined }))).toBeNull();
     expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: '1756742400000' }))).toBeNull();
     expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: null }))).toBeNull();
+    expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: 1e30 }))).toBeNull();
+    expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: 8.64e15 + 1 }))).toBeNull();
+    expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: 2 ** 53 + 1 }))).toBeNull();
   });
 
   it('parses conversation aggregate ids back into participants and listing', () => {
