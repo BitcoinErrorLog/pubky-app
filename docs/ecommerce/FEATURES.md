@@ -230,8 +230,8 @@ ledger).
   assignment; health, readiness, metrics; Docker + Railway deploy
 - **Marketplace Nexus** (fork): listing/shop/review/tag/drop indexing
   (`/v0/stream/drops` + per-drop projections), reputation aggregation,
-  auction-terms backfill migration, replay runbooks, poll deadlines
-  against dead homeservers
+  auction-terms and review backfill migrations, replay runbooks, poll
+  deadlines against dead homeservers
 - **Specs fork** (`pubky-app-specs`): marketplace objects (listing, shop,
   review, response, attestation, private watchlist, portable order
   receipt with edition attestation, drop record), entity-ID validation,
@@ -255,6 +255,4 @@ ledger).
   rails, buyer pays the seller's own hosted checkout), so no payout leg
   exists to build. Connect-style onboarding would only become relevant if
   the marketplace ever took custody or platform fees, which it does not.
-- Nexus review backfill migration for pre-deployment history (documented
-  requirement for pointing a shared Nexus at old event logs)
 - Messaging backup-key encryption (open product decision, disclosed in UI)

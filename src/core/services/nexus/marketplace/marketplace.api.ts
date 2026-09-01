@@ -28,8 +28,9 @@ import { buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.uti
  * `nexusUrl`. When the override is unset both resolve to the same Nexus.
  *
  * The tag endpoints mirror the post tag routes and are served by the
- * marketplace Nexus once its tag aggregation lands; the client treats a 404
- * from them as "aggregation not deployed" and degrades to local-only tags.
+ * marketplace Nexus (tag aggregation shipped in `308b985e`, deployed
+ * 2026-08-28). The client still treats a 404 as "aggregation not on this
+ * deployment" and degrades to local-only tags.
  */
 
 const STREAM_LISTINGS_ROUTE = 'v0/stream/listings';

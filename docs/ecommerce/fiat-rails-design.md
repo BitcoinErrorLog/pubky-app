@@ -1,6 +1,6 @@
 # Fiat Rails for the Marketplace: Stripe and PayPal through Locks
 
-**Status:** Design proposal — research complete, no code written.
+**Status:** Implemented and live-proven on staging (Stripe test-mode + PayPal sandbox, 2026-08-22).
 **Scope:** Add card (Stripe) and PayPal payment support to the marketplace's Locks-based
 payment architecture, beside the existing Bitcoin/Paykit rail.
 **Strategic goal:** Demonstrate that Locks is a payment-agnostic entitlement layer:

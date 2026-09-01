@@ -4,14 +4,11 @@ import { getMarketplaceNexusUrl } from '@/config/nexus';
 /**
  * DELIBERATELY HOOK-LOCAL Nexus read (`GET v0/stream/drops`).
  *
- * The marketplace Nexus fork gains a drops stream with ADR 0026's D1
- * indexing, but deployments may not serve it yet. Until the endpoint is
- * live everywhere and its response shape is pinned by an integration test,
- * this fetcher stays beside its only consumer instead of being promoted
- * into `src/core/services/nexus/marketplace` — promoting a speculative
- * contract into the service layer would freeze a shape no server has
- * confirmed. Once deployed, move this into the Nexus marketplace service
- * (and its controller passthrough) following `fetchListingStream` exactly.
+ * The marketplace Nexus fork serves `GET v0/stream/drops` (ADR 0026 D1
+ * indexing; shipped in `055cb099` and present in the deployed marketplace
+ * Nexus). This fetcher stays beside its only consumer rather than in
+ * `src/core/services/nexus/marketplace` until it is promoted to follow
+ * `fetchListingStream` exactly.
  *
  * Degradation contract (same as every marketplace Nexus read): a 404 means
  * "drop discovery is not indexed on this deployment" and returns `null` so

@@ -49,8 +49,9 @@ export class NexusMarketplaceService {
   /**
    * Fetches the community tag aggregate for a listing.
    *
-   * Served by the marketplace Nexus once tag aggregation is deployed; until
-   * then the endpoint answers 404 and callers degrade to local-only tags.
+   * Served by the marketplace Nexus (tag aggregation deployed 2026-08-28,
+   * `308b985e`); a 404 means this deployment lacks the endpoint and callers
+   * degrade to local-only tags.
    *
    * @param params - Seller/listing path params plus pagination and viewer id
    * @returns Array of tag aggregates (empty when the listing has no tags)
