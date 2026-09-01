@@ -205,7 +205,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
       eventId: crypto.randomUUID(),
       conversationId,
       listingRef,
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'Yes, still available. (live proof, Bob -> Alice)',
     });
     await bobLink!.sendPrivateApplicationMessageJson(reply.json);
@@ -246,7 +246,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
 
     const dmReply = buildDmMessage({
       eventId: crypto.randomUUID(),
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'DM received and answered. (live proof, Bob -> Alice)',
     });
     await bobLink!.sendPrivateApplicationMessageJson(dmReply.json);
@@ -291,7 +291,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
       eventId: crypto.randomUUID(),
       conversationId,
       listingRef,
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'Sent while Alice was away. (live proof, snapshot restore)',
     });
     await bobLink!.sendPrivateApplicationMessageJson(secondReply.json);

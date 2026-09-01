@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asInvalid } from '@/test-utils/type-assertions';
 import {
   bodyByteSize,
   buildChatMessage,
@@ -17,7 +18,9 @@ const LISTING_ID = '0033GVVN22HJ0FYQGZZS8R2BFC';
 const CONVERSATION_ID = buildMarketplaceConversationAggregateId(SELLER, BUYER, LISTING_ID);
 const LISTING_REF = buildMarketplaceListingAggregateId(SELLER, LISTING_ID);
 const EVENT_ID = '5b3f9a0e-8f2c-4f4e-9d35-1c2b4a6d8e01';
-const SENT_AT = '2026-08-21T10:00:00.000Z';
+const SENT_AT = 1_756_742_400_000;
+const LEGACY_ISO_SENT_AT = '2026-08-21T10:00:00.000Z';
+const LEGACY_ISO_SENT_AT_MS = Date.parse(LEGACY_ISO_SENT_AT);
 
 function build(body: string) {
   return buildChatMessage({
@@ -34,6 +37,8 @@ describe('marketplace chat message contract', () => {
     const { message, json, byteSize } = build('Is this still available?');
     expect(message.kind).toBe(MARKETPLACE_CHAT_MESSAGE_KIND);
     expect(message.version).toBe(1);
+    expect(message.sent_at).toBe(SENT_AT);
+    expect(typeof JSON.parse(json).sent_at).toBe('number');
     expect(JSON.parse(json)).toEqual(message);
     expect(byteSize).toBe(new TextEncoder().encode(json).byteLength);
     expect(byteSize).toBeLessThanOrEqual(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
@@ -66,10 +71,22 @@ describe('marketplace chat message contract', () => {
       eventId: crypto.randomUUID(),
       conversationId: CONVERSATION_ID,
       listingRef: LISTING_REF,
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'x'.repeat(budget),
     });
     expect(withOtherIds.byteSize).toBe(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
+  });
+
+  it('rejects ISO-8601 sent_at on the send path', () => {
+    expect(() =>
+      buildChatMessage({
+        eventId: EVENT_ID,
+        conversationId: CONVERSATION_ID,
+        listingRef: LISTING_REF,
+        sentAt: asInvalid<number>(LEGACY_ISO_SENT_AT),
+        body: 'no iso on emit',
+      }),
+    ).toThrow();
   });
 
   it('round-trips through decode and skips foreign or malformed payloads', () => {
@@ -78,6 +95,25 @@ describe('marketplace chat message contract', () => {
     expect(decodeChatMessage('not json at all')).toBeNull();
     expect(decodeChatMessage(JSON.stringify({ version: 1, kind: 'paykit.payment_request.v0' }))).toBeNull();
     expect(decodeChatMessage(JSON.stringify({ ...message, event_id: 'not-a-uuid' }))).toBeNull();
+  });
+
+  it('accepts a Unix-ms sent_at on inbound decode', () => {
+    const { message } = build('unix-ms inbound');
+    expect(decodeChatMessage(JSON.stringify(message))).toEqual(message);
+  });
+
+  it('accepts a legacy ISO-8601 sent_at on inbound decode and normalizes to Unix-ms', () => {
+    const { message } = build('legacy iso inbound');
+    const decoded = decodeChatMessage(JSON.stringify({ ...message, sent_at: LEGACY_ISO_SENT_AT }));
+    expect(decoded).toEqual({ ...message, sent_at: LEGACY_ISO_SENT_AT_MS });
+    expect(typeof decoded?.sent_at).toBe('number');
+  });
+
+  it('rejects missing or invalid inbound sent_at', () => {
+    const { message } = build('invalid sent_at');
+    expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: undefined }))).toBeNull();
+    expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: '1756742400000' }))).toBeNull();
+    expect(decodeChatMessage(JSON.stringify({ ...message, sent_at: null }))).toBeNull();
   });
 
   it('parses conversation aggregate ids back into participants and listing', () => {

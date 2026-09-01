@@ -156,7 +156,10 @@ function EncryptedConversationRow({ conversation }: { conversation: MessagingCon
                 </Typography>
               </div>
               {conversation.lastMessage && (
-                <time dateTime={conversation.lastMessage.sent_at} className="text-xs text-muted-foreground">
+                <time
+                  dateTime={new Date(conversation.lastMessage.sent_at).toISOString()}
+                  className="text-xs text-muted-foreground"
+                >
                   {new Date(conversation.lastMessage.sent_at).toLocaleDateString('en-US')}
                 </time>
               )}

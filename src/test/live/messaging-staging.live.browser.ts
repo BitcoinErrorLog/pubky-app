@@ -224,7 +224,7 @@ describe('encrypted marketplace messaging — live two-party proof on STAGING (p
       eventId: crypto.randomUUID(),
       conversationId,
       listingRef,
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'Yes, still available. (staging live proof, Bob -> Alice)',
     });
     await bobLink!.sendPrivateApplicationMessageJson(reply.json);
@@ -255,7 +255,7 @@ describe('encrypted marketplace messaging — live two-party proof on STAGING (p
       eventId: crypto.randomUUID(),
       conversationId,
       listingRef,
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'Sent while Alice was away. (staging live proof, snapshot restore)',
     });
     await bobLink!.sendPrivateApplicationMessageJson(secondReply.json);

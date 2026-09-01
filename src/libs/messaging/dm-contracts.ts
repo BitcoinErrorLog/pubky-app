@@ -3,6 +3,7 @@ import { PAYKIT_NOISE_MESSAGE_MAX_BYTES } from '@/libs/commerce/messaging-contra
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { PAM_SENT_AT_UNIX_MS_PLACEHOLDER, pamSentAtEmitSchema, parsePamSentAt } from '@/libs/messaging/pam-sent-at';
 
 /**
  * Private Application Message kind for a general direct message between two
@@ -24,14 +25,16 @@ export const PUBKY_APP_DM_KIND = 'pubky_app.dm.v0';
  *   on a shared link and are skipped by receivers).
  * - `event_id`: sender-minted UUID; receivers dedupe by it (crash replay
  *   after a restored snapshot is expected and must be idempotent).
- * - `sent_at`: sender's wall clock, ISO-8601 UTC. Display ordering only.
+ * - `sent_at`: sender's wall clock, Unix-millisecond integer. Display
+ *   ordering only. Emitters MUST write a JSON number; ISO-8601 is invalid
+ *   on the send path.
  * - `body`: the message text, trimmed, non-empty.
  */
 export const dmMessageSchema = z.object({
   version: z.literal(1),
   kind: z.literal(PUBKY_APP_DM_KIND),
   event_id: z.uuid(),
-  sent_at: z.iso.datetime(),
+  sent_at: pamSentAtEmitSchema,
   body: z.string().min(1),
 });
 
@@ -44,9 +47,10 @@ const utf8 = new TextEncoder();
  * ceiling on the SERIALIZED size (JSON escaping and multi-byte UTF-8 count
  * against the budget). Throws on oversize instead of truncating — the
  * composer shows the live budget and the send path never silently drops
- * content. Same contract as `buildChatMessage`.
+ * content. Same contract as `buildChatMessage`. `sentAt` MUST be a Unix-ms
+ * integer; ISO-8601 strings are rejected here.
  */
-export function buildDmMessage(input: { eventId: string; sentAt: string; body: string }): {
+export function buildDmMessage(input: { eventId: string; sentAt: number; body: string }): {
   message: PubkyAppDmMessage;
   json: string;
   byteSize: number;
@@ -85,15 +89,15 @@ export function buildDmMessage(input: { eventId: string; sentAt: string; body: s
 /**
  * The byte budget available for a DM body: the Noise ceiling minus the
  * serialized envelope with an empty body. Every field outside the body is
- * fixed-width (UUID 36 chars, `sent_at` 24-char ISO), so the budget is a
- * stable constant while typing.
+ * fixed-width (UUID 36 chars, `sent_at` a 13-digit Unix-ms integer), so the
+ * budget is a stable constant while typing.
  */
 export function dmBodyBudget(): number {
   const envelope: PubkyAppDmMessage = {
     version: 1,
     kind: PUBKY_APP_DM_KIND,
     event_id: '00000000-0000-4000-8000-000000000000',
-    sent_at: '2026-01-01T00:00:00.000Z',
+    sent_at: PAM_SENT_AT_UNIX_MS_PLACEHOLDER,
     body: '',
   };
   return PAYKIT_NOISE_MESSAGE_MAX_BYTES - utf8.encode(JSON.stringify(envelope)).byteLength;
@@ -103,6 +107,10 @@ export function dmBodyBudget(): number {
  * Decodes one received Private Application Message as a DM. Returns `null`
  * for payloads that are not a valid `pubky_app.dm.v0` (unknown kinds are
  * legal on a shared link and are skipped, never treated as an error).
+ *
+ * Inbound `sent_at` accepts a Unix-ms integer or a legacy ISO-8601 string
+ * and always normalizes to a Unix-ms number, so already-stored marketplace
+ * DMs and in-flight ISO envelopes still decode during migration.
  */
 export function decodeDmMessage(rawJson: string): PubkyAppDmMessage | null {
   let value: unknown;
@@ -111,7 +119,10 @@ export function decodeDmMessage(rawJson: string): PubkyAppDmMessage | null {
   } catch {
     return null;
   }
-  const parsed = dmMessageSchema.safeParse(value);
+  if (typeof value !== 'object' || value === null) return null;
+  const sentAt = parsePamSentAt((value as { sent_at?: unknown }).sent_at);
+  if (sentAt === null) return null;
+  const parsed = dmMessageSchema.safeParse({ ...value, sent_at: sentAt });
   return parsed.success ? parsed.data : null;
 }
 

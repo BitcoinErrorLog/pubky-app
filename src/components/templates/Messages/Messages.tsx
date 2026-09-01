@@ -135,7 +135,7 @@ function hasUnread(conversation: MessagingConversationSummary): boolean {
 function RowTimestamp({ conversation }: { conversation: MessagingConversationSummary }) {
   if (!conversation.lastMessage) return null;
   return (
-    <time dateTime={conversation.lastMessage.sent_at} className="text-xs text-muted-foreground">
+    <time dateTime={new Date(conversation.lastMessage.sent_at).toISOString()} className="text-xs text-muted-foreground">
       {new Date(conversation.lastMessage.sent_at).toLocaleDateString('en-US')}
     </time>
   );

@@ -82,7 +82,7 @@ describe('paykit-wasm real crypto (vendored artifact)', () => {
       eventId: crypto.randomUUID(),
       conversationId: CONVERSATION_ID,
       listingRef: LISTING_REF,
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'Is this still available? Asking over real ChaChaPoly.',
     });
     const packet = alice.encrypt(new TextEncoder().encode(json));
@@ -96,14 +96,14 @@ describe('paykit-wasm real crypto (vendored artifact)', () => {
     const { alice, bob } = establishedPair();
     const dm = buildDmMessage({
       eventId: crypto.randomUUID(),
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'General DMs ride the same Noise link as marketplace chat.',
     });
     const chat = buildChatMessage({
       eventId: crypto.randomUUID(),
       conversationId: CONVERSATION_ID,
       listingRef: LISTING_REF,
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'And this one belongs to the listing conversation.',
     });
     // One link, two kinds, in one drain order — receivers split them by kind.
@@ -121,7 +121,7 @@ describe('paykit-wasm real crypto (vendored artifact)', () => {
     const { alice, bob } = establishedPair();
     const { json, byteSize } = buildDmMessage({
       eventId: crypto.randomUUID(),
-      sentAt: '2026-08-21T10:00:00.000Z',
+      sentAt: Date.now(),
       body: 'a'.repeat(dmBodyBudget()),
     });
     expect(byteSize).toBe(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
@@ -139,7 +139,7 @@ describe('paykit-wasm real crypto (vendored artifact)', () => {
       conversationId: CONVERSATION_ID,
       listingRef: LISTING_REF,
       // Fixed-width fields keep the byte size exact (asserted below).
-      sentAt: '2026-08-21T10:00:00.000Z',
+      sentAt: Date.now(),
       body: 'a'.repeat(budget),
     });
     expect(byteSize).toBe(PAYKIT_NOISE_MESSAGE_MAX_BYTES);

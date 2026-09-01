@@ -19,7 +19,7 @@ function messageRow(eventSuffix: string, recordedAt: number) {
     counterparty_pubky: COUNTERPARTY,
     direction: 'received' as const,
     body: `message ${eventSuffix}`,
-    sent_at: '2026-08-21T10:00:00.000Z',
+    sent_at: 1_755_766_800_000,
     recorded_at: recordedAt,
   };
 }

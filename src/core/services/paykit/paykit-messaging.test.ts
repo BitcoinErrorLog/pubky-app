@@ -430,6 +430,7 @@ describe('PaykitMessagingService', () => {
         listing_ref: LISTING_REF,
         body: 'Is this still available?',
       });
+      expect(typeof JSON.parse(link.sent[0]).sent_at).toBe('number');
 
       const rows = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
       expect(rows).toHaveLength(1);
@@ -526,6 +527,7 @@ describe('PaykitMessagingService', () => {
         kind: 'pubky_app.dm.v0',
         body: 'hi — direct',
       });
+      expect(typeof JSON.parse(link.sent[0]).sent_at).toBe('number');
       expect(JSON.parse(link.sent[0])).not.toHaveProperty('listing_ref');
 
       const rows = await LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`);

@@ -53,7 +53,7 @@ function dmConversationFixture(unread: boolean) {
       counterparty_pubky: DM_COUNTERPARTY,
       direction: 'received',
       body: 'Hey — are you going to the meetup on Saturday?',
-      sent_at: '2026-08-20T12:00:00.000Z',
+      sent_at: 1_755_691_200_000,
       recorded_at: 1_755_691_200_000,
     },
   };
@@ -80,7 +80,7 @@ function listingConversationFixture() {
       counterparty_pubky: LISTING_SELLER,
       direction: 'sent',
       body: 'Is this still available?',
-      sent_at: '2026-08-19T12:00:00.000Z',
+      sent_at: 1_755_604_800_000,
       recorded_at: 1_755_604_800_000,
     },
   };
@@ -95,7 +95,7 @@ function dmMessageFixture(id: string, direction: 'sent' | 'received', body: stri
     counterparty_pubky: DM_COUNTERPARTY,
     direction,
     body,
-    sent_at: '2026-08-20T12:00:00.000Z',
+    sent_at: 1_755_691_200_000,
     recorded_at: recordedAt,
   };
 }

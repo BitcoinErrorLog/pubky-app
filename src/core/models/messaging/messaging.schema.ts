@@ -144,8 +144,8 @@ export interface CommerceMessagingMessageModelSchema {
   counterparty_pubky: string;
   direction: CommerceMessagingDirection;
   body: string;
-  /** Sender wall clock from the envelope (ISO-8601, display ordering only). */
-  sent_at: string;
+  /** Sender wall clock from the envelope (Unix milliseconds, display ordering only). */
+  sent_at: number;
   /** Local receipt/persist time, the stable sort key on this device. */
   recorded_at: number;
 }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { PAM_SENT_AT_UNIX_MS_PLACEHOLDER, pamSentAtEmitSchema, parsePamSentAt } from '@/libs/messaging/pam-sent-at';
 
 /**
  * The homeserver capability the encrypted-messaging session asks Pubky Ring to
@@ -64,8 +65,9 @@ export const PAYKIT_NOISE_MESSAGE_MAX_BYTES = 1000;
  * - `listing_ref`: the listing aggregate id (`listing:{seller}:{listingId}`),
  *   so the receiving side can render the listing context without parsing the
  *   conversation id.
- * - `sent_at`: sender's wall clock, ISO-8601 UTC. Display ordering only —
- *   receipt order on each device is the stream order.
+ * - `sent_at`: sender's wall clock, Unix-millisecond integer. Display
+ *   ordering only — receipt order on each device is the stream order.
+ *   Emitters MUST write a JSON number; ISO-8601 is invalid on the send path.
  * - `body`: the message text, trimmed, non-empty.
  */
 export const marketplaceChatMessageSchema = z.object({
@@ -74,7 +76,7 @@ export const marketplaceChatMessageSchema = z.object({
   event_id: z.uuid(),
   conversation_id: z.string().min(1).max(256),
   listing_ref: z.string().min(1).max(256),
-  sent_at: z.iso.datetime(),
+  sent_at: pamSentAtEmitSchema,
   body: z.string().min(1),
 });
 
@@ -98,7 +100,7 @@ export function buildChatMessage(input: {
   eventId: string;
   conversationId: string;
   listingRef: string;
-  sentAt: string;
+  sentAt: number;
   body: string;
 }): { message: MarketplaceChatMessage; json: string; byteSize: number } {
   const candidate = {
@@ -136,20 +138,21 @@ export function buildChatMessage(input: {
 
 /**
  * The byte budget available for the body of a message in this conversation:
- * the Noise ceiling minus the serialized envelope with an empty body. UUID and
- * ISO-timestamp fields are fixed-width, so the budget is stable while typing;
- * the composer meters `bodyByteSize` (serialized, escapes included) against it.
+ * the Noise ceiling minus the serialized envelope with an empty body. UUID
+ * and Unix-ms `sent_at` fields are fixed-width (36 chars and 13 digits), so
+ * the budget is stable while typing; the composer meters `bodyByteSize`
+ * (serialized, escapes included) against it.
  */
 export function chatMessageBodyBudget(conversationId: string, listingRef: string): number {
   const envelope: MarketplaceChatMessage = {
     version: 1,
     kind: MARKETPLACE_CHAT_MESSAGE_KIND,
     // Fixed-width placeholders: every UUID is 36 chars, every `sent_at` this
-    // client writes is a 24-char `YYYY-MM-DDTHH:mm:ss.sssZ`.
+    // client writes is a 13-digit Unix-millisecond integer.
     event_id: '00000000-0000-4000-8000-000000000000',
     conversation_id: conversationId,
     listing_ref: listingRef,
-    sent_at: '2026-01-01T00:00:00.000Z',
+    sent_at: PAM_SENT_AT_UNIX_MS_PLACEHOLDER,
     body: '',
   };
   return PAYKIT_NOISE_MESSAGE_MAX_BYTES - chatMessageByteSize(envelope);
@@ -184,6 +187,10 @@ export function parseConversationAggregateId(
  * Decodes one received Private Application Message. Returns `null` for
  * payloads that are not a valid `marketplace.chat_message.v0` (unknown kinds
  * are legal on a shared link and are skipped, never treated as an error).
+ *
+ * Inbound `sent_at` accepts a Unix-ms integer or a legacy ISO-8601 string
+ * and always normalizes to a Unix-ms number, matching `decodeDmMessage` on
+ * the same Encrypted Link.
  */
 export function decodeChatMessage(rawJson: string): MarketplaceChatMessage | null {
   let value: unknown;
@@ -192,6 +199,9 @@ export function decodeChatMessage(rawJson: string): MarketplaceChatMessage | nul
   } catch {
     return null;
   }
-  const parsed = marketplaceChatMessageSchema.safeParse(value);
+  if (typeof value !== 'object' || value === null) return null;
+  const sentAt = parsePamSentAt((value as { sent_at?: unknown }).sent_at);
+  if (sentAt === null) return null;
+  const parsed = marketplaceChatMessageSchema.safeParse({ ...value, sent_at: sentAt });
   return parsed.success ? parsed.data : null;
 }
