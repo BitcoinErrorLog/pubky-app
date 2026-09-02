@@ -29,6 +29,19 @@ export enum APP_ROUTES {
   SHARE = '/share',
 }
 
+/**
+ * Builds a full-text search URL (`/search?q=…`).
+ *
+ * All submit paths (Enter, "Show all results", recent-query chips) go through
+ * this one builder, so the same query always produces the same URL — results
+ * are cached per URL — and special characters in the query (spaces, `&`, `#`)
+ * are always encoded correctly.
+ */
+export function getContentSearchUrl(query: string): string {
+  const params = new URLSearchParams({ q: query });
+  return `${APP_ROUTES.SEARCH}?${params.toString()}`;
+}
+
 export enum COLLECTION_ROUTES {
   BOOKMARKS = '/collections/bookmarks',
 }
