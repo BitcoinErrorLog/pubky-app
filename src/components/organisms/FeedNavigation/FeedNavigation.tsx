@@ -117,7 +117,7 @@ export const FeedNavigation = ({ className }: FeedNavigationProps) => {
     FEED_TAB_CLASS,
     tabWidthClass,
     FEED_TAB_INACTIVE_PADDING_CLASS,
-    'cursor-pointer border-border text-muted-foreground hover:text-white',
+    'cursor-pointer border-border text-muted-foreground hover:text-foreground',
   );
 
   return (
@@ -152,7 +152,9 @@ export const FeedNavigation = ({ className }: FeedNavigationProps) => {
             FEED_TAB_CLASS,
             hasCustomFeeds && isHomeActive ? FEED_TAB_ACTIVE_WIDTH_CLASS : tabWidthClass,
             isHomeActive ? FEED_TAB_ACTIVE_PADDING_CLASS : FEED_TAB_INACTIVE_PADDING_CLASS,
-            isHomeActive ? 'border-white text-white' : 'border-border text-muted-foreground hover:text-white',
+            isHomeActive
+              ? 'border-foreground text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground',
           )}
         >
           <ReachIcon className="size-5 shrink-0" />
@@ -176,7 +178,7 @@ export const FeedNavigation = ({ className }: FeedNavigationProps) => {
                 // horizontal padding and gives the collapsed (flex-none) tab
                 // its content width; the pencil overlays the right padding.
                 isActive ? FEED_TAB_ACTIVE_WIDTH_CLASS : FEED_TAB_INACTIVE_WIDTH_CLASS,
-                isActive ? 'border-white' : 'border-border',
+                isActive ? 'border-foreground' : 'border-border',
               )}
             >
               <Link
@@ -193,7 +195,7 @@ export const FeedNavigation = ({ className }: FeedNavigationProps) => {
                 className={cn(
                   'flex h-full w-full min-w-0 items-center justify-center gap-2',
                   isActive ? CUSTOM_FEED_TAB_ACTIVE_PADDING_CLASS : FEED_TAB_INACTIVE_PADDING_CLASS,
-                  isActive ? 'text-white' : 'text-muted-foreground group-hover:text-white',
+                  isActive ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground',
                 )}
               >
                 <DynamicLucideIcon name={feed.icon} className="size-5 shrink-0" />

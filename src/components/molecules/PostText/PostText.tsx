@@ -166,7 +166,7 @@ export const PostText = memo(function PostText({
             const { children, className, node: _node, ref: _ref, ...rest } = props;
 
             return (
-              <h1 {...rest} className={cn(className, 'text-2xl leading-8 font-bold text-white')}>
+              <h1 {...rest} className={cn(className, 'text-2xl leading-8 font-bold text-foreground')}>
                 {children}
               </h1>
             );
@@ -175,7 +175,7 @@ export const PostText = memo(function PostText({
             const { children, className, node: _node, ref: _ref, ...rest } = props;
 
             return (
-              <h2 {...rest} className={cn(className, 'text-xl leading-7 font-bold text-white')}>
+              <h2 {...rest} className={cn(className, 'text-xl leading-7 font-bold text-foreground')}>
                 {children}
               </h2>
             );
@@ -184,7 +184,7 @@ export const PostText = memo(function PostText({
             const { children, className, node: _node, ref: _ref, ...rest } = props;
 
             return (
-              <h3 {...rest} className={cn(className, 'text-lg leading-7 font-bold text-white')}>
+              <h3 {...rest} className={cn(className, 'text-lg leading-7 font-bold text-foreground')}>
                 {children}
               </h3>
             );
@@ -193,7 +193,7 @@ export const PostText = memo(function PostText({
             const { children, className, node: _node, ref: _ref, ...rest } = props;
 
             return (
-              <h4 {...rest} className={cn(className, 'text-[17px] leading-6 font-bold text-white')}>
+              <h4 {...rest} className={cn(className, 'text-[17px] leading-6 font-bold text-foreground')}>
                 {children}
               </h4>
             );

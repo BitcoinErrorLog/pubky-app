@@ -90,6 +90,7 @@ body {
 }
 
 :root {
+  color-scheme: dark;
   --radius: 0.625rem;
   --background: oklch(0.118 0.014 284.115);
   --foreground: oklch(1 0 0);
@@ -129,6 +130,9 @@ body {
   --toast-action-muted: oklch(0.218 0.006 286);
   --toast-action-muted-hover-border: oklch(0.277 0.006 286);
   --transparent: oklch(0.118 0.014 284.115 / 0);
+  --search-closed-from: #07040a;
+  --search-closed-to: #1b1820;
+  --search-expanded-fade: rgba(5, 5, 10, 0.5);
   --scrollbar-size: 10px;
   --scrollbar-radius: 100%;
   --scrollbar-thumb-color: var(--muted-foreground);
@@ -375,6 +379,45 @@ body {
   --container-max-width: 1200px;
 }
 
+.light {
+  color-scheme: light;
+  --background: oklch(0.95 0.008 284.115);
+  --foreground: oklch(0.205 0.014 284.115);
+  --card: oklch(0.985 0.004 285.946);
+  --card-foreground: oklch(0.205 0.014 284.115);
+  --popover: oklch(0.985 0.004 285.946);
+  --popover-foreground: oklch(0.205 0.014 284.115);
+  --primary: oklch(0.37 0.01 286.174);
+  --primary-foreground: oklch(0.95 0.008 284.115);
+  --secondary: #e4e4ea;
+  --secondary-foreground: #2a2a32;
+  --muted: oklch(0.92 0.007 285.98);
+  --muted-foreground: #5a5a64;
+  --accent: oklch(0.92 0.007 286.088);
+  --accent-foreground: oklch(0.205 0.014 284.115);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0.013 17.38);
+  --border: oklch(0.86 0.008 285.98);
+  --input: #b8b8c0;
+  --ring: oklch(0.55 0.008 286.145);
+  --sidebar-background: oklch(0.935 0.007 285.946);
+  --sidebar: oklch(0.935 0.007 285.946);
+  --sidebar-foreground: oklch(0.205 0.014 284.115);
+  --sidebar-primary: oklch(0.52 0.19 123.978);
+  --sidebar-primary-foreground: oklch(0.95 0.008 284);
+  --sidebar-accent: oklch(0.92 0.007 285.98);
+  --sidebar-accent-foreground: oklch(0.205 0.014 284.115);
+  --sidebar-border: oklch(0.86 0.008 285.98);
+  --sidebar-ring: oklch(0.55 0.008 274.863);
+  --brand: oklch(0.52 0.19 123.978);
+  --toast-action-muted: oklch(0.92 0.007 286);
+  --toast-action-muted-hover-border: oklch(0.86 0.008 286);
+  --transparent: oklch(0.95 0.008 284.115 / 0);
+  --search-closed-from: oklch(0.99 0.004 284.115);
+  --search-closed-to: oklch(0.96 0.006 285.946);
+  --search-expanded-fade: oklch(0.95 0.008 284.115 / 0.5);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -564,17 +607,17 @@ body {
 
   /* Thicker white caret for focused inputs (used by PostTagInput) */
   .caret-white {
-    caret-color: white;
+    caret-color: var(--foreground);
   }
   .caret-thick::selection {
     /* noop: selection styles kept default */
   }
   input.caret-white {
-    caret-color: #fff;
+    caret-color: var(--foreground);
   }
   /* Some browsers allow caret-width via proprietary property */
   input.caret-thick {
-    caret-color: #fff;
+    caret-color: var(--foreground);
   }
 
   /* Keep the document scrollbar visible and hide all nested scrollbars */

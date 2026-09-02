@@ -277,7 +277,7 @@ describe('MobileFooter', () => {
     render(<MobileFooter />);
 
     const homeLink = document.querySelector('.lucide-house')?.closest('a');
-    expect(homeLink).toHaveClass('border', 'border-border', 'bg-white/5');
+    expect(homeLink).toHaveClass('border', 'border-border', 'bg-foreground/5');
     expect(homeLink).not.toHaveClass('bg-secondary');
   });
 
@@ -326,7 +326,7 @@ describe('MobileFooter', () => {
     render(<MobileFooter />);
 
     const collectionsLink = document.querySelector('.lucide-library')?.closest('a');
-    expect(collectionsLink).toHaveClass('border-brand', 'bg-white/5', 'text-brand');
+    expect(collectionsLink).toHaveClass('border-brand', 'bg-foreground/5', 'text-brand');
     expect(collectionsLink).not.toHaveClass('bg-secondary');
   });
 

@@ -3,7 +3,7 @@
 exports[`Checkbox - Snapshots > matches snapshot when checked 1`] = `
 <button
   aria-checked="true"
-  class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+  class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
   data-state="checked"
   id="radix-normalized"
   role="checkbox"
@@ -39,7 +39,7 @@ exports[`Checkbox - Snapshots > matches snapshot when checked 1`] = `
 exports[`Checkbox - Snapshots > matches snapshot when disabled 1`] = `
 <button
   aria-checked="false"
-  class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+  class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
   data-disabled=""
   data-state="unchecked"
   disabled=""
@@ -53,7 +53,7 @@ exports[`Checkbox - Snapshots > matches snapshot when disabled 1`] = `
 exports[`Checkbox - Snapshots > matches snapshot when disabled and checked 1`] = `
 <button
   aria-checked="true"
-  class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+  class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
   data-disabled=""
   data-state="checked"
   disabled=""
@@ -92,7 +92,7 @@ exports[`Checkbox - Snapshots > matches snapshot when disabled and checked 1`] =
 exports[`Checkbox - Snapshots > matches snapshot when unchecked 1`] = `
 <button
   aria-checked="false"
-  class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+  class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
   data-state="unchecked"
   id="radix-normalized"
   role="checkbox"
@@ -104,7 +104,7 @@ exports[`Checkbox - Snapshots > matches snapshot when unchecked 1`] = `
 exports[`Checkbox - Snapshots > matches snapshot with default props 1`] = `
 <button
   aria-checked="false"
-  class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+  class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
   data-state="unchecked"
   id="radix-normalized"
   role="checkbox"
@@ -120,7 +120,7 @@ exports[`Checkbox - Snapshots > matches snapshot with label 1`] = `
 >
   <button
     aria-checked="false"
-    class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+    class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
     data-state="unchecked"
     id="radix-normalized"
     role="checkbox"
@@ -149,7 +149,7 @@ exports[`Checkbox - Snapshots > matches snapshot with label and description 1`] 
 >
   <button
     aria-checked="false"
-    class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+    class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
     data-state="unchecked"
     id="radix-normalized"
     role="checkbox"
@@ -184,7 +184,7 @@ exports[`Checkbox - Snapshots > matches snapshot with label, description and che
 >
   <button
     aria-checked="true"
-    class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+    class="peer h-4 w-4 shrink-0 rounded border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
     data-state="checked"
     id="radix-normalized"
     role="checkbox"

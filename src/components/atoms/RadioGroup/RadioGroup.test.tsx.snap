@@ -19,7 +19,7 @@ exports[`RadioGroup - Snapshots > matches snapshot for box variant 1`] = `
     >
       <button
         aria-checked="true"
-        class="peer size-4 shrink-0 rounded-full border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+        class="peer size-4 shrink-0 rounded-full border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
         data-radix-collection-item=""
         data-state="checked"
         id="radix-normalized"
@@ -67,7 +67,7 @@ exports[`RadioGroup - Snapshots > matches snapshot for box variant 1`] = `
     >
       <button
         aria-checked="false"
-        class="peer size-4 shrink-0 rounded-full border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+        class="peer size-4 shrink-0 rounded-full border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
         data-radix-collection-item=""
         data-state="unchecked"
         id="radix-normalized"
@@ -114,7 +114,7 @@ exports[`RadioGroup - Snapshots > matches snapshot for default group with labels
   >
     <button
       aria-checked="true"
-      class="peer size-4 shrink-0 rounded-full border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+      class="peer size-4 shrink-0 rounded-full border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
       data-radix-collection-item=""
       data-state="checked"
       id="radix-normalized"
@@ -151,7 +151,7 @@ exports[`RadioGroup - Snapshots > matches snapshot for default group with labels
   >
     <button
       aria-checked="false"
-      class="peer size-4 shrink-0 rounded-full border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+      class="peer size-4 shrink-0 rounded-full border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
       data-radix-collection-item=""
       data-state="unchecked"
       id="radix-normalized"
@@ -191,7 +191,7 @@ exports[`RadioGroup - Snapshots > matches snapshot for disabled item 1`] = `
   >
     <button
       aria-checked="false"
-      class="peer size-4 shrink-0 rounded-full border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+      class="peer size-4 shrink-0 rounded-full border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
       data-disabled=""
       data-radix-collection-item=""
       data-state="unchecked"
@@ -233,7 +233,7 @@ exports[`RadioGroup - Snapshots > matches snapshot for item with label and descr
   >
     <button
       aria-checked="true"
-      class="peer size-4 shrink-0 rounded-full border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+      class="peer size-4 shrink-0 rounded-full border border-input bg-foreground/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
       data-radix-collection-item=""
       data-state="checked"
       id="radix-normalized"

@@ -15,7 +15,7 @@ exports[`DialogConfirmDelete - Snapshots > matches snapshot when open 1`] = `
       </h2>
     </div>
     <p
-      class="text-base tracking-wide text-white/80"
+      class="text-base tracking-wide text-foreground/80"
       data-testid="dialog-description"
     >
       This action cannot be undone. The post will be permanently deleted.

@@ -27,7 +27,7 @@ exports[`DialogConfirmDiscard - Snapshots > matches snapshot for default DialogC
       </h2>
     </div>
     <p
-      class="text-base tracking-wide text-white/80"
+      class="text-base tracking-wide text-foreground/80"
       data-testid="typography"
     >
       If you do, you will lose the content.
@@ -110,7 +110,7 @@ exports[`DialogConfirmDiscard - Snapshots > matches snapshot when closed 1`] = `
       </h2>
     </div>
     <p
-      class="text-base tracking-wide text-white/80"
+      class="text-base tracking-wide text-foreground/80"
       data-testid="typography"
     >
       If you do, you will lose the content.

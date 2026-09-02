@@ -7,7 +7,7 @@ exports[`PostText - Snapshots > matches snapshot for article preview with headin
   data-testid="container"
 >
   <h1
-    class="text-2xl leading-8 font-bold text-white"
+    class="text-2xl leading-8 font-bold text-foreground"
   >
     Article Title
   </h1>
@@ -19,7 +19,7 @@ exports[`PostText - Snapshots > matches snapshot for article preview with headin
   
 
   <h2
-    class="text-xl leading-7 font-bold text-white"
+    class="text-xl leading-7 font-bold text-foreground"
   >
     Section
   </h2>
@@ -50,14 +50,14 @@ exports[`PostText - Snapshots > matches snapshot for article preview with multip
   data-testid="container"
 >
   <h1
-    class="text-2xl leading-8 font-bold text-white"
+    class="text-2xl leading-8 font-bold text-foreground"
   >
     Article Title
   </h1>
   
 
   <h2
-    class="text-xl leading-7 font-bold text-white"
+    class="text-xl leading-7 font-bold text-foreground"
   >
     Introduction
   </h2>
@@ -69,7 +69,7 @@ exports[`PostText - Snapshots > matches snapshot for article preview with multip
   
 
   <h3
-    class="text-lg leading-7 font-bold text-white"
+    class="text-lg leading-7 font-bold text-foreground"
   >
     Details
   </h3>
@@ -81,7 +81,7 @@ exports[`PostText - Snapshots > matches snapshot for article preview with multip
   
 
   <h4
-    class="text-[17px] leading-6 font-bold text-white"
+    class="text-[17px] leading-6 font-bold text-foreground"
   >
     Sub-details... 
   </h4>
@@ -95,7 +95,7 @@ exports[`PostText - Snapshots > matches snapshot for article showing full conten
   data-testid="container"
 >
   <h1
-    class="text-2xl leading-8 font-bold text-white"
+    class="text-2xl leading-8 font-bold text-foreground"
   >
     Article Title
   </h1>
@@ -107,7 +107,7 @@ exports[`PostText - Snapshots > matches snapshot for article showing full conten
   
 
   <h2
-    class="text-xl leading-7 font-bold text-white"
+    class="text-xl leading-7 font-bold text-foreground"
   >
     Section
   </h2>
@@ -126,7 +126,7 @@ exports[`PostText - Snapshots > matches snapshot for article with h1 heading 1`]
   data-testid="container"
 >
   <h1
-    class="text-2xl leading-8 font-bold text-white"
+    class="text-2xl leading-8 font-bold text-foreground"
   >
     Main Title
   </h1>

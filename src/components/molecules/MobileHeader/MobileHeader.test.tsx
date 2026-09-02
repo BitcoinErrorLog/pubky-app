@@ -52,6 +52,7 @@ describe('MobileHeader', () => {
     expect(screen.getByTestId('logo')).toBeInTheDocument();
     expect(document.querySelector('.lucide-sliders-horizontal')).toBeInTheDocument();
     expect(document.querySelector('.lucide-lightbulb')).toBeInTheDocument();
+    expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
   });
 
   it('renders with outer container classes', () => {
@@ -257,18 +258,14 @@ describe('MobileHeader - Snapshots', () => {
   it('matches snapshot for left button', () => {
     render(<MobileHeader />);
 
-    // Icons are now actual lucide-react components (SVGs), find buttons by position
-    const buttons = screen.getAllByRole('button');
-    const leftButton = buttons[0];
+    const leftButton = document.querySelector('.lucide-sliders-horizontal')?.closest('button');
     expect(leftButton).toMatchSnapshot();
   });
 
   it('matches snapshot for right button', () => {
     render(<MobileHeader />);
 
-    // Icons are now actual lucide-react components (SVGs), find buttons by position
-    const buttons = screen.getAllByRole('button');
-    const rightButton = buttons[1];
+    const rightButton = document.querySelector('.lucide-lightbulb')?.closest('button');
     expect(rightButton).toMatchSnapshot();
   });
 

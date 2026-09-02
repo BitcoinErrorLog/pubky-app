@@ -200,6 +200,7 @@ describe('Header Components', () => {
       );
 
       expect(screen.getByText('Test Content')).toBeInTheDocument();
+      expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
     });
 
     it('applies correct classes', () => {
@@ -482,7 +483,7 @@ describe('Header Components', () => {
 
       const collectionsButton = document.querySelector('.lucide-library')?.closest('button');
       expect(collectionsButton).toHaveClass('bg-secondary');
-      expect(collectionsButton).not.toHaveClass('bg-white/5');
+      expect(collectionsButton).not.toHaveClass('bg-foreground/5');
     });
 
     it('shows the Collections NEW treatment before dismissal', () => {
@@ -564,7 +565,7 @@ describe('Header Components', () => {
 
       const collectionsButton = document.querySelector('.lucide-library')?.closest('button');
       expect(collectionsButton).toHaveClass('bg-secondary');
-      expect(collectionsButton).not.toHaveClass('bg-white/5');
+      expect(collectionsButton).not.toHaveClass('bg-foreground/5');
     });
   });
 

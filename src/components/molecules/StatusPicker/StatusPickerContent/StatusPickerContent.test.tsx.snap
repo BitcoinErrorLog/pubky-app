@@ -173,7 +173,7 @@ exports[`StatusPickerContent > Snapshots > matches snapshot with custom status 1
       data-testid="container"
     >
       <div
-        class="flex items-center gap-2 rounded-md border border-dashed border-input bg-background/10 px-5 py-4 shadow-sm focus-within:border-white/80"
+        class="flex items-center gap-2 rounded-md border border-dashed border-input bg-background/10 px-5 py-4 shadow-sm focus-within:border-foreground/80"
         data-testid="container"
       >
         <button
@@ -374,7 +374,7 @@ exports[`StatusPickerContent > Snapshots > matches snapshot with no current stat
       data-testid="container"
     >
       <div
-        class="flex items-center gap-2 rounded-md border border-dashed border-input bg-background/10 px-5 py-4 shadow-sm focus-within:border-white/80"
+        class="flex items-center gap-2 rounded-md border border-dashed border-input bg-background/10 px-5 py-4 shadow-sm focus-within:border-foreground/80"
         data-testid="container"
       >
         <button
@@ -621,7 +621,7 @@ exports[`StatusPickerContent > Snapshots > matches snapshot with predefined stat
       data-testid="container"
     >
       <div
-        class="flex items-center gap-2 rounded-md border border-dashed border-input bg-background/10 px-5 py-4 shadow-sm focus-within:border-white/80"
+        class="flex items-center gap-2 rounded-md border border-dashed border-input bg-background/10 px-5 py-4 shadow-sm focus-within:border-foreground/80"
         data-testid="container"
       >
         <button

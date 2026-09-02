@@ -27,7 +27,7 @@ exports[`DialogDeleteAccount - Snapshots > matches snapshot for default DialogDe
       </h2>
     </div>
     <p
-      class="text-base leading-6 font-normal tracking-wide text-white/80"
+      class="text-base leading-6 font-normal tracking-wide text-foreground/80"
       data-testid="typography"
     >
       Are you sure? Your account information cannot be recovered.
@@ -113,7 +113,7 @@ exports[`DialogDeleteAccount - Snapshots > matches snapshot when closed 1`] = `
       </h2>
     </div>
     <p
-      class="text-base leading-6 font-normal tracking-wide text-white/80"
+      class="text-base leading-6 font-normal tracking-wide text-foreground/80"
       data-testid="typography"
     >
       Are you sure? Your account information cannot be recovered.
@@ -199,7 +199,7 @@ exports[`DialogDeleteAccount - Snapshots > matches snapshot while deleting 1`] =
       </h2>
     </div>
     <p
-      class="text-base leading-6 font-normal tracking-wide text-white/80"
+      class="text-base leading-6 font-normal tracking-wide text-foreground/80"
       data-testid="typography"
     >
       Are you sure? Your account information cannot be recovered.

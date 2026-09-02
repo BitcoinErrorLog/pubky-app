@@ -9,14 +9,14 @@ exports[`PopoverPublicKey - Snapshots > matches snapshot for PopoverPublicKey wi
     data-testid="popover-trigger"
   >
     <button
-      class="hover:bg-white/10 custom-public-key-style"
+      class="hover:bg-foreground/10 custom-public-key-style"
       data-size="icon"
       data-testid="popover-button"
       data-variant="ghost"
     >
       <svg
         aria-hidden="true"
-        class="lucide lucide-circle-question-mark h-4 w-4 text-white"
+        class="lucide lucide-circle-question-mark h-4 w-4 text-foreground"
         data-testid="circle-help-icon"
         fill="none"
         height="24"
@@ -80,14 +80,14 @@ exports[`PopoverPublicKey - Snapshots > matches snapshot for default PopoverPubl
     data-testid="popover-trigger"
   >
     <button
-      class="hover:bg-white/10"
+      class="hover:bg-foreground/10"
       data-size="icon"
       data-testid="popover-button"
       data-variant="ghost"
     >
       <svg
         aria-hidden="true"
-        class="lucide lucide-circle-question-mark h-4 w-4 text-white"
+        class="lucide lucide-circle-question-mark h-4 w-4 text-foreground"
         data-testid="circle-help-icon"
         fill="none"
         height="24"
