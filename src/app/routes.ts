@@ -9,6 +9,7 @@ export enum ONBOARDING_ROUTES {
   PUBKY = '/onboarding/pubky',
   SCAN = '/onboarding/scan',
   HUMAN = '/onboarding/human',
+  TAGS = '/onboarding/tags',
 }
 
 export enum AUTH_ROUTES {
@@ -89,6 +90,7 @@ export const PUBLIC_ROUTES: string[] = [
 
 export const ALLOWED_ROUTES = [
   ONBOARDING_ROUTES.PROFILE,
+  ONBOARDING_ROUTES.TAGS,
   APP_ROUTES.HOME,
   APP_ROUTES.FEED,
   APP_ROUTES.SEARCH,
