@@ -45,9 +45,9 @@ export function MarketplaceSandboxSeed() {
             Sandbox demo data
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            This deployment runs the marketplace in simulated sandbox mode. Seeding loads a fictional demo catalog
-            (fake sellers, fake listings) into this browser and registers it with the sandbox transaction service. No
-            real sellers, payments, or funds are involved.
+            This deployment runs the marketplace in simulated sandbox mode. Seeding loads a fictional demo catalog (fake
+            sellers, fake listings) into this browser and registers it with the sandbox transaction service. No real
+            sellers, payments, or funds are involved.
           </Typography>
         </div>
 
@@ -58,7 +58,10 @@ export function MarketplaceSandboxSeed() {
           </Button>
 
           {seedState === 'seeded' && (
-            <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-200">
+            <div
+              role="status"
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-200"
+            >
               Sandbox catalog seeded. Browse the marketplace to see the demo listings.
             </div>
           )}
