@@ -13,6 +13,8 @@ import { useComposerHeightAnimation } from '@/hooks/useComposerHeightAnimation/u
 import { useEffectiveTagsLayout } from '@/hooks/useEffectiveTagsLayout/useEffectiveTagsLayout';
 import { useElementHeight } from '@/hooks/useElementHeight/useElementHeight';
 import { useEnterSubmit } from '@/hooks/useEnterSubmit/useEnterSubmit';
+import { keyFromPaste } from '@/hooks/useMentionAutocomplete/mentionKeys.utils';
+import { visibleText } from '@/hooks/useMentionTokens/mentionTokens.utils';
 import { usePostInput } from '@/hooks/usePostInput/usePostInput';
 import { usePostInputAuthHandlers } from '@/hooks/usePostInputAuthHandlers/usePostInputAuthHandlers';
 import { getComposerDissolveVariants } from '@/libs/motion/composerMotion';
@@ -22,6 +24,7 @@ import { canSubmitPost, cn, getCharacterCount } from '@/libs/utils/utils';
 import { parseCompositeId } from '@/models/models.utils';
 import { sanitizeCodeBlockLanguages } from '@/molecules/MarkdownEditor/InitializedMDXEditor.utils';
 import { MarkdownEditor } from '@/molecules/MarkdownEditor/MarkdownEditor';
+import { MentionHighlight } from '@/molecules/MentionHighlight/MentionHighlight';
 import { MentionPopover } from '@/molecules/MentionPopover/MentionPopover';
 import {
   AVATAR_CLASS_BY_HEADER_SIZE,
@@ -69,6 +72,8 @@ export function PostInput({
     containerRef,
     fileInputRef,
     content,
+    mentionDisplay,
+    mentionTokens,
     setContent,
     tags,
     setTags,
@@ -258,7 +263,9 @@ export function PostInput({
   }, []);
 
   const characterLimit =
-    isExpanded && !isArticle ? { count: getCharacterCount(content), max: POST_MAX_CHARACTER_LENGTH } : undefined;
+    isExpanded && !isArticle
+      ? { count: getCharacterCount(visibleText(mentionDisplay)), max: POST_MAX_CHARACTER_LENGTH }
+      : undefined;
 
   const inheritedTagsLayout = useEffectiveTagsLayout();
   const tagsLayout = layoutOverride ?? inheritedTagsLayout;
@@ -399,6 +406,10 @@ export function PostInput({
                       </div>
                     )}
                     <Container overrideDefaults className="relative flex min-w-0 flex-1 items-center">
+                      <MentionHighlight
+                        value={mentionDisplay}
+                        className={cn('px-0 py-0', BODY_TEXT_CLASS_BY_TAGS_LAYOUT[tagsLayout])}
+                      />
                       <Textarea
                         name="post-input-textarea"
                         ref={textareaRef}
@@ -408,11 +419,38 @@ export function PostInput({
                           'field-sizing-fixed w-full rounded-none',
                           BODY_TEXT_CLASS_BY_TAGS_LAYOUT[tagsLayout],
                         )}
-                        value={content}
+                        value={mentionDisplay}
                         onChange={handleChangeWithAuth}
                         onFocus={handleExpandWithAuth}
-                        onKeyDown={handleKeyDown}
-                        onPaste={handlePasteWithAuth}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Backspace') {
+                            const target = event.currentTarget;
+                            const caret = target.selectionStart ?? 0;
+                            const hasSelection = target.selectionStart !== target.selectionEnd;
+                            if (mentionTokens.handleBackspace(caret, hasSelection)) {
+                              event.preventDefault();
+                              return;
+                            }
+                          }
+                          handleKeyDown(event);
+                        }}
+                        onPaste={(event) => {
+                          const pasted =
+                            typeof event.clipboardData?.getData === 'function'
+                              ? event.clipboardData.getData('text')
+                              : '';
+                          const target = event.currentTarget;
+                          const start = target.selectionStart ?? 0;
+                          const end = target.selectionEnd ?? start;
+                          void mentionTokens.handlePaste(pasted, start, end).then((handled) => {
+                            if (!handled) return;
+                          });
+                          if (keyFromPaste(pasted)) {
+                            event.preventDefault();
+                            return;
+                          }
+                          handlePasteWithAuth(event);
+                        }}
                         maxLength={POST_MAX_CHARACTER_LENGTH}
                         rows={1}
                         disabled={isSubmitting}

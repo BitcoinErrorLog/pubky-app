@@ -65,6 +65,15 @@ exports[`PostInput - Mobile Snapshots > matches expanded snapshot on mobile view
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                >
+                  <span>
+                    Expanded post
+                  </span>
+                </div>
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -201,6 +210,11 @@ exports[`PostInput - Mobile Snapshots > matches snapshot on mobile viewport 1`] 
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -325,6 +339,11 @@ exports[`PostInput - Snapshots > matches snapshot for a collapsed post composer 
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -416,6 +435,15 @@ exports[`PostInput - Snapshots > matches snapshot for an expanded post composer 
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                >
+                  <span>
+                    Expanded post
+                  </span>
+                </div>
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -655,6 +683,15 @@ exports[`PostInput - Snapshots > matches snapshot for edit variant 1`] = `
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                >
+                  <span>
+                    Existing post content
+                  </span>
+                </div>
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -896,6 +933,15 @@ exports[`PostInput - Snapshots > matches snapshot for edit variant with existing
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                >
+                  <span>
+                    Existing post content
+                  </span>
+                </div>
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -1043,6 +1089,11 @@ exports[`PostInput - Snapshots > matches snapshot for list layout 1`] = `
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0 text-base font-medium leading-5"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none text-base font-medium leading-5"
                   data-testid="textarea"
@@ -1190,6 +1241,11 @@ exports[`PostInput - Snapshots > matches snapshot for post variant when dragging
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -1325,6 +1381,11 @@ exports[`PostInput - Snapshots > matches snapshot for post variant when submitti
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -1461,6 +1522,11 @@ exports[`PostInput - Snapshots > matches snapshot for post variant with attachme
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -1600,6 +1666,15 @@ exports[`PostInput - Snapshots > matches snapshot for post variant with content 
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                >
+                  <span>
+                    Test content
+                  </span>
+                </div>
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -1736,6 +1811,11 @@ exports[`PostInput - Snapshots > matches snapshot for post variant with custom p
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -1871,6 +1951,11 @@ exports[`PostInput - Snapshots > matches snapshot for post variant without conte
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0 text-xl leading-7"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none text-xl leading-7"
                   data-testid="textarea"
@@ -2006,6 +2091,11 @@ exports[`PostInput - Snapshots > matches snapshot for reply variant without cont
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -2145,6 +2235,11 @@ exports[`PostInput - Snapshots > matches snapshot for reply with thread connecto
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -2280,6 +2375,11 @@ exports[`PostInput - Snapshots > matches snapshot for repost variant without con
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"
@@ -2458,6 +2558,11 @@ exports[`PostInput - Snapshots > matches snapshot with a logged-out fallback ava
                 data-override-defaults="true"
                 data-testid="container"
               >
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  data-testid="mention-highlight"
+                />
                 <textarea
                   data-class-name="field-sizing-fixed w-full rounded-none"
                   data-testid="textarea"

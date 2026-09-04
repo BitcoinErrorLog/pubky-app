@@ -55,6 +55,18 @@ export interface UsePostInputReturn {
 
   // State
   content: string;
+  /** What the composer shows: names in place of keys. */
+  mentionDisplay: string;
+  /** Mention pill handlers for the composer textarea. */
+  mentionTokens: {
+    display: string;
+    handleChange: (value: string) => void;
+    addMention: (key: string, name: string, start: number, end: number) => void;
+    addMentionForQuery: (key: string, name: string) => void;
+    handleBackspace: (caret: number, hasSelection: boolean) => boolean;
+    handlePaste: (pasted: string, start: number, end: number) => Promise<boolean>;
+    resetDisplay: (value: string) => void;
+  };
   setContent: React.Dispatch<React.SetStateAction<string>>;
   tags: string[];
   setTags: React.Dispatch<React.SetStateAction<string[]>>;

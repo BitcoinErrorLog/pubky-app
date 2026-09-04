@@ -17,12 +17,13 @@ import {
   POST_SUPPORTED_FILE_TYPES,
 } from '@/config/posts';
 import { PostController } from '@/controllers/post/post';
+import { UserController } from '@/controllers/user/user';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useDeletePost } from '@/hooks/useDeletePost/useDeletePost';
 import { useEditAttachments } from '@/hooks/useEditAttachments/useEditAttachments';
 import { useEmojiInsert } from '@/hooks/useEmojiInsert/useEmojiInsert';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete/useMentionAutocomplete';
-import { getContentWithMention } from '@/hooks/useMentionAutocomplete/useMentionAutocomplete.utils';
+import { useMentionTokens } from '@/hooks/useMentionTokens/useMentionTokens';
 import { usePost } from '@/hooks/usePost/usePost';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { Logger } from '@/libs/logger/logger';
@@ -136,17 +137,27 @@ export function usePostInput({
   const originalPostAuthorId = originalPostId ? originalPostId.split(':')[0] : null;
   const { userDetails: originalPostAuthor } = useUserDetails(originalPostAuthorId);
 
-  // Handle mention selection - inserts pubky{userId} into content
+  // Resolve a pubky to a display name for the composer's mention pills.
+  const resolveName = useCallback(async (key: string): Promise<string | null> => {
+    try {
+      const details = await UserController.getOrFetchDetails({ userId: key });
+      return details?.name ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const mentionTokens = useMentionTokens({ content, setContent, textareaRef, resolveName });
+  const mentionDisplay = mentionTokens.display;
+
+  // Handle mention selection - inserts a pill, never a raw key
   const handleMentionSelect = useCallback(
     (userId: string) => {
-      const newContent = getContentWithMention(content, userId);
-      if (newContent.length <= POST_MAX_CHARACTER_LENGTH) {
-        setContent(newContent);
-      }
-      // Focus textarea after selection
-      textareaRef.current?.focus();
+      void resolveName(userId).then((resolved) => {
+        mentionTokens.addMentionForQuery(userId, resolved ?? userId);
+      });
     },
-    [content, setContent],
+    [mentionTokens, resolveName],
   );
 
   // Mention autocomplete
@@ -388,10 +399,10 @@ export function usePostInput({
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const value = e.target.value;
       if (value.length <= POST_MAX_CHARACTER_LENGTH) {
-        setContent(value);
+        mentionTokens.handleChange(value);
       }
     },
-    [setContent],
+    [mentionTokens],
   );
 
   // Wrapper to apply validation when emoji is inserted
@@ -644,6 +655,8 @@ export function usePostInput({
     // State
     content,
     setContent,
+    mentionDisplay,
+    mentionTokens,
     tags,
     setTags,
     attachments,
