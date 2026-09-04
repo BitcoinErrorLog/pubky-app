@@ -96,7 +96,11 @@ export function useStreamPagination({
   // not overwrite the fresh stream's posts, cursors, hasMore, error, or loading flags.
   const fetchGenerationRef = useRef(0);
   const activeStreamIdRef = useRef(streamId);
-  activeStreamIdRef.current = streamId;
+  // Written from an effect (not during render) for the React Compiler `refs`
+  // rule; the removal finalizer that reads it only runs after a commit.
+  useEffect(() => {
+    activeStreamIdRef.current = streamId;
+  }, [streamId]);
 
   /**
    * Sets the appropriate loading state based on load type
