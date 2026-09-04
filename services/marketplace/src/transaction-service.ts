@@ -295,7 +295,6 @@ export interface MarketplaceOrder {
   deliveryAddress: MarketplaceDeliveryAddress;
   subtotal: MarketplaceListingAggregate['unitPrice'];
   shipping: MarketplaceListingAggregate['unitPrice'];
-  tax: MarketplaceListingAggregate['unitPrice'];
   total: MarketplaceListingAggregate['unitPrice'];
   guaranteePolicyVersion: 1;
   paymentId: string;
@@ -1623,7 +1622,6 @@ export class MarketplaceTransactionService {
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
       const shippingMinor = 1_200;
-      const taxMinor = Math.round((subtotalMinor + shippingMinor) * 0.08);
       const orderId = randomUUID();
       const paymentId = randomUUID();
       const order: MarketplaceOrder = {
@@ -1636,8 +1634,7 @@ export class MarketplaceTransactionService {
         deliveryAddress: command.payload.deliveryAddress,
         subtotal: { ...asset, amountMinor: subtotalMinor },
         shipping: { ...asset, amountMinor: shippingMinor },
-        tax: { ...asset, amountMinor: taxMinor },
-        total: { ...asset, amountMinor: subtotalMinor + shippingMinor + taxMinor },
+        total: { ...asset, amountMinor: subtotalMinor + shippingMinor },
         guaranteePolicyVersion: command.payload.guaranteePolicyVersion,
         paymentId,
         receiptId: null,

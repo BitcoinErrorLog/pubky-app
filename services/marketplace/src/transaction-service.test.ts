@@ -847,13 +847,12 @@ describe('MarketplaceTransactionService', () => {
             state: 'pending_payment',
             subtotal: { amountMinor: 12_500 },
             shipping: { amountMinor: 1_200 },
-            tax: { amountMinor: 1_096 },
-            total: { amountMinor: 14_796 },
+            total: { amountMinor: 13_700 },
             guaranteePolicyVersion: 1,
             lines: [{ listingRevision: 1, contentHash: 'a'.repeat(64), quantity: 1 }],
           },
         ],
-        payments: [{ state: 'awaiting_entitlement', adapter: 'sandbox', amount: { amountMinor: 14_796 } }],
+        payments: [{ state: 'awaiting_entitlement', adapter: 'sandbox', amount: { amountMinor: 13_700 } }],
       },
     });
     expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
@@ -944,7 +943,7 @@ describe('MarketplaceTransactionService', () => {
         kind: 'payment',
         payment: { state: 'confirmed', confirmations: 1, revision: 3 },
         order: { state: 'paid', revision: 2, receiptId: expect.any(String) },
-        receipt: { contentHash: expect.stringMatching(/^[a-f0-9]{64}$/), total: { amountMinor: 14_796 } },
+        receipt: { contentHash: expect.stringMatching(/^[a-f0-9]{64}$/), total: { amountMinor: 13_700 } },
       },
     });
     if (!confirmed.ok || confirmed.result.kind !== 'payment' || !confirmed.result.receipt) return;

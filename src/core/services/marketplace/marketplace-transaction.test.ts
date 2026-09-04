@@ -288,8 +288,7 @@ describe('MarketplaceTransactionService read projections', () => {
       ],
       subtotal: { amount_minor: 12_500, currency: 'USD', exponent: 2 },
       shipping: { amount_minor: 1_200, currency: 'USD', exponent: 2 },
-      tax: { amount_minor: 1_096, currency: 'USD', exponent: 2 },
-      total: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+      total: { amount_minor: 13_700, currency: 'USD', exponent: 2 },
       guarantee_policy_version: 1,
       payment_id: PAYMENT_ID,
       receipt_id: null,
@@ -316,7 +315,7 @@ describe('MarketplaceTransactionService read projections', () => {
       adapter: 'sandbox',
       state: 'awaiting_entitlement',
       confirmations: 0,
-      amount: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+      amount: { amount_minor: 13_700, currency: 'USD', exponent: 2 },
       created_at: '2026-08-20T10:00:00.000Z',
       updated_at: '2026-08-20T10:00:00.000Z',
     };
@@ -493,7 +492,7 @@ describe('MarketplaceTransactionService read projections', () => {
         payment_id: PAYMENT_ID,
         issuer_pubky: OTHER_ACTOR,
         recipient_pubky: ACTOR,
-        total: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+        total: { amount_minor: 13_700, currency: 'USD', exponent: 2 },
         content_hash: 'b'.repeat(64),
         issued_at: '2026-08-20T12:00:00.000Z',
       }),
@@ -502,7 +501,7 @@ describe('MarketplaceTransactionService read projections', () => {
     await expect(MarketplaceTransactionService.getReceipt(ACTOR, RECEIPT_ID)).resolves.toMatchObject({
       id: RECEIPT_ID,
       contentHash: 'b'.repeat(64),
-      total: { amountMinor: 14_796 },
+      total: { amountMinor: 13_700 },
     });
   });
 

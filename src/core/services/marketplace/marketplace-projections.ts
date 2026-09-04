@@ -199,7 +199,6 @@ export const marketplaceOrderSchema = z
     ),
     subtotal: marketplaceMoneySchema,
     shipping: marketplaceMoneySchema,
-    tax: marketplaceMoneySchema,
     total: marketplaceMoneySchema,
     guaranteePolicyVersion: z.literal(1),
     paymentId: z.uuid(),

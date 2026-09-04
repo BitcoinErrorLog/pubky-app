@@ -85,7 +85,6 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
             <div className="mt-2 ml-auto w-fit text-right">
               <p>Items {formatCommerceMoney(order.subtotal)}</p>
               <p>Shipping {formatCommerceMoney(order.shipping)}</p>
-              {order.tax.amountMinor > 0 ? <p>Tax {formatCommerceMoney(order.tax)}</p> : null}
               <p className="font-bold">Total {formatCommerceMoney(order.total)}</p>
             </div>
 
