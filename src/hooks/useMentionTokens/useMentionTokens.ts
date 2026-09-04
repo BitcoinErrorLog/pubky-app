@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { keyFromPaste } from '@/hooks/useMentionAutocomplete/mentionKeys.utils';
 import { insertToken, type MentionToken, reconcile, tokenEndingAt, toStorage } from './mentionTokens.utils';
 
@@ -22,6 +22,7 @@ interface UseMentionTokensParams {
 export function useMentionTokens({ content, setContent, textareaRef, resolveName }: UseMentionTokensParams) {
   const [display, setDisplay] = useState(content);
   const displayRef = useRef(content);
+  const writtenRef = useRef(content);
   const tokensRef = useRef<MentionToken[]>([]);
 
   /** Push a new display string, reconcile its mentions, and mirror to storage. */
@@ -29,12 +30,27 @@ export function useMentionTokens({ content, setContent, textareaRef, resolveName
     (nextDisplay: string, nextTokens?: MentionToken[]) => {
       const tokens = reconcile(nextDisplay, nextTokens ?? tokensRef.current);
       tokensRef.current = tokens;
+      const storage = toStorage(nextDisplay, tokens);
       displayRef.current = nextDisplay;
+      writtenRef.current = storage;
       setDisplay(nextDisplay);
-      setContent(toStorage(nextDisplay, tokens));
+      setContent(storage);
     },
     [setContent],
   );
+
+  /**
+   * Follow content changed from outside the composer — cleared after posting,
+   * or replaced when a draft or an edit loads. Without this the composer keeps
+   * showing text the app has already discarded.
+   */
+  useEffect(() => {
+    if (content === writtenRef.current) return;
+    writtenRef.current = content;
+    displayRef.current = content;
+    tokensRef.current = [];
+    setDisplay(content);
+  }, [content]);
 
   /** Move the caret after React has painted the new value. */
   const setCaret = useCallback(

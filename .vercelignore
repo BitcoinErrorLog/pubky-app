@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+cypress
+**/*.test.ts
+**/*.test.tsx
+**/*.test.tsx.snap
+docs

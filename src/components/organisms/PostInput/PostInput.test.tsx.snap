@@ -67,7 +67,7 @@ exports[`PostInput - Mobile Snapshots > matches expanded snapshot on mobile view
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 >
                   <span>
@@ -212,7 +212,7 @@ exports[`PostInput - Mobile Snapshots > matches snapshot on mobile viewport 1`] 
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -341,7 +341,7 @@ exports[`PostInput - Snapshots > matches snapshot for a collapsed post composer 
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -437,7 +437,7 @@ exports[`PostInput - Snapshots > matches snapshot for an expanded post composer 
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 >
                   <span>
@@ -685,7 +685,7 @@ exports[`PostInput - Snapshots > matches snapshot for edit variant 1`] = `
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 >
                   <span>
@@ -935,7 +935,7 @@ exports[`PostInput - Snapshots > matches snapshot for edit variant with existing
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 >
                   <span>
@@ -1091,7 +1091,7 @@ exports[`PostInput - Snapshots > matches snapshot for list layout 1`] = `
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0 text-base font-medium leading-5"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -1243,7 +1243,7 @@ exports[`PostInput - Snapshots > matches snapshot for post variant when dragging
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -1383,7 +1383,7 @@ exports[`PostInput - Snapshots > matches snapshot for post variant when submitti
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -1524,7 +1524,7 @@ exports[`PostInput - Snapshots > matches snapshot for post variant with attachme
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -1668,7 +1668,7 @@ exports[`PostInput - Snapshots > matches snapshot for post variant with content 
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 >
                   <span>
@@ -1813,7 +1813,7 @@ exports[`PostInput - Snapshots > matches snapshot for post variant with custom p
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -1953,7 +1953,7 @@ exports[`PostInput - Snapshots > matches snapshot for post variant without conte
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0 text-xl leading-7"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -2093,7 +2093,7 @@ exports[`PostInput - Snapshots > matches snapshot for reply variant without cont
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -2237,7 +2237,7 @@ exports[`PostInput - Snapshots > matches snapshot for reply with thread connecto
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -2377,7 +2377,7 @@ exports[`PostInput - Snapshots > matches snapshot for repost variant without con
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea
@@ -2560,7 +2560,7 @@ exports[`PostInput - Snapshots > matches snapshot with a logged-out fallback ava
               >
                 <div
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent px-0 py-0"
+                  class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent"
                   data-testid="mention-highlight"
                 />
                 <textarea

@@ -406,10 +406,7 @@ export function PostInput({
                       </div>
                     )}
                     <Container overrideDefaults className="relative flex min-w-0 flex-1 items-center">
-                      <MentionHighlight
-                        value={mentionDisplay}
-                        className={cn('px-0 py-0', BODY_TEXT_CLASS_BY_TAGS_LAYOUT[tagsLayout])}
-                      />
+                      <MentionHighlight value={mentionDisplay} textareaRef={textareaRef} />
                       <Textarea
                         name="post-input-textarea"
                         ref={textareaRef}

@@ -143,3 +143,42 @@ describe('deleting a mention', () => {
     expect(handled).toBe(false);
   });
 });
+
+describe('following content changed from outside the composer', () => {
+  /** Renders the hook with content threaded through, the way the composer does. */
+  function renderWithContent() {
+    const setContent = vi.fn();
+    const textareaRef = { current: null };
+    const view = renderHook(
+      ({ content }: { content: string }) =>
+        useMentionTokens({ content, setContent, textareaRef, resolveName: async () => 'alice' }),
+      { initialProps: { content: '' } },
+    );
+    return { ...view, setContent };
+  }
+
+  it('clears the composer when the app resets content after posting', async () => {
+    const { result, rerender, setContent } = renderWithContent();
+
+    await act(async () => {
+      await result.current.handlePaste(ALICE_KEY, 0, 0);
+    });
+    expect(result.current.display).toContain('@alice');
+
+    // The composer wrote the storage form back to the app; mirror that.
+    const stored = setContent.mock.calls.at(-1)![0] as string;
+    rerender({ content: stored });
+    expect(result.current.display).toContain('@alice');
+
+    // The app clears content on a successful post. The composer must follow;
+    // otherwise it keeps showing a post that has already been published.
+    rerender({ content: '' });
+    expect(result.current.display).toBe('');
+  });
+
+  it('adopts content replaced from outside, e.g. loading a draft', () => {
+    const { result, rerender } = renderWithContent();
+    rerender({ content: 'a saved draft' });
+    expect(result.current.display).toBe('a saved draft');
+  });
+});
