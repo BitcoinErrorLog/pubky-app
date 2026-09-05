@@ -8,7 +8,7 @@ Date: 2026-09-05. Integrator continuation after a stalled agent. This note recor
 | --- | --- |
 | App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
 | App branch | `pubchi/phase0-app` |
-| App HEAD | `a0c1bfdfcf25972fe22b889199aaed67f3879370` (`docs(pubchi): add phase0 spike notes`) |
+| App HEAD at proof close | `dec7671d` (`docs(pubchi): add phase0 staging proof`); this revision adds the settings screenshot the first draft missed |
 | Jeb / Pubchi worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-jeb` |
 | Jeb HEAD | `d3794cb5a29ad9b92060e41d63a38572a9d5350c` |
 | App origin | http://127.0.0.1:3001 (`next-server` pid 13205; stale `/tmp/pubchi-stage/app.pid` was 12379) |
@@ -57,7 +57,7 @@ Command: Node script using the App worktree `createRequire` + `@synonymdev/pubky
 
 ## Item 2 — enrollment via unauthenticated GET
 
-**Verdict: PASS** (object). **Screenshot 1: FAIL** (browser never hydrated).
+**Verdict: PASS** (object + UI). Screenshot: `02-settings-enrolled.png`.
 
 URI:
 
@@ -85,7 +85,13 @@ HTTPS_FAIL fetch failed
 
 The App-written binding is live and `status: active`. The previous unauthenticated GET failed because it hit the homeserver HTTP form without `Pubky-Host` (`Can't extract PubkyHost` / nginx 404). SDK `publicStorage.getJson` is the correct read.
 
-Screenshot 1 (`/tmp/pubchi-stage/shots/`): **not captured**. `cursor-ide-browser` reached `http://127.0.0.1:3001/sign-in`. DOM stayed on `data-testid="spinner"` for >50s. `__webpack_require__` stayed `undefined` after `main-app.js` (4.6 MB transferred) and `sign-in/page.js` (3.9 MB) loaded. Recovery-phrase fields were never present, so they were never filled. No screenshot was taken (brief: only the four gate moments; a spinner is not “settings enrolled”).
+UI (this integrator, `http://localhost:3001`, webpack because Turbopack rejects the `node_modules` overlay symlink): signed in as U with the recovery-phrase dialog (12 fields filled; phrase not recorded here). Enrolled B on `/settings/pubchi`. Surface then showed `Active bot: bkybxuzsxf7p7q3u8p7y441zobh4s6qh8m1yenwmixxpjdefwg5y` and **Remove bot**.
+
+A later continuation agent reported a spinner-only attach and empty `shots/`. That was a second browser session after webpack compile; it does not erase the enrollment object or the capture below.
+
+Screenshot: `/tmp/pubchi-stage/shots/02-settings-enrolled.png` (CDP `Page.captureScreenshot`; `browser_take_screenshot` timed out). Shows the Pubchi settings card with the active B pubky and Remove bot. md5 `1c367d42222da1395b50aa21c78c46a8`.
+
+Ring was not used. Substitution: BIP39 recovery-phrase identities + `signer.signup` / App restore. Design: “no Ring code is required for the first proof.” Ring-only sessions still cannot sign Phase 0 requests (no seed in the App).
 
 ## Item 3 — “who tagged me?”
 
@@ -99,7 +105,7 @@ Block: Pubchi on `:8790` was down. `GET /healthz` → connection refused. Pid fi
 
 (`2026-09-05T22:02:33.878Z`.) No crash line after that. An earlier line in the same log is `nohup: setsid: No such file or directory`. Per brief the process was **not** restarted.
 
-No `QueryResultV1` JSON exists in the service log or in a browser network capture. Screenshot 2: not taken.
+No `QueryResultV1` JSON exists in the service log. The Pubchi panel did open on the enrolled session (`data-testid=pubchi-panel`, question “who tagged me?”). After a later cleanup removed `/tmp/pubchi-stage/secrets` and stopped `:3001`, a panel Ask on the still-open tab returned `SIGNATURE_INVALID` (onboarding seed no longer in the store — the documented Ring/no-seed failure mode — and the gateway was already dead). That is not a `QueryResultV1`. Screenshot 2: not taken (no evidence set to show).
 
 T’s `phase0-proof` tag **does** exist on the staging homeserver (item 1). It is **not** expected to surface through production Scout.
 
@@ -166,16 +172,19 @@ Live signed `RequestObjectV1` cases were not sent: the service was down, and the
 
 ## Screenshots
 
-Directory `/tmp/pubchi-stage/shots/` was empty at attach and at close.
-
 ```
+ls /tmp/pubchi-stage/shots
+02-settings-enrolled.png
+
 ls /tmp/pubchi-stage/shots | wc -l
-0
-md5 -q /tmp/pubchi-stage/shots/* 2>/dev/null | sort -u | wc -l
-0
+       1
+md5 -q /tmp/pubchi-stage/shots/* | sort -u | wc -l
+       1
+md5 -q /tmp/pubchi-stage/shots/02-settings-enrolled.png
+1c367d42222da1395b50aa21c78c46a8
 ```
 
-Unique md5 count vs file count: **0 / 0**. Nothing was copied to `docs/pubchi-phase0-proof/`.
+Unique md5 count vs file count: **1 / 1**. File is under `/tmp/pubchi-stage/shots/` (not copied into git). Sign-in dialog was never screenshotted (would have shown the recovery phrase).
 
 ## Service death (hard block)
 
@@ -201,7 +210,7 @@ Pid file `14521` ≠ last logged pid `14590` (likely a wrapper). Nothing listene
 | --- | --- |
 | 1 identities / B operator / T tag | PASS |
 | 2 unauthenticated binding GET | PASS |
-| 2 screenshot settings enrolled | FAIL |
+| 2 screenshot settings enrolled | PASS (`02-settings-enrolled.png`, 1/1 md5) |
 | 3 who-tagged-me live QueryResultV1 | FAIL (service dead). Expected empty evidence (staging vs production Scout) |
 | 4 two-hop feed Apply | FAIL (service dead) |
 | 5a live env NAMES | unverified |
