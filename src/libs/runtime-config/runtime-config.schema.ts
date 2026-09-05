@@ -270,6 +270,13 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
   email: nonEmptyStringValue.default(APP_RUNTIME_DEFAULTS.email),
   appStoreUrl: urlValue.default(APP_RUNTIME_DEFAULTS.appStoreUrl),
   playStoreUrl: urlValue.default(APP_RUNTIME_DEFAULTS.playStoreUrl),
+  /** Feature flag. Default false: no Pubchi UI or network. */
+  pubchiEnabled: z.boolean().default(false),
+  /**
+   * Pubchi HTTP API base URL. Empty/absent hides the chat panel even when
+   * `pubchiEnabled` is true.
+   */
+  pubchiApiUrl: z.union([urlValue, z.literal('')]).default(''),
 });
 
 const lenientRuntimeConfigValueSchema = runtimeConfigValueSchema.extend({
@@ -342,6 +349,8 @@ export const runtimeEnvInputSchema = z
     email: optionalTrimmedString,
     appStoreUrl: optionalUrlFromString,
     playStoreUrl: optionalUrlFromString,
+    pubchiEnabled: optionalBooleanFromString,
+    pubchiApiUrl: optionalTrimmedString.pipe(z.union([urlValue, z.literal('')]).optional()),
   })
   .pipe(runtimeConfigValueSchema);
 
@@ -420,6 +429,8 @@ export const runtimeEnvInputSchemaWithDefaults = z
     email: optionalTrimmedString,
     appStoreUrl: optionalUrlFromString,
     playStoreUrl: optionalUrlFromString,
+    pubchiEnabled: optionalBooleanFromString,
+    pubchiApiUrl: optionalTrimmedString.pipe(z.union([urlValue, z.literal('')]).optional()),
   })
   .pipe(lenientRuntimeConfigValueSchema);
 
@@ -490,4 +501,6 @@ export const PUBKY_RUNTIME_ENV_NAMES: Record<keyof RuntimeConfig, string> = {
   email: 'PUBKY_RUNTIME_EMAIL',
   appStoreUrl: 'PUBKY_RUNTIME_APP_STORE_URL',
   playStoreUrl: 'PUBKY_RUNTIME_PLAY_STORE_URL',
+  pubchiEnabled: 'PUBKY_RUNTIME_PUBCHI_ENABLED',
+  pubchiApiUrl: 'PUBKY_RUNTIME_PUBCHI_API_URL',
 };
