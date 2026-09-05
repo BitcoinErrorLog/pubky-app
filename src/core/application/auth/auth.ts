@@ -85,18 +85,16 @@ export class AuthApplication {
 
     // Safety check: if sessionExport is missing and consumer mode is off, return null
     if (!persistedExport && !consumerOrigin) {
-      if (authStore.isRestoringSession) authStore.setIsRestoringSession(false);
       return { status: 'signed-out' };
     }
 
-    // Start restoration and store the promise so concurrent calls can await the same one
+    // Start restoration and store the promise so concurrent calls can await the same one.
+    // Note: Application never touches `isRestoringSession` — the Controller owns that
+    // flag for the whole restore+finalization span so no leg can leave a loading gap.
     this.restoreSessionPromise = (async () => {
-      authStore.setIsRestoringSession(true);
-
       try {
         return await this.runSessionRestore({ persistedExport, consumerOrigin });
       } finally {
-        authStore.setIsRestoringSession(false);
         // The first restore decision of this page load has run (whichever leg
         // decided it) — drop any cached `#s=` export so a later same-tab
         // logout cannot resurrect the hand-off.

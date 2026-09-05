@@ -103,4 +103,80 @@ describe('AuthController restore finalization — real useAuthStatus', () => {
     expect(useAuthStore.getState().hasProfile).toBe(true);
     expect(ticks.some((tick) => tick.isLoading === false && tick.status === AuthStatus.UNAUTHENTICATED)).toBe(false);
   });
+
+  it('never reads isRestoringSession false between restore start and init on a fresh-vibe bridge restore', async () => {
+    // Fresh vibe: no persisted sessionExport, so the isSessionRestorePending
+    // backstop in useAuthStatus does NOT cover the restore — only the
+    // Controller-owned isRestoringSession flag keeps the UI loading.
+    useAuthStore.setState({
+      session: null,
+      sessionExport: null,
+      currentUserPubky: null,
+      hasProfile: null,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+    });
+
+    const session = mockSession();
+    let resolveSignedUp: ((value: boolean) => void) | undefined;
+    vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({
+      status: 'restored',
+      session,
+    });
+    vi.spyOn(Identity, 'z32FromSession').mockReturnValue(RESTORED_PUBKY);
+    vi.spyOn(AuthApplication, 'userIsSignedUp').mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveSignedUp = resolve;
+      }),
+    );
+
+    const restoringReads: Array<{ flag: boolean; initDone: boolean }> = [];
+    const ticks: Array<{ isLoading: boolean; status: AuthStatus }> = [];
+    let restoreStarted = false;
+    const { result } = renderHook(() => {
+      const auth = useAuthStatus();
+      if (restoreStarted) {
+        restoringReads.push({
+          flag: useAuthStore.getState().isRestoringSession,
+          initDone: useAuthStore.getState().session !== null,
+        });
+        ticks.push({ isLoading: auth.isLoading, status: auth.status });
+      }
+      return auth;
+    });
+
+    let restorePromise: Promise<{ status: string }>;
+    await act(async () => {
+      restorePromise = AuthController.restorePersistedSession();
+      // The Controller sets the flag synchronously, before the first await.
+      restoreStarted = true;
+    });
+    // Set synchronously before the first await of the restore flow.
+    expect(useAuthStore.getState().isRestoringSession).toBe(true);
+
+    await waitFor(() => {
+      expect(AuthApplication.userIsSignedUp).toHaveBeenCalled();
+    });
+
+    // Mid-finalization (cleanup done, profile fetch pending, init not yet run):
+    // the flag must not have read false at any point since restore start.
+    expect(useAuthStore.getState().isRestoringSession).toBe(true);
+    expect(result.current.isLoading).toBe(true);
+    expect(restoringReads.some((read) => read.flag === false && !read.initDone)).toBe(false);
+    expect(ticks.some((tick) => tick.isLoading === false)).toBe(false);
+
+    await act(async () => {
+      resolveSignedUp?.(true);
+      await restorePromise;
+    });
+
+    expect(useAuthStore.getState().currentUserPubky).toBe(RESTORED_PUBKY);
+    expect(useAuthStore.getState().hasProfile).toBe(true);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.status).toBe(AuthStatus.AUTHENTICATED);
+    expect(useAuthStore.getState().isRestoringSession).toBe(false);
+    // The flag only reads false after init has run.
+    expect(restoringReads.some((read) => read.flag === false && !read.initDone)).toBe(false);
+    expect(ticks.some((tick) => tick.isLoading === false && tick.status === AuthStatus.UNAUTHENTICATED)).toBe(false);
+  });
 });

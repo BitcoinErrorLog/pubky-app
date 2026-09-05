@@ -62,6 +62,12 @@ export class AuthController {
    */
   static async restorePersistedSession(): Promise<TRestorePersistedSessionResult> {
     const authStore = useAuthStore.getState();
+    // The Controller owns the restore loading flag for the whole flow: set once
+    // before restore begins, cleared once after finalization. With a fresh-vibe
+    // bridge restore (sessionExport === null) the isSessionRestorePending
+    // backstop in useAuthStatus does not apply, so no intermediate owner may
+    // leave a window where the flag reads false between restore start and init.
+    authStore.setIsRestoringSession(true);
     let cleanedUp = false;
     try {
       const result = await AuthApplication.restorePersistedSession({ authStore });
@@ -71,36 +77,29 @@ export class AuthController {
         const persistedPubky = authStore.currentUserPubky;
         const sameIdentity = persistedPubky != null && persistedPubky === pubky;
 
-        try {
-          // Fresh vibe (no persisted identity) or a different pubky must not inherit
-          // the previous account's hasProfile flag or IndexedDB/store snapshot.
-          if (!sameIdentity) {
-            // Application finally already cleared isRestoringSession. Hold loading
-            // through cleanup + profile fetch so useAuthStatus does not settle
-            // UNAUTHENTICATED (redirect churn / re-entrant restore).
-            useAuthStore.getState().setIsRestoringSession(true);
-            await this.cleanupLocalState();
-            cleanedUp = true;
-            useAuthStore.getState().setIsRestoringSession(true);
-          }
-
-          const hasProfile = sameIdentity ? authStore.hasProfile : await AuthApplication.userIsSignedUp({ pubky });
-          useAuthStore.getState().init({
-            session,
-            currentUserPubky: pubky,
-            hasProfile,
-          });
-          // The marketplace bearer session survives reloads in sessionStorage,
-          // scoped to the account whose app session was just restored; anything
-          // persisted for another account is dropped inside the restore.
-          const marketplaceSession = CommerceApplication.restoreMarketplaceSession(pubky);
-          if (marketplaceSession) {
-            useCommerceStore.getState().setMarketplaceSession(marketplaceSession);
-          }
-          return { status: 'restored' };
-        } finally {
-          useAuthStore.getState().setIsRestoringSession(false);
+        // Fresh vibe (no persisted identity) or a different pubky must not inherit
+        // the previous account's hasProfile flag or IndexedDB/store snapshot.
+        // isRestoringSession is already held by this method and survives the
+        // auth-store reset inside cleanup, so useAuthStatus keeps loading.
+        if (!sameIdentity) {
+          await this.cleanupLocalState();
+          cleanedUp = true;
         }
+
+        const hasProfile = sameIdentity ? authStore.hasProfile : await AuthApplication.userIsSignedUp({ pubky });
+        useAuthStore.getState().init({
+          session,
+          currentUserPubky: pubky,
+          hasProfile,
+        });
+        // The marketplace bearer session survives reloads in sessionStorage,
+        // scoped to the account whose app session was just restored; anything
+        // persisted for another account is dropped inside the restore.
+        const marketplaceSession = CommerceApplication.restoreMarketplaceSession(pubky);
+        if (marketplaceSession) {
+          useCommerceStore.getState().setMarketplaceSession(marketplaceSession);
+        }
+        return { status: 'restored' };
       }
       if (result.status === 'deferred') {
         authStore.setSessionRestoreDeferred(true);
@@ -118,6 +117,8 @@ export class AuthController {
         throw appError;
       }
       return { status: 'signed-out' };
+    } finally {
+      useAuthStore.getState().setIsRestoringSession(false);
     }
   }
 

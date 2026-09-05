@@ -259,9 +259,9 @@ describe('AuthApplication', () => {
       expect(restoreSpy).toHaveBeenCalledOnce();
       expect(assertSpy).toHaveBeenCalledWith({ publicKey });
       expect(result).toEqual({ status: 'restored', session });
-      // Ensure loading state is toggled: true on start, false on finish (prevents stuck spinner)
-      expect(authStore.setIsRestoringSession).toHaveBeenCalledWith(true);
-      expect(authStore.setIsRestoringSession).toHaveBeenCalledWith(false);
+      // Application never touches the restore loading flag — the Controller owns
+      // it for the whole restore+finalization span.
+      expect(authStore.setIsRestoringSession).not.toHaveBeenCalled();
       // Ensure no sleep calls during restoration because session is restored immediately
       expect(sleepSpy).not.toHaveBeenCalled();
     });
@@ -330,19 +330,20 @@ describe('AuthApplication', () => {
       // 10 attempts but only 9 sleeps: on the 10th attempt, `attempt < MAX` is false so it breaks instead of sleeping
       expect(sleepSpy).toHaveBeenCalledTimes(9);
       expect(result).toEqual({ status: 'signed-out' });
-      expect(authStore.setIsRestoringSession).toHaveBeenCalledWith(false);
+      expect(authStore.setIsRestoringSession).not.toHaveBeenCalled();
     });
 
-    // Verifies the finally block always resets loading state, even when restoration fails.
-    // Without this, the UI would be stuck on a loading spinner after an error.
-    it('should always reset isRestoringSession to false even on failure', async () => {
+    // The restore loading flag is Controller-owned for the whole
+    // restore+finalization span; Application must not clear it mid-flow (that
+    // left a gap on the no-persist bridge/fragment path where useAuthStatus
+    // could settle UNAUTHENTICATED before init).
+    it('should never touch isRestoringSession, even on failure', async () => {
       const authStore = createMockAuthStore();
       vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValue(createAuthError());
 
       await AuthApplication.restorePersistedSession({ authStore });
 
-      expect(authStore.setIsRestoringSession).toHaveBeenCalledWith(true);
-      expect(authStore.setIsRestoringSession).toHaveBeenLastCalledWith(false);
+      expect(authStore.setIsRestoringSession).not.toHaveBeenCalled();
     });
 
     it('should throw without retry when restored session fails staging homeserver check', async () => {
@@ -364,7 +365,7 @@ describe('AuthApplication', () => {
       expect(sleepSpy).not.toHaveBeenCalled();
       // The rejected session must not be left dangling on its own homeserver.
       expect(logoutSpy).toHaveBeenCalledWith({ session });
-      expect(authStore.setIsRestoringSession).toHaveBeenLastCalledWith(false);
+      expect(authStore.setIsRestoringSession).not.toHaveBeenCalled();
     });
 
     it('should still reject wrong environment when the best-effort signout fails', async () => {
@@ -383,7 +384,7 @@ describe('AuthApplication', () => {
       await expect(AuthApplication.restorePersistedSession({ authStore })).rejects.toMatchObject({
         code: AuthErrorCode.WRONG_ENVIRONMENT_HOMESERVER,
       });
-      expect(authStore.setIsRestoringSession).toHaveBeenLastCalledWith(false);
+      expect(authStore.setIsRestoringSession).not.toHaveBeenCalled();
     });
 
     it('should retry a transient environment-check failure like any other restore failure', async () => {
@@ -407,7 +408,7 @@ describe('AuthApplication', () => {
       expect(restoreSpy).toHaveBeenCalledOnce();
       // Only a definitive wrong-environment rejection signs the session out.
       expect(logoutSpy).not.toHaveBeenCalled();
-      expect(authStore.setIsRestoringSession).toHaveBeenLastCalledWith(false);
+      expect(authStore.setIsRestoringSession).not.toHaveBeenCalled();
     });
   });
 
