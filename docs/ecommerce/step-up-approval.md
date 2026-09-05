@@ -1,6 +1,6 @@
 # Step-up approval for bridged sessions (Shop ↔ pubky.app)
 
-**Status:** design proposal, 2026-09-05. Scope: the single signer moment a user arriving via the pubky.app session bridge hits at their first commerce action. No secret, cookie, or key material appears in this document.
+**Status:** implemented (Option C) on `marketplace/pr25-ux`, 2026-09-05; reviewed and audited to SHIP. Scope: the single signer moment a user arriving via the pubky.app session bridge hits at their first commerce action. No secret, cookie, or key material appears in this document.
 
 ## Context (verified)
 
