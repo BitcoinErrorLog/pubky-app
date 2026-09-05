@@ -235,11 +235,14 @@ export class CommerceController {
 
   /**
    * Publishes the portable order receipt for every eligible paid order to
-   * the current user's own homeserver (credible exit for orders). Missing
-   * publications self-heal on the next orders load.
+   * the current user's own homeserver (credible exit for orders) and mirrors
+   * the outcome into the commerce store, so the orders surface shows the
+   * honest "reconnect to save it" state under a narrow session grant instead
+   * of a silent skip. Missing publications self-heal on the next orders load.
    */
-  static async publishOrderReceipts(orders: MarketplaceOrder[]) {
-    return await CommerceApplication.publishOrderReceipts(this.getCurrentUserPubky(), orders);
+  static async publishOrderReceipts(orders: MarketplaceOrder[]): Promise<void> {
+    const status = await CommerceApplication.publishOrderReceipts(this.getCurrentUserPubky(), orders);
+    useCommerceStore.getState().setReceiptsPublicationStatus(status === 'skipped' ? 'idle' : status);
   }
 
   // --- Drops (ADR 0026) ---

@@ -22,9 +22,11 @@ import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrde
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const receiptsPublicationStatus = useCommerceStore((state) => state.receiptsPublicationStatus);
   const { orders, isLoading, error, needsSession, refresh, advancePayment, actOnOrder, adapterMode } =
     useMarketplaceOrders();
   const isSandbox = adapterMode === 'sandbox';
@@ -121,6 +123,11 @@ export function MarketplaceOrders() {
                             Receipt integrity {receipt.contentHash.slice(0, 12)}…
                           </div>
                           <DropEditionReceiptLine order={order} />
+                          {receiptsPublicationStatus === 'needs_reauth' && (
+                            <Typography as="p" className="text-sm text-muted-foreground">
+                              Receipt not saved to your private storage yet — reconnect to save it
+                            </Typography>
+                          )}
                         </div>
                       )}
                       {order.shipment && (

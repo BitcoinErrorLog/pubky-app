@@ -148,6 +148,18 @@ export type CommerceWatchlistSyncCapability = 'capable' | 'needs_reauth' | 'no_s
  */
 export type CommerceWatchlistSyncStatus = 'synced' | 'needs_reauth' | 'skipped' | 'error';
 
+/**
+ * Outcome of one portable order-receipt publication pass, mirrored by the
+ * controller into the commerce store for UI surfaces. Same honesty contract
+ * as the watchlist sync status: capability is decided from session facts,
+ * and a refused private read/write reports `needs_reauth` — nothing
+ * silently no-ops. `unavailable` covers the cases re-approval cannot fix:
+ * this deployment issued no attestation, or a transient failure left a
+ * receipt unpublished (it retries on the next orders-surface load).
+ * `skipped` covers non-durable modes and signed-out/restoring states.
+ */
+export type CommerceReceiptPublicationStatus = 'published' | 'needs_reauth' | 'unavailable' | 'skipped';
+
 export type CommerceSellerReputationOverview =
   | { status: 'rated'; summary: CommerceReputationSummary }
   | { status: 'new_seller' }
@@ -974,15 +986,20 @@ export class CommerceApplication {
    * publish anything that does not verify.
    *
    * Failure semantics mirror the watchlist document: capability is decided
-   * from session facts, absence of an attestor is an honest no-op, and a
-   * failed PUT simply retries on the next orders-surface load (the
+   * from session facts, absence of an attestor is an honest `unavailable`,
+   * and a failed PUT simply retries on the next orders-surface load (the
    * homeserver read is the durable "already published" check — no local
-   * marker table to drift).
+   * marker table to drift). The returned status is what the controller
+   * mirrors into the store: a narrow (bridged or legacy) grant reports
+   * `needs_reauth` instead of returning without a trace.
    */
-  static async publishOrderReceipts(ownerPubky: string, orders: MarketplaceOrder[]): Promise<void> {
-    if (!isDurableCommerceMode(getCommerceAdapterMode())) return;
-    if (!HomeserverService.hasActiveSession()) return;
-    if (!HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH)) return;
+  static async publishOrderReceipts(
+    ownerPubky: string,
+    orders: MarketplaceOrder[],
+  ): Promise<CommerceReceiptPublicationStatus> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return 'skipped';
+    if (!HomeserverService.hasActiveSession()) return 'skipped';
+    if (!HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH)) return 'needs_reauth';
 
     const eligible = orders.filter(
       (order) =>
@@ -999,12 +1016,12 @@ export class CommerceApplication {
           this.publishedReceiptUrls.add(url);
           continue;
         } catch (error) {
-          if (this.isPrivateAccessDenied(error)) return;
+          if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
           if (!(isAppError(error) && isNotFound(error))) throw error;
         }
 
         const attestation = await MarketplaceGatewayService.getReceiptAttestation(ownerPubky, receiptId);
-        if (attestation === null) return;
+        if (attestation === null) return 'unavailable';
 
         // Drop orders additionally carry a `pubky-drop-edition+v1` proof
         // ("edition N of M") in the same portable document (ADR 0026). Its
@@ -1055,7 +1072,7 @@ export class CommerceApplication {
         try {
           await CommerceHomeserverService.putJson(url, { ...record });
         } catch (error) {
-          if (this.isPrivateAccessDenied(error)) return;
+          if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
           throw error;
         }
         this.publishedReceiptUrls.add(url);
@@ -1063,6 +1080,16 @@ export class CommerceApplication {
         Logger.warn('Order receipt publication failed; it will retry on the next orders load', { url, error });
       }
     }
+
+    // A receipt that failed mid-flight (logged above) retries on the next
+    // orders-surface load; report that honestly instead of claiming done.
+    const hasUnpublished = eligible.some(
+      (order) =>
+        !this.publishedReceiptUrls.has(
+          CommerceRecordNormalizer.orderReceiptUri(ownerPubky, order.receiptId as string),
+        ),
+    );
+    return hasUnpublished ? 'unavailable' : 'published';
   }
 
   static async getWatchAlerts(ownerPubky: string): Promise<CommerceWatchAlertModelSchema[]> {

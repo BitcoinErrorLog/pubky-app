@@ -3,6 +3,7 @@ import * as commerceConfig from '@/config/commerce';
 import { AppError } from '@/libs/error/error';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { Logger } from '@/libs/logger/logger';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
@@ -77,6 +78,16 @@ const notFoundError = () =>
     service: ErrorService.Homeserver,
     operation: 'test',
     context: { statusCode: 404 },
+  });
+
+const forbiddenError = () =>
+  new AppError({
+    category: ErrorCategory.Client,
+    code: ClientErrorCode.BAD_REQUEST,
+    message: 'HTTP 403',
+    service: ErrorService.Homeserver,
+    operation: 'test',
+    context: { statusCode: 403 },
   });
 
 const grantCapableSession = () => {
@@ -223,5 +234,98 @@ describe('CommerceApplication.publishOrderReceipts', () => {
     ]);
 
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('CommerceApplication.publishOrderReceipts publication status (step-up Option C)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    CommerceApplication.resetReceiptPublicationMemo();
+  });
+
+  it('reports needs_reauth from session facts alone under the narrow bridged grant — no probing, no silent return', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(false);
+    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson');
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770210')]),
+    ).resolves.toBe('needs_reauth');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports skipped for non-durable modes and signed-out sessions', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770211')]),
+    ).resolves.toBe('skipped');
+
+    vi.mocked(commerceConfig.getCommerceAdapterMode).mockReturnValue('transaction-service');
+    vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(false);
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770211')]),
+    ).resolves.toBe('skipped');
+  });
+
+  it('transitions needs_reauth → published when the session is widened by re-approval', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
+    const canWrite = vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(false);
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770212')]),
+    ).resolves.toBe('needs_reauth');
+
+    // The step-up re-approval replaced the cookie with the superset grant.
+    canWrite.mockReturnValue(true);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
+    vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770212')]),
+    ).resolves.toBe('published');
+    expect(put).toHaveBeenCalledOnce();
+  });
+
+  it('reports published when every eligible receipt already exists on the homeserver', async () => {
+    grantCapableSession();
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ recordType: 'order_receipt' });
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770213')]),
+    ).resolves.toBe('published');
+  });
+
+  it('reports needs_reauth when the private read is refused with 403 mid-pass', async () => {
+    grantCapableSession();
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(forbiddenError());
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770214')]),
+    ).resolves.toBe('needs_reauth');
+  });
+
+  it('reports unavailable when the deployment issues no attestations', async () => {
+    grantCapableSession();
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
+    vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(null);
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770215')]),
+    ).resolves.toBe('unavailable');
+  });
+
+  it('reports unavailable when a receipt write fails transiently (it retries on the next load)', async () => {
+    grantCapableSession();
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
+    vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
+    vi.spyOn(CommerceHomeserverService, 'putJson').mockRejectedValue(new TypeError('network unavailable'));
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770216')]),
+    ).resolves.toBe('unavailable');
   });
 });

@@ -375,6 +375,28 @@ describe('CommerceController', () => {
     });
   });
 
+  describe('publishOrderReceipts', () => {
+    it('mirrors the publication outcome into the store (skipped maps to idle)', async () => {
+      const publish = vi.spyOn(CommerceApplication, 'publishOrderReceipts').mockResolvedValue('needs_reauth');
+
+      await CommerceController.publishOrderReceipts([]);
+      expect(publish).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, []);
+      expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('needs_reauth');
+
+      publish.mockResolvedValue('published');
+      await CommerceController.publishOrderReceipts([]);
+      expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('published');
+
+      publish.mockResolvedValue('skipped');
+      await CommerceController.publishOrderReceipts([]);
+      expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('idle');
+
+      publish.mockResolvedValue('unavailable');
+      await CommerceController.publishOrderReceipts([]);
+      expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('unavailable');
+    });
+  });
+
   describe('beginMarketplaceSessionConnect', () => {
     const session = {
       pubky: COMMERCE_FIXTURE_SELLER,

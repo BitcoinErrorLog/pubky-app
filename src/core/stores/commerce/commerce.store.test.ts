@@ -72,4 +72,17 @@ describe('useCommerceStore', () => {
 
     expect(useCommerceStore.getState()).toMatchObject(commerceInitialState);
   });
+
+  it('tracks the receipts publication status and clears it on sign-out', () => {
+    const store = useCommerceStore.getState();
+
+    store.setReceiptsPublicationStatus('needs_reauth');
+    expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('needs_reauth');
+
+    store.setReceiptsPublicationStatus('published');
+    expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('published');
+
+    store.reset();
+    expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('idle');
+  });
 });
