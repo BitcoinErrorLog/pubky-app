@@ -8,6 +8,10 @@
  *
  * Only those definitive auth failures count as expiry. Network, DNS, 5xx, and
  * malformed-export (`RequestError` validation, no 401/403) must return false.
+ *
+ * Note: `HomeserverService.restoreSession` normalises SDK errors to `AppError`,
+ * so this raw-`PubkyError` branch is a defensive guard only — belt and braces
+ * in case a raw SDK error ever reaches the restore path unwrapped.
  */
 export function isPubkyExpiredError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
