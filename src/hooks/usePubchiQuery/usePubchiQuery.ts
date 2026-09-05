@@ -7,14 +7,11 @@ import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
-import { ValidationErrorCode } from '@/libs/error/error.codes';
-import { Err } from '@/libs/error/error.factories';
-import { ErrorService } from '@/libs/error/error.types';
-import { Identity } from '@/libs/identity/identity';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
+import type { Phase0Purpose } from '@/libs/pubchi/schemas';
+import { getPubchiSigningSeedCopy, usePubchiSigningAvailable } from '@/libs/pubchi/signing-seed';
 import { toast } from '@/molecules/Toaster/use-toast';
-import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import {
   type PubchiQueryFormData,
   pubchiQueryFormDefaults,
@@ -22,18 +19,11 @@ import {
   QUERY_FORM_FIELDS,
 } from './usePubchiQuery.types';
 
-function secretSeedFromSession(): Uint8Array {
-  const secretKey = useOnboardingStore.getState().secretKey;
-  if (!secretKey) {
-    throw Err.validation(ValidationErrorCode.MISSING_FIELD, 'SIGNATURE_INVALID', {
-      service: ErrorService.Pubchi,
-      operation: 'signRequest',
-    });
-  }
-  return Identity.keypairFromSecretKey(secretKey).secret();
-}
+const SIGNING_UNAVAILABLE =
+  'Pubchi signing is unavailable for this session type in Phase 0; sign in with your recovery phrase or key to use it';
 
 export function usePubchiQuery() {
+  const signingAvailable = usePubchiSigningAvailable((state) => state.available);
   const [result, setResult] = useState<PubchiQuerySuccess | undefined>(undefined);
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
@@ -43,21 +33,32 @@ export function usePubchiQuery() {
     defaultValues: pubchiQueryFormDefaults,
   });
 
-  const submit = async (): Promise<boolean> => {
+  const submit = async (purpose: Phase0Purpose): Promise<boolean> => {
     if (!isPubchiPanelEnabled()) {
       setErrorCode('PUBCHI_DISABLED');
       toast({ variant: 'error', title: 'PUBCHI_DISABLED', dismissButton: true });
+      return false;
+    }
+    if (!signingAvailable) {
+      setErrorCode(SIGNING_UNAVAILABLE);
       return false;
     }
     const valid = await form.trigger();
     if (!valid) return false;
     setLoading(true);
     setErrorCode(undefined);
+    const secretSeed = getPubchiSigningSeedCopy();
+    if (!secretSeed) {
+      setLoading(false);
+      setErrorCode(SIGNING_UNAVAILABLE);
+      return false;
+    }
     try {
       const values = form.getValues();
       const next = await PubchiController.fetchPubchiQuery({
         question: values[QUERY_FORM_FIELDS.QUESTION],
-        secretSeed: secretSeedFromSession(),
+        purpose,
+        secretSeed,
       });
       setResult(next);
       return true;
@@ -68,6 +69,7 @@ export function usePubchiQuery() {
       toast({ variant: 'error', title: message, dismissButton: true });
       return false;
     } finally {
+      secretSeed.fill(0);
       setLoading(false);
     }
   };
@@ -93,5 +95,7 @@ export function usePubchiQuery() {
     errorCode,
     loading,
     enabled: isPubchiPanelEnabled(),
+    signingAvailable,
+    signingUnavailableMessage: SIGNING_UNAVAILABLE,
   };
 }

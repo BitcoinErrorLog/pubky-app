@@ -16,6 +16,9 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
     errorCode: undefined,
     loading: false,
     enabled: true,
+    signingAvailable: true,
+    signingUnavailableMessage:
+      'Pubchi signing is unavailable for this session type in Phase 0; sign in with your recovery phrase or key to use it',
   }),
 }));
 

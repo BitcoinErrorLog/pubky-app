@@ -1,3 +1,4 @@
+import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
 export type TPubchiEnrollParams = {
@@ -6,6 +7,7 @@ export type TPubchiEnrollParams = {
 
 export type TPubchiQueryParams = {
   question: string;
+  purpose: Phase0Purpose;
   secretSeed: Uint8Array;
 };
 

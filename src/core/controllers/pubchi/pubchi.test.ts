@@ -41,7 +41,11 @@ describe('PubchiController', () => {
     await expect(PubchiController.commitCreateBinding({ bot: BOT })).rejects.toThrow('PUBCHI_DISABLED');
     await expect(PubchiController.commitDeleteBinding()).rejects.toThrow('PUBCHI_DISABLED');
     await expect(
-      PubchiController.fetchPubchiQuery({ question: 'who tagged me?', secretSeed: new Uint8Array(32) }),
+      PubchiController.fetchPubchiQuery({
+        question: 'who tagged me?',
+        purpose: 'who-tagged-me',
+        secretSeed: new Uint8Array(32),
+      }),
     ).rejects.toThrow('PUBCHI_DISABLED');
 
     expect(querySpy).not.toHaveBeenCalled();
@@ -58,10 +62,15 @@ describe('PubchiController', () => {
     const querySpy = vi.spyOn(PubchiApplication, 'query').mockResolvedValue(success as never);
     const seed = new Uint8Array(32);
 
-    await expect(PubchiController.fetchPubchiQuery({ question: 'who tagged me?', secretSeed: seed })).resolves.toEqual(
-      success,
-    );
-    expect(querySpy).toHaveBeenCalledWith({ owner: OWNER, question: 'who tagged me?', secretSeed: seed });
+    await expect(
+      PubchiController.fetchPubchiQuery({ question: 'who tagged me?', purpose: 'who-tagged-me', secretSeed: seed }),
+    ).resolves.toEqual(success);
+    expect(querySpy).toHaveBeenCalledWith({
+      owner: OWNER,
+      question: 'who tagged me?',
+      purpose: 'who-tagged-me',
+      secretSeed: seed,
+    });
   });
 
   it('commitCreateBinding rejects an invalid bot pubky before writing', async () => {

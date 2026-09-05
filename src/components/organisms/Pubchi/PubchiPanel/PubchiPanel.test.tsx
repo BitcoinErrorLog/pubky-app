@@ -4,21 +4,25 @@ import { PUBCHI_PANEL_SURFACE, PubchiPanel } from './PubchiPanel';
 
 const submit = vi.fn();
 const applyFeed = vi.fn();
+const hookState = {
+  form: {
+    control: {},
+    getValues: () => ({ question: '' }),
+    trigger: async () => true,
+  },
+  submit,
+  applyFeed,
+  result: undefined,
+  errorCode: undefined,
+  loading: false,
+  enabled: true,
+  signingAvailable: true,
+  signingUnavailableMessage:
+    'Pubchi signing is unavailable for this session type in Phase 0; sign in with your recovery phrase or key to use it',
+};
 
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
-  usePubchiQuery: () => ({
-    form: {
-      control: {},
-      getValues: () => ({ question: '' }),
-      trigger: async () => true,
-    },
-    submit,
-    applyFeed,
-    result: undefined,
-    errorCode: undefined,
-    loading: false,
-    enabled: true,
-  }),
+  usePubchiQuery: () => hookState,
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -37,9 +41,23 @@ vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
 
 describe('PubchiPanel', () => {
   it('mounts the production panel surface', () => {
+    hookState.signingAvailable = true;
     render(<PubchiPanel open onOpenChange={() => {}} />);
     expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toHaveAttribute('data-surface', PUBCHI_PANEL_SURFACE);
     expect(screen.getByText('Pubchi')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-ask')).toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-build-feed')).toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
+  });
+
+  it('disables Ask and Build feed when signing is unavailable', () => {
+    hookState.signingAvailable = false;
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(screen.getByTestId('pubchi-signing-unavailable')).toHaveTextContent(
+      'Pubchi signing is unavailable for this session type in Phase 0',
+    );
+    expect(screen.getByTestId('pubchi-ask')).toBeDisabled();
+    expect(screen.getByTestId('pubchi-build-feed')).toBeDisabled();
+    hookState.signingAvailable = true;
   });
 });

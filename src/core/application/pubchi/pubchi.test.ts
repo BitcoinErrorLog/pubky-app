@@ -74,6 +74,7 @@ describe('PubchiApplication', () => {
     const result = await PubchiApplication.query({
       owner: OWNER,
       question: 'who tagged me?',
+      purpose: 'who-tagged-me',
       secretSeed: keypair.secret(),
       nowSeconds: 100,
     });
@@ -93,6 +94,7 @@ describe('PubchiApplication', () => {
       PubchiApplication.query({
         owner: OWNER,
         question: 'who tagged me?',
+        purpose: 'who-tagged-me',
         secretSeed: keypair.secret(),
         nowSeconds: 100,
       }),
@@ -105,6 +107,7 @@ describe('PubchiApplication', () => {
       PubchiApplication.query({
         owner: OWNER,
         question: 'who tagged me?',
+        purpose: 'who-tagged-me',
         secretSeed: keypair.secret(),
         nowSeconds: 100,
       }),
@@ -118,6 +121,7 @@ describe('PubchiApplication', () => {
       PubchiApplication.query({
         owner: OWNER,
         question: 'who tagged me?',
+        purpose: 'who-tagged-me',
         secretSeed: keypair.secret(),
       }),
     ).rejects.toThrow('PUBCHI_DISABLED');
@@ -157,6 +161,7 @@ describe('PubchiApplication', () => {
     const result = await PubchiApplication.query({
       owner: OWNER,
       question: 'build a feed of builders',
+      purpose: 'build-feed',
       secretSeed: keypair.secret(),
       nowSeconds: 100,
     });
@@ -164,14 +169,15 @@ describe('PubchiApplication', () => {
     expect(vi.mocked(PubchiService.query).mock.calls[0][0].request.purpose).toBe('build-feed');
   });
 
-  it.each(['what I missed', 'summarize my week'])(
-    'refuses unserved purpose for %s without a request',
-    async (question) => {
+  it.each(['what-i-missed', 'summarize'] as const)(
+    'refuses unserved purpose %s without a request',
+    async (purpose) => {
       const querySpy = vi.spyOn(PubchiService, 'query');
       await expect(
         PubchiApplication.query({
           owner: OWNER,
-          question,
+          question: 'who tagged me in my feedreader?',
+          purpose,
           secretSeed: keypair.secret(),
           nowSeconds: 100,
         }),
@@ -179,6 +185,18 @@ describe('PubchiApplication', () => {
       expect(querySpy).not.toHaveBeenCalled();
     },
   );
+
+  it('does not infer build-feed from the question text', async () => {
+    vi.spyOn(PubchiService, 'query').mockResolvedValue(QUERY_RESULT);
+    await PubchiApplication.query({
+      owner: OWNER,
+      question: 'who tagged me in my feedreader?',
+      purpose: 'who-tagged-me',
+      secretSeed: keypair.secret(),
+      nowSeconds: 100,
+    });
+    expect(vi.mocked(PubchiService.query).mock.calls[0][0].request.purpose).toBe('who-tagged-me');
+  });
 
   it('does not allow Apply for likes proposals', async () => {
     vi.spyOn(PubchiService, 'query').mockResolvedValue({
@@ -203,6 +221,7 @@ describe('PubchiApplication', () => {
     const result = await PubchiApplication.query({
       owner: OWNER,
       question: 'build a feed of likes',
+      purpose: 'build-feed',
       secretSeed: keypair.secret(),
       nowSeconds: 100,
     });
@@ -215,6 +234,7 @@ describe('PubchiApplication', () => {
     await PubchiApplication.query({
       owner: OWNER,
       question: 'who tagged me?',
+      purpose: 'who-tagged-me',
       secretSeed: seed,
       nowSeconds: 50,
     });
@@ -234,5 +254,47 @@ describe('PubchiApplication', () => {
       seed,
     );
     expect(resigned.signature).toBe(payload.request.signature);
+  });
+
+  it('rejects a question longer than 500 characters', async () => {
+    const querySpy = vi.spyOn(PubchiService, 'query');
+    await expect(
+      PubchiApplication.query({
+        owner: OWNER,
+        question: 'x'.repeat(501),
+        purpose: 'who-tagged-me',
+        secretSeed: keypair.secret(),
+      }),
+    ).rejects.toThrow('REQUEST_MALFORMED');
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the Dexie row when homeserver PUT fails', async () => {
+    vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(undefined);
+    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+    const deleteSpy = vi.spyOn(LocalPubchiBindingService, 'delete');
+    vi.spyOn(HomeserverService, 'request').mockRejectedValue(new Error('homeserver down'));
+
+    await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('homeserver down');
+    expect(upsertSpy).toHaveBeenCalledOnce();
+    expect(deleteSpy).toHaveBeenCalledWith(OWNER, BOT);
+  });
+
+  it('restores the previous Dexie row when homeserver DELETE fails', async () => {
+    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+    const deleteSpy = vi.spyOn(LocalPubchiBindingService, 'delete');
+    vi.spyOn(HomeserverService, 'request').mockRejectedValue(new Error('homeserver down'));
+
+    await expect(PubchiApplication.commitDeleteBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('homeserver down');
+    expect(deleteSpy).not.toHaveBeenCalled();
+    expect(upsertSpy).toHaveBeenCalledTimes(2);
+    expect(upsertSpy.mock.calls[1][0]).toMatchObject({ owner: OWNER, bot: BOT, status: 'active' });
+  });
+
+  it('marks the local row revoked when the homeserver binding is absent', async () => {
+    vi.spyOn(HomeserverService, 'exists').mockResolvedValue(false);
+    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+    await expect(PubchiApplication.reconcileActiveBinding(OWNER)).resolves.toBeUndefined();
+    expect(upsertSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 'revoked', owner: OWNER, bot: BOT }));
   });
 });

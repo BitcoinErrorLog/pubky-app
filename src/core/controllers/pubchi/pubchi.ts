@@ -64,7 +64,14 @@ export class PubchiController {
     return PubchiApplication.query({
       owner,
       question: params.question,
+      purpose: params.purpose,
       secretSeed: params.secretSeed,
     });
+  }
+
+  static async reconcileActiveBinding(): Promise<PubchiBindingRecordResult | undefined> {
+    if (!isPubchiEnabled()) return undefined;
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    return PubchiApplication.reconcileActiveBinding(owner);
   }
 }

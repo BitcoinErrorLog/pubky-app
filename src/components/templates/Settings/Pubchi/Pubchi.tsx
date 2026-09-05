@@ -50,6 +50,9 @@ export function PubchiSettings() {
               void submit();
             }}
           >
+            <Typography data-testid="pubchi-not-enrolled" size="sm">
+              not enrolled
+            </Typography>
             <ControlledInputField
               name={ENROLL_FORM_FIELDS.BOT}
               control={form.control}
