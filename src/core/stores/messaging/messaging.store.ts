@@ -10,6 +10,8 @@ export const useMessagingStore = create<MessagingStore>()(
       clearMessagingEnabled: () =>
         set({ enabledPubky: null, unreadConversations: 0 }, false, MessagingActionTypes.CLEAR_ENABLED),
       setUnreadConversations: (count) => set({ unreadConversations: count }, false, MessagingActionTypes.SET_UNREAD),
+      setMessagingAtRestDegraded: (degraded) =>
+        set({ messagingAtRestDegraded: degraded }, false, MessagingActionTypes.SET_AT_REST_DEGRADED),
     }),
     { name: 'messaging-store' },
   ),

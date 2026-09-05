@@ -5,6 +5,7 @@ import { MessagingController } from '@/controllers/messaging/messaging';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
+import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import type {
   MarketplaceMessagingEnableStatus,
   UseMarketplaceMessagingEnableOptions,
@@ -31,6 +32,9 @@ export function useMarketplaceMessagingEnable(
   const [authorizationUrl, setAuthorizationUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOpeningRing, setIsOpeningRing] = useState(false);
+  // True when this boot's at-rest wrap sweep failed: enabling on top of
+  // degraded storage protection is refused until a later boot heals it.
+  const messagingAtRestDegraded = useMessagingStore((state) => state.messagingAtRestDegraded);
   const activeFlowRef = useRef<ActiveFlow | null>(null);
   const onEnabledRef = useRef(options.onEnabled);
   const visibilityHandlerRef = useRef<(() => void) | null>(null);
@@ -57,6 +61,16 @@ export function useMarketplaceMessagingEnable(
     removeVisibilityHandler();
     setIsOpeningRing(false);
     setErrorMessage(null);
+    if (messagingAtRestDegraded) {
+      // The boot wrap sweep could not protect messaging key material at
+      // rest (legacy plaintext rows may remain). Pause instead of enabling
+      // on top of degraded storage protection; a later boot retries the
+      // sweep and clears the flag.
+      setAuthorizationUrl('');
+      setErrorMessage('Messaging paused: storage protection unavailable');
+      setStatus('error');
+      return;
+    }
     setStatus('awaiting');
     setAuthorizationUrl('');
 
@@ -99,7 +113,7 @@ export function useMarketplaceMessagingEnable(
     return () => {
       cancelled = true;
     };
-  }, [detachActiveFlow, removeVisibilityHandler]);
+  }, [detachActiveFlow, removeVisibilityHandler, messagingAtRestDegraded]);
 
   const cancel = useCallback(() => {
     detachActiveFlow();

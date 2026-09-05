@@ -5,6 +5,7 @@ import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { DatabaseProvider } from '@/providers/DatabaseProvider/DatabaseProvider';
+import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import { useMigrationStore } from '@/stores/migration/migration.store';
 
 describe('DatabaseProvider', () => {
@@ -18,7 +19,7 @@ describe('DatabaseProvider', () => {
   });
 
   it('should initialize database successfully', async () => {
-    vi.spyOn(db, 'initialize').mockResolvedValueOnce({ wasDbReset: false });
+    vi.spyOn(db, 'initialize').mockResolvedValueOnce({ wasDbReset: false, messagingAtRestDegraded: false });
 
     render(
       <DatabaseProvider>
@@ -66,7 +67,7 @@ describe('DatabaseProvider', () => {
 
     // Fail once (shows recovery screen) then succeed on retry.
     const initializeMock = vi.spyOn(db, 'initialize');
-    initializeMock.mockRejectedValueOnce(error).mockResolvedValueOnce({ wasDbReset: false });
+    initializeMock.mockRejectedValueOnce(error).mockResolvedValueOnce({ wasDbReset: false, messagingAtRestDegraded: false });
 
     render(
       <DatabaseProvider>
@@ -92,7 +93,7 @@ describe('DatabaseProvider', () => {
   });
 
   it('should set useMigrationStore.wasDbReset when initialize returns wasDbReset true', async () => {
-    vi.spyOn(db, 'initialize').mockResolvedValue({ wasDbReset: true });
+    vi.spyOn(db, 'initialize').mockResolvedValue({ wasDbReset: true, messagingAtRestDegraded: false });
 
     useMigrationStore.getState().reset();
 
@@ -113,7 +114,7 @@ describe('DatabaseProvider', () => {
   });
 
   it('should not set useMigrationStore.wasDbReset when initialize returns wasDbReset false', async () => {
-    vi.spyOn(db, 'initialize').mockResolvedValue({ wasDbReset: false });
+    vi.spyOn(db, 'initialize').mockResolvedValue({ wasDbReset: false, messagingAtRestDegraded: false });
 
     useMigrationStore.getState().reset();
 
@@ -129,6 +130,45 @@ describe('DatabaseProvider', () => {
 
     expect(screen.getByText('Test Content')).toBeInTheDocument();
     expect(useMigrationStore.getState().wasDbReset).toBe(false);
+  });
+
+  it('mirrors a failed boot wrap sweep into the messaging store as messagingAtRestDegraded', async () => {
+    vi.spyOn(db, 'initialize').mockResolvedValue({ wasDbReset: false, messagingAtRestDegraded: true });
+
+    useMessagingStore.getState().setMessagingAtRestDegraded(false);
+
+    render(
+      <DatabaseProvider>
+        <div>Test Content</div>
+      </DatabaseProvider>,
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(screen.getByText('Test Content')).toBeInTheDocument();
+    expect(useMessagingStore.getState().messagingAtRestDegraded).toBe(true);
+
+    useMessagingStore.getState().setMessagingAtRestDegraded(false);
+  });
+
+  it('clears messagingAtRestDegraded when the boot wrap sweep succeeds', async () => {
+    vi.spyOn(db, 'initialize').mockResolvedValue({ wasDbReset: false, messagingAtRestDegraded: false });
+
+    useMessagingStore.getState().setMessagingAtRestDegraded(true);
+
+    render(
+      <DatabaseProvider>
+        <div>Test Content</div>
+      </DatabaseProvider>,
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(useMessagingStore.getState().messagingAtRestDegraded).toBe(false);
   });
 
   it('renders the recovery screen for unexpected (non-AppError) failures', async () => {

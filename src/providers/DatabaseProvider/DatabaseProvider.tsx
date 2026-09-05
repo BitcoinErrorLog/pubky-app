@@ -10,6 +10,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { DatabaseErrorScreen } from '@/molecules/DatabaseErrorScreen/DatabaseErrorScreen';
 import { type DatabaseContextType } from '@/providers/DatabaseProvider/DatabaseProvider.types';
+import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import { useMigrationStore } from '@/stores/migration/migration.store';
 
 export const DatabaseContext = createContext<DatabaseContextType>({
@@ -34,10 +35,14 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     isInitializingRef.current = true;
     try {
       setError(null);
-      const { wasDbReset } = await db.initialize();
+      const { wasDbReset, messagingAtRestDegraded } = await db.initialize();
       if (wasDbReset) {
         useMigrationStore.getState().setWasDbReset(true);
       }
+      // A failed best-effort wrap sweep must not pass silently: mirror the
+      // degraded fact so the messaging enable UI can pause instead of
+      // enabling on top of unprotected at-rest key material.
+      useMessagingStore.getState().setMessagingAtRestDegraded(messagingAtRestDegraded);
       setIsReady(true);
     } catch (err) {
       setIsReady(false);

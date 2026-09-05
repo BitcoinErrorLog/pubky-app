@@ -139,6 +139,19 @@ export function isTransientIndexedDbError(error: unknown): boolean {
  */
 export const MESSAGING_WRAP_BASE_DB_VERSION = 4;
 
+/**
+ * Outcome of {@link AppDatabase.initialize}. `messagingAtRestDegraded` is
+ * true when the best-effort versions-match wrap sweep failed: legacy
+ * plaintext messaging key material may still sit at rest (and be served on
+ * read) until a later boot's sweep succeeds. The messaging enable UI reads
+ * this (via the messaging store) and pauses with "storage protection
+ * unavailable" instead of silently continuing.
+ */
+export interface DatabaseInitResult {
+  wasDbReset: boolean;
+  messagingAtRestDegraded: boolean;
+}
+
 export class AppDatabase extends Dexie {
   private static readonly DEXIE_VERSION_MULTIPLIER = 10;
 
@@ -433,10 +446,10 @@ export class AppDatabase extends Dexie {
     }
   }
 
-  async initialize(): Promise<{ wasDbReset: boolean }> {
+  async initialize(): Promise<DatabaseInitResult> {
     if (typeof indexedDB === 'undefined') {
       Logger.warn('IndexedDB is not available in this environment. Skipping database initialization.');
-      return { wasDbReset: false };
+      return { wasDbReset: false, messagingAtRestDegraded: false };
     }
 
     for (let attempt = 1; ; attempt++) {
@@ -479,13 +492,13 @@ export class AppDatabase extends Dexie {
     }
   }
 
-  private async runInitialize(): Promise<{ wasDbReset: boolean }> {
+  private async runInitialize(): Promise<DatabaseInitResult> {
     const dbExists = await Dexie.exists(this.name);
 
     if (!dbExists) {
       Logger.info('Creating new database...');
       await this.open();
-      return { wasDbReset: true };
+      return { wasDbReset: true, messagingAtRestDegraded: false };
     }
 
     let rawVersion: number | null = null;
@@ -508,7 +521,7 @@ export class AppDatabase extends Dexie {
     if (currentVersion === null) {
       Logger.warn('Unable to determine current database version. Recreating database...');
       await this.recreateDatabase(currentVersion, rawVersion);
-      return { wasDbReset: true };
+      return { wasDbReset: true, messagingAtRestDegraded: false };
     }
 
     if (currentVersion !== this.declaredVersion) {
@@ -524,7 +537,7 @@ export class AppDatabase extends Dexie {
         });
         await this.open();
         await migrateMessagingSecretsToWrappedStorage(this);
-        return { wasDbReset: false };
+        return { wasDbReset: false, messagingAtRestDegraded: false };
       }
       Logger.info(`Database version mismatch. Current: ${currentVersion}, Expected: ${this.declaredVersion}`, {
         rawVersion,
@@ -533,7 +546,7 @@ export class AppDatabase extends Dexie {
         expectedInternalVersion: this.declaredVersion * AppDatabase.DEXIE_VERSION_MULTIPLIER,
       });
       await this.recreateDatabase(currentVersion, rawVersion);
-      return { wasDbReset: true };
+      return { wasDbReset: true, messagingAtRestDegraded: false };
     }
 
     // Versions match: idempotent wrap sweep — heals a crash that interrupted
@@ -541,17 +554,27 @@ export class AppDatabase extends Dexie {
     // Best-effort here: a failure fails the messaging layer closed at
     // operation time (writes refuse plaintext; unreadable rows read as lost)
     // rather than blocking app boot, and leftover rows retry on the next boot.
+    // But it is NOT silent: a failed sweep leaves legacy plaintext key
+    // material at rest AND still served on read, so the failure is reported
+    // to the caller as `messagingAtRestDegraded` — the messaging enable UI
+    // surfaces it ("messaging paused: storage protection unavailable") until
+    // a later boot's sweep succeeds.
+    let messagingAtRestDegraded = false;
     try {
       if (!this.isOpen()) {
         await this.open();
       }
       await migrateMessagingSecretsToWrappedStorage(this);
     } catch (error) {
-      Logger.warn('Messaging at-rest wrap sweep failed; any legacy rows will be retried on the next boot', { error });
+      messagingAtRestDegraded = true;
+      Logger.warn(
+        'Messaging at-rest wrap sweep failed; legacy rows stay plaintext at rest until a later boot succeeds, and messaging is marked degraded',
+        { error },
+      );
     }
 
     Logger.debug('Database version is current');
-    return { wasDbReset: false };
+    return { wasDbReset: false, messagingAtRestDegraded };
   }
 }
 

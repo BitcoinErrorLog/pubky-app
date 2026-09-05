@@ -13,12 +13,21 @@ export interface MessagingState {
    * sync/receive/mark-read.
    */
   unreadConversations: number;
+  /**
+   * True when this boot's at-rest wrap sweep failed (see
+   * `DatabaseInitResult`): legacy plaintext messaging key material may still
+   * sit at rest until a later boot succeeds. The messaging enable UI reads
+   * this and pauses with "storage protection unavailable" instead of
+   * enabling on top of degraded storage protection.
+   */
+  messagingAtRestDegraded: boolean;
 }
 
 export interface MessagingActions {
   setMessagingEnabled: (pubky: string) => void;
   clearMessagingEnabled: () => void;
   setUnreadConversations: (count: number) => void;
+  setMessagingAtRestDegraded: (degraded: boolean) => void;
 }
 
 export type MessagingStore = MessagingState & MessagingActions;
@@ -26,10 +35,12 @@ export type MessagingStore = MessagingState & MessagingActions;
 export const messagingInitialState: MessagingState = {
   enabledPubky: null,
   unreadConversations: 0,
+  messagingAtRestDegraded: false,
 };
 
 export enum MessagingActionTypes {
   SET_ENABLED = 'messaging/setEnabled',
   CLEAR_ENABLED = 'messaging/clearEnabled',
   SET_UNREAD = 'messaging/setUnreadConversations',
+  SET_AT_REST_DEGRADED = 'messaging/setAtRestDegraded',
 }
