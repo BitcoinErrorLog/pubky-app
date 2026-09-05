@@ -70,6 +70,10 @@ The marketplace endpoints are implemented on the `feat/marketplace-indexing` bra
 
 Because a dedicated marketplace-indexing Nexus is deployed separately from the main social Nexus, the app supports an **optional marketplace-only override**: set `PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL` to route ONLY the commerce/marketplace index reads at that deployment — listing stream and details, listing/shop tags, shop reviews/reputation, and the drops stream — while every social surface (posts, users, tags, files, streams, search) keeps using `PUBKY_RUNTIME_NEXUS_URL`. When the override is unset, marketplace reads fall back to the main `nexusUrl` — the variable is genuinely optional, including under the strict deployed-mode config parse. (Pointing the whole app at a marketplace-indexing Nexus with `PUBKY_RUNTIME_NEXUS_URL` still works for a single-Nexus setup.)
 
+## Shared pubky.app sign-in (vibe session consumer)
+
+Shop is a vibe fork, so it can sign a visitor in silently from their existing pubky.app session through the `/session-bridge` hand-off (ADR 0029). The switch is two **build-time** variables, baked into the artifact at `npm run build` — they are not `PUBKY_RUNTIME_*` values and cannot be changed per deploy without rebuilding. Production values for the Shop artifact: `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN=https://pubky.app` (the exact origin hosting the bridge; `http://localhost:<port>` is accepted only outside production builds) and `NEXT_PUBLIC_VIBE_ID=marketplace`. Consumer mode is active **only** when the bridge origin is set; leave both unset for a standalone build with its own sign-in. A bridged restore never auto-triggers a re-approval — the restored session keeps its (narrower) grant until a scope-gated feature asks for more, and the staging homeserver guard still runs on every restore when `PUBKY_RUNTIME_ENV=staging`.
+
 ## Running the tests
 
 ```bash
