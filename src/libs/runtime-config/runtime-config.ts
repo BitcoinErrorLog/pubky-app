@@ -214,3 +214,5 @@ export const getGithubUrl = (): string => getRuntimeConfig().githubUrl;
 export const getEmail = (): string => getRuntimeConfig().email;
 export const getAppStoreUrl = (): string => getRuntimeConfig().appStoreUrl;
 export const getPlayStoreUrl = (): string => getRuntimeConfig().playStoreUrl;
+export const getPubchiEnabled = (): boolean => getRuntimeConfig().pubchiEnabled;
+export const getPubchiApiUrl = (): string => getRuntimeConfig().pubchiApiUrl;
