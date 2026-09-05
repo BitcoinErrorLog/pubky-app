@@ -154,7 +154,7 @@ RouteGuard and auth-store rehydrate both call `shouldAttemptSessionRestore` (`sr
 
 ## Related Decisions
 
-- Depends on: session-bridge message contract (pubky-app `/session-bridge`, ADR 0017 on the bridge branch)
+- Depends on: session-bridge message contract (pubky-app `/session-bridge`, ADR 0020 on the bridge branch)
 - Does not change: layering rules in [ADR-0004](./0004-layering-and-dependency-rules.md)
 - Distinct from: [ADR 0017 runtime-config injection](./0017-runtime-config-injection.md) and [ADR 0018 runtime Sentry](./0018-runtime-sentry-and-decoupled-source-maps.md). Numbered 0029 on this marketplace branch because 0019–0028 were already taken.
 
