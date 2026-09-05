@@ -2064,6 +2064,62 @@ describe('AuthController', () => {
       vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
     });
 
+    it('keeps vibe auto-restore suppressed when the homeserver sign-out fails after the internal restore cleared it', async () => {
+      const restoredSession = buildMockSession({
+        export: vi.fn(() => 'restored-export'),
+      });
+      const authStore = createAuthStore({
+        session: null,
+        sessionExport: 'session-export',
+      });
+      vi.spyOn(useAuthStore, 'getState').mockImplementation(() => authStore);
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(true);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      vi.spyOn(AuthController, 'restorePersistedSession').mockImplementation(async () => {
+        // The internal restore's init() clears the suppression set at logout start.
+        vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
+        authStore.session = restoredSession;
+        authStore.sessionExport = null;
+        return { status: 'restored' };
+      });
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockRejectedValue(new Error('homeserver unreachable'));
+
+      await AuthController.logout();
+
+      expect(logoutSpy).toHaveBeenCalledWith({ session: restoredSession });
+      // A failed sign-out must not leave a later reload able to
+      // bridge-restore the session the user just logged out of.
+      expect(vibeSessionAutoRestore.isVibeSessionAutoRestoreSuppressed()).toBe(true);
+      vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
+    });
+
+    it('re-applies vibe auto-restore suppression at logout end only in consumer mode', async () => {
+      const suppressSpy = vi.spyOn(vibeSessionAutoRestore, 'suppressVibeSessionAutoRestore');
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(createAuthStore());
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+
+      // Consumer mode off: no bridge leg exists, so logout must not re-apply
+      // suppression beyond the initial set at logout start.
+      vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(false);
+      await AuthController.logout();
+      expect(suppressSpy).toHaveBeenCalledTimes(1);
+
+      suppressSpy.mockClear();
+      vi.mocked(vibeSessionConfig.isVibeSessionConsumerEnabled).mockReturnValue(true);
+      await AuthController.logout();
+      expect(suppressSpy).toHaveBeenCalledTimes(2);
+
+      vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
+    });
+
     it('cleans up local state when restore during logout is deferred', async () => {
       const authStore = createAuthStore({
         session: null,

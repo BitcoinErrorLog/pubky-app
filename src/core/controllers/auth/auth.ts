@@ -556,40 +556,51 @@ export class AuthController {
 
     let session = authStore.session;
 
-    // Fresh loads can still have a persisted session export before the live session is restored.
-    // Reuse the restore flow so /logout performs a real homeserver sign-out before local cleanup.
-    if (!session && (authStore.sessionExport || isVibeSessionConsumerEnabled())) {
-      try {
-        const restoreResult = await this.restorePersistedSession();
-        if (restoreResult.status === 'signed-out') {
+    try {
+      // Fresh loads can still have a persisted session export before the live session is restored.
+      // Reuse the restore flow so /logout performs a real homeserver sign-out before local cleanup.
+      if (!session && (authStore.sessionExport || isVibeSessionConsumerEnabled())) {
+        try {
+          const restoreResult = await this.restorePersistedSession();
+          if (restoreResult.status === 'signed-out') {
+            return;
+          }
+          if (restoreResult.status === 'deferred') {
+            Logger.warn('Homeserver logout failed, clearing local state anyway', {
+              error: 'Session restore deferred; homeserver sign-out could not run',
+            });
+            await this.cleanupLocalState();
+            return;
+          }
+        } catch (error) {
+          // restorePersistedSession already cleaned up local state; a wrong-environment
+          // rejection needs no toast here — the user asked to log out anyway.
+          Logger.warn('Persisted session restore during logout failed; local state already cleaned up', { error });
           return;
         }
-        if (restoreResult.status === 'deferred') {
-          Logger.warn('Homeserver logout failed, clearing local state anyway', {
-            error: 'Session restore deferred; homeserver sign-out could not run',
-          });
-          await this.cleanupLocalState();
-          return;
+        authStore = useAuthStore.getState();
+        session = authStore.session;
+      }
+
+      if (session) {
+        try {
+          await AuthApplication.logout({ session });
+        } catch (error) {
+          Logger.warn('Homeserver logout failed, clearing local state anyway', { error });
         }
-      } catch (error) {
-        // restorePersistedSession already cleaned up local state; a wrong-environment
-        // rejection needs no toast here — the user asked to log out anyway.
-        Logger.warn('Persisted session restore during logout failed; local state already cleaned up', { error });
-        return;
       }
-      authStore = useAuthStore.getState();
-      session = authStore.session;
-    }
 
-    if (session) {
-      try {
-        await AuthApplication.logout({ session });
-      } catch (error) {
-        Logger.warn('Homeserver logout failed, clearing local state anyway', { error });
+      await this.cleanupLocalState();
+    } finally {
+      // The internal restore's init() clears the auto-restore suppression
+      // set above. If the homeserver sign-out then failed, the marker must
+      // not stay cleared: a later reload in consumer mode would
+      // bridge-restore the session the user just logged out of. Guarded so
+      // it is a no-op when consumer mode is off (no bridge leg exists).
+      if (isVibeSessionConsumerEnabled()) {
+        suppressVibeSessionAutoRestore();
       }
     }
-
-    await this.cleanupLocalState();
   }
 
   /**
