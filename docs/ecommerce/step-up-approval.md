@@ -81,6 +81,8 @@ Approvals per payment method and feature under Option C:
 
 ## Implementation sketch (Option C)
 
+**Status:** implemented on branch `marketplace/stepup-ux`, 2026-09-05. Sketch items 1–5 landed; sketch item 3 (vibe-session consumer port) was already in the base branch (ADR 0029).
+
 **mp-ux:**
 
 1. `src/core/application/commerce/commerce.ts:982–985` — replace the silent `canCurrentSessionWrite` return with a recorded/surfaced receipts status (mirror the watchlist `needs_reauth` pattern at `commerce.ts:845–877`; add the status type in `src/core/stores/commerce/commerce.types.ts:17–23`).
