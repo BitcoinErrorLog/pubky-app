@@ -117,4 +117,32 @@ describe('RouteGuardProvider — suppressed reload uses real useAuthStatus', () 
       consumerSpy.mockRestore();
     }
   });
+
+  it('clears a stuck isRestoringSession when the predicate reads false after hydration', async () => {
+    const consumerSpy = vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(true);
+    // Simulate rehydrate having set the flag while the predicate read true,
+    // then logout suppression landing before RouteGuard's effect ran — the
+    // predicate now reads false and no restore will run.
+    suppressVibeSessionAutoRestore();
+    useAuthStore.getState().setIsRestoringSession(true);
+
+    try {
+      render(
+        <RouteGuardProvider>
+          <div>Explore Content</div>
+        </RouteGuardProvider>,
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mocks.restorePersistedSession).not.toHaveBeenCalled();
+      expect(useAuthStore.getState().isRestoringSession).toBe(false);
+      expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+      expect(screen.getByText('Explore Content')).toBeInTheDocument();
+    } finally {
+      consumerSpy.mockRestore();
+    }
+  });
 });
