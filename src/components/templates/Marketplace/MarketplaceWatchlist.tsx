@@ -40,7 +40,7 @@ const SERVICE_AUCTION_KINDS = new Set(['outbid', 'auction_won', 'auction_ended']
 const WATCH_ALERTS_PAGE_LIMIT = 8;
 
 export function MarketplaceWatchlist() {
-  const { entries, isLoading, isSignedIn, watchlistSyncStatus } = useMarketplaceWatchlist();
+  const { entries, isLoading, isSignedIn, watchlistSyncStatus, syncWatchlist } = useMarketplaceWatchlist();
   const alertFeed = useMarketplaceWatchAlertFeed();
   const serviceFeed = useMarketplaceNotificationFeed();
   const [isCheckingNow, setIsCheckingNow] = useState(false);
@@ -120,10 +120,7 @@ export function MarketplaceWatchlist() {
                 cannot write it.
               </Typography>
               <div className="mt-2">
-                <MarketplaceReauthDialog
-                  triggerLabel="Sign in again to enable sync"
-                  onReauthenticated={() => CommerceController.syncWatchlist()}
-                />
+                <MarketplaceReauthDialog triggerLabel="Sign in again to enable sync" onReauthenticated={syncWatchlist} />
               </div>
             </CardContent>
           </Card>

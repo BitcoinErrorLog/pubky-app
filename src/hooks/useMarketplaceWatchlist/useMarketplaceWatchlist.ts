@@ -50,6 +50,9 @@ export function useMarketplaceWatchlist() {
     void CommerceController.syncWatchlist();
   }, [currentUserPubky]);
 
+  /** Re-runs the sync round on demand — e.g. after a step-up re-approval widened the grant. */
+  const syncWatchlist = () => CommerceController.syncWatchlist();
+
   const favorites = useLiveQuery(() => (currentUserPubky ? CommerceController.getFavorites() : []), [currentUserPubky]);
   const localListings = useLiveQuery(() => CommerceController.getAllListings(), []);
   const catalogEntries = useLiveQuery(() => CommerceController.getAllCatalogEntries(), []);
@@ -82,6 +85,7 @@ export function useMarketplaceWatchlist() {
     isLoading: Boolean(currentUserPubky) && (favorites === undefined || localListings === undefined),
     isSignedIn: Boolean(currentUserPubky),
     adapterMode,
+    syncWatchlist,
     /** `needs_reauth` = the session's grant cannot write /priv (or a write was refused); watching still works locally. */
     watchlistSyncStatus,
   };
