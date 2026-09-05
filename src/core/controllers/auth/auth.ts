@@ -13,11 +13,14 @@ import { NotificationCoordinator } from '@/coordinators/notifications/notificati
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
 import { clearDatabase } from '@/database/franky/franky.helpers';
+import { deletePubchiDatabase } from '@/database/pubchi/pubchi';
 import { ErrorService } from '@/libs/error/error.types';
 import { isWrongEnvironmentHomeserverError, toAppError } from '@/libs/error/error.utils';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { clearMuteSyncCursorSessionStorage } from '@/libs/mute-sync/clear-cursor-session-storage';
+import { isPubchiEnabled } from '@/libs/pubchi/flags';
+import { clearPubchiSigningSeed, retainPubchiSigningSeed } from '@/libs/pubchi/signing-seed';
 import { clearAllQueryClients } from '@/libs/query-client/query-client.factory';
 import { clearCookies, sleep } from '@/libs/utils/utils';
 import type { Pubky } from '@/models/models.types';
@@ -87,6 +90,7 @@ export class AuthController {
    */
   private static async signIn({ keypair }: TKeypairParams): Promise<boolean> {
     BootstrapApplication.cancelModerationFollow();
+    clearPubchiSigningSeed();
     // Clear query clients to ensure no stale cache from previous session
     clearAllQueryClients();
     // Clear database before sign in to ensure clean state
@@ -101,6 +105,7 @@ export class AuthController {
     // Environment guard already ran inside HomeserverService.signIn (before the
     // session was created), so go straight to shared initialization.
     await this.completeAuthenticatedSession(session);
+    retainPubchiSigningSeed(keypair);
     return true;
   }
 
@@ -217,6 +222,7 @@ export class AuthController {
    */
   static async signUp({ secretKey, signupToken }: TSignUpParams) {
     BootstrapApplication.cancelModerationFollow();
+    clearPubchiSigningSeed();
     // Clear query clients to ensure no stale cache from previous session
     clearAllQueryClients();
     // Clear database before sign up to ensure clean state
@@ -228,6 +234,7 @@ export class AuthController {
     const authStore = useAuthStore.getState();
     const initialState = { session, currentUserPubky: Identity.z32FromSession({ session }), hasProfile: false };
     authStore.init(initialState);
+    retainPubchiSigningSeed(keypair);
   }
 
   /**
@@ -263,6 +270,7 @@ export class AuthController {
     generateFn: () => Promise<TGenerateAuthUrlResult>,
   ): Promise<TGenerateAuthUrlResult> {
     BootstrapApplication.cancelModerationFollow();
+    clearPubchiSigningSeed();
     await clearDatabase();
     // Skip post-migration resync — full bootstrap below covers all data
     useMigrationStore.getState().reset();
@@ -335,6 +343,14 @@ export class AuthController {
     clearCookies();
 
     await clearDatabase();
+    clearPubchiSigningSeed();
+    if (isPubchiEnabled()) {
+      try {
+        await deletePubchiDatabase();
+      } catch {
+        // Best-effort: sign-out must proceed even if the isolated DB is already gone.
+      }
+    }
     // Skip post-migration resync — full cleanup resets all state
     useMigrationStore.getState().reset();
   }

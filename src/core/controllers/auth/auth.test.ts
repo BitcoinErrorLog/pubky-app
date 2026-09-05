@@ -9,12 +9,14 @@ import { NotificationCoordinator } from '@/coordinators/notifications/notificati
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
 import { clearDatabase } from '@/database/franky/franky.helpers';
+import { deletePubchiDatabase } from '@/database/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
+import { clearPubchiSigningSeed, hasPubchiSigningSeed } from '@/libs/pubchi/signing-seed';
 import type { Pubky } from '@/models/models.types';
 import { NotificationType } from '@/models/notification/notification.types';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
@@ -138,7 +140,20 @@ vi.mock('@/database/franky/franky.helpers', () => ({
   clearDatabase: vi.fn(),
 }));
 
+vi.mock('@/database/pubchi/pubchi', () => ({
+  deletePubchiDatabase: vi.fn(),
+}));
+
+vi.mock('@/libs/pubchi/flags', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/pubchi/flags')>();
+  return {
+    ...actual,
+    isPubchiEnabled: vi.fn(() => false),
+  };
+});
+
 const mockClearDatabase = vi.mocked(clearDatabase);
+const mockDeletePubchiDatabase = vi.mocked(deletePubchiDatabase);
 
 const storeMocks = vi.hoisted(() => {
   const resetAuthStore = vi.fn();
@@ -309,6 +324,7 @@ vi.mock('@/libs/env/env', async (importOriginal) => {
 });
 
 afterEach(() => {
+  clearPubchiSigningSeed();
   vi.restoreAllMocks();
 });
 
@@ -515,6 +531,7 @@ describe('AuthController', () => {
         hasProfile: false,
       });
       expect(result).toBeUndefined();
+      expect(hasPubchiSigningSeed()).toBe(true);
     });
 
     it('should throw error if signup fails', async () => {
@@ -600,6 +617,7 @@ describe('AuthController', () => {
       });
       expect(_authStore.setHasProfile).toHaveBeenCalledWith(true);
       expect(result).toBe(true);
+      expect(hasPubchiSigningSeed()).toBe(true);
     });
 
     it('should successfully login with mnemonic without bootstrap if user is not signed up', async () => {
@@ -1471,6 +1489,56 @@ describe('AuthController', () => {
       expect(storeMocks.resetMigrationStore).toHaveBeenCalled();
 
       expect(sessionStorage.getItem(muteSyncCursorKey)).toBeNull();
+      expect(hasPubchiSigningSeed()).toBe(false);
+    });
+
+    it('clears the in-memory Pubchi signing seed on logout', async () => {
+      const { retainPubchiSigningSeed } = await import('@/libs/pubchi/signing-seed');
+      retainPubchiSigningSeed({ secret: () => new Uint8Array(32).fill(4) });
+      expect(hasPubchiSigningSeed()).toBe(true);
+
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(createAuthStore());
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      vi.spyOn(useSignInStore, 'getState').mockReturnValue(createSignInStore());
+      vi.spyOn(useLocalFilesStore, 'getState').mockReturnValue(createLocalFilesStore());
+      vi.spyOn(useHomeStore, 'getState').mockReturnValue(mockHomeStore(storeMocks.getHomeState()));
+      vi.spyOn(useHotStore, 'getState').mockReturnValue(mockHotStore(storeMocks.getHotState()));
+      vi.spyOn(useSearchStore, 'getState').mockReturnValue(mockSearchStore(storeMocks.getSearchState()));
+      vi.spyOn(useNotificationStore, 'getState').mockReturnValue(
+        mockNotificationStore(storeMocks.getNotificationState()),
+      );
+      vi.spyOn(useSettingsStore, 'getState').mockReturnValue(mockSettingsStore(storeMocks.getSettingsState()));
+
+      await AuthController.logout();
+      expect(hasPubchiSigningSeed()).toBe(false);
+    });
+
+    it('deletes the pubchi IndexedDB on logout when the flag is on', async () => {
+      const flags = await import('@/libs/pubchi/flags');
+      vi.mocked(flags.isPubchiEnabled).mockReturnValue(true);
+      mockDeletePubchiDatabase.mockResolvedValue(undefined);
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(createAuthStore());
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      vi.spyOn(useSignInStore, 'getState').mockReturnValue(createSignInStore());
+      vi.spyOn(useLocalFilesStore, 'getState').mockReturnValue(createLocalFilesStore());
+      vi.spyOn(useHomeStore, 'getState').mockReturnValue(mockHomeStore(storeMocks.getHomeState()));
+      vi.spyOn(useHotStore, 'getState').mockReturnValue(mockHotStore(storeMocks.getHotState()));
+      vi.spyOn(useSearchStore, 'getState').mockReturnValue(mockSearchStore(storeMocks.getSearchState()));
+      vi.spyOn(useNotificationStore, 'getState').mockReturnValue(
+        mockNotificationStore(storeMocks.getNotificationState()),
+      );
+      vi.spyOn(useSettingsStore, 'getState').mockReturnValue(mockSettingsStore(storeMocks.getSettingsState()));
+
+      await AuthController.logout();
+      expect(mockDeletePubchiDatabase).toHaveBeenCalledOnce();
     });
 
     it('should log warning and clear local state even when homeserver logout fails', async () => {
