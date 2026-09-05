@@ -12,8 +12,8 @@ const KEYRING_DB_NAME = `${DB_NAME}-messaging-keyring`;
 const KEYRING_STORE_NAME = 'wrapping-key';
 const WRAPPING_KEY_RECORD_ID = 'wrapping-key';
 
-/** Writes a key directly into the keyring store, as a racing second tab would. */
-async function seedKeyringStore(key: CryptoKey): Promise<void> {
+/** Writes a record directly into the keyring store, as a racing second tab would. */
+async function seedKeyringStore(key: unknown): Promise<void> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(KEYRING_DB_NAME, 1);
     request.onupgradeneeded = () => {
@@ -176,6 +176,41 @@ describe('messaging keyring (wrapping-key custody)', () => {
     const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, foreignKey, new Uint8Array([2, 1]));
     const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, adopted, ciphertext);
     expect([...new Uint8Array(plaintext)]).toEqual([2, 1]);
+  });
+
+  it('replaces an unusable stored record with a fresh key instead of bricking init', async () => {
+    // A corrupted keyring record (anything that is not a usable AES-GCM
+    // CryptoKey) can never unwrap a single row; init must heal it in place —
+    // replacing the record inside the same transaction — not fail forever.
+    await seedKeyringStore({ corrupted: 'not-a-crypto-key' });
+
+    const healed = await getOrCreateWrappingKey();
+    expect(healed.algorithm).toMatchObject({ name: 'AES-GCM', length: 256 });
+    expect(healed.extractable).toBe(false);
+    expect(healed.usages).toEqual(expect.arrayContaining(['encrypt', 'decrypt']));
+
+    // Exactly one record, and it is the fresh key (the dead one is gone).
+    const records = await new Promise<unknown[]>((resolve, reject) => {
+      const request = indexedDB.open(KEYRING_DB_NAME, 1);
+      request.onsuccess = () => {
+        const db = request.result;
+        const transaction = db.transaction(KEYRING_STORE_NAME, 'readonly');
+        const getAllRequest = transaction.objectStore(KEYRING_STORE_NAME).getAll();
+        getAllRequest.onsuccess = () => resolve(getAllRequest.result);
+        getAllRequest.onerror = () => reject(getAllRequest.error ?? new Error('Failed to inspect the keyring store'));
+        transaction.oncomplete = () => db.close();
+      };
+      request.onerror = () => reject(request.error ?? new Error('Failed to open the keyring database'));
+    });
+    expect(records).toHaveLength(1);
+
+    // A reload (cache drop) adopts the healed key: data wrapped now unwraps.
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, healed, new Uint8Array([6, 6, 6]));
+    dropCachedWrappingKeyForTests();
+    const reloaded = await getOrCreateWrappingKey();
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, reloaded, ciphertext);
+    expect([...new Uint8Array(plaintext)]).toEqual([6, 6, 6]);
   });
 
   it('fails closed (AppError, never plaintext) when crypto.subtle is unavailable', async () => {

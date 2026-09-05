@@ -151,9 +151,10 @@ async function loadOrCreateWrappingKey(): Promise<CryptoKey> {
  * The read-modify-write behind {@link getOrCreateWrappingKey}: get-then-`add`
  * (never `put`) inside ONE `readwrite` transaction, so a concurrent creator
  * in another tab surfaces as a `ConstraintError` instead of silently
- * overwriting the stored key. The fresh key is generated BEFORE the
- * transaction opens — an awaited WebCrypto call between two requests would
- * let the transaction auto-commit and close.
+ * overwriting the stored key. The unusable-record heal path deletes the dead
+ * record first and still `add`s, keeping that same adoption guard. The fresh
+ * key is generated BEFORE the transaction opens — an awaited WebCrypto call
+ * between two requests would let the transaction auto-commit and close.
  */
 function readOrAddWrappingKey(): Promise<CryptoKey> {
   return (async () => {
@@ -172,9 +173,15 @@ function readOrAddWrappingKey(): Promise<CryptoKey> {
           return;
         }
         if (existing !== undefined) {
-          // A record that is not a usable AES-GCM key can never unwrap anything;
-          // replace it rather than failing every row read forever.
+          // A record that is not a usable AES-GCM key can never unwrap
+          // anything; replace it rather than failing every row read forever.
+          // `delete` then `add` (NOT `put`): clearing the dead record first
+          // keeps the cross-tab adoption guard below intact — a racing tab
+          // whose `add` lands between our delete and our add still surfaces
+          // as a ConstraintError, and we adopt its key instead of clobbering
+          // it (which a blind `put` would do, orphaning its wrapped rows).
           Logger.warn('Messaging keyring held an unusable record; replacing it with a fresh wrapping key');
+          store.delete(WRAPPING_KEY_RECORD_ID);
         }
         const addRequest = store.add(generated, WRAPPING_KEY_RECORD_ID);
         addRequest.onsuccess = () => resolve(generated);
