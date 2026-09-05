@@ -37,6 +37,7 @@ const RESTORED_PUBKY = '5a1diz4pghi47ywdfyfzpit5f3bdomzt4pugpbmq4rngdd4iub4y' as
 describe('AuthController restore finalization — real useAuthStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    AuthController.resetCleanupLocalStateGuard();
     useAuthStore.getState().reset();
     useOnboardingStore.getState().reset();
     useOnboardingStore.getState().setHydrated(true);

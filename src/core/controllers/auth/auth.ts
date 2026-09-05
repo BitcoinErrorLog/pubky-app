@@ -49,6 +49,27 @@ export class AuthController {
 
   private static activeAuthFlow: { token: symbol; cancel: (() => void) | null } | null = null;
 
+  /**
+   * Single-run guard for cleanupLocalState: concurrent Controller invocations
+   * (e.g. a logout racing an in-flight restore) share one run, and once a run
+   * has completed further calls are no-ops until a session init marks local
+   * state dirty again.
+   */
+  private static cleanupState: { promise: Promise<void> | null; completed: boolean } = {
+    promise: null,
+    completed: false,
+  };
+
+  /** Test-only: reset the cleanupLocalState single-run guard. */
+  static resetCleanupLocalStateGuard(): void {
+    this.cleanupState = { promise: null, completed: false };
+  }
+
+  /** Local state is dirty again once a session is initialized into it. */
+  private static markLocalStateDirty(): void {
+    this.cleanupState.completed = false;
+  }
+
   static cancelActiveAuthFlow() {
     const cancel = this.activeAuthFlow?.cancel;
     this.activeAuthFlow = null;
@@ -92,6 +113,7 @@ export class AuthController {
           currentUserPubky: pubky,
           hasProfile,
         });
+        this.markLocalStateDirty();
         // The marketplace bearer session survives reloads in sessionStorage,
         // scoped to the account whose app session was just restored; anything
         // persisted for another account is dropped inside the restore.
@@ -242,6 +264,7 @@ export class AuthController {
       const pubky = Identity.z32FromSession({ session });
 
       authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
+      this.markLocalStateDirty();
 
       const isSignedUp = await AuthApplication.userIsSignedUp({ pubky });
       signInStore.setProfileChecked(true); // Step 2 complete (40%)
@@ -278,6 +301,7 @@ export class AuthController {
     const authStore = useAuthStore.getState();
     const initialState = { session, currentUserPubky: Identity.z32FromSession({ session }), hasProfile: false };
     authStore.init(initialState);
+    this.markLocalStateDirty();
   }
 
   /**
@@ -344,7 +368,21 @@ export class AuthController {
    * and mute-sync `sessionStorage` cursors.
    * Used by both logout() and restorePersistedSession() on failure.
    */
-  private static async cleanupLocalState() {
+  private static async cleanupLocalState(): Promise<void> {
+    if (this.cleanupState.promise) {
+      return await this.cleanupState.promise;
+    }
+    if (this.cleanupState.completed) {
+      return;
+    }
+    this.cleanupState.promise = this.runCleanupLocalState().finally(() => {
+      this.cleanupState.promise = null;
+    });
+    await this.cleanupState.promise;
+    this.cleanupState.completed = true;
+  }
+
+  private static async runCleanupLocalState() {
     BootstrapApplication.cancelModerationFollow();
     // Capture pubky before resetting auth store; used to scope marker cleanup.
     const pubky = useAuthStore.getState().currentUserPubky;

@@ -321,6 +321,7 @@ describe('AuthController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockClearDatabase.mockReset();
+    AuthController.resetCleanupLocalStateGuard();
     // Default: homeserver environment check passes (non-staging test config / allowed key)
     vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
     // Re-apply factory implementations: vi.restoreAllMocks() in afterEach can
@@ -1960,6 +1961,40 @@ describe('AuthController', () => {
       expect(authStore.reset).toHaveBeenCalled();
       expect(clearCookiesSpy).toHaveBeenCalled();
       expect(clearDatabaseSpy).toHaveBeenCalledTimes(1);
+      vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
+    });
+
+    it('runs local cleanup once when a logout races an in-flight restore', async () => {
+      const clearDatabaseSpy = mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+
+      const authStore = createAuthStore({
+        session: null,
+        sessionExport: 'session-export',
+      });
+      vi.spyOn(useAuthStore, 'getState').mockImplementation(() => authStore);
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+
+      // An in-flight restore that only settles once both callers are awaiting it.
+      let releaseRestore: (() => void) | undefined;
+      const restoreGate = new Promise<void>((resolve) => {
+        releaseRestore = resolve;
+      });
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockImplementation(async () => {
+        await restoreGate;
+        return { status: 'signed-out' };
+      });
+
+      const restorePromise = AuthController.restorePersistedSession();
+      const logoutPromise = AuthController.logout();
+      releaseRestore?.();
+      await Promise.all([restorePromise, logoutPromise]);
+
+      // Both the route restore and the logout's internal restore ended
+      // signed-out; cleanupLocalState must still have run exactly once.
+      expect(clearDatabaseSpy).toHaveBeenCalledTimes(1);
+      expect(authStore.reset).toHaveBeenCalledTimes(1);
       vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
     });
 
