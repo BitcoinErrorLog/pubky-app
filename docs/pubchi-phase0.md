@@ -25,7 +25,15 @@ Vendored from `@pubky/pubchi-schemas` commit `bbf8a73` into `src/libs/pubchi/sch
 - `QueryResultV1` evidence cards
 - `FeedProposalV1` preview; Apply only after `parseFeedProposalV1` (likes/unsupported reach never show Apply)
 
-The HTTP path is `POST ${PUBCHI_API_URL}/v1/query`. Schema purpose is a Phase 0 purpose (`who-tagged-me` by default; `build-feed` when the question mentions “feed”). The brief’s “purpose query” is that endpoint.
+Endpoint is selected by purpose. `pubchiEndpointFor(purpose)` in `src/libs/pubchi/flags.ts` is the mapping; the service layer uses it. Do not POST every purpose to `/v1/query`.
+
+| Purpose                                 | Method + path                     | Response                                            |
+| --------------------------------------- | --------------------------------- | --------------------------------------------------- |
+| `who-tagged-me` (default)               | `POST ${PUBCHI_API_URL}/v1/query` | `QueryResultV1`                                     |
+| `build-feed` (question mentions “feed”) | `POST ${PUBCHI_API_URL}/v1/feed`  | `FeedProposalV1`                                    |
+| `what-i-missed`, `summarize`            | not served in Phase 0             | App refuses with `PURPOSE_UNSUPPORTED` (no network) |
+
+The service accepts only those two purpose/path pairs. A mismatched pair returns `400 {"error":"PURPOSE_UNSUPPORTED"}`. Responses are parsed by `schema` (`pubchi-query-result` vs `pubchi-feed-proposal`).
 
 ## Signing
 
