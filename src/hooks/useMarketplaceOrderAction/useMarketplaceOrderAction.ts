@@ -64,12 +64,6 @@ export function useMarketplaceOrderAction(
             transactionId: data.transactionId,
           });
           break;
-        case 'dispute':
-          succeeded = await actOnOrder(order, 'dispute.open', {
-            reason: data.reason,
-            requestedRemedy: data.requestedRemedy,
-          });
-          break;
         case 'review':
           succeeded = await actOnOrder(order, 'review.create', {
             rating: Number(data.rating),

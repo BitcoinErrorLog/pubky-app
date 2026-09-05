@@ -257,9 +257,7 @@ export function MarketplaceCart() {
                     </div>
                   </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
-                    {isSandbox
-                      ? 'Shipping and sandbox tax are calculated authoritatively at checkout.'
-                      : 'Shipping and tax are calculated authoritatively by the transaction service at checkout.'}
+                    Shipping is calculated authoritatively at checkout.
                   </Typography>
                 </div>
                 {/* A checkout rejected for a missing/expired durable session is

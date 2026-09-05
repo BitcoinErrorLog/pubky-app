@@ -71,8 +71,6 @@ function getBaseActionText(type: MarketplaceFeedNotification['type']): string {
       return 'updated a return';
     case 'refund_recorded':
       return 'recorded a refund';
-    case 'dispute_updated':
-      return 'updated a dispute';
     case 'review_received':
       return 'left you a review';
   }

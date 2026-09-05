@@ -280,8 +280,6 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'Return updated';
     case 'refund_recorded':
       return 'External refund recorded';
-    case 'dispute_updated':
-      return 'Dispute updated';
     case 'review_received':
       return 'New review received';
   }

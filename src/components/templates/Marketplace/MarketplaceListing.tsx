@@ -35,7 +35,6 @@ import { MarketplaceListingSpecifics } from '@/organisms/Marketplace/Marketplace
 import { MarketplaceMediaGallery } from '@/organisms/Marketplace/MarketplaceMediaGallery';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
-import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
 import { MarketplaceReputationHeader } from '@/organisms/Marketplace/MarketplaceReputationHeader';
 import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceReviewsSection';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
@@ -275,7 +274,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </CardContent>
             </Card>
             <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
-            <MarketplaceReportDialog targetId={aggregateId} />
 
             <Typography as="p" className="text-base leading-7 text-muted-foreground">
               {record.description}

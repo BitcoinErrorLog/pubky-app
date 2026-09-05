@@ -5,7 +5,7 @@ const carrierIds = SHIPPING_CARRIERS.map(({ id }) => id) as [string, ...string[]
 
 export const marketplaceOrderActionSchema = z
   .object({
-    action: z.enum(['cancel', 'ship', 'return', 'refund', 'dispute', 'review', 'review_edit']),
+    action: z.enum(['cancel', 'ship', 'return', 'refund', 'review', 'review_edit']),
     reason: z.string().trim().max(2_000),
     /** Curated carrier id from the registry, or `other` with a free-text name below. */
     carrierChoice: z.enum(carrierIds),
@@ -15,7 +15,6 @@ export const marketplaceOrderActionSchema = z
     transactionId: z.string().trim().max(200),
     rating: z.string().trim(),
     text: z.string().trim().max(5_000),
-    requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
     /**
      * Buyer-side amount-band opt-in (ratified D2): rendered only when the
      * seller's standing consent allows bands at all; the attestation carries
@@ -24,7 +23,7 @@ export const marketplaceOrderActionSchema = z
     allowAmountBand: z.boolean(),
   })
   .superRefine((data, context) => {
-    if (['cancel', 'return', 'dispute'].includes(data.action) && !data.reason) {
+    if (['cancel', 'return'].includes(data.action) && !data.reason) {
       context.addIssue({ code: 'custom', path: ['reason'], message: 'Reason is required.' });
     }
     if (data.action === 'ship') {
@@ -60,6 +59,5 @@ export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   transactionId: '',
   rating: '5',
   text: '',
-  requestedRemedy: 'refund',
   allowAmountBand: false,
 };

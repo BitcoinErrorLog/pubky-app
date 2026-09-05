@@ -15,7 +15,6 @@ import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
-import { MarketplaceDisputeCaseDialog } from '@/organisms/Marketplace/MarketplaceDisputeCaseDialog';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
@@ -113,9 +112,6 @@ export function MarketplaceOrders() {
                       </Typography>
                       <Typography as="p" className="mt-1 text-xs text-muted-foreground">
                         Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
-                        {/* The service never computes tax; the line only exists
-                            on legacy orders that carried the prototype's 8%. */}
-                        {order.tax.amountMinor > 0 ? <> · Tax {formatCommerceMoney(order.tax)}</> : null}
                       </Typography>
                       {receipt && (
                         <div className="mt-3 flex flex-col gap-1">
@@ -166,26 +162,6 @@ export function MarketplaceOrders() {
                         <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                           Return {order.returnRequest.state}: {order.returnRequest.reason}
                         </Typography>
-                      )}
-                      {order.dispute && (
-                        <div className="mt-2 flex flex-wrap items-center gap-3">
-                          <Typography as="p" className="text-sm text-muted-foreground">
-                            Dispute {order.dispute.state}: {order.dispute.reason}
-                            {order.dispute.resolution
-                              ? ` · resolved as ${order.dispute.resolution.replaceAll('_', ' ')}`
-                              : ''}
-                            {/* The count comes from the projection; the bodies do not.
-                                Evidence bodies are readable ONLY through the scoped
-                                case-file read (ADR-0019 §8), served to the two dispute
-                                participants and configured moderators — the dialog below
-                                is that read. The sandbox has no evidence store, so the
-                                case file only exists against the durable service. */}
-                            {order.dispute.evidenceCount ? ` · ${order.dispute.evidenceCount} evidence item(s)` : ''}
-                          </Typography>
-                          {!isSandbox && (
-                            <MarketplaceDisputeCaseDialog orderId={order.id} canResolve={false} onChanged={refresh} />
-                          )}
-                        </div>
                       )}
                       {order.externalRefund && (
                         <Typography as="p" className="mt-2 text-sm text-brand">

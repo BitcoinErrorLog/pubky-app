@@ -158,19 +158,11 @@ export function MarketplaceOrderActions({
             Mark return received
           </Button>
         )}
-        {!isBuyer && ['return_received', 'disputed', 'cancelled'].includes(order.state) && !order.externalRefund && (
+        {!isBuyer && ['return_received', 'cancelled'].includes(order.state) && !order.externalRefund && (
           <Button size="sm" className="rounded-full" onClick={() => begin('refund')}>
             Record external refund
           </Button>
         )}
-        {['paid', 'processing', 'shipped', 'delivered', 'completed', 'return_requested', 'return_approved'].includes(
-          order.state,
-        ) &&
-          !order.dispute && (
-            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => begin('dispute')}>
-              Open dispute
-            </Button>
-          )}
         {['delivered', 'completed'].includes(order.state) &&
           !order.reviews?.some(({ reviewerPubky }) =>
             isBuyer ? reviewerPubky === order.buyerPubky : reviewerPubky === order.sellerPubky,
@@ -202,7 +194,7 @@ export function MarketplaceOrderActions({
           <DialogHeader>
             <DialogTitle>{actionTitle(actionType)}</DialogTitle>
           </DialogHeader>
-          {['cancel', 'return', 'dispute'].includes(actionType) && (
+          {['cancel', 'return'].includes(actionType) && (
             <ControlledTextareaField
               name="reason"
               control={action.form.control}
@@ -320,8 +312,6 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Request a return';
     case 'refund':
       return 'Record external refund';
-    case 'dispute':
-      return 'Open a dispute';
     case 'review':
       return 'Leave a review';
     case 'review_edit':
