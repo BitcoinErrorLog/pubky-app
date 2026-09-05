@@ -38,3 +38,15 @@ export function getPubchiDatabase(): PubchiDatabase {
 export function resetPubchiDatabaseForTests(): void {
   instance = null;
 }
+
+/**
+ * Drop the isolated `pubchi` IndexedDB. Does not call `getPubchiDatabase()`,
+ * so it will not throw when the feature flag is off.
+ */
+export async function deletePubchiDatabase(): Promise<void> {
+  try {
+    await Dexie.delete('pubchi');
+  } finally {
+    instance = null;
+  }
+}
