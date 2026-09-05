@@ -1998,6 +1998,59 @@ describe('AuthController', () => {
       vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
     });
 
+    it('never re-inits the logged-out identity when the shared restore resolves restored after logout began', async () => {
+      const clearDatabaseSpy = mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+
+      const restoredSession = buildMockSession({
+        export: vi.fn(() => 'restored-export'),
+      });
+      const authStore = createAuthStore({
+        session: null,
+        sessionExport: 'session-export',
+        // Mirror the real store: init persists the session so the logout's own
+        // finalization can sign it out on the homeserver.
+        init: vi.fn((params: { session: AuthStore['session'] }) => {
+          authStore.session = params.session;
+        }),
+      });
+      vi.spyOn(useAuthStore, 'getState').mockImplementation(() => authStore);
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      // Same persisted pubky as the restored session: the same-identity branch.
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue('test-pubky' as Pubky);
+
+      // The shared Application restore settles restored only once both
+      // Controller callers (RouteGuard restore + the logout's internal
+      // restore) are awaiting it.
+      let releaseRestore: (() => void) | undefined;
+      const restoreGate = new Promise<void>((resolve) => {
+        releaseRestore = resolve;
+      });
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockImplementation(async () => {
+        await restoreGate;
+        return { status: 'restored', session: restoredSession };
+      });
+
+      const routeRestorePromise = AuthController.restorePersistedSession();
+      const logoutPromise = AuthController.logout();
+      releaseRestore?.();
+      const [routeResult] = await Promise.all([routeRestorePromise, logoutPromise]);
+
+      // The restore that started before the logout treats its stale result as
+      // signed-out: it must not re-init the just-logged-out identity.
+      expect(routeResult).toEqual({ status: 'signed-out' });
+      // Only the logout's own finalization inits (to sign the homeserver
+      // session out); the racing restore must not re-persist sessionExport.
+      expect(authStore.init).toHaveBeenCalledTimes(1);
+      expect(logoutSpy).toHaveBeenCalledWith({ session: restoredSession });
+      // Logout suppression survives the race — nothing re-cleared it.
+      expect(vibeSessionAutoRestore.isVibeSessionAutoRestoreSuppressed()).toBe(true);
+      expect(clearDatabaseSpy).toHaveBeenCalledTimes(1);
+      vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
+    });
+
     it('should throw error if clearing the database fails', async () => {
       const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
       const clearDatabaseSpy = mockClearDatabase.mockRejectedValue(new Error('clear failed'));

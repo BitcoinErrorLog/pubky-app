@@ -50,6 +50,18 @@ export class AuthController {
   private static activeAuthFlow: { token: symbol; cancel: (() => void) | null } | null = null;
 
   /**
+   * Bumped synchronously at logout start, before any await. A restore that
+   * began on an earlier generation (e.g. a RouteGuard-initiated restore
+   * sharing the Application singleton promise with the logout's own restore)
+   * must not run its restored-branch `init`: the logout owns finalization
+   * now, and re-initing would re-persist the sessionExport of the identity
+   * that was just logged out. A generation counter — not the suppression
+   * marker — because a suppressed tab may still legitimately restore from a
+   * pending `#s=` fragment, and that restore must init.
+   */
+  private static logoutGeneration = 0;
+
+  /**
    * Single-run guard for cleanupLocalState: concurrent Controller invocations
    * (e.g. a logout racing an in-flight restore) share one run, and once a run
    * has completed further calls are no-ops until a session init marks local
@@ -83,6 +95,10 @@ export class AuthController {
    */
   static async restorePersistedSession(): Promise<TRestorePersistedSessionResult> {
     const authStore = useAuthStore.getState();
+    // Captured before any await so a logout that starts while the shared
+    // Application restore is in flight invalidates this invocation's
+    // restored-branch finalization (compared again right before `init`).
+    const logoutGenerationAtStart = this.logoutGeneration;
     // The Controller owns the restore loading flag for the whole flow: set once
     // before restore begins, cleared once after finalization. With a fresh-vibe
     // bridge restore (sessionExport === null) the isSessionRestorePending
@@ -108,6 +124,14 @@ export class AuthController {
         }
 
         const hasProfile = sameIdentity ? authStore.hasProfile : await AuthApplication.userIsSignedUp({ pubky });
+        // A logout began while the shared restore was in flight: the logout
+        // owns finalization now. Bail out as signed-out — never re-init the
+        // just-logged-out identity (that would re-persist its sessionExport
+        // and clear logout suppression inside `init`). Any cleanup this
+        // invocation already ran is deduplicated by the single-run guard.
+        if (this.logoutGeneration !== logoutGenerationAtStart) {
+          return { status: 'signed-out' };
+        }
         useAuthStore.getState().init({
           session,
           currentUserPubky: pubky,
@@ -455,6 +479,9 @@ export class AuthController {
    * Logs out the current user from both the homeserver and local application state.
    */
   static async logout() {
+    // Bump before any await so an in-flight restore (sharing the Application
+    // singleton promise) can tell its restored-branch result is stale.
+    this.logoutGeneration += 1;
     // Set before any await so RouteGuard cannot re-bridge between cleanup and this flag.
     suppressVibeSessionAutoRestore();
     AuthApplication.abortInFlightBridgeRequest();
