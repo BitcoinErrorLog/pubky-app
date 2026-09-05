@@ -129,7 +129,7 @@ export function MarketplaceOrders() {
                               <Typography as="p" className="text-sm text-muted-foreground">
                                 Receipt not saved to your private storage yet — reconnect to save it
                               </Typography>
-                              <MarketplaceReauthDialog triggerLabel="Reconnect" onReauthenticated={refresh} />
+                              <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
                             </div>
                           )}
                         </div>
