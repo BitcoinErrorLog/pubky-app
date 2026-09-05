@@ -15,15 +15,13 @@ coverage/
 .eslintcache
 .turbo
 
-# macOS AppleDouble resource forks
-._*
-**/._*
-
 # Logs
 *.log
 
 # OS files
 .DS_Store
+._*
+**/._*
 
 # IDE
 .vscode/
