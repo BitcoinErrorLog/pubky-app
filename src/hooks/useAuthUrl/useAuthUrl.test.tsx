@@ -341,7 +341,7 @@ describe('useAuthUrl', () => {
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith({
         variant: 'error',
-        description: 'This key is linked to a different homeserver. Use a staging account on this site.',
+        description: 'This key is linked to a different homeserver. Use a production account on this site.',
       });
       expect(result.current.url).toBe('');
       expect(result.current.isExpired).toBe(true);
@@ -441,7 +441,7 @@ describe('useAuthUrl', () => {
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith({
         variant: 'error',
-        description: 'This key is linked to a different homeserver. Use a staging account on this site.',
+        description: 'This key is linked to a different homeserver. Use a production account on this site.',
       });
     });
     expect(mockLoggerError).not.toHaveBeenCalled();

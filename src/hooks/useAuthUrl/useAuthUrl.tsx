@@ -4,7 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Session } from '@synonymdev/pubky';
 import { AuthController } from '@/controllers/auth/auth';
 import { AuthErrorCode } from '@/libs/error/error.codes';
-import { isAppError, isAuthError, isTimeoutError, isWrongEnvironmentHomeserverError } from '@/libs/error/error.utils';
+import {
+  getWrongEnvironmentHomeserverMessage,
+  isAppError,
+  isAuthError,
+  isTimeoutError,
+  isWrongEnvironmentHomeserverError,
+} from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -58,7 +64,7 @@ export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
             toast({
               variant: 'error',
               description: isWrongEnvironment
-                ? 'This key is linked to a different homeserver. Use a staging account on this site.'
+                ? getWrongEnvironmentHomeserverMessage()
                 : 'Sign in failed. Try again.',
             });
             if (isMountedRef.current) {

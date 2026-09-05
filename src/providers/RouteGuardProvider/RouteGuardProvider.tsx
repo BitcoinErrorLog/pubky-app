@@ -11,7 +11,7 @@ import { AuthStatus } from '@/hooks/useAuthStatus/useAuthStatus.types';
 import { TimeoutErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { isWrongEnvironmentHomeserverError } from '@/libs/error/error.utils';
+import { getWrongEnvironmentHomeserverMessage, isWrongEnvironmentHomeserverError } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { ROUTE_ACCESS_MAP } from '@/providers/RouteGuardProvider/RouteGuardProvider.constants';
@@ -62,7 +62,7 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
       if (isWrongEnvironmentHomeserverError(error)) {
         toast({
           variant: 'error',
-          description: 'This key is linked to a different homeserver. Use a staging account on this site.',
+          description: getWrongEnvironmentHomeserverMessage(),
         });
         return;
       }

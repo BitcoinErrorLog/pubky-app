@@ -13,6 +13,7 @@ import {
 import type { TKeypairParams } from '@/application/auth/auth.types';
 import {
   getDefaultHttpRelay,
+  getDeployEnv,
   getHomeserver,
   getHomeserverUrl,
   getPkarrRelays,
@@ -196,11 +197,11 @@ export class HomeserverService {
       // An expected user mistake (prod key on a staging deploy), not a system
       // fault — constructed directly rather than via the Err factory so every
       // occurrence does not emit an error log plus a Sentry error event.
-      Logger.info('Rejected sign-in: key is not linked to this staging homeserver', context);
+      Logger.info(`Rejected sign-in: key is not linked to this ${getDeployEnv()} homeserver`, context);
       throw new AppError({
         category: ErrorCategory.Auth,
         code: AuthErrorCode.WRONG_ENVIRONMENT_HOMESERVER,
-        message: 'This key is not linked to this staging deploy homeserver.',
+        message: `This key is not linked to this ${getDeployEnv()} deploy homeserver.`,
         service: ErrorService.Homeserver,
         operation: 'assertUserHomeserverAllowed',
         context,

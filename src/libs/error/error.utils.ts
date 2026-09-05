@@ -1,3 +1,4 @@
+import { getDeployEnv } from '@/config/network';
 import { AppError, isAppError } from './error';
 import { AuthErrorCode, ClientErrorCode, DatabaseErrorCode, ServerErrorCode } from './error.codes';
 import { Err } from './error.factories';
@@ -76,6 +77,9 @@ export const requiresLogin = (error: AppError): boolean => {
 export const isWrongEnvironmentHomeserverError = (error: unknown): error is AppError => {
   return isAppError(error) && error.code === AuthErrorCode.WRONG_ENVIRONMENT_HOMESERVER;
 };
+
+export const getWrongEnvironmentHomeserverMessage = (): string =>
+  `This key is linked to a different homeserver. Use a ${getDeployEnv()} account on this site.`;
 
 /**
  * True when the durable marketplace transport refused an operation because its

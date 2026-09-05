@@ -3,6 +3,7 @@ import { getSentryInitBase, shouldEnableSentry } from '@/libs/observability/sent
 import {
   getSentryReplaysOnErrorSampleRate,
   getSentryReplaysSessionSampleRate,
+  readClientConfig,
   RUNTIME_CONFIG_WINDOW_KEY,
 } from '@/libs/runtime-config/runtime-config';
 
@@ -12,8 +13,15 @@ import {
 // shouldEnableSentry() would swallow the resolution error and silently disable client Sentry,
 // so make the broken injection contract loud instead.
 if (window[RUNTIME_CONFIG_WINDOW_KEY] === undefined) {
+  let fallbackDescription = 'could not be resolved';
+  try {
+    fallbackDescription = `${readClientConfig().deployEnv} defaults`;
+  } catch {
+    // readClientConfig already throws the actionable runtime-config error in required environments.
+  }
+
   console.error(
-    `window.${RUNTIME_CONFIG_WINDOW_KEY} was not injected before client init — runtime-config injection is broken; ALL client runtime config (network URLs, moderation, analytics, ...) resolves to staging defaults and client Sentry stays disabled.`,
+    `window.${RUNTIME_CONFIG_WINDOW_KEY} was not injected before client init — runtime-config injection is broken; ALL client runtime config (network URLs, moderation, analytics, ...) resolves to ${fallbackDescription} and client Sentry stays disabled.`,
   );
 }
 

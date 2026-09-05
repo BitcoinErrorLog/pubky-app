@@ -554,7 +554,7 @@ describe('DialogRestoreRecoveryPhrase', () => {
       await waitFor(() => {
         expect(mockToast).toHaveBeenCalledWith({
           variant: 'error',
-          description: 'This key is linked to a different homeserver. Use a staging account on this site.',
+          description: 'This key is linked to a different homeserver. Use a production account on this site.',
         });
         expect(screen.queryByText('Restoring...')).not.toBeInTheDocument();
         expect(restoreButton).not.toBeDisabled();
