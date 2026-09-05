@@ -79,6 +79,7 @@ describe('PubchiService', () => {
     expect(fetch).toHaveBeenCalledOnce();
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://pubchi.example.com/v1/query');
     expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe('POST');
+    expect(vi.mocked(fetch).mock.calls[0][1]?.credentials).toBe('omit');
   });
 
   it('POSTs build-feed to /v1/feed and returns FeedProposalV1 JSON', async () => {
