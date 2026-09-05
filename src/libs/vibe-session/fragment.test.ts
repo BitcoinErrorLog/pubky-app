@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearVibeSessionAutoRestoreSuppressed,
   isVibeSessionAutoRestoreSuppressed,
@@ -7,6 +7,8 @@ import {
 import {
   clearFragmentSessionExport,
   consumeFragmentSessionExport,
+  discardFragmentSessionExport,
+  FRAGMENT_SESSION_EXPORT_TTL_MS,
   hasPendingFragmentSessionExport,
   readFragmentSessionExport,
   resetFragmentSessionExportCache,
@@ -19,6 +21,7 @@ afterEach(() => {
   window.history.replaceState(null, '', '/');
   resetFragmentSessionExportCache();
   clearVibeSessionAutoRestoreSuppressed();
+  vi.useRealTimers();
 });
 
 describe('fragment session export', () => {
@@ -99,5 +102,36 @@ describe('fragment session export', () => {
   it('hasPendingFragmentSessionExport is false when no fragment is present', () => {
     window.history.replaceState(null, '', '/');
     expect(hasPendingFragmentSessionExport(window)).toBe(false);
+  });
+
+  it('treats the cached export as expired after the TTL', () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', `/#s=${encodeURIComponent(EXPORT)}`);
+    expect(hasPendingFragmentSessionExport(window)).toBe(true);
+
+    vi.advanceTimersByTime(FRAGMENT_SESSION_EXPORT_TTL_MS + 1);
+
+    expect(hasPendingFragmentSessionExport(window)).toBe(false);
+    expect(takeFragmentSessionExport(window)).toBeNull();
+  });
+
+  it('serves the cached export within the TTL', () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', `/#s=${encodeURIComponent(EXPORT)}`);
+    consumeFragmentSessionExport(window);
+
+    vi.advanceTimersByTime(FRAGMENT_SESSION_EXPORT_TTL_MS - 1);
+
+    expect(takeFragmentSessionExport(window)).toBe(EXPORT);
+  });
+
+  it('discardFragmentSessionExport drops the cache without touching the URL', () => {
+    window.history.replaceState(null, '', `/#s=${encodeURIComponent(EXPORT)}`);
+    expect(hasPendingFragmentSessionExport(window)).toBe(true);
+
+    discardFragmentSessionExport();
+
+    expect(hasPendingFragmentSessionExport(window)).toBe(false);
+    expect(takeFragmentSessionExport(window)).toBeNull();
   });
 });

@@ -660,6 +660,30 @@ describe('AuthApplication', () => {
       await expect(restorePromise).resolves.toEqual({ status: 'signed-out' });
     });
 
+    it('discards the cached fragment export once the restore decision has run (restored leg)', async () => {
+      const discardSpy = vi.spyOn(vibeSessionFragment, 'discardFragmentSessionExport');
+      const session = liveSession();
+      vi.spyOn(HomeserverService, 'restoreSession').mockResolvedValue(session);
+      vi.spyOn(HomeserverService, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+      const authStore = createMockAuthStore(PERSISTED_EXPORT);
+
+      const result = await AuthApplication.restorePersistedSession({ authStore });
+
+      expect(result).toEqual({ status: 'restored', session });
+      expect(discardSpy).toHaveBeenCalledOnce();
+    });
+
+    it('discards the cached fragment export once the restore decision has run (signed-out leg)', async () => {
+      const discardSpy = vi.spyOn(vibeSessionFragment, 'discardFragmentSessionExport');
+      vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValue(createAuthError());
+      const authStore = createMockAuthStore(PERSISTED_EXPORT);
+
+      const result = await AuthApplication.restorePersistedSession({ authStore });
+
+      expect(result).toEqual({ status: 'signed-out' });
+      expect(discardSpy).toHaveBeenCalledOnce();
+    });
+
     it('does not auto-trigger any re-approval (generateAuthUrl / beginSessionFlow) on a bridged restore', async () => {
       vi.mocked(vibeSessionConfig.getVibeSessionBridgeOrigin).mockReturnValue(BRIDGE);
       vi.mocked(vibeSessionFragment.takeFragmentSessionExport).mockReturnValue(null);

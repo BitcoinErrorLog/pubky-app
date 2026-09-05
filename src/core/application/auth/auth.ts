@@ -24,7 +24,7 @@ import { isVibeSessionAutoRestoreSuppressed } from '@/libs/vibe-session/auto-res
 import { requestFromBridge } from '@/libs/vibe-session/bridge';
 import { getVibeId, getVibeSessionBridgeOrigin } from '@/libs/vibe-session/config';
 import { isPubkyExpiredError } from '@/libs/vibe-session/expired';
-import { takeFragmentSessionExport } from '@/libs/vibe-session/fragment';
+import { discardFragmentSessionExport, takeFragmentSessionExport } from '@/libs/vibe-session/fragment';
 import { VIBE_SESSION_LOAD_TIMEOUT_MS, VIBE_SESSION_REPLY_TIMEOUT_MS } from '@/libs/vibe-session/types';
 import type { Pubky } from '@/models/models.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -97,6 +97,10 @@ export class AuthApplication {
         return await this.runSessionRestore({ persistedExport, consumerOrigin });
       } finally {
         authStore.setIsRestoringSession(false);
+        // The first restore decision of this page load has run (whichever leg
+        // decided it) — drop any cached `#s=` export so a later same-tab
+        // logout cannot resurrect the hand-off.
+        discardFragmentSessionExport();
         this.restoreSessionPromise = null;
       }
     })();

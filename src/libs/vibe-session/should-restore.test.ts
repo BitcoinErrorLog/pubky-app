@@ -36,6 +36,20 @@ describe('shouldAttemptSessionRestore', () => {
     expect(shouldAttemptSessionRestore(null)).toBe(true);
   });
 
+  it('is false when a suppressed consumer has only a stale (TTL-expired) #s= fragment', () => {
+    vi.useFakeTimers();
+    vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(true);
+    suppressVibeSessionAutoRestore();
+    window.history.replaceState(null, '', '/#s=pending-session-export');
+    expect(shouldAttemptSessionRestore(null)).toBe(true);
+
+    vi.advanceTimersByTime(61_000);
+
+    // A later same-tab logout must not resurrect the hours-old hand-off.
+    expect(shouldAttemptSessionRestore(null)).toBe(false);
+    vi.useRealTimers();
+  });
+
   it('is false when consumer mode is off and nothing is persisted', () => {
     vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(false);
     expect(shouldAttemptSessionRestore(null)).toBe(false);
