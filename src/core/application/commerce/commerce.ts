@@ -397,9 +397,13 @@ export class CommerceApplication {
    * Drops the Marketplace Transaction Service session from memory and from
    * `sessionStorage`. Part of the sign-out teardown: the bearer token must not
    * survive the user it was minted for (this is the single cleanup point).
+   * The published-receipt memo backs the user-visible `published` status, so
+   * it is cleared here too — session teardown matches the store reset, and a
+   * later account re-reads its receipts instead of trusting a prior session.
    */
   static clearMarketplaceSession(): void {
     MarketplaceSessionService.clearSession();
+    this.publishedReceiptUrls.clear();
   }
 
   static async getMarketplaceListingProjection(actorPubky: string | null, aggregateId: string) {

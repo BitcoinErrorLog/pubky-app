@@ -7,6 +7,7 @@ import { Logger } from '@/libs/logger/logger';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { CommerceApplication } from './commerce';
 
 // A REAL receipt attestation issued by the transaction service's Rust
@@ -296,6 +297,28 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
     await expect(
       CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770213')]),
     ).resolves.toBe('published');
+  });
+
+  it('re-reads a published receipt after clearMarketplaceSession instead of trusting the memo', async () => {
+    grantCapableSession();
+    const fetch = vi
+      .spyOn(CommerceHomeserverService, 'fetchJson')
+      .mockResolvedValue({ recordType: 'order_receipt' });
+    vi.spyOn(MarketplaceSessionService, 'clearSession').mockImplementation(() => {});
+    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770217';
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // Memo hit: a second pass in the same session does not re-read.
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // Sign-out / account-switch teardown drops the memo alongside the bearer,
+    // so the next session confirms publication from the homeserver itself.
+    CommerceApplication.clearMarketplaceSession();
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('reports needs_reauth when the private read is refused with 403 mid-pass', async () => {
