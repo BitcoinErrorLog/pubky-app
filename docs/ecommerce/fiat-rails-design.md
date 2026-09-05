@@ -315,7 +315,7 @@ Each processor plugin implements:
    `charge.refunded` ([Stripe events][stripe-events]). PayPal:
    `CUSTOMER.DISPUTE.CREATED`, `PAYMENT.CAPTURE.REVERSED`, `PAYMENT.CAPTURE.REFUNDED`
    ([PayPal event names][paypal-events]). Same rule: webhook schedules an API pull;
-   the pulled dispute/refund object is the fact. Consequences in §5.
+   the pulled chargeback/refund object is the fact. Consequences in §5.
 
 `amount_matched` is computed by the verifier: pulled paid amount and currency must
 equal the criterion's `amount`/`asset` exactly. Underpayment/overpayment cannot happen
@@ -329,7 +329,7 @@ defensive posture the Bitcoin rail has, and it catches processor/config drift.
 | created (no completed checkout)             | `undetected, confirmations: 0, amount_matched: false`                   | initial                                           |
 | paid, inside settlement delay               | `detected, confirmations: 0, amount_matched: true`                      | API pull confirms paid                            |
 | paid, settlement delay elapsed, no reversal | `confirmed, confirmations: minimum_confirmations, amount_matched: true` | delay timer + fresh API re-pull at promotion time |
-| reversed/disputed before completion         | `undetected` again (or simply never promoted)                           | reversal pull                                     |
+| reversed before completion         | `undetected` again (or simply never promoted)                           | reversal pull                                     |
 
 The settlement delay is the fiat analogue of block confirmations and the primary
 chargeback mitigation (§5). `confirmations` is synthesized to exactly satisfy
@@ -355,8 +355,8 @@ the disclosure; a condensed version belongs in user-facing docs and the payment 
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | Who attests payment                              | Paykit Server operator reading its own Electrum view of the Bitcoin chain                                                                 | fiat-verifier operator reading Stripe's API                                                | fiat-verifier operator reading PayPal's API                            |
 | Can the attestor lie about payment status?       | Yes (operator could fake status) — but anyone can independently verify on-chain                                                           | Yes — and only Stripe + the seller's dashboard can contradict it                           | Yes — and only PayPal + the seller's dashboard can contradict it       |
-| Can payment be reversed after Locks `completed`? | No (after N confirmations, reorg risk is negligible)                                                                                      | **Yes** — chargebacks up to ~120 days                                                      | **Yes** — disputes up to 180 days                                      |
-| Who eats a reversal                              | n/a                                                                                                                                       | The seller (seller-owned account, §6) + dispute fee                                        | The seller + dispute fee                                               |
+| Can payment be reversed after Locks `completed`? | No (after N confirmations, reorg risk is negligible)                                                                                      | **Yes** — chargebacks up to ~120 days                                                      | **Yes** — chargebacks up to 180 days                                      |
+| Who eats a reversal                              | n/a                                                                                                                                       | The seller (seller-owned account, §6) + chargeback fee                                        | The seller + chargeback fee                                               |
 | Who sees the buyer                               | Paykit Server operator sees reader pubky ↔ invoice; chain sees amounts                                                                    | Stripe sees card identity, name, often address; fiat-verifier sees pubky ↔ session linkage | PayPal sees account identity; fiat-verifier sees pubky ↔ order linkage |
 | Buyer identity required                          | Pubky only                                                                                                                                | Card (real-world identity)                                                                 | PayPal account (real-world identity)                                   |
 | Censorship surface                               | Operator can refuse invoices; buyer/seller can move to another Paykit deployment                                                          | Stripe can freeze/close the seller account; card networks can block categories             | PayPal can freeze/close; famously discretionary                        |
@@ -372,7 +372,7 @@ Plain statements the docs and UI must not soften:
   larger identity exposure because the processor knows the buyer's legal identity.
 - **Stripe/PayPal can reverse a payment after the entitlement is granted and the
   content delivered.** Locks has no un-complete transition; the reversal lands in the
-  marketplace's dispute flow, not in Locks (§5).
+  marketplace's refund evidence flow, not in Locks (§5).
 - **Fiat rails identify the buyer to the processor.** A privacy-conscious buyer should
   use the Bitcoin rail; the payment-method chooser says so (§7).
 
@@ -388,17 +388,16 @@ bundle) is already written. Fighting that would be dishonest engineering. Instea
    within operator bounds). Reversals inside the window mean the task simply never
    completes and expires normally. This mirrors `minimum_confirmations` for Bitcoin —
    same knob, same UI state ("Awaiting payment"), honest analogue.
-2. **After completion — marketplace dispute linkage.** The marketplace already has a
-   dispute machine: `dispute.open`, `dispute.evidence`, `dispute.resolve`
+2. **After completion — marketplace reversal handling.** The marketplace keeps reversal handling outside Locks via
+   `refund.record_external`
    (`marketplace-service/crates/domain/src/commands.rs:108-110, 659-663`) and a
    `manual_review` payment state for out-of-band verified events
    (`state_machines.rs:368-420`). When the verifier's reversal ingestion (§3.3.4) fires
    for an already-completed correlation, the verifier records the reversal and exposes
    it on an operator/reporting endpoint; the marketplace operator (phase 1) or an
-   automated bridge (phase 2, see plan) opens `dispute.open` on the affected order with
-   the processor dispute reference as evidence. Resolution follows the existing
-   marketplace dispute flow — _"buyer remedies leave the order disputed awaiting the
-   external refund"_ (`commands.rs:458`) — which already assumes refunds are external.
+   automated bridge (phase 2, see plan) records `refund.record_external` on the affected order with
+   the processor chargeback reference as evidence. The peer refund evidence flow already
+   assumes refunds are external.
    The design leans into that: the chargeback IS the external refund, already executed.
 3. **The seller carries chargeback risk, and the UI says so.** With seller-owned
    processor accounts (§6) the reversal debits the seller directly — the marketplace
@@ -410,9 +409,9 @@ bundle) is already written. Fighting that would be dishonest engineering. Instea
    rail for irreversibility."_
 4. **Refunds initiated by the seller** (goodwill/return policy) go through the seller's
    own processor dashboard; the verifier observes them (`charge.refunded` /
-   `PAYMENT.CAPTURE.REFUNDED`) and records them against the correlation for the dispute
+   `PAYMENT.CAPTURE.REFUNDED`) and records them against the correlation for the reversal
    trail. No Locks interaction — the entitlement intentionally survives a voluntary
-   refund unless a dispute says otherwise.
+   refund.
 
 ## 6. Seller onboarding
 
@@ -507,17 +506,17 @@ specific adaptations, all in the awaiting state:
 Stripe test mode and PayPal sandbox make the entire fiat path demoable with zero real
 funds and no live-credential security exposure:
 
-- Stripe test mode: full Checkout + webhooks + disputes simulation with test cards
+- Stripe test mode: full Checkout + webhooks + chargeback simulation with test cards
   (including chargeback-triggering test cards), `livemode: false` on every object.
-- PayPal sandbox: full Orders v2 + webhooks + a dispute-testing harness
-  ([PayPal dispute webhook testing][paypal-dispute-test]).
+- PayPal sandbox: full Orders v2 + webhooks + a chargeback-testing harness
+  ([PayPal chargeback webhook testing][paypal-dispute-test]).
 - The verifier refuses to start with live credentials unless an explicit
   `FIAT_LIVE_MODE=true` flag is set; live mode is gated behind the security review.
   Staging = test keys only, forever.
 
 This gives the phase structure in `fiat-rails-plan.md`: everything through a full
 staging demo (fiat listing → Stripe test checkout → Locks completion → unlock →
-simulated chargeback → dispute linkage) ships without touching real money.
+simulated chargeback → reversal handling) ships without touching real money.
 
 ## 9. Known gaps and non-goals (recorded, not hidden)
 
@@ -526,9 +525,9 @@ simulated chargeback → dispute linkage) ships without touching real money.
 2. **USD-priced listings have no Bitcoin conversion** (§1.8) — a Bitcoin-rail gap that
    predates this design; fiat rails don't inherit it.
 3. **No dual-rail single listing** in v1 (§7).
-4. **Chargeback → dispute bridge is operator-manual in phase 1** (§5.2); automation is
+4. **Chargeback → reversal handling is operator-manual in phase 1** (§5.2); automation is
    a planned phase, needs a small marketplace-service-adjacent bridge worker (we own
-   the verifier; the bridge submits `dispute.open` as an authorized party — needs a
+   the verifier; the bridge submits `refund.record_external` as an authorized party — needs a
    decision on who signs those commands).
 5. **PayPal multiparty live approval** is a business process with PayPal, not
    engineering; the plan treats PayPal live as strictly after Stripe live.
@@ -552,8 +551,8 @@ simulated chargeback → dispute linkage) ships without touching real money.
 [paypal-dispute-test]: https://developer.paypal.com/docs/multiparty/disputes-chargebacks/webhooks/
 
 - Stripe: Checkout Sessions API, fulfillment guide (verify `payment_status == paid` via
-  retrieve, never the redirect), event types (disputes/refunds), Connect
+  retrieve, never the redirect), event types (chargebacks/refunds), Connect
   integration/risk docs (Standard + direct charges liability). Accessed 2026-08.
 - PayPal: Orders v2 API + lifecycle (capture status COMPLETED before fulfillment),
   webhooks overview (verify-webhook-signature postback), webhook event names
-  (PAYMENT.CAPTURE._, CUSTOMER.DISPUTE._), dispute webhook sandbox testing. Accessed 2026-08.
+  (PAYMENT.CAPTURE._, CUSTOMER.DISPUTE._), chargeback webhook sandbox testing. Accessed 2026-08.

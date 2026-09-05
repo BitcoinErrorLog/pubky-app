@@ -13,10 +13,7 @@ This threat model covers:
 - Pubky homeserver/Nexus public catalog data;
 - Locks browser SDK, Lock Server, and its PostgreSQL database;
 - Paykit Server, Paykit private messaging, Bitkit, Electrum, and Bitcoin observations;
-- sandbox tax, shipping, payment, hold/release, and payout adapters;
-- support, moderator, risk, finance, and operator interfaces.
 
-The prototype is non-custodial. Real-funds production, legal escrow, regulated payouts, card processing, KYC/KYB, tax remittance, and production fraud/compliance operations remain outside the accepted security boundary until separately designed and reviewed.
 
 ## Security objectives
 
@@ -26,7 +23,6 @@ The prototype is non-custodial. Real-funds production, legal escrow, regulated p
 4. The browser cannot forge price, inventory, winner, settlement, refund, guarantee, or payout facts.
 5. Public Pubky records cannot expose private commerce data.
 6. Pubky secrets, wallet secrets, xpubs, Paykit/Locks secrets, bearer credentials, delivery details, messages, and evidence do not enter telemetry.
-7. Every staff action is least-privileged, reasoned, attributable, immutable, and reviewable.
 8. A failed dependency, delayed event, restart, replay, or restore fails safely without inventing finality.
 9. Digital content is released only after a valid Locks entitlement and hash verification.
 10. Supply-chain and runtime configuration are pinned, validated, and fail closed.
@@ -48,7 +44,6 @@ The prototype is non-custodial. Real-funds production, legal escrow, regulated p
 | Paykit receiver/Noise state         | Secret                                      | Paykit Server/Bitkit                    | Never exposed to web app or generic API                          |
 | Bitkit account xpub/index           | Highly sensitive metadata                   | Bitkit/Paykit Server                    | Companion-claim path only; prohibited from app storage/telemetry |
 | Payment address/correlation/status  | Restricted financial metadata               | Paykit Server/Locks                     | Narrow signed APIs, opaque client status                         |
-| Staff role/configuration            | Privileged                                  | Transaction Service                     | Step-up auth, separation of duties, immutable audit              |
 | Logs/traces/metrics/backups         | Sensitive operational data                  | Operator                                | Redaction, access control, retention, encrypted backup           |
 
 ## Trust boundaries
@@ -87,13 +82,11 @@ Assumptions:
 
 | ID      | Threat                                        | Impact                                                 | Required mitigation and evidence                                                    |
 | ------- | --------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| AUTH-01 | Forged Pubky identity                         | Cross-account purchase, sale, message, or staff action | Server-verifiable assertion; audience/nonce/expiry checks; negative signature tests |
 | AUTH-02 | Replayed assertion or command                 | Duplicate transaction or stale privilege               | One-time nonce/session binding; actor-scoped command ID; replay tests               |
 | AUTH-03 | Confused-deputy assertion for another service | Unauthorized marketplace access                        | Exact audience and origin binding; wrong-audience tests                             |
 | AUTH-04 | IDOR through order/listing/message IDs        | Private data disclosure or mutation                    | Object participation checked after lookup on every route; cross-user matrix tests   |
 | AUTH-05 | Stale suspension or revoked session           | Restricted user continues transacting                  | Server-side role/status checks per command; revocation propagation test             |
 | AUTH-06 | Account switch leaks Dexie projections        | Private data disclosure                                | Pubky-scoped database keys/cache and full sign-out cleanup test                     |
-| AUTH-07 | Privilege aggregation into “admin”            | Unreviewed financial/moderation power                  | Independent support/moderator/risk/finance/operator roles and step-up authorization |
 
 ### Public catalog and media
 
@@ -115,7 +108,6 @@ Assumptions:
 | TX-03 | Duplicate checkout or callback             | Duplicate order/payment event                  | Actor-scoped idempotency record, canonical input hash, unique constraints       |
 | TX-04 | Changed replay under same command ID       | Confused result or tampering                   | Exact canonical request hash; conflict response; adversarial replay test        |
 | TX-05 | Stale expected revision                    | Lost update                                    | Compare expected/current revision atomically; return current projection         |
-| TX-06 | Client forges totals/discount/tax/shipping | Financial loss                                 | Server recalculates from frozen inputs and adapter quotes                       |
 | TX-07 | Fractional/overflow money                  | Incorrect totals/ledger                        | Integer safe minor units, explicit exponent/currency, bounds and rounding tests |
 | TX-08 | Unbalanced ledger transaction              | Incorrect statement/payout                     | Deferred balance constraint/application invariant; block commit and alert       |
 | TX-09 | Worker crash around side effect            | Lost or duplicated notification/adapter action | Transactional outbox, leases, at-least-once delivery, consumer dedupe           |
@@ -159,21 +151,6 @@ Assumptions:
 | REP-01 | Self/fake/duplicate review                  | Reputation manipulation | Completed-order eligibility and unique participant review constraints                 |
 | REP-02 | Seller deletes criticism                    | Misleading reputation   | User cannot delete another review; moderation removal remains audit-visible           |
 
-### Staff and operations
-
-| ID     | Threat                                                   | Impact                            | Required mitigation and evidence                                                  |
-| ------ | -------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------- |
-| ADM-01 | Staff searches unrelated private data                    | Insider privacy abuse             | Scoped search, redacted defaults, purpose/reason, immutable access audit          |
-| ADM-02 | One staff member performs high-risk self-approved action | Fraud or cover-up                 | Separation of duties/two-person approval for configured high-risk actions         |
-| ADM-03 | Direct database mutation                                 | Untraceable state corruption      | Validated commands only; DB credentials unavailable to normal operators           |
-| ADM-04 | Audit event modified/deleted                             | Loss of accountability            | Append-only permissions, hash/checkpoint verification, backup retention           |
-| OPS-01 | Secret in config/log/error/Sentry                        | Credential or privacy leak        | Secret manager, closed config, structured redaction tests, no raw request logging |
-| OPS-02 | SSRF through media/carrier/webhook URL                   | Internal network access           | Egress allowlist, DNS/IP revalidation, redirect limits, timeout/size bounds       |
-| OPS-03 | Mutable upstream image/dependency                        | Supply-chain compromise           | Exact commit/image digest/checksum, lockfile, generated artifact provenance       |
-| OPS-04 | Failed migration partially starts service                | Corrupt state                     | Advisory migration lock, transactional migration, readiness fail closed           |
-| OPS-05 | Backup is unusable or includes uncontrolled secrets      | Data loss/exposure                | Encrypted backup, restore drill, access/retention policy, secret separation       |
-| OPS-06 | Single Paykit Server process failure                     | Payment setup/status interruption | Honest degraded readiness, restart/reconciliation, no false paid/failed status    |
-
 ### Browser and PWA
 
 | ID     | Threat                                               | Impact                         | Required mitigation and evidence                                                 |
@@ -202,7 +179,6 @@ Assumptions:
 - private offer, bid maximum, message, or evidence;
 - payment address/hash/correlation;
 - `bundle_id`, access credential, creator frontend session;
-- staff note, risk signal, device/network linkage;
 - raw Pubky auth assertion or session export.
 
 ### Telemetry policy
@@ -222,7 +198,6 @@ Telemetry must not include user-authored content, private identifiers, public ke
 - A dependency timeout is distinct from a negative business result.
 - Unknown payment/refund outcomes remain reconciling and block release/payout simulation.
 - Rate limiting must not make exact idempotent replay unsafe.
-- Deleted/suspended public content remains available only to authorized order/dispute participants and staff.
 - Every user-facing guarantee names its sandbox or independently verified basis.
 
 ## Required security verification
@@ -230,7 +205,6 @@ Telemetry must not include user-authored content, private identifiers, public ke
 ### Automated
 
 - contract fuzz/property tests for closed schemas, bounds, money, revisions, and canonical replay;
-- object-level authorization matrix across buyer, seller, unrelated user, support, moderator, risk, finance, and operator;
 - 100-way stock and bid concurrency;
 - duplicate, changed, reordered, delayed, and forged commands/callbacks;
 - CSRF, origin, audience, expiry, nonce, unsafe redirect, SSRF, and path traversal;
@@ -245,8 +219,7 @@ Telemetry must not include user-authored content, private identifiers, public ke
 - Pubky Ring creator grant scope and cancellation;
 - Bitkit/helper setup without xpub exposure to Pubky App;
 - desktop/mobile setup and payment-progress language;
-- keyboard and screen-reader completion of purchase, fulfillment, return, and dispute;
-- support/moderation redaction and role separation;
+- keyboard and screen-reader completion of purchase, fulfillment, and return;
 - browser storage inspection before/after sign-out and account switch;
 - successful payment followed by late/duplicate/restart reconciliation;
 - security headers, setup iframe policy, deep links, and unsafe-link warnings.
@@ -259,7 +232,6 @@ Before real funds:
 - cryptographic and protocol review;
 - web/API penetration test;
 - infrastructure/secrets/backup review;
-- legal review of payment, guarantee, refund, tax, shipping, privacy, moderation, and records language;
 - incident response and responsible disclosure process.
 
 ## Residual risks
@@ -269,6 +241,5 @@ Before real funds:
 - Paykit Server is single-process, on-chain-only, and cannot refund.
 - Anonymous/bearer-compatible Locks credentials can be shared if stolen.
 - Public catalog records and private transaction projections can temporarily diverge.
-- Fraud, prohibited goods, counterfeit detection, tax, carrier, guarantee, payout, and chargeback behavior remain sandbox/manual.
 
 These risks must remain visible in runtime configuration, operator documentation, and user-facing labels. They cannot be converted into “accepted” production guarantees solely because prototype tests pass.

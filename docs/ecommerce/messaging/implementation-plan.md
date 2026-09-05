@@ -65,5 +65,5 @@ Semantics: all kinds are Event Messages (every one matters, dedupe by `event_id`
 ## Explicitly out of scope
 
 - Any TypeScript re-implementation of Paykit/Noise primitives (forbidden by contract).
-- Group conversations, moderator access to message bodies (ADR-0019 keeps bodies out of the case-file path; evidence submission stays the existing dispute-evidence flow).
+- Group conversations.
 - Real-funds claims: messaging joins the existing independent-security-review gate before production.

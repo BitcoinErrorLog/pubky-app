@@ -113,3 +113,7 @@ Phasing, task graph, and sizing: [trust-reputation-plan.md](../ecommerce/trust-r
 - `pubky-app-specs` fork: `src/models/marketplace_review.rs`
 - `marketplace-service`: `crates/service/src/handlers/reviews.rs`, `crates/domain/src/state_machines.rs`
 - `pubky-nexus` branch `feat/marketplace-indexing`: `nexus-common/src/models/tag/listing.rs` (aggregation precedent)
+
+## Superseded In Part (2026-09-05)
+
+Dispute outcome annotations, dispute-rate seller stats, and moderator disavow mechanisms are superseded. Portable reputation now keeps peer reviews, purchase attestations, seller responses, refund annotations, and non-adjudicative fulfillment stats only.

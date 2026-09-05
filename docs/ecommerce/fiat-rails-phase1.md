@@ -31,7 +31,7 @@ single `[paykit] server_url`:
   all.
 - Settlement-delay window (default 300s, config) between `detected` and `confirmed`,
   with a fresh re-pull at promotion time; `confirmations` synthesized to satisfy the
-  upstream rule (design §3.4). Verified reversals (refund/dispute webhooks corroborated
+  upstream rule (design §3.4). Verified reversals (refund/chargeback webhooks corroborated
   by a charge pull) block promotion.
 - `POST /checkout-sessions` buyer endpoint (design §3.2): the payment instruction
   cannot ride the invoice response (the Lock Server discards that body), so the client
@@ -132,7 +132,7 @@ Not proven yet: a completed Stripe test-mode payment on staging (blocked on the 
 key above — the design's §8 test-mode rollout is otherwise ready), and everything
 explicitly deferred by the plan: client UX (Phase 2), PayPal (Phase 3), seller-owned
 Stripe Connect accounts (Phase 4 — the deployed processor settles into the operator's
-test account, staging-only by declaration), automated chargeback→dispute bridge
+test account, staging-only by declaration), automated chargeback→reversal handling
 (Phase 5), live mode (Phase 6, gated on security review).
 
 ## Update 2026-08-22: Stripe proven live; PayPal built and deployed fail-closed

@@ -52,7 +52,7 @@ With sandbox mode on and the catalog seeded:
 - add to cart and check out
 - make and counter offers; bid on auctions
 - advance a payment through its states using the visibly-labeled simulate buttons
-- act on orders (ship, deliver, cancel, return, dispute)
+- act on orders (ship, deliver, cancel, return)
 - message a seller, including image attachments
 - read notifications and set preferences
 
@@ -91,7 +91,7 @@ VRT needs Playwright browsers (`npx playwright install`). Baselines are per-plat
 
 ## Running the marketplace E2E journeys
 
-`cypress/e2e/marketplace.cy.ts` drives the buyer, seller, bidder, and moderator journeys through the browser against the sandbox adapter. The browser user performs every step a real user can perform in the UI; counterparty identities that cannot hold a browser session (a seeded fictional seller, a scripted buyer, the sandbox moderator) act through the sandbox service's own HTTP API using its actual identity model — the trusted `x-pubky-actor` header.
+`cypress/e2e/marketplace.cy.ts` drives the buyer, seller, and bidder journeys through the browser against the sandbox adapter. The browser user performs every step a real user can perform in the UI; counterparty identities that cannot hold a browser session (a seeded fictional seller and a scripted buyer) act through the sandbox service's own HTTP API using its actual identity model — the trusted `x-pubky-actor` header.
 
 It needs three local services:
 
@@ -155,12 +155,12 @@ The client selects a wholly different transport in this mode (`MarketplaceTransa
 
 - **Auth is real.** A session is established by POSTing a Pubky `AuthToken` (obtained through the SDK auth flow after signer approval — see [`service-auth.md`](service-auth.md)) to `/v1/auth/sessions`; commands carry the returned opaque token as `Authorization: Bearer`. The forgeable `x-pubky-actor` header does not exist on this path. The bearer token lives in memory plus a `localStorage` mirror so reloads, new tabs, and browser restarts do not force a fresh signer approval — never in IndexedDB, cookies, or logs — and is dropped on sign-out, account switch, and expiry (see `service-auth.md` for the storage contract and tradeoff).
 - **Wire casing is snake_case** per ADR 0019 §3; the client converts its camelCase contracts at the transport boundary in both directions.
-- **The ported command set is accepted** — listings, offers, bids, checkout, order cancellation, fulfillment, returns, disputes (including moderator adjudication), external-refund evidence, reviews, and reports. Kinds the durable service does not implement (`payment.sandbox_advance`, messaging, notification read state/preferences) are rejected client-side before any bytes are sent, and the UI withholds those affordances in this mode.
-- **Reads come from the service's role-scoped projections** (listings, offers, orders with embedded payment/shipment/return/dispute/refund/review sub-objects, payments, receipts, notifications, reports, the moderator dispute queue, and the scoped dispute case file). The interactive shopping UI sources every `expected_revision` from a fresh projection read and treats `REVISION_CONFLICT` as refetch-and-retry.
+- **The ported command set is accepted** — listings, offers, bids, checkout, order cancellation, fulfillment, returns, external-refund evidence, and reviews. Kinds the durable service does not implement (`payment.sandbox_advance`, messaging, notification read state/preferences) are rejected client-side before any bytes are sent, and the UI withholds those affordances in this mode.
+- **Reads come from the service's role-scoped projections** (listings, offers, orders with embedded payment/shipment/return/refund/review sub-objects, payments, receipts, and notifications). The interactive shopping UI sources every `expected_revision` from a fresh projection read and treats `REVISION_CONFLICT` as refetch-and-retry.
 
 ### Connecting the session from the UI
 
-Durable-mode screens that need a session (orders, offers, moderation, notifications, the cart's checkout, listing negotiation state) render a **"Connect marketplace session"** card instead of a dead end. Clicking it opens a dialog that:
+Durable-mode screens that need a session (orders, offers, notifications, the cart's checkout, listing negotiation state) render a **"Connect marketplace session"** card instead of a dead end. Clicking it opens a dialog that:
 
 1. states what approval authorizes (a marketplace session: the app may transact as you against the transaction service until it expires or you sign out),
 2. shows the flow's `pubkyauth://` authorization URL as a QR — scan it with Pubky Ring on another device — plus an "Open in Pubky Ring" deeplink for same-device Ring and a copy affordance,

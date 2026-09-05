@@ -271,3 +271,7 @@ The listing schema and state transition contracts must exist with tests before a
 - [ADR 0019: Marketplace Transaction Authority](0019-marketplace-transaction-authority.md)
 - [Marketplace upstream integration](../ecommerce/upstream-integration.md)
 - [Marketplace threat model](../ecommerce/threat-model.md)
+
+## Superseded In Part (2026-09-05)
+
+References to marketplace dispute adjudication, marketplace report moderation, staff visibility decisions, and tax quotes are superseded by the peer-to-peer marketplace decision: the client keeps public seller records, participant order records, reviews, receipts, returns/refunds, and peer evidence, but no operator trade-adjudication surface.

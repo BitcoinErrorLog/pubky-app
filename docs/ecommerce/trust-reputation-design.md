@@ -39,7 +39,7 @@ Everything below was verified in the actual repos on 2026-08-21. The design is s
 
 - `review.create` (ported from the prototype engine): one review per participant per order, enforced by the `reviews_one_per_order_role` DB constraint; eligible states `delivered`/`completed`/`closed`; creating a buyer review transitions `delivered → completed`. `review.update` allows edits within `REVIEW_EDIT_WINDOW_SECONDS = 24h`.
 - The service's `ReviewRow` has a **single integer rating**; the homeserver record has multi-dimensional ratings. §6.4 reconciles this.
-- Order timestamps: the service's `events` table is append-only with one row per state transition, so **paid→shipped→delivered durations are derivable** (`fulfillment.ship` also writes `shipped_at` into the order's shipment JSON). Dispute state (`open → resolved` via `dispute.resolve`), returns, and external-refund evidence are all on the order row.
+- Order timestamps: the service's `events` table is append-only with one row per state transition, so **paid→shipped→delivered durations are derivable** (`fulfillment.ship` also writes `shipped_at` into the order's shipment JSON). Returns and external-refund evidence are on the order row.
 - **No attestation code exists** (`rg attestation` over the service returns nothing). ADR 0020 §5 _specifies_ a short-lived, single-use review eligibility attestation, but it was never implemented — and §5's short-lived/consumed-once framing is the wrong shape for _portable_ verification (§5.2 revises it).
 - The service authenticates users via Pubky AuthTokens but **has no signing identity of its own**. Issuing attestations adds one (§5.4) — a new operational key-management responsibility.
 
@@ -75,7 +75,7 @@ Everything below was verified in the actual repos on 2026-08-21. The design is s
         └──────────────────────────────────────────────────────────┘      │
                   ▲                                                        │
                   │ signed seller stat attestations                        │
-                  │ + dispute/refund annotations                           │
+                  │ + refund annotations                           │
         ATTESTOR'S OWN HOMESERVER  ◄───── published by ────  TRANSACTION SERVICE
         /pub/pubky.app/marketplace/v1/attestor/…             (holds the order ground truth,
                                                               holds the attestor secret key)
@@ -84,7 +84,7 @@ Everything below was verified in the actual repos on 2026-08-21. The design is s
 Three primitives, in order of trust weight:
 
 1. **Attested reviews** — reviewer-owned records carrying a durable, publicly verifiable purchase attestation. The quantitative backbone.
-2. **Signed seller stat attestations** — service-computed fulfillment stats (time-to-ship, dispute rate, completion rate) signed by the attestor and published on the _attestor's_ homeserver. Verifiable as to origin; not independently recomputable (§7 is explicit about this limit).
+2. **Signed seller stat attestations** — service-computed fulfillment stats (time-to-ship and completion rate) signed by the attestor and published on the _attestor's_ homeserver. Verifiable as to origin; not independently recomputable (§7 is explicit about this limit).
 3. **Community tags** — the existing social primitive as a qualitative overlay, annotated (not gated) by verified-purchase status. Never an input to the star math (§8).
 
 ## 4. Threat model for reputation specifically
@@ -94,10 +94,10 @@ Three primitives, in order of trust weight:
 | Sybil reviews from fresh keys                      | Reviews without an attestation from a trusted attestor are visibly unverified and excluded from "verified" aggregates                | Unverified reviews still exist as records; clients must render the distinction honestly                                                                          |
 | Wash trading (self-purchases to farm attestations) | Attestations carry amount bands and per-order uniqueness; each fake review costs a real completed order through the attestor's rails | **Not solved, priced.** A determined seller can still buy their own goods. The attestor's fraud controls are the real backstop — same as eBay, minus the lock-in |
 | Seller suppresses bad reviews                      | Impossible by construction: reviews live on reviewer homeservers                                                                     | A reviewer's homeserver going offline drops their review from fresh crawls; indexers retain cached copies                                                        |
-| Reviewer extortion ("pay me or the 1-star stays")  | Seller response records (§6.3) + dispute-outcome annotations (§5.6) give context                                                     | No removal mechanism; deliberate — moderation is indexer/client policy, not record surgery (ADR 0020 §5 already states this)                                     |
+| Reviewer extortion ("pay me or the 1-star stays")  | Seller response records (§6.3) + refund annotations give context                                                     | No removal mechanism; deliberate — moderation is indexer/client policy, not record surgery (ADR 0020 §5 already states this)                                     |
 | Attestor forges or backdates attestations          | Attestor is a single trusted party per marketplace; multiple attestors dilute this                                                   | **Trust assumption, flagged**: an attestation proves "attestor X claims this order completed", nothing stronger                                                  |
 | Attestor key compromise                            | Key rotation via attestor profile record (§5.4); annotations can mark an epoch compromised                                           | Attestations from the compromised window are indistinguishable; verifiers decide policy                                                                          |
-| Tag brigading                                      | Tags never enter star aggregates; display ranks verified taggers first (§8)                                                          | Ugly tag clouds remain possible; report machinery (`trust.report`) exists for abuse                                                                              |
+| Tag brigading                                      | Tags never enter star aggregates; display ranks verified taggers first (§8)                                                          | Ugly tag clouds remain possible; visibility ranking, not operator removal, is the v1 control                                                                              |
 | Indexer lies about aggregates                      | Anyone can re-run aggregation from the records (§9); aggregates are reproducible                                                     | Stat attestations (§7) are only signature-checkable, not recomputable                                                                                            |
 
 ## 5. The purchase attestation (design question 1)
@@ -159,17 +159,9 @@ The attestor's signing key is an Ed25519 key that **is itself a pubky** (z-base-
 
 Ordering choice — attestation only after `review.create` succeeds, not before: it inherits the service's one-review-per-order gate for free, and a reviewer can never hold an unused attestation for a review they never filed.
 
-### 5.6 Dispute outcomes and refunds: annotate, don't revoke
+### 5.6 Refund annotations: annotate, don't revoke
 
-A dispute resolved against a _seller_ strengthens the buyer's negative review; blanket revocation would be backwards. The attestor instead publishes **annotation records** on its own homeserver keyed by `order_ref`:
-
-```json
-{ "orderRef": "<hex>", "outcome": "refunded" | "dispute_resolved_for_reviewer" | "dispute_resolved_against_reviewer" | "attestation_disavowed", "annotatedAt": "..." }
-```
-
-- `refunded` / dispute outcomes come from the service's existing state machine events (`refund.record_external`, `dispute.resolve`).
-- `attestation_disavowed` is the fraud/collusion escape hatch (wash-trading ring detected after the fact).
-- Verifiers _may_ fetch annotations (recipe step 5, optional) and apply their own policy — e.g. exclude `attestation_disavowed`, badge `refunded`. An unreachable attestor homeserver degrades to "annotations unknown", the standard OCSP-style availability trade-off, disclosed rather than hidden.
+External-refund evidence can annotate a review context, but there is no marketplace adjudicator that can decide trade outcomes or revoke a peer's review.
 
 ### 5.7 Multiple attestors
 
@@ -206,7 +198,7 @@ The **public record is the canonical review** (ADR 0020 already says the owner h
 
 ### 7.1 What the service can compute
 
-From the append-only `events` table and order rows, per seller, per period: completed-order counts, median/p90 paid→shipped ("time-to-ship", from the `paid` transition to `fulfillment.ship`), shipped→delivered, dispute rate (`dispute.open` per completed order), dispute-loss rate (`dispute.resolve` outcomes), cancellation rate, external-refund rate. All of this is private-order-derived: **none of it can be recomputed from public records.**
+From the append-only `events` table and order rows, per seller, per period: completed-order counts, median/p90 paid→shipped, shipped→delivered, cancellation rate, external-refund rate. All of this is private-order-derived: **none of it can be recomputed from public records.**
 
 ### 7.2 The portable form: signed periodic stat attestations, published by the attestor
 
@@ -220,7 +212,6 @@ The service periodically (weekly, and on-demand after material changes) computes
   "period": { "from": "2026-05-01", "to": "2026-08-01" },
   "ordersCompletedBand": "2",
   "medianTimeToShipHours": 18,
-  "disputeRatePermille": 4,
   "completionRatePermille": 991,
   "signature": "<JWS over the canonical body>"
 }
@@ -231,7 +222,7 @@ Bands and per-mille rates, not raw counts, keep exact GMV/volume private while r
 ### 7.3 What is portable here and what honestly is not
 
 - **Portable**: origin-verifiability. Anyone can fetch the record, verify the attestor's signature, and render "attestor X reports median ship time 18h". If the marketplace's frontend dies, the stat record survives on the attestor homeserver, and a seller can point any third party at it.
-- **Not portable, and cannot be**: independent recomputation. Time-to-ship, dispute rate, and completion rate derive from the attestor's _private_ order book; auditing them would require exposing per-order data that ADR 0019 §8 correctly forbids. A third party must trust the attestor's honesty for these numbers — full stop. The design mitigates at the margins (cross-checks: attested-review counts visible publicly put a floor under `ordersCompletedBand`; a stat attestation claiming fewer orders than there are attested reviews is provably lying) but the core limit is structural: **privacy of orders and auditability of fulfillment stats are in direct tension, and this design chooses privacy.**
+- **Not portable, and cannot be**: independent recomputation. Time-to-ship and completion rate derive from the attestor's _private_ order book; auditing them would require exposing per-order data that ADR 0019 §8 correctly forbids. A third party must trust the attestor's honesty for these numbers — full stop. The design mitigates at the margins (cross-checks: attested-review counts visible publicly put a floor under `ordersCompletedBand`; a stat attestation claiming fewer orders than there are attested reviews is provably lying) but the core limit is structural: **privacy of orders and auditability of fulfillment stats are in direct tension, and this design chooses privacy.**
 - **Not computable by anyone at all**: message responsiveness. Durable-mode messaging is end-to-end encrypted (status.md); the service never sees bodies or timing. A "responds quickly" stat would require weakening E2EE and is rejected. If message-responsiveness signal is ever wanted, it must come from voluntary, client-side disclosure — out of scope.
 - Star aggregates, review counts, verified-purchase counts, response rates _to reviews_ (response records are public), and tag aggregates are **fully recomputable** from public records and belong to §5/§6/§8 machinery, not to stat attestations.
 
@@ -249,7 +240,7 @@ What tags **do** get — tagger-graph weighting, at the index:
 
 - Nexus already knows each tag's taggers. The review pipeline (§6.2) adds `REVIEWED {attested:true}` edges. Joining the two, each tag aggregate on a shop/listing gains `taggers_verified` — the count of taggers holding at least one attested review for that seller — alongside the existing raw count.
 - Display policy (client): tag chips ranked by `taggers_verified` first, raw count second; a "✓ n verified buyers" affix on chips where `taggers_verified > 0`. Verified-buyer tags like "fast-shipper" thereby become _legible qualitative evidence_; drive-by tags sink without being censored.
-- Anti-brigading inherits existing structure: the deterministic `PubkyAppTag` ID already caps one record per (tagger, uri, label); ranking by verified taggers makes brigades expensive (each verified tagger costs a completed purchase); the existing `trust.report`/`trust.decide` machinery covers targeted abuse. No new suppression machinery in v1 — visibility ranking, not deletion.
+- Anti-brigading inherits existing structure: the deterministic `PubkyAppTag` ID already caps one record per (tagger, uri, label); ranking by verified taggers makes brigades expensive (each verified tagger costs a completed purchase). No new suppression machinery in v1 — visibility ranking, not deletion.
 - Deliberately rejected: tag _sentiment_ classification feeding scores (fragile, gameable), and purchase-gated tag creation (breaks the shared primitive, see 1).
 
 ## 9. The portability recipe (design question 6)
@@ -305,7 +296,7 @@ All eight decisions were ratified by the product owner on 2026-08-21. The table 
 | --- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D1  | One living review per (listing, subject, role) vs. per-order reviews | **Keep spec** (§6.1): one living review per listing per role, revised in place; repeat orders refresh the attestation; Nexus counts distinct attested orders via `order_ref`                                                                                                                             |
 | D2  | Amount bands in attestations                                         | **Custom — both-sides consent.** A band is included only when both the buyer and the seller have allowed it: the seller holds a standing band-consent preference on the shop/service side, the buyer opts in per review at review time. Default on both sides is _not included_. Consent mechanics: §5.3 |
-| D3  | Stat attestation cadence and stat set                                | **Weekly**, minimal set {ship-time, dispute rate, completion rate} (§7.2)                                                                                                                                                                                                                                |
+| D3  | Stat attestation cadence and stat set                                | **Weekly**, minimal set {ship-time, completion rate} (§7.2)                                                                                                                                                                                                                                |
 | D4  | Does reputation enter default catalog ranking?                       | **Never in v1** (§10.3) — reputation is a filter/display facet only                                                                                                                                                                                                                                      |
 | D5  | Unverified reviews on marketplace surfaces                           | **Show with "unverified" label** — hiding contradicts the openness story                                                                                                                                                                                                                                 |
 | D6  | Attestor identity operations                                         | **Same process as the service**, key held in KMS/env; revisit before real funds move (§5.4)                                                                                                                                                                                                              |

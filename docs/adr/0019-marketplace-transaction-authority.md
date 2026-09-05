@@ -258,3 +258,7 @@ Feature flags and runtime config must default the transaction adapter to `unavai
 - <https://github.com/pubky/paykit-server>
 - <https://github.com/pubky/locks>
 - <https://www.postgresql.org/docs/current/transaction-iso.html>
+
+## Superseded In Part (2026-09-05)
+
+The marketplace client no longer exposes operator dispute, report, moderation, or tax authority. Participant-scoped orders, returns/refunds, receipts, reviews, messaging, Paykit/Locks, Stripe, PayPal, and Shippo flows remain in scope; ADR 0019 §8 messaging privacy remains valid.

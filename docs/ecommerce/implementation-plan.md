@@ -14,10 +14,10 @@ The prototype is complete only when:
 3. Public marketplace records sync through Pubky homeserver paths and work locally first.
 4. A durable server-authoritative transaction service arbitrates bids, reservations, orders, payment facts, refunds, and ledger entries; Dexie only mirrors these states.
 5. A real adapter exercises the Locks → Paykit Server invoice and payment-status flow.
-6. A deterministic sandbox adapter exercises every payment, timeout, failure, refund, and dispute branch without real funds.
+6. A deterministic sandbox adapter exercises every payment, timeout, failure, refund branch without real funds.
 7. Automated tests cover domain transitions, persistence, adapters, forms, routes, accessibility-critical behavior, and representative visual surfaces.
 8. Adversarial concurrency tests prove one winner for scarce inventory and auctions and at-most-once financial transitions.
-9. End-to-end walkthroughs cover buyer, seller, bidder, moderator, support, and operator journeys.
+9. End-to-end walkthroughs cover buyer, seller, and bidder journeys.
 10. The final verification ledger contains no unresolved required finding.
 11. Final videos demonstrate all feature groups.
 
@@ -45,12 +45,10 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 ## Product roles
 
 - Guest: browse, search, filter, inspect sellers, listings, bids, and reviews.
-- Buyer: favorite/follow, message, offer, bid, cart, pay, track, cancel, return, dispute, and review.
-- Seller: create a shop, list inventory, negotiate, fulfill, refund externally, resolve disputes, and inspect analytics.
-- Moderator: review reports, restrict listings/users, record decisions, and audit actions.
+- Buyer: favorite/follow, message, offer, bid, cart, pay, track, cancel, return and review.
+- Seller: create a shop, list inventory, negotiate, fulfill, refund externally, handle peer returns/refunds, and inspect analytics.
 - Support: inspect scoped order evidence and administer non-financial resolutions.
 - Risk: apply transaction holds, investigate fraud signals, and release reviewed activity.
-- Finance: reconcile the sandbox ledger and record externally executed refunds without gaining moderation powers.
 - Operator: configure adapters, inspect health, run migrations, and execute the verification suite.
 
 ## Acceptance matrix
@@ -104,7 +102,7 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 - Fixed-price items can be added, edited, removed, and grouped by seller.
 - Cart validation refreshes price, stock, delivery availability, and listing state before checkout.
 - Checkout captures delivery/contact details without placing raw private data in public records or telemetry.
-- Totals itemize subtotal, shipping, discount, tax estimate, and total in one currency per seller order.
+- Totals itemize subtotal, shipping, discount, and total in one currency per seller order.
 - Buyers select an eligible Paykit payment endpoint and explicitly confirm order creation.
 - Duplicate checkout submission reuses the same idempotency key and cannot create duplicate orders/invoices.
 
@@ -131,14 +129,12 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 - Buyers can confirm receipt; deterministic sandbox delivery can advance automatically.
 - Cancellation rules depend on payment and fulfillment state and preserve an immutable event history.
 
-### Returns, refunds, and disputes
+### Returns and refunds
 
 - Buyers can request a return with reason, notes, and evidence within policy.
 - Sellers can approve, reject, offer partial resolution, or request return shipment.
 - Return tracking and inspection lead to full, partial, denied, or externally-refunded outcomes.
 - Because Paykit Server cannot spend, real refunds are recorded only after seller-provided external transaction evidence; the app never claims it moved funds.
-- Buyers can escalate eligible orders to a dispute.
-- Both parties can add evidence; moderators can decide, annotate, and close.
 - Every transition is role-checked, time-bounded, idempotent, and auditable.
 
 ### Reviews and reputation
@@ -152,34 +148,32 @@ The requested `pubky/design.md` is not a GitHub repository and no `design.md` fi
 
 - Dashboard shows revenue-equivalent totals, paid orders, conversion, views, favorites, offers, sell-through, and fulfillment health.
 - Inventory supports search, filters, bulk pause/relist/delete, low-stock state, and CSV export/import preview.
-- Order work queues expose awaiting payment, to ship, returns, disputes, and completed states.
+- Order work queues expose awaiting payment, to ship, returns, and completed states.
 - Shop settings cover policies, notifications, payment setup, shipping presets, blocked buyers, and vacation mode.
 - Promotions support scheduled markdowns and usage-limited seller coupons without producing negative totals.
 - Seller statements export orders, fees, taxes, refunds, holds, external payouts, and adjustments and reconcile to the ledger.
 - Analytics clearly distinguish local prototype estimates from settled payment facts.
 
-### Tax, shipping, ledger, and guarantees
+### Shipping, ledger, and guarantees
 
-- A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable.
 - Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels.
-- Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
+- Every order posts balanced integer-minor-unit ledger entries for items, shipping, discounts, fees, seller receivable, refunds, and adjustments.
 - Any unbalanced posting blocks order finalization and creates an operator finding.
 - Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order.
-- Sandbox hold/release and payout states are visibly simulated and blocked by open disputes, returns, risk holds, or unresolved payment status.
+- Sandbox hold/release and payout states are visibly simulated and blocked by returns, risk holds, or unresolved payment status.
 - Real Paykit BTC confirmation is never described as escrow, card authorization, marketplace custody, or payout.
 
 ### Notifications
 
-- In-app notifications cover listing, favorite/follow, message, offer, bid/outbid/won, payment, shipment, return, dispute, and review events.
+- In-app notifications cover listing, favorite/follow, message, offer, bid/outbid/won, payment, shipment, return and review events.
 - Read/unread, mark-all-read, deep links, deduplication, and per-category preferences work.
 - Sensitive order/payment data is not embedded in public notification payloads.
 
-### Trust, safety, and moderation
+### Trust and safety
 
 - Users can report listings, messages, reviews, and accounts with structured reasons and evidence.
 - Prohibited-item/category policy warnings are shown during listing creation.
-- Moderator queues support assignment, notes, decisions, reversals, and an append-only audit log.
-- Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
+- Restricted listings disappear from discovery but remain visible to authorized parties for authorized order participants.
 - Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
 - Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history.
 - Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests.
@@ -235,7 +229,7 @@ Rules:
 | Drafts, carts, saved searches, UI preferences      | Account-scoped Dexie                                                    | Local-first with export and account isolation            |
 | Follows, favorites, safe unsent messages           | Pubky records or reviewed encrypted transport                           | Optimistic local state with visible sync status          |
 | Inventory reservation, offers, auctions, bids      | Marketplace Transaction Service                                         | Must be online; apply returned server revision           |
-| Orders, immutable terms, ledger, returns, disputes | Marketplace Transaction Service                                         | Mirror redacted role-appropriate projections             |
+| Orders, immutable terms, ledger, returns | Marketplace Transaction Service                                         | Mirror redacted role-appropriate projections             |
 | Payment discovery and private requests             | Paykit                                                                  | Consume through supported service/native bindings        |
 | Payment-backed digital entitlement                 | Locks backed by Paykit Server observation                               | Poll verified lifecycle; store bearer material privately |
 | Real BTC refund                                    | Seller's external wallet                                                | Record evidence only after independent verification      |
@@ -247,7 +241,7 @@ The existing browser app, homeserver, Nexus, Locks, and Paykit Server cannot pro
 It will:
 
 - authenticate Pubky identities without receiving identity secrets;
-- expose versioned commands and role-scoped queries for inventory, offers, bids, checkout, orders, fulfillment, returns, disputes, moderation, and the sandbox ledger;
+- expose versioned commands and role-scoped queries for inventory, offers, bids, checkout, orders, fulfillment, returns and the sandbox ledger;
 - require an idempotency key and expected aggregate revision for every mutation;
 - use PostgreSQL transactions, unique constraints, an append-only event/audit log, and an outbox for side effects;
 - use server time for auction close, offer expiry, reservation expiry, claim windows, and payout simulation;
@@ -286,7 +280,7 @@ Private buyer/seller projections are cached in account-scoped Dexie tables. Thei
 - `commerce_favorites`, `commerce_saved_searches`, `commerce_conversations`, `commerce_messages`
 - `commerce_offers`, `commerce_auctions`, `commerce_bids`, `commerce_carts`
 - `commerce_orders`, `commerce_order_events`, `commerce_payments`, `commerce_shipments`
-- `commerce_returns`, `commerce_disputes`, `commerce_reviews`, `commerce_reports`
+- `commerce_returns`, `commerce_reviews`
 - `commerce_notifications`, `commerce_sync_jobs`, `commerce_audit_events`
 
 These are client read models, drafts, and safe outbox records—not a financial or auction authority. Indexes are derived from actual query plans. Schema changes require a database version change, migration/reset decision, and database tests.
@@ -298,7 +292,7 @@ These are client read models, drafts, and safe outbox records—not a financial 
 - Auction: `scheduled -> active -> sold|unsold|cancelled`
 - Payment: `created -> awaiting -> detected -> confirming -> confirmed|expired|failed|manual_review`
 - Order: `pending_payment -> paid -> processing -> shipped|ready_for_pickup -> delivered -> completed`
-- Exceptional order branches: `cancel_requested`, `cancelled`, `return_requested`, `return_in_transit`, `return_inspection`, `disputed`, `refunded_external`, `closed`
+- Exceptional order branches: `cancel_requested`, `cancelled`, `return_requested`, `return_in_transit`, `return_inspection`, `refunded_external`, `closed`
 
 All events include stable ID, aggregate ID, actor, revision, timestamp, idempotency key, and payload schema version.
 
@@ -330,7 +324,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 - Add Dexie schemas/models, database version handling, local services, sync outbox, stores, controllers, and applications.
 - Add the transaction service skeleton, PostgreSQL migrations, Pubky auth verifier, health/readiness, event/audit log, and deterministic clock.
-- Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters.
+- Add deterministic fixtures and sandbox payment, carrier, hold/release, payout, and callback adapters.
 - Verify account isolation, recovery, conflict handling, replay, and offline behavior.
 
 ### T3 — Catalog and discovery
@@ -347,12 +341,11 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 - Build cart, checkout, totals, private delivery capture, order creation, seller payment setup, invoice presentation, polling, recovery, and status UI.
 - Integrate Locks proof/credential APIs and Paykit-backed invoice/status lifecycle.
-- Add balanced sandbox ledger postings, tax/shipping quotes, guarantee disclosures, digital delivery, and explicit external-refund evidence.
+- Add balanced sandbox ledger postings, shipping quotes, guarantee disclosures, digital delivery, and explicit external-refund evidence.
 
 ### T6 — Fulfillment and post-purchase
 
-- Build order work queues/timelines, shipping presets/tracking, pickup, digital access, cancellations, returns, partial resolutions, disputes, reviews, and reputation.
-- Add moderation queues and immutable audit history.
+- Build order work queues/timelines, shipping presets/tracking, pickup, digital access, cancellations, returns, partial resolutions, reviews, and reputation.
 
 ### T7 — Seller operations
 
@@ -367,7 +360,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T9 — Documentation and demonstrations
 
 - Document local sandbox, real Docker topology, runtime configuration, wallet approval, operational limitations, recovery, and threat model.
-- Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos.
+- Record buyer, seller, auction, Paykit/Locks, fulfillment and responsive/accessibility videos.
 - Review every video and retain only successful, minimal demonstrations.
 
 ## Verification loop
@@ -414,8 +407,8 @@ Every slice must remain demonstrable:
 4. Messaging + offers + concurrency-safe auctions.
 5. Cart + checkout + sandbox order/payment lifecycle.
 6. Real Locks/Paykit adapter + Bitkit/Ring setup.
-7. Fulfillment + returns/refunds/disputes/reviews.
-8. Seller analytics + moderation + hardening.
+7. Fulfillment + returns/refunds/reviews.
+8. Seller analytics + hardening.
 9. Full parity audit, documentation, and final videos.
 
 No slice may silently remove already visible Pubky functionality or reduce existing feed/profile behavior.

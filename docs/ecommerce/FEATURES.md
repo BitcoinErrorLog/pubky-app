@@ -115,7 +115,7 @@ transaction service (PostgreSQL, exactly-one-winner concurrency proofs).
   - Cancellation request/approve with inventory release
   - Packing slip dialog
 - **Post-purchase**
-  - Returns, disputes with evidence submission, moderator dispute queue
+  - Returns and peer refund evidence
   - Per-order reviews (see Trust)
 
 ## 4. Payments
@@ -133,7 +133,7 @@ ledger).
   - Payment status UI with fail-closed `locks-paykit` adapter mode
 - **Stripe**
   - Hosted Checkout via the fiat-verifier gateway; webhook + poll detection,
-    settlement delay, refund/dispute annotation; test-mode key guard
+    settlement delay, refund annotation; test-mode key guard
 - **PayPal**
   - Orders v2 with capture-on-approval; postback-verified webhooks treated
     as hints with authoritative order pulls; same settlement machine
@@ -177,10 +177,6 @@ ledger).
   - Seller responses: one revisable response per review, a pure homeserver
     record threaded by Nexus
   - "My reviews" panel with attestation and publication status
-- **Moderation**
-  - Configuration-defined moderator roles (no hardcoded identities), report
-    flows, dispute queue with evidence read surface
-
 ## 6. Social
 
 - **Community tags** on listings (Nexus-indexed, separate from seller
@@ -197,7 +193,7 @@ ledger).
     legacy sessions
 - **Notifications**
   - Marketplace events (offers, bids, outbid, auction won/ended, orders,
-    disputes) in the app's notification UI, with §8-permitted amounts
+    returns) in the app's notification UI, with §8-permitted amounts
     rendered in BIP-177 / fiat
 
 ## 7. Messaging
