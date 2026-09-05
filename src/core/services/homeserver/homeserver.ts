@@ -469,7 +469,7 @@ export class HomeserverService {
     try {
       const homeserverPublicKey = PublicKey.from(getHomeserver());
       await signer.pkdns.publishHomeserverForce(homeserverPublicKey);
-      Logger.debug('Republish homeserver successful', { keypair: Identity.pubkyFromKeypair(keypair) });
+      Logger.debug('Republish homeserver successful', { pubky: Identity.pubkyFromKeypair(keypair) });
       return undefined;
     } catch (republishError) {
       return handleError({

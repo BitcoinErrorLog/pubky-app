@@ -184,7 +184,8 @@ export class AuthController {
     useMigrationStore.getState().reset();
     const session = await AuthApplication.signIn({ keypair });
     if (!session) {
-      Logger.error('Failed to sign in. Please try again.', { keypair });
+      // Never log the keypair (it carries the identity secret) — the public key only.
+      Logger.error('Failed to sign in. Please try again.', { pubky: keypair.publicKey.z32() });
       return false;
     }
     // Environment guard already ran inside HomeserverService.signIn (before the

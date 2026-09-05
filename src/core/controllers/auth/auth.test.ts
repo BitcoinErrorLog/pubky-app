@@ -85,7 +85,9 @@ const createMockKeypair = () =>
   asOpaque<import('@synonymdev/pubky').Keypair>({
     pubky: vi.fn(() => ({ z32: () => 'test-pubky' })),
     secret: vi.fn(() => new Uint8Array(32).fill(1)),
-    publicKey: vi.fn(() => ({ z32: () => 'test-pubky' })),
+    // Matches the real Keypair shape: `publicKey` is a readonly property
+    // (not a method) exposing `.z32()` / `.toString()`.
+    publicKey: { z32: () => 'test-pubky', toString: () => 'pubkytest-pubky' },
     free: vi.fn(),
   });
 
@@ -674,6 +676,30 @@ describe('AuthController', () => {
 
       expect(initializeSpy).not.toHaveBeenCalled();
       expect(result).toBe(false);
+    });
+
+    it('logs the sign-in failure with the public key only — never the keypair or secret material', async () => {
+      const mnemonic = 'test mnemonic phrase';
+      const mockKeypair = createMockKeypair();
+
+      vi.spyOn(Identity, 'keypairFromMnemonic').mockReturnValue(mockKeypair);
+      vi.spyOn(AuthApplication, 'signIn').mockResolvedValue(undefined);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearAllQueryClients();
+      const loggerErrorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+
+      const result = await AuthController.loginWithMnemonic({ mnemonic });
+
+      expect(result).toBe(false);
+      const failureLog = loggerErrorSpy.mock.calls.find(
+        ([message]) => message === 'Failed to sign in. Please try again.',
+      );
+      expect(failureLog).toBeDefined();
+      const context = failureLog![1] as Record<string, unknown>;
+      expect(context).toEqual({ pubky: 'test-pubky' });
+      // No secret field, by name or by serialized content.
+      expect(context).not.toHaveProperty('keypair');
+      expect(JSON.stringify(context)).not.toMatch(/secret|secretKey|mnemonic|recoveryPhrase|keypair/i);
     });
 
     it('should throw error if signIn fails', async () => {
