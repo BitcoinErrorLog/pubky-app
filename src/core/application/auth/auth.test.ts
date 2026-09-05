@@ -1,11 +1,13 @@
-import type { Keypair, Session } from '@synonymdev/pubky';
+import type { Keypair, PublicKey, Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication, isDefinitiveSessionAuthFailure } from '@/application/auth/auth';
 import type { THomeserverAuthenticateParams } from '@/application/auth/auth.types';
+import { getHomeserver, isStagingHomeserverDeploy } from '@/config/network';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ClientErrorCode, NetworkErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { isWrongEnvironmentHomeserverError } from '@/libs/error/error.utils';
 import { HttpMethod } from '@/libs/http/http.types';
 import * as vibeSessionAutoRestore from '@/libs/vibe-session/auto-restore';
 import * as vibeSessionBridge from '@/libs/vibe-session/bridge';
@@ -14,6 +16,8 @@ import * as vibeSessionFragment from '@/libs/vibe-session/fragment';
 import type { Pubky } from '@/models/models.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { THomeserverSignUpParams } from '@/services/homeserver/homeserver.types';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { mockSession } from '@/test-utils/pubky';
 import { mockAuthStore } from '@/test-utils/stores';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -24,6 +28,17 @@ vi.mock('pubky-app-specs', () => ({
   default: vi.fn(() => Promise.resolve()),
   userUriBuilder: (pubky: string) => `pubky://${pubky}/pub/pubky.app/profile.json`,
 }));
+
+// Default to the real implementations; individual tests override the staging
+// gate so the homeserver environment guard can be exercised for real.
+vi.mock('@/config/network', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/config/network')>();
+  return {
+    ...actual,
+    isStagingHomeserverDeploy: vi.fn(actual.isStagingHomeserverDeploy),
+    getHomeserver: vi.fn(actual.getHomeserver),
+  };
+});
 
 describe('AuthApplication', () => {
   beforeEach(() => {
@@ -403,10 +418,6 @@ describe('AuthApplication', () => {
     const BRIDGE_EXPORT = 'bridge-export';
     const PERSISTED_EXPORT = 'persisted-export';
 
-    // Captured at collection time, before any test replaces the method with a
-    // spy — lets one test below exercise the real staging guard implementation.
-    const realAssertUserHomeserverAllowed = HomeserverService.assertUserHomeserverAllowed.bind(HomeserverService);
-
     const createMockAuthStore = (sessionExport: string | null = null) =>
       mockAuthStore({
         sessionExport,
@@ -499,6 +510,74 @@ describe('AuthApplication', () => {
 
       expect(restoreSpy).toHaveBeenCalledWith({ sessionExport: BRIDGE_EXPORT });
       expect(result).toEqual({ status: 'restored', session });
+    });
+
+    // Option C (docs/ecommerce/step-up-approval.md): a bridged restore never
+    // auto-triggers a re-approval — neither the Ring auth-URL flow nor the
+    // marketplace signer approval. Scope-gated features ask explicitly, later.
+    it('does not call generateAuthUrl or beginSessionFlow on a bridged restore', async () => {
+      vi.mocked(vibeSessionConfig.getVibeSessionBridgeOrigin).mockReturnValue(BRIDGE);
+      vi.mocked(vibeSessionBridge.requestFromBridge).mockResolvedValue({
+        kind: 'export',
+        sessionExport: BRIDGE_EXPORT,
+      });
+      const session = liveSession();
+      vi.spyOn(HomeserverService, 'restoreSession').mockResolvedValue(session);
+      vi.spyOn(HomeserverService, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+      const authUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl');
+      const beginFlowSpy = vi.spyOn(MarketplaceSessionService, 'beginSessionFlow');
+      const authStore = createMockAuthStore(null);
+
+      const result = await AuthApplication.restorePersistedSession({ authStore });
+
+      expect(result).toEqual({ status: 'restored', session });
+      expect(authUrlSpy).not.toHaveBeenCalled();
+      expect(beginFlowSpy).not.toHaveBeenCalled();
+    });
+
+    // Shop's post-restore staging guard (homeserver.ts assertUserHomeserverAllowed)
+    // must survive the consumer port: on a bridged restore under
+    // PUBKY_RUNTIME_ENV=staging the real guard body runs its PKARR check instead
+    // of returning early as it does on non-staging deploys.
+    it('still runs the staging homeserver guard on a bridged restore when PUBKY_RUNTIME_ENV=staging', async () => {
+      const { resetRuntimeConfigForTests } = await import('@/libs/runtime-config/runtime-config');
+      const previousDeployEnv = process.env.PUBKY_RUNTIME_ENV;
+      process.env.PUBKY_RUNTIME_ENV = 'staging';
+      resetRuntimeConfigForTests();
+      try {
+        vi.mocked(vibeSessionConfig.getVibeSessionBridgeOrigin).mockReturnValue(BRIDGE);
+        vi.mocked(vibeSessionBridge.requestFromBridge).mockResolvedValue({
+          kind: 'export',
+          sessionExport: BRIDGE_EXPORT,
+        });
+        const session = liveSession();
+        vi.spyOn(HomeserverService, 'restoreSession').mockResolvedValue(session);
+        // Exercise the REAL guard (captured before any test spied on it), not a stub.
+        const assertSpy = vi
+          .spyOn(HomeserverService, 'assertUserHomeserverAllowed')
+          .mockImplementation(realAssertUserHomeserverAllowed);
+        const resolveSpy = vi
+          .spyOn(
+            HomeserverService as unknown as {
+              resolveHomeserverRecord: (params: { publicKey: PublicKey }) => Promise<PublicKey | null>;
+            },
+            'resolveHomeserverRecord',
+          )
+          // PUBKY_RUNTIME_HOMESERVER in the test env (src/config/test.ts).
+          .mockResolvedValue(asOpaque<PublicKey>({ z32: () => 'test-homeserver-key' }));
+        const authStore = createMockAuthStore(null);
+
+        const result = await AuthApplication.restorePersistedSession({ authStore });
+
+        expect(result).toEqual({ status: 'restored', session });
+        expect(assertSpy).toHaveBeenCalledWith({ publicKey: session.info.publicKey });
+        // Proof the staging gate was open: the guard resolved the PKARR record
+        // rather than returning early.
+        expect(resolveSpy).toHaveBeenCalledWith({ publicKey: session.info.publicKey });
+      } finally {
+        process.env.PUBKY_RUNTIME_ENV = previousDeployEnv;
+        resetRuntimeConfigForTests();
+      }
     });
 
     it('returns null and does not restore when the bridge replies none', async () => {
@@ -648,6 +727,63 @@ describe('AuthApplication', () => {
       AuthApplication.abortInFlightBridgeRequest();
       expect(capturedSignal?.aborted).toBe(true);
       await expect(restorePromise).resolves.toEqual({ status: 'signed-out' });
+    });
+
+    it('does not auto-trigger any re-approval (generateAuthUrl / beginSessionFlow) on a bridged restore', async () => {
+      vi.mocked(vibeSessionConfig.getVibeSessionBridgeOrigin).mockReturnValue(BRIDGE);
+      vi.mocked(vibeSessionFragment.takeFragmentSessionExport).mockReturnValue(null);
+      vi.mocked(vibeSessionBridge.requestFromBridge).mockResolvedValue({
+        kind: 'export',
+        sessionExport: BRIDGE_EXPORT,
+      });
+      const session = liveSession();
+      const restoreSpy = vi.spyOn(HomeserverService, 'restoreSession').mockResolvedValue(session);
+      vi.spyOn(HomeserverService, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+      const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl');
+      const beginSessionFlowSpy = vi.spyOn(MarketplaceSessionService, 'beginSessionFlow');
+      const authStore = createMockAuthStore(null);
+
+      const result = await AuthApplication.restorePersistedSession({ authStore });
+
+      expect(restoreSpy).toHaveBeenCalledWith({ sessionExport: BRIDGE_EXPORT });
+      expect(result).toEqual({ status: 'restored', session });
+      // A bridged (narrow-grant) restore must never widen on its own: step-up
+      // re-approval only happens when a scope-gated feature asks for it.
+      expect(generateAuthUrlSpy).not.toHaveBeenCalled();
+      expect(beginSessionFlowSpy).not.toHaveBeenCalled();
+    });
+
+    it('still runs the staging homeserver guard after a bridged restore when the deploy is staging', async () => {
+      vi.mocked(vibeSessionConfig.getVibeSessionBridgeOrigin).mockReturnValue(BRIDGE);
+      vi.mocked(vibeSessionFragment.takeFragmentSessionExport).mockReturnValue(null);
+      vi.mocked(vibeSessionBridge.requestFromBridge).mockResolvedValue({
+        kind: 'export',
+        sessionExport: BRIDGE_EXPORT,
+      });
+      const session = liveSession();
+      const restoreSpy = vi.spyOn(HomeserverService, 'restoreSession').mockResolvedValue(session);
+      // Undo leaked mock implementations from earlier tests so the REAL guard runs.
+      vi.spyOn(HomeserverService, 'assertUserHomeserverAllowed').mockRestore();
+      vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
+      // PUBKY_RUNTIME_ENV=staging gate: the real guard must resolve the PKARR
+      // record and reject a bridged key whose homeserver is not this deploy's.
+      vi.mocked(isStagingHomeserverDeploy).mockReturnValue(true);
+      vi.mocked(getHomeserver).mockReturnValue('staging-homeserver');
+      const resolveRecordSpy = vi
+        .spyOn(
+          asOpaque<{
+            resolveHomeserverRecord: (params: { publicKey: unknown }) => Promise<{ z32: () => string } | null>;
+          }>(HomeserverService),
+          'resolveHomeserverRecord',
+        )
+        .mockResolvedValue({ z32: () => 'prod-homeserver' });
+      const authStore = createMockAuthStore(null);
+
+      const error = await AuthApplication.restorePersistedSession({ authStore }).catch((caught: unknown) => caught);
+
+      expect(restoreSpy).toHaveBeenCalledWith({ sessionExport: BRIDGE_EXPORT });
+      expect(resolveRecordSpy).toHaveBeenCalledWith({ publicKey: session.info.publicKey });
+      expect(isWrongEnvironmentHomeserverError(error)).toBe(true);
     });
   });
 
