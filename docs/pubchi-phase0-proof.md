@@ -95,9 +95,9 @@ Ring was not used. Substitution: BIP39 recovery-phrase identities + `signer.sign
 
 ## Item 3 — “who tagged me?”
 
-**Verdict: FAIL** (live). Honest expected result if the service had been up: empty evidence, because U is a staging user and Scout is production.
+**Verdict: FAIL** (live). Honest expected result if a signed query had reached NLQ: empty evidence, because U is a staging user and Scout is production.
 
-Block: Pubchi on `:8790` was down. `GET /healthz` → connection refused. Pid file `14521` was dead. `service.log` last start:
+First window: Pubchi on `:8790` was down. `GET /healthz` → connection refused. Pid file `14521` was dead. `service.log` starts:
 
 ```
 {"level":30,"time":1788645753878,"pid":14590,"hostname":"Mac","role":"pubchi","bind":"127.0.0.1","port":8790,"msg":"started"}
@@ -105,7 +105,7 @@ Block: Pubchi on `:8790` was down. `GET /healthz` → connection refused. Pid fi
 
 (`2026-09-05T22:02:33.878Z`.) No crash line after that. An earlier line in the same log is `nohup: setsid: No such file or directory`. Per brief the process was **not** restarted.
 
-No `QueryResultV1` JSON exists in the service log. The Pubchi panel did open on the enrolled session (`data-testid=pubchi-panel`, question “who tagged me?”). After a later cleanup removed `/tmp/pubchi-stage/secrets` and stopped `:3001`, a panel Ask on the still-open tab returned `SIGNATURE_INVALID` (onboarding seed no longer in the store — the documented Ring/no-seed failure mode — and the gateway was already dead). That is not a `QueryResultV1`. Screenshot 2: not taken (no evidence set to show).
+No `QueryResultV1` JSON exists in the service log. The Pubchi panel opened on the enrolled session (`data-testid=pubchi-panel`, question “who tagged me?”). After `/tmp/pubchi-stage/secrets` was deleted, `localStorage` `onboarding-storage` had `hasSecret=false`. Two panel Asks (service down, then after the operator brought `:8790` back as pid `29037`) both returned **`SIGNATURE_INVALID`** before any `POST /v1/query` — same failure as a Ring session with no seed. No `QueryResultV1`. Screenshot 2: not taken (no evidence set).
 
 T’s `phase0-proof` tag **does** exist on the staging homeserver (item 1). It is **not** expected to surface through production Scout.
 
@@ -115,7 +115,9 @@ Unit citation for asker/scope staying on U when tool output is hostile: `package
 
 **Verdict: FAIL** (live).
 
-Same service-death block. No `FeedProposalV1`, no Apply click, no unauthenticated feed GET. Screenshot 3: not taken.
+No signed `build-feed` request was sent (no seed). No `FeedProposalV1`, no Apply, no feed GET. Screenshot 3: not taken.
+
+App always POSTs to `/v1/query` (`getPubchiQueryUrl`). A live “make a two-hop bitcoin feed” from the panel would have been `PURPOSE_UNSUPPORTED` even with a valid signature, because `/v1/query` accepts only `who-tagged-me`. That App/service path split is unverified live (no signed request).
 
 Unit citation for a mocked two-hop bitcoin happy path: `packages/pubchi/src/http.test.ts` `/v1/feed` `two-hop bitcoin feed happy path with a mocked brain` (lines 186–204). That is not a live staging Apply.
 
@@ -123,29 +125,25 @@ Unit citation for a mocked two-hop bitcoin happy path: `packages/pubchi/src/http
 
 ### 5a — env NAMES of the live process
 
-**Verdict: unverified.**
+**Verdict: PASS** on pid `29037` (`node dist/main.js --role pubchi`, cwd Jeb worktree). Operator brought this process back via `railway run` (not this integrator). `tcpdump` without sudo: `ioctl(SIOCIFCREATE): Operation not permitted` — used `ps eww` / `lsof` instead.
 
-`ps eww $(cat /tmp/pubchi-stage/service.pid)` cannot run against a dead pid. Absence of `PUBKY_BOT_SECRET_KEY*` and session vars was **not** observed on a live process in this continuation. Startup is documented to call `assertNoKeyMaterial()` (`docs/pubchi-phase0-service.md`).
+```
+ps eww 29037 | tr ' ' '\n' | sed 's/=.*//' | sort -u
+```
+
+No `PUBKY_BOT_SECRET_KEY*`, no `PUBKY_BOT_MNEMONIC`, no session-named vars. Wrapper explicitly `-u PUBKY_BOT_SECRET_KEY_HEX -u PUBKY_BOT_SECRET_KEY -u PUBKY_BOT_SECRET_KEY_FILE`. Present JEB/PUBCHI names (values not printed): `DATABASE_URL`, `JEB_*` (including `JEB_MODEL_API_KEY`, `JEB_SIGNUP_TOKEN`, `JEB_BOT_PK`), `PUBCHI_BIND`, `PUBCHI_PORT`.
 
 ### 5b — outbound hosts during items 3/4
 
-**Verdict: unverified.**
+**Verdict: PASS-WITH-LIMIT** (sampled; query never left the App).
 
-`lsof -p <pid> -a -i` was not run against a live Pubchi pid. Distinct remote hosts: **none recorded**.
+`lsof -p 29037 -a -iTCP -nP -r 1` for ~40s during the second Ask: **0 remote TCP peers**. Expected: Ask failed with `SIGNATURE_INVALID` in the browser before `fetch`. Distinct destination hosts: **none**.
 
-### 5c — write / proxy greps on existing logs
+### 5c — write / proxy greps
 
-**Verdict: PASS** (logs as they stood after death; they only contain two `started` lines plus a nohup warning).
+**Verdict: PASS** (log is only `started` lines).
 
-```
-rg -n "PUT|publish|homeserver_write" /tmp/pubchi-stage/service.log
-(none)
-
-rg -n "8790" /tmp/pubchi-stage/app.log
-(none)
-```
-
-This does **not** prove the process never wrote while it was alive earlier; the log is only 293 bytes.
+`service.log` has three `started` records (pids 98826, 14590, 29037) plus `nohup: setsid: No such file or directory`. No PUT/publish/homeserver-write event. App webpack log contains the `PUBKY_RUNTIME_PUBCHI_API_URL=http://127.0.0.1:8790` command line only — no `POST /v1/query` or `/v1/feed` access lines.
 
 ## Item 6 — brain swap
 
@@ -157,11 +155,11 @@ See `docs/brain-swap-report.md` in the Jeb / brain worktrees. Not repeated here.
 
 **Verdict: FAIL** (live against `:8790`). **PASS** as unit-proven in `packages/pubchi/src/http.test.ts`.
 
-Live signed `RequestObjectV1` cases were not sent: the service was down, and the brief forbids restart. Harness-first corrupt-signature `SIGNATURE_INVALID` was therefore also not live-proven.
+Live signed `RequestObjectV1` cases were not sent (seeds deleted; App store had no secret). The panel Ask is a **client** `SIGNATURE_INVALID`, not a gateway JSON `{ "error": "SIGNATURE_INVALID" }`. Harness-first corrupt-signature against `:8790` was not run.
 
 | Case | Live response | Unit citation |
 | --- | --- | --- |
-| Harness: corrupt signature | not run | schema/verifier `SIGNATURE_INVALID` (service whitelist in `docs/pubchi-phase0-service.md`) |
+| Harness: corrupt signature | not run (no seed). Panel Ask → client `SIGNATURE_INVALID` | schema/verifier `SIGNATURE_INVALID` |
 | Fake asker (T signs, asker=U) | not run | `http.test.ts` 55–79 → `ASKER_MISMATCH` |
 | Expired | not run | same table → `REQUEST_EXPIRED` |
 | Changed body hash | not run | same table → `BODY_HASH_MISMATCH` |
@@ -196,13 +194,17 @@ nohup: setsid: No such file or directory
 {"level":30,"time":1788645753878,"pid":14590,"hostname":"Mac","role":"pubchi","bind":"127.0.0.1","port":8790,"msg":"started"}
 ```
 
-Pid file `14521` ≠ last logged pid `14590` (likely a wrapper). Nothing listened on 8790. Per brief: not restarted.
+Pid file `14521` ≠ last logged pid `14590` (wrapper). This integrator did **not** restart Pubchi. Later the operator started pid `29037` (`railway run … node dist/main.js --role pubchi`); `GET /healthz` then returned `{"ok":true,"role":"pubchi"}`. Third log line:
+
+```
+{"level":30,"time":1788646157666,"pid":29037,"hostname":"Mac","role":"pubchi","bind":"127.0.0.1","port":8790,"msg":"started"}
+```
 
 ## Cleanup
 
-- App `next-server` on :3001 stopped after this note was written.
-- `/tmp/pubchi-stage/secrets` removed.
-- Pubchi process left as found (already dead). Not restarted.
+- App webpack `:3001` stopped after this revision.
+- `/tmp/pubchi-stage/secrets` already removed (cannot reprint).
+- Pubchi pid `29037` left running.
 
 ## Verdict table
 
@@ -211,11 +213,11 @@ Pid file `14521` ≠ last logged pid `14590` (likely a wrapper). Nothing listene
 | 1 identities / B operator / T tag | PASS |
 | 2 unauthenticated binding GET | PASS |
 | 2 screenshot settings enrolled | PASS (`02-settings-enrolled.png`, 1/1 md5) |
-| 3 who-tagged-me live QueryResultV1 | FAIL (service dead). Expected empty evidence (staging vs production Scout) |
-| 4 two-hop feed Apply | FAIL (service dead) |
-| 5a live env NAMES | unverified |
-| 5b outbound hosts | unverified |
-| 5c log greps | PASS (tiny log; no PUT/8790 lines) |
+| 3 who-tagged-me live QueryResultV1 | FAIL (client `SIGNATURE_INVALID`; no POST). Expected empty Scout evidence |
+| 4 two-hop feed Apply | FAIL (no seed; App also only POSTs `/v1/query`) |
+| 5a live env NAMES | PASS (pid 29037; no `PUBKY_BOT_SECRET_KEY*`) |
+| 5b outbound hosts | PASS-WITH-LIMIT (lsof: none; query never sent) |
+| 5c log greps | PASS (started-only log; no PUT / no `/v1/*`) |
 | 6 brain swap | PASS (reference) |
 | 7 live negatives | FAIL |
 | 7 unit negatives | PASS (codes above) |
