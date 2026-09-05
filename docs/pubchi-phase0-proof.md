@@ -1,3 +1,169 @@
+# Pubchi Phase 0 staging proof (round 4)
+
+Date: 2026-09-05. In-browser integrator after the service CORS allowlist and live Scout schema refresh (`pubky-ai-bot-w3` HEAD `61581d5`). Same U/B/T trio and enrollment as round 3. Secrets stay under `/tmp/pubchi-stage/secrets` (mode 700). This run did not delete that directory.
+
+Round 3 (Node-signed POSTs; panel blocked by CORS) is kept below as history.
+
+## Environment
+
+| Item | Value |
+| --- | --- |
+| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
+| App branch | `pubchi/phase0-app` |
+| App HEAD at proof start | `5d45b6e54825920004598715dbf6db7c0d9faa51` (`docs(pubchi): replace phase0 proof with live run`) |
+| App HEAD at proof close | this commit (`docs(pubchi): record in-browser phase0 proof`) |
+| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
+| Pubchi service HEAD | `61581d5` (CORS allowlist for `http://localhost:3001`, live Scout schema refresh, level-40 log of every non-2xx) |
+| App origin | `http://localhost:3001` — `/settings/pubchi` HTTP 200; session already U |
+| Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
+| Pubchi node pid | `97570` (`node dist/main.js --role pubchi`) |
+| Flags | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790` |
+| Page origin vs API host | page `localhost:3001`, fetch `127.0.0.1:8790` — CORS uses the page Origin; wrap confirmed the request URL is `http://127.0.0.1:8790/v1/query` |
+| Round 3 (history) | App HEAD `5d45b6e5` after that commit; Jeb `d3794cb`; Pubchi pid `29037`; same U/B/T |
+
+### Identities (pubky only)
+
+| Role | Pubky |
+| --- | --- |
+| U (owner) | `bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o` |
+| B (bot) | `hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` |
+| T (third party) | `4wjzuohwwt1acooqtgn3zy7gooff6njgmd5gqntjksq39hc5b6xy` |
+
+Seeds and recovery phrases were used only by path. They are not repeated here.
+
+## Screenshots
+
+| File | What it shows (opened and described) |
+| --- | --- |
+| `docs/pubchi-phase0-proof/01-settings-enrolled.png` | Round 3: `/settings/pubchi` with Active bot B and Remove bot. |
+| `docs/pubchi-phase0-proof/02-who-tagged-me.png` | Round 3: panel `who tagged me?` then `CONNECTION_FAILED` (no CORS). |
+| `docs/pubchi-phase0-proof/03-feed-applied.png` | Round 3: `/feed/H36K8NC454ERFCM0DD4V4N7NCG` after a Node-side homeserver PUT (Apply never ran in-browser). |
+| `docs/pubchi-phase0-proof/04-panel-who-tagged-me.png` | Round 4: Pubchi sheet, question `who tagged me?`, Ask, Tool trace `get_emerging_topics · 1 calls`. No evidence cards (empty items). |
+| `docs/pubchi-phase0-proof/05-panel-feed-proposal.png` | Round 4: Pubchi sheet, question `make a two-hop bitcoin feed`, Ask, error `PURPOSE_UNSUPPORTED`. No FeedProposalV1, no Apply. |
+
+`06-feed-applied.png` was not captured: Apply never ran.
+
+Integrity (`/tmp/pubchi-stage/shots`, all five files):
+
+```
+md5 -q /tmp/pubchi-stage/shots/* | sort -u | wc -l
+       5
+ls /tmp/pubchi-stage/shots | wc -l
+       5
+```
+
+Unique md5s: `7e203068c425ee55cfa3fcb05994b3f1` (01), `9fc7b95231c2366a27a1e01ae816eb37` (02), `ac779ab81f06689fb5f5affc7fdc17bb` (03), `70bb13f768ef290ee2569026abf72b7a` (04), `a8f5b9720947e88a4c4e95df60144508` (05). File count 5 = unique md5 count 5.
+
+## Item 3 — panel “who tagged me?” → QueryResultV1
+
+**Verdict: PASS**
+
+Browser session was already U (`auth-store.currentUserPubky=bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o`). Opened Pubchi via `PubchiLauncher` (`data-testid=pubchi-open`). Asked `who tagged me?`.
+
+`window.fetch` wrap:
+
+- Request URL: `POST http://127.0.0.1:8790/v1/query`
+- Signed purpose: `who-tagged-me`
+- HTTP 200
+
+Response JSON (first live call; retry later the same night produced a second 200 with a new `run_id`):
+
+```
+{"schema":"pubchi-query-result","version":1,"bot":"hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo","owner":"bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","generated_at":1788648099,"run_id":"run-cc2588d9f463af11","purpose":"who-tagged-me","scope_owner":"bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","items":[],"tool_trace_summary":{"tools":["get_emerging_topics"],"call_count":1,"truncated":false},"policy_version":1}
+```
+
+Honest empty `items` (staging U / production Scout). Planner picked `get_emerging_topics` — recorded as-is. Panel rendered QueryResultV1 (Tool trace collapsible; no evidence cards). Screenshot `04-panel-who-tagged-me.png`.
+
+Matching `service.log` (pid 97570, level 30):
+
+```
+{"level":30,"time":1788648103134,"pid":97570,"hostname":"Mac","name":"get_emerging_topics","ms":2707,"ok":true,"mention_key":"pubchi:hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo:bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","msg":"tool call"}
+```
+
+Retry (wide viewport, same utterance) also 200 QueryResultV1, `run_id=run-eee979379e4d5612`, same empty items / `get_emerging_topics` / 1 call. Level-30 tool call at `time=1788648282078` (`ms=2636`). No level-40 line (both were 2xx).
+
+## Item 4 — “make a two-hop bitcoin feed” + Apply
+
+**Verdict: FAIL**
+
+Panel reached the service (CORS works). The App inferred `purpose=build-feed` but always POSTs `getPubchiQueryUrl()` → `/v1/query`. The service rejects that pair (`packages/pubchi/src/http.ts`: `/v1/query` requires `who-tagged-me`; `/v1/feed` requires `build-feed`).
+
+`window.fetch` wrap (retry 2 of 2; same 400 as retry 1):
+
+- Request URL: `POST http://127.0.0.1:8790/v1/query`
+- Signed purpose: `build-feed`
+- Body question: `make a two-hop bitcoin feed`
+- asker=U bot=B
+- HTTP 400 in 418 ms (no brain)
+
+Response JSON:
+
+```
+{"error":"PURPOSE_UNSUPPORTED"}
+```
+
+Panel rendered `PURPOSE_UNSUPPORTED`. No FeedProposalV1. Apply was not shown. Screenshot `05-panel-feed-proposal.png`. No `06-feed-applied.png`. Homeserver read-back of a new Apply was not run.
+
+Matching `service.log` (level 40):
+
+```
+{"level":40,"time":1788648221476,"pid":97570,"hostname":"Mac","code":"PURPOSE_UNSUPPORTED","stage":"verify","status":400,"cause":"purpose","msg":"pubchi non-2xx"}
+{"level":40,"time":1788648344323,"pid":97570,"hostname":"Mac","code":"PURPOSE_UNSUPPORTED","stage":"verify","status":400,"cause":"purpose","msg":"pubchi non-2xx"}
+```
+
+Not a brain/budget error; not retried a third time. Round 3 already proved `/v1/feed` + `purpose=build-feed` returns FeedProposalV1 from Node.
+
+## Item 5b — remotes while items 3/4 ran
+
+**Verdict: PASS-WITH-LIMIT**
+
+`lsof -nP -p 97570 -a -i -r 1` for ~60s during the first who-tagged-me (`/tmp/pubchi-stage/lsof-round4.txt`) and again during the retries (`/tmp/pubchi-stage/lsof-round4b.txt`). Distinct remotes:
+
+| Remote | Identity |
+| --- | --- |
+| `127.0.0.1:5432` | local Postgres |
+| `127.0.0.1` (ephemeral `59819`, `60547`) | local Pubchi clients (browser / App) |
+| `34.179.161.72:443` | `nexus-scout.pubky.app` (production Scout; seen during `get_emerging_topics`) |
+| `34.65.231.81:443` | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A) |
+| `34.65.156.171:443` | `pkarr.pubky.app` |
+| `167.86.102.121:443` | `vmi783032.contaboserver.net` — **unidentified** (not `api.moonshot.ai`) |
+
+`api.moonshot.ai` (Cloudflare `104.18.28.136` / `104.18.29.136`) was **not** seen. Expected: item 4 never reached `runFeed` / the brain.
+
+## Item 5c — no service-side publish
+
+**Verdict: PASS**
+
+```
+rg -n "PUT|publish|homeserver_write" /tmp/pubchi-stage/service.log
+none
+```
+
+## Verdict table (round 4)
+
+| Item | Verdict |
+| --- | --- |
+| 3 who-tagged-me (in-browser) | PASS |
+| 4 two-hop feed + Apply (in-browser) | FAIL (`PURPOSE_UNSUPPORTED`: App POSTs `build-feed` to `/v1/query`) |
+| 5b egress during 3/4 | PASS-WITH-LIMIT (Scout yes; Moonshot no; extra Contabo IP unidentified) |
+| 5c no service PUT/publish | PASS |
+| 1 / 2 / 5a / 6 / 7 | unchanged from round 3 (not re-run) |
+
+## Unverified
+
+- In-browser FeedProposalV1 and Apply (blocked by App path/purpose mismatch).
+- `06-feed-applied.png`.
+- Unauthenticated homeserver read-back of a feed created by this round's Apply (Apply did not run).
+- `api.moonshot.ai` socket during this run.
+- Identity of `167.86.102.121` (`vmi783032.contaboserver.net`).
+- Firefox/WebKit VRT baselines (out of scope).
+
+---
+
+# Round 3 history
+
+The remainder is the round-3 proof (Node-signed POSTs; panel `CONNECTION_FAILED` / no CORS), kept as history.
+
 # Pubchi Phase 0 staging proof (round 3)
 
 Date: 2026-09-05. Live integrator round 3. Rounds 1–2 failed on process lifetime (service and App dev server died between tool calls; round 2 also deleted `/tmp/pubchi-stage/secrets`). This run used the operator-relaunched processes and a fresh U/B/T trio. Secrets stay under `/tmp/pubchi-stage/secrets` (mode 700) for the operator to delete.
