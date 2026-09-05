@@ -70,3 +70,62 @@ npm run lint -- <changed files>
 ```
 
 Live browser / staging Pubchi (`:3001` / `:8790`) was not re-proven in this wave. Dev servers were left running.
+
+## K2b re-audit (SHIP)
+
+**Audit:** OpenCode Kimi, transcript `/tmp/pubchi-stage/kimi-K2b.log`  
+**Audit HEAD:** `5ac4e5b4`  
+**Fix HEAD:** `30bba522` (`fix(pubchi): close K2b hygiene findings`)  
+**Worktree:** `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi`  
+**Branch:** `pubchi/phase0-app`  
+**Verdict (Kimi): SHIP** — all P1/P3 items verified fixed; the one PARTIAL (P2 IndexedDB gate) plus four new P4s were hygiene-level. Those four P4s and the PARTIAL are FIXED in `30bba522`.
+
+### Per-finding status (verbatim from K2b)
+
+| K2 finding | Status | Evidence |
+|---|---|---|
+| P1 build-feed → `/v1/feed`, who-tagged-me → `/v1/query` | **FIXED-VERIFIED** | `flags.ts:25-34` (`pubchiEndpointFor`); service resolves URL from the signed purpose `services/pubchi/pubchi.ts:33`; application independently refuses unserved purposes `application/pubchi/pubchi.ts:199-201` |
+| P1 signing seed in-memory holder | **FIXED-VERIFIED** | Holder is a module-level `let`, store state carries only `{available: boolean}`, bare `create` — no persist/devtools (`signing-seed.ts:9-13`). Populated only in `signIn` (`auth.ts:108`, covers `loginWithMnemonic:248` + `loginWithEncryptedFile:260`) and `signUp:237`. Cleared at sign-in/sign-up start (`:93,:225` — fail-closed: a failed sign-in leaves no seed), Ring auth-URL start (`wrapAuthFlow:273`, both flows `:363,:373`), and `cleanupLocalState:346`. Grep of all 7 zustand `partialize`s + storage writes: seed never persisted, never logged (no Logger/console in any pubchi module; `Err` contexts carry codes only). Retain happens only *after* `completeAuthenticatedSession` resolves (`:107-108`) — no seed-before-success window. Reload → module state gone → panel shows unavailable copy and disables both buttons (`PubchiPanel.tsx:33,47-51`), no raw error. Hook reads only the holder (`usePubchiQuery.ts:13,50`); `secretSeedFromSession` fully gone |
+| P2 `PUBCHI_API_URL` https in prod / loopback-only in lenient | **FIXED-VERIFIED** | Strict schema `runtime-config.schema.ts:50,55` used by the production env parse (`runtime-config.ts:82-90`); lenient `:52,56,462` only for dev/test + window revalidation of server-derived config. Empirically tested bypasses (node WHATWG URL): uppercase scheme, `user@host` / `host@user`, `[::1]`, `localhost.`, `0.0.0.0`, `localhost.evil.com`, decimal/hex/short IPv4 (`2130706433`, `0x7f000001`, `127.1`), `%6cocalhost`, bare `http:localhost` — **no bypass**; every accepted value resolves to genuine loopback, strict parse rejects all `http:` |
+| P2 `Dexie.delete('pubchi')` on sign-out | **PARTIAL** | `deletePubchiDatabase` is flag-safe and cannot throw past sign-out (`database/pubchi/pubchi.ts:46-52`; try/catch `auth.ts:347-353`), but it is **gated on `isPubchiEnabled()` (`auth.ts:347`) — it does not run when the flag is off**, and franky's `clearDatabase` only clears franky tables (`franky.helpers.ts:4-10`). Flag flipped off after enrollment → sign-out leaves binding rows behind. See NEW P4#2 |
+| P3 enrollment rollback + reconcile | **FIXED-VERIFIED** (2 minor notes) | Create: local upsert → PUT → rollback restores previous row or deletes, rethrows (`application/pubchi/pubchi.ts:73-84,223-232`). Delete: revoked upsert → DELETE → local delete, rollback on failure (`:97-122`). Reconcile reads the correct owner (auth-store owner + local bot → `ownerBindingUri`, owned-session path); transient network errors throw out of `HomeserverService.exists` (`homeserver.ts:592-613`, non-404 → `handleError` throws) and are caught → **local kept, no false revoke** (`:142-146,163-165`). Only explicit absence or a parseable non-active body revokes. Notes: NEW P4#3, P4#4 |
+| P3 explicit Ask / Build feed purpose | **FIXED-VERIFIED** | `inferPurpose` removed (grep: only the disposition doc mentions it). Ask → `submit('who-tagged-me')` (`PubchiPanel.tsx:57`), Build feed → `submit('build-feed')` (`:76`); purpose flows unchanged hook → controller (`controllers/pubchi/pubchi.ts:67`) → signed object (`application/pubchi/pubchi.ts:198-216`). Signed purpose ≡ clicked action |
+| P4 zeroize in `signEd25519` | **FIXED-VERIFIED** (1 gap) | `pkcs8` + `seedCopy` zeroed in `finally`, including throw path (`ed25519.ts:33-40`); hook zeroes its copy in `finally` (`usePubchiQuery.ts:71-74`); `signRequestObjectV1` passes by reference (no extra copy, `request.ts:73-79`). Gap: the `asCryptoBytes` copy of the PKCS8 buffer is not zeroed — NEW P4#1 |
+| P4 question max 500 in application | **FIXED-VERIFIED** | `limits.ts:2`; enforced `application/pubchi/pubchi.ts:191-196` |
+| P4 `Err.validation` in feed-map | **FIXED-VERIFIED** | `feed-map.ts:44-47` |
+| P4 `credentials: 'omit'` | **FIXED-VERIFIED** | `services/pubchi/pubchi.ts:46` |
+| P4 stale-binding reconcile / devtools | **FIXED-VERIFIED** | Reconcile on settings load (`usePubchiEnrollment.ts:27-33`); signing-seed store has no devtools middleware; onboarding `secretKey` persistence is pre-existing and no longer a Pubchi signing source |
+
+### New P4 dispositions (this close-out)
+
+| ID | K2b finding | Disposition |
+| --- | --- | --- |
+| P4#1 | Unzeroed PKCS8 copy via `asCryptoBytes` | FIXED in `30bba522`. `signEd25519` captures `keyBytes = asCryptoBytes(pkcs8)` and `fill(0)`s `pkcs8` / `seedCopy` / `keyBytes` in the same `finally`. Tested on success and `importKey` throw. |
+| P4#2 / PARTIAL | `isPubchiEnabled()` gate on sign-out Dexie delete | FIXED in `30bba522`. Gate removed; `deletePubchiDatabase()` runs on every `cleanupLocalState`. Test: flag off + existing `pubchi` IndexedDB → deleted on logout. |
+| P4#3 | Reconcile revokes on malformed 200 body | FIXED in `30bba522`. `!parsed.ok` keeps the local row (transient). Revoke only on explicit 404/absence or a parsed body with `status !== 'active'`. |
+| P4#4 | Reconcile upserts remote body without owner/bot match | FIXED in `30bba522`. Reject unless `parsed.value.bot === local.bot && parsed.value.owner === owner`; never upsert a different bot from reconcile. |
+
+### VRT (K2b close-out)
+
+Command used (from `package.json` `test:vrt` / `docs/component-testing.md` VRT project):
+
+```
+npx vitest run --project vrt src/test/vrt/pubchi
+```
+
+Playwright browsers **were present** (chromium, firefox, and webkit all launched). Suites failed before any screenshot compare:
+
+```
+Error: Failed to import test file .../src/test-utils/vrt.setup.ts
+Caused by: TypeError: Failed to fetch dynamically imported module:
+  http://localhost:63315/@fs/Users/johncarvalho/.cache/pubchi-app-nm/@fontsource-variable/inter-tight/files/inter-tight-latin-wght-normal.woff2?import&url
+webkit: 'font/woff2' is not a valid JavaScript MIME type for module script
+```
+
+`node_modules` is a symlink to `/Users/johncarvalho/.cache/pubchi-app-nm`. The `?url` woff2 import in `vrt.setup.ts` is served as a JS module from `@fs`. Per brief: did not install browsers, did not hand-edit PNGs. **Baselines not regenerated.**
+
+Committed PNG md5s (unchanged):
+
+- `pubchi-panel-desktop-chromium-darwin.png` `48f50e9dd4eba5dc55c305eeac9ec8c0` — stale: Ask only, no Build feed, no unavailable-session copy
+- `pubchi-settings-desktop-chromium-darwin.png` `78bca8cff2849d8aa6e70fbc85fa6a2b` — Enroll bot; "not enrolled" copy is not in frame
+
