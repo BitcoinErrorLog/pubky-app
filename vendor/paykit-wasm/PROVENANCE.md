@@ -6,9 +6,9 @@ network fetch from a mutable source. Referenced from the root `package.json`
 as `"paykit-wasm": "file:vendor/paykit-wasm"`.
 
 - Source: `https://github.com/BitcoinErrorLog/paykit-rs-official`, branch
-  `feat/wasm-binding`, commit `0a6c6e4521fd41f5081ad9f074020f4813d8a03e`
-  (pinned to audited upstream `pubky/paykit-rs` commit `c8892f6`), package
-  path `paykit-wasm/pkg`.
+  `fix/wasm-homeserver-write-abort`, commit
+  `d4a73a5765e1f0b18ed451d78f98dab97c611a8c` (`0.1.0-rc50`), package path
+  `paykit-wasm/pkg`.
 - Full provenance (toolchain, generation command, checksums, re-vendoring
   steps): [`docs/ecommerce/paykit-wasm-provenance.md`](../../docs/ecommerce/paykit-wasm-provenance.md).
 - Guarded in CI by `scripts/paykit-wasm-smoke.mjs` (see `.github/workflows/build.yml`).

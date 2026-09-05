@@ -1,8 +1,20 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import { playwright } from '@vitest/browser-playwright';
 import { VRT_VIEWPORT_DESKTOP } from './src/test-utils/vrt.viewports';
+
+// Tests that import the paykit-wasm binding must exercise the VENDORED
+// artifact in this repository (vendor/paykit-wasm), not whatever a
+// shared/linked node_modules happens to point at (e.g. worktrees sharing a
+// sibling checkout's node_modules, where the file: symlink resolves to the
+// sibling's vendor directory). In a normal checkout this alias is a no-op:
+// the file: dependency links the same path. Vitest projects do NOT inherit
+// top-level resolve, so each project applies it via `paykitWasmAlias`.
+const paykitWasmAlias = {
+  'paykit-wasm': fileURLToPath(new URL('./vendor/paykit-wasm/paykit_wasm.js', import.meta.url)),
+};
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
@@ -40,6 +52,7 @@ export default defineConfig({
       // Unit tests run in jsdom.
       {
         plugins: [react(), tsconfigPaths()],
+        resolve: { alias: paykitWasmAlias },
         test: {
           name: 'unit',
           environment: 'jsdom',
@@ -67,6 +80,7 @@ export default defineConfig({
             '@noble/hashes/utils.js',
           ],
         },
+        resolve: { alias: paykitWasmAlias },
         test: {
           name: 'vrt',
           globals: true,
