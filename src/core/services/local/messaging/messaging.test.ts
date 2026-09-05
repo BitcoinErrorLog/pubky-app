@@ -352,6 +352,23 @@ describe('LocalMessagingService', () => {
       expect([...(read?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(7)]);
     });
 
+    it('treats a receiver with an unknown wrap_version as lost, never as plaintext key material', async () => {
+      // A corrupted/future wrap_version (e.g. 2) must NOT feed its bytes into
+      // the Noise binding as a plaintext secret — the row reads as lost.
+      await CommerceMessagingReceiverModel.upsert({ ...receiverRow(), wrap_version: 2 });
+      await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toBeNull();
+    });
+
+    it('treats a link with an unknown wrap_version as lost: getLink null, getLinksByOwner skips it', async () => {
+      await CommerceMessagingLinkModel.upsert({
+        ...linkRow(),
+        id: `${OWNER}:${COUNTERPARTY}`,
+        wrap_version: 2,
+      });
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toBeNull();
+      await expect(LocalMessagingService.getLinksByOwner(OWNER)).resolves.toHaveLength(0);
+    });
+
     it('fails closed on write when WebCrypto is unavailable — no plaintext row is stored', async () => {
       dropCachedWrappingKeyForTests();
       const { subtle: _subtle, ...rest } = globalThis.crypto;

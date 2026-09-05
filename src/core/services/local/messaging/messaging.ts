@@ -45,9 +45,12 @@ const LINKS_TABLE = 'commerce_messaging_links';
  * plaintext write); a row whose ciphertext fails authentication (lost key,
  * tampered/transplanted row) is treated as LOST — reads return `null`/skip
  * it, so the existing re-enable and re-handshake affordances take over.
- * Rows with absent/0 `wrap_version` are legacy plaintext from before the
- * 4 → 5 migration; the migration wraps them in place on upgrade and reads
- * tolerate them until then.
+ * `wrap_version` is TRI-STATE on read: 1 unwraps; absent/0 is legacy
+ * plaintext from before the 4 → 5 migration (the migration wraps those rows
+ * in place on upgrade and reads tolerate them until then); ANY OTHER value
+ * (corrupted or future format) is treated as LOST exactly like an
+ * authentication failure — feeding unwrappable bytes into the Noise binding
+ * as plaintext key material is never an option.
  */
 export class LocalMessagingService {
   private constructor() {}
@@ -60,6 +63,7 @@ export class LocalMessagingService {
       if (!secret) return null;
       return { ...row, noise_secret: secret };
     }
+    if (this.isUnknownWrapVersion(row.wrap_version, RECEIVERS_TABLE, 'getReceiver')) return null;
     return row;
   }
 
@@ -80,6 +84,7 @@ export class LocalMessagingService {
       if (!snapshot) return null;
       return { ...row, snapshot };
     }
+    if (this.isUnknownWrapVersion(row.wrap_version, LINKS_TABLE, 'getLink')) return null;
     return row;
   }
 
@@ -93,6 +98,8 @@ export class LocalMessagingService {
         const snapshot = await this.unwrapSecretField(LINKS_TABLE, row.id, row.snapshot, 'getLinksByOwner');
         if (!snapshot) continue;
         links.push({ ...row, snapshot });
+      } else if (this.isUnknownWrapVersion(row.wrap_version, LINKS_TABLE, 'getLinksByOwner')) {
+        continue;
       } else {
         links.push(row);
       }
@@ -273,6 +280,20 @@ export class LocalMessagingService {
 
   private static linkId(ownerId: string, counterpartyPubky: string): string {
     return `${ownerId}:${counterpartyPubky}`;
+  }
+
+  /**
+   * Tri-state `wrap_version` guard: `1` is handled by the unwrap path and
+   * absent/0 is legacy plaintext — both return false here. ANY OTHER value
+   * (a corrupted or future format marker) means the row's bytes are NOT
+   * plaintext key material and cannot be unwrapped by this build, so the row
+   * is treated as LOST exactly like an authentication failure: never served
+   * to the Noise binding. Logs `{operation, table}` only — never row bytes.
+   */
+  private static isUnknownWrapVersion(wrapVersion: number | undefined, table: string, operation: string): boolean {
+    if (wrapVersion === undefined || wrapVersion === 0 || wrapVersion === WRAP_VERSION_AES_GCM_256) return false;
+    Logger.warn('A messaging row carries an unknown wrap_version; treating it as lost', { operation, table });
+    return true;
   }
 
   /**
