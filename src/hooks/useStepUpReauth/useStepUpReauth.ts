@@ -5,6 +5,7 @@ import { AuthController } from '@/controllers/auth/auth';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
+import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import type { StepUpReauthStatus, UseStepUpReauthOptions, UseStepUpReauthReturn } from './useStepUpReauth.types';
 
@@ -116,6 +117,21 @@ export function useStepUpReauth(options: UseStepUpReauthOptions = {}): UseStepUp
           // of being freed — that is control flow, not a failure to report.
           if (activeFlowRef.current !== flow) return;
           activeFlowRef.current = null;
+          // The CONTROLLER can also free this flow out from under the hook:
+          // a second start() anywhere supersedes it via
+          // `AuthController.cancelActiveAuthFlow` (wrapAuthFlow). The SDK
+          // canceled error that rejection carries is control flow too — the
+          // superseded flow ends idle, never error, and surfaces no toast.
+          if (
+            typeof error === 'object' &&
+            error !== null &&
+            'name' in error &&
+            (error as { name?: unknown }).name === AUTH_FLOW_CANCELED_ERROR_NAME
+          ) {
+            setAuthorizationUrl('');
+            setStatus('idle');
+            return;
+          }
           Logger.error('Step-up re-approval flow failed', { error });
           setAuthorizationUrl('');
           setErrorMessage(getErrorMessage(error));

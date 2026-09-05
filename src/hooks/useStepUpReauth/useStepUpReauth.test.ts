@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '@/controllers/auth/auth';
 import { copyToClipboard } from '@/libs/utils/utils';
+import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { useStepUpReauth } from './useStepUpReauth';
@@ -183,6 +184,27 @@ describe('useStepUpReauth', () => {
     vi.mocked(AuthController.completeStepUpReauth).mockResolvedValue(undefined);
     second.resolveApproval(SESSION);
     await waitFor(() => expect(result.current.status).toBe('reauthenticated'));
+  });
+
+  it('treats a controller-cancelled (superseded) flow as control flow: idle, not error', async () => {
+    const { flow, rejectApproval } = createDeferredFlow('pubkyauth:///?caps=first');
+    vi.mocked(AuthController.getStepUpAuthUrl).mockResolvedValue(flow);
+    const { result } = renderHook(() => useStepUpReauth());
+
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.status).toBe('awaiting'));
+
+    // A second start() elsewhere frees THIS flow through the controller
+    // (AuthController.cancelActiveAuthFlow in wrapAuthFlow), so the hook's
+    // own active-flow reference still points at it when the SDK canceled
+    // error arrives — that must not surface as a failure.
+    const canceledError = new Error('Auth flow canceled');
+    canceledError.name = AUTH_FLOW_CANCELED_ERROR_NAME;
+    rejectApproval(canceledError);
+
+    await waitFor(() => expect(result.current.status).toBe('idle'));
+    expect(result.current.errorMessage).toBeNull();
+    expect(result.current.authorizationUrl).toBe('');
   });
 
   it('ignores an approval arriving after cancellation instead of widening invisibly', async () => {
