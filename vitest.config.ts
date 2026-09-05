@@ -9,9 +9,12 @@ import { VRT_VIEWPORT_DESKTOP } from './src/test-utils/vrt.viewports';
 // artifact in this repository (vendor/paykit-wasm), not whatever a
 // shared/linked node_modules happens to point at (e.g. worktrees sharing a
 // sibling checkout's node_modules, where the file: symlink resolves to the
-// sibling's vendor directory). In a normal checkout this alias is a no-op:
-// the file: dependency links the same path. Vitest projects do NOT inherit
-// top-level resolve, so each project applies it via `paykitWasmAlias`.
+// sibling's vendor directory). This alias is INTENTIONALLY PERMANENT, not a
+// worktree-local workaround: in a normal checkout it is a no-op (the file:
+// dependency links node_modules/paykit-wasm to this same vendored path),
+// while in shared-node_modules worktrees it pins tests to THIS repo's
+// vendored artifact. Vitest projects do NOT inherit top-level resolve, so
+// each project applies it via `paykitWasmAlias`.
 const paykitWasmAlias = {
   'paykit-wasm': fileURLToPath(new URL('./vendor/paykit-wasm/paykit_wasm.js', import.meta.url)),
 };
