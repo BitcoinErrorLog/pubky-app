@@ -1,9 +1,16 @@
 const SESSION_PARAM = 's';
 
 /**
- * How long a consumed `#s=` export stays valid for restore. A board hand-off
- * is applied within seconds of navigation; bounding the cache to 60 seconds
- * stops a hours-old fragment from being reused after a later same-tab logout.
+ * How long after capture a `#s=` export may still START a restore. The TTL is
+ * checked only at decision time (`hasPendingFragmentSessionExport`, which
+ * gates restore start): once a restore of this page load has begun, its
+ * fragment leg applies the cached export regardless of age — the
+ * persisted-export leg's retries can push the fragment leg past 60 seconds
+ * on a slow network, and dropping a same-page-load `#s=` then would expire a
+ * legitimate hand-off. Bounding the decision stops a hours-old fragment from
+ * starting a new restore after a later same-tab logout;
+ * `discardFragmentSessionExport` at the first decision is the hard reuse
+ * bound.
  */
 export const FRAGMENT_SESSION_EXPORT_TTL_MS = 60_000;
 
@@ -64,7 +71,11 @@ export function consumeFragmentSessionExport(win?: Window): string | null {
   return cachedExport;
 }
 
-/** Cached export, or null when the capture is older than the TTL (also drops it). */
+/**
+ * Cached export, or null when the capture is older than the TTL (also drops
+ * it). Decision-time gate only — used by `hasPendingFragmentSessionExport`,
+ * never by `takeFragmentSessionExport`.
+ */
 function freshCachedExport(): string | null {
   if (cachedExport === null) {
     return null;
@@ -79,7 +90,8 @@ function freshCachedExport(): string | null {
 
 /**
  * True when a consumed-but-not-yet-taken `#s=` export is cached and still
- * within its TTL. Calls consume so it also works if instrumentation-client
+ * within its TTL. This is the restore-start DECISION gate — the only place
+ * the TTL applies. Calls consume so it also works if instrumentation-client
  * has not run yet.
  */
 export function hasPendingFragmentSessionExport(win?: Window): boolean {
@@ -89,12 +101,18 @@ export function hasPendingFragmentSessionExport(win?: Window): boolean {
 
 /**
  * Return the consumed fragment export for restore and clear the cache so a
- * later restore cannot reuse a board hand-off from this page load. Returns
- * null when the capture has outlived its TTL.
+ * later restore cannot reuse a board hand-off from this page load.
+ *
+ * No TTL check here: take only runs once a restore of this page load has
+ * already begun (the fragment leg of `runSessionRestore`), and the TTL gates
+ * the restore DECISION, not the take. The persisted-export leg's retries can
+ * push this call past the TTL on a slow network; the export was fresh when
+ * the restore started, and `discardFragmentSessionExport` at the first
+ * decision bounds reuse.
  */
 export function takeFragmentSessionExport(win?: Window): string | null {
   consumeFragmentSessionExport(win);
-  const value = freshCachedExport();
+  const value = cachedExport;
   cachedExport = null;
   capturedAt = null;
   return value;

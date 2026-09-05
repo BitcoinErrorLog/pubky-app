@@ -125,6 +125,22 @@ describe('fragment session export', () => {
     expect(takeFragmentSessionExport(window)).toBe(EXPORT);
   });
 
+  it('applies the export to the fragment leg even when persist-leg retries outlast the TTL', () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', `/#s=${encodeURIComponent(EXPORT)}`);
+    // The restore decision starts within the TTL: the fragment is pending and
+    // the persisted-export leg of the restore runs first.
+    expect(hasPendingFragmentSessionExport(window)).toBe(true);
+
+    // Persist-leg retries (10 attempts x 3 s sleeps plus request time) push
+    // the fragment leg past the TTL on a slow network.
+    vi.advanceTimersByTime(FRAGMENT_SESSION_EXPORT_TTL_MS + 30_000);
+
+    // The fragment leg still applies the same-page-load hand-off.
+    expect(takeFragmentSessionExport(window)).toBe(EXPORT);
+    expect(takeFragmentSessionExport(window)).toBeNull();
+  });
+
   it('discardFragmentSessionExport drops the cache without touching the URL', () => {
     window.history.replaceState(null, '', `/#s=${encodeURIComponent(EXPORT)}`);
     expect(hasPendingFragmentSessionExport(window)).toBe(true);
