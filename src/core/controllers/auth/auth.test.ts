@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
@@ -366,6 +367,7 @@ describe('AuthController', () => {
     getModerationIdMock.mockReset().mockReturnValue(undefined);
     vi.spyOn(UserApplication, 'ensureModerationFollow').mockResolvedValue(undefined);
     mockClearDatabase.mockReset();
+    mockDeletePubchiDatabase.mockReset();
     // Default: homeserver environment check passes (non-staging test config / allowed key)
     vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
     // Re-apply factory implementations: vi.restoreAllMocks() in afterEach can
@@ -1790,6 +1792,47 @@ describe('AuthController', () => {
 
       await AuthController.logout();
       expect(mockDeletePubchiDatabase).toHaveBeenCalledOnce();
+    });
+
+    it('deletes an existing pubchi IndexedDB on cleanupLocalState when the flag is off', async () => {
+      const flags = await import('@/libs/pubchi/flags');
+      vi.mocked(flags.isPubchiEnabled).mockReturnValue(false);
+      const { deletePubchiDatabase: realDelete } = await vi.importActual<typeof import('@/database/pubchi/pubchi')>(
+        '@/database/pubchi/pubchi',
+      );
+      mockDeletePubchiDatabase.mockImplementation(realDelete);
+
+      const existing = new Dexie('pubchi');
+      existing.version(1).stores({ bindings: 'id' });
+      await existing.open();
+      await existing.table('bindings').add({ id: 'owner:bot' });
+      expect(await existing.table('bindings').count()).toBe(1);
+      existing.close();
+
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(createAuthStore());
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      vi.spyOn(useSignInStore, 'getState').mockReturnValue(createSignInStore());
+      vi.spyOn(useLocalFilesStore, 'getState').mockReturnValue(createLocalFilesStore());
+      vi.spyOn(useHomeStore, 'getState').mockReturnValue(mockHomeStore(storeMocks.getHomeState()));
+      vi.spyOn(useHotStore, 'getState').mockReturnValue(mockHotStore(storeMocks.getHotState()));
+      vi.spyOn(useSearchStore, 'getState').mockReturnValue(mockSearchStore(storeMocks.getSearchState()));
+      vi.spyOn(useNotificationStore, 'getState').mockReturnValue(
+        mockNotificationStore(storeMocks.getNotificationState()),
+      );
+      vi.spyOn(useSettingsStore, 'getState').mockReturnValue(mockSettingsStore(storeMocks.getSettingsState()));
+
+      await AuthController.logout();
+
+      const leftover = new Dexie('pubchi');
+      leftover.version(1).stores({ bindings: 'id' });
+      await leftover.open();
+      expect(await leftover.table('bindings').count()).toBe(0);
+      leftover.close();
+      await Dexie.delete('pubchi');
     });
 
     it('should log warning and clear local state even when homeserver logout fails', async () => {

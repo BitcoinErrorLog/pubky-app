@@ -21,7 +21,6 @@ import { isAppError, isWrongEnvironmentHomeserverError, toAppError } from '@/lib
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { clearMuteSyncCursorSessionStorage } from '@/libs/mute-sync/clear-cursor-session-storage';
-import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { clearPubchiSigningSeed, retainPubchiSigningSeed } from '@/libs/pubchi/signing-seed';
 import { clearAllQueryClients } from '@/libs/query-client/query-client.factory';
 import { clearCookies, sleep } from '@/libs/utils/utils';
@@ -398,12 +397,10 @@ export class AuthController {
 
     await clearDatabase();
     clearPubchiSigningSeed();
-    if (isPubchiEnabled()) {
-      try {
-        await deletePubchiDatabase();
-      } catch {
-        // Best-effort: sign-out must proceed even if the isolated DB is already gone.
-      }
+    try {
+      await deletePubchiDatabase();
+    } catch {
+      // Best-effort: sign-out must proceed even if the isolated DB is already gone.
     }
     // Skip post-migration resync — full cleanup resets all state
     useMigrationStore.getState().reset();

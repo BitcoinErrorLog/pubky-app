@@ -123,8 +123,10 @@ export class PubchiApplication {
 
   /**
    * Reconcile the Dexie binding with the homeserver object at
-   * `pubky://<owner>/pub/pubchi.app/bots/<B>.json`. If the object is absent
-   * (or not active), mark the local row revoked and return undefined.
+   * `pubky://<owner>/pub/pubchi.app/bots/<B>.json`. Revoke the local row only
+   * on explicit 404/absence or a parsed body with `status !== 'active'`.
+   * A malformed 200 or a parsed body whose `owner`/`bot` do not match the
+   * requested binding is treated as transient — the local row is kept.
    */
   static async reconcileActiveBinding(owner: string): Promise<PubchiBindingRecordResult | undefined> {
     if (!isPubchiEnabled()) {
@@ -153,9 +155,15 @@ export class PubchiApplication {
     try {
       const remote = await HomeserverService.request({ method: HttpMethod.GET, url: uri });
       const parsed = parseOwnerBindingV1(remote);
-      if (!parsed.ok || parsed.value.status !== 'active') {
+      if (!parsed.ok) {
+        return local;
+      }
+      if (parsed.value.status !== 'active') {
         await markBindingRevoked(local);
         return undefined;
+      }
+      if (parsed.value.bot !== local.bot || parsed.value.owner !== owner) {
+        return local;
       }
       const record = { ...parsed.value, id: bindingRecordId(owner, parsed.value.bot) };
       await LocalPubchiBindingService.upsert(record);

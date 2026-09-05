@@ -297,4 +297,29 @@ describe('PubchiApplication', () => {
     await expect(PubchiApplication.reconcileActiveBinding(OWNER)).resolves.toBeUndefined();
     expect(upsertSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 'revoked', owner: OWNER, bot: BOT }));
   });
+
+  it('keeps the local row when a 200 body fails parseOwnerBindingV1', async () => {
+    vi.spyOn(HomeserverService, 'exists').mockResolvedValue(true);
+    vi.spyOn(HomeserverService, 'request').mockResolvedValue('<html>proxy error</html>');
+    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+    await expect(PubchiApplication.reconcileActiveBinding(OWNER)).resolves.toEqual(ACTIVE_BINDING);
+    expect(upsertSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not upsert a mismatched remote bot from reconcile', async () => {
+    const otherBot = Keypair.random().publicKey.z32();
+    vi.spyOn(HomeserverService, 'exists').mockResolvedValue(true);
+    vi.spyOn(HomeserverService, 'request').mockResolvedValue({
+      schema: 'pubchi-owner-binding',
+      version: 1,
+      owner: OWNER,
+      bot: otherBot,
+      status: 'active',
+      created_at: 2,
+      updated_at: 2,
+    });
+    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+    await expect(PubchiApplication.reconcileActiveBinding(OWNER)).resolves.toEqual(ACTIVE_BINDING);
+    expect(upsertSpy).not.toHaveBeenCalled();
+  });
 });
