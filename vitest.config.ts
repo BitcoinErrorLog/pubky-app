@@ -47,7 +47,7 @@ export default defineConfig({
           globals: true,
           include: ['**/*.test.{ts,tsx}'],
           // .claude excludes local tooling worktrees checked out inside the repo.
-          exclude: ['**/node_modules/**', '**/.claude/**', '**/*.vrt.test.{ts,tsx}'],
+          exclude: ['**/node_modules/**', '**/.claude/**', '**/._*', '**/*.vrt.test.{ts,tsx}'],
           server: { deps: { inline: ['react-tweet'] } },
         },
       },
@@ -69,7 +69,7 @@ export default defineConfig({
           globals: true,
           testTimeout: 30_000,
           include: ['**/*.vrt.test.{ts,tsx}'],
-          exclude: ['**/node_modules/**', '**/.claude/**'],
+          exclude: ['**/node_modules/**', '**/.claude/**', '**/._*'],
           setupFiles: ['./src/test-utils/vrt.setup.ts'],
           server: { deps: { inline: ['react-tweet'] } },
           browser: {
