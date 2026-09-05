@@ -11,6 +11,7 @@ import tsPlugin from '@typescript-eslint/eslint-plugin';
 const eslintConfig = [
   {
     ignores: [
+      '**/._*',
       '**/node_modules/**',
       // Local tooling worktrees checked out under .claude/ are not part of the app
       '**/.claude/**',
