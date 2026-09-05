@@ -1,9 +1,10 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
 import type { Session } from '@synonymdev/pubky';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '@/controllers/auth/auth';
 import { copyToClipboard } from '@/libs/utils/utils';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { useStepUpReauth } from './useStepUpReauth';
 
 vi.mock('@/controllers/auth/auth', () => ({
@@ -15,7 +16,7 @@ vi.mock('@/libs/utils/utils', async () => {
   return { ...actual, copyToClipboard: vi.fn().mockResolvedValue(undefined) };
 });
 
-const SESSION = { info: { publicKey: 'test-pubky' } } as unknown as Session;
+const SESSION = asOpaque<Session>({ info: { publicKey: 'test-pubky' } });
 
 /**
  * A controllable stand-in for one single-use auth flow: the test decides

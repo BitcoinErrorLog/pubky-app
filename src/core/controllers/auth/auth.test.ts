@@ -1048,9 +1048,7 @@ describe('AuthController', () => {
     it('signs out and rethrows when the staging homeserver guard rejects the session', async () => {
       const mockSession = buildMockSession();
       vi.spyOn(Identity, 'z32FromSession').mockReturnValue(TEST_PUBKY as Pubky);
-      const guardSpy = vi
-        .spyOn(AuthApplication, 'assertUserHomeserverAllowed')
-        .mockRejectedValue(new Error('wrong environment'));
+      vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockRejectedValue(new Error('wrong environment'));
       const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
       const authStore = mockAuthStore({
         ...storeMocks.getAuthState(),
