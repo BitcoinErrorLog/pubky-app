@@ -164,6 +164,22 @@ describe('runtimeEnvInputSchema', () => {
     );
   });
 
+  it('defaults Pubchi to disabled with an empty API URL', () => {
+    const parsed = runtimeEnvInputSchema.parse(VALID_ENV_INPUT);
+    expect(parsed.pubchiEnabled).toBe(false);
+    expect(parsed.pubchiApiUrl).toBe('');
+  });
+
+  it('parses Pubchi runtime flags when provided', () => {
+    const parsed = runtimeEnvInputSchema.parse({
+      ...VALID_ENV_INPUT,
+      pubchiEnabled: 'true',
+      pubchiApiUrl: 'https://pubchi.example.com',
+    });
+    expect(parsed.pubchiEnabled).toBe(true);
+    expect(parsed.pubchiApiUrl).toBe('https://pubchi.example.com');
+  });
+
   it('throws on invalid optional boolean values', () => {
     expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, notificationPollOnStart: 'tru' })).toThrow();
     expect(() => runtimeEnvInputSchemaWithDefaults.parse({ streamPollOnStart: 'yes' })).toThrow();
@@ -260,7 +276,13 @@ describe('runtimeEnvInputSchemaWithDefaults', () => {
     const parsed = runtimeEnvInputSchemaWithDefaults.parse({});
 
     // Defaults must come out PARSED, not as strings.
-    expect(parsed).toEqual({ ...NETWORK_RUNTIME_DEFAULTS, ...SENTRY_RUNTIME_DEFAULTS, ...APP_RUNTIME_DEFAULTS });
+    expect(parsed).toEqual({
+      ...NETWORK_RUNTIME_DEFAULTS,
+      ...SENTRY_RUNTIME_DEFAULTS,
+      ...APP_RUNTIME_DEFAULTS,
+      pubchiEnabled: false,
+      pubchiApiUrl: '',
+    });
     expect(Array.isArray(parsed.pkarrRelays)).toBe(true);
     expect(typeof parsed.testnet).toBe('boolean');
     expect(parsed.moderationId).toBe(APP_RUNTIME_DEFAULTS.moderationId);
