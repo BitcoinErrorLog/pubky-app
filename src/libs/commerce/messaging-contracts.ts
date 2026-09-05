@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CAPABILITIES } from '@/config/app';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -15,11 +16,11 @@ import { ErrorService } from '@/libs/error/error.types';
  * path" until the user signed in again — reproduced empirically 2026-08-21
  * (see scripts/probe-media-write.mjs). The session that wins the cookie must
  * be able to do everything the app needs, so this stays exactly equal to the
- * app's sign-in grant (`homeserver.ts` CAPABILITIES) — including the private
- * watchlist scope — and must change in lockstep with it. Shown verbatim in
- * the approval UI.
+ * app's sign-in grant (`src/config/app.ts` CAPABILITIES) — including the
+ * private watchlist scope — by deriving from it, not duplicating it. Shown
+ * verbatim in the approval UI.
  */
-export const PAYKIT_MESSAGING_CAPABILITY = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw';
+export const PAYKIT_MESSAGING_CAPABILITY = CAPABILITIES;
 
 /**
  * The Paykit receiver path this app publishes its messaging receiver marker

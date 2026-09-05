@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CAPABILITIES } from '@/config/app';
 import {
   bodyByteSize,
   buildChatMessage,
@@ -7,6 +8,7 @@ import {
   decodeChatMessage,
   MARKETPLACE_CHAT_MESSAGE_KIND,
   parseConversationAggregateId,
+  PAYKIT_MESSAGING_CAPABILITY,
   PAYKIT_NOISE_MESSAGE_MAX_BYTES,
 } from './messaging-contracts';
 import { buildMarketplaceConversationAggregateId, buildMarketplaceListingAggregateId } from './transaction-commands';
@@ -30,6 +32,10 @@ function build(body: string) {
 }
 
 describe('marketplace chat message contract', () => {
+  it('keeps the messaging capability byte-identical to the app sign-in grant', () => {
+    expect(PAYKIT_MESSAGING_CAPABILITY).toBe(CAPABILITIES);
+  });
+
   it('builds a valid envelope and reports its true serialized size', () => {
     const { message, json, byteSize } = build('Is this still available?');
     expect(message.kind).toBe(MARKETPLACE_CHAT_MESSAGE_KIND);
