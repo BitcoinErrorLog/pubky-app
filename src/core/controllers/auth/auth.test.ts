@@ -23,6 +23,7 @@ import { NotificationType } from '@/models/notification/notification.types';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
 import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
+import { HomeserverService } from '@/services/homeserver/homeserver';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { AuthStore } from '@/stores/auth/auth.types';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -933,6 +934,134 @@ describe('AuthController', () => {
 
       expect(cancelAuthFlowA).toHaveBeenCalled();
       expect(cancelAuthFlowB).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getStepUpAuthUrl (step-up Option C)', () => {
+    beforeEach(() => {
+      setupOnboardingStore();
+    });
+
+    it('requests the FULL grant (generateAuthUrl defaults to CAPABILITIES) without wiping local state', async () => {
+      const cancelAuthFlow = vi.fn();
+      const mockAuthUrl = {
+        authorizationUrl: 'https://example.com/auth?token=stepup',
+        awaitApproval: new Promise(() => {}),
+        cancelAuthFlow,
+      };
+      // The real AuthApplication delegate runs so the assertion covers the
+      // exact capabilities argument the service is invoked with: none — the
+      // homeserver service then applies its full-grant CAPABILITIES default.
+      const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl').mockResolvedValue(mockAuthUrl);
+      const clearDatabaseSpy = mockClearDatabase.mockResolvedValue(undefined);
+      const cancelModerationFollowSpy = vi.spyOn(BootstrapApplication, 'cancelModerationFollow');
+
+      const result = await AuthController.getStepUpAuthUrl();
+
+      // Zero arguments: the full CAPABILITIES default, never a narrowed scope.
+      expect(generateAuthUrlSpy).toHaveBeenCalledExactlyOnceWith();
+      // A step-up widens the current identity's grant — local state must survive.
+      expect(clearDatabaseSpy).not.toHaveBeenCalled();
+      expect(storeMocks.resetMigrationStore).not.toHaveBeenCalled();
+      expect(cancelModerationFollowSpy).toHaveBeenCalled();
+      expect(result.authorizationUrl).toEqual(mockAuthUrl.authorizationUrl);
+      expect(result.cancelAuthFlow).toBe(cancelAuthFlow);
+    });
+
+    it('frees stale step-up flows when requests overlap (StrictMode)', async () => {
+      const cancelAuthFlowA = vi.fn();
+      const cancelAuthFlowB = vi.fn();
+
+      type GenerateAuthUrlResult = Awaited<ReturnType<typeof AuthApplication.generateAuthUrl>>;
+
+      let resolveFirst!: (value: GenerateAuthUrlResult) => void;
+      const first = new Promise<GenerateAuthUrlResult>((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      vi.spyOn(AuthApplication, 'generateAuthUrl')
+        .mockImplementationOnce(() => first)
+        .mockResolvedValueOnce({
+          authorizationUrl: 'https://example.com/auth?token=B',
+          awaitApproval: new Promise(() => {}),
+          cancelAuthFlow: cancelAuthFlowB,
+        });
+
+      const firstCall = AuthController.getStepUpAuthUrl();
+      const secondCall = AuthController.getStepUpAuthUrl();
+
+      resolveFirst({
+        authorizationUrl: 'https://example.com/auth?token=A',
+        awaitApproval: new Promise(() => {}),
+        cancelAuthFlow: cancelAuthFlowA,
+      });
+
+      await secondCall;
+      await firstCall;
+
+      expect(cancelAuthFlowA).toHaveBeenCalled();
+      expect(cancelAuthFlowB).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('completeStepUpReauth (step-up Option C)', () => {
+    it('swaps the auth-store session for the widened one on approval', async () => {
+      const mockSession = buildMockSession();
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(TEST_PUBKY as Pubky);
+      const guardSpy = vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout');
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        currentUserPubky: TEST_PUBKY as Pubky,
+      });
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+
+      await AuthController.completeStepUpReauth({ session: mockSession });
+
+      expect(guardSpy).toHaveBeenCalledWith({ publicKey: mockSession.info.publicKey });
+      // The store session update is what makes watchlist sync, receipts, and
+      // messaging cookie-resume capable without a reload.
+      expect(authStore.setSession).toHaveBeenCalledWith(mockSession);
+      expect(logoutSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses and signs out a session approved for a DIFFERENT identity', async () => {
+      const mockSession = buildMockSession();
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue('o'.repeat(52) as Pubky);
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      const guardSpy = vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed');
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        currentUserPubky: TEST_PUBKY as Pubky,
+      });
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+
+      await expect(AuthController.completeStepUpReauth({ session: mockSession })).rejects.toMatchObject({
+        code: AuthErrorCode.UNAUTHORIZED,
+      });
+      expect(authStore.setSession).not.toHaveBeenCalled();
+      expect(guardSpy).not.toHaveBeenCalled();
+      expect(logoutSpy).toHaveBeenCalledWith({ session: mockSession });
+    });
+
+    it('signs out and rethrows when the staging homeserver guard rejects the session', async () => {
+      const mockSession = buildMockSession();
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(TEST_PUBKY as Pubky);
+      const guardSpy = vi
+        .spyOn(AuthApplication, 'assertUserHomeserverAllowed')
+        .mockRejectedValue(new Error('wrong environment'));
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        currentUserPubky: TEST_PUBKY as Pubky,
+      });
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+
+      await expect(AuthController.completeStepUpReauth({ session: mockSession })).rejects.toThrow(
+        'wrong environment',
+      );
+      expect(logoutSpy).toHaveBeenCalledWith({ session: mockSession });
+      expect(authStore.setSession).not.toHaveBeenCalled();
     });
   });
 

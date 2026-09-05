@@ -27,6 +27,7 @@ import { formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceNotificationItem } from '@/organisms/MarketplaceNotificationItem/MarketplaceNotificationItem';
 import {
   getWatchAlertDetail,
@@ -114,10 +115,16 @@ export function MarketplaceWatchlist() {
                 Sync across devices needs a fresh sign-in approval
               </Typography>
               <Typography as="p" className="text-sm text-muted-foreground">
-                Your watchlist keeps working on this device. To sync it privately through your homeserver, sign in again
-                and approve the private-storage permission — sessions approved before that permission existed cannot
-                write it.
+                Your watchlist keeps working on this device. To sync it privately through your homeserver, sign in
+                again and approve the private-storage permission — sessions approved before that permission existed
+                cannot write it.
               </Typography>
+              <div className="mt-2">
+                <MarketplaceReauthDialog
+                  triggerLabel="Sign in again to enable sync"
+                  onReauthenticated={() => CommerceController.syncWatchlist()}
+                />
+              </div>
             </CardContent>
           </Card>
         )}

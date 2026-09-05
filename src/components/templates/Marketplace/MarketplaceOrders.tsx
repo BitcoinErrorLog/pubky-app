@@ -20,6 +20,7 @@ import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceI
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
+import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -124,9 +125,12 @@ export function MarketplaceOrders() {
                           </div>
                           <DropEditionReceiptLine order={order} />
                           {receiptsPublicationStatus === 'needs_reauth' && (
-                            <Typography as="p" className="text-sm text-muted-foreground">
-                              Receipt not saved to your private storage yet — reconnect to save it
-                            </Typography>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <Typography as="p" className="text-sm text-muted-foreground">
+                                Receipt not saved to your private storage yet — reconnect to save it
+                              </Typography>
+                              <MarketplaceReauthDialog triggerLabel="Reconnect" onReauthenticated={refresh} />
+                            </div>
                           )}
                         </div>
                       )}

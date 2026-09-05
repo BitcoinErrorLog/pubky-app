@@ -16,6 +16,8 @@ import { NotificationCoordinator } from '@/coordinators/notifications/notificati
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
 import { clearDatabase } from '@/database/franky/franky.helpers';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isWrongEnvironmentHomeserverError, toAppError } from '@/libs/error/error.utils';
 import { Identity } from '@/libs/identity/identity';
@@ -356,15 +358,21 @@ export class AuthController {
    * Wraps auth URL generation with flow tracking so useAuthUrl can cancel on unmount
    * and we detect stale requests (e.g. React StrictMode double-mount).
    * @param generateFn - Async function that returns the auth URL result
+   * @param options.preserveLocalState - Step-up re-approval only: the identity is
+   * unchanged and only the homeserver grant widens, so local state (Dexie, migration
+   * cursors) must NOT be wiped the way a fresh sign-in requires.
    * @returns Promise resolving to the generated authentication URL with wrapped approval
    */
   private static async wrapAuthFlow(
     generateFn: () => Promise<TGenerateAuthUrlResult>,
+    { preserveLocalState = false }: { preserveLocalState?: boolean } = {},
   ): Promise<TGenerateAuthUrlResult> {
     BootstrapApplication.cancelModerationFollow();
-    await clearDatabase();
-    // Skip post-migration resync — full bootstrap below covers all data
-    useMigrationStore.getState().reset();
+    if (!preserveLocalState) {
+      await clearDatabase();
+      // Skip post-migration resync — full bootstrap below covers all data
+      useMigrationStore.getState().reset();
+    }
     const token = Symbol('auth-flow');
     this.cancelActiveAuthFlow();
     this.activeAuthFlow = { token, cancel: null };
@@ -464,6 +472,59 @@ export class AuthController {
    */
   static async getAuthUrl(): Promise<TGenerateAuthUrlResult> {
     return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl());
+  }
+
+  /**
+   * The step-up re-approval URL for an ALREADY signed-in session
+   * (docs/ecommerce/step-up-approval.md, Option C): the same full-grant
+   * sign-in flow as {@link getAuthUrl} — `HomeserverService.generateAuthUrl`
+   * defaults to the full `CAPABILITIES` — but local state is preserved
+   * because the identity is unchanged; only the homeserver grant widens.
+   * Never called automatically: only the explicit re-auth affordances
+   * (watchlist sync, portable receipts) start this flow.
+   */
+  static async getStepUpAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl(), { preserveLocalState: true });
+  }
+
+  /**
+   * Applies an approved step-up session to the CURRENT identity. The
+   * approval replaces the homeserver cookie with the superset grant, so
+   * watchlist sync, portable receipts, and messaging cookie-resume all
+   * become capable without a reload; the auth store session (and its
+   * persisted export) is swapped for the widened one.
+   *
+   * A session approved for a DIFFERENT identity is refused and signed back
+   * out — a step-up must never silently switch accounts.
+   */
+  static async completeStepUpReauth({ session }: THomeserverSessionResult): Promise<void> {
+    const authStore = useAuthStore.getState();
+    const approvedPubky = Identity.z32FromSession({ session });
+    if (!authStore.currentUserPubky || approvedPubky !== authStore.currentUserPubky) {
+      await AuthApplication.logout({ session }).catch((logoutError) => {
+        Logger.warn('Failed to sign out a step-up session approved for a different identity', { logoutError });
+      });
+      throw Err.auth(
+        AuthErrorCode.UNAUTHORIZED,
+        'The approval was for a different identity. Reconnect only widens the permissions of the signed-in account.',
+        {
+          service: ErrorService.Homeserver,
+          operation: 'completeStepUpReauth',
+          context: { expectedPubky: authStore.currentUserPubky, approvedPubky },
+        },
+      );
+    }
+    try {
+      // Same externally-approved-session checkpoint as first sign-in.
+      await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
+    } catch (error) {
+      await AuthApplication.logout({ session }).catch((logoutError) => {
+        Logger.warn('Failed to sign out session after environment check failure', { logoutError });
+      });
+      throw error;
+    }
+    this.cancelActiveAuthFlow();
+    authStore.setSession(session);
   }
 
   /**
