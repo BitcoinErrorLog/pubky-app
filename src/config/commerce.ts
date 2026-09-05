@@ -103,11 +103,16 @@ export const COMMERCE_REVIEW_EDIT_WINDOW_SECONDS = 24 * 60 * 60;
  * (ADR 0024 §3: the signature proves key possession, never legitimacy —
  * verifiers pin attestor identities out of band, and this list is that
  * pinning). Nexus indexes every cryptographically verified review and names
- * its attestor; display trust is decided here. The sole entry is the
- * attestor identity of the deployed marketplace transaction service.
+ * its attestor; display trust is decided here. Two entries, one per deployed
+ * transaction service — the staging Railway project
+ * `pubky-marketplace-staging` and the production project
+ * `pubky-marketplace-production` — both operated by the marketplace operator.
  */
 export const MARKETPLACE_TRUSTED_ATTESTORS: readonly string[] = [
+  // pubky-marketplace-staging (Railway)
   'ws343aqzmcahagojhmhkbri8odqz9iqg61woxbkh9fd3bxhqomdy',
+  // pubky-marketplace-production (Railway)
+  'szhtpayftdz3mpkoyyk3zesuad11ufuudqqrc73s35w1tfju7gxy',
 ];
 
 /** Whether an attestor pubky is on this client's pinned trust list. */
