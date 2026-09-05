@@ -11,6 +11,7 @@ import {
   Signer,
 } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
+import { CAPABILITIES } from '@/config/app';
 import {
   getDefaultHttpRelay,
   getDeployEnv,
@@ -64,18 +65,9 @@ import {
   toSdkPath,
 } from './homeserver.utils';
 
-/**
- * The single sign-in grant. One Ring approval covers everything the app does,
- * on purpose: the homeserver keeps ONE session cookie per user per origin, so
- * splitting capabilities across separate approvals means each new approval
- * clobbers the previous session (this broke all pubky.app writes when the
- * paykit-only messaging grant landed — see `messaging-contracts.ts`).
- * Scopes: the app's own tree, the Paykit tree (encrypted messaging), and the
- * app's private tree (cross-device watchlist sync — `/priv/` is enforced
- * private by the homeserver, verified empirically in
- * `docs/ecommerce/watchlist.md`).
- */
-const CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw';
+// The single sign-in grant lives in `@/config/app` (as `CAPABILITIES`) so the
+// step-up re-approval dialog can render the exact requested string beside the
+// QR without importing this service module.
 const PUB_PATH_PREFIX = '/pub/' as const;
 const PRIV_PATH_PREFIX = '/priv/' as const;
 /** Paths the current session owns outright: its own public and private trees. */
