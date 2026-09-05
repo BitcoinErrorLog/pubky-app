@@ -22,12 +22,15 @@ export type PubchiPanelProps = {
 };
 
 export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
-  const { form, submit, applyFeed, result, errorCode, loading, enabled } = usePubchiQuery();
+  const { form, submit, applyFeed, result, errorCode, loading, enabled, signingAvailable, signingUnavailableMessage } =
+    usePubchiQuery();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;
   }
+
+  const actionsDisabled = loading || !signingAvailable;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -41,11 +44,17 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             <SheetDescription>Read-only questions. The service never receives your session or key.</SheetDescription>
           </SheetHeader>
 
+          {!signingAvailable ? (
+            <Typography data-testid="pubchi-signing-unavailable" size="sm">
+              {signingUnavailableMessage}
+            </Typography>
+          ) : null}
+
           <form
             className="flex flex-col gap-3"
             onSubmit={(event) => {
               event.preventDefault();
-              void submit();
+              void submit('who-tagged-me');
             }}
           >
             <ControlledTextareaField
@@ -54,9 +63,22 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               label="Question"
               placeholder="Who tagged me?"
             />
-            <Button type="submit" data-testid="pubchi-ask" disabled={loading}>
-              Ask
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button type="submit" data-testid="pubchi-ask" disabled={actionsDisabled}>
+                Ask
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                data-testid="pubchi-build-feed"
+                disabled={actionsDisabled}
+                onClick={() => {
+                  void submit('build-feed');
+                }}
+              >
+                Build feed
+              </Button>
+            </div>
           </form>
 
           {errorCode ? (

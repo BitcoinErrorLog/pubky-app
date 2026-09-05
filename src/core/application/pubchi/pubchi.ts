@@ -4,13 +4,13 @@ import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
 import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
+import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
 import {
   bodySha256,
   ownerBindingUri,
   parseFeedProposalV1,
   parseOwnerBindingV1,
   parseQueryResultV1,
-  type Phase0Purpose,
   REQUEST_TTL_SECONDS,
   signRequestObjectV1,
   type UnsignedRequestObjectV1,
@@ -26,14 +26,6 @@ import type {
   PubchiQueryApplicationParams,
   PubchiQuerySuccess,
 } from './pubchi.types';
-
-function inferPurpose(question: string): Phase0Purpose {
-  const q = question.toLowerCase();
-  if (q.includes('feed')) return 'build-feed';
-  if (q.includes('missed')) return 'what-i-missed';
-  if (q.includes('summar')) return 'summarize';
-  return 'who-tagged-me';
-}
 
 function randomNonce(): string {
   const bytes = new Uint8Array(32);
@@ -80,11 +72,16 @@ export class PubchiApplication {
     const record = { ...parsed.value, id: bindingRecordId(params.owner, params.bot) };
     await LocalPubchiBindingService.upsert(record);
 
-    await HomeserverService.request({
-      method: HttpMethod.PUT,
-      url: ownerBindingUri(params.owner, params.bot),
-      bodyJson: parsed.value,
-    });
+    try {
+      await HomeserverService.request({
+        method: HttpMethod.PUT,
+        url: ownerBindingUri(params.owner, params.bot),
+        bodyJson: parsed.value,
+      });
+    } catch (error) {
+      await rollbackBindingWrite(params, existing);
+      throw error;
+    }
 
     return parsed.value;
   }
@@ -112,11 +109,60 @@ export class PubchiApplication {
     if (!parsed.ok) throw pubchiValidationError(parsed.code, 'commitDeleteBinding');
 
     await LocalPubchiBindingService.upsert({ ...parsed.value, id: bindingRecordId(params.owner, params.bot) });
-    await HomeserverService.request({
-      method: HttpMethod.DELETE,
-      url: ownerBindingUri(params.owner, params.bot),
-    });
-    await LocalPubchiBindingService.delete(params.owner, params.bot);
+    try {
+      await HomeserverService.request({
+        method: HttpMethod.DELETE,
+        url: ownerBindingUri(params.owner, params.bot),
+      });
+      await LocalPubchiBindingService.delete(params.owner, params.bot);
+    } catch (error) {
+      await rollbackBindingWrite(params, existing);
+      throw error;
+    }
+  }
+
+  /**
+   * Reconcile the Dexie binding with the homeserver object at
+   * `pubky://<owner>/pub/pubchi.app/bots/<B>.json`. If the object is absent
+   * (or not active), mark the local row revoked and return undefined.
+   */
+  static async reconcileActiveBinding(owner: string): Promise<PubchiBindingRecordResult | undefined> {
+    if (!isPubchiEnabled()) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
+        service: ErrorService.Pubchi,
+        operation: 'reconcileActiveBinding',
+      });
+    }
+
+    const local = await LocalPubchiBindingService.readActive(owner);
+    if (!local) return undefined;
+
+    const uri = ownerBindingUri(owner, local.bot);
+    let present: boolean;
+    try {
+      present = await HomeserverService.exists(uri);
+    } catch {
+      return local;
+    }
+
+    if (!present) {
+      await markBindingRevoked(local);
+      return undefined;
+    }
+
+    try {
+      const remote = await HomeserverService.request({ method: HttpMethod.GET, url: uri });
+      const parsed = parseOwnerBindingV1(remote);
+      if (!parsed.ok || parsed.value.status !== 'active') {
+        await markBindingRevoked(local);
+        return undefined;
+      }
+      const record = { ...parsed.value, id: bindingRecordId(owner, parsed.value.bot) };
+      await LocalPubchiBindingService.upsert(record);
+      return parsed.value;
+    } catch {
+      return local;
+    }
   }
 
   static async query(params: PubchiQueryApplicationParams): Promise<PubchiQuerySuccess> {
@@ -142,8 +188,14 @@ export class PubchiApplication {
         operation: 'query',
       });
     }
+    if (question.length > PUBCHI_QUESTION_MAX_LENGTH) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'REQUEST_MALFORMED', {
+        service: ErrorService.Pubchi,
+        operation: 'query',
+      });
+    }
 
-    const purpose = inferPurpose(question);
+    const purpose = params.purpose;
     if (!pubchiEndpointFor(purpose)) {
       throw pubchiValidationError('PURPOSE_UNSUPPORTED', 'query');
     }
@@ -166,6 +218,33 @@ export class PubchiApplication {
     const response = await PubchiService.query({ request, body });
     return interpretQueryResponse(response);
   }
+}
+
+async function rollbackBindingWrite(
+  params: PubchiBindingWriteParams,
+  previous: Awaited<ReturnType<typeof LocalPubchiBindingService.read>>,
+): Promise<void> {
+  if (previous) {
+    await LocalPubchiBindingService.upsert(previous);
+    return;
+  }
+  await LocalPubchiBindingService.delete(params.owner, params.bot);
+}
+
+async function markBindingRevoked(local: NonNullable<Awaited<ReturnType<typeof LocalPubchiBindingService.readActive>>>) {
+  const now = Math.floor(Date.now() / 1000);
+  const revoked = {
+    schema: 'pubchi-owner-binding' as const,
+    version: 1 as const,
+    owner: local.owner,
+    bot: local.bot,
+    status: 'revoked' as const,
+    created_at: local.created_at,
+    updated_at: now,
+  };
+  const parsed = parseOwnerBindingV1(revoked);
+  if (!parsed.ok) throw pubchiValidationError(parsed.code, 'reconcileActiveBinding');
+  await LocalPubchiBindingService.upsert({ ...parsed.value, id: bindingRecordId(local.owner, local.bot) });
 }
 
 function interpretQueryResponse(response: unknown): PubchiQuerySuccess {

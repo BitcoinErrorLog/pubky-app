@@ -29,7 +29,7 @@ export function usePubchiEnrollment() {
       setBinding(undefined);
       return;
     }
-    void PubchiController.getActiveBinding().then(setBinding);
+    void PubchiController.reconcileActiveBinding().then(setBinding);
   }, []);
 
   const submit = async (): Promise<boolean> => {

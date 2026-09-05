@@ -27,5 +27,6 @@ describe('PubchiSettings', () => {
     expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toHaveAttribute('data-surface', PUBCHI_SETTINGS_SURFACE);
     expect(screen.getByText('Pubchi')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-enroll-bot')).toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-not-enrolled')).toHaveTextContent('not enrolled');
   });
 });

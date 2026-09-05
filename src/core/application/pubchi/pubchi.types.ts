@@ -8,6 +8,7 @@ export type PubchiAskBody = {
 export type PubchiQueryApplicationParams = {
   owner: Pubky;
   question: string;
+  purpose: Phase0Purpose;
   secretSeed: Uint8Array;
   nowSeconds?: number;
 };
@@ -23,5 +24,3 @@ export type PubchiBindingWriteParams = {
 };
 
 export type PubchiBindingRecordResult = OwnerBindingV1;
-
-export type PubchiInferredPurpose = Phase0Purpose;

@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => ({
   fetchPubchiQuery: vi.fn(),
   commitCreate: vi.fn(),
   toast: vi.fn(),
+  signingAvailable: true,
+  seedCopy: new Uint8Array(32).fill(1),
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -60,18 +62,10 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: (...args: unknown[]) => mocks.toast(...args),
 }));
 
-vi.mock('@/stores/onboarding/onboarding.store', () => ({
-  useOnboardingStore: {
-    getState: () => ({ secretKey: 'ab'.repeat(32) }),
-  },
-}));
-
-vi.mock('@/libs/identity/identity', () => ({
-  Identity: {
-    keypairFromSecretKey: () => ({
-      secret: () => new Uint8Array(32),
-    }),
-  },
+vi.mock('@/libs/pubchi/signing-seed', () => ({
+  getPubchiSigningSeedCopy: () => new Uint8Array(mocks.seedCopy),
+  usePubchiSigningAvailable: (selector: (state: { available: boolean }) => unknown) =>
+    selector({ available: mocks.signingAvailable }),
 }));
 
 describe('usePubchiQuery', () => {
@@ -81,6 +75,7 @@ describe('usePubchiQuery', () => {
     mocks.toast.mockReset();
     mocks.fetchPubchiQuery.mockResolvedValue(FEED_SUCCESS);
     mocks.commitCreate.mockResolvedValue({ id: 'feed-1' });
+    mocks.signingAvailable = true;
   });
 
   afterEach(() => {
@@ -88,16 +83,17 @@ describe('usePubchiQuery', () => {
     vi.clearAllMocks();
   });
 
-  it('passes a FeedProposalV1 through to Apply', async () => {
+  it('passes an explicit purpose and a seed copy through to the controller', async () => {
     const { result } = renderHook(() => usePubchiQuery());
 
     await act(async () => {
       result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'build a feed of builders');
-      await result.current.submit();
+      await result.current.submit('build-feed');
     });
 
     expect(mocks.fetchPubchiQuery).toHaveBeenCalledWith({
       question: 'build a feed of builders',
+      purpose: 'build-feed',
       secretSeed: expect.any(Uint8Array),
     });
     expect(result.current.result).toEqual(FEED_SUCCESS);
@@ -116,5 +112,20 @@ describe('usePubchiQuery', () => {
       title: 'Feed applied',
       dismissButton: true,
     });
+  });
+
+  it('does not toast SIGNATURE_INVALID when the in-memory seed is missing', async () => {
+    mocks.signingAvailable = false;
+    const { result } = renderHook(() => usePubchiQuery());
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'who tagged me?');
+      await result.current.submit('who-tagged-me');
+    });
+
+    expect(mocks.fetchPubchiQuery).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(result.current.signingAvailable).toBe(false);
+    expect(result.current.errorCode).toMatch(/sign in with your recovery phrase/i);
   });
 });
