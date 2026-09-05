@@ -65,6 +65,7 @@ export enum SETTINGS_ROUTES {
   NOTIFICATIONS = '/settings/notifications',
   PRIVACY_SAFETY = '/settings/privacy-safety',
   MUTED_USERS = '/settings/muted-users',
+  PUBCHI = '/settings/pubchi',
   HELP = '/settings/help',
 }
 
