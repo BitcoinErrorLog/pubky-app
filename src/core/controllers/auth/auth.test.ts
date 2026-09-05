@@ -944,7 +944,8 @@ describe('AuthController', () => {
 
     it('requests the FULL grant (generateAuthUrl defaults to CAPABILITIES) without wiping local state', async () => {
       const cancelAuthFlow = vi.fn();
-      const mockAuthUrl = {
+      type GenerateAuthUrlResult = Awaited<ReturnType<typeof AuthApplication.generateAuthUrl>>;
+      const mockAuthUrl: GenerateAuthUrlResult = {
         authorizationUrl: 'https://example.com/auth?token=stepup',
         awaitApproval: new Promise(() => {}),
         cancelAuthFlow,

@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import * as commerceConfig from '@/config/commerce';
-import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
-import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceCatalogEntryModel, CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
@@ -882,13 +881,9 @@ describe('CommerceApplication', () => {
       // stands and registration self-heals later — no approval is requested.
       vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
       vi.spyOn(MarketplaceGatewayService, 'execute').mockRejectedValue(
-        new AppError({
-          category: ErrorCategory.Client,
-          code: AuthErrorCode.SESSION_EXPIRED,
-          message: 'Connect a marketplace session to continue.',
+        Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Connect a marketplace session to continue.', {
           service: ErrorService.Marketplace,
           operation: 'test',
-          context: {},
         }),
       );
       vi.spyOn(Logger, 'warn').mockImplementation(() => {});
@@ -904,13 +899,9 @@ describe('CommerceApplication', () => {
 
     it('the first checkout fails closed on a missing session instead of auto-requesting any approval', async () => {
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
-      const sessionRequired = new AppError({
-        category: ErrorCategory.Client,
-        code: AuthErrorCode.SESSION_EXPIRED,
-        message: 'Connect a marketplace session to continue.',
+      const sessionRequired = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Connect a marketplace session to continue.', {
         service: ErrorService.Marketplace,
         operation: 'test',
-        context: {},
       });
       vi.spyOn(MarketplaceGatewayService, 'execute').mockRejectedValue(sessionRequired);
       const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl');
@@ -924,8 +915,26 @@ describe('CommerceApplication', () => {
           expectedRevision: 0,
           issuedAt: new Date().toISOString(),
           kind: 'checkout.create',
-          payload: { lines: [], guaranteePolicyVersion: 1 },
-        }),
+          payload: {
+            lines: [
+              {
+                listingAggregateId: `listing:${'s'.repeat(52)}_boots_01`,
+                expectedRevision: 0,
+                quantity: 1,
+              },
+            ],
+            deliveryAddress: {
+              name: 'Buyer',
+              line1: '1 Main St',
+              line2: '',
+              city: 'Lisbon',
+              region: 'Lisbon',
+              postalCode: '1000-001',
+              countryCode: 'PT',
+            },
+            guaranteePolicyVersion: 1,
+          },
+        } as never),
       ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED, service: ErrorService.Marketplace });
 
       // The empty-caps service token comes only from the explicit connect
