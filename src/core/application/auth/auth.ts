@@ -122,16 +122,16 @@ export class AuthApplication {
       }
       if (isDefinitiveSessionAuthFailure(persisted.lastError)) {
         keepPersistedExport = false;
-      } else if (consumerOrigin) {
-        // Transient / unknown persist failure: try fragment → bridge, but never erase the export.
-        keepPersistedExport = true;
       } else {
-        return { status: 'signed-out' };
+        // Transient / unknown persist failure: never erase the export, with or
+        // without consumer mode. The outcome is deferred (retryable on the next
+        // load); signed-out is reserved for definitive auth failures.
+        keepPersistedExport = true;
       }
     }
 
     if (!consumerOrigin) {
-      return { status: 'signed-out' };
+      return keepPersistedExport ? { status: 'deferred' } : { status: 'signed-out' };
     }
 
     const fragmentExport = takeFragmentSessionExport();

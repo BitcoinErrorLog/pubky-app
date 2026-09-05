@@ -1935,6 +1935,34 @@ describe('AuthController', () => {
       vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
     });
 
+    it('cleans up local state when restore during logout is deferred with consumer mode off', async () => {
+      // A transient restore failure defers (never wipes the export) even with
+      // consumer mode off; an explicit logout still cleans local state.
+      const authStore = createAuthStore({
+        session: null,
+        sessionExport: 'session-export',
+      });
+      const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      vi.spyOn(useAuthStore, 'getState').mockImplementation(() => authStore);
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      vi.spyOn(AuthController, 'restorePersistedSession').mockResolvedValue({ status: 'deferred' });
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      const clearDatabaseSpy = mockClearDatabase.mockResolvedValue(undefined);
+      const clearCookiesSpy = await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+
+      await AuthController.logout();
+
+      expect(logoutSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith('Homeserver logout failed, clearing local state anyway', {
+        error: 'Session restore deferred; homeserver sign-out could not run',
+      });
+      expect(authStore.reset).toHaveBeenCalled();
+      expect(clearCookiesSpy).toHaveBeenCalled();
+      expect(clearDatabaseSpy).toHaveBeenCalledTimes(1);
+      vibeSessionAutoRestore.clearVibeSessionAutoRestoreSuppressed();
+    });
+
     it('should throw error if clearing the database fails', async () => {
       const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
       const clearDatabaseSpy = mockClearDatabase.mockRejectedValue(new Error('clear failed'));

@@ -43,7 +43,7 @@ Both are read as literal `process.env.NEXT_PUBLIC_*` so Next inlines them. They 
 - Bridge → consumer, signed in: `{ type: 'pubky-session', v: 1, sessionExport }`
 - Bridge → consumer, signed out: `{ type: 'pubky-session-none', v: 1 }`
 
-A `pubky-session-none` reply or timeout with **nothing persisted** signs the vibe out locally (cleanup). A none/timeout/abort **after a transient persist-restore failure** does **not** delete the persisted export: Application returns `{ status: 'deferred' }`, the Controller sets `sessionRestoreDeferred`, and `useAuthStatus` shows **unauthenticated UI** (not a loading spinner) so the user can sign in or retry. The export is never logged.
+A `pubky-session-none` reply or timeout with **nothing persisted** signs the vibe out locally (cleanup). A none/timeout/abort **after a transient persist-restore failure** does **not** delete the persisted export: Application returns `{ status: 'deferred' }`, the Controller sets `sessionRestoreDeferred`, and `useAuthStatus` shows **unauthenticated UI** (not a loading spinner) so the user can sign in or retry. The export is never logged. The same rule applies with consumer mode **off**: a non-definitive (retryable) persist-restore failure defers and keeps the export; `signed-out` is reserved for definitive auth failures.
 
 `AuthController` still owns store writes (`init` on success). Application never touches stores.
 

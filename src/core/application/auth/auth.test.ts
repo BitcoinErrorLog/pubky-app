@@ -316,10 +316,11 @@ describe('AuthApplication', () => {
 
       expect(restoreSpy).toHaveBeenCalledOnce();
       expect(sleepSpy).not.toHaveBeenCalled();
-      expect(result).toEqual({ status: 'signed-out' });
+      // Unknown errors are non-definitive: defer (keep the export), never sign out.
+      expect(result).toEqual({ status: 'deferred' });
     });
 
-    it('should return null after exhausting all retry attempts', async () => {
+    it('should defer after exhausting all retry attempts', async () => {
       const authStore = createMockAuthStore();
       const restoreSpy = vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValue(createNetworkError());
 
@@ -329,8 +330,35 @@ describe('AuthApplication', () => {
       expect(restoreSpy).toHaveBeenCalledTimes(10);
       // 10 attempts but only 9 sleeps: on the 10th attempt, `attempt < MAX` is false so it breaks instead of sleeping
       expect(sleepSpy).toHaveBeenCalledTimes(9);
-      expect(result).toEqual({ status: 'signed-out' });
+      // Transient failure is retryable on the next load — the persisted export
+      // must survive, so the outcome is deferred even with consumer mode off.
+      expect(result).toEqual({ status: 'deferred' });
       expect(authStore.setIsRestoringSession).not.toHaveBeenCalled();
+    });
+
+    it('should defer a transient persist failure when consumer mode is off without consulting fragment or bridge', async () => {
+      const authStore = createMockAuthStore();
+      const takeFragmentSpy = vi.spyOn(vibeSessionFragment, 'takeFragmentSessionExport');
+      const bridgeSpy = vi.spyOn(vibeSessionBridge, 'requestFromBridge');
+      vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValue(createNetworkError());
+
+      const result = await AuthApplication.restorePersistedSession({ authStore });
+
+      expect(result).toEqual({ status: 'deferred' });
+      expect(authStore.sessionExport).toBe('mock-session-export');
+      expect(takeFragmentSpy).not.toHaveBeenCalled();
+      expect(bridgeSpy).not.toHaveBeenCalled();
+      takeFragmentSpy.mockRestore();
+      bridgeSpy.mockRestore();
+    });
+
+    it('should sign out on a definitive auth failure when consumer mode is off', async () => {
+      const authStore = createMockAuthStore();
+      vi.spyOn(HomeserverService, 'restoreSession').mockRejectedValueOnce(createAuthError());
+
+      const result = await AuthApplication.restorePersistedSession({ authStore });
+
+      expect(result).toEqual({ status: 'signed-out' });
     });
 
     // The restore loading flag is Controller-owned for the whole

@@ -694,6 +694,44 @@ describe('RouteGuardProvider — session restore', () => {
     expect(screen.getByText('Explore Content')).toBeInTheDocument();
   });
 
+  it('reaches terminal unauthenticated UI after a deferred persist restore with consumer mode off', async () => {
+    mocks.session = null;
+    mocks.sessionExport = 'session-export';
+    mocks.consumerEnabled = false;
+    mocks.status = 'UNAUTHENTICATED';
+    mocks.isLoading = false;
+    mocks.pathname = '/home';
+    mocks.restorePersistedSession.mockResolvedValue({ status: 'deferred' });
+
+    const { rerender } = render(
+      <RouteGuardProvider>
+        <div>Explore Content</div>
+      </RouteGuardProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mocks.restorePersistedSession).toHaveBeenCalledOnce();
+    expect(screen.getByText('Explore Content')).toBeInTheDocument();
+    expect(mocks.mockRouterPush).not.toHaveBeenCalled();
+
+    rerender(
+      <RouteGuardProvider>
+        <div>Explore Content</div>
+      </RouteGuardProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // No restore loop: the deferred export is preserved for the next load, not wiped.
+    expect(mocks.restorePersistedSession).toHaveBeenCalledOnce();
+    expect(screen.getByText('Explore Content')).toBeInTheDocument();
+  });
+
   it('redirects a deferred unauthenticated user off a protected route without a restore loop', async () => {
     mocks.session = null;
     mocks.sessionExport = 'session-export';
