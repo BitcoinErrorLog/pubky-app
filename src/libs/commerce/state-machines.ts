@@ -1,12 +1,10 @@
 import type {
   AuctionState,
-  DisputeState,
   DropState,
   ListingState,
   OfferState,
   OrderState,
   PaymentState,
-  ReportState,
   ReservationState,
   ReturnState,
 } from './transaction-contracts';
@@ -74,26 +72,19 @@ export const paymentTransitions = {
 /** `processing` and `closed` are declared but unreachable — reserved for future commands. */
 export const orderTransitions = {
   pending_payment: ['paid', 'cancelled'],
-  paid: ['shipped', 'cancel_requested', 'disputed'],
-  processing: ['shipped', 'cancel_requested', 'disputed'],
-  shipped: ['delivered', 'disputed'],
-  delivered: ['return_requested', 'completed', 'disputed'],
-  completed: ['return_requested', 'disputed'],
+  paid: ['shipped', 'cancel_requested'],
+  processing: ['shipped', 'cancel_requested'],
+  shipped: ['delivered'],
+  delivered: ['return_requested', 'completed'],
+  completed: ['return_requested'],
   cancel_requested: ['cancelled'],
   cancelled: ['refunded_external'],
-  return_requested: ['return_approved', 'disputed'],
-  return_approved: ['return_received', 'disputed'],
+  return_requested: ['return_approved'],
+  return_approved: ['return_received'],
   return_received: ['refunded_external'],
-  disputed: ['completed', 'refunded_external'],
   refunded_external: [],
   closed: [],
 } as const satisfies TransitionMap<OrderState>;
-
-export const reportTransitions = {
-  open: ['dismissed', 'actioned'],
-  dismissed: [],
-  actioned: [],
-} as const satisfies TransitionMap<ReportState>;
 
 export const returnTransitions = {
   requested: ['approved'],
@@ -101,11 +92,6 @@ export const returnTransitions = {
   received: ['refunded'],
   refunded: [],
 } as const satisfies TransitionMap<ReturnState>;
-
-export const disputeTransitions = {
-  open: ['resolved'],
-  resolved: [],
-} as const satisfies TransitionMap<DisputeState>;
 
 export const dropTransitions = {
   announced: ['live', 'ended_closed', 'ended_cancelled'],
@@ -127,9 +113,7 @@ export const commerceAggregateMachines = {
   auction: { initial: 'scheduled', transitions: auctionTransitions },
   order: { initial: 'pending_payment', transitions: orderTransitions },
   payment: { initial: 'awaiting_entitlement', transitions: paymentTransitions },
-  report: { initial: 'open', transitions: reportTransitions },
   return: { initial: 'requested', transitions: returnTransitions },
-  dispute: { initial: 'open', transitions: disputeTransitions },
   drop: { initial: 'announced', transitions: dropTransitions },
 } as const;
 
@@ -155,10 +139,6 @@ export function canTransitionPayment(from: PaymentState, to: PaymentState): bool
 
 export function canTransitionOrder(from: OrderState, to: OrderState): boolean {
   return includesState(orderTransitions[from], to);
-}
-
-export function canTransitionReport(from: ReportState, to: ReportState): boolean {
-  return includesState(reportTransitions[from], to);
 }
 
 function includesState<State extends string>(allowed: readonly State[], target: State): boolean {

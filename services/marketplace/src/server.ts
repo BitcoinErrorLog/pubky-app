@@ -278,28 +278,6 @@ export function createMarketplaceHttpServer({
         return;
       }
 
-      if (request.method === 'GET' && request.url === '/v1/reports') {
-        const actor = request.headers['x-pubky-actor'];
-        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
-        if (!actorResult.success) {
-          writeJson(
-            response,
-            401,
-            { error: { code: 'UNAUTHORIZED', message: 'Moderator identity is required.' } },
-            mode,
-          );
-          return;
-        }
-        const reports = service.getReports(actorResult.data);
-        writeJson(
-          response,
-          reports.length ? 200 : 403,
-          reports.length ? { reports } : { error: { code: 'UNAUTHORIZED', message: 'Moderator role required.' } },
-          mode,
-        );
-        return;
-      }
-
       writeJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Route not found.' } }, mode);
     } catch (error) {
       const code = error instanceof RequestBodyError ? error.code : 'INTERNAL_ERROR';

@@ -5,7 +5,6 @@ import {
   canTransitionOffer,
   canTransitionOrder,
   canTransitionPayment,
-  canTransitionReport,
   canTransitionReservation,
 } from './state-machines';
 import type {
@@ -14,7 +13,6 @@ import type {
   OfferState,
   OrderState,
   PaymentState,
-  ReportState,
   ReservationState,
 } from './transaction-contracts';
 
@@ -130,7 +128,6 @@ describe('order state machine', () => {
     ['pending_payment', 'cancelled'],
     ['paid', 'shipped'],
     ['paid', 'cancel_requested'],
-    ['paid', 'disputed'],
     ['shipped', 'delivered'],
     ['delivered', 'completed'],
     ['delivered', 'return_requested'],
@@ -140,8 +137,6 @@ describe('order state machine', () => {
     ['return_requested', 'return_approved'],
     ['return_approved', 'return_received'],
     ['return_received', 'refunded_external'],
-    ['disputed', 'completed'],
-    ['disputed', 'refunded_external'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionOrder(from, to)).toBe(true);
   });
@@ -161,19 +156,3 @@ describe('order state machine', () => {
   });
 });
 
-describe('report state machine', () => {
-  it.each<[ReportState, ReportState]>([
-    ['open', 'dismissed'],
-    ['open', 'actioned'],
-  ])('allows %s -> %s', (from, to) => {
-    expect(canTransitionReport(from, to)).toBe(true);
-  });
-
-  it.each<[ReportState, ReportState]>([
-    ['dismissed', 'open'],
-    ['actioned', 'dismissed'],
-    ['open', 'open'],
-  ])('rejects %s -> %s', (from, to) => {
-    expect(canTransitionReport(from, to)).toBe(false);
-  });
-});

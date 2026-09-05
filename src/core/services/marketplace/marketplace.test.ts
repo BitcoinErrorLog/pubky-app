@@ -126,30 +126,13 @@ describe('MarketplaceGatewayService', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps dispute adjudication reads durable-only: they fail closed outside transaction-service mode', async () => {
-    // The sandbox prototype has no dispute queue and no evidence records, so
-    // these reads must refuse before any bytes leave instead of pretending a
-    // sandbox equivalent exists.
-    await expect(MarketplaceGatewayService.getDisputes(SELLER)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    await expect(MarketplaceGatewayService.getOrder(SELLER, 'order-id')).rejects.toMatchObject({
-      code: 'BAD_REQUEST',
-    });
-    await expect(MarketplaceGatewayService.getOrderEvidence(SELLER, 'order-id')).rejects.toMatchObject({
-      code: 'BAD_REQUEST',
-    });
-    expect(fetch).not.toHaveBeenCalled();
-  });
 
-  it('routes dispute adjudication reads to the transaction-service transport in transaction-service mode', async () => {
+  it('routes single-order reads to the transaction-service transport in transaction-service mode', async () => {
     config.mode = 'transaction-service';
 
     // The transport authenticates every read with a bearer session — with no
     // session established each read must refuse before any bytes leave.
-    await expect(MarketplaceGatewayService.getDisputes(SELLER)).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
     await expect(MarketplaceGatewayService.getOrder(SELLER, 'order-id')).rejects.toMatchObject({
-      code: 'SESSION_EXPIRED',
-    });
-    await expect(MarketplaceGatewayService.getOrderEvidence(SELLER, 'order-id')).rejects.toMatchObject({
       code: 'SESSION_EXPIRED',
     });
     expect(fetch).not.toHaveBeenCalled();

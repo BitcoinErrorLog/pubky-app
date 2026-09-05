@@ -27,7 +27,6 @@ import { ErrorService } from '@/libs/error/error.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
   type MarketplaceBidHistory,
-  type MarketplaceDisputeCaseFile,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
   type MarketplaceNotification,
@@ -41,11 +40,7 @@ import {
   type MarketplaceReceipt,
   marketplaceReceiptSchema,
 } from './marketplace-projections';
-import {
-  type MarketplaceReport,
-  marketplaceReportSchema,
-  MarketplaceTransactionService,
-} from './marketplace-transaction';
+import { MarketplaceTransactionService } from './marketplace-transaction';
 
 const conversationSchema = z
   .object({
@@ -103,8 +98,6 @@ export type MarketplaceNotificationPreferences = z.infer<typeof notificationPref
 export type MarketplaceAttachmentMetadata = z.infer<typeof attachmentMetadataSchema>;
 export type {
   MarketplaceBidHistory,
-  MarketplaceDisputeCaseFile,
-  MarketplaceDisputeEvidence,
   MarketplaceDropReadyCheck,
   MarketplaceListingProjection,
   MarketplaceNotification,
@@ -115,7 +108,6 @@ export type {
   MarketplaceReceipt,
   MarketplaceSellerDrop,
 } from './marketplace-projections';
-export type { MarketplaceReport } from './marketplace-transaction';
 
 /**
  * Facade over the two marketplace transports, selected by `commerceAdapterMode`:
@@ -134,12 +126,6 @@ export type { MarketplaceReport } from './marketplace-transaction';
  * attachments (no durable tables; `message.*` commands unported) and
  * notification preferences (`notification.*` commands unported).
  *
- * The inverse also holds: dispute adjudication reads (the moderator queue,
- * the single-order moderator branch, and the evidence case file) exist ONLY
- * on the durable service — the sandbox prototype has no dispute queue and no
- * evidence records — so those methods fail closed outside
- * `transaction-service` mode and the UI gates on the mode instead of
- * pretending a sandbox equivalent exists.
  */
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -182,7 +168,7 @@ export class MarketplaceGatewayService {
    * endpoint is unauthenticated and ignores the actor.
    */
   static async getListingBids(actor: string | null, aggregateId: string): Promise<MarketplaceBidHistory | null> {
-    this.assertTransactionServiceOnly('getListingBids');
+    this.assertDurableServiceOnly('getListingBids');
     return await MarketplaceTransactionService.getListingBids(this.requireActor('getListingBids', actor), aggregateId);
   }
 
@@ -435,28 +421,10 @@ export class MarketplaceGatewayService {
 
   /** One order projection by id — durable service only (used to source a fresh `expected_revision`). */
   static async getOrder(actor: string, orderId: string): Promise<MarketplaceOrder | null> {
-    this.assertTransactionServiceOnly('getOrder');
+    this.assertDurableServiceOnly('getOrder');
     return await MarketplaceTransactionService.getOrder(actor, orderId);
   }
 
-  /**
-   * The moderator dispute queue — durable service only. `null` means the
-   * service refused the read (403): the signed-in pubky is not a configured
-   * moderator, and the queue must stay absent rather than render empty.
-   */
-  static async getDisputes(actor: string): Promise<MarketplaceOrder[] | null> {
-    this.assertTransactionServiceOnly('getDisputes');
-    return await MarketplaceTransactionService.getDisputes(actor);
-  }
-
-  /**
-   * The dispute case file — durable service only. `null` covers absent and
-   * inaccessible orders indistinguishably (the service's deliberate 404).
-   */
-  static async getOrderEvidence(actor: string, orderId: string): Promise<MarketplaceDisputeCaseFile | null> {
-    this.assertTransactionServiceOnly('getOrderEvidence');
-    return await MarketplaceTransactionService.getOrderEvidence(actor, orderId);
-  }
 
   /**
    * Seller-configurable payment methods — durable service only (the sandbox
@@ -464,12 +432,12 @@ export class MarketplaceGatewayService {
    * endpoint semantics.
    */
   static async getSellerPaymentConfig(sellerPubky: string): Promise<SellerPaymentConfig> {
-    this.assertTransactionServiceOnly('getSellerPaymentConfig');
+    this.assertDurableServiceOnly('getSellerPaymentConfig');
     return await MarketplaceTransactionService.getSellerPaymentConfig(sellerPubky);
   }
 
   static async getMyPaymentConfig(actor: string): Promise<SellerPaymentConfigOwnView | null> {
-    this.assertTransactionServiceOnly('getMyPaymentConfig');
+    this.assertDurableServiceOnly('getMyPaymentConfig');
     return await MarketplaceTransactionService.getMyPaymentConfig(actor);
   }
 
@@ -482,12 +450,12 @@ export class MarketplaceGatewayService {
       paypalMerchantEmail: string | null;
     },
   ): Promise<SellerPaymentConfigOwnView> {
-    this.assertTransactionServiceOnly('putMyPaymentConfig');
+    this.assertDurableServiceOnly('putMyPaymentConfig');
     return await MarketplaceTransactionService.putMyPaymentConfig(actor, input);
   }
 
   static async bindPaymentMethod(actor: string, orderId: string, method: PaymentMethodKind): Promise<MarketplaceOrder> {
-    this.assertTransactionServiceOnly('bindPaymentMethod');
+    this.assertDurableServiceOnly('bindPaymentMethod');
     return await MarketplaceTransactionService.bindPaymentMethod(actor, orderId, method);
   }
 
@@ -495,22 +463,22 @@ export class MarketplaceGatewayService {
     actor: string,
     orderId: string,
   ): Promise<{ verified: boolean; order: MarketplaceOrder | null }> {
-    this.assertTransactionServiceOnly('verifyStripePayment');
+    this.assertDurableServiceOnly('verifyStripePayment');
     return await MarketplaceTransactionService.verifyStripePayment(actor, orderId);
   }
 
   static async markFiatPaid(actor: string, orderId: string, transactionRef?: string): Promise<MarketplaceOrder> {
-    this.assertTransactionServiceOnly('markFiatPaid');
+    this.assertDurableServiceOnly('markFiatPaid');
     return await MarketplaceTransactionService.markFiatPaid(actor, orderId, transactionRef);
   }
 
   static async confirmFiatReceived(actor: string, orderId: string): Promise<MarketplaceOrder> {
-    this.assertTransactionServiceOnly('confirmFiatReceived');
+    this.assertDurableServiceOnly('confirmFiatReceived');
     return await MarketplaceTransactionService.confirmFiatReceived(actor, orderId);
   }
 
   static async getMyShippingConfig(actor: string): Promise<SellerShippingConfig | null> {
-    this.assertTransactionServiceOnly('getMyShippingConfig');
+    this.assertDurableServiceOnly('getMyShippingConfig');
     return await MarketplaceTransactionService.getMyShippingConfig(actor);
   }
 
@@ -518,47 +486,23 @@ export class MarketplaceGatewayService {
     actor: string,
     input: { shippoApiKey?: string; shipFrom: ShipFromAddress | null },
   ): Promise<SellerShippingConfig> {
-    this.assertTransactionServiceOnly('putMyShippingConfig');
+    this.assertDurableServiceOnly('putMyShippingConfig');
     return await MarketplaceTransactionService.putMyShippingConfig(actor, input);
   }
 
   static async quoteShippingRates(actor: string, orderId: string, parcel: ShippingParcel): Promise<ShippoRate[]> {
-    this.assertTransactionServiceOnly('quoteShippingRates');
+    this.assertDurableServiceOnly('quoteShippingRates');
     return await MarketplaceTransactionService.quoteShippingRates(actor, orderId, parcel);
   }
 
   static async purchaseShippingLabel(actor: string, orderId: string, rateId: string): Promise<ShippingLabel> {
-    this.assertTransactionServiceOnly('purchaseShippingLabel');
+    this.assertDurableServiceOnly('purchaseShippingLabel');
     return await MarketplaceTransactionService.purchaseShippingLabel(actor, orderId, rateId);
   }
 
   static async getShippingLabel(actor: string, orderId: string): Promise<ShippingLabel | null> {
-    this.assertTransactionServiceOnly('getShippingLabel');
+    this.assertDurableServiceOnly('getShippingLabel');
     return await MarketplaceTransactionService.getShippingLabel(actor, orderId);
-  }
-
-  static async getReports(actor: string): Promise<MarketplaceReport[]> {
-    if (isDurableCommerceMode(getCommerceAdapterMode())) {
-      return await MarketplaceTransactionService.getReports(actor);
-    }
-    this.assertSandbox();
-    const url = `${getMarketplaceUrl()}/v1/reports`;
-    const response = await safeFetch(
-      url,
-      { method: 'GET', headers: { 'x-pubky-actor': actor } },
-      ErrorService.Marketplace,
-      'getReports',
-    );
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getReports', url);
-    const parsed = z.object({ reports: z.array(marketplaceReportSchema) }).safeParse(raw);
-    if (!parsed.success) {
-      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid moderation reports.', {
-        service: ErrorService.Marketplace,
-        operation: 'getReports',
-        context: { statusCode: response.status },
-      });
-    }
-    return parsed.data.reports;
   }
 
   static async uploadAttachment(actor: string, recipient: string, file: File): Promise<MarketplaceAttachmentMetadata> {
@@ -625,19 +569,12 @@ export class MarketplaceGatewayService {
     );
   }
 
-  /**
-   * Dispute adjudication reads have no sandbox counterpart (the prototype
-   * kept no evidence records and had no moderator queue), so they fail closed
-   * everywhere except `transaction-service` mode — the UI gates on the mode
-   * and states the limitation instead of relying on this throw.
-   */
-  private static assertTransactionServiceOnly(operation: string): void {
+  private static assertDurableServiceOnly(operation: string): void {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) {
-      throw Err.client(
-        ClientErrorCode.BAD_REQUEST,
-        'Dispute adjudication reads exist only on the durable transaction service.',
-        { service: ErrorService.Marketplace, operation },
-      );
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'This marketplace read exists only on the durable transaction service.', {
+        service: ErrorService.Marketplace,
+        operation,
+      });
     }
   }
 

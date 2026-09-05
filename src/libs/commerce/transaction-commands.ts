@@ -330,39 +330,6 @@ export const recordExternalRefundCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
-export const openDisputeCommandSchema = createCommerceCommandSchema(
-  'dispute.open',
-  orderIdPayload
-    .extend({
-      reason: z.string().trim().min(1).max(2_000),
-      requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
-    })
-    .strict(),
-);
-
-/**
- * `dispute.evidence` exists only on the durable service (the sandbox
- * prototype had no evidence records). The body is stored append-only and is
- * NEVER echoed back in the command result or any general projection — it is
- * readable solely through the scoped case-file read
- * `GET /v1/orders/{id}/evidence` (the two dispute participants plus
- * configured moderators, with moderator reads audited).
- */
-export const submitDisputeEvidenceCommandSchema = createCommerceCommandSchema(
-  'dispute.evidence',
-  orderIdPayload.extend({ body: z.string().trim().min(1).max(2_000) }).strict(),
-);
-
-export const resolveDisputeCommandSchema = createCommerceCommandSchema(
-  'dispute.resolve',
-  orderIdPayload
-    .extend({
-      resolution: z.enum(['buyer_refund', 'partial_refund', 'seller_favor', 'replacement']),
-      rationale: z.string().trim().min(1).max(2_000),
-    })
-    .strict(),
-);
-
 /**
  * Review terms shared by `review.create` and `review.update`, mirroring the
  * service's single `ReviewTermsPayload` validator: an integer rating 1–5 and
@@ -397,18 +364,6 @@ export const createReviewCommandSchema = createCommerceCommandSchema('review.cre
  * `REVISION_CONFLICT` refetch-and-retry treatment.
  */
 export const updateReviewCommandSchema = createCommerceCommandSchema('review.update', reviewTermsPayloadSchema);
-
-export const createMarketplaceReportCommandSchema = createCommerceCommandSchema(
-  'trust.report',
-  z
-    .object({
-      targetType: z.enum(['listing', 'user', 'message', 'review']),
-      targetId: z.string().min(1).max(300),
-      reason: z.enum(['prohibited_item', 'counterfeit', 'scam', 'harassment', 'unsafe', 'other']),
-      details: z.string().trim().min(1).max(2_000),
-    })
-    .strict(),
-);
 
 export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
   'message.send',
@@ -450,12 +405,8 @@ export const marketplaceCommandSchema = z.union([
   approveReturnCommandSchema,
   receiveReturnCommandSchema,
   recordExternalRefundCommandSchema,
-  openDisputeCommandSchema,
-  submitDisputeEvidenceCommandSchema,
-  resolveDisputeCommandSchema,
   createReviewCommandSchema,
   updateReviewCommandSchema,
-  createMarketplaceReportCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -483,7 +434,6 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'payment',
             'order',
             'review',
-            'report',
             'drop',
           ]),
         })
@@ -533,12 +483,8 @@ export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
 export type ApproveReturnCommand = z.infer<typeof approveReturnCommandSchema>;
 export type ReceiveReturnCommand = z.infer<typeof receiveReturnCommandSchema>;
 export type RecordExternalRefundCommand = z.infer<typeof recordExternalRefundCommandSchema>;
-export type OpenDisputeCommand = z.infer<typeof openDisputeCommandSchema>;
-export type SubmitDisputeEvidenceCommand = z.infer<typeof submitDisputeEvidenceCommandSchema>;
-export type ResolveDisputeCommand = z.infer<typeof resolveDisputeCommandSchema>;
 export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
 export type UpdateReviewCommand = z.infer<typeof updateReviewCommandSchema>;
-export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceReportCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 
@@ -585,6 +531,3 @@ export function buildMarketplaceOrderAggregateId(orderId: string): string {
   return `order:${orderId}`;
 }
 
-export function buildMarketplaceReportAggregateId(commandId: string): string {
-  return `report:${commandId}`;
-}

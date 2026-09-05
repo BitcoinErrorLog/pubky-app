@@ -17,7 +17,6 @@ import {
   offerStateSchema,
   orderStateSchema,
   paymentStateSchema,
-  reportStateSchema,
   reservationStateSchema,
 } from './transaction-contracts';
 
@@ -212,7 +211,6 @@ describe('commerce state vocabularies', () => {
     [auctionStateSchema, 'unsold'],
     [paymentStateSchema, 'detected'],
     [orderStateSchema, 'return_approved'],
-    [reportStateSchema, 'actioned'],
   ])('accepts a canonical state', (schema, state) => {
     expect(schema.parse(state)).toBe(state);
   });
@@ -224,8 +222,7 @@ describe('commerce state vocabularies', () => {
     auctionStateSchema,
     paymentStateSchema,
     orderStateSchema,
-    reportStateSchema,
-  ])('rejects unknown states', (schema) => {
+    ])('rejects unknown states', (schema) => {
     expect(schema.safeParse('processing_payment').success).toBe(false);
   });
 

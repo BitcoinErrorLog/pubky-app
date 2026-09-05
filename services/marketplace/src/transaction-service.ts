@@ -17,13 +17,11 @@ import {
   type ConfirmOrderDeliveryCommand,
   type CounterOfferCommand,
   type CreateMarketplaceCheckoutCommand,
-  type CreateMarketplaceReportCommand,
   type CreateOfferCommand,
   type CreateReviewCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
   type MarkMarketplaceNotificationReadCommand,
-  type OpenDisputeCommand,
   type PlaceBidCommand,
   type ReceiveReturnCommand,
   type RecordExternalRefundCommand,
@@ -32,7 +30,6 @@ import {
   type RequestOrderCancellationCommand,
   type RequestReturnCommand,
   type ReserveInventoryCommand,
-  type ResolveDisputeCommand,
   type SendMarketplaceMessageCommand,
   type ShipOrderCommand,
   type UpdateMarketplaceNotificationPreferencesCommand,
@@ -178,7 +175,6 @@ export interface MarketplaceNotification {
     | 'order_delivered'
     | 'return_updated'
     | 'refund_recorded'
-    | 'dispute_updated'
     | 'review_received';
   aggregateId: string;
   createdAt: string;
@@ -234,17 +230,6 @@ export interface MarketplaceReturn {
   updatedAt: string;
 }
 
-export interface MarketplaceDispute {
-  state: 'open' | 'resolved';
-  openedBy: string;
-  reason: string;
-  requestedRemedy: 'refund' | 'partial_refund' | 'replacement' | 'other';
-  resolution: 'buyer_refund' | 'partial_refund' | 'seller_favor' | 'replacement' | null;
-  rationale: string | null;
-  openedAt: string;
-  resolvedAt: string | null;
-}
-
 export interface MarketplaceReview {
   id: string;
   reviewerPubky: string;
@@ -260,16 +245,6 @@ export interface MarketplaceExternalRefund {
   recordedAt: string;
 }
 
-export interface MarketplaceReport {
-  id: string;
-  reporterPubky: string;
-  targetType: 'listing' | 'user' | 'message' | 'review';
-  targetId: string;
-  reason: 'prohibited_item' | 'counterfeit' | 'scam' | 'harassment' | 'unsafe' | 'other';
-  details: string;
-  state: 'open';
-  createdAt: string;
-}
 
 export interface MarketplaceOrder {
   id: string;
@@ -288,14 +263,12 @@ export interface MarketplaceOrder {
     | 'return_requested'
     | 'return_approved'
     | 'return_received'
-    | 'disputed'
     | 'refunded_external'
     | 'closed';
   lines: MarketplaceOrderLine[];
   deliveryAddress: MarketplaceDeliveryAddress;
   subtotal: MarketplaceListingAggregate['unitPrice'];
   shipping: MarketplaceListingAggregate['unitPrice'];
-  tax: MarketplaceListingAggregate['unitPrice'];
   total: MarketplaceListingAggregate['unitPrice'];
   guaranteePolicyVersion: 1;
   paymentId: string;
@@ -303,7 +276,6 @@ export interface MarketplaceOrder {
   cancellationReason: string | null;
   shipment: MarketplaceShipment | null;
   returnRequest: MarketplaceReturn | null;
-  dispute: MarketplaceDispute | null;
   externalRefund: MarketplaceExternalRefund | null;
   reviews: MarketplaceReview[];
   createdAt: string;
@@ -370,10 +342,7 @@ export interface MarketplaceEvent {
     | 'return.approved'
     | 'return.received'
     | 'refund.recorded_external'
-    | 'dispute.opened'
-    | 'dispute.resolved'
     | 'review.created'
-    | 'trust.reported';
   occurredAt: string;
 }
 
@@ -422,7 +391,6 @@ export type MarketplaceCommandSuccess = {
       }
     | { kind: 'order'; order: MarketplaceOrder }
     | { kind: 'review'; order: MarketplaceOrder; review: MarketplaceReview }
-    | { kind: 'report'; report: MarketplaceReport };
 };
 
 export type MarketplaceCommandFailure = {
@@ -452,8 +420,6 @@ export type MarketplaceAttachmentStoreResult =
   | { ok: true; attachment: MarketplaceAttachmentMetadata }
   | { ok: false; code: 'INVALID_ATTACHMENT' | 'UNAUTHORIZED'; message: string };
 
-export const MARKETPLACE_SANDBOX_MODERATOR = 'm'.repeat(52);
-
 type StoredCommand = {
   requestHash: string;
   result: MarketplaceCommandSuccess;
@@ -471,7 +437,6 @@ export class InMemoryMarketplaceRepository {
   private orders = new Map<string, MarketplaceOrder>();
   private payments = new Map<string, MarketplacePayment>();
   private receipts = new Map<string, MarketplaceReceipt>();
-  private reports = new Map<string, MarketplaceReport>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -607,13 +572,6 @@ export class InMemoryMarketplaceRepository {
     return this.receipts.get(id);
   }
 
-  putReport(report: MarketplaceReport): void {
-    this.reports.set(report.id, report);
-  }
-
-  getReports(): MarketplaceReport[] {
-    return [...this.reports.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  }
 
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
     return this.commands.get(`${actorPubky}:${commandId}`);
@@ -724,9 +682,6 @@ export class MarketplaceTransactionService {
     return receipt && (receipt.recipientPubky === actorPubky || receipt.issuerPubky === actorPubky) ? receipt : null;
   }
 
-  getReports(actorPubky: string): MarketplaceReport[] {
-    return actorPubky === MARKETPLACE_SANDBOX_MODERATOR ? this.repository.getReports() : [];
-  }
 
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
@@ -827,15 +782,6 @@ export class MarketplaceTransactionService {
         return this.receiveReturn(actorPubky, command);
       case 'refund.record_external':
         return this.recordExternalRefund(actorPubky, command);
-      case 'dispute.open':
-        return this.openDispute(actorPubky, command);
-      case 'dispute.evidence':
-        // The sandbox prototype keeps no evidence records — the command
-        // exists only on the durable service. Refuse honestly rather than
-        // accept a body this service could neither store nor serve.
-        return failure('INVALID_COMMAND', 'The sandbox marketplace does not store dispute evidence.');
-      case 'dispute.resolve':
-        return this.resolveDispute(actorPubky, command);
       case 'review.create':
         return this.createReview(actorPubky, command);
       case 'review.update':
@@ -843,8 +789,6 @@ export class MarketplaceTransactionService {
         // only on the durable service (24-hour edit window). Refuse honestly
         // rather than mutate a review this service never allowed editing.
         return failure('INVALID_COMMAND', 'The sandbox marketplace does not support review editing.');
-      case 'trust.report':
-        return this.createReport(actorPubky, command);
     }
   }
 
@@ -1623,7 +1567,6 @@ export class MarketplaceTransactionService {
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
       const shippingMinor = 1_200;
-      const taxMinor = Math.round((subtotalMinor + shippingMinor) * 0.08);
       const orderId = randomUUID();
       const paymentId = randomUUID();
       const order: MarketplaceOrder = {
@@ -1636,15 +1579,13 @@ export class MarketplaceTransactionService {
         deliveryAddress: command.payload.deliveryAddress,
         subtotal: { ...asset, amountMinor: subtotalMinor },
         shipping: { ...asset, amountMinor: shippingMinor },
-        tax: { ...asset, amountMinor: taxMinor },
-        total: { ...asset, amountMinor: subtotalMinor + shippingMinor + taxMinor },
+        total: { ...asset, amountMinor: subtotalMinor + shippingMinor },
         guaranteePolicyVersion: command.payload.guaranteePolicyVersion,
         paymentId,
         receiptId: null,
         cancellationReason: null,
         shipment: null,
         returnRequest: null,
-        dispute: null,
         externalRefund: null,
         reviews: [],
         createdAt: occurredAt,
@@ -1980,7 +1921,7 @@ export class MarketplaceTransactionService {
     const order = resolved.order;
     if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may record a refund.');
     if (
-      !['return_received', 'disputed', 'cancelled'].includes(order.state) ||
+      !['return_received', 'cancelled'].includes(order.state) ||
       command.payload.amountMinor > order.total.amountMinor ||
       order.externalRefund
     ) {
@@ -2012,92 +1953,7 @@ export class MarketplaceTransactionService {
     );
   }
 
-  private openDispute(actorPubky: string, command: OpenDisputeCommand): MarketplaceCommandResult {
-    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
-    if (!resolved.ok) return resolved.failure;
-    const order = resolved.order;
-    if (
-      !['paid', 'processing', 'shipped', 'delivered', 'completed', 'return_requested', 'return_approved'].includes(
-        order.state,
-      )
-    ) {
-      return failure('INVALID_STATE', 'This order cannot enter dispute.');
-    }
-    if (order.dispute) return failure('INVALID_STATE', 'A dispute already exists.');
-    const occurredAt = this.now().toISOString();
-    const updated: MarketplaceOrder = {
-      ...order,
-      revision: order.revision + 1,
-      state: 'disputed',
-      dispute: {
-        state: 'open',
-        openedBy: actorPubky,
-        reason: command.payload.reason,
-        requestedRemedy: command.payload.requestedRemedy,
-        resolution: null,
-        rationale: null,
-        openedAt: occurredAt,
-        resolvedAt: null,
-      },
-      updatedAt: occurredAt,
-    };
-    const recipient = actorPubky === order.buyerPubky ? order.sellerPubky : order.buyerPubky;
-    return this.persistOrderAction(
-      actorPubky,
-      command,
-      updated,
-      'dispute.opened',
-      recipient,
-      'dispute_updated',
-      occurredAt,
-    );
-  }
 
-  private resolveDispute(actorPubky: string, command: ResolveDisputeCommand): MarketplaceCommandResult {
-    const order = this.repository.getOrder(command.payload.orderId);
-    if (!order) return failure('NOT_FOUND', 'The dispute order was not found.');
-    if (actorPubky !== MARKETPLACE_SANDBOX_MODERATOR) {
-      return failure('UNAUTHORIZED', 'Only the sandbox moderator may resolve disputes.');
-    }
-    if (
-      command.aggregateId !== buildMarketplaceOrderAggregateId(order.id) ||
-      command.expectedRevision !== order.revision
-    ) {
-      return failure('REVISION_CONFLICT', 'The dispute order revision is stale.', { currentRevision: order.revision });
-    }
-    if (order.state !== 'disputed' || !order.dispute || order.dispute.state !== 'open') {
-      return failure('INVALID_STATE', 'No open dispute can be resolved.');
-    }
-    const occurredAt = this.now().toISOString();
-    const buyerRemedy =
-      command.payload.resolution === 'buyer_refund' || command.payload.resolution === 'partial_refund';
-    const updated: MarketplaceOrder = {
-      ...order,
-      revision: order.revision + 1,
-      state: buyerRemedy ? 'disputed' : 'completed',
-      dispute: {
-        ...order.dispute,
-        state: 'resolved',
-        resolution: command.payload.resolution,
-        rationale: command.payload.rationale,
-        resolvedAt: occurredAt,
-      },
-      updatedAt: occurredAt,
-    };
-    this.repository.putOrder(updated);
-    const event = this.createEvent(
-      actorPubky,
-      command,
-      updated.revision,
-      'dispute.resolved',
-      occurredAt,
-      buildMarketplaceOrderAggregateId(order.id),
-    );
-    this.repository.appendEvent(event);
-    this.notify(order.buyerPubky, actorPubky, 'dispute_updated', `order:${order.id}`, occurredAt);
-    this.notify(order.sellerPubky, actorPubky, 'dispute_updated', `order:${order.id}`, occurredAt);
-    return success(command, updated.revision, event.id, { kind: 'order', order: updated });
-  }
 
   private createReview(actorPubky: string, command: CreateReviewCommand): MarketplaceCommandResult {
     const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
@@ -2132,25 +1988,6 @@ export class MarketplaceTransactionService {
     return success(command, updated.revision, event.id, { kind: 'review', order: updated, review });
   }
 
-  private createReport(actorPubky: string, command: CreateMarketplaceReportCommand): MarketplaceCommandResult {
-    if (command.aggregateId !== `report:${command.commandId}` || command.expectedRevision !== 0) {
-      return failure('INVALID_COMMAND', 'The report aggregate identity is invalid.');
-    }
-    const report: MarketplaceReport = {
-      id: command.commandId,
-      reporterPubky: actorPubky,
-      targetType: command.payload.targetType,
-      targetId: command.payload.targetId,
-      reason: command.payload.reason,
-      details: command.payload.details,
-      state: 'open',
-      createdAt: this.now().toISOString(),
-    };
-    this.repository.putReport(report);
-    const event = this.createEvent(actorPubky, command, 1, 'trust.reported', report.createdAt);
-    this.repository.appendEvent(event);
-    return success(command, 1, event.id, { kind: 'report', report });
-  }
 
   private getOrderAction(
     actorPubky: string,
@@ -2228,7 +2065,6 @@ export class MarketplaceTransactionService {
       'order_delivered',
       'return_updated',
       'refund_recorded',
-      'dispute_updated',
       'review_received',
     ].includes(type)
       ? true

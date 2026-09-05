@@ -3,13 +3,11 @@ import contractArtifact from './contracts/state-machines.json';
 import { commerceAggregateMachines } from './state-machines';
 import {
   auctionStateSchema,
-  disputeStateSchema,
   dropStateSchema,
   listingStateSchema,
   offerStateSchema,
   orderStateSchema,
   paymentStateSchema,
-  reportStateSchema,
   reservationStateSchema,
   returnStateSchema,
 } from './transaction-contracts';
@@ -51,9 +49,7 @@ const stateEnumsByAggregate = {
   auction: auctionStateSchema,
   order: orderStateSchema,
   payment: paymentStateSchema,
-  report: reportStateSchema,
   return: returnStateSchema,
-  dispute: disputeStateSchema,
   drop: dropStateSchema,
 } as const;
 

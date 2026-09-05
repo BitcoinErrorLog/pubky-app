@@ -101,7 +101,6 @@ export const marketplaceNotificationSchema = z
       'order_delivered',
       'return_updated',
       'refund_recorded',
-      'dispute_updated',
       'review_received',
     ]),
     aggregateId: z.string(),
@@ -178,7 +177,6 @@ export const marketplaceOrderSchema = z
       'return_requested',
       'return_approved',
       'return_received',
-      'disputed',
       'refunded_external',
       'closed',
     ]),
@@ -199,7 +197,6 @@ export const marketplaceOrderSchema = z
     ),
     subtotal: marketplaceMoneySchema,
     shipping: marketplaceMoneySchema,
-    tax: marketplaceMoneySchema,
     total: marketplaceMoneySchema,
     guaranteePolicyVersion: z.literal(1),
     paymentId: z.uuid(),
@@ -231,22 +228,6 @@ export const marketplaceOrderSchema = z
       .optional(),
     externalRefund: z
       .object({ amountMinor: z.number().int().positive(), transactionId: z.string(), recordedAt: z.string() })
-      .nullable()
-      .optional(),
-    dispute: z
-      .object({
-        state: z.enum(['open', 'resolved']),
-        openedBy: commercePubkySchema,
-        reason: z.string(),
-        requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
-        resolution: z.enum(['buyer_refund', 'partial_refund', 'seller_favor', 'replacement']).nullable(),
-        rationale: z.string().nullable(),
-        // Durable service only. Evidence BODIES are never served to anyone
-        // (ADR-0019 section 8) — this count is the only visible trace.
-        evidenceCount: z.number().int().nonnegative().optional(),
-        openedAt: z.string(),
-        resolvedAt: z.string().nullable(),
-      })
       .nullable()
       .optional(),
     reviews: z
@@ -291,15 +272,7 @@ export const marketplaceOrderSchema = z
   })
   .passthrough();
 
-/**
- * One dispute evidence item from the scoped case-file read
- * `GET /v1/orders/{id}/evidence` — durable service only; the sandbox has no
- * evidence records. This is the ONLY place an evidence body ever appears
- * (ADR-0019 §8): general projections and command results carry a content-free
- * `evidenceCount`, never bodies. The endpoint's audience is exactly the two
- * dispute participants plus configured moderators, and moderator reads are
- * audited server-side in the same transaction as the read.
- */
+
 /**
  * The PUBLIC drop projection (`GET /v0/drops/{seller}/{dropId}`, ADR 0026):
  * the transaction service's authoritative drop state, with stock redaction
@@ -346,24 +319,6 @@ export const marketplaceDropReadyCheckSchema = z
   })
   .passthrough();
 
-export const marketplaceDisputeEvidenceSchema = z
-  .object({
-    id: z.uuid(),
-    submitterPubky: commercePubkySchema,
-    body: z.string(),
-    bodyBytes: z.number().int().nonnegative(),
-    createdAt: z.string(),
-  })
-  .passthrough();
-
-/** The dispute case file: evidence items newest-first for one order. */
-export const marketplaceDisputeCaseFileSchema = z
-  .object({
-    orderId: z.uuid(),
-    evidence: z.array(marketplaceDisputeEvidenceSchema),
-  })
-  .passthrough();
-
 export const marketplaceReceiptSchema = z.object({
   id: z.uuid(),
   orderId: z.uuid(),
@@ -375,8 +330,6 @@ export const marketplaceReceiptSchema = z.object({
   issuedAt: z.string(),
 });
 
-export type MarketplaceDisputeCaseFile = z.infer<typeof marketplaceDisputeCaseFileSchema>;
-export type MarketplaceDisputeEvidence = z.infer<typeof marketplaceDisputeEvidenceSchema>;
 export type MarketplaceListingProjection = z.infer<typeof marketplaceListingProjectionSchema>;
 export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSchema>;
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;

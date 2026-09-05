@@ -516,21 +516,12 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getReceipt(actorPubky, receiptId);
   }
 
-  static async getMarketplaceReports(actorPubky: string) {
-    return await MarketplaceGatewayService.getReports(actorPubky);
-  }
 
   static async getMarketplaceOrder(actorPubky: string, orderId: string) {
     return await MarketplaceGatewayService.getOrder(actorPubky, orderId);
   }
 
-  static async getMarketplaceDisputes(actorPubky: string) {
-    return await MarketplaceGatewayService.getDisputes(actorPubky);
-  }
 
-  static async getMarketplaceOrderEvidence(actorPubky: string, orderId: string) {
-    return await MarketplaceGatewayService.getOrderEvidence(actorPubky, orderId);
-  }
 
   static async uploadMarketplaceAttachment(actorPubky: string, recipientPubky: string, file: File) {
     return await MarketplaceGatewayService.uploadAttachment(actorPubky, recipientPubky, file);

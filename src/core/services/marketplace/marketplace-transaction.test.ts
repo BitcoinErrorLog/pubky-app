@@ -173,9 +173,6 @@ describe('MarketplaceTransactionService.execute', () => {
     'return.approve',
     'return.receive',
     'refund.record_external',
-    'dispute.open',
-    'dispute.evidence',
-    'dispute.resolve',
     'review.create',
     'review.update',
   ] as const)('sends the ported post-purchase command kind %s to the service', async (kind) => {
@@ -209,54 +206,6 @@ describe('MarketplaceTransactionService.execute', () => {
   });
 });
 
-describe('MarketplaceTransactionService.getReports', () => {
-  beforeEach(() => {
-    config.mode = 'transaction-service';
-    MarketplaceSessionService.clearSession();
-  });
-
-  it('reads role-scoped reports with the bearer session and camel-cases the views', async () => {
-    await establishSession();
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(200, {
-        reports: [
-          {
-            id: '00000000-0000-4000-8000-000000000900',
-            reporter_pubky: ACTOR,
-            target_type: 'listing',
-            target_id: AGGREGATE_ID,
-            reason: 'counterfeit',
-            details: 'Brand markings appear inconsistent.',
-            state: 'actioned',
-            revision: 2,
-            created_at: '2026-08-19T23:00:00.000Z',
-            updated_at: '2026-08-20T09:00:00.000Z',
-          },
-        ],
-      }),
-    );
-
-    await expect(MarketplaceTransactionService.getReports(ACTOR)).resolves.toEqual([
-      expect.objectContaining({
-        reporterPubky: ACTOR,
-        targetType: 'listing',
-        state: 'actioned',
-        revision: 2,
-        updatedAt: '2026-08-20T09:00:00.000Z',
-      }),
-    ]);
-    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://127.0.0.1:8080/v1/reports');
-    expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
-  });
-
-  it('requires a session', async () => {
-    await expect(MarketplaceTransactionService.getReports(ACTOR)).rejects.toMatchObject({
-      code: 'SESSION_EXPIRED',
-    });
-    expect(fetch).not.toHaveBeenCalled();
-  });
-});
 
 describe('MarketplaceTransactionService read projections', () => {
   beforeEach(() => {
@@ -288,15 +237,13 @@ describe('MarketplaceTransactionService read projections', () => {
       ],
       subtotal: { amount_minor: 12_500, currency: 'USD', exponent: 2 },
       shipping: { amount_minor: 1_200, currency: 'USD', exponent: 2 },
-      tax: { amount_minor: 1_096, currency: 'USD', exponent: 2 },
-      total: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+      total: { amount_minor: 13_700, currency: 'USD', exponent: 2 },
       guarantee_policy_version: 1,
       payment_id: PAYMENT_ID,
       receipt_id: null,
       cancellation_reason: null,
       shipment: null,
       return_request: null,
-      dispute: null,
       external_refund: null,
       reviews: [],
       created_at: '2026-08-20T10:00:00.000Z',
@@ -316,7 +263,7 @@ describe('MarketplaceTransactionService read projections', () => {
       adapter: 'sandbox',
       state: 'awaiting_entitlement',
       confirmations: 0,
-      amount: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+      amount: { amount_minor: 13_700, currency: 'USD', exponent: 2 },
       created_at: '2026-08-20T10:00:00.000Z',
       updated_at: '2026-08-20T10:00:00.000Z',
     };
@@ -418,13 +365,13 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(url).toBe('http://127.0.0.1:8080/v1/offers');
   });
 
-  it('reads orders with the embedded payment and post-purchase sub-objects, redactions honored', async () => {
+  it('reads orders with embedded payment and post-purchase sub-objects, redactions honored', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(200, {
         orders: [
           orderWire({
-            state: 'disputed',
+            state: 'delivered',
             payment: paymentWire(),
             shipment: {
               carrier: 'DHL',
@@ -432,17 +379,6 @@ describe('MarketplaceTransactionService read projections', () => {
               state: 'delivered',
               shipped_at: '2026-08-20T11:00:00.000Z',
               delivered_at: '2026-08-20T12:00:00.000Z',
-            },
-            dispute: {
-              state: 'open',
-              opened_by: ACTOR,
-              reason: 'Item arrived damaged.',
-              requested_remedy: 'refund',
-              resolution: null,
-              rationale: null,
-              evidence_count: 2,
-              opened_at: '2026-08-20T13:00:00.000Z',
-              resolved_at: null,
             },
           }),
         ],
@@ -455,17 +391,13 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(orders[0]).toMatchObject({
       id: ORDER_ID,
       revision: 2,
-      state: 'disputed',
+      state: 'delivered',
       payment: { id: PAYMENT_ID, state: 'awaiting_entitlement', adapter: 'sandbox' },
       shipment: { carrier: 'DHL', trackingNumber: 'JD014600003RU', state: 'delivered' },
-      dispute: { state: 'open', requestedRemedy: 'refund', evidenceCount: 2 },
       receiptId: null,
     });
-    // Redactions: the service never serves these; the parsed view must not
-    // resurrect them.
     expect(orders[0]).not.toHaveProperty('deliveryAddress');
     expect(orders[0].payment).not.toHaveProperty('locksBundleId');
-    expect(orders[0].dispute).not.toHaveProperty('evidence');
   });
 
   it('reads a single payment and returns null for foreign/absent payments', async () => {
@@ -493,7 +425,7 @@ describe('MarketplaceTransactionService read projections', () => {
         payment_id: PAYMENT_ID,
         issuer_pubky: OTHER_ACTOR,
         recipient_pubky: ACTOR,
-        total: { amount_minor: 14_796, currency: 'USD', exponent: 2 },
+        total: { amount_minor: 13_700, currency: 'USD', exponent: 2 },
         content_hash: 'b'.repeat(64),
         issued_at: '2026-08-20T12:00:00.000Z',
       }),
@@ -502,7 +434,7 @@ describe('MarketplaceTransactionService read projections', () => {
     await expect(MarketplaceTransactionService.getReceipt(ACTOR, RECEIPT_ID)).resolves.toMatchObject({
       id: RECEIPT_ID,
       contentHash: 'b'.repeat(64),
-      total: { amountMinor: 14_796 },
+      total: { amountMinor: 13_700 },
     });
   });
 
@@ -567,158 +499,6 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 
-  describe('dispute adjudication reads', () => {
-    function disputedOrderWire() {
-      return orderWire({
-        state: 'disputed',
-        dispute: {
-          state: 'open',
-          opened_by: ACTOR,
-          reason: 'Item arrived damaged.',
-          requested_remedy: 'refund',
-          resolution: null,
-          rationale: null,
-          evidence_count: 2,
-          opened_at: '2026-08-20T13:00:00.000Z',
-          resolved_at: null,
-        },
-      });
-    }
-
-    it('reads the moderator dispute queue and camel-cases the order projections', async () => {
-      await establishSession();
-      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { disputes: [disputedOrderWire()] }));
-
-      const disputes = await MarketplaceTransactionService.getDisputes(ACTOR);
-
-      expect(disputes).toHaveLength(1);
-      expect(disputes![0]).toMatchObject({
-        id: ORDER_ID,
-        revision: 2,
-        state: 'disputed',
-        dispute: { state: 'open', reason: 'Item arrived damaged.', evidenceCount: 2 },
-      });
-      // The queue is an order projection: it carries only the content-free
-      // evidence count, never bodies.
-      expect(disputes![0].dispute).not.toHaveProperty('evidence');
-      const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
-      expect(url).toBe('http://127.0.0.1:8080/v1/disputes');
-      expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
-    });
-
-    it('returns null when the service refuses the queue with 403 (not a configured moderator)', async () => {
-      await establishSession();
-      vi.mocked(fetch).mockResolvedValueOnce(
-        jsonResponse(403, {
-          ok: false,
-          error: { code: 'UNAUTHORIZED', message: 'Only a configured moderator may read the dispute queue.' },
-        }),
-      );
-
-      // Null, not [] — the caller must keep the queue absent rather than
-      // render an empty-looking one for a non-moderator.
-      await expect(MarketplaceTransactionService.getDisputes(ACTOR)).resolves.toBeNull();
-    });
-
-    it('reads a single order projection by id', async () => {
-      await establishSession();
-      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, disputedOrderWire()));
-
-      const order = await MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID);
-
-      expect(order).toMatchObject({ id: ORDER_ID, revision: 2, state: 'disputed' });
-      const [url] = vi.mocked(fetch).mock.calls[0] as [string];
-      expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}`);
-    });
-
-    it('returns null for an absent or foreign order (service 404)', async () => {
-      await establishSession();
-      vi.mocked(fetch).mockResolvedValueOnce(
-        jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The order was not found.' } }),
-      );
-
-      await expect(MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID)).resolves.toBeNull();
-    });
-
-    it('reads the evidence case file with bodies through the scoped endpoint', async () => {
-      await establishSession();
-      vi.mocked(fetch).mockResolvedValueOnce(
-        jsonResponse(200, {
-          order_id: ORDER_ID,
-          evidence: [
-            {
-              id: '00000000-0000-4000-8000-000000000941',
-              submitter_pubky: ACTOR,
-              body: 'Photo hashes of the damaged parcel: abc123.',
-              body_bytes: 43,
-              created_at: '2026-08-20T14:00:00.000Z',
-            },
-            {
-              id: '00000000-0000-4000-8000-000000000940',
-              submitter_pubky: OTHER_ACTOR,
-              body: 'The parcel left our warehouse intact.',
-              body_bytes: 37,
-              created_at: '2026-08-20T13:30:00.000Z',
-            },
-          ],
-        }),
-      );
-
-      const caseFile = await MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID);
-
-      expect(caseFile).toMatchObject({ orderId: ORDER_ID });
-      expect(caseFile!.evidence).toEqual([
-        expect.objectContaining({
-          submitterPubky: ACTOR,
-          body: 'Photo hashes of the damaged parcel: abc123.',
-          bodyBytes: 43,
-        }),
-        expect.objectContaining({
-          submitterPubky: OTHER_ACTOR,
-          body: 'The parcel left our warehouse intact.',
-          bodyBytes: 37,
-        }),
-      ]);
-      const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
-      expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}/evidence`);
-      expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
-    });
-
-    it('returns null for a stranger or absent order on the evidence read (indistinguishable 404)', async () => {
-      await establishSession();
-      vi.mocked(fetch).mockResolvedValueOnce(
-        jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The order was not found.' } }),
-      );
-
-      await expect(MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID)).resolves.toBeNull();
-    });
-
-    it('requires a session for every adjudication read', async () => {
-      await expect(MarketplaceTransactionService.getDisputes(ACTOR)).rejects.toMatchObject({
-        code: 'SESSION_EXPIRED',
-      });
-      await expect(MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID)).rejects.toMatchObject({
-        code: 'SESSION_EXPIRED',
-      });
-      await expect(MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID)).rejects.toMatchObject({
-        code: 'SESSION_EXPIRED',
-      });
-      expect(fetch).not.toHaveBeenCalled();
-    });
-
-    it('fails closed outside transaction-service mode', async () => {
-      config.mode = 'sandbox';
-
-      await expect(MarketplaceTransactionService.getDisputes(ACTOR)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-      await expect(MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID)).rejects.toMatchObject({
-        code: 'BAD_REQUEST',
-      });
-      await expect(MarketplaceTransactionService.getOrderEvidence(ACTOR, ORDER_ID)).rejects.toMatchObject({
-        code: 'BAD_REQUEST',
-      });
-      expect(fetch).not.toHaveBeenCalled();
-    });
-  });
 
   describe('seller payment methods', () => {
     beforeEach(() => {

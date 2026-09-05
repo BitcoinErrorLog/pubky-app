@@ -140,16 +140,12 @@ export const orderStateSchema = z.enum([
   'return_requested',
   'return_approved',
   'return_received',
-  'disputed',
   'refunded_external',
   'closed',
 ]);
 
-export const reportStateSchema = z.enum(['open', 'dismissed', 'actioned']);
 
-/** Sub-states the service tracks inside an order's return request and dispute. */
 export const returnStateSchema = z.enum(['requested', 'approved', 'received', 'refunded']);
-export const disputeStateSchema = z.enum(['open', 'resolved']);
 
 /**
  * Drop lifecycle (ADR 0026). `live` begins at server-time `startsAt`;
@@ -173,7 +169,5 @@ export type OfferState = z.infer<typeof offerStateSchema>;
 export type AuctionState = z.infer<typeof auctionStateSchema>;
 export type PaymentState = z.infer<typeof paymentStateSchema>;
 export type OrderState = z.infer<typeof orderStateSchema>;
-export type ReportState = z.infer<typeof reportStateSchema>;
 export type ReturnState = z.infer<typeof returnStateSchema>;
-export type DisputeState = z.infer<typeof disputeStateSchema>;
 export type DropState = z.infer<typeof dropStateSchema>;

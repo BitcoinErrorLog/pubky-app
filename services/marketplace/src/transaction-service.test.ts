@@ -8,7 +8,6 @@ import {
 } from './contracts';
 import {
   InMemoryMarketplaceRepository,
-  MARKETPLACE_SANDBOX_MODERATOR,
   MarketplaceTransactionService,
 } from './transaction-service';
 
@@ -847,13 +846,12 @@ describe('MarketplaceTransactionService', () => {
             state: 'pending_payment',
             subtotal: { amountMinor: 12_500 },
             shipping: { amountMinor: 1_200 },
-            tax: { amountMinor: 1_096 },
-            total: { amountMinor: 14_796 },
+            total: { amountMinor: 13_700 },
             guaranteePolicyVersion: 1,
             lines: [{ listingRevision: 1, contentHash: 'a'.repeat(64), quantity: 1 }],
           },
         ],
-        payments: [{ state: 'awaiting_entitlement', adapter: 'sandbox', amount: { amountMinor: 14_796 } }],
+        payments: [{ state: 'awaiting_entitlement', adapter: 'sandbox', amount: { amountMinor: 13_700 } }],
       },
     });
     expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
@@ -944,7 +942,7 @@ describe('MarketplaceTransactionService', () => {
         kind: 'payment',
         payment: { state: 'confirmed', confirmations: 1, revision: 3 },
         order: { state: 'paid', revision: 2, receiptId: expect.any(String) },
-        receipt: { contentHash: expect.stringMatching(/^[a-f0-9]{64}$/), total: { amountMinor: 14_796 } },
+        receipt: { contentHash: expect.stringMatching(/^[a-f0-9]{64}$/), total: { amountMinor: 13_700 } },
       },
     });
     if (!confirmed.ok || confirmed.result.kind !== 'payment' || !confirmed.result.receipt) return;
@@ -1079,68 +1077,5 @@ describe('MarketplaceTransactionService', () => {
     });
   });
 
-  it('opens participant disputes and restricts resolution to the sandbox moderator', async () => {
-    const { service } = createService();
-    const order = await createPaidOrder(service);
-    await service.execute(
-      BUYER,
-      orderCommand(
-        'dispute.open',
-        order.id,
-        2,
-        { reason: 'Seller stopped responding', requestedRemedy: 'refund' },
-        1_230,
-      ),
-    );
-    await expect(
-      service.execute(
-        SELLER,
-        orderCommand(
-          'dispute.resolve',
-          order.id,
-          3,
-          { resolution: 'seller_favor', rationale: 'Self-resolution attempt' },
-          1_231,
-        ),
-      ),
-    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
-    await expect(
-      service.execute(
-        MARKETPLACE_SANDBOX_MODERATOR,
-        orderCommand(
-          'dispute.resolve',
-          order.id,
-          3,
-          { resolution: 'buyer_refund', rationale: 'Evidence supports the buyer.' },
-          1_232,
-        ),
-      ),
-    ).resolves.toMatchObject({
-      ok: true,
-      result: { order: { state: 'disputed', dispute: { state: 'resolved', resolution: 'buyer_refund' } } },
-    });
-  });
 
-  it('records structured trust reports without exposing them to ordinary users', async () => {
-    const { service } = createService();
-    const commandId = '00000000-0000-4000-8000-000000001240';
-    await expect(
-      service.execute(BUYER, {
-        version: 1,
-        commandId,
-        aggregateId: `report:${commandId}`,
-        expectedRevision: 0,
-        issuedAt: NOW.toISOString(),
-        kind: 'trust.report',
-        payload: {
-          targetType: 'listing',
-          targetId: AGGREGATE_ID,
-          reason: 'counterfeit',
-          details: 'Brand markings appear inconsistent.',
-        },
-      }),
-    ).resolves.toMatchObject({ ok: true, result: { kind: 'report', report: { state: 'open' } } });
-    expect(service.getReports(BUYER)).toEqual([]);
-    expect(service.getReports(MARKETPLACE_SANDBOX_MODERATOR)).toHaveLength(1);
-  });
 });

@@ -588,9 +588,6 @@ export class CommerceController {
     );
   }
 
-  static async getMarketplaceReports() {
-    return await CommerceApplication.getMarketplaceReports(this.getCurrentUserPubky());
-  }
 
   static async getMarketplaceOrder(orderId: unknown) {
     return await CommerceApplication.getMarketplaceOrder(
@@ -599,16 +596,7 @@ export class CommerceController {
     );
   }
 
-  static async getMarketplaceDisputes() {
-    return await CommerceApplication.getMarketplaceDisputes(this.getCurrentUserPubky());
-  }
 
-  static async getMarketplaceOrderEvidence(orderId: unknown) {
-    return await CommerceApplication.getMarketplaceOrderEvidence(
-      this.getCurrentUserPubky(),
-      CommerceRecordNormalizer.entityId(orderId),
-    );
-  }
 
   static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
     const recipient = CommerceRecordNormalizer.pubky(recipientPubky);
