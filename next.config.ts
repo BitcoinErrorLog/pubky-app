@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 import withSerwistInit from '@serwist/next';
 import { withSentryConfig } from '@sentry/nextjs';
 import packageJson from './package.json';
+import { buildDenyFramingRouteHeaders } from './src/libs/security/headers';
 
 const nextConfig: NextConfig = {
   env: {
@@ -24,6 +25,11 @@ const nextConfig: NextConfig = {
   },
   // Only use standalone output when building for Docker (set NEXT_STANDALONE=true)
   ...(process.env.NEXT_STANDALONE === 'true' && { output: 'standalone' }),
+  // Clickjacking defence: Shop embeds pubky.app's /session-bridge, but nothing
+  // legitimate embeds Shop — deny framing on every route.
+  async headers() {
+    return buildDenyFramingRouteHeaders();
+  },
   async redirects() {
     return [
       // /profile/[pubky] is the canonical other-user posts view (see app/profile/[pubky]/page.tsx).
