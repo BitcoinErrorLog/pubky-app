@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import * as commerceConfig from '@/config/commerce';
-import { ClientErrorCode } from '@/libs/error/error.codes';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
-import { ErrorService } from '@/libs/error/error.types';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { Logger } from '@/libs/logger/logger';
 import { CommerceCatalogEntryModel, CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { LocalMarketplaceTagService } from '@/services/local/tag/marketplace/tag.marketplace';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import {
   COMMERCE_FIXTURE_SELLER,
@@ -842,6 +845,93 @@ describe('CommerceApplication', () => {
       await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).rejects.toThrow(
         'homeserver unreachable',
       );
+    });
+  });
+
+  /**
+   * docs/ecommerce/step-up-approval.md, Option C: the widened homeserver
+   * grant is requested LAZILY, only from the explicit re-auth CTA. A bridged
+   * (narrow-grant) session must be able to browse, publish listings, and hit
+   * the first checkout without the app ever requesting a wider approval on
+   * its own. (The bridged-restore leg is asserted in
+   * src/core/application/auth/auth.test.ts; the hook itself only starts from
+   * its CTA — src/hooks/useStepUpReauth/useStepUpReauth.test.ts.)
+   */
+  describe('step-up re-approval is never auto-triggered', () => {
+    it('browsing the catalog never requests a widened grant or a service session', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([]);
+      const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl');
+      const beginSessionFlowSpy = vi.spyOn(MarketplaceSessionService, 'beginSessionFlow');
+
+      await CommerceApplication.fetchCatalogListings();
+
+      expect(generateAuthUrlSpy).not.toHaveBeenCalled();
+      expect(beginSessionFlowSpy).not.toHaveBeenCalled();
+    });
+
+    it('publishing a listing under the narrow bridged grant never requests a widened grant', async () => {
+      const record = createCommerceListingFixture();
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+      // The public /pub write succeeds under the narrow grant.
+      const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+      vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+      vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+      // Service registration fails without a marketplace session; the publish
+      // stands and registration self-heals later — no approval is requested.
+      vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+      vi.spyOn(MarketplaceGatewayService, 'execute').mockRejectedValue(
+        new AppError({
+          category: ErrorCategory.Client,
+          code: AuthErrorCode.SESSION_EXPIRED,
+          message: 'Connect a marketplace session to continue.',
+          service: ErrorService.Marketplace,
+          operation: 'test',
+          context: {},
+        }),
+      );
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl');
+      const beginSessionFlowSpy = vi.spyOn(MarketplaceSessionService, 'beginSessionFlow');
+
+      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
+
+      expect(put).toHaveBeenCalledWith(LISTING_URL, { ...record });
+      expect(generateAuthUrlSpy).not.toHaveBeenCalled();
+      expect(beginSessionFlowSpy).not.toHaveBeenCalled();
+    });
+
+    it('the first checkout fails closed on a missing session instead of auto-requesting any approval', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      const sessionRequired = new AppError({
+        category: ErrorCategory.Client,
+        code: AuthErrorCode.SESSION_EXPIRED,
+        message: 'Connect a marketplace session to continue.',
+        service: ErrorService.Marketplace,
+        operation: 'test',
+        context: {},
+      });
+      vi.spyOn(MarketplaceGatewayService, 'execute').mockRejectedValue(sessionRequired);
+      const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl');
+      const beginSessionFlowSpy = vi.spyOn(MarketplaceSessionService, 'beginSessionFlow');
+
+      await expect(
+        CommerceApplication.executeMarketplaceCommand(COMMERCE_FIXTURE_SELLER, {
+          version: 1,
+          commandId: '018f47d2-6a27-7c23-a49d-6b21bb770299',
+          aggregateId: 'checkout:018f47d2-6a27-7c23-a49d-6b21bb770299',
+          expectedRevision: 0,
+          issuedAt: new Date().toISOString(),
+          kind: 'checkout.create',
+          payload: { lines: [], guaranteePolicyVersion: 1 },
+        }),
+      ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED, service: ErrorService.Marketplace });
+
+      // The empty-caps service token comes only from the explicit connect
+      // dialog; the wide homeserver grant only from the re-auth CTA.
+      expect(generateAuthUrlSpy).not.toHaveBeenCalled();
+      expect(beginSessionFlowSpy).not.toHaveBeenCalled();
     });
   });
 });
