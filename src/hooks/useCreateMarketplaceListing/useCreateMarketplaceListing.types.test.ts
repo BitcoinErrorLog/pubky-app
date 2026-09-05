@@ -67,6 +67,7 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Well cared for boots with light wear.',
       currency: 'BTC' as const,
       fulfillment: 'pickup' as const,
+      pickupAddress: '221B Market Street, Lisbon',
     };
     expect(createMarketplaceListingSchema.safeParse({ ...base, price: '150000' }).success).toBe(true);
     expect(createMarketplaceListingSchema.safeParse({ ...base, price: '150000.5' }).success).toBe(false);
@@ -101,6 +102,7 @@ describe('createMarketplaceListingSchema', () => {
         description: 'Well cared for boots with light wear.',
         price: '125',
         fulfillment: 'pickup',
+        pickupAddress: '221B Market Street, Lisbon',
       }).success,
     ).toBe(true);
   });
@@ -116,6 +118,7 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Well cared for boots with light wear.',
       price: '125',
       fulfillment: 'pickup' as const,
+      pickupAddress: '221B Market Street, Lisbon',
       variants,
     };
 
@@ -132,6 +135,7 @@ describe('createMarketplaceListingSchema', () => {
         description: 'Well cared for boots with light wear.',
         price: '125',
         fulfillment: 'pickup',
+        pickupAddress: '221B Market Street, Lisbon',
         variants: [duplicate, { ...duplicate, size: '43' }],
       }).success,
     ).toBe(false);
@@ -144,6 +148,7 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Well cared for boots with light wear.',
       price: '125',
       fulfillment: 'pickup' as const,
+      pickupAddress: '221B Market Street, Lisbon',
     };
     expect(createMarketplaceListingSchema.safeParse({ ...base, categoryId: '' }).success).toBe(false);
     expect(createMarketplaceListingSchema.safeParse({ ...base, categoryId: 'not-a-category' }).success).toBe(false);
@@ -161,6 +166,7 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Sturdy leather hiking boots.',
       price: '125',
       fulfillment: 'pickup' as const,
+      pickupAddress: '221B Market Street, Lisbon',
       categoryId: 'fashion-men-footwear-boots',
     };
     expect(createMarketplaceListingSchema.safeParse(base).success).toBe(false);
@@ -180,6 +186,7 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Boxy 90s collegiate fleece.',
       price: '72',
       fulfillment: 'pickup' as const,
+      pickupAddress: '221B Market Street, Lisbon',
       categoryId: 'fashion-men-tops-hoodies',
       attrSize: 'L',
     };
@@ -202,6 +209,7 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Clean film SLR body.',
       price: '210',
       fulfillment: 'pickup' as const,
+      pickupAddress: '221B Market Street, Lisbon',
       categoryId: 'electronics-cameras-film',
     };
     expect(
@@ -232,6 +240,7 @@ describe('createMarketplaceListingSchema', () => {
       description: 'Well cared for boots with light wear.',
       price: '125',
       fulfillment: 'pickup',
+      pickupAddress: '221B Market Street, Lisbon',
       ...changes,
     });
 

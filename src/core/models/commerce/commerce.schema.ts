@@ -34,6 +34,24 @@ export interface CommerceListingModelSchema {
   updated_at: number;
 }
 
+/**
+ * Device-local pickup handoff facts for the seller's own pickup listings.
+ * The pickup address and instructions are deliberately NOT part of the
+ * public listing record (that would leak them to anyone who reads the
+ * homeserver) — they live only here, travel to the transaction service
+ * inside the `listing.register` command, and are revealed to the buyer on
+ * the order projection once the payment confirms.
+ */
+export interface CommercePickupDetailsModelSchema {
+  /** `seller_id:listing_id` — the composite id of the owning listing row. */
+  id: string;
+  address: string;
+  instructions?: string;
+  updated_at: number;
+}
+
+export const commercePickupDetailsTableSchema = '&id, updated_at';
+
 export const commerceListingTableSchema = [
   '&id',
   'seller_id',

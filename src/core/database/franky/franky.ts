@@ -24,6 +24,8 @@ import {
   commerceListingTableSchema,
   type CommerceLocksCorrelationModelSchema,
   commerceLocksCorrelationTableSchema,
+  type CommercePickupDetailsModelSchema,
+  commercePickupDetailsTableSchema,
   type CommerceReviewModelSchema,
   type CommerceReviewResponseModelSchema,
   commerceReviewResponseTableSchema,
@@ -158,6 +160,7 @@ export class AppDatabase extends Dexie {
   // Commerce
   commerce_shops!: Dexie.Table<CommerceShopModelSchema>;
   commerce_listings!: Dexie.Table<CommerceListingModelSchema>;
+  commerce_pickup_details!: Dexie.Table<CommercePickupDetailsModelSchema>;
   commerce_catalog_entries!: Dexie.Table<CommerceCatalogEntryModelSchema>;
   commerce_listing_drafts!: Dexie.Table<CommerceListingDraftModelSchema>;
   commerce_listing_projections!: Dexie.Table<CommerceListingProjectionModelSchema>;
@@ -230,6 +233,7 @@ export class AppDatabase extends Dexie {
         // Commerce
         commerce_shops: commerceShopTableSchema,
         commerce_listings: commerceListingTableSchema,
+        commerce_pickup_details: commercePickupDetailsTableSchema,
         commerce_catalog_entries: commerceCatalogEntryTableSchema,
         commerce_listing_drafts: commerceListingDraftTableSchema,
         commerce_listing_projections: commerceListingProjectionTableSchema,

@@ -413,6 +413,29 @@ export function MarketplaceListingForm({
             />
           </div>
 
+          {fulfillment === 'pickup' && (
+            <div className="grid gap-5 rounded-xl border border-dashed p-4">
+              <Typography as="p" className="text-xs text-muted-foreground">
+                Buyers see only that this item is pickup-only. The pickup address and instructions below are revealed to
+                the buyer on the order page as soon as their payment confirms — they are never shown on the public
+                listing.
+              </Typography>
+              <ControlledInputField
+                name={CREATE_MARKETPLACE_LISTING_FIELDS.PICKUP_ADDRESS}
+                control={form.control}
+                label="Pickup address"
+                placeholder="221B Market Street, Lisbon"
+                disabled={isPublishing}
+              />
+              <ControlledInputField
+                name={CREATE_MARKETPLACE_LISTING_FIELDS.PICKUP_INSTRUCTIONS}
+                control={form.control}
+                label="Handoff instructions (optional)"
+                placeholder="Ring the bell twice; weekdays after 18:00."
+                disabled={isPublishing}
+              />
+            </div>
+          )}
           {fulfillment === 'physical' && (
             <>
               <ListingShippingPresetRow form={form} isPublishing={isPublishing} />

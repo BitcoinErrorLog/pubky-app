@@ -1856,7 +1856,10 @@ export class CommerceApplication {
     await LocalCommerceService.completeSyncJob(job.id);
   }
 
-  static async commitUpsertListing(record: CommerceListingRecord): Promise<{ registered: boolean }> {
+  static async commitUpsertListing(
+    record: CommerceListingRecord,
+    pickupDetails?: { address: string; instructions?: string } | null,
+  ): Promise<{ registered: boolean }> {
     const now = Date.now();
     const url = CommerceRecordNormalizer.listingUri(record.ownerPubky, record.listingId);
     const publishJob = this.createSyncJob({
@@ -1888,7 +1891,7 @@ export class CommerceApplication {
     // listing.sync once a marketplace session exists.
     if (getCommerceAdapterMode() !== 'unavailable') {
       try {
-        await this.registerListing(record);
+        await this.registerListing(record, pickupDetails);
       } catch (error) {
         Logger.warn('Listing published but service registration failed; it will self-heal from owner surfaces', {
           listing: `${record.ownerPubky}:${record.listingId}`,
@@ -1908,8 +1911,30 @@ export class CommerceApplication {
    */
   static async ensureListingRegistered(record: CommerceListingRecord): Promise<boolean> {
     if (getCommerceAdapterMode() === 'unavailable') return false;
-    await this.registerListing(record);
+    // The self-heal path re-reads the seller's device-local pickup details,
+    // so a re-registered pickup listing keeps its reveal-on-payment facts.
+    const pickupDetails = record.fulfillmentMethods.includes('pickup')
+      ? await LocalCommerceService.getPickupDetails(record.ownerPubky, record.listingId)
+      : null;
+    await this.registerListing(record, pickupDetails);
     return true;
+  }
+
+  /** Device-local pickup handoff facts for one of the signed-in seller's listings. */
+  static async getPickupDetails(
+    sellerPubky: string,
+    listingId: string,
+  ): Promise<{ address: string; instructions?: string } | null> {
+    return await LocalCommerceService.getPickupDetails(sellerPubky, listingId);
+  }
+
+  /** Persists the signed-in seller's device-local pickup handoff facts. */
+  static async upsertPickupDetails(
+    sellerPubky: string,
+    listingId: string,
+    details: { address: string; instructions?: string },
+  ): Promise<void> {
+    await LocalCommerceService.upsertPickupDetails(sellerPubky, listingId, details);
   }
 
   /**
@@ -2121,7 +2146,10 @@ export class CommerceApplication {
     return url;
   }
 
-  private static async registerListing(listing: CommerceListingRecord): Promise<void> {
+  private static async registerListing(
+    listing: CommerceListingRecord,
+    pickupDetails?: { address: string; instructions?: string } | null,
+  ): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
     if (existing?.serverRevision) {
@@ -2154,6 +2182,8 @@ export class CommerceApplication {
         unitPrice,
         shippingMinor: commerceListingShippingMinor(listing.shippingOptions),
         saleFormat: listing.sale.format,
+        fulfillmentMethods: listing.fulfillmentMethods,
+        pickupDetails: pickupDetails ?? null,
         auctionTerms:
           listing.sale.format === 'auction'
             ? {

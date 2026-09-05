@@ -100,6 +100,8 @@ describe('marketplace transaction service integration', () => {
         unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
         shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
+        fulfillmentMethods: ['physical' as const],
+        pickupDetails: null,
       },
     };
     const registered = await MarketplaceGatewayService.execute(seller, registerCommand);
@@ -227,6 +229,8 @@ describe('marketplace transaction service integration', () => {
         unitPrice: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
         shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
+        fulfillmentMethods: ['physical' as const],
+        pickupDetails: null,
       }),
     );
     expect(registered).toMatchObject({ ok: true, revision: 1 });
@@ -276,6 +280,7 @@ describe('marketplace transaction service integration', () => {
       kind: 'checkout.create' as const,
       payload: {
         lines: [{ listingAggregateId: aggregateId, expectedRevision: postReserve!.serverRevision, quantity: 1 }],
+        fulfillmentChoice: 'shipping' as const,
         deliveryAddress: {
           name: 'Integration Buyer',
           line1: '1 Read Side Way',

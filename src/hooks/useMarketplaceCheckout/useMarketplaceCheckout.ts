@@ -85,6 +85,8 @@ export function useMarketplaceCheckout(
   /** Composite row id of the applied saved address; null while entering a new one. */
   selectedAddressId: string | null;
   selectAddress: (id: string | null) => void;
+  /** True when every cart line is pickup-only: no delivery address is collected. */
+  isPickupOnly: boolean;
 } {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // Connecting a session replaces this store object; the flag below clears so
@@ -99,6 +101,20 @@ export function useMarketplaceCheckout(
     defaultValues: marketplaceCheckoutDefaults,
     mode: 'onChange',
   });
+
+  // A cart where every line is pickup-only needs no delivery address: the
+  // checkout command carries `fulfillmentChoice: 'pickup'` and the pickup
+  // address/instructions are revealed on the order after payment. Mixed or
+  // fully-shippable carts stay on the shipping path.
+  const isPickupOnly =
+    items.length > 0 &&
+    items.every((item) => {
+      const methods = item.listing.record.fulfillmentMethods;
+      return methods.includes('pickup') && !methods.includes('physical');
+    });
+  useEffect(() => {
+    form.setValue('isPickup', isPickupOnly);
+  }, [isPickupOnly, form]);
 
   const addresses = useLiveQuery(
     async () => {
@@ -162,6 +178,8 @@ export function useMarketplaceCheckout(
    * itself traveled exactly once, inside the checkout command.
    */
   const persistAddressBookAfterOrder = async (data: MarketplaceCheckoutData): Promise<void> => {
+    // Pickup orders carry no delivery address — nothing to persist.
+    if (isPickupOnly) return;
     try {
       const selected = addresses.find(({ id }) => id === selectedAddressId);
       if (selected && formMatchesAddress(data, selected)) {
@@ -242,15 +260,18 @@ export function useMarketplaceCheckout(
           kind: 'checkout.create',
           payload: {
             lines,
-            deliveryAddress: {
-              name: data.name,
-              line1: data.line1,
-              line2: data.line2,
-              city: data.city,
-              region: data.region,
-              postalCode: data.postalCode,
-              countryCode: data.countryCode.toUpperCase(),
-            },
+            fulfillmentChoice: isPickupOnly ? 'pickup' : 'shipping',
+            deliveryAddress: isPickupOnly
+              ? null
+              : {
+                  name: data.name,
+                  line1: data.line1,
+                  line2: data.line2,
+                  city: data.city,
+                  region: data.region,
+                  postalCode: data.postalCode,
+                  countryCode: data.countryCode.toUpperCase(),
+                },
             guaranteePolicyVersion: 1,
           },
         });
@@ -296,5 +317,5 @@ export function useMarketplaceCheckout(
     return succeeded;
   };
 
-  return { form, submit, needsSession, sessionError, addresses, selectedAddressId, selectAddress };
+  return { form, submit, needsSession, sessionError, addresses, selectedAddressId, selectAddress, isPickupOnly };
 }

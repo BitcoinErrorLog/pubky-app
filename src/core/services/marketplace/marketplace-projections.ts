@@ -200,6 +200,33 @@ export const marketplaceOrderSchema = z
     subtotal: marketplaceMoneySchema,
     shipping: marketplaceMoneySchema,
     total: marketplaceMoneySchema,
+    // How the order is fulfilled. `shipping` carries a buyer delivery
+    // address; `pickup` carries none and reveals the seller's pickup details
+    // only after the payment confirms. Absent on orders that predate the
+    // field — those are all shipped orders.
+    fulfillmentChoice: z.enum(['shipping', 'pickup']).optional(),
+    deliveryAddress: z
+      .object({
+        name: z.string(),
+        line1: z.string(),
+        line2: z.string(),
+        city: z.string(),
+        region: z.string(),
+        postalCode: z.string(),
+        countryCode: z.string(),
+      })
+      .nullable()
+      .optional(),
+    // The seller's pickup address and handoff instructions, present on pickup
+    // orders ONLY once the payment has confirmed. Before payment the field is
+    // absent so the buyer cannot learn the address early.
+    pickupDetails: z
+      .object({
+        address: z.string(),
+        instructions: z.string().optional(),
+      })
+      .nullable()
+      .optional(),
     guaranteePolicyVersion: z.literal(1),
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),

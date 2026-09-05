@@ -69,6 +69,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitDeleteListingDraft: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(async () => ({ registered: true })),
+    commitUpsertPickupDetails: vi.fn(async () => undefined),
   },
 }));
 
@@ -96,6 +97,7 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('pickupAddress', '221B Market Street, Lisbon');
       result.current.form.setValue('countryCode', 'US');
     });
 
@@ -135,6 +137,7 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('pickupAddress', '221B Market Street, Lisbon');
       result.current.form.setValue('countryCode', 'US');
     });
 
@@ -166,6 +169,7 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('pickupAddress', '221B Market Street, Lisbon');
       result.current.form.setValue('countryCode', 'US');
     });
 
@@ -195,6 +199,7 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('currency', 'BTC');
       result.current.form.setValue('price', '15000');
       result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('pickupAddress', '221B Market Street, Lisbon');
       result.current.form.setValue('countryCode', 'US');
     });
 
@@ -252,6 +257,7 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
       result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('pickupAddress', '221B Market Street, Lisbon');
     });
 
     await act(() => result.current.submit());

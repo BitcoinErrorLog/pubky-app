@@ -1052,8 +1052,37 @@ export class CommerceController {
   static async commitUpsertListing(input: unknown): Promise<{ registered: boolean }> {
     const record = CommerceRecordNormalizer.listing(input);
     this.assertCurrentUserOwns(record.ownerPubky);
-    return await this.withPending(`${record.ownerPubky}:${record.listingId}`, () =>
-      CommerceApplication.commitUpsertListing(record),
+    return await this.withPending(`${record.ownerPubky}:${record.listingId}`, async () => {
+      // Pickup listings: the seller's private handoff facts live device-local
+      // and are read here so the register command can carry them to the
+      // service. They never appear in the public listing record.
+      const pickupDetails = record.fulfillmentMethods.includes('pickup')
+        ? await CommerceApplication.getPickupDetails(record.ownerPubky, record.listingId)
+        : null;
+      return await CommerceApplication.commitUpsertListing(record, pickupDetails);
+    });
+  }
+
+  /**
+   * Reads the seller's device-local pickup handoff facts for their own
+   * listing (edit form hydration). `null` when the listing has none.
+   */
+  static async getPickupDetails(sellerPubky: unknown, listingId: unknown) {
+    return await CommerceApplication.getPickupDetails(
+      CommerceRecordNormalizer.pubky(sellerPubky),
+      CommerceRecordNormalizer.entityId(listingId),
+    );
+  }
+
+  /**
+   * Persists the seller's device-local pickup handoff facts for their own
+   * listing. Device-local only — never published to the homeserver.
+   */
+  static async commitUpsertPickupDetails(listingId: unknown, details: { address: string; instructions?: string }) {
+    const ownerPubky = this.getCurrentUserPubky();
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    await this.withPending(`${ownerPubky}:${id}`, () =>
+      CommerceApplication.upsertPickupDetails(ownerPubky, id, details),
     );
   }
 

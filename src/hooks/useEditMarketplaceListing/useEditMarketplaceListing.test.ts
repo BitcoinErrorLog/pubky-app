@@ -68,6 +68,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(),
+    getPickupDetails: vi.fn(async () => null),
+    commitUpsertPickupDetails: vi.fn(async () => undefined),
   },
 }));
 
@@ -80,6 +82,12 @@ describe('useEditMarketplaceListing', () => {
     vi.clearAllMocks();
     authState.currentUserPubky = OWNER;
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(structuredClone(publishedRecord));
+    // The published record is pickup-fulfilled; the seller's handoff facts
+    // hydrate from the device-local store.
+    vi.mocked(CommerceController.getPickupDetails).mockResolvedValue({
+      address: '221B Market Street, Lisbon',
+      instructions: 'Ring the bell twice.',
+    });
   });
 
   it('hydrates the form and photos from the published record', async () => {

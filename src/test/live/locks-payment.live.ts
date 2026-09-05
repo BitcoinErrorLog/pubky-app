@@ -418,6 +418,8 @@ describe('locks-paykit live purchase (composed environment)', () => {
         unitPrice: { amountMinor: AMOUNT_SATS, currency: 'BTC', exponent: 8 },
         shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
+        fulfillmentMethods: ['physical' as const],
+        pickupDetails: null,
       },
     });
     expect(registered).toMatchObject({ ok: true, revision: 1 });
@@ -436,6 +438,7 @@ describe('locks-paykit live purchase (composed environment)', () => {
       kind: 'checkout.create' as const,
       payload: {
         lines: [{ listingAggregateId: aggregateId, expectedRevision: listingProjection!.serverRevision, quantity: 1 }],
+        fulfillmentChoice: 'shipping' as const,
         deliveryAddress: {
           name: 'Live Buyer',
           line1: '1 Regtest Way',

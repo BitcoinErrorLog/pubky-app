@@ -14,6 +14,7 @@ import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
+  CommercePickupDetailsModelSchema,
   CommerceReviewModelSchema,
   CommerceReviewResponseModelSchema,
   CommerceSavedSearchModelSchema,
@@ -871,5 +872,29 @@ export class CommerceShippingPresetModel
         cause: error,
       });
     }
+  }
+}
+
+/**
+ * Device-local pickup handoff facts for the seller's own pickup listings.
+ * Never published to the homeserver: the address and instructions reach the
+ * transaction service inside `listing.register` and are revealed to the
+ * buyer on the order only after payment.
+ */
+export class CommercePickupDetailsModel
+  extends RecordModelBase<string, CommercePickupDetailsModelSchema>
+  implements CommercePickupDetailsModelSchema
+{
+  static table: Table<CommercePickupDetailsModelSchema> = db.table('commerce_pickup_details');
+
+  address: string;
+  instructions?: string;
+  updated_at: number;
+
+  constructor(details: CommercePickupDetailsModelSchema) {
+    super(details);
+    this.address = details.address;
+    this.instructions = details.instructions;
+    this.updated_at = details.updated_at;
   }
 }

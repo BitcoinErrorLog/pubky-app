@@ -99,6 +99,18 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
         form.reset(formDataFromRecord(loaded, currency, measurementSystem));
         media.seed(loaded.media);
         setStatus('ready');
+        // The seller's private pickup handoff facts live device-local, never
+        // in the public record — hydrate them after the form's initial reset.
+        if (loaded.fulfillmentMethods.includes('pickup')) {
+          CommerceController.getPickupDetails(sellerPubky, listingId).then((details) => {
+            if (!active || !details) return;
+            form.reset({
+              ...form.getValues(),
+              pickupAddress: details.address,
+              pickupInstructions: details.instructions ?? '',
+            });
+          });
+        }
       })
       .catch(() => {
         if (active) setStatus('not-found');
@@ -127,6 +139,12 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
       try {
         await uploadListingMedia(preparedMedia.uploads);
         const updated = buildUpdatedRecord(record, data, preparedMedia.media);
+        if (data.fulfillment === 'pickup') {
+          await CommerceController.commitUpsertPickupDetails(updated.listingId, {
+            address: data.pickupAddress,
+            instructions: data.pickupInstructions || undefined,
+          });
+        }
         await CommerceController.commitUpsertListing(updated);
         setRecord(updated);
         savedListingId = `${currentUserPubky}:${updated.listingId}`;
@@ -239,6 +257,8 @@ function formDataFromRecord(
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
     fulfillment: isPhysical ? 'physical' : 'pickup',
+    pickupAddress: '',
+    pickupInstructions: '',
     shippingLabel: flatShipping ? flatShipping.label : createMarketplaceListingDefaults.shippingLabel,
     shippingPrice: flatShipping ? amountInputFromMoney(flatShipping.price) : '',
     shippingMinDays: flatShipping
@@ -277,6 +297,7 @@ function buildUpdatedRecord(
       ? record.sale
       : { format: 'fixed_price', unitPrice, acceptsOffers: record.sale.acceptsOffers };
   const isPhysical = data.fulfillment === 'physical';
+  const isPickup = data.fulfillment === 'pickup';
   const returnWindowDays = data.returnDays === 'none' ? undefined : Number(data.returnDays);
 
   // Attributes this client cannot express (foreign keys/values) survive the
@@ -304,6 +325,12 @@ function buildUpdatedRecord(
     variants: buildListingVariants(data, media),
     sale,
     fulfillmentMethods: [data.fulfillment],
+    pickupDetails: isPickup
+      ? {
+          address: data.pickupAddress,
+          ...(data.pickupInstructions ? { instructions: data.pickupInstructions } : {}),
+        }
+      : undefined,
     package: isPhysical ? buildPackageRecord(data) : undefined,
     shippingOptions: isPhysical
       ? [

@@ -248,6 +248,8 @@ describe('marketplace reviews — live attested publication and Nexus indexing',
         quantity: 3,
         unitPrice: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
         saleFormat: 'fixed_price' as const,
+        fulfillmentMethods: ['physical' as const],
+        pickupDetails: null,
       }),
     );
     expect(registered).toMatchObject({ ok: true, revision: 1 });
@@ -265,6 +267,7 @@ describe('marketplace reviews — live attested publication and Nexus indexing',
       kind: 'checkout.create' as const,
       payload: {
         lines: [{ listingAggregateId, expectedRevision: listingView!.serverRevision, quantity: 1 }],
+        fulfillmentChoice: 'shipping' as const,
         deliveryAddress: {
           name: 'Live Buyer',
           line1: '1 Attestation Way',

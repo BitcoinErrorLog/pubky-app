@@ -7,6 +7,9 @@ import { useMarketplaceCheckout } from './useMarketplaceCheckout';
 
 const listing = createCommerceSandboxCatalog().listings.find(({ sale }) => sale.format === 'fixed_price')!;
 const price = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
+// The sandbox catalog ships pickup-only listings; the shipping-form tests
+// exercise the shipped path, so the cart item's record is physical here.
+const shippedListing = { ...listing, fulfillmentMethods: ['physical' as const] };
 const item: MarketplaceCartItem = {
   id: 'cart-item',
   listingId: `${listing.ownerPubky}:${listing.listingId}`,
@@ -16,7 +19,7 @@ const item: MarketplaceCartItem = {
     id: `${listing.ownerPubky}:${listing.listingId}`,
     seller_id: listing.ownerPubky,
     listing_id: listing.listingId,
-    record: listing,
+    record: shippedListing,
     revision: 1,
     state: 'active',
     category_id: listing.categoryId,

@@ -58,6 +58,10 @@ export interface MarketplaceListingAggregate {
     exponent: number;
   };
   saleFormat: 'fixed_price' | 'auction';
+  /** Fulfillment methods offered by this listing; `pickup` carries details revealed post-payment. */
+  fulfillmentMethods: Array<'physical' | 'digital' | 'pickup'>;
+  /** Private pickup location/instructions, revealed to the buyer after payment. */
+  pickupDetails: { address: string; instructions?: string } | null;
   auction: {
     status: 'scheduled' | 'active' | 'sold' | 'unsold' | 'cancelled';
     startsAt: string;
@@ -292,7 +296,15 @@ export interface MarketplaceOrder {
     | 'refunded_external'
     | 'closed';
   lines: MarketplaceOrderLine[];
-  deliveryAddress: MarketplaceDeliveryAddress;
+  /** `shipping` orders carry the buyer address; `pickup` orders carry none. */
+  fulfillmentChoice: 'shipping' | 'pickup';
+  deliveryAddress: MarketplaceDeliveryAddress | null;
+  /**
+   * The seller's pickup address and instructions, revealed to the buyer only
+   * after the payment confirms. Populated from the listing's private
+   * `pickupDetails` when the payment lands; `null` before that.
+   */
+  pickupDetails: { address: string; instructions?: string } | null;
   subtotal: MarketplaceListingAggregate['unitPrice'];
   shipping: MarketplaceListingAggregate['unitPrice'];
   total: MarketplaceListingAggregate['unitPrice'];
@@ -889,6 +901,8 @@ export class MarketplaceTransactionService {
       reservedQuantity: current?.reservedQuantity ?? 0,
       soldQuantity: current?.soldQuantity ?? 0,
       unitPrice: payload.unitPrice,
+      fulfillmentMethods: payload.fulfillmentMethods ?? ['physical'],
+      pickupDetails: payload.pickupDetails ?? null,
       saleFormat: payload.saleFormat,
       auction: payload.auctionTerms
         ? {
@@ -1621,7 +1635,9 @@ export class MarketplaceTransactionService {
         ...(requested.variantOptions ? { variantOptions: requested.variantOptions } : {}),
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
-      const shippingMinor = 1_200;
+      const fulfillmentChoice = command.payload.fulfillmentChoice ?? 'shipping';
+      // Pickup orders ship nothing: no delivery address, no shipping charge.
+      const shippingMinor = fulfillmentChoice === 'pickup' ? 0 : 1_200;
       const orderId = randomUUID();
       const paymentId = randomUUID();
       const order: MarketplaceOrder = {
@@ -1631,7 +1647,10 @@ export class MarketplaceTransactionService {
         revision: 1,
         state: 'pending_payment',
         lines,
-        deliveryAddress: command.payload.deliveryAddress,
+        fulfillmentChoice,
+        deliveryAddress: fulfillmentChoice === 'pickup' ? null : command.payload.deliveryAddress,
+        // Revealed only after the payment confirms — see the payment handler.
+        pickupDetails: null,
         subtotal: { ...asset, amountMinor: subtotalMinor },
         shipping: { ...asset, amountMinor: shippingMinor },
         total: { ...asset, amountMinor: subtotalMinor + shippingMinor },
@@ -1726,11 +1745,23 @@ export class MarketplaceTransactionService {
     const eventIds = [paymentEvent.id];
     if (updatedPayment.state === 'confirmed') {
       const receiptId = randomUUID();
+      // Reveal the seller's pickup details now that the order is paid: copy
+      // them from the listing aggregate onto the order projection the buyer
+      // reads. Shipped orders have nothing to reveal.
+      const pickupDetails =
+        order.fulfillmentChoice === 'pickup'
+          ? (() => {
+              const firstLine = order.lines[0];
+              const listing = firstLine ? this.repository.getListing(firstLine.listingAggregateId) : null;
+              return listing?.pickupDetails ?? null;
+            })()
+          : null;
       updatedOrder = {
         ...order,
         revision: order.revision + 1,
         state: 'paid',
         receiptId,
+        pickupDetails,
         updatedAt: occurredAt,
       };
       const receiptPayload = JSON.stringify({

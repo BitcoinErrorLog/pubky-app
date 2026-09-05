@@ -39,6 +39,8 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   PRICE: 'price',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
+  PICKUP_ADDRESS: 'pickupAddress',
+  PICKUP_INSTRUCTIONS: 'pickupInstructions',
   SHIPPING_LABEL: 'shippingLabel',
   SHIPPING_PRICE: 'shippingPrice',
   SHIPPING_MIN_DAYS: 'shippingMinDays',
@@ -255,6 +257,11 @@ export const createMarketplaceListingSchema = z
     price: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical']),
+    // Seller-authored pickup handoff facts. Required for pickup listings and
+    // deliberately NOT rendered publicly — the address and instructions are
+    // revealed to the buyer only after the order is paid.
+    pickupAddress: z.string().trim().max(500),
+    pickupInstructions: z.string().trim().max(2_000),
     shippingLabel: z.string().trim().max(100, 'Keep the shipping label under 100 characters.'),
     shippingPrice: z.string().trim(),
     shippingMinDays: z.string().trim(),
@@ -320,6 +327,13 @@ export const createMarketplaceListingSchema = z
         validatePackageDimension(data[field], field, data.measurementSystem, context);
       }
     }
+    if (data.fulfillment === 'pickup' && !data.pickupAddress) {
+      context.addIssue({
+        code: 'custom',
+        path: [CREATE_MARKETPLACE_LISTING_FIELDS.PICKUP_ADDRESS],
+        message: 'Add the pickup address buyers will see after they pay.',
+      });
+    }
     if (data.saleFormat === 'auction' && data.variants.length !== 1) {
       context.addIssue({
         code: 'custom',
@@ -371,6 +385,8 @@ export const createMarketplaceListingDraftSchema = z
       }),
     ),
     fulfillment: z.enum(['pickup', 'physical']),
+    pickupAddress: z.string(),
+    pickupInstructions: z.string(),
     shippingLabel: z.string(),
     shippingPrice: z.string(),
     shippingMinDays: z.string(),
@@ -418,6 +434,8 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   price: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
   fulfillment: 'physical',
+  pickupAddress: '',
+  pickupInstructions: '',
   shippingLabel: 'Seller shipping',
   shippingPrice: '',
   shippingMinDays: '3',

@@ -952,6 +952,90 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('payment_confirmed');
   });
 
+  it('withholds pickup details until the payment confirms, then reveals them', async () => {
+    const { service } = createService();
+    // A pickup-only listing carries the seller's private handoff facts at
+    // registration — the public record only signals that pickup is offered.
+    await service.execute(
+      SELLER,
+      registerCommand(1, {
+        payload: {
+          sellerPubky: SELLER,
+          listingId: 'boots_01',
+          listingRevision: 1,
+          contentHash: 'a'.repeat(64),
+          quantity: 1,
+          unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+          fulfillmentMethods: ['pickup'],
+          pickupDetails: {
+            address: '221B Market Street, Lisbon',
+            instructions: 'Ring the bell twice; weekdays after 18:00.',
+          },
+        },
+      }),
+    );
+
+    // Pickup checkout: no delivery address, no shipping charge.
+    const pickupCheckout = checkoutCommand();
+    const pickupPayload = {
+      ...pickupCheckout.payload,
+      fulfillmentChoice: 'pickup' as const,
+      deliveryAddress: null,
+    };
+    const checkout = await service.execute(BUYER, { ...pickupCheckout, payload: pickupPayload });
+    if (!checkout.ok || checkout.result.kind !== 'checkout') return;
+    const order = checkout.result.orders[0];
+    const payment = checkout.result.payments[0];
+
+    expect(order).toMatchObject({
+      fulfillmentChoice: 'pickup',
+      deliveryAddress: null,
+      pickupDetails: null,
+      shipping: { amountMinor: 0 },
+      total: { amountMinor: 12_500 },
+    });
+
+    // The address is not visible to the buyer before payment confirms.
+    expect(service.getOrders(BUYER)[0].pickupDetails).toBeNull();
+
+    // Confirm the payment: the order reveals the seller's pickup details.
+    const confirmed = await service.execute(BUYER, paymentCommand(payment.id, 1, 'confirmed', 1, 1_001));
+    if (!confirmed.ok || confirmed.result.kind !== 'payment') return;
+    expect(confirmed.result.order).toMatchObject({
+      state: 'paid',
+      fulfillmentChoice: 'pickup',
+      pickupDetails: {
+        address: '221B Market Street, Lisbon',
+        instructions: 'Ring the bell twice; weekdays after 18:00.',
+      },
+    });
+    expect(service.getOrders(BUYER)[0].pickupDetails).toMatchObject({
+      address: '221B Market Street, Lisbon',
+    });
+  });
+
+  it('rejects a shipped checkout without a delivery address and a pickup checkout with one', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+
+    const shipped = checkoutCommand();
+    const missingAddress = { ...shipped.payload, fulfillmentChoice: 'shipping' as const, deliveryAddress: null };
+    await expect(service.execute(BUYER, { ...shipped, payload: missingAddress })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_COMMAND' },
+    });
+
+    const pickupWithAddress = {
+      ...shipped.payload,
+      fulfillmentChoice: 'pickup' as const,
+      deliveryAddress: shipped.payload.deliveryAddress,
+    };
+    await expect(service.execute(BUYER, { ...shipped, payload: pickupWithAddress })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_COMMAND' },
+    });
+  });
+
   it('rejects duplicate checkout lines, stale stock, self-purchase, and invalid payment transitions', async () => {
     const { service } = createService();
     await service.execute(SELLER, registerCommand());

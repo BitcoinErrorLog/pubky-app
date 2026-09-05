@@ -157,71 +157,85 @@ export function MarketplaceCart() {
                 <Typography as="h2" className="text-xl font-semibold">
                   Delivery and guarantee
                 </Typography>
-                {checkout.addresses.length > 0 && (
-                  <div className="grid gap-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="checkout-address-picker">Saved addresses</Label>
-                      <Link
-                        href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}
-                        overrideDefaults
-                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        Manage
-                      </Link>
-                    </div>
-                    <Select
-                      value={checkout.selectedAddressId ?? 'new'}
-                      onValueChange={(value) => checkout.selectAddress(value === 'new' ? null : value)}
-                    >
-                      <SelectTrigger id="checkout-address-picker" className="h-11 w-full rounded-md border px-3">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {checkout.addresses.map((address) => (
-                          <SelectItem key={address.id} value={address.id}>
-                            {address.label} · {address.city}
-                            {address.is_default ? ' (default)' : ''}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="new">New address</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Typography as="p" className="text-xs text-muted-foreground">
-                      Saved on this device only — never published, and shared only with the transaction service when you
-                      place the order.
+                {checkout.isPickupOnly ? (
+                  <div className="rounded-xl border bg-card/60 p-4">
+                    <Typography as="p" className="text-sm font-medium">
+                      Local pickup
+                    </Typography>
+                    <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                      Every item in this order is pickup-only. No delivery address is needed — the seller&apos;s pickup
+                      address and handoff instructions are revealed on the order as soon as your payment confirms.
                     </Typography>
                   </div>
-                )}
-                <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
-                <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
-                <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <ControlledInputField name="city" control={checkout.form.control} label="City" />
-                  <ControlledInputField name="region" control={checkout.form.control} label="Region" />
-                  <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
-                  <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
-                </div>
-                {checkout.selectedAddressId === null && (
-                  <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
-                    <Controller
-                      name="saveAddress"
-                      control={checkout.form.control}
-                      render={({ field }) => (
-                        <Label className="items-start gap-3">
-                          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                          <span>Save this address on this device for next time</span>
-                        </Label>
-                      )}
-                    />
-                    {checkout.form.watch('saveAddress') && (
-                      <ControlledInputField
-                        name="saveLabel"
-                        control={checkout.form.control}
-                        label="Label"
-                        placeholder="Home"
-                      />
+                ) : (
+                  <>
+                    {checkout.addresses.length > 0 && (
+                      <div className="grid gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label htmlFor="checkout-address-picker">Saved addresses</Label>
+                          <Link
+                            href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}
+                            overrideDefaults
+                            className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                          >
+                            Manage
+                          </Link>
+                        </div>
+                        <Select
+                          value={checkout.selectedAddressId ?? 'new'}
+                          onValueChange={(value) => checkout.selectAddress(value === 'new' ? null : value)}
+                        >
+                          <SelectTrigger id="checkout-address-picker" className="h-11 w-full rounded-md border px-3">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {checkout.addresses.map((address) => (
+                              <SelectItem key={address.id} value={address.id}>
+                                {address.label} · {address.city}
+                                {address.is_default ? ' (default)' : ''}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="new">New address</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Typography as="p" className="text-xs text-muted-foreground">
+                          Saved on this device only — never published, and shared only with the transaction service when
+                          you place the order.
+                        </Typography>
+                      </div>
                     )}
-                  </div>
+                    <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
+                    <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
+                    <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <ControlledInputField name="city" control={checkout.form.control} label="City" />
+                      <ControlledInputField name="region" control={checkout.form.control} label="Region" />
+                      <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
+                      <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
+                    </div>
+                    {checkout.selectedAddressId === null && (
+                      <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
+                        <Controller
+                          name="saveAddress"
+                          control={checkout.form.control}
+                          render={({ field }) => (
+                            <Label className="items-start gap-3">
+                              <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                              <span>Save this address on this device for next time</span>
+                            </Label>
+                          )}
+                        />
+                        {checkout.form.watch('saveAddress') && (
+                          <ControlledInputField
+                            name="saveLabel"
+                            control={checkout.form.control}
+                            label="Label"
+                            placeholder="Home"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
                 <Controller
                   name="acceptsGuarantee"

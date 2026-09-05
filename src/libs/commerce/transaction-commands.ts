@@ -32,6 +32,21 @@ const registerListingPayloadSchema = z
     shippingMinor: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
     saleFormat: z.enum(['fixed_price', 'auction']).default('fixed_price'),
     auctionTerms: auctionTermsSchema.optional(),
+    // Fulfillment methods from the listing record; `pickup` listings carry
+    // the private pickup details here so the service can reveal them to the
+    // buyer after payment. Defaults keep pre-pickup listings valid.
+    fulfillmentMethods: z
+      .array(z.enum(['physical', 'digital', 'pickup']))
+      .min(1)
+      .max(3)
+      .default(['physical']),
+    pickupDetails: z
+      .object({
+        address: z.string().trim().min(1).max(500),
+        instructions: z.string().trim().max(2_000).optional(),
+      })
+      .nullable()
+      .default(null),
   })
   .strict()
   .superRefine((payload, context) => {
@@ -209,6 +224,10 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
   z
     .object({
       lines: z.array(checkoutLineSchema).min(1).max(50),
+      // The buyer's chosen fulfillment per order. `shipping` requires a
+      // delivery address; `pickup` does not — the pickup address and
+      // handoff instructions are revealed to the buyer after payment.
+      fulfillmentChoice: z.enum(['shipping', 'pickup']).default('shipping'),
       deliveryAddress: z
         .object({
           name: z.string().trim().min(1).max(100),
@@ -219,7 +238,9 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
           postalCode: z.string().trim().min(1).max(32),
           countryCode: z.string().regex(/^[A-Z]{2}$/),
         })
-        .strict(),
+        .strict()
+        .nullable()
+        .default(null),
       guaranteePolicyVersion: z.literal(1),
     })
     .strict()
@@ -227,6 +248,20 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
       const ids = payload.lines.map(({ listingAggregateId }) => listingAggregateId);
       if (new Set(ids).size !== ids.length) {
         context.addIssue({ code: 'custom', path: ['lines'], message: 'Checkout listing lines must be unique.' });
+      }
+      if (payload.fulfillmentChoice === 'shipping' && payload.deliveryAddress === null) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryAddress'],
+          message: 'A delivery address is required for shipped orders.',
+        });
+      }
+      if (payload.fulfillmentChoice === 'pickup' && payload.deliveryAddress !== null) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryAddress'],
+          message: 'Pickup orders carry no delivery address — the pickup address is revealed after payment.',
+        });
       }
     }),
 );

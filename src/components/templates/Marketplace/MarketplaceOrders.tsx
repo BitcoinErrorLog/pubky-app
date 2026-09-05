@@ -89,6 +89,7 @@ export function MarketplaceOrders() {
                       <div className="mb-3 flex flex-wrap gap-2">
                         <Badge>{isBuyer ? 'Purchase' : 'Sale'}</Badge>
                         <Badge variant="secondary">{order.state.replaceAll('_', ' ')}</Badge>
+                        {order.fulfillmentChoice === 'pickup' ? <Badge variant="secondary">Local pickup</Badge> : null}
                         <DropEditionBadge order={order} />
                       </div>
                       {order.lines.map((line) => (
@@ -111,6 +112,33 @@ export function MarketplaceOrders() {
                       <Typography as="p" className="mt-1 text-xs text-muted-foreground">
                         Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
                       </Typography>
+                      {/* Local pickup: the seller's address and handoff
+                          instructions appear only once the payment confirmed
+                          (the service withholds them until then). Before
+                          payment the buyer sees why nothing is revealed yet. */}
+                      {order.fulfillmentChoice === 'pickup' && (
+                        <div className="mt-3 rounded-xl border bg-card/60 p-3">
+                          <Typography as="p" className="text-sm font-medium">
+                            Pickup details
+                          </Typography>
+                          {order.pickupDetails ? (
+                            <>
+                              <Typography as="p" className="mt-1 text-sm whitespace-pre-line">
+                                {order.pickupDetails.address}
+                              </Typography>
+                              {order.pickupDetails.instructions ? (
+                                <Typography as="p" className="mt-1 text-xs whitespace-pre-line text-muted-foreground">
+                                  {order.pickupDetails.instructions}
+                                </Typography>
+                              ) : null}
+                            </>
+                          ) : (
+                            <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                              The pickup address and instructions are revealed as soon as your payment confirms.
+                            </Typography>
+                          )}
+                        </div>
+                      )}
                       {receipt && (
                         <div className="mt-3 flex flex-col gap-1">
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">

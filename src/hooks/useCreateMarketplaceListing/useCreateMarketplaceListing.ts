@@ -140,6 +140,15 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
       try {
         await uploadListingMedia(preparedMedia.uploads);
         const listing = buildListingRecord(currentUserPubky, data, preparedMedia.media, pendingListingIdRef.current);
+        // Pickup listings: persist the seller's private handoff facts locally
+        // BEFORE the publish — the register command (inside commitUpsertListing)
+        // reads them from here and they never touch the public record.
+        if (data.fulfillment === 'pickup') {
+          await CommerceController.commitUpsertPickupDetails(listing.listingId, {
+            address: data.pickupAddress,
+            instructions: data.pickupInstructions || undefined,
+          });
+        }
         const { registered } = await CommerceController.commitUpsertListing(listing);
         await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;

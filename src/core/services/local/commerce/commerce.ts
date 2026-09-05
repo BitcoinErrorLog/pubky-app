@@ -14,6 +14,7 @@ import {
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceLocksCorrelationModel,
+  CommercePickupDetailsModel,
   CommerceReviewModel,
   CommerceReviewResponseModel,
   CommerceSavedSearchModel,
@@ -439,6 +440,38 @@ export class LocalCommerceService {
 
   static async upsertListing(record: CommerceListingRecord, syncStatus: CommerceCacheStatus): Promise<void> {
     await CommerceListingModel.upsert(this.toListingModel(record, syncStatus));
+  }
+
+  /**
+   * Reads the seller's device-local pickup handoff facts for one of their
+   * own pickup listings. `null` when the listing has none (not a pickup
+   * listing, or created on another device — a device-local store by design).
+   */
+  static async getPickupDetails(
+    sellerPubky: string,
+    listingId: string,
+  ): Promise<{ address: string; instructions?: string } | null> {
+    const row = await CommercePickupDetailsModel.findById(`${sellerPubky}:${listingId}`);
+    return row ? { address: row.address, ...(row.instructions ? { instructions: row.instructions } : {}) } : null;
+  }
+
+  /**
+   * Persists the seller's pickup handoff facts for their own listing,
+   * device-local only. These are never published to the homeserver — the
+   * register command carries them to the transaction service, which reveals
+   * them to the buyer after payment.
+   */
+  static async upsertPickupDetails(
+    sellerPubky: string,
+    listingId: string,
+    details: { address: string; instructions?: string },
+  ): Promise<void> {
+    await CommercePickupDetailsModel.upsert({
+      id: `${sellerPubky}:${listingId}`,
+      address: details.address,
+      ...(details.instructions ? { instructions: details.instructions } : {}),
+      updated_at: Date.now(),
+    });
   }
 
   /**
