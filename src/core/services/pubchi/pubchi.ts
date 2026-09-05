@@ -8,8 +8,8 @@ import {
 } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { extractPubchiErrorCode, pubchiClientError } from '@/libs/pubchi/errors';
-import { getPubchiQueryUrl, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
+import { extractPubchiErrorCode, pubchiClientError, pubchiValidationError } from '@/libs/pubchi/errors';
+import { getPubchiUrlFor, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { PubchiQueryRequest } from '@/services/pubchi/pubchi.types';
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -30,11 +30,16 @@ export class PubchiService {
       });
     }
 
+    const url = getPubchiUrlFor(payload.request.purpose);
+    if (!url) {
+      throw pubchiValidationError('PURPOSE_UNSUPPORTED', 'query');
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(getPubchiQueryUrl(), {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify(payload),
