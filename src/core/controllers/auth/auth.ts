@@ -1,5 +1,5 @@
 import { AuthApplication } from '@/application/auth/auth';
-import type { TKeypairParams } from '@/application/auth/auth.types';
+import type { TKeypairParams, TRestorePersistedSessionResult } from '@/application/auth/auth.types';
 import { BootstrapApplication, type BootstrapProgressCallback } from '@/application/bootstrap/bootstrap';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { MessagingApplication } from '@/application/messaging/messaging';
@@ -23,6 +23,8 @@ import { Logger } from '@/libs/logger/logger';
 import { clearMuteSyncCursorSessionStorage } from '@/libs/mute-sync/clear-cursor-session-storage';
 import { clearAllQueryClients } from '@/libs/query-client/query-client.factory';
 import { clearCookies, sleep } from '@/libs/utils/utils';
+import { suppressVibeSessionAutoRestore } from '@/libs/vibe-session/auto-restore';
+import { isVibeSessionConsumerEnabled } from '@/libs/vibe-session/config';
 import type { Pubky } from '@/models/models.types';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
 import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
@@ -55,39 +57,67 @@ export class AuthController {
 
   /**
    * Restores a persisted session from the auth store.
-   * @returns true on success, false on failure
+   * @returns Discriminated restore outcome for callers (logout vs route restore)
    * @throws Wrong-environment homeserver errors after local cleanup so UI can show feedback
    */
-  static async restorePersistedSession(): Promise<boolean> {
+  static async restorePersistedSession(): Promise<TRestorePersistedSessionResult> {
     const authStore = useAuthStore.getState();
+    let cleanedUp = false;
     try {
       const result = await AuthApplication.restorePersistedSession({ authStore });
-      if (!result) {
-        await this.cleanupLocalState();
-        return false;
+      if (result.status === 'restored') {
+        const { session } = result;
+        const pubky = Identity.z32FromSession({ session });
+        const persistedPubky = authStore.currentUserPubky;
+        const sameIdentity = persistedPubky != null && persistedPubky === pubky;
+
+        try {
+          // Fresh vibe (no persisted identity) or a different pubky must not inherit
+          // the previous account's hasProfile flag or IndexedDB/store snapshot.
+          if (!sameIdentity) {
+            // Application finally already cleared isRestoringSession. Hold loading
+            // through cleanup + profile fetch so useAuthStatus does not settle
+            // UNAUTHENTICATED (redirect churn / re-entrant restore).
+            useAuthStore.getState().setIsRestoringSession(true);
+            await this.cleanupLocalState();
+            cleanedUp = true;
+            useAuthStore.getState().setIsRestoringSession(true);
+          }
+
+          const hasProfile = sameIdentity ? authStore.hasProfile : await AuthApplication.userIsSignedUp({ pubky });
+          useAuthStore.getState().init({
+            session,
+            currentUserPubky: pubky,
+            hasProfile,
+          });
+          // The marketplace bearer session survives reloads in sessionStorage,
+          // scoped to the account whose app session was just restored; anything
+          // persisted for another account is dropped inside the restore.
+          const marketplaceSession = CommerceApplication.restoreMarketplaceSession(pubky);
+          if (marketplaceSession) {
+            useCommerceStore.getState().setMarketplaceSession(marketplaceSession);
+          }
+          return { status: 'restored' };
+        } finally {
+          useAuthStore.getState().setIsRestoringSession(false);
+        }
       }
-      const { session } = result;
-      const initialState = {
-        session,
-        currentUserPubky: Identity.z32FromSession({ session }),
-        hasProfile: authStore.hasProfile,
-      };
-      authStore.init(initialState);
-      // The marketplace bearer session survives reloads in sessionStorage,
-      // scoped to the account whose app session was just restored; anything
-      // persisted for another account is dropped inside the restore.
-      const marketplaceSession = CommerceApplication.restoreMarketplaceSession(initialState.currentUserPubky);
-      if (marketplaceSession) {
-        useCommerceStore.getState().setMarketplaceSession(marketplaceSession);
+      if (result.status === 'deferred') {
+        authStore.setSessionRestoreDeferred(true);
+        return { status: 'deferred' };
       }
-      return true;
+      await this.cleanupLocalState();
+      cleanedUp = true;
+      return { status: 'signed-out' };
     } catch (error) {
       const appError = toAppError(error, ErrorService.Local, 'restorePersistedSession');
-      await this.cleanupLocalState();
+      if (!cleanedUp) {
+        await this.cleanupLocalState();
+      }
       if (isWrongEnvironmentHomeserverError(appError)) {
         throw appError;
       }
-      return false;
+      return { status: 'signed-out' };
     }
   }
 
@@ -386,20 +416,31 @@ export class AuthController {
    * Logs out the current user from both the homeserver and local application state.
    */
   static async logout() {
+    // Set before any await so RouteGuard cannot re-bridge between cleanup and this flag.
+    suppressVibeSessionAutoRestore();
+    AuthApplication.abortInFlightBridgeRequest();
     BootstrapApplication.cancelModerationFollow();
     let authStore = useAuthStore.getState();
 
     // Set logging out flag immediately to prevent flash of weird states in UI
     authStore.setIsLoggingOut(true);
+    authStore.setSessionRestoreDeferred(false);
 
     let session = authStore.session;
 
     // Fresh loads can still have a persisted session export before the live session is restored.
     // Reuse the restore flow so /logout performs a real homeserver sign-out before local cleanup.
-    if (!session && authStore.sessionExport) {
+    if (!session && (authStore.sessionExport || isVibeSessionConsumerEnabled())) {
       try {
-        const didRestoreSession = await this.restorePersistedSession();
-        if (!didRestoreSession) {
+        const restoreResult = await this.restorePersistedSession();
+        if (restoreResult.status === 'signed-out') {
+          return;
+        }
+        if (restoreResult.status === 'deferred') {
+          Logger.warn('Homeserver logout failed, clearing local state anyway', {
+            error: 'Session restore deferred; homeserver sign-out could not run',
+          });
+          await this.cleanupLocalState();
           return;
         }
       } catch (error) {
