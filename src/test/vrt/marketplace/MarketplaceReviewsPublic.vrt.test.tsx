@@ -14,7 +14,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 // verified-by-trusted-attestor, attested-by-unrecognized-signer, unverified —
 // plus the D7 subject response threaded beneath and the subject's composer.
 
-/** The deployed service's attestor — the one entry on the client trust list. */
+/** The staging service's attestor — one of the two entries on the client trust list (staging + production). */
 const TRUSTED_ATTESTOR = 'ws343aqzmcahagojhmhkbri8odqz9iqg61woxbkh9fd3bxhqomdy';
 const SELLER = 's'.repeat(52);
 const BUYER_A = 'a'.repeat(52);
