@@ -28,6 +28,33 @@ import { z } from 'zod';
 // ---------------------------------------------------------------------------
 
 const urlValue = z.url();
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+  } catch {
+    return false;
+  }
+}
+
+/** Production / injected-window: https only, or empty (panel hidden). */
+const pubchiApiUrlHttps = z.string().refine(isHttpsUrl, { message: 'PUBCHI_API_URL must use https' });
+/** Dev/test only: http://localhost or http://127.0.0.1, any port. */
+const pubchiApiUrlLoopbackHttp = z.string().refine(isLoopbackHttpUrl, {
+  message: 'PUBCHI_API_URL http is only allowed for localhost or 127.0.0.1',
+});
+const pubchiApiUrlStrict = z.union([pubchiApiUrlHttps, z.literal('')]);
+const pubchiApiUrlLenient = z.union([pubchiApiUrlHttps, pubchiApiUrlLoopbackHttp, z.literal('')]);
+
 const homeserverValue = z.string().min(1);
 /**
  * Declared deploy identity. Drives environment-gated behavior (e.g. the staging
@@ -274,9 +301,11 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
   pubchiEnabled: z.boolean().default(false),
   /**
    * Pubchi HTTP API base URL. Empty/absent hides the chat panel even when
-   * `pubchiEnabled` is true.
+   * `pubchiEnabled` is true. https required; http://localhost and
+   * http://127.0.0.1 are accepted here so a lenient-parsed local config can
+   * revalidate after window injection. The strict env parse rejects those.
    */
-  pubchiApiUrl: z.union([urlValue, z.literal('')]).default(''),
+  pubchiApiUrl: pubchiApiUrlLenient.default(''),
 });
 
 const lenientRuntimeConfigValueSchema = runtimeConfigValueSchema.extend({
@@ -350,7 +379,7 @@ export const runtimeEnvInputSchema = z
     appStoreUrl: optionalUrlFromString,
     playStoreUrl: optionalUrlFromString,
     pubchiEnabled: optionalBooleanFromString,
-    pubchiApiUrl: optionalTrimmedString.pipe(z.union([urlValue, z.literal('')]).optional()),
+    pubchiApiUrl: optionalTrimmedString.pipe(pubchiApiUrlStrict.optional()),
   })
   .pipe(runtimeConfigValueSchema);
 
@@ -430,7 +459,7 @@ export const runtimeEnvInputSchemaWithDefaults = z
     appStoreUrl: optionalUrlFromString,
     playStoreUrl: optionalUrlFromString,
     pubchiEnabled: optionalBooleanFromString,
-    pubchiApiUrl: optionalTrimmedString.pipe(z.union([urlValue, z.literal('')]).optional()),
+    pubchiApiUrl: optionalTrimmedString.pipe(pubchiApiUrlLenient.optional()),
   })
   .pipe(lenientRuntimeConfigValueSchema);
 
