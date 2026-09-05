@@ -48,7 +48,7 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
             <Typography className={baseCSS}>
               <strong>
                 PLEASE REVIEW THE ARBITRATION PROVISION SET FORTH BELOW CAREFULLY, AS IT WILL REQUIRE ALL PERSONS TO
-                RESOLVE DISPUTES ON AN INDIVIDUAL BASIS THROUGH FINAL AND BINDING ARBITRATION AND TO WAIVE ANY RIGHT TO
+                RESOLVE CLAIMS ON AN INDIVIDUAL BASIS THROUGH FINAL AND BINDING ARBITRATION AND TO WAIVE ANY RIGHT TO
                 PROCEED AS A REPRESENTATIVE OR CLASS MEMBER IN ANY CLASS OR REPRESENTATIVE PROCEEDING. BY USING THE
                 PLATFORM, YOU EXPRESSLY ACKNOWLEDGE THAT YOU HAVE READ AND UNDERSTAND ALL OF THE TERMS OF THIS PROVISION
                 AND HAVE TAKEN TIME TO CONSIDER THE CONSEQUENCES OF THIS IMPORTANT DECISION.
@@ -412,7 +412,7 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
               by you to the Platform and which has been identified as such by Synonym or by a third-party, may
               immediately and without notice to you result in the removal of such Content. You hereby agree to defend,
               indemnify and hold harmless Synonym and its Associates, as to any allegations, demands, claims,
-              investigations or disputes arising from your submission of Content to Synonym and/or monetization of your
+              investigations or claims arising from your submission of Content to Synonym and/or monetization of your
               Content, insofar as it relates to any infringement or violation of the intellectual property rights,
               proprietary rights, contractual rights, or other rights of a third-party.
             </Typography>
@@ -646,15 +646,15 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
             </Typography>
 
             {/** Section 22 */}
-            <Typography className={baseCSS}>MANDATORY RESOLUTION OF DISPUTES THROUGH ARBITRATION</Typography>
+            <Typography className={baseCSS}>MANDATORY RESOLUTION OF CLAIMS THROUGH ARBITRATION</Typography>
             <Typography className={baseCSSItalic}>
-              This Section requires that most disputes relating to the Platform be resolved through individual
+              This Section requires that most claims relating to the Platform be resolved through individual
               arbitration.
             </Typography>
             <Typography className={baseCSS}>
               <strong>Covered Claims:</strong>
               <br />
-              Except for excluded claims described in the paragraph below, Synonym and you each agree that any dispute,
+              Except for excluded claims described in the paragraph below, Synonym and you each agree that any claim,
               claim or controversy arising out of or relating to (i) these Terms or the existence, breach, termination,
               enforcement, interpretation or validity thereof, (ii) your Content or (iii) your use of Pubky at any time,
               will be subject to and finally resolved by confidential, binding arbitration on an individual basis and
@@ -662,9 +662,9 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
               jurisdiction of the United States of America, the interpretation and enforceability of this arbitration
               provision will be governed by the Federal Arbitration Act, 9 U.S.C. §§ 1 et seq. Arbitration will be
               conducted through the use of videoconferencing technology (unless both parties agree that an in-person
-              hearing is appropriate given the nature of the dispute) before a single arbitrator in accordance with the
+              hearing is appropriate given the nature of the claim) before a single arbitrator in accordance with the
               LCIA Rules. The sole arbitrator must be a legal practitioner in London, England with at least fifteen (15)
-              years of experience in commercial disputes, that holds a current practising certificate. If an arbitrator
+              years of experience in commercial claims, that holds a current practising certificate. If an arbitrator
               cannot be jointly appointed by the arbitration parties within thirty (30) days of the commencement of the
               arbitration, an arbitrator meeting the above qualifications will be selected under the Arbitration Rules
               of the London Court of International Arbitration (LCIA). Judgement upon the award rendered by the
@@ -693,7 +693,7 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
               The arbitrator will have the power to hear and determine challenges to its jurisdiction, including any
               objections with respect to the formation, existence, scope, enforceability or validity of the arbitration
               agreement. This authority extends to jurisdictional challenges with respect to both the subject matter of
-              the dispute and the parties to the arbitration. Further, the arbitrator will have the power to determine
+              the claim and the parties to the arbitration. Further, the arbitrator will have the power to determine
               the existence, validity, or scope of the contract of which an arbitration clause forms a part. For the
               purposes of challenges to the jurisdiction of the arbitrator, each clause in this section will be
               considered as separable from any contract of which it forms a part. Any challenges to the jurisdiction of
@@ -813,7 +813,7 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
               <strong>Governing law:</strong>
               <br />
               These Terms shall be governed by and construed and enforced in accordance with the Laws of the England and
-              Wales and shall be interpreted in all respects as an English law contract. Any transaction, dispute,
+              Wales and shall be interpreted in all respects as an English law contract. Any transaction, claim,
               controversy, claim or action arising from or related to your access to the Platform or these Terms shall
               be governed by the Laws of England and Wales, exclusive of choice-of-law principles.
             </Typography>

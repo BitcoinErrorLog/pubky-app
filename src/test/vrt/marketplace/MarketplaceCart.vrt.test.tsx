@@ -294,7 +294,7 @@ describe('Marketplace cart — visual regression', () => {
   });
 
   // Durable transaction-service mode: no "sandbox" wording on the guarantee
-  // label, tax note, or submit button — the copy states what is actually true.
+  // label or submit button — the copy states what is actually true.
   it('renders the durable-mode checkout labels at desktop viewport', async () => {
     const { singleSeller } = await fixtures;
     view.items = singleSeller;

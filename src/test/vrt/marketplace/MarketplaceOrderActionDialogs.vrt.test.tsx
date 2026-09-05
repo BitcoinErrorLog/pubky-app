@@ -5,7 +5,7 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 
-// The post-purchase action dialogs: return request, dispute, review, shipment
+// The post-purchase action dialogs: return request, review, shipment
 // tracking, and external-refund evidence. These are the forms the buyer and
 // seller journeys submit, so each one needs a rendered baseline of its open
 // state — the order timelines only baseline the resulting card states.
@@ -56,18 +56,6 @@ describe('Marketplace order action dialogs — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-order-return-open-mobile');
   });
 
-  it('renders the open dispute dialog at desktop viewport', async () => {
-    const { deliveredOrder } = await fixtures;
-
-    const screen = await renderForVRT(
-      <ActionsHarness>
-        <MarketplaceOrderActions order={deliveredOrder} isBuyer canEditReview={false} actOnOrder={async () => false} />
-      </ActionsHarness>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
-    await openDialog(screen.getByRole('button', { name: 'Open dispute' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-order-dispute-open-desktop');
-  });
 
   it('renders the open review form at desktop viewport', async () => {
     const { deliveredOrder } = await fixtures;

@@ -261,16 +261,6 @@ vi.mock('@/hooks/useMarketplaceMessages/useMarketplaceMessages', async () => {
   };
 });
 
-vi.mock('@/hooks/useMarketplaceReport/useMarketplaceReport', async () => {
-  const { useForm } = await import('react-hook-form');
-  const { marketplaceReportDefaults } = await import('@/hooks/useMarketplaceReport/useMarketplaceReport.types');
-  return {
-    useMarketplaceReport: () => ({
-      form: useForm({ defaultValues: marketplaceReportDefaults }),
-      submit: vi.fn(async () => false),
-    }),
-  };
-});
 
 vi.mock('@/hooks/useMarketplaceBid/useMarketplaceBid', async () => {
   const { useForm } = await import('react-hook-form');

@@ -38,7 +38,6 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
       deliveryAddress: { line1: '1 Secret Lane' },
       paymentAddress: 'bc1qsecret',
       messageBody: 'private message text',
-      evidenceBody: 'dispute evidence text',
       bundleId: 'bearer-bundle',
     } as MarketplaceNotification;
 
@@ -54,7 +53,6 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
       '1 Secret Lane',
       'bc1qsecret',
       'private message text',
-      'dispute evidence text',
       'bearer-bundle',
     ]) {
       expect(serialized).not.toContain(leaked);
@@ -110,7 +108,6 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
     order_delivered: MARKETPLACE_ROUTES.ORDERS,
     return_updated: MARKETPLACE_ROUTES.ORDERS,
     refund_recorded: MARKETPLACE_ROUTES.ORDERS,
-    dispute_updated: MARKETPLACE_ROUTES.ORDERS,
     review_received: MARKETPLACE_ROUTES.ORDERS,
   };
 

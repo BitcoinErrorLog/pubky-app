@@ -25,7 +25,6 @@ const NOTIFICATION_TYPE_UNREAD = {
   order_delivered: false,
   return_updated: true,
   refund_recorded: false,
-  dispute_updated: true,
   review_received: false,
 } as const satisfies Record<MarketplaceNotification['type'], boolean>;
 

@@ -21,7 +21,6 @@ export const ORDER_STATES = [
   'return_requested',
   'return_approved',
   'return_received',
-  'disputed',
   'refunded_external',
   'closed',
 ] as const satisfies readonly MarketplaceOrder['state'][];
@@ -67,8 +66,7 @@ export function createOrderFixture(
     ],
     subtotal: usd(12_500),
     shipping: usd(1_200),
-    tax: usd(1_096),
-    total: usd(14_796),
+    total: usd(13_700),
     guaranteePolicyVersion: 1,
     paymentId: uuid(100 + stateIndex),
     receiptId: state === 'pending_payment' ? null : uuid(200 + stateIndex),
@@ -86,27 +84,14 @@ export function createOrderFixture(
       ? {
           state: state === 'return_requested' ? 'requested' : state === 'return_approved' ? 'approved' : 'received',
           reason: 'Item does not match the described condition',
-          requestedAmountMinor: 14_796,
+          requestedAmountMinor: 13_700,
           requestedAt: '2026-08-18T09:00:00.000Z',
           updatedAt: '2026-08-19T09:00:00.000Z',
         }
       : null,
     externalRefund:
       state === 'refunded_external'
-        ? { amountMinor: 14_796, transactionId: 'f'.repeat(64), recordedAt: '2026-08-19T18:00:00.000Z' }
-        : null,
-    dispute:
-      state === 'disputed'
-        ? {
-            state: 'open' as const,
-            openedBy: ORDER_FIXTURE_BUYER,
-            reason: 'Seller stopped responding after delivery exception',
-            requestedRemedy: 'refund' as const,
-            resolution: null,
-            rationale: null,
-            openedAt: '2026-08-19T12:00:00.000Z',
-            resolvedAt: null,
-          }
+        ? { amountMinor: 13_700, transactionId: 'f'.repeat(64), recordedAt: '2026-08-19T18:00:00.000Z' }
         : null,
     createdAt: '2026-08-12T08:00:00.000Z',
     updatedAt: '2026-08-19T20:00:00.000Z',
@@ -129,7 +114,7 @@ export function createPaymentFixture(
     state,
     confirmations: state === 'confirmed' ? 6 : state === 'detected' ? 0 : 0,
     locksBundleId: uuid(400 + stateIndex),
-    amount: usd(14_796),
+    amount: usd(13_700),
     createdAt: '2026-08-12T08:00:00.000Z',
     updatedAt: '2026-08-19T20:00:00.000Z',
     ...overrides,
@@ -143,7 +128,7 @@ export function createReceiptFixture(overrides: Partial<MarketplaceReceipt> = {}
     paymentId: uuid(302),
     issuerPubky: ORDER_FIXTURE_SELLER,
     recipientPubky: ORDER_FIXTURE_BUYER,
-    total: usd(14_796),
+    total: usd(13_700),
     contentHash: 'c'.repeat(64),
     issuedAt: '2026-08-13T09:00:00.000Z',
     ...overrides,

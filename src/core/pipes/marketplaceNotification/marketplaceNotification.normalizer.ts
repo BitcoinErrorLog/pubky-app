@@ -78,7 +78,6 @@ export class MarketplaceNotificationNormalizer {
       case 'order_delivered':
       case 'return_updated':
       case 'refund_recorded':
-      case 'dispute_updated':
       case 'review_received':
         return MARKETPLACE_ROUTES.ORDERS;
     }

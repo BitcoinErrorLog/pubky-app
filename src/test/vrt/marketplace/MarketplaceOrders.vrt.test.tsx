@@ -199,38 +199,6 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.adapterMode = 'sandbox';
   });
 
-  // Post-adjudication rendering: the dispute carries a resolution, the order
-  // awaits the external refund, and in durable mode the participant case-file
-  // button is present. This is the state a moderator's `dispute.resolve`
-  // leaves the buyer looking at.
-  it('renders a resolved dispute awaiting its external refund in durable mode at desktop viewport', async () => {
-    const { everyOrderState } = await fixtures;
-    const disputedView = everyOrderState.find(({ order }) => (order as { state: string }).state === 'disputed');
-    if (!disputedView) throw new Error('The order fixtures no longer include a disputed order.');
-    const disputed = disputedView.order as { dispute: Record<string, unknown> | null };
-    ordersState.orders = [
-      {
-        ...disputedView,
-        order: {
-          ...disputedView.order,
-          dispute: {
-            ...disputed.dispute,
-            state: 'resolved',
-            resolution: 'buyer_refund',
-            rationale: 'Photos support the buyer. Refund externally and close.',
-            resolvedAt: '2026-08-20T10:00:00.000Z',
-          },
-        },
-      },
-    ];
-    ordersState.isLoading = false;
-    ordersState.error = null;
-    ordersState.adapterMode = 'transaction-service';
-
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-dispute-resolved-durable-desktop');
-    ordersState.adapterMode = 'sandbox';
-  });
 
   // `review.update` is durable-only with a 24-hour window from the review's
   // creation: inside the window the reviewer gets an Edit review affordance;

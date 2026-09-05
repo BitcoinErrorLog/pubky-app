@@ -149,27 +149,6 @@ describe('marketplace transaction service integration', () => {
       error: { code: 'REVISION_CONFLICT', currentRevision: 2 },
     });
 
-    // trust.report + role-scoped GET /v1/reports: a non-moderator reads
-    // exactly the reports they filed.
-    const reportCommandId = crypto.randomUUID();
-    const reportResponse = await MarketplaceGatewayService.execute(buyer, {
-      version: 1 as const,
-      commandId: reportCommandId,
-      aggregateId: `report:${reportCommandId}`,
-      expectedRevision: 0,
-      issuedAt: new Date().toISOString(),
-      kind: 'trust.report' as const,
-      payload: {
-        targetType: 'listing' as const,
-        targetId: registerCommand.aggregateId,
-        reason: 'other' as const,
-        details: 'Integration test report.',
-      },
-    });
-    expect(reportResponse).toMatchObject({ ok: true, result: { kind: 'report' } });
-    const reports = await MarketplaceGatewayService.getReports(buyer);
-    expect(reports.length).toBeGreaterThanOrEqual(1);
-    expect(reports.every((report) => report.reporterPubky === buyer)).toBe(true);
 
     // Sandbox-only affordances stay client-rejected in this mode — no bytes sent.
     await expect(

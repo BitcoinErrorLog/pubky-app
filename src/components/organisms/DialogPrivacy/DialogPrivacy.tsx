@@ -62,7 +62,7 @@ export function DialogPrivacy({ trigger }: DialogPrivacyProps) {
               We will retain each of these categories of personal information for as long as it is necessary for the
               purposes for which it was collected. Retention periods are determined based on: (i) duration of the user
               relationship; (ii) legal and regulatory requirements; (iii) security and fraud-prevention needs; and (iv)
-              dispute resolution obligations. When data is no longer required, it is securely deleted or anonymized.
+              claim resolution obligations. When data is no longer required, it is securely deleted or anonymized.
             </Typography>
 
             {/** Section 3 */}

@@ -7,7 +7,6 @@ import { USD_ASSET } from '@/libs/commerce/pricing';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
-import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
 
 // 8x8 solid-color PNG so the message-attachment scenario shows a real image
 // without any network fetch.
@@ -61,17 +60,6 @@ vi.mock('@/hooks/useMarketplaceOffer/useMarketplaceOffer', async () => {
       form: useForm({ defaultValues: marketplaceOfferDefaults }),
       submit: vi.fn(async () => false),
       reset: vi.fn(),
-    }),
-  };
-});
-
-vi.mock('@/hooks/useMarketplaceReport/useMarketplaceReport', async () => {
-  const { useForm } = await import('react-hook-form');
-  const { marketplaceReportDefaults } = await import('@/hooks/useMarketplaceReport/useMarketplaceReport.types');
-  return {
-    useMarketplaceReport: () => ({
-      form: useForm({ defaultValues: marketplaceReportDefaults }),
-      submit: vi.fn(async () => false),
     }),
   };
 });
@@ -205,16 +193,4 @@ describe('Marketplace dialogs — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-message-empty-open-desktop');
   });
 
-  it('renders the open report dialog at desktop viewport', async () => {
-    const { seller } = await fixtures;
-
-    const screen = await renderForVRT(
-      <DialogHarness>
-        <MarketplaceReportDialog targetId={`listing:${seller}_leather_boots`} />
-      </DialogHarness>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
-    await openDialog(screen.getByRole('button', { name: 'Report listing' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-report-open-desktop');
-  });
 });
