@@ -1,0 +1,41 @@
+/**
+ * Vendored from @pubky/pubchi-schemas (pubky-ai-bot-pubchi).
+ * Source commit: bbf8a73
+ * Do not redefine these contracts.
+ */
+
+import { err, type ParseResult } from './codes';
+import { parseCommonEnvelopeV1 } from './envelope';
+import { parseFeedProposalV1 } from './feed';
+import { parseManifestV1 } from './manifest';
+import { parseQueryResultV1 } from './query';
+import { parseRequestBindingV1, parseRequestObjectV1 } from './request';
+import { parseOwnerBindingV1, parseTenantV1 } from './tenant';
+
+export function parseBySchema(input: unknown): ParseResult<unknown> {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return err('SCHEMA_INVALID');
+  }
+  const schema = (input as { schema?: unknown }).schema;
+  switch (schema) {
+    case 'pubchi-tenant':
+      return parseTenantV1(input);
+    case 'pubchi-owner-binding':
+      return parseOwnerBindingV1(input);
+    case 'pubchi-request':
+      return parseRequestBindingV1(input);
+    case 'pubchi-request-object':
+      return parseRequestObjectV1(input);
+    case 'pubchi-feed-proposal':
+      return parseFeedProposalV1(input);
+    case 'pubchi-query-result':
+      return parseQueryResultV1(input);
+    case 'pubchi-manifest':
+      return parseManifestV1(input);
+    case 'pubchi-config':
+    case 'pubchi-envelope':
+      return parseCommonEnvelopeV1(input);
+    default:
+      return err('SCHEMA_INVALID');
+  }
+}
