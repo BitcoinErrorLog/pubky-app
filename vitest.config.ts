@@ -54,6 +54,12 @@ export default defineConfig({
       // VRT(Visual Regression Tests) run in real browsers via Playwright.
       {
         plugins: [react(), tsconfigPaths()],
+        // Keep `node_modules` on its project-root path when that directory is a
+        // symlink (shared cache). Vite otherwise realpaths into `@fs/...` and
+        // serves woff2/CSS without the `?url` transform.
+        resolve: {
+          preserveSymlinks: true,
+        },
         optimizeDeps: {
           include: [
             'react',
