@@ -29,6 +29,7 @@ const WRAPPING_KEY_RECORD_ID = 'wrapping-key';
 
 let cachedKey: CryptoKey | null = null;
 let keyringDbPromise: Promise<IDBDatabase> | null = null;
+let wrappingKeyPromise: Promise<CryptoKey> | null = null;
 
 /**
  * Fail-closed precondition for every custody operation: AES-GCM wrapping
@@ -78,13 +79,6 @@ function openKeyringDb(): Promise<IDBDatabase> {
   return keyringDbPromise;
 }
 
-function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Messaging keyring request failed'));
-  });
-}
-
 function isUsableWrappingKey(candidate: unknown): candidate is CryptoKey {
   return (
     typeof candidate === 'object' &&
@@ -102,35 +96,48 @@ function isUsableWrappingKey(candidate: unknown): candidate is CryptoKey {
  * NON-EXTRACTABLE AES-GCM-256 key on first use. The resolved key is cached
  * in memory for the session (one IDB read per load, zero per wrap).
  *
+ * Creation is race-proof in both directions: the whole load-or-create is
+ * single-flighted behind one module-level promise (two concurrent in-tab
+ * first-use callers share it, so exactly one key is ever generated per
+ * tab), and the read + write run inside ONE `readwrite` transaction as
+ * get-then-`add` — a `ConstraintError` means another tab won the create
+ * race, in which case this caller re-reads and adopts the STORED key
+ * (persisting its own would orphan every row wrapped under the winner).
+ * When the platform offers Web Locks, the create path additionally runs
+ * inside a named lock for hard cross-tab exclusion.
+ *
  * Throws (fail closed) when WebCrypto/IDB is unavailable or persistence
  * fails — callers must never see a "keyless" mode.
  */
 export async function getOrCreateWrappingKey(): Promise<CryptoKey> {
   if (cachedKey) return cachedKey;
+  if (!wrappingKeyPromise) {
+    const pending = loadOrCreateWrappingKey().then((key) => {
+      cachedKey = key;
+      return key;
+    });
+    // A failed load stays retryable on the next call — but only clear the
+    // slot if no newer attempt has already taken it.
+    pending.catch(() => {
+      if (wrappingKeyPromise === pending) wrappingKeyPromise = null;
+    });
+    wrappingKeyPromise = pending;
+  }
+  return wrappingKeyPromise;
+}
+
+async function loadOrCreateWrappingKey(): Promise<CryptoKey> {
   assertMessagingCryptoAvailable('getOrCreateWrappingKey');
   try {
-    const db = await openKeyringDb();
-    const existing = await idbRequest(
-      db.transaction(KEYRING_STORE_NAME, 'readonly').objectStore(KEYRING_STORE_NAME).get(WRAPPING_KEY_RECORD_ID),
-    );
-    if (isUsableWrappingKey(existing)) {
-      cachedKey = existing;
-      return existing;
+    // Hard cross-tab exclusion when available: two tabs racing first use
+    // (e.g. the boot sweep) serialize on this lock, so the loser's read
+    // below sees the winner's key. Falls back cleanly to the get-then-add
+    // guard when Web Locks is unavailable.
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+    if (locks && typeof locks.request === 'function') {
+      return await locks.request(KEYRING_DB_NAME, () => readOrAddWrappingKey());
     }
-    if (existing !== undefined) {
-      // A record that is not a usable AES-GCM key can never unwrap anything;
-      // replace it rather than failing every row read forever.
-      Logger.warn('Messaging keyring held an unusable record; replacing it with a fresh wrapping key');
-    }
-    const generated = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
-      'encrypt',
-      'decrypt',
-    ]);
-    await idbRequest(
-      db.transaction(KEYRING_STORE_NAME, 'readwrite').objectStore(KEYRING_STORE_NAME).put(generated, WRAPPING_KEY_RECORD_ID),
-    );
-    cachedKey = generated;
-    return generated;
+    return await readOrAddWrappingKey();
   } catch (error) {
     throw Err.database(
       DatabaseErrorCode.INIT_FAILED,
@@ -141,6 +148,66 @@ export async function getOrCreateWrappingKey(): Promise<CryptoKey> {
 }
 
 /**
+ * The read-modify-write behind {@link getOrCreateWrappingKey}: get-then-`add`
+ * (never `put`) inside ONE `readwrite` transaction, so a concurrent creator
+ * in another tab surfaces as a `ConstraintError` instead of silently
+ * overwriting the stored key. The fresh key is generated BEFORE the
+ * transaction opens — an awaited WebCrypto call between two requests would
+ * let the transaction auto-commit and close.
+ */
+function readOrAddWrappingKey(): Promise<CryptoKey> {
+  return (async () => {
+    const db = await openKeyringDb();
+    const generated = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
+      'encrypt',
+      'decrypt',
+    ]);
+    return new Promise<CryptoKey>((resolve, reject) => {
+      const transaction = db.transaction(KEYRING_STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(KEYRING_STORE_NAME);
+
+      const adoptExistingOrAdd = (existing: unknown) => {
+        if (isUsableWrappingKey(existing)) {
+          resolve(existing);
+          return;
+        }
+        if (existing !== undefined) {
+          // A record that is not a usable AES-GCM key can never unwrap anything;
+          // replace it rather than failing every row read forever.
+          Logger.warn('Messaging keyring held an unusable record; replacing it with a fresh wrapping key');
+        }
+        const addRequest = store.add(generated, WRAPPING_KEY_RECORD_ID);
+        addRequest.onsuccess = () => resolve(generated);
+        addRequest.onerror = (event) => {
+          if (addRequest.error?.name !== 'ConstraintError') {
+            reject(addRequest.error ?? new Error('Failed to persist the messaging wrapping key'));
+            return;
+          }
+          // Another tab won the create race between our read and this add.
+          // Keep the transaction alive (a request error aborts it by default)
+          // and adopt the stored key — NEVER persist ours.
+          event.preventDefault();
+          const rereadRequest = store.get(WRAPPING_KEY_RECORD_ID);
+          rereadRequest.onsuccess = () => {
+            if (isUsableWrappingKey(rereadRequest.result)) {
+              resolve(rereadRequest.result);
+            } else {
+              reject(new Error('Messaging keyring create race lost, but the winning record is unusable'));
+            }
+          };
+          rereadRequest.onerror = () =>
+            reject(rereadRequest.error ?? new Error('Messaging keyring re-read after a lost create race failed'));
+        };
+      };
+
+      const getRequest = store.get(WRAPPING_KEY_RECORD_ID);
+      getRequest.onsuccess = () => adoptExistingOrAdd(getRequest.result);
+      getRequest.onerror = () => reject(getRequest.error ?? new Error('Messaging keyring read failed'));
+    });
+  })();
+}
+
+/**
  * Deletes the wrapping key and its database. Best-effort: called from
  * `clearDatabase()` on sign-out/account switch, where every wrapped row is
  * being wiped anyway — a key that outlives its ciphertexts protects nothing,
@@ -148,6 +215,7 @@ export async function getOrCreateWrappingKey(): Promise<CryptoKey> {
  */
 export async function deleteWrappingKeyStore(): Promise<void> {
   cachedKey = null;
+  wrappingKeyPromise = null;
   if (keyringDbPromise) {
     try {
       (await keyringDbPromise).close();
