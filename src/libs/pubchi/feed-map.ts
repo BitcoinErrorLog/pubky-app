@@ -37,7 +37,7 @@ export function feedProposalToCreateParams(proposal: FeedProposalV1): TFeedCreat
   const reach = REACH[config.reach];
   const sort = SORT[config.sort];
   const layout = LAYOUT[config.layout];
-  if (!reach || !sort || !layout) {
+  if (reach === undefined || sort === undefined || layout === undefined) {
     throw new Error('FEED_SPECS_INVALID');
   }
   const content = config.content ? (CONTENT[config.content] ?? null) : null;

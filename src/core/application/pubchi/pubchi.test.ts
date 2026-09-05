@@ -108,7 +108,7 @@ describe('PubchiApplication', () => {
         secretSeed: keypair.secret(),
         nowSeconds: 100,
       }),
-    ).rejects.toThrow('VERSION_UNSUPPORTED');
+    ).rejects.toThrow('SCHEMA_INVALID');
   });
 
   it('does not query when the flag is off', async () => {
@@ -161,7 +161,24 @@ describe('PubchiApplication', () => {
       nowSeconds: 100,
     });
     expect(result).toEqual({ kind: 'feed', result: feedProposal, applyAllowed: true });
+    expect(vi.mocked(PubchiService.query).mock.calls[0][0].request.purpose).toBe('build-feed');
   });
+
+  it.each(['what I missed', 'summarize my week'])(
+    'refuses unserved purpose for %s without a request',
+    async (question) => {
+      const querySpy = vi.spyOn(PubchiService, 'query');
+      await expect(
+        PubchiApplication.query({
+          owner: OWNER,
+          question,
+          secretSeed: keypair.secret(),
+          nowSeconds: 100,
+        }),
+      ).rejects.toThrow('PURPOSE_UNSUPPORTED');
+      expect(querySpy).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not allow Apply for likes proposals', async () => {
     vi.spyOn(PubchiService, 'query').mockResolvedValue({

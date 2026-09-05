@@ -3,7 +3,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
-import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
+import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
 import {
   bodySha256,
   ownerBindingUri,
@@ -143,6 +143,11 @@ export class PubchiApplication {
       });
     }
 
+    const purpose = inferPurpose(question);
+    if (!pubchiEndpointFor(purpose)) {
+      throw pubchiValidationError('PURPOSE_UNSUPPORTED', 'query');
+    }
+
     const body: PubchiAskBody = { question };
     const issuedAt = params.nowSeconds ?? Math.floor(Date.now() / 1000);
     const unsigned: UnsignedRequestObjectV1 = {
@@ -150,7 +155,7 @@ export class PubchiApplication {
       version: 1,
       asker: params.owner,
       bot: binding.bot,
-      purpose: inferPurpose(question),
+      purpose,
       body_sha256: await bodySha256(body),
       issued_at: issuedAt,
       expires_at: issuedAt + REQUEST_TTL_SECONDS,
@@ -164,20 +169,31 @@ export class PubchiApplication {
 }
 
 function interpretQueryResponse(response: unknown): PubchiQuerySuccess {
-  const query = parseQueryResultV1(response);
-  if (query.ok) return { kind: 'query', result: query.value };
-
-  const feed = parseFeedProposalV1(response);
-  if (feed.ok) return { kind: 'feed', result: feed.value, applyAllowed: true };
-
-  if (
-    feed.code === 'FEED_UNSUPPORTED_LIKES' ||
-    feed.code === 'FEED_UNSUPPORTED_REACH' ||
-    feed.code === 'FEED_SPECS_INVALID'
-  ) {
-    return { kind: 'feed-unsupported', code: feed.code };
+  const schema = responseSchema(response);
+  if (schema === 'pubchi-query-result') {
+    const query = parseQueryResultV1(response);
+    if (query.ok) return { kind: 'query', result: query.value };
+    throw pubchiValidationError(query.code, 'query');
+  }
+  if (schema === 'pubchi-feed-proposal') {
+    const feed = parseFeedProposalV1(response);
+    if (feed.ok) return { kind: 'feed', result: feed.value, applyAllowed: true };
+    if (
+      feed.code === 'FEED_UNSUPPORTED_LIKES' ||
+      feed.code === 'FEED_UNSUPPORTED_REACH' ||
+      feed.code === 'FEED_SPECS_INVALID'
+    ) {
+      return { kind: 'feed-unsupported', code: feed.code };
+    }
+    throw pubchiValidationError(feed.code, 'query');
   }
 
-  const code = extractPubchiErrorCode(response) ?? query.code;
+  const code = extractPubchiErrorCode(response) ?? 'SCHEMA_INVALID';
   throw pubchiValidationError(code, 'query');
+}
+
+function responseSchema(response: unknown): string | undefined {
+  if (response === null || typeof response !== 'object' || Array.isArray(response)) return undefined;
+  const schema = (response as { schema?: unknown }).schema;
+  return typeof schema === 'string' ? schema : undefined;
 }
