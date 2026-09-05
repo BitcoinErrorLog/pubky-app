@@ -1,4 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  dropCachedWrappingKeyForTests,
+  resetMessagingKeyringForTests,
+} from '@/libs/crypto/messaging-keyring';
+import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
+import { isAppError } from '@/libs/error/error';
 import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
@@ -52,6 +58,11 @@ describe('LocalMessagingService', () => {
       CommerceMessagingMessageModel.clear(),
       CommerceMessagingOutboxModel.clear(),
     ]);
+    await resetMessagingKeyringForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('stores one receiver per account keyed by pubky', async () => {
@@ -257,5 +268,113 @@ describe('LocalMessagingService', () => {
     expect([...(link?.snapshot ?? [])]).toEqual([3, 4]);
     await LocalMessagingService.deleteLink(OWNER, COUNTERPARTY);
     await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toBeNull();
+  });
+
+  describe('at-rest wrapping of key material', () => {
+    function receiverRow() {
+      return {
+        id: OWNER,
+        noise_secret: new Uint8Array(32).fill(7),
+        noise_public_key: 'n'.repeat(52),
+        receiver_path: 'marketplace/wallet',
+        marker_published: true,
+        created_at: 1,
+        updated_at: 1,
+      };
+    }
+
+    function linkRow() {
+      return {
+        owner_id: OWNER,
+        counterparty_pubky: COUNTERPARTY,
+        role: 'initiator' as const,
+        status: 'handshaking' as const,
+        local_receiver_path: 'marketplace/wallet',
+        remote_receiver_path: 'marketplace/wallet',
+        remote_noise_public_key: 'p'.repeat(52),
+        snapshot: new Uint8Array([1, 2]),
+        created_at: 1,
+        updated_at: 1,
+      };
+    }
+
+    it('stores receiver secrets wrapped (never plaintext) and unwraps them on read', async () => {
+      await LocalMessagingService.upsertReceiver(receiverRow());
+
+      const raw = await CommerceMessagingReceiverModel.findById(OWNER);
+      expect(raw?.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
+      expect(raw?.noise_secret.byteLength).toBe(WRAP_IV_BYTES + 32 + 16);
+      expect([...(raw?.noise_secret ?? [])]).not.toEqual([...new Uint8Array(32).fill(7)]);
+
+      const read = await LocalMessagingService.getReceiver(OWNER);
+      expect([...(read?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(7)]);
+    });
+
+    it('stores link snapshots wrapped (never plaintext) and unwraps them on read', async () => {
+      await LocalMessagingService.upsertLink(linkRow());
+
+      const raw = await CommerceMessagingLinkModel.findById(`${OWNER}:${COUNTERPARTY}`);
+      expect(raw?.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
+      expect([...(raw?.snapshot ?? [])]).not.toEqual([1, 2]);
+
+      const read = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
+      expect([...(read?.snapshot ?? [])]).toEqual([1, 2]);
+    });
+
+    it('binds ciphertexts to their row id: a transplanted receiver secret reads as lost, not as the secret', async () => {
+      await LocalMessagingService.upsertReceiver(receiverRow());
+      const raw = await CommerceMessagingReceiverModel.findById(OWNER);
+
+      // Transplant the wrapped bytes into a DIFFERENT row id (AAD mismatch).
+      const other = 'b'.repeat(52);
+      await CommerceMessagingReceiverModel.upsert({ ...receiverRow(), ...raw, id: other });
+
+      await expect(LocalMessagingService.getReceiver(other)).resolves.toBeNull();
+      // The original row still unwraps fine.
+      await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toMatchObject({ marker_published: true });
+    });
+
+    it('treats a tampered link snapshot as lost: getLink null, getLinksByOwner skips it', async () => {
+      await LocalMessagingService.upsertLink(linkRow());
+      const raw = await CommerceMessagingLinkModel.findById(`${OWNER}:${COUNTERPARTY}`);
+      const tampered = new Uint8Array(raw!.snapshot);
+      tampered[tampered.byteLength - 1] ^= 0xff;
+      await CommerceMessagingLinkModel.upsert({ ...raw!, snapshot: tampered });
+
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toBeNull();
+      await expect(LocalMessagingService.getLinksByOwner(OWNER)).resolves.toHaveLength(0);
+    });
+
+    it('still reads legacy plaintext rows (wrap_version absent) until the migration wraps them', async () => {
+      // Written directly through the model, as the pre-5 build did.
+      await CommerceMessagingReceiverModel.upsert(receiverRow());
+      const read = await LocalMessagingService.getReceiver(OWNER);
+      expect([...(read?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(7)]);
+    });
+
+    it('fails closed on write when WebCrypto is unavailable — no plaintext row is stored', async () => {
+      dropCachedWrappingKeyForTests();
+      const { subtle: _subtle, ...rest } = globalThis.crypto;
+      vi.stubGlobal('crypto', rest);
+
+      await expect(LocalMessagingService.upsertReceiver(receiverRow())).rejects.toSatisfy((error) =>
+        isAppError(error),
+      );
+      await expect(CommerceMessagingReceiverModel.findById(OWNER)).resolves.toBeNull();
+    });
+
+    it('treats the receiver as lost when the wrapping key is gone, and re-provisioning recovers', async () => {
+      await LocalMessagingService.upsertReceiver(receiverRow());
+
+      // The wrapping key is lost (profile wiped without the database).
+      await resetMessagingKeyringForTests();
+      await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toBeNull();
+
+      // The re-enable affordance: provisioning writes a fresh receiver, wrapped
+      // under the newly generated key, and reads work again.
+      await LocalMessagingService.upsertReceiver({ ...receiverRow(), noise_secret: new Uint8Array(32).fill(9) });
+      const read = await LocalMessagingService.getReceiver(OWNER);
+      expect([...(read?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(9)]);
+    });
   });
 });

@@ -15,6 +15,8 @@ import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
+import { resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
+import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
 import { CommerceMessagingLinkModel, CommerceMessagingMessageModel } from '@/models/messaging/messaging.models';
 import {
   CommerceMessagingConversationModel,
@@ -844,6 +846,83 @@ describe('PaykitMessagingService', () => {
       await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(true);
       const after = await LocalMessagingService.getReceiver(OWNER);
       expect(after?.noise_secret).toEqual(before?.noise_secret);
+    });
+  });
+
+  describe('at-rest wrapping of key material', () => {
+    it('stores the receiver Noise secret WRAPPED — never plaintext — and unwraps it on read', async () => {
+      const enabled = await enableMessaging(world);
+
+      // The fake binding's first generated secret is deterministic (fill(1)).
+      const raw = await CommerceMessagingReceiverModel.findById(OWNER);
+      expect(raw?.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
+      expect(raw?.noise_secret.byteLength).toBe(WRAP_IV_BYTES + 32 + 16);
+      expect([...(raw?.noise_secret ?? [])]).not.toEqual([...new Uint8Array(32).fill(1)]);
+
+      // The service read unwraps transparently.
+      const receiver = await LocalMessagingService.getReceiver(OWNER);
+      expect([...(receiver?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(1)]);
+      expect(receiver?.noise_public_key).toBe(enabled.noisePublicKey);
+    });
+
+    it('stores link snapshots WRAPPED — never plaintext — and unwraps them on read', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      // The fake handshake's initial snapshot is [72, 1, 0].
+      const raw = await CommerceMessagingLinkModel.findById(`${OWNER}:${COUNTERPARTY}`);
+      expect(raw?.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
+      expect([...(raw?.snapshot ?? [])]).not.toEqual([72, 1, 0]);
+
+      const link = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
+      expect([...(link?.snapshot ?? [])]).toEqual([72, 1, 0]);
+    });
+
+    it('treats the receiver as lost when the wrapping key is gone, and re-enable re-provisions it', async () => {
+      await enableMessaging(world);
+      await expect(LocalMessagingService.getReceiver(OWNER)).resolves.not.toBeNull();
+
+      // The wrapping key is lost (profile wiped without the database): the
+      // stored receiver ciphertext can never authenticate again.
+      await resetMessagingKeyringForTests();
+      await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toBeNull();
+      await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(false);
+
+      // The existing re-enable affordance: provisioning generates a FRESH
+      // receiver secret (the fake's second key, fill(2)), stored wrapped under
+      // the newly generated wrapping key, and republishes the marker.
+      PaykitMessagingService.clearSession();
+      await enableMessaging(world);
+      const receiver = await LocalMessagingService.getReceiver(OWNER);
+      expect([...(receiver?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(2)]);
+      expect(receiver?.marker_published).toBe(true);
+      const raw = await CommerceMessagingReceiverModel.findById(OWNER);
+      expect(raw?.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
+      expect(raw?.noise_secret.byteLength).toBe(WRAP_IV_BYTES + 32 + 16);
+    });
+
+    it('treats a tampered link snapshot as lost and starts a fresh handshake instead of restoring', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+      world.advanceScript.push('complete');
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      // Tamper with the stored (wrapped) snapshot bytes directly at the model layer.
+      const raw = await CommerceMessagingLinkModel.findById(`${OWNER}:${COUNTERPARTY}`);
+      const tampered = new Uint8Array(raw!.snapshot);
+      tampered[tampered.byteLength - 1] ^= 0xff;
+      await CommerceMessagingLinkModel.upsert({ ...raw!, snapshot: tampered });
+
+      // Reload: the link row reads as LOST, so discovery starts over instead
+      // of feeding corrupt bytes to the binding.
+      PaykitMessagingService.clearSession();
+      await enableMessaging(world);
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+      expect(world.calls).toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('restoreEncryptedLink');
     });
   });
 });

@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import { DB_INIT_MAX_ATTEMPTS, DB_INIT_RETRY_BASE_DELAY_MS, DB_NAME, DB_VERSION } from '@/config/database';
+import { migrateMessagingSecretsToWrappedStorage } from '@/database/franky/franky.migrations';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -129,8 +130,19 @@ export function isTransientIndexedDbError(error: unknown): boolean {
   return false;
 }
 
+/**
+ * The last DB version that stored messaging key material (receiver Noise
+ * secrets, link snapshots) as PLAINTEXT. Versions above it run the in-place
+ * at-rest wrap migration (`franky.migrations.ts`) instead of the
+ * delete-and-recreate fallback — the wrapped rows ARE the user's messaging
+ * identity, so wiping them would orphan every Encrypted Link.
+ */
+export const MESSAGING_WRAP_BASE_DB_VERSION = 4;
+
 export class AppDatabase extends Dexie {
   private static readonly DEXIE_VERSION_MULTIPLIER = 10;
+
+  private readonly declaredVersion: number;
 
   // User
   user_counts!: Dexie.Table<UserCountsModelSchema>;
@@ -199,11 +211,12 @@ export class AppDatabase extends Dexie {
   // Moderation
   moderation!: Dexie.Table<ModerationModelSchema>;
 
-  constructor(databaseName: string = DB_NAME) {
+  constructor(databaseName: string = DB_NAME, databaseVersion: number = DB_VERSION) {
     super(databaseName);
+    this.declaredVersion = databaseVersion;
 
     try {
-      this.version(DB_VERSION).stores({
+      const stores = {
         // User related tables
         user_counts: userCountsTableSchema,
         user_details: userDetailsTableSchema,
@@ -287,7 +300,22 @@ export class AppDatabase extends Dexie {
         feeds: feedTableSchema,
         // Moderation
         moderation: moderationTableSchema,
-      });
+      };
+
+      if (this.declaredVersion > MESSAGING_WRAP_BASE_DB_VERSION) {
+        // Version chain for the 4 → 5 upgrade: the schema is IDENTICAL across
+        // the bump (the wrap format rides in existing Uint8Array columns plus
+        // non-indexed wrap_version fields), so both versions declare the same
+        // stores. Declaring the base version is what lets Dexie OPEN a
+        // database last written by version 4 ("specification of currently
+        // installed DB version is missing" otherwise); the data migration
+        // itself runs in runInitialize, after open, where async WebCrypto is
+        // safe (a Dexie .upgrade() transaction cannot await non-Dexie work).
+        this.version(MESSAGING_WRAP_BASE_DB_VERSION).stores(stores);
+        this.version(this.declaredVersion).stores(stores);
+      } else {
+        this.version(this.declaredVersion).stores(stores);
+      }
     } catch (error) {
       throw Err.database(DatabaseErrorCode.SCHEMA_ERROR, 'Failed to initialize database schema of indexedDB', {
         service: ErrorService.Local,
@@ -380,7 +408,7 @@ export class AppDatabase extends Dexie {
         context: {
           currentVersion,
           rawVersion,
-          expectedVersion: DB_VERSION,
+          expectedVersion: this.declaredVersion,
           databaseName: this.name,
         },
         cause: error,
@@ -388,7 +416,7 @@ export class AppDatabase extends Dexie {
     }
 
     try {
-      // Note: expected new DB version is already set in the constructor this.version(DB_VERSION)
+      // Note: expected new DB version is already set in the constructor via this.version(...)
       await this.open();
       Logger.info('Database recreated with new schema');
     } catch (error) {
@@ -396,7 +424,7 @@ export class AppDatabase extends Dexie {
         service: ErrorService.Local,
         operation: 'recreateDatabase',
         context: {
-          version: DB_VERSION,
+          version: this.declaredVersion,
           rawVersion,
           databaseName: this.name,
         },
@@ -483,15 +511,43 @@ export class AppDatabase extends Dexie {
       return { wasDbReset: true };
     }
 
-    if (currentVersion !== DB_VERSION) {
-      Logger.info(`Database version mismatch. Current: ${currentVersion}, Expected: ${DB_VERSION}`, {
+    if (currentVersion !== this.declaredVersion) {
+      if (currentVersion === MESSAGING_WRAP_BASE_DB_VERSION && this.declaredVersion > MESSAGING_WRAP_BASE_DB_VERSION) {
+        // 4 → 5: the schema is unchanged; the bump marks the at-rest wrap of
+        // messaging key material. In-place instead of delete-and-recreate —
+        // the rows being wrapped ARE the user's messaging identity and link
+        // state. A migration failure is FATAL here (fail closed): continuing
+        // would leave known-plaintext secrets in place.
+        Logger.info('Database upgrade 4 → 5: wrapping messaging secrets at rest, in place', {
+          rawVersion,
+          expectedVersion: this.declaredVersion,
+        });
+        await this.open();
+        await migrateMessagingSecretsToWrappedStorage(this);
+        return { wasDbReset: false };
+      }
+      Logger.info(`Database version mismatch. Current: ${currentVersion}, Expected: ${this.declaredVersion}`, {
         rawVersion,
         normalizedVersion: currentVersion,
-        expectedVersion: DB_VERSION,
-        expectedInternalVersion: DB_VERSION * AppDatabase.DEXIE_VERSION_MULTIPLIER,
+        expectedVersion: this.declaredVersion,
+        expectedInternalVersion: this.declaredVersion * AppDatabase.DEXIE_VERSION_MULTIPLIER,
       });
       await this.recreateDatabase(currentVersion, rawVersion);
       return { wasDbReset: true };
+    }
+
+    // Versions match: idempotent wrap sweep — heals a crash that interrupted
+    // the 4 → 5 upgrade between the native version bump and the data pass.
+    // Best-effort here: a failure fails the messaging layer closed at
+    // operation time (writes refuse plaintext; unreadable rows read as lost)
+    // rather than blocking app boot, and leftover rows retry on the next boot.
+    try {
+      if (!this.isOpen()) {
+        await this.open();
+      }
+      await migrateMessagingSecretsToWrappedStorage(this);
+    } catch (error) {
+      Logger.warn('Messaging at-rest wrap sweep failed; any legacy rows will be retried on the next boot', { error });
     }
 
     Logger.debug('Database version is current');

@@ -1,6 +1,16 @@
+import { getOrCreateWrappingKey } from '@/libs/crypto/messaging-keyring';
+import {
+  buildWrapAad,
+  isUnwrapAuthenticationError,
+  unwrapPayload,
+  WRAP_VERSION_AES_GCM_256,
+  wrapPayload,
+} from '@/libs/crypto/secret-wrapping';
+import { isAppError } from '@/libs/error/error';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { Logger } from '@/libs/logger/logger';
 import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
@@ -16,39 +26,88 @@ import type {
   CommerceMessagingReceiverModelSchema,
 } from '@/models/messaging/messaging.schema';
 
+const RECEIVERS_TABLE = 'commerce_messaging_receivers';
+const LINKS_TABLE = 'commerce_messaging_links';
+
 /**
  * Account-scoped Dexie persistence for encrypted marketplace messaging.
  *
- * Everything here is DEVICE-LOCAL by design: the receiver Noise secret and
- * link snapshots are key material stored as the binding produces them
- * (encrypt-at-rest awaits the backup-key decision — see
- * `docs/ecommerce/paykit-wasm-provenance.md`), and message bodies are local
- * plaintext history. None of it syncs anywhere, and none of it may enter
- * logs, telemetry, or projections.
+ * Everything here is DEVICE-LOCAL by design. The receiver Noise secret and
+ * link snapshots are key material, encrypted AT REST by this service:
+ * wrapped with AES-GCM-256 under a non-extractable CryptoKey from the
+ * messaging keyring (`@/libs/crypto/messaging-keyring`), AAD-bound to their
+ * table + row id (`@/libs/crypto/secret-wrapping`). Reads unwrap on the way
+ * out, so nothing outside this service sees the wrapping. Message bodies
+ * are local plaintext history. None of it syncs anywhere, and none of it
+ * may enter logs, telemetry, or projections.
+ *
+ * Failure posture: writes FAIL CLOSED (no wrapping key → AppError, never a
+ * plaintext write); a row whose ciphertext fails authentication (lost key,
+ * tampered/transplanted row) is treated as LOST — reads return `null`/skip
+ * it, so the existing re-enable and re-handshake affordances take over.
+ * Rows with absent/0 `wrap_version` are legacy plaintext from before the
+ * 4 → 5 migration; the migration wraps them in place on upgrade and reads
+ * tolerate them until then.
  */
 export class LocalMessagingService {
   private constructor() {}
 
   static async getReceiver(ownerId: string): Promise<CommerceMessagingReceiverModelSchema | null> {
-    return await CommerceMessagingReceiverModel.findById(ownerId);
+    const row = await CommerceMessagingReceiverModel.findById(ownerId);
+    if (!row) return null;
+    if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
+      const secret = await this.unwrapSecretField(RECEIVERS_TABLE, row.id, row.noise_secret, 'getReceiver');
+      if (!secret) return null;
+      return { ...row, noise_secret: secret };
+    }
+    return row;
   }
 
   static async upsertReceiver(receiver: CommerceMessagingReceiverModelSchema): Promise<void> {
-    await CommerceMessagingReceiverModel.upsert(receiver);
+    const wrapped = await this.wrapSecretField(RECEIVERS_TABLE, receiver.id, receiver.noise_secret, 'upsertReceiver');
+    await CommerceMessagingReceiverModel.upsert({
+      ...receiver,
+      noise_secret: wrapped,
+      wrap_version: WRAP_VERSION_AES_GCM_256,
+    });
   }
 
   static async getLink(ownerId: string, counterpartyPubky: string): Promise<CommerceMessagingLinkModelSchema | null> {
-    return await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (!row) return null;
+    if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
+      const snapshot = await this.unwrapSecretField(LINKS_TABLE, row.id, row.snapshot, 'getLink');
+      if (!snapshot) return null;
+      return { ...row, snapshot };
+    }
+    return row;
   }
 
   static async getLinksByOwner(ownerId: string): Promise<CommerceMessagingLinkModelSchema[]> {
-    return await CommerceMessagingLinkModel.findByOwner(ownerId);
+    const rows = await CommerceMessagingLinkModel.findByOwner(ownerId);
+    const links: CommerceMessagingLinkModelSchema[] = [];
+    for (const row of rows) {
+      if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
+        // An unrecoverable link is skipped (lost): inbox sync simply never
+        // probes that counterparty from local state again.
+        const snapshot = await this.unwrapSecretField(LINKS_TABLE, row.id, row.snapshot, 'getLinksByOwner');
+        if (!snapshot) continue;
+        links.push({ ...row, snapshot });
+      } else {
+        links.push(row);
+      }
+    }
+    return links;
   }
 
   static async upsertLink(link: Omit<CommerceMessagingLinkModelSchema, 'id'>): Promise<void> {
+    const id = this.linkId(link.owner_id, link.counterparty_pubky);
+    const wrapped = await this.wrapSecretField(LINKS_TABLE, id, link.snapshot, 'upsertLink');
     await CommerceMessagingLinkModel.upsert({
       ...link,
-      id: this.linkId(link.owner_id, link.counterparty_pubky),
+      id,
+      snapshot: wrapped,
+      wrap_version: WRAP_VERSION_AES_GCM_256,
     });
   }
 
@@ -76,7 +135,15 @@ export class LocalMessagingService {
         operation: 'updateLinkSnapshot',
       });
     }
-    await CommerceMessagingLinkModel.upsert({ ...current, snapshot, status, updated_at: now });
+    const id = this.linkId(ownerId, counterpartyPubky);
+    const wrapped = await this.wrapSecretField(LINKS_TABLE, id, snapshot, 'updateLinkSnapshot');
+    await CommerceMessagingLinkModel.upsert({
+      ...current,
+      snapshot: wrapped,
+      wrap_version: WRAP_VERSION_AES_GCM_256,
+      status,
+      updated_at: now,
+    });
   }
 
   static async getConversationsByOwner(ownerId: string): Promise<CommerceMessagingConversationModelSchema[]> {
@@ -206,6 +273,63 @@ export class LocalMessagingService {
 
   private static linkId(ownerId: string, counterpartyPubky: string): string {
     return `${ownerId}:${counterpartyPubky}`;
+  }
+
+  /**
+   * Wraps a secret field for at-rest storage under a fresh IV, AAD-bound to
+   * its table + row id. FAIL CLOSED: with no working wrapping key this
+   * throws — a plaintext write is never an option.
+   */
+  private static async wrapSecretField(
+    table: string,
+    rowId: string,
+    plaintext: Uint8Array,
+    operation: string,
+  ): Promise<Uint8Array> {
+    try {
+      const key = await getOrCreateWrappingKey();
+      return await wrapPayload(key, buildWrapAad(table, rowId), plaintext);
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to wrap a messaging secret for at-rest storage.', {
+        service: ErrorService.Local,
+        operation,
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Unwraps a stored secret field. Returns `null` when the ciphertext fails
+   * authentication (lost wrapping key, tampered or transplanted row): the
+   * row is unrecoverable and callers treat it as absent so the existing
+   * re-enable/re-handshake affordances take over. Environmental failures
+   * (WebCrypto/IDB unavailable) THROW — fail closed, never silent data loss.
+   */
+  private static async unwrapSecretField(
+    table: string,
+    rowId: string,
+    wrapped: Uint8Array,
+    operation: string,
+  ): Promise<Uint8Array | null> {
+    try {
+      const key = await getOrCreateWrappingKey();
+      return await unwrapPayload(key, buildWrapAad(table, rowId), wrapped);
+    } catch (error) {
+      if (isUnwrapAuthenticationError(error)) {
+        Logger.warn('A wrapped messaging secret is unrecoverable (lost key or tampered row); treating it as lost', {
+          operation,
+          table,
+        });
+        return null;
+      }
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, 'Failed to unwrap a messaging secret from at-rest storage.', {
+        service: ErrorService.Local,
+        operation,
+        cause: error,
+      });
+    }
   }
 }
 

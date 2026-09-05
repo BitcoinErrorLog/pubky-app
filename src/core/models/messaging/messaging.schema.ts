@@ -8,14 +8,17 @@
  *   SECRET key. It is generated in this browser, never leaves it, and is never
  *   the Pubky identity secret. Whoever holds it (plus link snapshots) can
  *   decrypt this user's conversations.
- * - `commerce_messaging_links.snapshot` bytes serialize UNENCRYPTED and
- *   contain Noise key material (upstream pubky-noise documents caller-managed
- *   encryption as an open TODO). Encrypt-at-rest requires the multi-device
- *   backup-key decision, which is deliberately unmade — so these rows are
- *   stored exactly as the binding produces them, in the same account-scoped
- *   IndexedDB that already holds other sensitive local state (e.g. Locks
- *   bundle ids), and the UI DISCLOSES that history and key material are
- *   device-local. Do not sync, export, or log them.
+ * - `commerce_messaging_receivers.noise_secret` and
+ *   `commerce_messaging_links.snapshot` are encrypted AT REST: the service
+ *   layer wraps them with AES-GCM-256 under a non-extractable CryptoKey held
+ *   in a dedicated IndexedDB keyring (`src/libs/crypto/messaging-keyring.ts`),
+ *   with AAD binding each ciphertext to its table + row id. Rows carry
+ *   `wrap_version` — absent/0 means LEGACY plaintext written before the
+ *   4 → 5 migration (wrapped in place on upgrade; reads tolerate it, new
+ *   writes never produce it). Losing the wrapping key makes these rows
+ *   unrecoverable: they are treated as lost and the user re-enables. The
+ *   multi-device backup-key decision stays deliberately unmade — wrapped
+ *   rows remain device-local. Do not sync, export, or log them.
  * - `commerce_messaging_messages.body` is plaintext message history, local to
  *   this device by design. Bodies never enter logs, telemetry, or projections.
  * - `commerce_messaging_outbox.body` is a plaintext message that has NOT been
@@ -33,8 +36,15 @@
 export interface CommerceMessagingReceiverModelSchema {
   /** Owner pubky (one receiver per account). */
   id: string;
-  /** 32-byte receiver Noise secret key. SECRET — see file header. */
+  /**
+   * 32-byte receiver Noise secret key. SECRET — see file header. Stored
+   * WRAPPED (`iv || ciphertext || tag`) whenever `wrap_version` is 1; the
+   * service layer unwraps on read. Absent/0 `wrap_version` is legacy
+   * plaintext from before the 4 → 5 migration.
+   */
   noise_secret: Uint8Array;
+  /** At-rest wrap format of `noise_secret`: absent/0 = legacy plaintext, 1 = AES-GCM-256. */
+  wrap_version?: number;
   /** z-base-32 Noise public key, as published in the receiver marker. */
   noise_public_key: string;
   /** Paykit receiver path the marker is published under (e.g. `marketplace/wallet`). */
@@ -67,8 +77,15 @@ export interface CommerceMessagingLinkModelSchema {
   remote_receiver_path: string;
   /** Counterparty receiver Noise public key (z-base-32), from their marker. */
   remote_noise_public_key: string;
-  /** Serialized link/handshake state. SECRET — see file header. */
+  /**
+   * Serialized link/handshake state. SECRET — see file header. Stored
+   * WRAPPED (`iv || ciphertext || tag`) whenever `wrap_version` is 1; the
+   * service layer unwraps on read. Absent/0 `wrap_version` is legacy
+   * plaintext from before the 4 → 5 migration.
+   */
   snapshot: Uint8Array;
+  /** At-rest wrap format of `snapshot`: absent/0 = legacy plaintext, 1 = AES-GCM-256. */
+  wrap_version?: number;
   created_at: number;
   updated_at: number;
 }

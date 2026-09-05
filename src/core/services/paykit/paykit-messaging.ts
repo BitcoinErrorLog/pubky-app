@@ -166,10 +166,12 @@ export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
  *   (cookie resume rejects with `SessionResumeScopeMissing`) or whose
  *   cookie the homeserver no longer accepts.
  * - Link crypto uses a receiver-scoped Noise key generated here and persisted
- *   in account-scoped IndexedDB (`commerce_messaging_receivers`); snapshots
- *   are persisted as produced — unencrypted, containing key material — with
- *   that fact disclosed in the UI (backup-key encryption is an open product
- *   decision, deliberately not improvised here).
+ *   in account-scoped IndexedDB (`commerce_messaging_receivers`); the secret
+ *   and every link snapshot are encrypted at rest by `LocalMessagingService`
+ *   (AES-GCM-256 under the non-extractable keyring key, AAD-bound to their
+ *   table row — see `src/libs/crypto/`), so this service only ever handles
+ *   them unwrapped in memory. The multi-device backup-key decision stays an
+ *   open product decision: wrapped rows remain device-local.
  * - The binding rejects overlapping operations per link ("operation in
  *   flight"), so every public operation is serialized per counterparty.
  * - Received messages are persisted BEFORE the advanced link snapshot — the

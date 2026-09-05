@@ -19,6 +19,7 @@ export class CommerceMessagingReceiverModel
   static table: Table<CommerceMessagingReceiverModelSchema> = db.table('commerce_messaging_receivers');
 
   noise_secret: Uint8Array;
+  wrap_version?: number;
   noise_public_key: string;
   receiver_path: string;
   marker_published: boolean;
@@ -28,6 +29,7 @@ export class CommerceMessagingReceiverModel
   constructor(receiver: CommerceMessagingReceiverModelSchema) {
     super(receiver);
     this.noise_secret = receiver.noise_secret;
+    this.wrap_version = receiver.wrap_version;
     this.noise_public_key = receiver.noise_public_key;
     this.receiver_path = receiver.receiver_path;
     this.marker_published = receiver.marker_published;
@@ -50,6 +52,7 @@ export class CommerceMessagingLinkModel
   remote_receiver_path: string;
   remote_noise_public_key: string;
   snapshot: Uint8Array;
+  wrap_version?: number;
   created_at: number;
   updated_at: number;
 
@@ -63,6 +66,7 @@ export class CommerceMessagingLinkModel
     this.remote_receiver_path = link.remote_receiver_path;
     this.remote_noise_public_key = link.remote_noise_public_key;
     this.snapshot = link.snapshot;
+    this.wrap_version = link.wrap_version;
     this.created_at = link.created_at;
     this.updated_at = link.updated_at;
   }
