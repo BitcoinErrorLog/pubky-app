@@ -43,6 +43,7 @@ export class PubchiService {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify(payload),
+        credentials: 'omit',
         redirect: 'error',
         signal: controller.signal,
       });

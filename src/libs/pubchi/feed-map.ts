@@ -1,5 +1,8 @@
 import { PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort, PubkyAppPostKind } from 'pubky-app-specs';
 import type { TFeedCreateParams } from '@/controllers/feed/feed.types';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import type { FeedProposalV1 } from '@/libs/pubchi/schemas';
 
 const REACH: Record<string, PubkyAppFeedReach> = {
@@ -38,7 +41,10 @@ export function feedProposalToCreateParams(proposal: FeedProposalV1): TFeedCreat
   const sort = SORT[config.sort];
   const layout = LAYOUT[config.layout];
   if (reach === undefined || sort === undefined || layout === undefined) {
-    throw new Error('FEED_SPECS_INVALID');
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'FEED_SPECS_INVALID', {
+      service: ErrorService.Pubchi,
+      operation: 'feedProposalToCreateParams',
+    });
   }
   const content = config.content ? (CONTENT[config.content] ?? null) : null;
   return {

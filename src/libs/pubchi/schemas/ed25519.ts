@@ -6,6 +6,9 @@
  * Browser-safe adaptation: Ed25519 sign/verify uses Web Crypto instead of
  * `node:crypto`. PKCS8/SPKI prefixes match the original package so signatures
  * verify against the same asker pubky.
+ *
+ * Allowed adaptation: `signEd25519` zeroizes the PKCS8 DER buffer and the
+ * seed copy in `finally`. Semantics of the signature are unchanged.
  */
 
 import { asCryptoBytes, bytesToHex, hexToBytes } from './canonical';
@@ -25,15 +28,16 @@ function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
 
 export async function signEd25519(secretSeed: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
   if (secretSeed.length !== 32) throw new Error('ed25519 seed must be 32 bytes');
-  const key = await crypto.subtle.importKey(
-    'pkcs8',
-    asCryptoBytes(concatBytes(PKCS8_PREFIX, secretSeed)),
-    { name: 'Ed25519' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign({ name: 'Ed25519' }, key, asCryptoBytes(message));
-  return new Uint8Array(signature);
+  const seedCopy = new Uint8Array(secretSeed);
+  const pkcs8 = concatBytes(PKCS8_PREFIX, seedCopy);
+  try {
+    const key = await crypto.subtle.importKey('pkcs8', asCryptoBytes(pkcs8), { name: 'Ed25519' }, false, ['sign']);
+    const signature = await crypto.subtle.sign({ name: 'Ed25519' }, key, asCryptoBytes(message));
+    return new Uint8Array(signature);
+  } finally {
+    pkcs8.fill(0);
+    seedCopy.fill(0);
+  }
 }
 
 export async function verifyEd25519(
