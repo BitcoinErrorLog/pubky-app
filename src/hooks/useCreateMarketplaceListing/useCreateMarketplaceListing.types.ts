@@ -399,6 +399,35 @@ export const createMarketplaceListingDraftSchema = z
 export type CreateMarketplaceListingData = z.infer<typeof createMarketplaceListingSchema>;
 export type CreateMarketplaceListingDraftData = z.infer<typeof createMarketplaceListingDraftSchema>;
 
+/** Schema field names for a scoped `useWatch` — keep this derived, never hand-typed. */
+export const CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS = Object.keys(
+  createMarketplaceListingSchema.shape,
+) as Array<keyof CreateMarketplaceListingData>;
+
+/**
+ * `useWatch({ name: keys })` returns a tuple, not a form object. Passing that
+ * tuple to `safeParse` fails on every required key. Zip it back onto a full
+ * `getValues()` snapshot so the publish checklist tracks the current fields.
+ */
+export function createMarketplaceListingValuesFromWatch(
+  watched: unknown,
+  getValues: () => CreateMarketplaceListingData,
+): CreateMarketplaceListingData {
+  const current = getValues();
+  const keys = CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS;
+  if (Array.isArray(watched) && watched.length === keys.length) {
+    const next = { ...current };
+    for (let index = 0; index < keys.length; index++) {
+      (next as Record<string, unknown>)[keys[index]] = watched[index];
+    }
+    return next;
+  }
+  if (watched && typeof watched === 'object' && !Array.isArray(watched) && 'title' in watched) {
+    return { ...current, ...(watched as Partial<CreateMarketplaceListingData>) };
+  }
+  return current;
+}
+
 export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   title: '',
   description: '',

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS,
   createMarketplaceListingDefaults,
   createMarketplaceListingPublishChecklist,
   createMarketplaceListingSchema,
+  createMarketplaceListingValuesFromWatch,
   isCreateMarketplaceListingPublishReady,
 } from './useCreateMarketplaceListing.types';
 
@@ -293,5 +295,19 @@ describe('isCreateMarketplaceListingPublishReady', () => {
     );
     expect(createMarketplaceListingPublishChecklist(physicalReady, 0)).toEqual(['At least one photo']);
     expect(createMarketplaceListingPublishChecklist(physicalReady, 1)).toEqual([]);
+  });
+
+  it('rebuilds full form values from a scoped useWatch tuple', () => {
+    const tuple = CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS.map(
+      (key) => pickupReady[key],
+    ) as unknown[];
+    expect(createMarketplaceListingPublishChecklist(tuple as never, 1)).toEqual([
+      'Invalid input: expected object, received array',
+    ]);
+    const zipped = createMarketplaceListingValuesFromWatch(tuple, () => createMarketplaceListingDefaults);
+    expect(zipped.title).toBe(pickupReady.title);
+    expect(zipped.price).toBe(pickupReady.price);
+    expect(zipped.categoryId).toBe(pickupReady.categoryId);
+    expect(createMarketplaceListingPublishChecklist(zipped, 1)).toEqual([]);
   });
 });

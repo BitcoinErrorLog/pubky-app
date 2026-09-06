@@ -2,7 +2,7 @@ import { createRef } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
@@ -14,6 +14,13 @@ import type {
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
+
+beforeAll(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.setPointerCapture = vi.fn();
+});
 
 function buildMedia(items: ListingMediaItem[] = []): UseListingMediaManagerResult {
   return {
@@ -152,6 +159,30 @@ describe('MarketplaceListingForm', () => {
     expect(screen.getByText('Step 2 of 5')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Photos' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
+  });
+
+  it('drops filled title, description, price, and category from the publish checklist', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness />);
+
+    const requiredItems = () => {
+      const heading = screen.getByText('Required to publish');
+      return Array.from(heading.parentElement?.querySelectorAll('ul li') ?? []).map((item) => item.textContent);
+    };
+    expect(requiredItems()).toEqual(expect.arrayContaining(['Title', 'Description', 'Category', 'Price']));
+    const remainingBefore = requiredItems().length;
+
+    await user.type(screen.getByLabelText('Title'), 'Vintage leather boots');
+    await user.type(screen.getByLabelText('Description'), 'Well cared for boots with light wear.');
+    await user.type(screen.getByLabelText('Price (USD)'), '125.00');
+    await user.click(screen.getByRole('combobox', { name: 'Category' }));
+    await user.click(await screen.findByRole('option', { name: 'Fashion' }));
+
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Title']));
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Description']));
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Category']));
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Price']));
+    expect(requiredItems().length).toBeLessThan(remainingBefore);
   });
 
   it('keeps publish disabled when description is empty even if other minimums are filled', () => {

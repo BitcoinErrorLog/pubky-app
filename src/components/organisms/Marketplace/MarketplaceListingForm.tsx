@@ -26,8 +26,10 @@ import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { commerceAttributeFieldsFor, resolveCommerceCategory } from '@/config/taxonomy/taxonomy';
 import {
   CREATE_MARKETPLACE_LISTING_FIELDS,
+  CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS,
   type CreateMarketplaceListingData,
   createMarketplaceListingPublishChecklist,
+  createMarketplaceListingValuesFromWatch,
   isCreateMarketplaceListingPublishReady,
   listingAttributeFormField,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
@@ -95,42 +97,9 @@ export function MarketplaceListingForm({
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
   const currency = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY });
-  useWatch({
+  const watchedListingFields = useWatch({
     control: form.control,
-    name: [
-      CREATE_MARKETPLACE_LISTING_FIELDS.TITLE,
-      CREATE_MARKETPLACE_LISTING_FIELDS.DESCRIPTION,
-      CREATE_MARKETPLACE_LISTING_FIELDS.CATEGORY,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_SIZE,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_BRAND,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_COLORS,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_SOURCE,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_AGE,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_STYLES,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_MODEL,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_MEDIUM,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_AUTHOR,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_FORMAT,
-      CREATE_MARKETPLACE_LISTING_FIELDS.ATTR_MATERIAL,
-      CREATE_MARKETPLACE_LISTING_FIELDS.CONDITION,
-      CREATE_MARKETPLACE_LISTING_FIELDS.COUNTRY_CODE,
-      CREATE_MARKETPLACE_LISTING_FIELDS.REGION,
-      CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT,
-      CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY,
-      CREATE_MARKETPLACE_LISTING_FIELDS.PRICE,
-      CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS,
-      CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT,
-      CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_LABEL,
-      CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE,
-      CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MIN_DAYS,
-      CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MAX_DAYS,
-      CREATE_MARKETPLACE_LISTING_FIELDS.MEASUREMENT_SYSTEM,
-      CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WEIGHT,
-      CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_LENGTH,
-      CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WIDTH,
-      CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_HEIGHT,
-      CREATE_MARKETPLACE_LISTING_FIELDS.RETURN_DAYS,
-    ],
+    name: CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS,
   });
   const measurementSystem = useWatch({
     control: form.control,
@@ -172,7 +141,10 @@ export function MarketplaceListingForm({
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
   const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
   const isImperial = measurementSystem === 'imperial';
-  const formValues = form.getValues();
+  const formValues = createMarketplaceListingValuesFromWatch(watchedListingFields, () => {
+    void form.formState.isValidating;
+    return form.getValues();
+  });
   const mediaError =
     pickerError === 'invalid-type'
       ? 'Choose image files only.'
