@@ -29,9 +29,9 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
 }));
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', () => ({
-  useMarketplaceCatalog: () => ({
-    listings: catalogState.listings,
-    facetPool: catalogState.listings,
+  useMarketplaceCatalog: (initialListings: typeof catalogState.listings = []) => ({
+    listings: catalogState.isLoading && initialListings.length > 0 ? initialListings : catalogState.listings,
+    facetPool: catalogState.isLoading && initialListings.length > 0 ? initialListings : catalogState.listings,
     shopsBySeller: new Map(),
     isLoading: catalogState.isLoading,
     adapterMode: 'sandbox',
@@ -67,8 +67,16 @@ vi.mock('@/organisms/Marketplace/MarketplaceFilters', () => ({
   MarketplaceFilters: () => <div data-testid="marketplace-filters" />,
 }));
 
-vi.mock('@/organisms/Marketplace/MarketplaceListingCard', () => ({
-  MarketplaceListingCard: ({ listing }: { listing: { title: string } }) => <article>{listing.title}</article>,
+vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
+  useMarketplaceLiveBid: () => ({ ref: () => {}, bid: null }),
+}));
+
+vi.mock('@/hooks/useCommerceFavorite/useCommerceFavorite', () => ({
+  useCommerceFavorite: () => ({ isFavorite: false, isLoading: false, isMutating: false, toggle: vi.fn() }),
+}));
+
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: () => null,
 }));
 
 describe('Marketplace', () => {
@@ -97,35 +105,38 @@ describe('Marketplace', () => {
 
   it('renders guest catalog cards from server listings while the local cache hydrates', () => {
     catalogState.isLoading = true;
+    const initialListings = [
+      {
+        id: 'seller:boots_01',
+        sellerId: 'y'.repeat(52),
+        listingId: 'boots_01',
+        state: 'active' as const,
+        title: 'Vintage leather boots',
+        description: 'Well cared for boots with light wear.',
+        categoryId: 'fashion-shoes-boots',
+        condition: 'good' as const,
+        tags: ['vintage'],
+        saleFormat: 'fixed_price' as const,
+        price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+        auction: null,
+        attributes: null,
+        location: { countryCode: 'US', region: 'NY' },
+        mediaUrls: [],
+        reputation: null,
+        revision: 1,
+        updatedAt: Date.parse('2026-08-19T21:00:00.000Z'),
+      },
+    ];
 
-    render(
-      <Marketplace
-        initialListings={[
-          {
-            id: 'seller:boots_01',
-            sellerId: 'y'.repeat(52),
-            listingId: 'boots_01',
-            state: 'active',
-            title: 'Vintage leather boots',
-            description: 'Well cared for boots with light wear.',
-            categoryId: 'fashion-shoes-boots',
-            condition: 'good',
-            tags: ['vintage'],
-            saleFormat: 'fixed_price',
-            price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
-            auction: null,
-            attributes: null,
-            location: { countryCode: 'US', region: 'NY' },
-            mediaUrls: [],
-            reputation: null,
-            revision: 1,
-            updatedAt: Date.parse('2026-08-19T21:00:00.000Z'),
-          },
-        ]}
-      />,
-    );
+    const html = renderToString(<Marketplace initialListings={initialListings} />);
 
-    expect(screen.getByRole('article')).toHaveTextContent('Vintage leather boots');
+    expect(html).toContain('Vintage leather boots');
+    expect(html).toContain('Buy now');
+    expect(html).not.toContain('marketplace-skeleton');
+
+    render(<Marketplace initialListings={initialListings} />);
+
+    expect(screen.getByRole('heading', { name: 'Vintage leather boots' })).toBeInTheDocument();
     expect(
       within(screen.getByTestId('marketplace-desktop-tools')).getByRole('button', { name: 'Orders' }),
     ).toBeInTheDocument();

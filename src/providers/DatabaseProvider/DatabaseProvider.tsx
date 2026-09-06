@@ -1,8 +1,6 @@
 'use client';
 
 import { createContext, type ReactNode, useEffect, useRef, useState } from 'react';
-import { Container } from '@/atoms/Container/Container';
-import { Spinner } from '@/atoms/Spinner/Spinner';
 import { db } from '@/database/franky/franky';
 import { AppError } from '@/libs/error/error';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
@@ -20,9 +18,10 @@ export const DatabaseContext = createContext<DatabaseContextType>({
 });
 
 /**
- * DatabaseProvider initializes the Dexie database and blocks rendering
- * until the database is ready. This prevents race conditions where
- * components try to query the database before it's initialized.
+ * DatabaseProvider initializes the Dexie database. Page children stay mounted
+ * during init so public routes can SSR (marketplace catalog HTML). Callers that
+ * read Dexie treat an unresolved cache as loading. The recovery screen still
+ * replaces children when initialization fails.
  */
 export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
@@ -83,17 +82,12 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   // Gate what renders on the database state:
   // - error: block the (broken) app and show a recovery screen wired to retry()
-  // - not ready: block rendering until initialization completes to avoid query race conditions
-  // - ready: render the app
+  // - otherwise always emit `children` so public HTML (marketplace catalog SSR)
+  //   is not replaced by the IndexedDB spinner. Hooks that read Dexie treat an
+  //   unresolved cache as loading and keep server-provided listings mounted.
   let content: ReactNode;
   if (error) {
     content = <DatabaseErrorScreen onRetry={initDatabase} />;
-  } else if (!isReady) {
-    content = (
-      <Container overrideDefaults className="flex min-h-screen items-center justify-center">
-        <Spinner />
-      </Container>
-    );
   } else {
     content = children;
   }

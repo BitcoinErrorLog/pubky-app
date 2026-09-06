@@ -54,6 +54,18 @@ describe('useMarketplaceCatalog', () => {
     mockFetchCatalogListings.mockResolvedValue(undefined);
   });
 
+  it('seeds the grid from server listings while the Dexie cache is unresolved', () => {
+    mockGetAllListings.mockReturnValue(undefined);
+    mockGetAllCatalogEntries.mockReturnValue(undefined);
+    mockGetAllShops.mockReturnValue(undefined);
+    const seed = catalogItemFromListingModel(toCommerceListingModel(createCommerceListingFixture()));
+
+    const { result } = renderHook(() => useMarketplaceCatalog([seed]));
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.listings).toEqual([seed]);
+  });
+
   it('renders cached listings immediately while the Nexus refresh is still in flight', async () => {
     const cached = toCommerceListingModel(createCommerceListingFixture());
     mockGetAllListings.mockReturnValue([cached]);

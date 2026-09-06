@@ -10,9 +10,10 @@ import {
   applyMarketplaceAttributeFilters,
   buildMarketplaceCatalogItems,
   filterMarketplaceCatalog,
+  type MarketplaceCatalogItem,
 } from './useMarketplaceCatalog.utils';
 
-export function useMarketplaceCatalog() {
+export function useMarketplaceCatalog(initialListings: MarketplaceCatalogItem[] = []) {
   const query = useCommerceStore((state) => state.query);
   const categoryId = useCommerceStore((state) => state.categoryId);
   const attributeFilters = useCommerceStore((state) => state.attributeFilters);
@@ -54,9 +55,23 @@ export function useMarketplaceCatalog() {
   const localListings = useLiveQuery(() => CommerceController.getAllListings(), []);
   const catalogEntries = useLiveQuery(() => CommerceController.getAllCatalogEntries(), []);
   const localShops = useLiveQuery(() => CommerceController.getAllShops(), []);
+  // While a refresh is in flight over an empty cache, stay in the loading
+  // state so the skeleton shows instead of flashing "No listings match"
+  // before the first discovery results land.
+  const isCacheUnresolved = localListings === undefined || catalogEntries === undefined || localShops === undefined;
+  const isCacheEmpty =
+    localListings !== undefined && catalogEntries !== undefined && localListings.length + catalogEntries.length === 0;
+  const isLoading = isCacheUnresolved || (isCacheEmpty && isRefreshing);
+  // SSR and the first client paint have no Dexie snapshot yet. Keep the
+  // server-fetched catalog mounted so the card grid is in the HTML and
+  // hydration does not replace it with a skeleton.
+  const sourceItems =
+    isLoading && initialListings.length > 0
+      ? initialListings
+      : buildMarketplaceCatalogItems(localListings ?? [], catalogEntries ?? []);
   // The facet pool matches every filter EXCEPT the attribute filters, so the
   // facet chips keep offering alternatives to the active value.
-  const facetPool = filterMarketplaceCatalog(buildMarketplaceCatalogItems(localListings ?? [], catalogEntries ?? []), {
+  const facetPool = filterMarketplaceCatalog(sourceItems, {
     query,
     categoryId,
     saleFormat,
@@ -69,18 +84,11 @@ export function useMarketplaceCatalog() {
   const listings = applyMarketplaceAttributeFilters(facetPool, attributeFilters);
   const shopsBySeller = new Map((localShops ?? []).map(({ owner_id, record }) => [owner_id, record]));
 
-  // While a refresh is in flight over an empty cache, stay in the loading
-  // state so the skeleton shows instead of flashing "No listings match"
-  // before the first discovery results land.
-  const isCacheUnresolved = localListings === undefined || catalogEntries === undefined || localShops === undefined;
-  const isCacheEmpty =
-    localListings !== undefined && catalogEntries !== undefined && localListings.length + catalogEntries.length === 0;
-
   return {
     listings,
     facetPool,
     shopsBySeller,
-    isLoading: isCacheUnresolved || (isCacheEmpty && isRefreshing),
+    isLoading,
     adapterMode,
   };
 }

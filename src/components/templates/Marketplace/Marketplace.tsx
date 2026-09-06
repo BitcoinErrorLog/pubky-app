@@ -47,11 +47,9 @@ export function Marketplace({ initialListings = [] }: { initialListings?: Market
   const { requireAuth } = useRequireAuth();
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
-  const catalog = useMarketplaceCatalog();
-  const { shopsBySeller, adapterMode } = catalog;
-  const isLoading = catalog.isLoading && initialListings.length === 0;
-  const listings = catalog.isLoading ? initialListings : catalog.listings;
-  const facetPool = catalog.isLoading ? initialListings : catalog.facetPool;
+  const catalog = useMarketplaceCatalog(initialListings);
+  const { shopsBySeller, adapterMode, listings, facetPool } = catalog;
+  const isLoading = catalog.isLoading && listings.length === 0;
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
   const [promoStorageHydrated, setPromoStorageHydrated] = useState(false);
   const [isPromoDismissedOnDevice, setIsPromoDismissedOnDevice] = useState(false);

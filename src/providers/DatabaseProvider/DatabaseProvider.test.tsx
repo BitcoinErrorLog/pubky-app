@@ -27,6 +27,8 @@ describe('DatabaseProvider', () => {
       </DatabaseProvider>,
     );
 
+    expect(screen.getByText('Test Content')).toBeInTheDocument();
+
     await act(async () => {
       await vi.runAllTimersAsync();
     });
