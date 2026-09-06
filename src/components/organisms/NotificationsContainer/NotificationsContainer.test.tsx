@@ -1,9 +1,15 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildFeatureDiscoveryStorageKey } from '@/config/featureDiscovery';
 import { useNotifications } from '@/hooks/useNotifications/useNotifications';
 import { type FlatNotification, NotificationType, PostChangedSource } from '@/models/notification/notification.types';
-import { NotificationsContainer } from './NotificationsContainer';
+import { marketplaceNotificationSchema } from '@/services/marketplace/marketplace-projections';
+import {
+  classifyGeneralNotificationTab,
+  isMarketplaceNotificationType,
+  NotificationsContainer,
+} from './NotificationsContainer';
 
 const authStoreState = vi.hoisted(() => ({
   session: {} as unknown,
@@ -419,10 +425,62 @@ describe('NotificationsContainer', () => {
 
     expect(screen.getByTestId('notifications-list')).toHaveTextContent('2 notifications');
     expect(
-      window.localStorage.getItem(`marketplace:general-notifications-tab:${authStoreState.currentUserPubky}`),
+      window.localStorage.getItem(
+        buildFeatureDiscoveryStorageKey(authStoreState.currentUserPubky, 'general-notifications-tab-v1'),
+      ),
     ).toBe('marketplace');
   });
+
+  it('places review_received and message_received in Marketplace, not Social', async () => {
+    marketplaceFeedState.items = [
+      marketplaceItem('review_received', 'order:1', '/marketplace/orders'),
+      marketplaceItem('message_received', 'conversation:1', '/marketplace/messages'),
+    ];
+
+    render(<NotificationsContainer />);
+
+    expect(screen.getByRole('tab', { name: 'All (3)' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Marketplace (2)' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Social (1)' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Marketplace (2)' }));
+    expect(screen.getByTestId('notifications-list')).toHaveTextContent('2 notifications');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Social (1)' }));
+    expect(screen.getByTestId('notifications-list')).toHaveTextContent('1 notifications');
+  });
+
+  it('classifies every marketplace and social notification type explicitly', () => {
+    const unclassified: string[] = [];
+    for (const type of marketplaceNotificationSchema.shape.type.options) {
+      const kind = classifyGeneralNotificationTab(type);
+      if (kind === 'unclassified') unclassified.push(type);
+      expect(kind).toBe('marketplace');
+      expect(isMarketplaceNotificationType(type)).toBe(true);
+    }
+    for (const type of Object.values(NotificationType)) {
+      const kind = classifyGeneralNotificationTab(type);
+      if (kind === 'unclassified') unclassified.push(type);
+      expect(kind).toBe('social');
+      expect(isMarketplaceNotificationType(type)).toBe(false);
+    }
+    expect(unclassified).toEqual([]);
+    expect(classifyGeneralNotificationTab('not_a_real_type')).toBe('unclassified');
+  });
 });
+
+function marketplaceItem(type: string, aggregateId: string, href: string) {
+  return {
+    id: `marketplace:${aggregateId}`,
+    source: 'marketplace',
+    type,
+    actorPubky: 'seller'.repeat(9).slice(0, 52),
+    aggregateId,
+    timestamp: Date.now(),
+    isUnread: true,
+    href,
+  };
+}
 
 function buildNotificationsResult({
   notifications,

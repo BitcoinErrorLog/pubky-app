@@ -4,13 +4,16 @@ import { useEffect, useState } from 'react';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { buildFeatureDiscoveryStorageKey } from '@/config/featureDiscovery';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll/useInfiniteScroll';
 import { useMarketplaceNotificationFeed } from '@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useNotifications } from '@/hooks/useNotifications/useNotifications';
 import { Logger } from '@/libs/logger/logger';
+import { NotificationType } from '@/models/notification/notification.types';
 import { NotificationsEmpty } from '@/molecules/NotificationsEmpty/NotificationsEmpty';
+import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { NotificationsList } from '../NotificationsList/NotificationsList';
 import {
@@ -24,28 +27,57 @@ import { NotificationsContainerSkeleton, NotificationsLoadMoreSkeleton } from '.
 const MAX_UNPRODUCTIVE_AUTO_LOADS = 3;
 type GeneralNotificationsTab = 'all' | 'marketplace' | 'social';
 
-const TAB_STORAGE_PREFIX = 'marketplace:general-notifications-tab:';
+const GENERAL_NOTIFICATIONS_TAB_STORAGE_ID = 'general-notifications-tab-v1';
 const GENERAL_NOTIFICATION_TABS: { id: GeneralNotificationsTab; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'marketplace', label: 'Marketplace' },
   { id: 'social', label: 'Social' },
 ];
-const MARKETPLACE_TAB_NOTIFICATION_TYPES = new Set([
-  'offer_received',
-  'offer_countered',
-  'offer_accepted',
-  'offer_rejected',
-  'outbid',
-  'auction_won',
-  'auction_ended',
-  'order_created',
-  'payment_confirmed',
-  'order_cancelled',
-  'order_shipped',
-  'order_delivered',
-  'return_updated',
-  'refund_recorded',
-]);
+
+/**
+ * Exhaustive by construction: adding a `MarketplaceNotification['type']` fails
+ * compilation here until it is classified into the Marketplace tab.
+ */
+const MARKETPLACE_TAB_NOTIFICATION_TYPES = {
+  message_received: true,
+  offer_received: true,
+  offer_countered: true,
+  offer_accepted: true,
+  offer_rejected: true,
+  outbid: true,
+  auction_won: true,
+  auction_ended: true,
+  order_created: true,
+  payment_confirmed: true,
+  order_cancelled: true,
+  order_shipped: true,
+  order_delivered: true,
+  return_updated: true,
+  refund_recorded: true,
+  review_received: true,
+} as const satisfies Record<MarketplaceNotification['type'], true>;
+
+const SOCIAL_TAB_NOTIFICATION_TYPES = {
+  [NotificationType.Follow]: true,
+  [NotificationType.NewFriend]: true,
+  [NotificationType.TagPost]: true,
+  [NotificationType.TagProfile]: true,
+  [NotificationType.Reply]: true,
+  [NotificationType.Repost]: true,
+  [NotificationType.Mention]: true,
+  [NotificationType.PostDeleted]: true,
+  [NotificationType.PostEdited]: true,
+} as const satisfies Record<NotificationType, true>;
+
+export function isMarketplaceNotificationType(type: string): type is MarketplaceNotification['type'] {
+  return Object.hasOwn(MARKETPLACE_TAB_NOTIFICATION_TYPES, type);
+}
+
+export function classifyGeneralNotificationTab(type: string): 'marketplace' | 'social' | 'unclassified' {
+  if (isMarketplaceNotificationType(type)) return 'marketplace';
+  if (Object.hasOwn(SOCIAL_TAB_NOTIFICATION_TYPES, type)) return 'social';
+  return 'unclassified';
+}
 
 /**
  * Organism that handles all notification business logic:
@@ -79,7 +111,7 @@ export function NotificationsContainer() {
   const watchAlertFeed = useMarketplaceWatchAlertFeed();
 
   const socialEntries = groupNotifications(notifications);
-  const marketplaceItems = marketplaceFeed.items.filter((item) => MARKETPLACE_TAB_NOTIFICATION_TYPES.has(item.type));
+  const marketplaceItems = marketplaceFeed.items.filter((item) => isMarketplaceNotificationType(item.type));
   const marketplaceEntries = mergeWatchAlerts(
     mergeMarketplaceNotifications([], marketplaceItems, {
       hasMoreSocial: false,
@@ -128,18 +160,30 @@ export function NotificationsContainer() {
       setSelectedTab('all');
       return;
     }
-    const stored = window.localStorage.getItem(`${TAB_STORAGE_PREFIX}${currentUserPubky}`);
-    if (stored === 'all' || stored === 'marketplace' || stored === 'social') {
-      setSelectedTab(stored);
-    } else {
+    try {
+      const stored = window.localStorage.getItem(
+        buildFeatureDiscoveryStorageKey(currentUserPubky, GENERAL_NOTIFICATIONS_TAB_STORAGE_ID),
+      );
+      if (stored === 'all' || stored === 'marketplace' || stored === 'social') {
+        setSelectedTab(stored);
+      } else {
+        setSelectedTab('all');
+      }
+    } catch {
       setSelectedTab('all');
     }
   }, [currentUserPubky]);
 
   const selectTab = (tab: GeneralNotificationsTab) => {
     setSelectedTab(tab);
-    if (currentUserPubky) {
-      window.localStorage.setItem(`${TAB_STORAGE_PREFIX}${currentUserPubky}`, tab);
+    if (!currentUserPubky) return;
+    try {
+      window.localStorage.setItem(
+        buildFeatureDiscoveryStorageKey(currentUserPubky, GENERAL_NOTIFICATIONS_TAB_STORAGE_ID),
+        tab,
+      );
+    } catch {
+      // Tab still updates for this session if storage is unavailable.
     }
   };
 

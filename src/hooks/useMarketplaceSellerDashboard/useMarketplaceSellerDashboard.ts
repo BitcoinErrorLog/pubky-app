@@ -79,7 +79,13 @@ export function useMarketplaceSellerDashboard() {
   };
 
   useEffect(() => {
-    setNowMs(Date.now());
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
 
   return {
