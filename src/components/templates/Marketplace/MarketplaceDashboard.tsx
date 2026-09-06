@@ -5,7 +5,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import {
   AlertTriangle,
   ArrowLeft,
+  Copy,
   Download,
+  ImageIcon,
   Package,
   Pause,
   PencilLine,
@@ -26,19 +28,23 @@ import { Card, CardContent } from '@/atoms/Card/Card';
 import { Checkbox } from '@/atoms/Checkbox/Checkbox';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceDashboard() {
   const dashboard = useMarketplaceSellerDashboard();
+  const isMobile = useIsMobile({ breakpoint: 'md' });
   const [selected, setSelected] = useState<string[]>([]);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // Normalize "no record" to null so `undefined` keeps meaning "still loading".
@@ -212,36 +218,36 @@ export function MarketplaceDashboard() {
                 </CardContent>
               </Card>
             )}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {[
-                { label: 'Active listings', value: dashboard.metrics.activeListings, icon: ShoppingBag },
-                { label: 'Inventory', value: dashboard.metrics.totalInventory, icon: Package },
-                { label: 'Low stock', value: dashboard.metrics.lowStock, icon: Package },
-                { label: 'Paid orders', value: dashboard.metrics.paidOrders, icon: TrendingUp },
-                {
-                  // In sandbox mode this number is simulated and must say so;
-                  // in the durable modes it reflects real orders. One figure
-                  // per pricing asset — never a cross-asset sum.
-                  label: getCommerceAdapterMode() === 'sandbox' ? 'Sandbox revenue' : 'Revenue',
-                  value: dashboard.metrics.revenue.length
-                    ? dashboard.metrics.revenue.map(formatCommerceMoney).join(' + ')
-                    : formatCommerceMoney({ amountMinor: 0, currency: 'USD', exponent: 2 }),
-                  icon: TrendingUp,
-                },
-              ].map(({ label, value, icon: Icon }) => (
-                <Card key={label} className="gap-3 border py-4">
-                  <CardContent className="px-4">
-                    <Icon className="mb-3 size-5 text-brand" />
-                    <Typography as="p" className="text-2xl font-bold">
+            {isMobile ? (
+              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1" data-testid="marketplace-dashboard-kpi-chips">
+                {dashboardKpis(dashboard.metrics).map(({ label, value }) => (
+                  <div key={label} className="shrink-0 rounded-full border bg-card px-4 py-2">
+                    <Typography as="p" className="text-sm font-semibold">
                       {value}
                     </Typography>
-                    <Typography as="p" className="text-sm text-muted-foreground">
+                    <Typography as="p" className="text-xs text-muted-foreground">
                       {label}
                     </Typography>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {dashboardKpis(dashboard.metrics).map(({ label, value, icon: Icon }) => (
+                  <Card key={label} className="gap-3 border py-4">
+                    <CardContent className="px-4">
+                      <Icon className="mb-3 size-5 text-brand" />
+                      <Typography as="p" className="text-2xl font-bold">
+                        {value}
+                      </Typography>
+                      <Typography as="p" className="text-sm text-muted-foreground">
+                        {label}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
 
             <Card className="border">
               <CardContent className="grid gap-4 px-5">
@@ -331,14 +337,22 @@ export function MarketplaceDashboard() {
                                   aria-label={`Select ${listing.record.title}`}
                                 />
                               </td>
-                              <td className="p-3 font-semibold">
-                                <Link
-                                  href={getMarketplaceListingRoute(listing.seller_id, listing.listing_id)}
-                                  overrideDefaults
-                                  className="hover:text-brand hover:underline"
-                                >
-                                  {listing.record.title}
-                                </Link>
+                              <td className="p-3">
+                                <div className="flex items-center gap-3">
+                                  <ListingThumbnail
+                                    mediaUrls={listing.record.media
+                                      .filter(({ type }) => type === 'image')
+                                      .map(({ url }) => url)}
+                                    title={listing.record.title}
+                                  />
+                                  <Link
+                                    href={getMarketplaceListingRoute(listing.seller_id, listing.listing_id)}
+                                    overrideDefaults
+                                    className="font-semibold hover:text-brand hover:underline"
+                                  >
+                                    {listing.record.title}
+                                  </Link>
+                                </div>
                               </td>
                               <td className="p-3">
                                 <Badge variant="secondary">{listing.state}</Badge>
@@ -358,15 +372,26 @@ export function MarketplaceDashboard() {
                                 )}
                               </td>
                               <td className="p-3">
-                                <Button asChild size="sm" variant="ghost" className="rounded-full">
-                                  <Link
-                                    href={getMarketplaceListingEditRoute(listing.seller_id, listing.listing_id)}
-                                    overrideDefaults
-                                  >
-                                    <PencilLine className="mr-2 size-4" />
-                                    Edit
-                                  </Link>
-                                </Button>
+                                <div className="flex flex-wrap gap-1">
+                                  <Button asChild size="sm" variant="ghost" className="rounded-full">
+                                    <Link
+                                      href={getMarketplaceListingEditRoute(listing.seller_id, listing.listing_id)}
+                                      overrideDefaults
+                                    >
+                                      <PencilLine className="mr-2 size-4" />
+                                      Edit
+                                    </Link>
+                                  </Button>
+                                  <Button asChild size="sm" variant="ghost" className="rounded-full">
+                                    <Link
+                                      href={`${getMarketplaceListingEditRoute(listing.seller_id, listing.listing_id)}?duplicate=1`}
+                                      overrideDefaults
+                                    >
+                                      <Copy className="mr-2 size-4" />
+                                      Duplicate
+                                    </Link>
+                                  </Button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -381,5 +406,54 @@ export function MarketplaceDashboard() {
         )}
       </Container>
     </ContentLayout>
+  );
+}
+
+type DashboardMetrics = ReturnType<typeof useMarketplaceSellerDashboard>['metrics'];
+
+function dashboardKpis(metrics: DashboardMetrics) {
+  return [
+    { label: 'Active listings', value: metrics.activeListings, icon: ShoppingBag },
+    { label: 'Inventory', value: metrics.totalInventory, icon: Package },
+    { label: 'Low stock', value: metrics.lowStock, icon: Package },
+    { label: 'Paid orders', value: metrics.paidOrders, icon: TrendingUp },
+    {
+      // In sandbox mode this number is simulated and must say so; in the
+      // durable modes it reflects real orders. One figure per pricing asset.
+      label: getCommerceAdapterMode() === 'sandbox' ? 'Sandbox revenue' : 'Revenue',
+      value: metrics.revenue.length
+        ? metrics.revenue.map(formatCommerceMoney).join(' + ')
+        : formatCommerceMoney({ amountMinor: 0, currency: 'USD', exponent: 2 }),
+      icon: TrendingUp,
+    },
+  ];
+}
+
+function ListingThumbnail({ mediaUrls, title }: { mediaUrls: readonly string[]; title: string }) {
+  const [failed, setFailed] = useState(false);
+  const mediaUrl = resolveFirstMarketplaceMediaUrl(mediaUrls);
+
+  if (mediaUrl !== null && !failed) {
+    return (
+      <div className="relative size-10 shrink-0 overflow-hidden rounded-lg border bg-card">
+        <Image
+          src={mediaUrl}
+          alt={`${title} thumbnail`}
+          fill
+          sizes="40px"
+          className="absolute inset-0 object-cover"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-muted text-muted-foreground"
+      aria-label={`No thumbnail for ${title}`}
+    >
+      <ImageIcon className="size-4" />
+    </div>
   );
 }

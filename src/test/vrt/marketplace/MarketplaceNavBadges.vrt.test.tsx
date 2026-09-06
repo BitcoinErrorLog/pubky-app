@@ -141,6 +141,7 @@ describe('Marketplace nav badges — visual regression', () => {
     badgeCounts.activity = 2;
 
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect.element(screen.getByRole('button', { name: /My marketplace/ })).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-nav-badges-mobile');
   });
 });

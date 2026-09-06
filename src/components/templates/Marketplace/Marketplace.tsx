@@ -26,6 +26,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isDurableCommerceMode } from '@/config/commerce';
 import { FEATURE_DISCOVERY_STORAGE_PREFIX, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
+import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
@@ -34,6 +35,7 @@ import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetecti
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceBuyerToolsSheet } from '@/organisms/Marketplace/MarketplaceBuyerToolsSheet';
 import { MarketplaceFilters } from '@/organisms/Marketplace/MarketplaceFilters';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -44,6 +46,7 @@ const MARKETPLACE_PROMO_DEVICE_STORAGE_KEY = `${FEATURE_DISCOVERY_STORAGE_PREFIX
 export function Marketplace() {
   const router = useRouter();
   const { requireAuth } = useRequireAuth();
+  const isMobile = useIsMobile({ breakpoint: 'md' });
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const { listings, facetPool, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
@@ -89,8 +92,8 @@ export function Marketplace() {
       className="pb-28 lg:pb-16"
       classNameWrapperContent="max-w-7xl"
     >
-      <Container overrideDefaults className="flex w-full flex-col gap-8 px-4 sm:px-6 lg:px-8">
-        <section aria-label="Marketplace tools" className="flex flex-col gap-4 rounded-2xl border bg-card p-4 sm:p-5">
+      <Container overrideDefaults className="flex w-full flex-col gap-5 px-4 sm:gap-8 sm:px-6 lg:px-8">
+        <section aria-label="Marketplace tools" className="flex flex-col gap-4 rounded-2xl border bg-card p-3 sm:p-5">
           <div className="flex flex-wrap items-center gap-3">
             <Heading level={1} size="lg" className="text-2xl">
               Marketplace
@@ -101,7 +104,7 @@ export function Marketplace() {
               </Badge>
             )}
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             <Button className="rounded-full" onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.SELL))}>
               <Store className="mr-2 size-4" />
               Sell an item
@@ -117,70 +120,80 @@ export function Marketplace() {
               <Gavel className="mr-2 size-4" />
               Browse auctions
             </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.MESSAGES))}
-            >
-              <MessageCircle className="mr-2 size-4" />
-              Messages
-            </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.OFFERS))}
-            >
-              <HandCoins className="mr-2 size-4" />
-              Offers
-            </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.WATCHLIST))}
-            >
-              <Heart className="mr-2 size-4" />
-              Watchlist
-            </Button>
-            <span className="relative inline-flex">
-              <Button
-                variant="ghost"
-                className="rounded-full"
-                aria-label={cartCount > 0 ? `Cart, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}` : undefined}
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
-              >
-                <ShoppingCart className="mr-2 size-4" />
-                Cart
-              </Button>
-              <NavPillCountBadge count={cartCount} dataCy="marketplace-nav-cart" />
-            </span>
-            <Button
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.ORDERS))}
-            >
-              <ReceiptText className="mr-2 size-4" />
-              Orders
-            </Button>
-            <span className="relative inline-flex">
-              <Button
-                variant="ghost"
-                className="rounded-full"
-                aria-label={activityUnreadCount > 0 ? `Activity, ${activityUnreadCount} unread` : undefined}
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.NOTIFICATIONS))}
-              >
-                <Bell className="mr-2 size-4" />
-                Activity
-              </Button>
-              <NavPillCountBadge count={activityUnreadCount} dataCy="marketplace-nav-activity" />
-            </span>
-            <Button
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.DASHBOARD))}
-            >
-              <LayoutDashboard className="mr-2 size-4" />
-              Seller dashboard
-            </Button>
+            {isMobile ? (
+              <MarketplaceBuyerToolsSheet
+                cartCount={cartCount}
+                activityUnreadCount={activityUnreadCount}
+                onNavigate={(href) => requireAuth(() => router.push(href))}
+              />
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  className="rounded-full"
+                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.MESSAGES))}
+                >
+                  <MessageCircle className="mr-2 size-4" />
+                  Messages
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="rounded-full"
+                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.OFFERS))}
+                >
+                  <HandCoins className="mr-2 size-4" />
+                  Offers
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="rounded-full"
+                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.WATCHLIST))}
+                >
+                  <Heart className="mr-2 size-4" />
+                  Watchlist
+                </Button>
+                <span className="relative inline-flex">
+                  <Button
+                    variant="ghost"
+                    className="rounded-full"
+                    aria-label={cartCount > 0 ? `Cart, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}` : undefined}
+                    onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
+                  >
+                    <ShoppingCart className="mr-2 size-4" />
+                    Cart
+                  </Button>
+                  <NavPillCountBadge count={cartCount} dataCy="marketplace-nav-cart" />
+                </span>
+                <Button
+                  variant="ghost"
+                  className="rounded-full"
+                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.ORDERS))}
+                >
+                  <ReceiptText className="mr-2 size-4" />
+                  Orders
+                </Button>
+                <span className="relative inline-flex">
+                  <Button
+                    variant="ghost"
+                    className="rounded-full"
+                    aria-label={activityUnreadCount > 0 ? `Activity, ${activityUnreadCount} unread` : undefined}
+                    onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.NOTIFICATIONS))}
+                  >
+                    <Bell className="mr-2 size-4" />
+                    Activity
+                  </Button>
+                  <NavPillCountBadge count={activityUnreadCount} dataCy="marketplace-nav-activity" />
+                </span>
+                <Button
+                  variant="ghost"
+                  className="rounded-full"
+                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.DASHBOARD))}
+                >
+                  <LayoutDashboard className="mr-2 size-4" />
+                  Seller dashboard
+                </Button>
+              </>
+            )}
           </div>
         </section>
 
@@ -218,29 +231,32 @@ export function Marketplace() {
         {shouldShowPromo && (
           <section
             aria-label="Marketplace promo"
-            className="relative overflow-hidden rounded-2xl border border-brand/20 bg-linear-to-br from-brand/20 via-card to-card p-6 sm:p-10"
+            className="relative overflow-hidden rounded-2xl border border-brand/20 bg-linear-to-br from-brand/20 via-card to-card p-3 sm:p-10"
           >
-            <div className="absolute -top-24 -right-20 size-64 rounded-full bg-brand/20 blur-3xl" />
+            <div className="absolute -top-24 -right-20 hidden size-64 rounded-full bg-brand/20 blur-3xl sm:block" />
             <Button
               variant="ghost"
               size="icon"
               aria-label="Dismiss marketplace promo"
               onClick={dismissMarketplacePromo}
-              className="absolute top-3 right-3 z-10 text-muted-foreground hover:text-foreground"
+              className="absolute top-2 right-2 z-10 size-8 text-muted-foreground hover:text-foreground sm:top-3 sm:right-3 sm:size-10"
             >
               <X className="size-4" />
             </Button>
-            <div className="relative flex flex-col items-start gap-5">
-              <Badge className="bg-brand text-primary-foreground">Pubky Marketplace</Badge>
-              <Heading level={2} size="xl" className="max-w-2xl text-4xl leading-tight sm:text-6xl">
+            <div className="relative flex flex-col items-start gap-2 sm:gap-5">
+              <Badge className="hidden bg-brand text-primary-foreground sm:inline-flex">Pubky Marketplace</Badge>
+              <Heading level={2} size="xl" className="max-w-2xl pr-10 text-base leading-5 sm:text-6xl sm:leading-tight">
                 Find something rare.
                 <span className="text-brand"> Trade without the feed.</span>
               </Heading>
-              <Typography as="p" className="max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
+              <Typography
+                as="p"
+                className="hidden max-w-2xl text-base leading-7 text-muted-foreground sm:block sm:text-lg"
+              >
                 Owner-signed listings, local-first discovery, offers and auctions—with payment-backed access powered by
                 Pubky.
               </Typography>
-              <div className="grid w-full gap-3 sm:grid-cols-3">
+              <div className="hidden w-full gap-3 sm:grid sm:grid-cols-3">
                 {[
                   { icon: ShieldCheck, label: 'Owner-signed', detail: 'Listings remain tied to a Pubky identity.' },
                   { icon: Gavel, label: 'Fair auctions', detail: 'Server-authoritative bids and deterministic close.' },

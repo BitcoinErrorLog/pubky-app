@@ -9,6 +9,8 @@ const routerPush = vi.hoisted(() => vi.fn());
 const setSaleFormat = vi.hoisted(() => vi.fn());
 const promoDismiss = vi.hoisted(() => vi.fn());
 const promoState = vi.hoisted(() => ({ showPromo: false }));
+const viewport = vi.hoisted(() => ({ isMobile: false }));
+const navCounts = vi.hoisted(() => ({ cart: 0, activity: 0 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
@@ -16,6 +18,10 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
+}));
+
+vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
+  useIsMobile: () => viewport.isMobile,
 }));
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', () => ({
@@ -37,11 +43,11 @@ vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () 
 }));
 
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
-  useMarketplaceCartCount: () => 0,
+  useMarketplaceCartCount: () => navCounts.cart,
 }));
 
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
-  useMarketplaceActivityUnread: () => 0,
+  useMarketplaceActivityUnread: () => navCounts.activity,
 }));
 
 vi.mock('@/stores/commerce/commerce.store', () => ({
@@ -67,6 +73,9 @@ describe('Marketplace', () => {
     setSaleFormat.mockClear();
     promoDismiss.mockClear();
     promoState.showPromo = false;
+    viewport.isMobile = false;
+    navCounts.cart = 0;
+    navCounts.activity = 0;
     window.localStorage.clear();
   });
 
@@ -78,6 +87,31 @@ describe('Marketplace', () => {
     await user.click(screen.getByRole('button', { name: 'Orders' }));
 
     expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.ORDERS);
+    expect(screen.queryByRole('button', { name: /My marketplace/ })).not.toBeInTheDocument();
+  });
+
+  it('opens the mobile marketplace tools sheet with badge counts', async () => {
+    const user = userEvent.setup();
+    viewport.isMobile = true;
+    navCounts.cart = 3;
+    navCounts.activity = 5;
+
+    render(<Marketplace />);
+
+    await user.click(screen.getByRole('button', { name: /My marketplace/ }));
+
+    expect(screen.getByTestId('marketplace-buyer-tools-sheet')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Messages' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Offers' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Watchlist' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cart, 3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Orders' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activity, 5' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Seller dashboard' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Seller dashboard' }));
+
+    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.DASHBOARD);
   });
 
   it('persists marketplace promo dismissal for the device', async () => {
