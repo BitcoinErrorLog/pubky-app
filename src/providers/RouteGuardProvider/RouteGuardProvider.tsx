@@ -16,6 +16,11 @@ import { Logger } from '@/libs/logger/logger';
 import { shouldAttemptSessionRestore } from '@/libs/vibe-session/should-restore';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { ROUTE_ACCESS_MAP } from '@/providers/RouteGuardProvider/RouteGuardProvider.constants';
+import {
+  consumeRouteGuardReturnTo,
+  isRouteGuardReturnToAllowed,
+  storeRouteGuardReturnTo,
+} from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMigrationStore } from '@/stores/migration/migration.store';
 
@@ -54,6 +59,7 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
 
   // Prevents running resync more than once at a time (ex: React Strict Mode and effect re-fires mid-resync)
   const isMigrationResyncRunningRef = useRef(false);
+  const pendingReturnToNavigationRef = useRef<string | null>(null);
   // Identity-change cleanup flips sessionExport while Controller finalization is
   // still running; skip so a second restore cannot race the first init.
   const isSessionRestoreInFlightRef = useRef(false);
@@ -144,6 +150,18 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
     runResync();
   }, [wasDbReset, hasHydrated, currentUserPubky]);
 
+  useEffect(() => {
+    if (status !== AuthStatus.AUTHENTICATED) return;
+    if (isLoading) return;
+
+    const routeAccess = ROUTE_ACCESS_MAP[status];
+    const returnTo = consumeRouteGuardReturnTo(routeAccess.allowedRoutes);
+    if (!returnTo || pathname === returnTo) return;
+
+    pendingReturnToNavigationRef.current = returnTo;
+    router.push(returnTo);
+  }, [status, isLoading, pathname, router]);
+
   // Determine if the current route is accessible based on authentication status
   const isRouteAccessible = useMemo(() => {
     // Static public routes are ALWAYS accessible, even during loading
@@ -168,6 +186,13 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
 
   // Handle automatic redirects when user tries to access unauthorized routes
   useEffect(() => {
+    if (
+      pendingReturnToNavigationRef.current &&
+      (pathname === pendingReturnToNavigationRef.current || isRouteAccessible)
+    ) {
+      pendingReturnToNavigationRef.current = null;
+    }
+
     // Static public routes never redirect
     if (PUBLIC_ROUTES.includes(pathname)) return;
 
@@ -179,6 +204,8 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
 
     // No redirect needed if user has access to current route
     if (isRouteAccessible) return;
+
+    if (pendingReturnToNavigationRef.current) return;
 
     // Redirect user to the appropriate default route for their authentication status
     const routeAccess = ROUTE_ACCESS_MAP[status];
@@ -194,6 +221,13 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
 
     // Only redirect if we have a target and we're not already there
     if (redirectTo && pathname !== redirectTo) {
+      const authenticatedRouteAccess = ROUTE_ACCESS_MAP[AuthStatus.AUTHENTICATED];
+      if (
+        status === AuthStatus.UNAUTHENTICATED &&
+        isRouteGuardReturnToAllowed(pathname, authenticatedRouteAccess.allowedRoutes)
+      ) {
+        storeRouteGuardReturnTo(pathname);
+      }
       router.push(redirectTo);
     }
   }, [status, pathname, router, isLoading, isRouteAccessible]);

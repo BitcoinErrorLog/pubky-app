@@ -62,7 +62,7 @@ vi.mock('@/app/routes', () => ({
     );
   },
   matchesAllowedRoute: (pathname: string, route: string, options?: { restrictExploreSubRoutes?: boolean }) => {
-    const EXPLORE_ROUTES = ['/home', '/hot', '/search', '/collections'];
+    const EXPLORE_ROUTES = ['/home', '/hot', '/search', '/collections', '/marketplace'];
     if (pathname === route) return true;
     if (options?.restrictExploreSubRoutes && EXPLORE_ROUTES.includes(route)) return false;
     return pathname.startsWith(`${route}/`);
@@ -72,9 +72,9 @@ vi.mock('@/app/routes', () => ({
 // Mock @/providers/RouteGuardProvider/RouteGuardProvider.constants
 vi.mock('@/providers/RouteGuardProvider/RouteGuardProvider.constants', () => ({
   ROUTE_ACCESS_MAP: {
-    AUTHENTICATED: { allowedRoutes: ['/feed', '/settings', '/collections'], redirectTo: '/feed' },
+    AUTHENTICATED: { allowedRoutes: ['/feed', '/settings', '/collections', '/marketplace'], redirectTo: '/feed' },
     UNAUTHENTICATED: {
-      allowedRoutes: ['/login', '/landing', '/home', '/hot', '/search', '/collections'],
+      allowedRoutes: ['/login', '/landing', '/home', '/hot', '/search', '/collections', '/marketplace'],
       redirectTo: '/login',
     },
     NEEDS_PROFILE_CREATION: { allowedRoutes: ['/create-profile'], redirectTo: '/create-profile' },
@@ -144,6 +144,7 @@ describe('RouteGuardProvider — migration resync', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     window.history.replaceState(null, '', '/');
+    window.sessionStorage.clear();
     resetFragmentSessionExportCache();
 
     // Reset defaults
@@ -499,10 +500,96 @@ describe('RouteGuardProvider — migration resync', () => {
   });
 });
 
+describe('RouteGuardProvider — return path', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.history.replaceState(null, '', '/');
+    window.sessionStorage.clear();
+    resetFragmentSessionExportCache();
+    mocks.hasHydrated = true;
+    mocks.session = null;
+    mocks.sessionExport = null;
+    mocks.currentUserPubky = null;
+    mocks.wasDbReset = false;
+    mocks.status = 'UNAUTHENTICATED';
+    mocks.isLoading = false;
+    mocks.pathname = '/marketplace/orders';
+    mocks.consumerEnabled = false;
+    mocks.autoRestoreSuppressed = false;
+  });
+
+  it('redirects an unauthenticated marketplace deep link then returns there after sign-in', () => {
+    const { rerender } = render(
+      <RouteGuardProvider>
+        <div>Marketplace Orders</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(screen.getByText('Redirecting...')).toBeInTheDocument();
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
+
+    mocks.mockRouterPush.mockClear();
+    mocks.status = 'AUTHENTICATED';
+    mocks.session = {};
+    mocks.currentUserPubky = 'test-pubky-z32';
+    mocks.pathname = '/login';
+
+    rerender(
+      <RouteGuardProvider>
+        <div>Sign In</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/marketplace/orders');
+    expect(window.sessionStorage.getItem('pubky.routeGuard.returnTo')).toBeNull();
+  });
+
+  it('does not navigate to the stored marketplace route on a second sign-in', () => {
+    const { rerender } = render(
+      <RouteGuardProvider>
+        <div>Marketplace Orders</div>
+      </RouteGuardProvider>,
+    );
+
+    mocks.status = 'AUTHENTICATED';
+    mocks.session = {};
+    mocks.currentUserPubky = 'test-pubky-z32';
+    mocks.pathname = '/login';
+    rerender(
+      <RouteGuardProvider>
+        <div>Sign In</div>
+      </RouteGuardProvider>,
+    );
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/marketplace/orders');
+
+    mocks.mockRouterPush.mockClear();
+    mocks.status = 'UNAUTHENTICATED';
+    mocks.session = null;
+    mocks.currentUserPubky = null;
+    rerender(
+      <RouteGuardProvider>
+        <div>Sign In</div>
+      </RouteGuardProvider>,
+    );
+
+    mocks.status = 'AUTHENTICATED';
+    mocks.session = {};
+    mocks.currentUserPubky = 'test-pubky-z32';
+    rerender(
+      <RouteGuardProvider>
+        <div>Sign In</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(mocks.mockRouterPush).not.toHaveBeenCalledWith('/marketplace/orders');
+  });
+});
+
 describe('RouteGuardProvider — session restore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.history.replaceState(null, '', '/');
+    window.sessionStorage.clear();
     resetFragmentSessionExportCache();
     mocks.hasHydrated = true;
     mocks.session = null;

@@ -3,6 +3,9 @@
 import { useRouter } from 'next/navigation';
 import { HOME_ROUTES } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
+import { AuthStatus } from '@/hooks/useAuthStatus/useAuthStatus.types';
+import { ROUTE_ACCESS_MAP } from '@/providers/RouteGuardProvider/RouteGuardProvider.constants';
+import { consumeRouteGuardReturnTo } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
 import { DialogRestoreEncryptedFile } from '../DialogRestoreEncryptedFile/DialogRestoreEncryptedFile';
 import { DialogRestoreRecoveryPhrase } from '../DialogRestoreRecoveryPhrase/DialogRestoreRecoveryPhrase';
@@ -14,7 +17,8 @@ export const SignInNavigation = () => {
   if (authUrlResolved) return null;
 
   const handleRestore = () => {
-    router.push(HOME_ROUTES.HOME);
+    const returnTo = consumeRouteGuardReturnTo(ROUTE_ACCESS_MAP[AuthStatus.AUTHENTICATED].allowedRoutes);
+    router.push(returnTo ?? HOME_ROUTES.HOME);
   };
 
   return (
