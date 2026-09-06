@@ -4,6 +4,39 @@ Public changelog for Shop, the Pubky marketplace vibe. Newest changes first.
 
 ## 2026-09-06
 
+- [implemented] Wave 6 UX remediation shipped on `marketplace/pr25-ux` as `6554dd1f..420856c1` (HEAD `420856c1`)
+  and deployed 17:52 to `pubky-marketplace-production.vercel.app`, `shop.pubky.app`, and `shop-rehearsal.pubky.app`
+  (all `locks-paykit`). Nine slices, each Opus-reviewed; U1/U6/U8 Kimi-audited (U1 r3 SHIP). Source: two Opus
+  surface reviews of 65 VRT baselines plus 68 live screenshots, a capability inventory, and five review claims
+  dismissed after verification. Honesty labels, dual-truth drops, device-local watchlist, privacy-by-design
+  addresses, direct-pay copy, and attestation review tiers were preserved. Return-path after sign-in
+  (`6554dd1f`), the kill-switch drill runbook, and per-stack Paykit signing keys were recorded earlier today
+  and are not repeated here.
+- [implemented] U1 checkout: three steps; `Approve in Pubky Ring` up front when there is no marketplace session;
+  Place order stays disabled until approval and a valid form; purchase-guarantee opt-in is default unchecked;
+  the marketplace session store clears from a single `onSessionEnded` signal (service → controller) covering
+  every transport path.
+- [implemented] U2 seller identity: shop name with pubky fallback; attestation-derived rating and review count;
+  `New seller · no reviews yet`; `Shipping: calculated at checkout`. Seller-stated tenure was dropped.
+- [implemented] U3 commerce copy: offer dialog shows asking price and % vs asking (hidden on currency mismatch);
+  bid dialog `Set your maximum bid`; `Commerce activity` → `Transaction history`; promo dismissal persisted;
+  drop-ended `Watch this seller` / `Browse similar`; vitest woff2 font plugin.
+- [implemented] U4 orders: tabs To ship / In transit / Completed / All; `You bought` / `You sold`; accessible
+  5-star input.
+- [implemented] U5 operator surfaces: notifications All / Marketplace / Social (type-exhaustive); dashboard
+  Action-needed strip; drop status Draft / Scheduled / Live / Ended with sync detail under Technical details;
+  `/marketplace/shop` added (was a 404); delivery-addresses orientation line.
+- [implemented] U6 payment settings `How you get paid`: cards PayPal → Card (Stripe) → Bitcoin with truthful
+  pills (PayPal is `Email saved`, never Connected; Bitcoin Connected only with Lock Server + Paykit claim);
+  protocol detail under Technical details; payloads unchanged.
+- [implemented] U7 mobile: `My marketplace` sheet, compact mobile promo, dashboard KPI chip strip, listing
+  thumbnails; Duplicate listing creates a new local draft (photos not copied; auctions copied as fixed price).
+- [implemented] U8 packing slip: optional local-only pasted address in component state; cleared on close, print,
+  and route; Sentry-masked; truthful print caveat. See `docs/ecommerce/shipping.md`.
+- [implemented] U9 seller studio: shared `ShopProfileCard` (shop page + My Shop live preview); aria-labels on
+  icon-only seller controls with a real a11y test; Orders `Needs attention` tab; `Seller studio` namespace.
+- [known gap] Sprint 3 is in progress, not shipped: sectioned listing studio, delivery auto-complete timer plus
+  return/refund surfacing in the service, guest-indexable catalog, multi-seller cart grouping.
 - [implemented] Buyer approval UX was tightened on `marketplace/pr25-ux` at `f036a76d`. Signed-in users now have an
   Orders entry in the marketplace tools row, the listing page no longer shows the Pubky Ring approval card before intent,
   and signed-out-of-approval buyers see it only when checkout, Place a bid, or Make offer asks for a durable marketplace

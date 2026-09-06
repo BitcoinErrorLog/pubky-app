@@ -68,7 +68,9 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Production marketplace service: `https://marketplace-service-production-ce23.up.railway.app`.
 - Production marketplace Nexus: `https://nexusd-production-95a0.up.railway.app`.
 - Existing deployed staging app: `https://shop.pubky.app` before cutover.
-- Payment rails are reused from `pubky-marketplace-staging`; money rails stay testnet/regtest.
+- Payment rails are reused from `pubky-marketplace-staging`; money rails stay testnet/regtest. Wave 6 client
+  (`6554dd1f..420856c1`) was deployed 2026-09-06 17:52 to `pubky-marketplace-production.vercel.app`,
+  `shop.pubky.app`, and `shop-rehearsal.pubky.app`; all three remain `locks-paykit`.
 - Bridge rehearsal: `bridge.pubky.app` for Vercel project `pubky-app-bridge-rehearsal` and
   `shop-rehearsal.pubky.app` for Vercel project `shop-bridge-rehearsal`; both are attached but pending
   `_vercel.pubky.app` TXT verification.
@@ -83,6 +85,12 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Reviews/receipts: no production review or receipt fact is recorded. Existing proof is staging/testnet, not production.
 - Buyer UX: Orders entry shipped for signed-in users; Ring approval prompts moved off the listing view until checkout,
   Place a bid, or Make offer requires approval. Add to cart and watchlist writes are local and need no approval.
+- Wave 6 UX remediation (2026-09-06): nine slices U1–U9 shipped on `marketplace/pr25-ux` `6554dd1f..420856c1`. Review
+  evidence is two Opus surface reviews of 65 VRT baselines plus 68 live screenshots, a capability inventory, and five
+  review claims dismissed after verification. U1/U6/U8 were Kimi-audited (U1 r3 SHIP). Sprint 3 (sectioned listing
+  studio, delivery auto-complete timer plus return/refund surfacing, guest-indexable catalog, multi-seller cart
+  grouping) is in progress, not shipped. Return-path after sign-in (`6554dd1f`), kill-switch drill, and per-stack
+  Paykit signing keys were recorded earlier today.
 
 **What broke**
 
@@ -99,19 +107,25 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Indexing boundary: full replay is necessary because tail-start would strand marketplace records whose users were not yet indexed.
 - Trust/security boundary: shared sign-in can reuse public session metadata only; commerce AuthTokens, private storage, messaging, and Paykit/Locks claims still need explicit approval paths.
 - Documentation boundary: shipped claims need the ledger labels and dates, not inferred completion from feature presence.
+  Wave 6 named and kept honesty labels, dual-truth drops, device-local watchlist, privacy-by-design addresses,
+  direct-pay copy, and attestation review tiers.
 
 **Recommended Next State Per Experiment**
 
 - Catalog/index: harden. Production replay was near completion and the first listing appeared, but post-cutover proof rows still need recording.
-- Selling/listings: harden. Production sign-in and listing publish happened; shop/drop/media publish still need proof.
-- Checkout/orders: harden. The payment-start hold rule is implemented, but production checkout proof is pending.
-- Payments: graduate for testnet BTC, Stripe test-mode, and PayPal sandbox proofs; harden before real PayPal or any mainnet money.
-- Drops: graduate D1 FCFS on staging proof; keep raffles/gated drops archived until designed.
+- Checkout/orders: harden. Wave 6 three-step checkout, order tabs (`To ship` / `In transit` / `Completed` / `All`,
+  `You bought` / `You sold`, `Needs attention`), and packing-slip paste field shipped; production checkout proof is pending.
+- Payments: graduate for testnet BTC, Stripe test-mode, and PayPal sandbox proofs; Wave 6 `How you get paid` pills are
+  truthful (PayPal `Email saved`, never Connected). Harden before real PayPal or any mainnet money.
+- Drops: graduate D1 FCFS on staging proof; Wave 6 Draft/Scheduled/Live/Ended status shipped; keep raffles/gated drops archived until designed.
+- Selling/listings: harden. Wave 6 seller identity, `ShopProfileCard`, `/marketplace/shop`, Duplicate listing, and
+  `Seller studio` namespace shipped; Sprint 3 sectioned listing studio is not shipped. Production shop/drop/media publish still need proof.
 - Reviews/receipts: graduate portable receipts and review attestations for the proven stack; harden production receipt publication and attestor-publisher follow-ups.
 - Watchlist: harden. Staging cross-device proof exists; production durability cadence is still open.
 - Messaging: keep vibing. E2EE works at experiment grade, but live Ring approval and independent security review remain open.
 - Shared sign-in: harden. Consumer mode is merged, and same-site rehearsal exists; live use depends on pubky.app bridge deployment, TXT verification, and cutover.
-- Step-up approval: harden. Option C is implemented and buyer-facing copy now consistently says `Approve purchases in Pubky Ring` / `Approve in Pubky Ring`; empty-capabilities Ring display and production step-up proof remain open.
+- Step-up approval: harden. Option C is implemented; Wave 6 checkout asks `Approve in Pubky Ring` up front when there
+  is no marketplace session. Empty-capabilities Ring display and production step-up proof remain open.
 
 **Open Decisions**
 

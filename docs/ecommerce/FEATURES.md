@@ -34,6 +34,9 @@ mean exactly that.
   - Title, description, condition (with optional details), adult-content flag
   - Category picker with per-category attribute fields
   - Drafts autosave locally; legacy-draft migration
+  - Namespaced as **Seller studio**; mobile sheet **My marketplace**
+  - Duplicate listing creates a new local draft (photos not copied; auctions
+    copied as fixed price)
 - **Pricing**
   - USD or Bitcoin pricing; BIP-177 display everywhere (₿ symbol, whole base
     units, never "sats")
@@ -51,19 +54,27 @@ mean exactly that.
   - Edit, unlist/relist (fixed-price), delete, copy public link
   - Owner panel self-heals transaction-service registration (re-runs on
     session connect)
+  - Listing thumbnails in seller lists
 - **Drop Studio**
   - Compose FCFS drops over existing listings at `/marketplace/sell/drops`:
     schedule, total and per-buyer caps, stock-display policy
     (exact / bands / hidden)
   - Two-truth publish status — record on the seller's homeserver and
     registered with the transaction service, shown separately (the same
-    honesty split listings have)
+    honesty split listings have); operator-facing status is Draft /
+    Scheduled / Live / Ended, with sync detail under Technical details
   - Mission control during the window (visibility-bounded polling),
     typed-CANCEL kill switch, post-end release of remaining stock back to
     open sale
 - **Shop profile**
   - Shop record on the seller's homeserver: name, bio, avatar and banner
     uploads, vacation mode
+  - Shared `ShopProfileCard` on the public shop page and My Shop live preview
+  - Icon-only seller controls have aria-labels, covered by an a11y test
+  - Public identity: shop name with pubky fallback; attestation-derived
+    rating and review count; `New seller · no reviews yet`; `Shipping:
+calculated at checkout`. Seller-stated tenure is not shown.
+  - `/marketplace/shop` is a real route (was a 404)
   - Optional `transactionService` authority declaration in the record
     (specs `0.6.2-marketplace.7`); the editor deliberately does not offer
     the field yet (see the multi-operator guard under Buying)
@@ -78,17 +89,24 @@ transaction service (PostgreSQL, exactly-one-winner concurrency proofs).
 - **Cart and checkout**
   - Multi-seller cart with per-asset subtotals; cart entry points (toast
     action, header cart pill with count)
-  - Checkout with delivery address book (save, reuse, last-used ordering);
-    the address travels only inside the checkout command
+  - Three-step checkout; `Approve in Pubky Ring` up front when there is no
+    marketplace session; Place order disabled until approval and a valid
+    form; purchase-guarantee opt-in default unchecked
+  - Checkout with delivery address book (save, reuse, last-used ordering)
+    plus an orientation line; the address travels only inside the checkout
+    command
   - Variant snapshots ride order lines (packing slip and order rows)
   - Unregistered listings self-heal at read and checkout time via
     service-side `listing.sync` (the service fetches the canonical
     seller-signed record from the homeserver)
 - **Offers**
   - Make, counter, accept, reject — revision-guarded
+  - Offer dialog shows asking price and % vs asking (hidden on currency
+    mismatch)
 - **Auctions**
   - Bids with reserve prices, minimum increments, anti-sniping extensions;
     scheduled close workers; `auction_won` / `auction_ended` notifications
+  - Bid dialog copy is `Set your maximum bid`
 - **Drops (FCFS, ADR 0026 phase D1)** — durable modes only; live-proven
   two-buyer race on the deployed staging stack (2026-08-23)
   - Drops calendar (`/marketplace/drops`, fed by the Nexus drops stream
@@ -112,8 +130,13 @@ transaction service (PostgreSQL, exactly-one-winner concurrency proofs).
 - **Orders**
   - Full lifecycle: awaiting payment → paid → shipped (carrier + tracking,
     soft carrier vocabulary) → delivered → completed
+  - Tabs: To ship / In transit / Completed / All; `You bought` / `You sold`;
+    seller `Needs attention`
   - Cancellation request/approve with inventory release
-  - Packing slip dialog
+  - Packing slip dialog: optional local-only pasted address in component
+    state, cleared on close/print/route, Sentry-masked, with a truthful
+    print caveat (never a service read path; see [`shipping.md`](shipping.md))
+  - Accessible 5-star review input
 - **Post-purchase**
   - Returns and peer refund evidence
   - Per-order reviews (see Trust)
@@ -148,6 +171,12 @@ ledger).
   - Marketplace transaction session from a Pubky AuthToken (single-use,
     verified with `pubky-common`), bearer token with 30-day TTL, persisted
     in `localStorage` across tabs and restarts
+  - Session store cleared from a single `onSessionEnded` signal
+    (service → controller) covering every transport path
+  - Seller payment settings **How you get paid**: cards PayPal → Card
+    (Stripe) → Bitcoin with truthful pills (PayPal is `Email saved`, never
+    Connected; Bitcoin Connected only with Lock Server + Paykit claim);
+    protocol detail under Technical details; payloads unchanged
 
 ## 5. Trust and reputation
 
@@ -177,16 +206,19 @@ ledger).
   - Seller responses: one revisable response per review, a pure homeserver
     record threaded by Nexus
   - "My reviews" panel with attestation and publication status
+
 ## 6. Social
 
 - **Community tags** on listings (Nexus-indexed, separate from seller
   keywords)
 - **Collections**: save listings into post collections; collection pages
   hydrate listing cards through the commerce read path
+- **Commerce activity** renamed **Transaction history** in the UI
 - **Shop follows** and followed-seller discovery
 - **Watchlist / favorites**
   - Watch toggles on cards and listing pages (bell for auctions, heart for
     fixed price)
+  - Promo dismissal persisted; compact mobile promo
   - **Cross-device private sync** over homeserver-enforced `/priv` storage:
     local-first, per-item last-write-wins with tombstones, coalescing push,
     pull on sign-in; capability-gated with an honest re-approval notice on
@@ -195,6 +227,8 @@ ledger).
   - Marketplace events (offers, bids, outbid, auction won/ended, orders,
     returns) in the app's notification UI, with §8-permitted amounts
     rendered in BIP-177 / fiat
+  - Filters All / Marketplace / Social (type-exhaustive)
+  - Dashboard Action-needed strip; KPI chip strip on mobile
 
 ## 7. Messaging
 
@@ -252,3 +286,10 @@ ledger).
   exists to build. Connect-style onboarding would only become relevant if
   the marketplace ever took custody or platform fees, which it does not.
 - Messaging backup-key encryption (open product decision, disclosed in UI)
+
+## In progress (Sprint 3, not shipped)
+
+- Sectioned listing studio
+- Delivery auto-complete timer and return/refund surfacing in the service
+- Guest-indexable catalog
+- Multi-seller cart grouping
