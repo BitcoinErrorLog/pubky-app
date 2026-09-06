@@ -158,9 +158,11 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
 });
 
-vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async () => {
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useMarketplaceCart/useMarketplaceCart')>();
   const { sumMoneyByAsset } = await import('@/libs/commerce/pricing');
   return {
+    ...actual,
     useMarketplaceCart: () => {
       const items = view.items as CartItemLike[];
       return {
@@ -180,6 +182,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async () => {
         update: vi.fn(),
         remove: vi.fn(),
         clear: vi.fn(),
+        groups: actual.groupMarketplaceCartItems(items as never),
       };
     },
   };
@@ -204,6 +207,14 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
+}));
+
+vi.mock('@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary', () => ({
+  useMarketplaceSellerSummary: (sellerPubky: string, options?: { includeReputation?: boolean }) => ({
+    shop: null,
+    reputation: options?.includeReputation === false ? { status: 'unavailable' } : { status: 'new_seller' },
+    displayName: sellerPubky === 'n'.repeat(52) ? 'Film Camera Supply' : 'Satoshi Vintage',
+  }),
 }));
 
 // The display store persists to localStorage, which the VRT browser shares
@@ -245,6 +256,15 @@ describe('Marketplace cart — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-multi-seller-desktop');
+  });
+
+  it('renders a multi-seller cart at mobile viewport', async () => {
+    const { multiSeller } = await fixtures;
+    view.items = multiSeller;
+    view.isLoading = false;
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-multi-seller-mobile');
   });
 
   it('renders a cart with a stale item whose variant is gone at desktop viewport', async () => {
