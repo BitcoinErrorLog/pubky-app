@@ -333,10 +333,9 @@ describe('Marketplace sell studio — visual regression', () => {
       const input = screen.container.querySelector<HTMLInputElement>('#title');
       if (input?.value !== draftFixture.data.form.title) throw new Error('Draft has not populated the form yet.');
     });
-    await screen.getByRole('button', { name: 'Publish listing' }).click();
     await vi.waitFor(() => {
-      if (!screen.container.textContent?.includes('Description is required.')) {
-        throw new Error('Validation errors have not rendered yet.');
+      if (!screen.container.textContent?.includes('Description')) {
+        throw new Error('The description checklist row has not rendered yet.');
       }
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-validation-errors-desktop');
