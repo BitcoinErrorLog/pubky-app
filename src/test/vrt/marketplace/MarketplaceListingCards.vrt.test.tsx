@@ -140,7 +140,11 @@ const fixtures = vi.hoisted(async () => {
     }),
   );
 
-  const fixedPrice = catalogItemFromCatalogEntry(createCommerceCatalogEntryFixture());
+  const fixedPrice = catalogItemFromCatalogEntry(
+    createCommerceCatalogEntryFixture({
+      reputation: { avg: 4.8, count: 23, verifiedCount: 19 },
+    }),
+  );
 
   // Record-backed items (attributes known) next to an index-entry item
   // (attributes unknown → the card shows no attribute line, honestly).

@@ -137,6 +137,7 @@ const view = vi.hoisted(() => ({
   listing: undefined as unknown,
   shop: undefined as unknown,
   projection: null as unknown,
+  reputation: { status: 'new_seller' as const } as unknown,
   fetchFails: false,
   currentUserPubky: 'u'.repeat(52),
   listingTags: [] as unknown[],
@@ -194,10 +195,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     // The owner panel self-heals listing registration on mount; VRT renders
     // the visual outcome only, so the call resolves without side effects.
     ensureListingRegistered: () => Promise.resolve(false),
-    // No reputation-aware index in these scenarios: the rating header and the
-    // reviews section render nothing, keeping the existing baselines. The
-    // review surfaces have their own VRT file (MarketplaceReviewsPublic).
-    fetchSellerReputation: () => Promise.resolve({ status: 'unavailable' }),
+    fetchSellerReputation: () => Promise.resolve(view.reputation),
     fetchSellerReviews: () => Promise.resolve({ status: 'unavailable' }),
     fetchListingReviews: () => Promise.resolve({ status: 'unavailable' }),
   },
@@ -296,6 +294,7 @@ async function setView(overrides: Partial<typeof view>) {
   view.listing = undefined;
   view.shop = shop;
   view.projection = null;
+  view.reputation = { status: 'new_seller' };
   view.fetchFails = false;
   view.currentUserPubky = 'u'.repeat(52);
   view.listingTags = [];
@@ -343,7 +342,24 @@ describe('Marketplace listing detail — visual regression', () => {
 
   it('renders the seller block with the shop avatar at desktop viewport', async () => {
     const { seller, fixedPriceListing, fixedPriceProjection, brandedShop } = await fixtures;
-    await setView({ listing: fixedPriceListing, projection: fixedPriceProjection, shop: brandedShop });
+    await setView({
+      listing: fixedPriceListing,
+      projection: fixedPriceProjection,
+      shop: brandedShop,
+      reputation: {
+        status: 'rated',
+        summary: {
+          count: 18,
+          verifiedCount: 14,
+          avg: 4.8,
+          histogram: [0, 0, 1, 3, 14],
+          responseCount: 5,
+          editedLateCount: 0,
+          attestors: {},
+          lastReviewedAt: '2026-08-20T12:00:00.000Z',
+        },
+      },
+    });
 
     const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
       viewport: VRT_VIEWPORT_DESKTOP,

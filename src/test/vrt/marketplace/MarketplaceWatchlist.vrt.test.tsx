@@ -183,6 +183,14 @@ vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () 
   useMarketplaceWatchDetection: () => {},
 }));
 
+vi.mock('@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary', () => ({
+  useMarketplaceSellerSummary: (sellerPubky: string) => ({
+    shop: null,
+    reputation: { status: 'new_seller' },
+    displayName: sellerPubky === 'w'.repeat(52) ? 'Low Time Preference' : `${sellerPubky.slice(0, 10)}…`,
+  }),
+}));
+
 vi.mock('@/hooks/useCommerceFavorite/useCommerceFavorite', () => ({
   useCommerceFavorite: () => ({ isFavorite: true, isLoading: false, isMutating: false, toggle: vi.fn() }),
 }));
