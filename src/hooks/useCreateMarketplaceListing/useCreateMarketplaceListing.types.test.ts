@@ -9,10 +9,16 @@ import { createMarketplaceListingDefaults, createMarketplaceListingSchema } from
 const formDefaults = { ...createMarketplaceListingDefaults, categoryId: 'fashion' };
 
 describe('createMarketplaceListingSchema', () => {
+  it('defaults to pickup and final sale so shipping and returns can be added later', () => {
+    expect(createMarketplaceListingDefaults.fulfillment).toBe('pickup');
+    expect(createMarketplaceListingDefaults.returnDays).toBe('none');
+  });
+
   it('accepts complete physical delivery terms', () => {
     expect(
       createMarketplaceListingSchema.safeParse({
         ...formDefaults,
+        fulfillment: 'physical',
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125.00',
@@ -29,6 +35,7 @@ describe('createMarketplaceListingSchema', () => {
     expect(
       createMarketplaceListingSchema.safeParse({
         ...formDefaults,
+        fulfillment: 'physical',
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125.00',
@@ -45,6 +52,7 @@ describe('createMarketplaceListingSchema', () => {
   it('rejects fractional grams in metric but allows one-decimal ounces in imperial', () => {
     const base = {
       ...formDefaults,
+      fulfillment: 'physical' as const,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       price: '125.00',
@@ -76,6 +84,7 @@ describe('createMarketplaceListingSchema', () => {
   it('validates variant price overrides and shipping in the chosen currency', () => {
     const base = {
       ...formDefaults,
+      fulfillment: 'physical' as const,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       currency: 'BTC' as const,

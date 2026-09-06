@@ -421,7 +421,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   currency: 'USD',
   price: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
-  fulfillment: 'physical',
+  fulfillment: 'pickup',
   shippingLabel: 'Seller shipping',
   shippingPrice: '',
   shippingMinDays: '3',
@@ -431,5 +431,5 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   packageLength: '',
   packageWidth: '',
   packageHeight: '',
-  returnDays: '30',
+  returnDays: 'none',
 };

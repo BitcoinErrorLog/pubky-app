@@ -1,6 +1,18 @@
 'use client';
 
-import { ArrowDown, ArrowUp, Film, ImagePlus, Plus, Trash2 } from 'lucide-react';
+import { type ReactNode,useState } from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Film,
+  ImagePlus,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { Controller, useFieldArray, type UseFormReturn, useWatch } from 'react-hook-form';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -11,9 +23,11 @@ import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
+import { commerceAttributeFieldsFor, resolveCommerceCategory } from '@/config/taxonomy/taxonomy';
 import {
   CREATE_MARKETPLACE_LISTING_FIELDS,
   type CreateMarketplaceListingData,
+  listingAttributeFormField,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import type {
   ListingMediaItem,
@@ -21,7 +35,7 @@ import type {
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMarketplaceShippingPresets } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets';
 import { presetToShippingFields } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
-import { amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
+import { amountInputSchemaForAsset, amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
 import {
   dimensionInputFromMillimeters,
   dimensionUnitLabel,
@@ -35,6 +49,16 @@ import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/Con
 import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
 import { MarketplaceListingAttributeFields } from '@/organisms/Marketplace/MarketplaceListingAttributeFields';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
+
+const LISTING_FORM_SECTIONS = [
+  { id: 'listing-section-photos', label: 'Photos' },
+  { id: 'listing-section-item', label: 'Item' },
+  { id: 'listing-section-price', label: 'Price & format' },
+  { id: 'listing-section-shipping', label: 'Shipping & returns' },
+  { id: 'listing-section-review', label: 'Review & publish' },
+] as const;
+
+type ListingFormSectionId = (typeof LISTING_FORM_SECTIONS)[number]['id'];
 
 export interface MarketplaceListingFormProps {
   form: UseFormReturn<CreateMarketplaceListingData>;
@@ -69,6 +93,7 @@ export function MarketplaceListingForm({
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
   const currency = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY });
+  useWatch({ control: form.control });
   const measurementSystem = useWatch({
     control: form.control,
     name: CREATE_MARKETPLACE_LISTING_FIELDS.MEASUREMENT_SYSTEM,
@@ -109,6 +134,7 @@ export function MarketplaceListingForm({
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
   const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
   const isImperial = measurementSystem === 'imperial';
+  const formValues = form.getValues();
   const mediaError =
     pickerError === 'invalid-type'
       ? 'Choose image files only.'
@@ -119,27 +145,44 @@ export function MarketplaceListingForm({
           : pickerError === 'limit-reached'
             ? `Listings support up to ${maxPhotos} photos.`
             : null;
+  const sectionStatuses = getListingSectionStatuses(formValues, mediaItems.length);
+  const publishMinimumMet = sectionStatuses['listing-section-review'];
+  const optionalLaterItems = getOptionalLaterItems(formValues);
+  const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(LISTING_FORM_SECTIONS[0].id);
+  const activeSectionIndex = LISTING_FORM_SECTIONS.findIndex((section) => section.id === activeSectionId);
+  const navigateToSection = (sectionId: ListingFormSectionId) => {
+    setActiveSectionId(sectionId);
+    const section = document.getElementById(sectionId);
+    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    section?.focus({ preventScroll: true });
+  };
 
   return (
     <form
-      className="flex flex-col gap-6"
+      className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_9rem]"
       onSubmit={(event) => {
         event.preventDefault();
         void onSubmit();
       }}
     >
-      <Card className="border">
-        <CardContent className="flex flex-col gap-5 px-6">
-          <div>
-            <Typography as="h2" className="text-xl font-semibold">
-              Photos
-            </Typography>
-            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              Up to {media.maxPhotos} photos. The first photo is the cover buyers see everywhere. Metadata is stripped
-              before publication.
-            </Typography>
-          </div>
+      <SectionProgressRail
+        activeSectionId={activeSectionId}
+        sectionStatuses={sectionStatuses}
+        onNavigate={navigateToSection}
+      />
+      <div className="flex flex-col gap-6">
+        <MobileSectionStepper
+          activeSectionIndex={activeSectionIndex}
+          sectionStatuses={sectionStatuses}
+          onNavigate={navigateToSection}
+        />
 
+        <ListingFormSection
+          id="listing-section-photos"
+          title="Photos"
+          description={`Up to ${media.maxPhotos} photos. The first photo is the cover buyers see everywhere. Metadata is stripped before publication.`}
+          complete={sectionStatuses['listing-section-photos']}
+        >
           {mediaItems.length > 0 && (
             <ul className="flex flex-col gap-3" aria-label="Listing photos in display order">
               {mediaItems.map((item, index) => (
@@ -180,14 +223,14 @@ export function MarketplaceListingForm({
               {mediaError}
             </Typography>
           )}
-        </CardContent>
-      </Card>
+        </ListingFormSection>
 
-      <Card className="border">
-        <CardContent className="grid gap-5 px-6">
-          <Typography as="h2" className="text-xl font-semibold">
-            Item details
-          </Typography>
+        <ListingFormSection
+          id="listing-section-item"
+          title="Item"
+          description="Describe what the buyer receives and classify it for marketplace discovery."
+          complete={sectionStatuses['listing-section-item']}
+        >
           <ControlledInputField
             name={CREATE_MARKETPLACE_LISTING_FIELDS.TITLE}
             control={form.control}
@@ -246,14 +289,14 @@ export function MarketplaceListingForm({
               disabled={isPublishing}
             />
           </div>
-        </CardContent>
-      </Card>
+        </ListingFormSection>
 
-      <Card className="border">
-        <CardContent className="grid gap-5 px-6">
-          <Typography as="h2" className="text-xl font-semibold">
-            Price and availability
-          </Typography>
+        <ListingFormSection
+          id="listing-section-price"
+          title="Price & format"
+          description="Choose the sale format, price, and inventory options."
+          complete={sectionStatuses['listing-section-price']}
+        >
           <div className="grid gap-5 sm:grid-cols-3">
             <FormSelect
               form={form}
@@ -381,14 +424,14 @@ export function MarketplaceListingForm({
               </div>
             ))}
           </div>
-        </CardContent>
-      </Card>
+        </ListingFormSection>
 
-      <Card className="border">
-        <CardContent className="grid gap-5 px-6">
-          <Typography as="h2" className="text-xl font-semibold">
-            Delivery and returns
-          </Typography>
+        <ListingFormSection
+          id="listing-section-shipping"
+          title="Shipping & returns"
+          description="Pickup can publish immediately; shipping details are required only when Ship item is selected."
+          complete={sectionStatuses['listing-section-shipping']}
+        >
           <div className="grid gap-5 sm:grid-cols-2">
             <FormSelect
               form={form}
@@ -509,14 +552,309 @@ export function MarketplaceListingForm({
               </Typography>
             </>
           )}
-        </CardContent>
-      </Card>
+        </ListingFormSection>
 
-      <Button type="submit" size="lg" className="w-full rounded-full" disabled={isPublishing}>
-        {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
-      </Button>
+        <ListingFormSection
+          id="listing-section-review"
+          title="Review & publish"
+          description="Publish is available after title, price, category, and at least one photo are ready."
+          complete={sectionStatuses['listing-section-review']}
+        >
+          <ReviewPublishChecklist optionalLaterItems={optionalLaterItems} publishMinimumMet={publishMinimumMet} />
+          <Button type="submit" size="lg" className="w-full rounded-full" disabled={isPublishing || !publishMinimumMet}>
+            {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
+          </Button>
+        </ListingFormSection>
+      </div>
+      <SectionProgressRail
+        activeSectionId={activeSectionId}
+        sectionStatuses={sectionStatuses}
+        onNavigate={navigateToSection}
+        align="right"
+      />
     </form>
   );
+}
+
+function SectionProgressRail({
+  activeSectionId,
+  sectionStatuses,
+  onNavigate,
+  align = 'left',
+}: {
+  activeSectionId: ListingFormSectionId;
+  sectionStatuses: Record<ListingFormSectionId, boolean>;
+  onNavigate: (sectionId: ListingFormSectionId) => void;
+  align?: 'left' | 'right';
+}) {
+  return (
+    <nav
+      aria-label={align === 'left' ? 'Listing sections' : 'Listing section status'}
+      className="sticky top-24 hidden h-fit flex-col gap-2 lg:flex"
+    >
+      {LISTING_FORM_SECTIONS.map((section, index) => {
+        const complete = sectionStatuses[section.id];
+        const active = activeSectionId === section.id;
+        return (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className={[
+              'flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors',
+              active
+                ? 'border-brand bg-brand/10 text-brand'
+                : 'border-border text-muted-foreground hover:text-foreground',
+              align === 'right' ? 'justify-center' : '',
+            ].join(' ')}
+            aria-current={active ? 'step' : undefined}
+            onClick={(event) => {
+              event.preventDefault();
+              onNavigate(section.id);
+            }}
+          >
+            {complete ? (
+              <CheckCircle2 className="size-4 shrink-0 text-brand" aria-hidden="true" />
+            ) : (
+              <Circle className="size-4 shrink-0" aria-hidden="true" />
+            )}
+            {align === 'left' ? section.label : `${index + 1}`}
+            <span className="sr-only">{complete ? ' complete' : ' incomplete'}</span>
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
+function MobileSectionStepper({
+  activeSectionIndex,
+  sectionStatuses,
+  onNavigate,
+}: {
+  activeSectionIndex: number;
+  sectionStatuses: Record<ListingFormSectionId, boolean>;
+  onNavigate: (sectionId: ListingFormSectionId) => void;
+}) {
+  const safeIndex = Math.max(0, activeSectionIndex);
+  const activeSection = LISTING_FORM_SECTIONS[safeIndex];
+  const previousSection = LISTING_FORM_SECTIONS[safeIndex - 1];
+  const nextSection = LISTING_FORM_SECTIONS[safeIndex + 1];
+
+  return (
+    <div className="sticky top-2 z-10 flex flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur lg:hidden">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Typography as="p" className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Step {safeIndex + 1} of {LISTING_FORM_SECTIONS.length}
+          </Typography>
+          <Typography as="p" className="font-semibold">
+            {activeSection.label}
+          </Typography>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="rounded-full"
+            disabled={!previousSection}
+            onClick={() => previousSection && onNavigate(previousSection.id)}
+          >
+            <ChevronLeft className="mr-1 size-4" />
+            Back
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="rounded-full"
+            disabled={!nextSection}
+            onClick={() => nextSection && onNavigate(nextSection.id)}
+          >
+            Next
+            <ChevronRight className="ml-1 size-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2" aria-label="Listing section anchors">
+        {LISTING_FORM_SECTIONS.map((section, index) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className={[
+              'rounded-full border px-2.5 py-1 text-xs',
+              activeSection.id === section.id
+                ? 'border-brand bg-brand/10 text-brand'
+                : 'border-border text-muted-foreground',
+            ].join(' ')}
+            aria-current={activeSection.id === section.id ? 'step' : undefined}
+            onClick={(event) => {
+              event.preventDefault();
+              onNavigate(section.id);
+            }}
+          >
+            {index + 1}
+            <span className="sr-only">
+              {' '}
+              {section.label}
+              {sectionStatuses[section.id] ? ' complete' : ' incomplete'}
+            </span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ListingFormSection({
+  id,
+  title,
+  description,
+  complete,
+  children,
+}: {
+  id: ListingFormSectionId;
+  title: string;
+  description: string;
+  complete: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} tabIndex={-1} aria-labelledby={`${id}-title`} data-section-complete={complete}>
+      <Card className="border">
+        <CardContent className="grid gap-5 px-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <Typography id={`${id}-title`} as="h2" className="text-xl font-semibold">
+                {title}
+              </Typography>
+              <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                {description}
+              </Typography>
+            </div>
+            <Badge className={complete ? '' : 'bg-muted text-muted-foreground'}>
+              {complete ? 'Complete' : 'Incomplete'}
+            </Badge>
+          </div>
+          {children}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function ReviewPublishChecklist({
+  optionalLaterItems,
+  publishMinimumMet,
+}: {
+  optionalLaterItems: string[];
+  publishMinimumMet: boolean;
+}) {
+  return (
+    <div className="grid gap-4 rounded-xl border bg-card/60 p-4">
+      <div className="flex items-start gap-3">
+        {publishMinimumMet ? (
+          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-brand" aria-hidden="true" />
+        ) : (
+          <Circle className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        )}
+        <div>
+          <Typography as="p" className="font-semibold">
+            Minimum publish fields
+          </Typography>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            Title, price, category, and at least one photo are required before the publish control is available.
+          </Typography>
+        </div>
+      </div>
+      <div>
+        <Typography as="p" className="font-semibold">
+          You can add these later
+        </Typography>
+        {optionalLaterItems.length > 0 ? (
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            {optionalLaterItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        ) : (
+          <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+            All optional listing details are filled.
+          </Typography>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getListingSectionStatuses(
+  values: CreateMarketplaceListingData,
+  photoCount: number,
+): Record<ListingFormSectionId, boolean> {
+  const categoryResolved = Boolean(resolveCommerceCategory(values.categoryId));
+  const priceValid = amountInputSchemaForAsset(assetForListingCurrency(values.currency)).safeParse(
+    values.price,
+  ).success;
+  const variantsValid =
+    values.variants.length > 0 && values.variants.every((variant) => /^[1-9]\d*$/.test(variant.quantity));
+  const itemComplete =
+    values.title.trim().length >= 3 &&
+    values.description.trim().length > 0 &&
+    categoryResolved &&
+    /^[A-Za-z]{2}$/.test(values.countryCode.trim()) &&
+    categoryRequiredAttributesComplete(values);
+  const shippingComplete =
+    values.fulfillment === 'pickup' ||
+    (values.shippingLabel.trim().length > 0 &&
+      amountInputSchemaForAsset(assetForListingCurrency(values.currency)).safeParse(values.shippingPrice).success &&
+      /^\d+$/.test(values.shippingMinDays) &&
+      /^\d+$/.test(values.shippingMaxDays) &&
+      values.packageWeight.trim().length > 0 &&
+      values.packageLength.trim().length > 0 &&
+      values.packageWidth.trim().length > 0 &&
+      values.packageHeight.trim().length > 0);
+
+  return {
+    'listing-section-photos': photoCount > 0,
+    'listing-section-item': itemComplete,
+    'listing-section-price': priceValid && variantsValid,
+    'listing-section-shipping': shippingComplete,
+    'listing-section-review': values.title.trim().length >= 3 && priceValid && categoryResolved && photoCount > 0,
+  };
+}
+
+function categoryRequiredAttributesComplete(values: CreateMarketplaceListingData): boolean {
+  return commerceAttributeFieldsFor(values.categoryId).every((field) => {
+    if (!field.required) return true;
+    const formField = listingAttributeFormField(field.key);
+    if (!formField) return true;
+    const value = values[formField];
+    return Array.isArray(value) ? value.length > 0 : value.trim().length > 0;
+  });
+}
+
+function getOptionalLaterItems(values: CreateMarketplaceListingData): string[] {
+  const optionalItems: string[] = [];
+  const hasAttributes = commerceAttributeFieldsFor(values.categoryId).some((field) => {
+    const formField = listingAttributeFormField(field.key);
+    if (!formField || field.required) return false;
+    const value = values[formField];
+    return Array.isArray(value) ? value.length > 0 : value.trim().length > 0;
+  });
+
+  if (!hasAttributes) optionalItems.push('Optional category specifics like brand, color, style, model, or material');
+  if (!values.region.trim()) optionalItems.push('Region');
+  if (
+    values.variants.every(
+      (variant) => !variant.sku && !variant.size && !variant.color && !variant.style && !variant.priceOverride,
+    )
+  ) {
+    optionalItems.push('Variant SKUs, options, and price overrides');
+  }
+  if (values.fulfillment === 'pickup') optionalItems.push('Shipping details');
+  if (values.returnDays === 'none') optionalItems.push('Returns policy');
+
+  return optionalItems;
 }
 
 /**

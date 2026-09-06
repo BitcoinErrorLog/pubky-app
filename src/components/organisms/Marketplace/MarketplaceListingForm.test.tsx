@@ -52,19 +52,21 @@ function expectIconOnlyButtonsToHaveLabels(container: HTMLElement) {
 
 function FormHarness({
   fulfillment = 'physical',
+  defaultValues = {},
   onSubmit = vi.fn(),
   media = buildMedia(),
   mode = 'create' as const,
   saleTermsLocked = false,
 }: {
   fulfillment?: CreateMarketplaceListingData['fulfillment'];
+  defaultValues?: Partial<CreateMarketplaceListingData>;
   onSubmit?: () => Promise<void>;
   media?: UseListingMediaManagerResult;
   mode?: 'create' | 'edit';
   saleTermsLocked?: boolean;
 }) {
   const form = useForm<CreateMarketplaceListingData>({
-    defaultValues: { ...createMarketplaceListingDefaults, fulfillment },
+    defaultValues: { ...createMarketplaceListingDefaults, fulfillment, ...defaultValues },
   });
   return (
     <MarketplaceListingForm
@@ -83,14 +85,16 @@ describe('MarketplaceListingForm', () => {
     render(<FormHarness />);
 
     expect(screen.getByRole('heading', { name: 'Photos' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Item details' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Price and availability' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Delivery and returns' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Item' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Price & format' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Shipping & returns' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
     expect(screen.getByText('Pricing currency')).toBeInTheDocument();
     expect(screen.getByText('Flat shipping (USD)')).toBeInTheDocument();
     expect(screen.getByText('Weight (g)')).toBeInTheDocument();
     expect(screen.getByText('Length (cm)')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeDisabled();
+    expect(screen.getByText('You can add these later')).toBeInTheDocument();
   });
 
   it('hides package fields for pickup listings', () => {
@@ -103,14 +107,62 @@ describe('MarketplaceListingForm', () => {
   it('opens the photo picker and submits through the form owner', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn(async () => {});
-    const media = buildMedia();
-    render(<FormHarness onSubmit={onSubmit} media={media} />);
+    const media = buildMedia([photoItem('one', 'Front')]);
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        defaultValues={{ title: 'Vintage boots', categoryId: 'fashion', price: '125.00' }}
+        onSubmit={onSubmit}
+        media={media}
+      />,
+    );
 
-    await user.click(screen.getByRole('button', { name: 'Add photos (0/8)' }));
+    await user.click(screen.getByRole('button', { name: 'Add photos (1/8)' }));
     await user.click(screen.getByRole('button', { name: 'Publish listing' }));
 
     expect(media.choose).toHaveBeenCalled();
     expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it('focuses sections from anchor navigation', async () => {
+    const user = userEvent.setup();
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    render(<FormHarness />);
+
+    await user.click(screen.getAllByRole('link', { name: /Price & format/ })[0]);
+
+    expect(document.activeElement).toHaveAttribute('id', 'listing-section-price');
+  });
+
+  it('advances the mobile step indicator without unmounting sections', async () => {
+    const user = userEvent.setup();
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    render(<FormHarness />);
+
+    expect(screen.getByText('Step 1 of 5')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+
+    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Photos' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
+  });
+
+  it('enables publish after title, price, category, and one photo are present', () => {
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        defaultValues={{ title: 'Vintage boots', categoryId: 'fashion', price: '125.00' }}
+        media={buildMedia([photoItem('one', 'Front')])}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeEnabled();
+  });
+
+  it('defaults returns to final sale while remaining editable', () => {
+    render(<FormHarness />);
+
+    expect(screen.getByLabelText('Returns')).toHaveTextContent('Final sale');
   });
 
   it('renders photos in order with cover badge, reorder, and remove controls', async () => {
