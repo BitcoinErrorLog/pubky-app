@@ -10,6 +10,7 @@ import {
   Heart,
   LayoutDashboard,
   MessageCircle,
+  ReceiptText,
   ShieldCheck,
   ShoppingCart,
   Store,
@@ -125,6 +126,14 @@ export function Marketplace() {
               </Button>
               <NavPillCountBadge count={cartCount} dataCy="marketplace-nav-cart" />
             </span>
+            <Button
+              variant="ghost"
+              className="rounded-full"
+              onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.ORDERS))}
+            >
+              <ReceiptText className="mr-2 size-4" />
+              Orders
+            </Button>
             <span className="relative inline-flex">
               <Button
                 variant="ghost"
