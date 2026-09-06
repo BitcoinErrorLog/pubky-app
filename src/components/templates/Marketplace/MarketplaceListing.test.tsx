@@ -150,7 +150,7 @@ describe('MarketplaceListing', () => {
     expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
   });
 
-  it('renders the seller block with shop identity, tenure, actions, and shipping copy', () => {
+  it('renders the seller block with shop identity, actions, and shipping copy', () => {
     view.listing = toCommerceListingModel(
       createCommerceListingFixture({
         fulfillmentMethods: ['physical'],
@@ -172,7 +172,7 @@ describe('MarketplaceListing', () => {
     expect(screen.getByText('Sold by')).toBeInTheDocument();
     expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
     expect(screen.getByText('New seller · no reviews yet')).toBeInTheDocument();
-    expect(screen.getByText('Shop opened Aug 2026')).toBeInTheDocument();
+    expect(screen.queryByText(/Shop opened/)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View shop' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Message seller' })).toBeInTheDocument();
     expect(screen.getByText('Shipping: Ground shipping $8.99')).toBeInTheDocument();

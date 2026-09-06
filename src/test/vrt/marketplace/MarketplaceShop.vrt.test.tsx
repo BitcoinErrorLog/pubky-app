@@ -329,7 +329,7 @@ describe('Marketplace shop — visual regression', () => {
       disableHover: true,
     });
     await vi.waitFor(() => {
-      if (!screen.container.textContent?.includes('Set up your shop')) {
+      if (!screen.container.textContent?.includes('Set up your seller account to start listing.')) {
         throw new Error('The owner set-up prompt has not rendered yet.');
       }
     });

@@ -47,12 +47,17 @@ vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
   useMarketplaceLiveBid: () => ({ ref: () => {}, bid: null }),
 }));
 
+const sellerSummaryCalls = vi.hoisted(() => ({ options: [] as Array<{ includeReputation?: boolean } | undefined> }));
+
 vi.mock('@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary', () => ({
-  useMarketplaceSellerSummary: () => ({
-    shop: null,
-    reputation: { status: 'new_seller' },
-    displayName: sellerSummary.displayName,
-  }),
+  useMarketplaceSellerSummary: (_sellerPubky: string, options?: { includeReputation?: boolean }) => {
+    sellerSummaryCalls.options.push(options);
+    return {
+      shop: null,
+      reputation: { status: 'unavailable' },
+      displayName: sellerSummary.displayName,
+    };
+  },
 }));
 
 vi.mock('@/hooks/useRelativeTime/useRelativeTime', () => ({
@@ -116,10 +121,12 @@ describe('MarketplaceWatchlist', () => {
   });
 
   it('renders the seller name and expanded checked copy', () => {
+    sellerSummaryCalls.options = [];
     render(<MarketplaceWatchlist />);
 
     expect(screen.getByText('Proof of Film')).toBeInTheDocument();
     expect(screen.getByText('Checked 11 sec ago')).toBeInTheDocument();
+    expect(sellerSummaryCalls.options).toEqual([{ includeReputation: false }]);
   });
 
   it('renders just now for a zero-second checked label', () => {

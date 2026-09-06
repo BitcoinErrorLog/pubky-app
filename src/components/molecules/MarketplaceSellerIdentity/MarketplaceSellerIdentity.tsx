@@ -11,7 +11,6 @@ export interface MarketplaceSellerIdentityProps {
   avatarUrl?: string | null;
   avatarAlt?: string;
   reputation: CommerceSellerReputationOverview | { status: 'loading' };
-  createdAt?: string | null;
   onAvatarError?: () => void;
 }
 
@@ -21,11 +20,8 @@ export function MarketplaceSellerIdentity({
   avatarUrl,
   avatarAlt,
   reputation,
-  createdAt,
   onAvatarError,
 }: MarketplaceSellerIdentityProps) {
-  const tenureLabel = createdAt ? formatShopTenure(createdAt) : null;
-
   return (
     <div className="flex min-w-0 items-center gap-3">
       {avatarUrl ? (
@@ -61,21 +57,7 @@ export function MarketplaceSellerIdentity({
             New seller · no reviews yet
           </Typography>
         )}
-        {tenureLabel && (
-          <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-            {tenureLabel}
-          </Typography>
-        )}
       </div>
     </div>
   );
-}
-
-function formatShopTenure(createdAt: string): string | null {
-  const timestamp = Date.parse(createdAt);
-  if (Number.isNaN(timestamp)) return null;
-  const opened = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(
-    new Date(timestamp),
-  );
-  return `Shop opened ${opened}`;
 }

@@ -254,7 +254,7 @@ function WatchlistItemRow({ entry }: { entry: MarketplaceWatchlistEntry }) {
   const { item, snapshot, sellerId, rawListingId, listingId } = entry;
   const isAuction = item ? item.saleFormat === 'auction' : snapshot?.auction_ends_at !== null;
   const watch = useCommerceFavorite(listingId);
-  const seller = useMarketplaceSellerSummary(sellerId);
+  const seller = useMarketplaceSellerSummary(sellerId, { includeReputation: false });
   const { ref: liveBidRef, bid } = useMarketplaceLiveBid(sellerId, rawListingId, Boolean(item && isAuction));
   const [mediaFailed, setMediaFailed] = useState(false);
 

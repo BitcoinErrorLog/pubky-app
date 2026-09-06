@@ -261,7 +261,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     avatarUrl={shopAvatarUrl}
                     avatarAlt={`${shop?.record.name ?? 'Shop'} avatar`}
                     reputation={sellerReputation}
-                    createdAt={shop?.record.createdAt ?? null}
                     onAvatarError={() => setShopAvatarFailed(true)}
                   />
                   {isOwner && !shop && (

@@ -12,9 +12,13 @@ export interface MarketplaceSellerSummary {
   displayName: string;
 }
 
-export function useMarketplaceSellerSummary(sellerPubky: string): MarketplaceSellerSummary {
+export function useMarketplaceSellerSummary(
+  sellerPubky: string,
+  options?: { includeReputation?: boolean },
+): MarketplaceSellerSummary {
+  const includeReputation = options?.includeReputation !== false;
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
-  const reputation = useSellerReputation(sellerPubky);
+  const reputation = useSellerReputation(sellerPubky, { enabled: includeReputation });
 
   return {
     shop,

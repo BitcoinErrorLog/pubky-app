@@ -17,12 +17,18 @@ import type { CommerceIndexedReview } from '@/models/commerce/commerce.schema';
  *   sandbox, or unreachable); NO reputation surface renders at all.
  * `loading` is the initial in-flight state.
  */
-export function useSellerReputation(sellerPubky: string) {
+export function useSellerReputation(sellerPubky: string, options?: { enabled?: boolean }) {
+  const enabled = options?.enabled !== false;
   const [overview, setOverview] = useState<CommerceSellerReputationOverview | { status: 'loading' }>({
     status: 'loading',
   });
 
   useEffect(() => {
+    if (!enabled) {
+      setOverview({ status: 'unavailable' });
+      return;
+    }
+
     let active = true;
     setOverview({ status: 'loading' });
     CommerceController.fetchSellerReputation(sellerPubky)
@@ -35,7 +41,7 @@ export function useSellerReputation(sellerPubky: string) {
     return () => {
       active = false;
     };
-  }, [sellerPubky]);
+  }, [sellerPubky, enabled]);
 
   return overview;
 }

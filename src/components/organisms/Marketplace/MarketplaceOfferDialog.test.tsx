@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { USD_ASSET } from '@/libs/commerce/pricing';
+import { BTC_ASSET, USD_ASSET } from '@/libs/commerce/pricing';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceOfferDialog } from './MarketplaceOfferDialog';
 
@@ -96,6 +96,46 @@ describe('MarketplaceOfferDialog', () => {
     await user.clear(amount);
     await user.type(amount, '150.00');
     expect(screen.getByText('20% above asking')).toBeInTheDocument();
+  });
+
+  it('hides asking and percent lines when asking currency does not match the listing asset', async () => {
+    const user = userEvent.setup();
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={1}
+        priceAsset={BTC_ASSET}
+        askingPrice={{ amountMinor: 12_500, currency: 'USD', exponent: 2 }}
+        onAccepted={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Make offer' }));
+    await user.type(screen.getByLabelText('Offer amount (₿)'), '100000');
+
+    expect(screen.queryByText(/Asking price:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/below asking/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/above asking/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Matches asking')).not.toBeInTheDocument();
+  });
+
+  it('shows asking and percent lines when asking currency matches the listing asset', async () => {
+    const user = userEvent.setup();
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={1}
+        priceAsset={USD_ASSET}
+        askingPrice={{ amountMinor: 10_000, currency: 'USD', exponent: 2 }}
+        onAccepted={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Make offer' }));
+    expect(screen.getByText('Asking price: $100.00')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Offer amount (USD)'), '80.00');
+    expect(screen.getByText('20% below asking')).toBeInTheDocument();
   });
 
   it('opens the sign-in dialog instead of the offer form for signed-out visitors', async () => {

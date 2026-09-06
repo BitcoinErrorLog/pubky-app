@@ -37,8 +37,9 @@ export function MarketplaceOfferDialog({
   const offer = useMarketplaceOffer(aggregateId, expectedRevision, onAccepted, priceAsset);
   const { requireAuth } = useRequireAuth();
   const amount = offer.form.watch('amount');
-  const askingPriceLine = formatAskingPriceLine(askingPrice);
-  const comparisonLine = formatOfferComparisonLine(amount, askingPrice, priceAsset);
+  const comparableAsking = askingPriceComparableToAsset(askingPrice, priceAsset);
+  const askingPriceLine = formatAskingPriceLine(comparableAsking);
+  const comparisonLine = formatOfferComparisonLine(amount, comparableAsking, priceAsset);
 
   const submit = async () => {
     if (!(await offer.submit())) return;
@@ -118,6 +119,14 @@ export function MarketplaceOfferDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function askingPriceComparableToAsset(
+  askingPrice: CommerceMoney | null,
+  priceAsset: CommerceAsset,
+): CommerceMoney | null {
+  if (!askingPrice || askingPrice.currency !== priceAsset.currency) return null;
+  return askingPrice;
 }
 
 function formatAskingPriceLine(askingPrice: CommerceMoney | null): string | null {

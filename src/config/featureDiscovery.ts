@@ -6,3 +6,8 @@ export const FEATURE_DISCOVERY_STORAGE_PREFIX = 'pubky-feature-discovery';
 export function buildFeatureDiscoveryStorageKey(pubky: string, featureId: string): string {
   return `${FEATURE_DISCOVERY_STORAGE_PREFIX}:${pubky}:${featureId}`;
 }
+
+/** Device-wide key (no account). Same prefix as per-account keys; no pubky segment. */
+export function buildFeatureDiscoveryDeviceStorageKey(featureId: string): string {
+  return `${FEATURE_DISCOVERY_STORAGE_PREFIX}:${featureId}`;
+}

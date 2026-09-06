@@ -2,7 +2,11 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
-import { FEATURE_DISCOVERY_STORAGE_PREFIX, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
+import {
+  buildFeatureDiscoveryDeviceStorageKey,
+  FEATURE_DISCOVERY_STORAGE_PREFIX,
+  MARKETPLACE_PROMO_STORAGE_ID,
+} from '@/config/featureDiscovery';
 import { Marketplace } from './Marketplace';
 
 const routerPush = vi.hoisted(() => vi.fn());
@@ -124,8 +128,11 @@ describe('Marketplace', () => {
     await user.click(dismissButton);
 
     expect(promoDismiss).toHaveBeenCalledOnce();
-    expect(window.localStorage.getItem(`${FEATURE_DISCOVERY_STORAGE_PREFIX}:${MARKETPLACE_PROMO_STORAGE_ID}`)).toBe(
+    expect(window.localStorage.getItem(buildFeatureDiscoveryDeviceStorageKey(MARKETPLACE_PROMO_STORAGE_ID))).toBe(
       'dismissed',
+    );
+    expect(buildFeatureDiscoveryDeviceStorageKey(MARKETPLACE_PROMO_STORAGE_ID)).toBe(
+      `${FEATURE_DISCOVERY_STORAGE_PREFIX}:${MARKETPLACE_PROMO_STORAGE_ID}`,
     );
     expect(screen.queryByRole('region', { name: 'Marketplace promo' })).not.toBeInTheDocument();
   });

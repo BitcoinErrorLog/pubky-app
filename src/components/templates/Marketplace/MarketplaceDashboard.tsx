@@ -101,7 +101,7 @@ export function MarketplaceDashboard() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
-              Seller dashboard
+              Seller studio
             </Heading>
             <Typography as="p" className="mt-2 text-muted-foreground">
               Your listings, shop, order work queues, and offers.
