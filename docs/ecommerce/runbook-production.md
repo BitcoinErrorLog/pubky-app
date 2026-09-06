@@ -32,7 +32,7 @@ operation.
 
 ```bash
 cd /Users/johncarvalho/work/mp-prod-deploy
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel env list production --scope synonymdev
+/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel env ls production --scope synonymdev
 /Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel env update PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE production --value unavailable --yes --scope synonymdev
 /Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel deploy --prod --yes --scope synonymdev
 ```
@@ -60,6 +60,14 @@ cd /Users/johncarvalho/work/mp-prod-deploy
 Use `promote` when the target known-good deployment id or URL is known. Use `rollback` when reverting away from a known
 bad deployment id or URL. The commands below use the inspected deployment ids from the 2026-09-06 deploy record.
 
+Runtime config is serialized into each deployment at build time, so `promote` re-points the alias to that deployment's
+env snapshot in about 5 seconds with no build (measured in the 2026-09-06 drill). That makes `promote` the instant
+**restore** path. It is only an instant **kill** path if an `unavailable` deployment already exists to promote; otherwise
+the env flip plus redeploy above takes about 3 minutes. The kill deployment from the drill is
+`pubky-marketplace-production-doas1qo0r-synonymdev.vercel.app` (`unavailable`, HEAD `f036a76d`); it goes stale as soon
+as the client changes, so after each production deploy either re-create an `unavailable` deployment or accept the
+3-minute kill latency.
+
 ```bash
 cd /Users/johncarvalho/work/mp-prod-deploy
 /Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel promote EAqqVuQq1BkstYJwwciMS3C981tv --yes --scope synonymdev
@@ -79,8 +87,8 @@ cd /Users/johncarvalho/work/mp-ux
 Check the resolved runtime config and the rendered UI:
 
 ```bash
-curl -fsS https://pubky-marketplace-production.vercel.app/marketplace | rg 'commerceAdapterMode":"unavailable|Marketplace transactions are unavailable'
-curl -fsS https://pubky-marketplace-production.vercel.app/marketplace/listings/<sellerPubky>/<listingId> | rg 'Transactions are disabled in this deployment|commerceAdapterMode":"unavailable'
+curl -fsS https://pubky-marketplace-production.vercel.app/marketplace | grep -o 'commerceAdapterMode[^,]*'
+curl -fsS https://pubky-marketplace-production.vercel.app/marketplace/listings/<sellerPubky>/<listingId> | grep -o 'commerceAdapterMode[^,]*'
 ```
 
 Expected user-visible behavior:
@@ -137,6 +145,6 @@ railway variables --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment p
 
 ## Drill Log
 
-| Date          | Operator                          | Action        | Vercel deployment before | Vercel deployment after | Railway action | Verification  | Notes                                                           |
-| ------------- | --------------------------------- | ------------- | ------------------------ | ----------------------- | -------------- | ------------- | --------------------------------------------------------------- |
-| Pending drill | Parent to fill after actual drill | Pending drill | Pending drill            | Pending drill           | Pending drill  | Pending drill | This row is intentionally unfilled until the live drill is run. |
+| Date                       | Operator                            | Action                                                                                                        | Vercel deployment before                                                                    | Vercel deployment after                                                                                              | Railway action | Verification                                                                                                                                      | Notes                                                                                                                                                                                 |
+| -------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09-06 12:22–12:29 UTC | drill agent (Grok), parent-verified | env flip to `unavailable` + deploy; env restore to `locks-paykit` + deploy; `promote` of pre-drill deployment | `pubky-marketplace-production-43s5ujo0d` (`dpl_EAqqVuQq1BkstYJwwciMS3C981tv`, locks-paykit) | kill `…-doas1qo0r` (unavailable); restore `…-7i2qjho1y` (locks-paykit); alias finally promoted back to `…-43s5ujo0d` | none           | HTML `commerceAdapterMode` read `unavailable` after kill and `locks-paykit` after restore and after promote; parent re-checked alias at 12:29 UTC | kill latency 3m06s; env-restore latency 2m54s; promote 5s, no build. Banner text is client-rendered so `grep -c` on HTML returns 0; verify via `commerceAdapterMode` or in a browser. |
