@@ -56,10 +56,6 @@ export function MarketplacePaymentSettings() {
           <Typography as="p" className="mt-2 text-muted-foreground">
             Every method pays the seller directly — this marketplace never holds funds.
           </Typography>
-          <Typography as="p" className="mt-2 text-muted-foreground">
-            Set up at least one method below to start selling. Each method works on its own — turn on any of them, in
-            any order, and change them whenever you like.
-          </Typography>
         </div>
 
         <MarketplaceGetPaidSettings locksConnect={locksConnect} onOpenPaykit={openPaykit} />

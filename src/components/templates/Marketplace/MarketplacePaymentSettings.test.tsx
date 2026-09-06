@@ -114,9 +114,38 @@ describe('MarketplacePaymentSettings', () => {
 
     await renderSettings();
 
-    expect(screen.getByTestId('payment-method-status-paypal')).toHaveTextContent('Connected');
+    expect(screen.getByTestId('payment-method-status-paypal')).toHaveTextContent('Email saved');
     expect(screen.getByTestId('payment-method-status-stripe')).toHaveTextContent('Needs attention');
+    // Claim without Lock Server authorization is not Connected.
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
+    expect(screen.getByRole('button', { name: /Open Locks connect/ })).toBeInTheDocument();
+    expect(screen.getByTestId('payment-methods-ready-summary')).toHaveTextContent(
+      '1 method is ready to accept payments.',
+    );
+  });
+
+  it('shows Bitcoin Connected only when Lock Server authorization and the Paykit claim are both present', async () => {
+    view.locksConnect = {
+      connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      isExchanging: false,
+      error: null,
+    };
+    mockedController.getMyPaymentConfig.mockResolvedValue({
+      ...EMPTY_CONFIG,
+      paypalMerchantEmail: 'seller@example.com',
+      stripePaymentLink: 'https://buy.stripe.com/test_abc',
+      stripeRestrictedKeySet: true,
+    });
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+
+    await renderSettings();
+
+    expect(screen.getByTestId('payment-method-status-paypal')).toHaveTextContent('Email saved');
+    expect(screen.getByTestId('payment-method-status-stripe')).toHaveTextContent('Connected');
     expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Connected');
+    expect(screen.getByTestId('payment-methods-ready-summary')).toHaveTextContent(
+      '3 methods are ready to accept payments.',
+    );
   });
 
   it('shows Not set up on every pill for a new seller', async () => {
@@ -125,6 +154,9 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.getByTestId('payment-method-status-paypal')).toHaveTextContent('Not set up');
     expect(screen.getByTestId('payment-method-status-stripe')).toHaveTextContent('Not set up');
     expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Not set up');
+    expect(screen.getByTestId('payment-methods-ready-summary')).toHaveTextContent(
+      'Set up at least one method below to start selling.',
+    );
   });
 
   it('needs attention when the Lock Server connect errored', async () => {

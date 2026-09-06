@@ -33,6 +33,8 @@ import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
+  atLeastOneMethodSentence,
+  countReadyPaymentMethods,
   deriveBitcoinStatus,
   derivePaypalStatus,
   deriveStripeStatus,
@@ -55,7 +57,8 @@ type MarketplaceGetPaidSettingsProps = {
 };
 
 function StatusPill({ status, testId }: { status: PaymentMethodStatus; testId: string }) {
-  const variant = status === 'connected' ? 'secondary' : status === 'needs_attention' ? 'destructive' : 'outline';
+  const variant =
+    status === 'connected' ? 'secondary' : status === 'needs_attention' ? 'destructive' : 'outline';
   return (
     <Badge variant={variant} role="status" data-testid={testId} className="mt-1">
       {PAYMENT_METHOD_STATUS_LABELS[status]}
@@ -162,6 +165,17 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
     </Button>
   );
 
+  const paypalStatus = derivePaypalStatus(payments.config);
+  const stripeStatus = deriveStripeStatus(payments.config);
+  const bitcoinStatus = deriveBitcoinStatus({
+    connectedCreator: locksConnect.connectedCreator,
+    accountClaimed: payments.accountClaimed,
+    locksError: locksConnect.error,
+    claimError: payments.claimError,
+  });
+  const readyCount = countReadyPaymentMethods([paypalStatus, stripeStatus, bitcoinStatus]);
+  const step1NeedsPrimary = !locksConnect.connectedCreator && bitcoinStatus === 'needs_attention';
+
   // Stored rails need the marketplace session and the loaded config; the
   // bitcoin connect steps above them do not, so they render unconditionally.
   const renderStoredRailBody = (children: React.ReactNode) => {
@@ -195,11 +209,14 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
 
   return (
     <section aria-label="Payment methods" className="flex flex-col gap-6">
+      <Typography as="p" className="text-muted-foreground" data-testid="payment-methods-ready-summary">
+        {atLeastOneMethodSentence(readyCount)}
+      </Typography>
       <MethodCard
         icon={HandCoins}
         title="PayPal"
         promise="Buyers pay straight to your PayPal account — all you need is the email you use there."
-        status={derivePaypalStatus(payments.config)}
+        status={paypalStatus}
         statusTestId="payment-method-status-paypal"
       >
         {renderStoredRailBody(
@@ -210,9 +227,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
                   PayPal email
                 </Label>
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  Buyers pay your PayPal account directly. PayPal notifies the marketplace when a payment completes
-                  (verified against this address and the exact order total), so orders usually mark themselves paid. If
-                  no notification arrives, the buyer reports the payment and you confirm receipt on the order.
+                  Buyers pay this PayPal email directly; payments are confirmed by PayPal, not by this marketplace.
                 </Typography>
               </div>
               <Input
@@ -235,7 +250,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
         icon={CreditCard}
         title="Card via Stripe"
         promise="Take card payments through your own Stripe payment link — payouts land in your Stripe account."
-        status={deriveStripeStatus(payments.config)}
+        status={stripeStatus}
         statusTestId="payment-method-status-stripe"
       >
         {renderStoredRailBody(
@@ -296,11 +311,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
         icon={Bitcoin}
         title="Bitcoin wallet"
         promise="Get paid in bitcoin, straight to your own wallet — set it up in two steps."
-        status={deriveBitcoinStatus({
-          accountClaimed: payments.accountClaimed,
-          locksError: locksConnect.error,
-          claimError: payments.claimError,
-        })}
+        status={bitcoinStatus}
         statusTestId="payment-method-status-bitcoin"
       >
         <div className="grid gap-4 rounded-xl border p-4 sm:grid-cols-[1fr_auto] sm:items-center">
@@ -330,7 +341,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
             </Badge>
           ) : (
             <Button
-              variant="secondary"
+              variant={step1NeedsPrimary ? 'default' : 'secondary'}
               className="rounded-full"
               disabled={locksConnect.isExchanging}
               onClick={locksConnect.openConnect}
@@ -358,7 +369,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
               </Typography>
             )}
           </div>
-          <Button className="rounded-full" onClick={onOpenPaykit}>
+          <Button variant={step1NeedsPrimary ? 'secondary' : 'default'} className="rounded-full" onClick={onOpenPaykit}>
             Open Bitkit setup
             <ExternalLink className="ml-2 size-4" />
           </Button>
