@@ -8,6 +8,10 @@ import { MarketplaceListing } from './MarketplaceListing';
 
 const cartAdd = vi.hoisted(() => vi.fn());
 const projectionRefresh = vi.hoisted(() => vi.fn());
+const authState = vi.hoisted(() => ({
+  currentUserPubky: 'b'.repeat(52),
+  setShowSignInDialog: vi.fn(),
+}));
 
 const view = vi.hoisted(() => ({
   listing: null as ReturnType<typeof toCommerceListingModel> | null,
@@ -39,8 +43,9 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 'b'.repeat(52) }),
+  useAuthStore: Object.assign((selector: (state: typeof authState) => unknown) => selector(authState), {
+    getState: () => authState,
+  }),
 }));
 
 vi.mock('@/hooks/useCommerceFavorite/useCommerceFavorite', () => ({
@@ -116,6 +121,7 @@ describe('MarketplaceListing', () => {
     view.needsSession = false;
     cartAdd.mockClear();
     projectionRefresh.mockClear();
+    authState.setShowSignInDialog.mockClear();
   });
 
   const renderListing = () => {
@@ -139,7 +145,19 @@ describe('MarketplaceListing', () => {
     expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
   });
 
-  it('reveals the approval card after Add to cart is clicked without a marketplace session', async () => {
+  it('adds the selected variant to cart without a marketplace session', async () => {
+    view.projection = null;
+    view.projectionError = 'A marketplace session is required.';
+    view.needsSession = true;
+    const user = userEvent.setup();
+
+    const listing = renderListing();
+    await user.click(screen.getByRole('button', { name: 'Add to cart' }));
+
+    expect(cartAdd).toHaveBeenCalledWith(`${listing.seller_id}:${listing.listing_id}`, 'variant_01', 1);
+  });
+
+  it('does not show the approval card after Add to cart is clicked without a marketplace session', async () => {
     view.projection = null;
     view.projectionError = 'A marketplace session is required.';
     view.needsSession = true;
@@ -148,9 +166,8 @@ describe('MarketplaceListing', () => {
     renderListing();
     await user.click(screen.getByRole('button', { name: 'Add to cart' }));
 
-    expect(cartAdd).not.toHaveBeenCalled();
-    expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Approve purchases in Pubky Ring' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
   });
 
   it('adds the selected variant to cart when the marketplace session is ready', async () => {
@@ -161,5 +178,34 @@ describe('MarketplaceListing', () => {
 
     expect(cartAdd).toHaveBeenCalledWith(`${listing.seller_id}:${listing.listing_id}`, 'variant_01', 1);
     expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
+  });
+
+  it('reveals the approval card when placing a bid without a marketplace session', async () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId: 'rangefinder_camera',
+        title: '35mm rangefinder camera',
+        sale: {
+          format: 'auction',
+          startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
+          minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+          startsAt: '2026-08-19T20:00:00.000Z',
+          endsAt: '2026-08-29T20:00:00.000Z',
+          antiSnipingWindowSeconds: 300,
+          antiSnipingExtensionSeconds: 300,
+        },
+      }),
+    );
+    view.projection = null;
+    view.projectionError = 'A marketplace session is required.';
+    view.needsSession = true;
+    const user = userEvent.setup();
+
+    renderListing();
+    await user.click(screen.getByRole('button', { name: 'Place a bid' }));
+
+    expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
   });
 });

@@ -81,8 +81,8 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Messages: no production message fact is recorded. Planned proof rows include production messaging handshake and message.
 - Watchlist/private storage: production `/priv` durability probe must be reseeded; no production result is recorded. Staging had passed T+1h and T+25h in the plan.
 - Reviews/receipts: no production review or receipt fact is recorded. Existing proof is staging/testnet, not production.
-- Buyer UX: Orders entry shipped for signed-in users; Ring approval prompts moved off the listing view until Add to cart,
-  Place a bid, or Make offer requires approval.
+- Buyer UX: Orders entry shipped for signed-in users; Ring approval prompts moved off the listing view until checkout,
+  Place a bid, or Make offer requires approval. Add to cart and watchlist writes are local and need no approval.
 
 **What broke**
 

@@ -6,8 +6,8 @@ Public changelog for Shop, the Pubky marketplace vibe. Newest changes first.
 
 - [implemented] Buyer approval UX was tightened on `marketplace/pr25-ux` at `f036a76d`. Signed-in users now have an
   Orders entry in the marketplace tools row, the listing page no longer shows the Pubky Ring approval card before intent,
-  and signed-out-of-approval buyers see it only after Add to cart, Place a bid, or Make offer asks for a durable
-  marketplace session.
+  and signed-out-of-approval buyers see it only when checkout, Place a bid, or Make offer asks for a durable marketplace
+  session. Add to cart and watchlist writes stay local and need no approval.
 - [implemented] Buyer-facing approval copy now consistently says `Approve purchases in Pubky Ring` /
   `Approve in Pubky Ring`, including the approval card, dialog, success toast
   `Purchases approved in Pubky Ring`, and the drop ready-check.

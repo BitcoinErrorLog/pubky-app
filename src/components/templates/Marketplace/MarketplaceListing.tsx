@@ -161,10 +161,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   };
   const addSelectedVariantToCart = () => {
     if (!selectedVariant) return;
-    if (negotiation.needsSession) {
-      revealSessionRequired();
-      return;
-    }
     void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1);
   };
 
