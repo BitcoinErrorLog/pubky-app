@@ -1,25 +1,20 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { HOME_ROUTES } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
-import { AuthStatus } from '@/hooks/useAuthStatus/useAuthStatus.types';
-import { ROUTE_ACCESS_MAP } from '@/providers/RouteGuardProvider/RouteGuardProvider.constants';
-import { consumeRouteGuardReturnTo } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
 import { DialogRestoreEncryptedFile } from '../DialogRestoreEncryptedFile/DialogRestoreEncryptedFile';
 import { DialogRestoreRecoveryPhrase } from '../DialogRestoreRecoveryPhrase/DialogRestoreRecoveryPhrase';
 
 export const SignInNavigation = () => {
-  const router = useRouter();
   const authUrlResolved = useSignInStore((state) => state.authUrlResolved);
 
   if (authUrlResolved) return null;
 
-  const handleRestore = () => {
-    const returnTo = consumeRouteGuardReturnTo(ROUTE_ACCESS_MAP[AuthStatus.AUTHENTICATED].allowedRoutes);
-    router.push(returnTo ?? HOME_ROUTES.HOME);
-  };
+  // RouteGuardProvider owns post-auth navigation: it consumes a stored return
+  // path, otherwise AUTHENTICATED.redirectTo is HOME (`/home`) when the user is
+  // still on `/sign-in` (not in AUTHENTICATED.allowedRoutes). Pushing HOME here
+  // raced the guard and clobbered a stored return path.
+  const handleRestore = () => {};
 
   return (
     <Container className="flex-col-reverse justify-start gap-3 md:flex-row lg:gap-6">

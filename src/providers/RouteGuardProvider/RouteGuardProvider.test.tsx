@@ -583,6 +583,40 @@ describe('RouteGuardProvider — return path', () => {
 
     expect(mocks.mockRouterPush).not.toHaveBeenCalledWith('/marketplace/orders');
   });
+
+  it('after restore with a stored return path, navigates once to that path', () => {
+    window.sessionStorage.setItem('pubky.routeGuard.returnTo', '/marketplace/orders');
+    mocks.status = 'AUTHENTICATED';
+    mocks.session = {};
+    mocks.currentUserPubky = 'test-pubky-z32';
+    mocks.pathname = '/login';
+
+    render(
+      <RouteGuardProvider>
+        <div>Sign In</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(mocks.mockRouterPush).toHaveBeenCalledTimes(1);
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/marketplace/orders');
+    expect(window.sessionStorage.getItem('pubky.routeGuard.returnTo')).toBeNull();
+  });
+
+  it('after restore with no stored return path, navigates once to the authenticated default', () => {
+    mocks.status = 'AUTHENTICATED';
+    mocks.session = {};
+    mocks.currentUserPubky = 'test-pubky-z32';
+    mocks.pathname = '/login';
+
+    render(
+      <RouteGuardProvider>
+        <div>Sign In</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(mocks.mockRouterPush).toHaveBeenCalledTimes(1);
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/feed');
+  });
 });
 
 describe('RouteGuardProvider — session restore', () => {

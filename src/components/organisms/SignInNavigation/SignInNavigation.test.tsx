@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { HOME_ROUTES } from '@/app/routes';
+import { ROUTE_GUARD_RETURN_TO_STORAGE_KEY } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
 import { SignInNavigation } from './SignInNavigation';
 
 // Mock Next.js router
@@ -65,6 +65,7 @@ vi.mock('@/stores/signIn/signIn.store', () => ({
 describe('SignInNavigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     mockSignInState = { authUrlResolved: false };
   });
 
@@ -75,18 +76,15 @@ describe('SignInNavigation', () => {
     expect(screen.getByTestId('restore-file')).toBeInTheDocument();
   });
 
-  it('pushes to HOME on restore (phrase)', () => {
+  it('does not navigate or consume a stored return path on restore', () => {
+    window.sessionStorage.setItem(ROUTE_GUARD_RETURN_TO_STORAGE_KEY, '/marketplace/orders');
     render(<SignInNavigation />);
 
     fireEvent.click(screen.getByTestId('restore-phrase'));
-    expect(mockPush).toHaveBeenCalledWith(HOME_ROUTES.HOME);
-  });
-
-  it('pushes to HOME on restore (file)', () => {
-    render(<SignInNavigation />);
-
     fireEvent.click(screen.getByTestId('restore-file'));
-    expect(mockPush).toHaveBeenCalledWith(HOME_ROUTES.HOME);
+
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(ROUTE_GUARD_RETURN_TO_STORAGE_KEY)).toBe('/marketplace/orders');
   });
 
   it('does not render when sign-in progress is active', () => {
