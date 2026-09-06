@@ -61,12 +61,17 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 
 **Live URLs**
 
-- Public production alias: `https://pubky-marketplace-production.vercel.app`.
-- Production app target after cutover: `https://shop.pubky.app`; the plan still says this points at staging before Wave 4.
+- Public production alias: `https://pubky-marketplace-production.vercel.app` on Vercel project
+  `pubky-marketplace-production`, deployment `EAqqVuQq1BkstYJwwciMS3C981tv`.
+- Production app target after cutover: `https://shop.pubky.app`; currently attached to Vercel staging project
+  `pubky-marketplace-staging`, deployment `3tPXUhr9Zb5voJqjYRuuGfyz6fZP`.
 - Production marketplace service: `https://marketplace-service-production-ce23.up.railway.app`.
 - Production marketplace Nexus: `https://nexusd-production-95a0.up.railway.app`.
 - Existing deployed staging app: `https://shop.pubky.app` before cutover.
 - Payment rails are reused from `pubky-marketplace-staging`; money rails stay testnet/regtest.
+- Bridge rehearsal: `bridge.pubky.app` for Vercel project `pubky-app-bridge-rehearsal` and
+  `shop-rehearsal.pubky.app` for Vercel project `shop-bridge-rehearsal`; both are attached but pending
+  `_vercel.pubky.app` TXT verification.
 
 **What users did (server-side facts only)**
 
@@ -76,11 +81,13 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Messages: no production message fact is recorded. Planned proof rows include production messaging handshake and message.
 - Watchlist/private storage: production `/priv` durability probe must be reseeded; no production result is recorded. Staging had passed T+1h and T+25h in the plan.
 - Reviews/receipts: no production review or receipt fact is recorded. Existing proof is staging/testnet, not production.
+- Buyer UX: Orders entry shipped for signed-in users; Ring approval prompts moved off the listing view until Add to cart,
+  Place a bid, or Make offer requires approval.
 
 **What broke**
 
 - Production client env initially set `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=unavailable`; it was corrected to `locks-paykit` and redeployed on 2026-09-05.
-- Upstream shared sign-in remained blocked by PR review state in the plan narrative, though the local plan todos later record #2483/#2484 P1s as fixed at PR heads and awaiting upstream re-review.
+- Upstream shared sign-in remained blocked by PR review state in the plan narrative, though the local plan todos later record #2483/#2484 P1s as fixed at PR heads and awaiting upstream re-review. Same-site bridge rehearsal is deployed, but the rehearsal domains still need `_vercel.pubky.app` TXT records because the apex belongs to another Vercel team.
 - The VRT ledger remained 143/144 because Messaging firefox-mobile had a load-order flake that passed standalone.
 - Shippo labels remained unproven against Shippo's live API.
 - The fiat-verifier return-origin shape was inconsistent in the plan: the todos say per-request `return_origin` is being implemented, while Wave 1 text still describes the single-valued redirect as a staging limitation unless support exists.
@@ -103,8 +110,8 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Reviews/receipts: graduate portable receipts and review attestations for the proven stack; harden production receipt publication and attestor-publisher follow-ups.
 - Watchlist: harden. Staging cross-device proof exists; production durability cadence is still open.
 - Messaging: keep vibing. E2EE works at experiment grade, but live Ring approval and independent security review remain open.
-- Shared sign-in: harden. Consumer mode is merged, but live use depends on pubky.app bridge deployment and cutover.
-- Step-up approval: harden. Option C is implemented, but empty-capabilities Ring display and production step-up proof remain open.
+- Shared sign-in: harden. Consumer mode is merged, and same-site rehearsal exists; live use depends on pubky.app bridge deployment, TXT verification, and cutover.
+- Step-up approval: harden. Option C is implemented and buyer-facing copy now consistently says `Approve purchases in Pubky Ring` / `Approve in Pubky Ring`; empty-capabilities Ring display and production step-up proof remain open.
 
 **Open Decisions**
 
@@ -113,7 +120,7 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Shippo live API proof: still open. Needs a seller with a real Shippo test token.
 - Production `/priv` durability: still open. Needs T+1h, T+1d, and T+7d production cadence.
 - Messaging backup key: still open. The ledger says the multi-device backup-key decision is unmade.
-- Upstream bridge deployment and `shop.pubky.app` cutover: still open in the plan.
+- Upstream bridge deployment, rehearsal TXT verification, and `shop.pubky.app` cutover: still open.
 - Igor's $8.76 overpayment: user call.
 
 ## Sources

@@ -2,6 +2,26 @@
 
 Public changelog for Shop, the Pubky marketplace vibe. Newest changes first.
 
+## 2026-09-06
+
+- [implemented] Buyer approval UX was tightened on `marketplace/pr25-ux` at `f036a76d`. Signed-in users now have an
+  Orders entry in the marketplace tools row, the listing page no longer shows the Pubky Ring approval card before intent,
+  and signed-out-of-approval buyers see it only after Add to cart, Place a bid, or Make offer asks for a durable
+  marketplace session.
+- [implemented] Buyer-facing approval copy now consistently says `Approve purchases in Pubky Ring` /
+  `Approve in Pubky Ring`, including the approval card, dialog, success toast
+  `Purchases approved in Pubky Ring`, and the drop ready-check.
+- [implemented] The dead `message` prop was removed from `MarketplaceSessionRequiredCard`; 33 VRT baselines were
+  regenerated for the approval UX change.
+- [proven live] The buyer UX fixes passed Opus gating review after one fix round and were merged at `f036a76d`, then
+  deployed to Vercel production project `pubky-marketplace-production` at
+  `pubky-marketplace-production.vercel.app` (`EAqqVuQq1BkstYJwwciMS3C981tv`) and staging project
+  `pubky-marketplace-staging` at `shop.pubky.app` (`3tPXUhr9Zb5voJqjYRuuGfyz6fZP`).
+- [known gap] Same-site bridged-entry rehearsal is deployed but domain verification is still pending. `bridge.pubky.app`
+  and `shop-rehearsal.pubky.app` are attached to Vercel projects `pubky-app-bridge-rehearsal` and
+  `shop-bridge-rehearsal`, but both still need `_vercel.pubky.app` TXT records of the form
+  `vc-domain-verify=<host>,<token>` because the `pubky.app` apex is owned by another Vercel team.
+
 ## 2026-09-05
 
 - [implemented] Shared pubky.app sign-in was added in consumer mode. A signed-in pubky.app user can arrive in Shop without a second sign-in once pubky.app deploys its session bridge; until then Shop's normal Ring sign-in remains the path.
