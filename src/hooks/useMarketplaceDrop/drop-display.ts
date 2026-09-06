@@ -94,11 +94,11 @@ export function deriveDropReadyCheck({
   const items: MarketplaceDropReadyCheckItem[] = [
     {
       id: 'session',
-      label: 'Marketplace session connected',
+      label: 'Purchases approved in Pubky Ring',
       ready: hasSession,
       detail: hasSession
-        ? 'Your transaction-service session is ready.'
-        : 'Connect the marketplace session now so the claim needs no approval detour at T-0.',
+        ? 'Your approval is ready; claiming will not need a Ring detour.'
+        : 'Approve purchases in Pubky Ring now so the claim needs no approval detour at T-0.',
     },
     {
       id: 'address',
