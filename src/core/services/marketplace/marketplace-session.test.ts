@@ -80,7 +80,12 @@ describe('MarketplaceSessionService', () => {
         body: bytes,
       }),
     );
-    expect(info).toEqual({ pubky: PUBKY, capabilities: '', expiresAt: expect.any(String) });
+    expect(info).toEqual({
+      pubky: PUBKY,
+      capabilities: '',
+      expiresAt: expect.any(String),
+      issuedAt: expect.any(String),
+    });
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
   });
 
@@ -239,5 +244,39 @@ describe('MarketplaceSessionService', () => {
       code: 'BAD_REQUEST',
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('notifies onSessionEnded with expired, rejected, and cleared reasons', async () => {
+    const reasons: string[] = [];
+    const unsubscribe = MarketplaceSessionService.onSessionEnded((event) => {
+      reasons.push(event.reason);
+    });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'));
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    vi.setSystemTime(new Date('2026-08-20T12:59:31.000Z'));
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    await Promise.resolve();
+    expect(reasons).toEqual(['expired']);
+
+    vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'));
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([2]));
+    MarketplaceSessionService.clearSession('rejected');
+    await Promise.resolve();
+    expect(reasons).toEqual(['expired', 'rejected']);
+
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([3]));
+    MarketplaceSessionService.clearSession();
+    await Promise.resolve();
+    expect(reasons).toEqual(['expired', 'rejected', 'cleared']);
+
+    MarketplaceSessionService.clearSession();
+    await Promise.resolve();
+    expect(reasons).toEqual(['expired', 'rejected', 'cleared']);
+    unsubscribe();
   });
 });

@@ -56,6 +56,7 @@ describe('Marketplace payment settings — visual regression', () => {
         pubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
         capabilities: '/pub/pubky.app/:rw',
         expiresAt: '2026-09-21T12:00:00.000Z',
+        issuedAt: '2026-08-21T12:00:00.000Z',
       },
     });
   });

@@ -13,11 +13,11 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { CommerceIndexedReview } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
+import type { MarketplaceSessionEndedEvent, MarketplaceSessionInfo } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import type { CommerceConditionFilter, CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
@@ -25,6 +25,25 @@ import { useNotificationStore } from '@/stores/notification/notification.store';
 
 export class CommerceController {
   private constructor() {}
+
+  private static sessionEndedUnbind: (() => void) | null = null;
+
+  /**
+   * Subscribe once at app coordinator start. Every `clearSession` then nulls
+   * the store — including gateway paths that never return through command
+   * wrappers. Idempotent.
+   */
+  static bindMarketplaceSessionStore(): void {
+    if (this.sessionEndedUnbind) return;
+    this.sessionEndedUnbind = CommerceApplication.onMarketplaceSessionEnded((event) => {
+      this.onMarketplaceSessionEnded(event);
+    });
+  }
+
+  static unbindMarketplaceSessionStore(): void {
+    this.sessionEndedUnbind?.();
+    this.sessionEndedUnbind = null;
+  }
 
   static async getShop(ownerPubky: unknown) {
     return await CommerceApplication.getShop(CommerceRecordNormalizer.pubky(ownerPubky));
@@ -179,7 +198,7 @@ export class CommerceController {
       authorizationUrl: flow.authorizationUrl,
       awaitSession: async () => {
         const session = await flow.awaitSession();
-        useCommerceStore.getState().setMarketplaceSession(session);
+        this.writeMarketplaceSessionStore(session);
         return session;
       },
       cancel: flow.cancel,
@@ -200,15 +219,10 @@ export class CommerceController {
   }
 
   static async executeMarketplaceCommand(input: unknown) {
-    try {
-      return await CommerceApplication.executeMarketplaceCommand(
-        this.getCurrentUserPubky(),
-        CommerceRecordNormalizer.marketplaceCommand(input),
-      );
-    } catch (error) {
-      this.reconcileMarketplaceSessionAfterTransport(error);
-      throw error;
-    }
+    return await CommerceApplication.executeMarketplaceCommand(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.marketplaceCommand(input),
+    );
   }
 
   /**
@@ -479,15 +493,10 @@ export class CommerceController {
     // Nullable on purpose: the sandbox serves this projection to signed-out
     // visitors, while the durable transport requires the signed-in pubky to
     // bind its bearer session and degrades with session guidance otherwise.
-    try {
-      return await CommerceApplication.getMarketplaceListingProjection(
-        useAuthStore.getState().currentUserPubky,
-        buildMarketplaceListingAggregateId(owner, id),
-      );
-    } catch (error) {
-      this.reconcileMarketplaceSessionAfterTransport(error);
-      throw error;
-    }
+    return await CommerceApplication.getMarketplaceListingProjection(
+      useAuthStore.getState().currentUserPubky,
+      buildMarketplaceListingAggregateId(owner, id),
+    );
   }
 
   /** The auction's visible-price bid history (durable service, signed-in). */
@@ -1106,19 +1115,24 @@ export class CommerceController {
    * Invariant: ending a marketplace session (local TTL via getActiveSession,
    * 401/SESSION_EXPIRED from the transport, or sign-out) always nulls the
    * zustand copy here — the controller owns the store; the service never does.
+   * Last write wins by `issuedAt`: a connect that finishes after a clear keeps
+   * the new session and must never resurrect the cleared one.
    */
-  private static clearMarketplaceSessionStore(): void {
-    useCommerceStore.getState().setMarketplaceSession(null);
+  private static onMarketplaceSessionEnded(event: MarketplaceSessionEndedEvent): void {
+    const current = useCommerceStore.getState().marketplaceSession;
+    if (!current) return;
+    if (Date.parse(current.issuedAt) > Date.parse(event.issuedAt)) return;
+    this.clearMarketplaceSessionStore();
   }
 
-  private static reconcileMarketplaceSessionAfterTransport(error: unknown): void {
-    if (isMarketplaceSessionRequiredError(error)) {
-      this.clearMarketplaceSession();
-      return;
-    }
-    if (!CommerceApplication.hasActiveMarketplaceSession()) {
-      this.clearMarketplaceSessionStore();
-    }
+  private static writeMarketplaceSessionStore(session: MarketplaceSessionInfo): void {
+    const current = useCommerceStore.getState().marketplaceSession;
+    if (current && Date.parse(current.issuedAt) > Date.parse(session.issuedAt)) return;
+    useCommerceStore.getState().setMarketplaceSession(session);
+  }
+
+  private static clearMarketplaceSessionStore(): void {
+    useCommerceStore.getState().setMarketplaceSession(null);
   }
 
   private static getCurrentUserPubky(): string {

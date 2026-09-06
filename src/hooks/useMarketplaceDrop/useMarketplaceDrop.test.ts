@@ -308,6 +308,7 @@ describe('useMarketplaceDrop', () => {
       pubky: BUYER,
       capabilities: '/pub/pubky.app/:rw',
       expiresAt: new Date(NOW + 60 * 60_000).toISOString(),
+      issuedAt: new Date(NOW).toISOString(),
     });
     const second = renderHook(() => useMarketplaceDrop(SELLER, 'drop1'));
     await settle();

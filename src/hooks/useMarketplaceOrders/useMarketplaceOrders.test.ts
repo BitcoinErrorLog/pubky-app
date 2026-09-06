@@ -239,6 +239,7 @@ describe('useMarketplaceOrders', () => {
         pubky: BUYER,
         capabilities: '/pub/pubky.app/:rw',
         expiresAt: '2026-08-22T00:00:00.000Z',
+        issuedAt: '2026-08-21T00:00:00.000Z',
       });
     });
 

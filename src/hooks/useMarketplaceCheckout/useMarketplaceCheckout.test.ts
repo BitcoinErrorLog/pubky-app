@@ -395,6 +395,7 @@ describe('useMarketplaceCheckout', () => {
         pubky: BUYER,
         capabilities: '',
         expiresAt: '2099-01-01T00:00:00.000Z',
+        issuedAt: '2026-08-21T00:00:00.000Z',
       },
     });
     const { result } = renderHook(() =>

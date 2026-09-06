@@ -75,7 +75,12 @@ vi.mock('@/stores/auth/auth.store', () => ({
 vi.mock('@/stores/commerce/commerce.store', () => ({
   useCommerceStore: (selector: (state: { marketplaceSession: object }) => unknown) =>
     selector({
-      marketplaceSession: { pubky: VRT_BUYER, capabilities: '/pub/pubky.app/:rw', expiresAt: '2026-01-02T00:00:00Z' },
+      marketplaceSession: {
+        pubky: VRT_BUYER,
+        capabilities: '/pub/pubky.app/:rw',
+        expiresAt: '2026-01-02T00:00:00Z',
+        issuedAt: '2026-01-01T00:00:00Z',
+      },
     }),
 }));
 

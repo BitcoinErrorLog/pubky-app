@@ -763,7 +763,7 @@ export class MarketplaceTransactionService {
     }
     if (session.pubky !== actor) {
       // A session minted for another key must never act for the current user.
-      MarketplaceSessionService.clearSession();
+      MarketplaceSessionService.clearSession('rejected');
       throw Err.auth(AuthErrorCode.FORBIDDEN, 'The marketplace session belongs to a different pubky.', {
         service: ErrorService.Marketplace,
         operation,
@@ -778,7 +778,7 @@ export class MarketplaceTransactionService {
    */
   private static throwIfSessionRejected(statusCode: number, operation: string): void {
     if (statusCode !== HttpStatusCode.UNAUTHORIZED) return;
-    MarketplaceSessionService.clearSession();
+    MarketplaceSessionService.clearSession('rejected');
     throw Err.auth(
       AuthErrorCode.SESSION_EXPIRED,
       'The marketplace session expired. Approve the marketplace connection on your signer and try again.',

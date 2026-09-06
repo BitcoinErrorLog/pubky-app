@@ -94,7 +94,10 @@ import {
   type MarketplacePayment,
 } from '@/services/marketplace/marketplace';
 import { MarketplacePaykitClaimService } from '@/services/marketplace/marketplace-paykit-claim';
-import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import {
+  type MarketplaceSessionEndedEvent,
+  MarketplaceSessionService,
+} from '@/services/marketplace/marketplace-session';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
 import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/nexus/marketplace/marketplace.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
@@ -402,8 +405,16 @@ export class CommerceApplication {
    * later account re-reads its receipts instead of trusting a prior session.
    */
   static clearMarketplaceSession(): void {
-    MarketplaceSessionService.clearSession();
+    MarketplaceSessionService.clearSession('cleared');
     this.publishedReceiptUrls.clear();
+  }
+
+  /**
+   * Controllers subscribe here so a transport-side `clearSession` (TTL, 401,
+   * sign-out) can null the zustand copy without the service touching stores.
+   */
+  static onMarketplaceSessionEnded(listener: (event: MarketplaceSessionEndedEvent) => void): () => void {
+    return MarketplaceSessionService.onSessionEnded(listener);
   }
 
   /**

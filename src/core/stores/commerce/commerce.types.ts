@@ -12,6 +12,7 @@ export interface CommerceMarketplaceSession {
   pubky: string;
   capabilities: string;
   expiresAt: string;
+  issuedAt: string;
 }
 /**
  * Cross-device watchlist sync state for UI surfaces, written by the

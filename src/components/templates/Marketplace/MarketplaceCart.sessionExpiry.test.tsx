@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -117,6 +118,7 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     );
     const restored = MarketplaceSessionService.restorePersistedSession(BUYER);
     useCommerceStore.getState().setMarketplaceSession(restored);
+    CommerceController.bindMarketplaceSessionStore();
     vi.spyOn(CommerceApplication, 'getDeliveryAddresses').mockResolvedValue([]);
     vi.spyOn(CommerceApplication, 'getMarketplaceListingProjection').mockResolvedValue({
       aggregateId: `listing:${BUYER}_boots`,
@@ -141,6 +143,7 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    CommerceController.unbindMarketplaceSessionStore();
     MarketplaceSessionService.clearSession();
     useCommerceStore.getState().reset();
   });
@@ -165,7 +168,9 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     expect(await screen.findByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Place order' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Place order' })).toHaveAttribute('aria-describedby', 'place-order-reason');
-    expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    await waitFor(() => {
+      expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    });
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 });

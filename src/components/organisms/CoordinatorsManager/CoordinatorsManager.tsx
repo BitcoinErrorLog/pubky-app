@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { MuteListSyncCoordinator } from '@/coordinators/mute-list-sync/mute-list-sync';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
@@ -25,6 +26,7 @@ function applyRouteToCoordinators(pathname: string): void {
 }
 
 function startAppCoordinators(): void {
+  CommerceController.bindMarketplaceSessionStore();
   const coordinators = getAppCoordinators();
   void coordinators.notification.start();
   void coordinators.stream.start();
@@ -33,6 +35,7 @@ function startAppCoordinators(): void {
 }
 
 function stopAppCoordinators(): void {
+  CommerceController.unbindMarketplaceSessionStore();
   const coordinators = getAppCoordinators();
   coordinators.notification.stop();
   coordinators.stream.stop();

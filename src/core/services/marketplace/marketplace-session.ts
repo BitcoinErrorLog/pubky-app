@@ -41,6 +41,15 @@ export type MarketplaceSessionInfo = {
   pubky: string;
   capabilities: string;
   expiresAt: string;
+  /** Client clock when this bearer was established or restored; last-write-wins key. */
+  issuedAt: string;
+};
+
+export type MarketplaceSessionEndedReason = 'expired' | 'rejected' | 'cleared';
+
+export type MarketplaceSessionEndedEvent = {
+  reason: MarketplaceSessionEndedReason;
+  issuedAt: string;
 };
 
 export type MarketplaceSessionFlow = {
@@ -55,6 +64,7 @@ type StoredMarketplaceSession = {
   capabilities: string;
   expiresAtMs: number;
   expiresAt: string;
+  issuedAt: string;
 };
 
 /**
@@ -92,6 +102,18 @@ export class MarketplaceSessionService {
   private constructor() {}
 
   private static session: StoredMarketplaceSession | null = null;
+  private static sessionEndedListeners = new Set<(event: MarketplaceSessionEndedEvent) => void>();
+
+  /**
+   * Fires after the in-memory session is dropped (TTL margin, 401/mismatch, or
+   * explicit clear). Controllers subscribe; this service never touches stores.
+   */
+  static onSessionEnded(listener: (event: MarketplaceSessionEndedEvent) => void): () => void {
+    this.sessionEndedListeners.add(listener);
+    return () => {
+      this.sessionEndedListeners.delete(listener);
+    };
+  }
 
   /**
    * Starts the interactive session flow. Returns the authorization URL to show
@@ -175,10 +197,11 @@ export class MarketplaceSessionService {
       });
     }
     const { token, pubky, capabilities, expiresAt } = parsed.data;
-    this.session = { token, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt) };
+    const issuedAt = new Date().toISOString();
+    this.session = { token, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
     this.writePersistedSession(parsed.data);
     Logger.info('Established marketplace transaction session', { pubky, expiresAt });
-    return { pubky, capabilities, expiresAt };
+    return this.toPublicInfo(this.session);
   }
 
   /**
@@ -206,9 +229,10 @@ export class MarketplaceSessionService {
       return null;
     }
 
-    this.session = { token, pubky, capabilities, expiresAt, expiresAtMs };
+    const issuedAt = new Date().toISOString();
+    this.session = { token, pubky, capabilities, expiresAt, expiresAtMs, issuedAt };
     Logger.info('Restored marketplace transaction session', { pubky, expiresAt });
-    return { pubky, capabilities, expiresAt };
+    return this.toPublicInfo(this.session);
   }
 
   /**
@@ -218,16 +242,35 @@ export class MarketplaceSessionService {
   static getActiveSession(): StoredMarketplaceSession | null {
     if (!this.session) return null;
     if (Date.now() >= this.session.expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
-      this.clearSession();
+      this.clearSession('expired');
       return null;
     }
     return this.session;
   }
 
   /** Drops the session from memory AND storage. Called on sign-out and on server-side 401. */
-  static clearSession(): void {
+  static clearSession(reason: MarketplaceSessionEndedReason = 'cleared'): void {
+    const ended = this.session;
     this.session = null;
     this.removePersistedSession();
+    if (!ended) return;
+    this.notifySessionEnded({ reason, issuedAt: ended.issuedAt });
+  }
+
+  private static toPublicInfo(session: StoredMarketplaceSession): MarketplaceSessionInfo {
+    return {
+      pubky: session.pubky,
+      capabilities: session.capabilities,
+      expiresAt: session.expiresAt,
+      issuedAt: session.issuedAt,
+    };
+  }
+
+  private static notifySessionEnded(event: MarketplaceSessionEndedEvent): void {
+    const listeners = [...this.sessionEndedListeners];
+    queueMicrotask(() => {
+      for (const listener of listeners) listener(event);
+    });
   }
 
   // localStorage access is wrapped because browsers can refuse it (disabled
