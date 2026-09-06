@@ -4,7 +4,7 @@ Post-purchase logistics for the marketplace: where each piece of shipping
 data lives, who can read it, and what is deliberately not built. Read
 [`status.md`](status.md) first for the general real-vs-simulated map.
 
-Last updated: 2026-08-21.
+Last updated: 2026-09-06.
 
 ## Where shipping data lives
 
@@ -43,13 +43,15 @@ What that means for the tooling here:
   checkout picker fills the same form checkout always had; the address still
   goes only into the buyer's own command.
 - The **packing slip** renders from the seller's participant order projection
-  and therefore has **no address block**. It says so explicitly ("Not
-  printed: the delivery address is withheld from all transaction-service
-  reads — including yours as the seller — by design") and leaves ruled space
-  for the seller to write the destination obtained from the buyer directly
-  (e.g. the end-to-end-encrypted conversation). Printing a fabricated or
-  cached address the seller was never served would falsify the privacy
-  model, so the slip does not.
+  and therefore is **never served** the buyer's address. It says so
+  explicitly ("Not printed: the delivery address is withheld from all
+  transaction-service reads — including yours as the seller — by design")
+  and, when the paste field is empty, leaves ruled space for the seller to
+  write the destination obtained from the buyer directly (e.g. the
+  end-to-end-encrypted conversation). Printing a fabricated or cached
+  address the seller was never served would falsify the privacy model, so
+  the slip does not invent a read path. The optional paste field below is a
+  print convenience only — still seller-supplied, never from the service.
 - The slip (and the order rows) now show the buyer's **variant snapshot**
   when the checkout carried one: `checkout.create` lines accept an optional
   `variant_id` plus up to three `{name, value}` option pairs (an ordered
@@ -134,13 +136,37 @@ snapshot when the checkout carried one (see "Where shipping data lives"
 above); orders placed before the field existed have no variant line, and
 the slip shows exactly what the order record holds.
 
+### Optional pasted-address field
+
+Sellers who already have the destination from the buyer (for example the
+encrypted conversation) can paste it into the packing-slip dialog so it
+prints in the "Deliver to" block instead of being copied by hand.
+
+Guarantees:
+
+- The value lives in **component state of that dialog instance only**. It is
+  not written to Dexie, localStorage, sessionStorage, cookies, or the URL.
+- It is **cleared** when the dialog closes, when the route changes, and when
+  a print job completes (`afterprint`, when the browser fires it). Residue
+  after an unreliable print event is still only in-memory React state.
+- It is **never sent** to the marketplace, the transaction service, or any
+  other server by this client.
+- Sentry Replay is instructed not to capture it: the textarea carries
+  `data-sentry-mask`, and client Replay is configured with `maskAllText` and
+  `maskAllInputs`.
+- It is **never logged**.
+- **Print-output caveat:** using Print, including print-to-PDF or a network
+  printer, puts the pasted text into that output. The file or print job is
+  outside the app; delete it when you are done if you do not want a copy.
+
 ## Follow-ups (deliberately not built)
 
 - **Seller-facing address delivery.** The right mechanism for the seller to
   receive the delivery address without weakening ADR-0019 §8 is a product
   decision — candidates include buyer-initiated sharing over the existing
   end-to-end-encrypted messaging, or a service-side sealed exchange. Until
-  then the packing slip's manual space is the honest state.
+  then the packing slip's ruled space and optional local paste field are the
+  honest state: the seller supplies the destination; the service never does.
 - **Service-side shipment enrichment** (shipped-at estimates, delivery-day
   windows, carrier enum server-side). The `carrier` field staying a free
   string is the service's contract; a server-side curated enum would be a

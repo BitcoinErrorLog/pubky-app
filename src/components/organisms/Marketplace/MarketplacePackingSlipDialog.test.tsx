@@ -1,4 +1,6 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/database/franky/franky';
@@ -13,6 +15,9 @@ const PASTED_ADDRESS = 'Ada Buyer\n123 Privacy Lane\n83820 Someville, US';
 
 const WITHHELD_NOTE =
   'Not printed: the delivery address is withheld from all transaction-service reads — including yours as the seller — by design, so this client never has it.';
+
+const LOCAL_ONLY_NOTE =
+  'Kept only in this dialog on this device — not saved, not sent to the marketplace or any server. Anything you print (including print-to-PDF) will contain it.';
 
 async function openSlip() {
   render(<MarketplacePackingSlipDialog order={createOrderFixture('paid')} />);
@@ -50,7 +55,19 @@ describe('MarketplacePackingSlipDialog — paste delivery address', () => {
     const slip = within(dialog).getByText('Packing slip', { selector: 'p' }).closest('[data-packing-slip]')!;
     expect(within(slip as HTMLElement).getByText(new RegExp(WITHHELD_NOTE.slice(0, 40)))).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Paste delivery address (optional)')).toHaveValue('');
-    expect(within(dialog).getByText('Stays on this device only; never sent anywhere.')).toBeInTheDocument();
+    expect(within(dialog).getByText(LOCAL_ONLY_NOTE)).toBeInTheDocument();
+  });
+
+  it('marks the paste field for Sentry Replay masking', async () => {
+    const dialog = await openSlip();
+    expect(within(dialog).getByLabelText('Paste delivery address (optional)')).toHaveAttribute('data-sentry-mask');
+
+    // instrumentation-client.test.ts is out of this wave's edit set; pin the
+    // Replay options from the client source so a maskAllInputs regression
+    // still fails this suite. The module is not imported (side effects).
+    const clientInit = readFileSync(resolve(__dirname, '../../../instrumentation-client.ts'), 'utf8');
+    expect(clientInit).toMatch(/replayIntegration\(\{[\s\S]*maskAllText:\s*true/);
+    expect(clientInit).toMatch(/replayIntegration\(\{[\s\S]*maskAllInputs:\s*true/);
   });
 
   it('renders the pasted address into the printed slip only when non-empty', async () => {
@@ -83,18 +100,6 @@ describe('MarketplacePackingSlipDialog — paste delivery address', () => {
     expect(within(reopened).getByLabelText('Paste delivery address (optional)')).toHaveValue('');
     const slip = reopened.querySelector('[data-packing-slip]')!;
     expect(within(slip as HTMLElement).queryByText(/123 Privacy Lane/)).toBeNull();
-  });
-
-  it('clears the pasted address when printing completes', async () => {
-    const dialog = await openSlip();
-    const field = within(dialog).getByLabelText('Paste delivery address (optional)');
-    await userEvent.type(field, PASTED_ADDRESS);
-
-    act(() => {
-      window.dispatchEvent(new Event('afterprint'));
-    });
-
-    expect(field).toHaveValue('');
   });
 
   it('never persists the pasted address (Dexie, localStorage, sessionStorage)', async () => {

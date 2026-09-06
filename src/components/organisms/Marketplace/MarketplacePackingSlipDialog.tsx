@@ -78,7 +78,10 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
               onChange={(event) => setAddress(event.target.value)}
               placeholder="Paste the destination the buyer sent you, exactly as you want it printed…"
             />
-            <p className="text-xs text-muted-foreground">Stays on this device only; never sent anywhere.</p>
+            <p className="text-xs text-muted-foreground">
+              Kept only in this dialog on this device — not saved, not sent to the marketplace or any server. Anything
+              you print (including print-to-PDF) will contain it.
+            </p>
           </div>
           <div
             data-packing-slip

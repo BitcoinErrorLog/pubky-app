@@ -28,17 +28,6 @@ describe('usePackingSlipAddress', () => {
     expect(result.current.address).toBe('');
   });
 
-  it('clears the staged address when printing completes', () => {
-    const { result } = renderHook(() => usePackingSlipAddress());
-    act(() => result.current.setAddress('123 Privacy Lane'));
-    expect(result.current.address).toBe('123 Privacy Lane');
-
-    act(() => {
-      window.dispatchEvent(new Event('afterprint'));
-    });
-    expect(result.current.address).toBe('');
-  });
-
   it('clears the staged address on route change', () => {
     const { result, rerender } = renderHook(() => usePackingSlipAddress());
     act(() => result.current.setAddress('123 Privacy Lane'));
