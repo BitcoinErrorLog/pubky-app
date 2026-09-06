@@ -14,11 +14,19 @@ import {
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
-import { amountInputToMoney, assetForListingCurrency, type CommerceAsset } from '@/libs/commerce/pricing';
+import {
+  amountInputFromMoney,
+  amountInputToMoney,
+  assetForListingCurrency,
+  type CommerceAsset,
+  listingCurrencyChoiceForAsset,
+} from '@/libs/commerce/pricing';
 import {
   dimensionInputFromMillimeters,
   gramsFromWeightInput,
+  type MeasurementSystem,
   millimetersFromDimensionInput,
+  weightInputFromGrams,
 } from '@/libs/commerce/units';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -37,6 +45,10 @@ export interface UseCreateMarketplaceListingResult {
   media: UseListingMediaManagerResult;
   /** True when the form was hydrated from a locally autosaved draft. */
   restoredDraft: boolean;
+  /** Source listing title when this draft was seeded by Duplicate. */
+  seededFromTitle: string | null;
+  /** True when Duplicate copied an auction as a fixed-price draft. */
+  seededAuctionAsFixedPrice: boolean;
   submit: () => Promise<string | null>;
   reset: () => void;
 }
@@ -47,6 +59,8 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const media = useListingMediaManager();
   const [draftId, setDraftId] = useState(() => crypto.randomUUID().replaceAll('-', ''));
   const [restoredDraft, setRestoredDraft] = useState(false);
+  const [seededFromTitle, setSeededFromTitle] = useState<string | null>(null);
+  const [seededAuctionAsFixedPrice, setSeededAuctionAsFixedPrice] = useState(false);
   const draftReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingListingIdRef = useRef<string | null>(null);
@@ -95,6 +109,8 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
           setDraftId(latest.listing_id);
           form.reset({ ...createMarketplaceListingDefaults, ...normalizeDraftForm(parsed.data) });
           setRestoredDraft(true);
+          setSeededFromTitle(parsed.data.seededFromTitle?.trim() ? parsed.data.seededFromTitle : null);
+          setSeededAuctionAsFixedPrice(parsed.data.seededAuctionAsFixedPrice === true);
         }
         draftReadyRef.current = true;
       })
@@ -113,13 +129,18 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     saveTimerRef.current = setTimeout(() => {
       const serialized = JSON.stringify(watchedValues);
       if (serialized) {
-        void CommerceController.commitUpdateListingDraft(draftId, JSON.parse(serialized));
+        const form = JSON.parse(serialized) as Record<string, unknown>;
+        if (seededFromTitle) {
+          form.seededFromTitle = seededFromTitle;
+          form.seededAuctionAsFixedPrice = seededAuctionAsFixedPrice;
+        }
+        void CommerceController.commitUpdateListingDraft(draftId, form);
       }
     }, 750);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [currentUserPubky, draftId, watchedValues]);
+  }, [currentUserPubky, draftId, seededAuctionAsFixedPrice, seededFromTitle, watchedValues]);
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky) return null;
@@ -169,6 +190,8 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     form.reset({ ...createMarketplaceListingDefaults, measurementSystem });
     media.reset();
     setRestoredDraft(false);
+    setSeededFromTitle(null);
+    setSeededAuctionAsFixedPrice(false);
     pendingListingIdRef.current = null;
     draftReadyRef.current = false;
     void CommerceController.commitDeleteListingDraft(draftId);
@@ -176,7 +199,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     draftReadyRef.current = true;
   };
 
-  return { form, media, restoredDraft, submit, reset };
+  return { form, media, restoredDraft, seededFromTitle, seededAuctionAsFixedPrice, submit, reset };
 }
 
 /**
@@ -195,6 +218,8 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
     widthMillimeters: legacyWidthMm,
     heightMillimeters: legacyHeightMm,
     currency: draftCurrency,
+    seededFromTitle: _seededFromTitle,
+    seededAuctionAsFixedPrice: _seededAuctionAsFixedPrice,
     ...draftForm
   } = draft;
   const normalized: Partial<CreateMarketplaceListingData> = { ...draftForm };
@@ -221,6 +246,119 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
   }
 
   return normalized;
+}
+
+export type SeededListingDraftForm = CreateMarketplaceListingData & {
+  seededFromTitle: string;
+  seededAuctionAsFixedPrice: boolean;
+};
+
+/**
+ * Builds a create-studio draft from an owned listing. A new listing id is
+ * assigned by the draft row, not copied from the source. Photos, revision,
+ * drop membership, and reservation state are omitted — media is not part of
+ * drafts, and sharing homeserver media ids across listings would couple
+ * delete/edit of one listing to the other.
+ */
+export function seedDraftFormFromListing(
+  record: CommerceListingRecord,
+  measurementSystem: MeasurementSystem,
+): SeededListingDraftForm {
+  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+  const currency = listingCurrencyChoiceForAsset(price);
+  if (currency === null) {
+    throw new Error('unsupported-currency');
+  }
+  const isPhysical = record.fulfillmentMethods.includes('physical');
+  if (!isPhysical && !record.fulfillmentMethods.includes('pickup')) {
+    throw new Error('unsupported-fulfillment');
+  }
+  const auctionAsFixed = record.sale.format === 'auction';
+  const flatShipping = record.shippingOptions.find((option) => option.pricing === 'flat');
+  const returnDays =
+    record.returnPolicy.acceptsReturns && record.returnPolicy.returnWindowDays !== undefined
+      ? record.returnPolicy.returnWindowDays <= 14
+        ? ('14' as const)
+        : ('30' as const)
+      : ('none' as const);
+
+  return {
+    ...createMarketplaceListingDefaults,
+    ...listingAttributeFormValues(record),
+    title: record.title,
+    description: record.description,
+    categoryId: record.categoryId,
+    condition: record.condition,
+    countryCode: record.location.countryCode,
+    region: record.location.region ?? '',
+    saleFormat: 'fixed_price',
+    currency,
+    price: amountInputFromMoney(price),
+    variants: record.variants.map((variant) => ({
+      sku: variant.sku ? `${variant.sku}-copy` : '',
+      size: variant.options.size ?? '',
+      color: variant.options.color ?? '',
+      style: variant.options.style ?? '',
+      quantity: String(variant.quantity),
+      priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
+    })),
+    fulfillment: isPhysical ? 'physical' : 'pickup',
+    shippingLabel: flatShipping ? flatShipping.label : createMarketplaceListingDefaults.shippingLabel,
+    shippingPrice: flatShipping ? amountInputFromMoney(flatShipping.price) : '',
+    shippingMinDays: flatShipping
+      ? String(flatShipping.estimatedMinDays)
+      : createMarketplaceListingDefaults.shippingMinDays,
+    shippingMaxDays: flatShipping
+      ? String(flatShipping.estimatedMaxDays)
+      : createMarketplaceListingDefaults.shippingMaxDays,
+    measurementSystem,
+    packageWeight: record.package ? weightInputFromGrams(record.package.weightGrams, measurementSystem) : '',
+    packageLength: record.package
+      ? dimensionInputFromMillimeters(record.package.lengthMillimeters, measurementSystem)
+      : '',
+    packageWidth: record.package
+      ? dimensionInputFromMillimeters(record.package.widthMillimeters, measurementSystem)
+      : '',
+    packageHeight: record.package
+      ? dimensionInputFromMillimeters(record.package.heightMillimeters, measurementSystem)
+      : '',
+    returnDays,
+    seededFromTitle: record.title,
+    seededAuctionAsFixedPrice: auctionAsFixed,
+  };
+}
+
+function listingAttributeFormValues(record: CommerceListingRecord): Partial<CreateMarketplaceListingData> {
+  const formValues: Partial<CreateMarketplaceListingData> = {};
+  const fieldsByKey = new Map(commerceAttributeFieldsFor(record.categoryId).map((field) => [field.key, field]));
+
+  for (const [key, value] of Object.entries(record.attributes ?? {})) {
+    const field = fieldsByKey.get(key);
+    const formField = field ? listingAttributeFormField(field.key) : null;
+    if (!field || !formField) continue;
+    if (field.input === 'multi-select') {
+      const allowed = new Set((field.options ?? []).map((option) => option.value));
+      if (
+        Array.isArray(value) &&
+        (field.maxValues === undefined || value.length <= field.maxValues) &&
+        value.every((entry) => allowed.has(entry))
+      ) {
+        (formValues as Record<string, string | string[]>)[formField] = value;
+      }
+      continue;
+    }
+    if (typeof value !== 'string') continue;
+    if (field.input === 'select') {
+      const allowed = new Set((field.options ?? []).map((option) => option.value));
+      if (allowed.has(value)) {
+        (formValues as Record<string, string | string[]>)[formField] = value;
+      }
+      continue;
+    }
+    (formValues as Record<string, string | string[]>)[formField] = value;
+  }
+
+  return formValues;
 }
 
 export function describeMediaFailure(reason: Extract<PrepareListingMediaResult, { ok: false }>['reason']): string {

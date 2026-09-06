@@ -1,0 +1,124 @@
+import { act, renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
+import { useMarketplaceSellerDashboard } from './useMarketplaceSellerDashboard';
+
+const OWNER = 'y'.repeat(52);
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: OWNER }),
+}));
+
+vi.mock('@/hooks/useMeasurementSystem/useMeasurementSystem', () => ({
+  useMeasurementSystem: () => 'metric',
+}));
+
+vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
+  useMarketplaceOrders: () => ({ orders: [], isLoading: false, needsSession: false, error: null }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: [], isLoading: false, needsSession: false, error: null }),
+}));
+
+vi.mock('dexie-react-hooks', () => ({
+  useLiveQuery: () => [],
+}));
+
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    getListingsBySeller: vi.fn(async () => []),
+    getOrFetchListing: vi.fn(),
+    commitUpdateListingDraft: vi.fn(),
+    commitUpsertListing: vi.fn(),
+  },
+}));
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({
+  toast: vi.fn(),
+}));
+
+describe('useMarketplaceSellerDashboard duplicateListing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770999');
+  });
+
+  it('seeds a new create draft from a fixed-price listing and excludes ids and revision', async () => {
+    const source = createCommerceListingFixture({
+      listingId: 'boots_01',
+      revision: 7,
+      title: 'Vintage leather boots',
+      variants: [
+        {
+          id: 'variant_01',
+          sku: 'BOOTS-42',
+          options: { size: '42' },
+          quantity: 4,
+          mediaIds: ['image_01'],
+          enabled: true,
+        },
+      ],
+    });
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(source);
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    let seeded = false;
+    await act(async () => {
+      seeded = await result.current.duplicateListing('boots_01');
+    });
+
+    expect(seeded).toBe(true);
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledOnce();
+    const [draftId, form] = vi.mocked(CommerceController.commitUpdateListingDraft).mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(draftId).toBe('018f47d26a277c23a49d6b21bb770999');
+    expect(form).not.toHaveProperty('listingId');
+    expect(form).not.toHaveProperty('revision');
+    expect(form).not.toHaveProperty('media');
+    expect(form).toMatchObject({
+      title: 'Vintage leather boots',
+      description: source.description,
+      categoryId: source.categoryId,
+      condition: 'good',
+      saleFormat: 'fixed_price',
+      currency: 'USD',
+      price: '125.00',
+      seededFromTitle: 'Vintage leather boots',
+      seededAuctionAsFixedPrice: false,
+      variants: [expect.objectContaining({ sku: 'BOOTS-42-copy', quantity: '4', size: '42' })],
+    });
+    expect(JSON.stringify(form)).not.toContain('boots_01');
+    expect(JSON.stringify(form)).not.toContain('variant_01');
+    expect(JSON.stringify(form)).not.toContain('image_01');
+  });
+
+  it('copies an auction as fixed price with a notice flag', async () => {
+    const source = createCommerceListingFixture({
+      listingId: 'auction_01',
+      sale: {
+        format: 'auction',
+        startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+        startsAt: '2026-08-19T20:00:00.000Z',
+        endsAt: '2026-08-29T20:00:00.000Z',
+        antiSnipingWindowSeconds: 120,
+        antiSnipingExtensionSeconds: 120,
+      },
+    });
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(source);
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    await act(async () => {
+      await result.current.duplicateListing('auction_01');
+    });
+
+    const form = vi.mocked(CommerceController.commitUpdateListingDraft).mock.calls[0][1] as Record<string, unknown>;
+    expect(form.saleFormat).toBe('fixed_price');
+    expect(form.price).toBe('45.00');
+    expect(form.seededAuctionAsFixedPrice).toBe(true);
+  });
+});

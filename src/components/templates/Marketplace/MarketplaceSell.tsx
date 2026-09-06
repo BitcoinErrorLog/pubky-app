@@ -99,11 +99,17 @@ export function MarketplaceSell() {
               <History className="mt-0.5 size-5 shrink-0 text-brand" />
               <div>
                 <Typography as="p" className="font-semibold">
-                  Draft restored
+                  {listing.seededFromTitle ? `Draft created from ${listing.seededFromTitle}` : 'Draft restored'}
                 </Typography>
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  We loaded your unfinished listing from this device. Photos are not part of drafts — add them again
-                  before publishing.
+                  {listing.seededFromTitle
+                    ? [
+                        listing.seededAuctionAsFixedPrice ? 'Auction listings are copied as fixed price.' : null,
+                        'Photos were not copied — add them again before publishing.',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+                    : 'We loaded your unfinished listing from this device. Photos are not part of drafts — add them again before publishing.'}
                 </Typography>
               </div>
             </div>

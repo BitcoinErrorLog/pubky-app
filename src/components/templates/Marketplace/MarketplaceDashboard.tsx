@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   AlertTriangle,
@@ -45,7 +46,9 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function MarketplaceDashboard() {
   const dashboard = useMarketplaceSellerDashboard();
   const isMobile = useIsMobile({ breakpoint: 'md' });
+  const router = useRouter();
   const [selected, setSelected] = useState<string[]>([]);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // Normalize "no record" to null so `undefined` keeps meaning "still loading".
   const shop = useLiveQuery(
@@ -219,7 +222,13 @@ export function MarketplaceDashboard() {
               </Card>
             )}
             {isMobile ? (
-              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1" data-testid="marketplace-dashboard-kpi-chips">
+              <div
+                className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1"
+                data-testid="marketplace-dashboard-kpi-chips"
+                tabIndex={0}
+                role="region"
+                aria-label="Dashboard metrics"
+              >
                 {dashboardKpis(dashboard.metrics).map(({ label, value }) => (
                   <div key={label} className="shrink-0 rounded-full border bg-card px-4 py-2">
                     <Typography as="p" className="text-sm font-semibold">
@@ -382,14 +391,22 @@ export function MarketplaceDashboard() {
                                       Edit
                                     </Link>
                                   </Button>
-                                  <Button asChild size="sm" variant="ghost" className="rounded-full">
-                                    <Link
-                                      href={`${getMarketplaceListingEditRoute(listing.seller_id, listing.listing_id)}?duplicate=1`}
-                                      overrideDefaults
-                                    >
-                                      <Copy className="mr-2 size-4" />
-                                      Duplicate
-                                    </Link>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="rounded-full"
+                                    disabled={duplicatingId === listing.listing_id}
+                                    onClick={() => {
+                                      void (async () => {
+                                        setDuplicatingId(listing.listing_id);
+                                        const seeded = await dashboard.duplicateListing(listing.listing_id);
+                                        setDuplicatingId(null);
+                                        if (seeded) router.push(MARKETPLACE_ROUTES.SELL);
+                                      })();
+                                    }}
+                                  >
+                                    <Copy className="mr-2 size-4" />
+                                    Duplicate
                                   </Button>
                                 </div>
                               </td>

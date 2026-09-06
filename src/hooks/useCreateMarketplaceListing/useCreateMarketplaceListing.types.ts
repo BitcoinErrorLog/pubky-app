@@ -388,6 +388,10 @@ export const createMarketplaceListingDraftSchema = z
     lengthMillimeters: z.string(),
     widthMillimeters: z.string(),
     heightMillimeters: z.string(),
+    /** Present when this draft was seeded by duplicating a published listing. */
+    seededFromTitle: z.string(),
+    /** Present when the source listing was an auction copied as fixed price. */
+    seededAuctionAsFixedPrice: z.boolean(),
   })
   .partial()
   .strict();

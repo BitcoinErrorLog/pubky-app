@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { seedDraftFormFromListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { sumMoneyByAsset } from '@/libs/commerce/pricing';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -12,6 +14,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function useMarketplaceSellerDashboard() {
   const [nowMs, setNowMs] = useState(0);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const measurementSystem = useMeasurementSystem();
   const localListings = useLiveQuery(
     () => (currentUserPubky ? CommerceController.getListingsBySeller(currentUserPubky) : []),
     [currentUserPubky],
@@ -60,6 +63,24 @@ export function useMarketplaceSellerDashboard() {
       return true;
     } catch {
       toast({ variant: 'error', description: 'Could not update selected listings.' });
+      return false;
+    }
+  };
+
+  const duplicateListing = async (listingId: string): Promise<boolean> => {
+    if (!currentUserPubky) return false;
+    try {
+      const record = await CommerceController.getOrFetchListing(currentUserPubky, listingId);
+      if (record.ownerPubky !== currentUserPubky) {
+        toast({ variant: 'error', description: 'You can only duplicate your own listings.' });
+        return false;
+      }
+      const draftId = crypto.randomUUID().replaceAll('-', '');
+      const form = seedDraftFormFromListing(record, measurementSystem);
+      await CommerceController.commitUpdateListingDraft(draftId, form);
+      return true;
+    } catch {
+      toast({ variant: 'error', description: 'Could not duplicate this listing.' });
       return false;
     }
   };
@@ -114,6 +135,7 @@ export function useMarketplaceSellerDashboard() {
       total: ordersToShip + offersAwaitingReply + expiringAuctions,
     },
     updateListingState,
+    duplicateListing,
     exportCsv,
   };
 }

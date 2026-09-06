@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
 import { toast } from '@/molecules/Toaster/use-toast';
-import { useCreateMarketplaceListing } from './useCreateMarketplaceListing';
+import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
+import { seedDraftFormFromListing, useCreateMarketplaceListing } from './useCreateMarketplaceListing';
 
 const OWNER = 'y'.repeat(52);
 const mediaState = vi.hoisted(() => ({
@@ -333,5 +334,88 @@ describe('useCreateMarketplaceListing', () => {
     expect(result.current.restoredDraft).toBe(true);
     expect(result.current.form.getValues('currency')).toBe('BTC');
     expect(result.current.form.getValues('price')).toBe('15000');
+  });
+
+  it('restores a duplicated listing draft with source title metadata', async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      {
+        id: `${OWNER}:draftlisting03`,
+        owner_id: OWNER,
+        listing_id: 'draftlisting03',
+        data: {
+          ownerPubky: OWNER,
+          listingId: 'draftlisting03',
+          form: {
+            title: 'Vintage leather boots',
+            saleFormat: 'fixed_price',
+            seededFromTitle: 'Vintage leather boots',
+            seededAuctionAsFixedPrice: true,
+          },
+        },
+        created_at: 1_000,
+        updated_at: 2_000,
+      },
+    ]);
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.restoredDraft).toBe(true);
+    expect(result.current.seededFromTitle).toBe('Vintage leather boots');
+    expect(result.current.seededAuctionAsFixedPrice).toBe(true);
+    expect(result.current.form.getValues('saleFormat')).toBe('fixed_price');
+  });
+});
+
+describe('seedDraftFormFromListing', () => {
+  it('copies sellable fields and excludes ids, revision, and photos', () => {
+    const source = createCommerceListingFixture({
+      listingId: 'boots_01',
+      revision: 4,
+      variants: [
+        {
+          id: 'variant_keep',
+          sku: 'BOOTS',
+          options: { size: '42', color: 'Brown' },
+          quantity: 2,
+          mediaIds: ['image_01'],
+          enabled: true,
+        },
+      ],
+    });
+    const draft = seedDraftFormFromListing(source, 'metric');
+    expect(draft).toMatchObject({
+      title: source.title,
+      description: source.description,
+      categoryId: source.categoryId,
+      condition: source.condition,
+      saleFormat: 'fixed_price',
+      price: '125.00',
+      seededFromTitle: source.title,
+      seededAuctionAsFixedPrice: false,
+      variants: [{ sku: 'BOOTS-copy', size: '42', color: 'Brown', style: '', quantity: '2', priceOverride: '' }],
+    });
+    expect(draft).not.toHaveProperty('listingId');
+    expect(draft).not.toHaveProperty('revision');
+    expect(draft).not.toHaveProperty('media');
+  });
+
+  it('converts an auction source to fixed price', () => {
+    const source = createCommerceListingFixture({
+      sale: {
+        format: 'auction',
+        startingPrice: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+        startsAt: '2026-08-19T20:00:00.000Z',
+        endsAt: '2026-08-29T20:00:00.000Z',
+        antiSnipingWindowSeconds: 120,
+        antiSnipingExtensionSeconds: 120,
+      },
+    });
+    const draft = seedDraftFormFromListing(source, 'metric');
+    expect(draft.saleFormat).toBe('fixed_price');
+    expect(draft.seededAuctionAsFixedPrice).toBe(true);
+    expect(draft.price).toBe('100.00');
   });
 });

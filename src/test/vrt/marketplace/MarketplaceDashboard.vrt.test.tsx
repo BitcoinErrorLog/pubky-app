@@ -146,6 +146,7 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     metrics: view.metrics,
     actionNeeded: view.actionNeeded,
     updateListingState: vi.fn(async () => false),
+    duplicateListing: vi.fn(async () => false),
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
   }),
 }));

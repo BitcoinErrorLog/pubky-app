@@ -1,11 +1,15 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { getMarketplaceListingEditRoute } from '@/app/routes';
-import { COMMERCE_FIXTURE_SELLER,createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { COMMERCE_FIXTURE_SELLER, createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import { MarketplaceDashboard } from './MarketplaceDashboard';
 
 const viewport = vi.hoisted(() => ({ isMobile: false }));
+const router = vi.hoisted(() => ({ push: vi.fn() }));
+const dashboardFns = vi.hoisted(() => ({
+  duplicateListing: vi.fn(async () => true),
+}));
 const dashboardState = vi.hoisted(() => ({
   listings: [] as unknown[],
   metrics: {
@@ -25,7 +29,7 @@ const dashboardState = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => router,
 }));
 
 vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
@@ -43,6 +47,7 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     metrics: dashboardState.metrics,
     actionNeeded: dashboardState.actionNeeded,
     updateListingState: vi.fn(async () => true),
+    duplicateListing: dashboardFns.duplicateListing,
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
   }),
 }));
@@ -93,6 +98,9 @@ describe('MarketplaceDashboard', () => {
     render(<MarketplaceDashboard />);
 
     const chips = screen.getByTestId('marketplace-dashboard-kpi-chips');
+    expect(chips).toHaveAttribute('role', 'region');
+    expect(chips).toHaveAttribute('aria-label', 'Dashboard metrics');
+    expect(chips).toHaveAttribute('tabindex', '0');
     expect(chips).toHaveTextContent('Active listings');
     expect(chips).toHaveTextContent('1');
     expect(chips).toHaveTextContent('$125.00');
@@ -110,8 +118,10 @@ describe('MarketplaceDashboard', () => {
     expect(screen.getByText('Active listings')).toBeInTheDocument();
   });
 
-  it('renders a thumbnail placeholder and duplicate action target for listing rows', () => {
+  it('seeds a sell draft from Duplicate and navigates to the sell studio', async () => {
     viewport.isMobile = false;
+    dashboardFns.duplicateListing.mockClear();
+    router.push.mockClear();
     const rowListing = listing({ listingId: 'no_media', title: 'No media listing', media: [] });
     dashboardState.listings = [rowListing];
 
@@ -119,10 +129,12 @@ describe('MarketplaceDashboard', () => {
 
     const row = screen.getByRole('row', { name: /No media listing/ });
     expect(within(row).getByLabelText('No thumbnail for No media listing')).toBeInTheDocument();
-    expect(within(row).getByRole('link', { name: /Duplicate/ })).toHaveAttribute(
-      'href',
-      `${getMarketplaceListingEditRoute(COMMERCE_FIXTURE_SELLER, 'no_media')}?duplicate=1`,
-    );
+    fireEvent.click(within(row).getByRole('button', { name: /Duplicate/ }));
+
+    expect(dashboardFns.duplicateListing).toHaveBeenCalledWith('no_media');
+    await vi.waitFor(() => {
+      expect(router.push).toHaveBeenCalledWith(MARKETPLACE_ROUTES.SELL);
+    });
   });
 });
 
