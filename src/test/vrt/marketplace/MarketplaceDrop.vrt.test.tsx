@@ -28,6 +28,9 @@ const view = vi.hoisted(() => ({
   drop: {} as Record<string, unknown>,
   claim: {} as Record<string, unknown>,
 }));
+const shopFollow = vi.hoisted(() => ({
+  toggle: vi.fn(),
+}));
 
 vi.mock('@/hooks/useMarketplaceDrop/useMarketplaceDrop', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useMarketplaceDrop/useMarketplaceDrop')>(
@@ -41,7 +44,7 @@ vi.mock('@/hooks/useMarketplaceDropClaim/useMarketplaceDropClaim', () => ({
 }));
 
 vi.mock('@/hooks/useCommerceShopFollow/useCommerceShopFollow', () => ({
-  useCommerceShopFollow: () => ({ isFollowing: false, isLoading: false, isMutating: false, toggle: vi.fn() }),
+  useCommerceShopFollow: () => ({ isFollowing: false, isLoading: false, isMutating: false, toggle: shopFollow.toggle }),
 }));
 
 vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
