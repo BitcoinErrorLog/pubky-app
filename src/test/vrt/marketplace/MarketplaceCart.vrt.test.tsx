@@ -103,6 +103,7 @@ const view = vi.hoisted(() => ({
   items: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
+  hasMarketplaceSession: false,
   addresses: [] as unknown[],
   selectedAddressId: null as string | null,
 }));
@@ -193,7 +194,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       submit: vi.fn(async () => false),
       needsSession: false,
       sessionError: null,
-      hasMarketplaceSession: false,
+      hasMarketplaceSession: view.hasMarketplaceSession,
       addresses: view.addresses,
       selectedAddressId: view.selectedAddressId,
       selectAddress: vi.fn(),
@@ -211,6 +212,11 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 beforeEach(async () => {
   const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
   useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
+  view.hasMarketplaceSession = false;
+  view.adapterMode = 'sandbox';
+  view.addresses = [];
+  view.selectedAddressId = null;
+  view.isLoading = false;
 });
 
 describe('Marketplace cart — visual regression', () => {
@@ -318,5 +324,21 @@ describe('Marketplace cart — visual regression', () => {
     const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-locks-paykit-desktop');
     view.adapterMode = 'sandbox';
+  });
+
+  // Durable mode with no marketplace session: step 1 shows the Ring approval
+  // card and Place order stays disabled. Fixtured via adapterMode + the
+  // checkout mock's hasMarketplaceSession flag (same seam as other cart VRTs).
+  it('renders the unapproved durable cart at desktop viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = false;
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: { width: 1440, height: 1600 } });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-durable-unapproved-desktop');
+    view.adapterMode = 'sandbox';
+    view.hasMarketplaceSession = false;
   });
 });
