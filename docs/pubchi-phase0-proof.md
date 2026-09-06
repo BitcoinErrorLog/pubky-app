@@ -1,3 +1,276 @@
+# Round 6 (App 45c1616a, service c7fe34b)
+
+Date: 2026-09-06 04:33 WEST. In-browser **Build feed → Apply** on the App worktree (`pubky-app-wt-pubchi` HEAD `45c1616a`) against the rebuilt Pubchi service (`pubky-ai-bot-w3` HEAD `c7fe34b`). Playwright headless Chromium only — no CDP screenshots, no browser MCP. No secrets in this file.
+
+## Environment (Round 6)
+
+| Item | Value |
+| --- | --- |
+| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
+| App branch | `pubchi/phase0-app` |
+| App HEAD | `45c1616ac936aec22134f02f7fac46559e89fcb4` (`test(pubchi): pin request canonical form to service`) |
+| App origin | `http://localhost:3001` — page `__PUBKY_CONFIG__`: `pubchiEnabled=true`, `pubchiApiUrl=http://127.0.0.1:8790` |
+| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
+| Pubchi service HEAD | `c7fe34b` (`docs(pubchi): record K1b re-audit`; `dist/` rebuilt after HEAD, 550 `*.js` newer than worktree HEAD) |
+| Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
+| Pubchi wrapper / child | `21540` (`railway run --service jeb` from linked `pubky-ai-bot-curate` cwd) / `21587` (`node …/pubky-ai-bot-w3/dist/main.js --role pubchi`) |
+| DB | `jeb_pubchi_w3` |
+| Identities | same U/B/T as rounds 3–5 (pubkys only; seeds by path) |
+
+### Step 1 — service restart
+
+Killed old wrapper `36995` then child `37053` (SIGTERM). Port empty. First launch from the w3 worktree failed (`No linked project found`). Relaunched from already-linked `pubky-ai-bot-curate` (read-only cwd; `jeb-staging` / service `jeb`) with `node` pointed at the w3 `dist`. Unsets: `PUBKY_BOT_SECRET_KEY_HEX`, `PUBKY_BOT_SECRET_KEY`, `PUBKY_BOT_SECRET_KEY_FILE`, `PUBKY_BOT_MNEMONIC`, `JEB_HOW_I_WORK_POST_URI`.
+
+`GET /healthz` → `{"ok":true,"role":"pubchi"}`.
+
+`OPTIONS /v1/feed` `Origin: http://localhost:3001` → `204` + `Access-Control-Allow-Origin: http://localhost:3001`.
+
+`service.log` started line (pid 21587): no secrets.
+
+`:3001` / `:3002` were not restarted.
+
+## Item 4 — two-hop bitcoin feed → Apply
+
+**Verdict: PASS**
+
+Signed in as U on `:3001` via recovery phrase (12 fields; Restore → `/home`). In-memory signing seed is process-local: a full `page.goto` after login drops it. This run used client-side navigation only after Restore.
+
+`/settings/pubchi` Dexie was empty (fresh Playwright profile). **Re-enrolled B.** UI: `Active bot: hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` + Remove bot + toast `Pubchi bot enrolled`. Screenshot `round6/01-settings-enrolled.png`.
+
+Opened Pubchi panel. Question `make a two-hop bitcoin feed`. Clicked **Build feed**.
+
+Playwright `response` on `POST http://127.0.0.1:8790/v1/feed`:
+
+- HTTP 200
+- Panel card: `Bitcoin WoT Feed` / `Reach: wot` / `Tags: bitcoin` / **Apply**
+- Screenshot `round6/02-panel-feed-proposal.png`
+
+Response JSON:
+
+```
+{"schema":"pubchi-feed-proposal","version":1,"bot":"hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo","owner":"bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","generated_at":1788665573,"feed":{"feed":{"tags":["bitcoin"],"domain_tags":[],"reach":"wot","layout":"columns","sort":"recent","content":"short"},"name":"Bitcoin WoT Feed","created_at":1788665573},"warnings":[],"installed_user_feed_id":null}
+```
+
+`feed.created_at=1788665573` is 8 s behind wall-clock `1788665581`. **Not** the pre-fix model value `1735689600`.
+
+Clicked **Apply**. Persistence:
+
+| Check | Result |
+| --- | --- |
+| (a) IndexedDB `franky.feeds` | New row `id=6ATDSRKYAFFWR213R3CVG9FGE0` name=`Bitcoin WoT Feed` tags=`[bitcoin]` `created_at=1788665581637` (ms, App `Date.now()`). Older round-3 row `H36K8NC454ERFCM0DD4V4N7NCG` is still present from bootstrap. |
+| (b) Playwright PUT | `PUT https://homeserver.staging.pubky.app/pub/pubky.app/feeds/6ATDSRKYAFFWR213R3CVG9FGE0` → **201** |
+| (c) Public GET (`publicStorage.getJson`) | `pubky://bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o/pub/pubky.app/feeds/6ATDSRKYAFFWR213R3CVG9FGE0` |
+| (d) service.log | no `PUT` / `publish` / `homeserver_write` |
+
+Public GET body:
+
+```
+{"created_at":1788665581636000,"feed":{"content":"short","layout":"columns","reach":"wot","sort":"recent","tags":["bitcoin"]},"name":"Bitcoin WoT Feed"}
+```
+
+### `created_at` proposal vs stored
+
+| Source | Value | Unit |
+| --- | --- | --- |
+| FeedProposalV1 `feed.created_at` | `1788665573` | seconds (server `now`) |
+| App Dexie `feeds.created_at` | `1788665581637` | milliseconds (`Date.now()` in `FeedApplication.persist`; `feed-map` does not pass the proposal field) |
+| Homeserver public body `created_at` | `1788665581636000` | microseconds (specs write of the App ms value × 1000) |
+
+Screenshot `round6/03-feed-applied.png` is the same settings+panel frame immediately after Apply (toast window is short; card still shows the proposal).
+
+## Item 3 / Ask — “who tagged me?”
+
+**Verdict: PASS** (honest empty evidence)
+
+`POST http://127.0.0.1:8790/v1/query` HTTP 200 QueryResultV1:
+
+```
+{"schema":"pubchi-query-result","version":1,"bot":"hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo","owner":"bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","generated_at":1788665586,"run_id":"run-5549b4ea15ea0e0c","purpose":"who-tagged-me","scope_owner":"bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","items":[],"tool_trace_summary":{"tools":["get_emerging_topics"],"call_count":1,"truncated":false},"policy_version":1}
+```
+
+Matching `service.log` (pid 21587, level 30):
+
+```
+{"level":30,"time":1788665594842,"pid":21587,"hostname":"Mac","name":"get_emerging_topics","ms":8433,"ok":true,"mention_key":"pubchi:bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","msg":"tool call"}
+```
+
+`mention_key` is owner-only (`pubchi:<U>`), not `pubchi:<B>:<U>`. Screenshot `round6/04-ask-who-tagged-me.png` (panel question `who tagged me?`, Tool trace header).
+
+## Item 5b — remotes during feed + ask
+
+**Verdict: PASS**
+
+`lsof -nP -p 21587 -iTCP` sampled ~24× / 2 s during the calls. Parsed **only pid 21587 TCP** (macOS `lsof` ORs `-p` and `-iTCP` without `-a`; the raw file also contains other processes and must not be used as-is). Distinct remotes for 21587:
+
+| Remote | Identity |
+| --- | --- |
+| `127.0.0.1:5432` | local Postgres (`jeb_pubchi_w3`) |
+| `127.0.0.1` (ephemeral) | local Pubchi clients (App / Playwright) |
+| `34.179.161.72:443` | `nexus-scout.pubky.app` (production Scout) |
+| `34.65.231.81:443` | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A) |
+| `34.65.156.171:443` | `pkarr.pubky.app` / `pkarr.pubky.org` |
+| `[2606:4700::6812:1d88]:443` | Cloudflare IPv6 = `104.18.29.136` = `api.moonshot.ai` |
+
+`relay.pkarr.org` (`167.86.102.121`) was **not** in this sample (pkarr.pubky.app was). No other remote on the Pubchi child.
+
+## Item 5c — no service-side publish
+
+**Verdict: PASS**
+
+```
+rg -n "PUT|publish|homeserver_write" /tmp/pubchi-stage/service.log
+none
+```
+
+Apply PUT was from the **App** (Playwright saw the homeserver 201). The Pubchi process did not publish.
+
+## Screenshots
+
+Opened and described (two different scenes):
+
+| File | What it shows |
+| --- | --- |
+| `docs/pubchi-phase0-proof/round6/01-settings-enrolled.png` | `/settings/pubchi`, Active bot B, Remove bot, toast `Pubchi bot enrolled`. |
+| `docs/pubchi-phase0-proof/round6/02-panel-feed-proposal.png` | Panel question `make a two-hop bitcoin feed`, card `Bitcoin WoT Feed` / Reach `wot` / Tags `bitcoin` / Apply. |
+| `docs/pubchi-phase0-proof/round6/03-feed-applied.png` | Same panel immediately after Apply click (proposal card still visible). |
+| `docs/pubchi-phase0-proof/round6/04-ask-who-tagged-me.png` | Panel question `who tagged me?`, Ask, Tool trace. |
+
+Integrity:
+
+```
+md5 -q docs/pubchi-phase0-proof/round6/*.png | sort -u | wc -l
+       4
+ls docs/pubchi-phase0-proof/round6/*.png | wc -l
+       4
+```
+
+Unique md5s: `3e255096c841ce619f240eb4baf748f7` (01), `c72f387b55bde6515627da97913c509a` (02), `bb02de1c5f6ceb83f2b045ce730e9ab2` (03), `ce1b94ee40644920e4a9eac62cce308d` (04). File count 4 = unique md5 count 4.
+
+## Verdict table (round 6)
+
+| Item | Verdict |
+| --- | --- |
+| 1 restart :8790 + healthz + CORS | PASS (wrapper 21540 / child 21587) |
+| 4 two-hop feed proposal (`created_at` live) | PASS (`1788665573`, age 8 s; not `1735689600`) |
+| 4 Apply + Dexie + homeserver PUT/GET | PASS (id `6ATDSRKYAFFWR213R3CVG9FGE0`, PUT 201, public GET 200) |
+| 3 / Ask who-tagged-me | PASS (QueryResultV1 200, empty items) |
+| 5b egress | PASS (Scout, staging Nexus/HS, pkarr, Moonshot CF v6; no extras on pid 21587) |
+| 5c no service PUT/publish | PASS |
+
+## Unverified
+
+- `relay.pkarr.org` socket in this sample (pkarr.pubky.app was used instead).
+- A dedicated post-Apply feed-tab screenshot (`/feed/6ATDSRKY…`); Apply persistence is proven via Dexie + PUT 201 + public GET.
+- First Playwright profile (`pubchi-round6`) hit `signing-unavailable` after a full `goto` — not a product defect; rerun used client-nav + a fresh profile.
+
+---
+
+# Pubchi Phase 0 staging proof — Round 5 (partial)
+
+Date: 2026-09-06 00:47 WEST. In-browser item 4 on the **fixed** App (`pubky-app-wt-pubchi-fix` HEAD `55f3d7b8`). Stopped on operator status check. Apply was **not** clicked. No secrets in this file.
+
+## Environment (Round 5)
+
+| Item | Value |
+| --- | --- |
+| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi-fix` |
+| App branch | `pubchi/phase0-app-feedfix` |
+| App HEAD | `55f3d7b882e20ee73582fb933baecafd1632a73c` (`fix(pubchi): route build-feed requests to /v1/feed`) |
+| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
+| Pubchi service HEAD | `61581d5` |
+| App origin | `http://localhost:3002` (ignore `:3001`) |
+| Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
+| Pubchi node pid | `37053` (`node dist/main.js --role pubchi`; wrappers 36995/37007) |
+| Flags | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790` |
+| Identities | same U/B/T as rounds 3–4 (pubkys only; secrets unused in this report) |
+
+## Blocker
+
+`browser_take_screenshot` timed out twice when writing `05-panel-feed-proposal.png`. `Page.captureScreenshot` then hung until interrupted (~47 min). Progress.log had no line after 23:58 `item4-enroll`. Apply was left unclicked so the live proposal stayed on screen. Status check at 00:47: stop; do not retry screenshots or Apply.
+
+Evidence instead: accessibility snapshot + CDP `window.__pubchiFetchLog` + `/tmp/pubchi-stage/round5/` (`feed-proposal.json`, `panel-state.txt`, `service.log.tail`).
+
+## Item 4 — two-hop bitcoin feed → Apply
+
+**Verdict: PARTIAL** (proposal PASS; Apply UNVERIFIED)
+
+1. Signed in as U on `:3002` via recovery phrase (12 fields; Restore → `/home`). `:3002` Dexie is a separate session from `:3001`.
+2. `/settings/pubchi` initially showed **no** Active bot (App reads local Dexie only; homeserver binding already existed). **Re-enrolled B.** UI after: `Active bot: hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` + Remove bot.
+3. Recovery-phrase login leaves `onboarding.secretKey` empty. Injected hex into `onboarding-storage` (length 64 only; value not recorded) and reloaded so the panel can sign.
+4. Wrapped `window.fetch` for `/v1/*`. Opened Pubchi panel. Asked `make a two-hop bitcoin feed`.
+
+`window.fetch` wrap (still present at 00:47):
+
+- Request URL: `POST http://127.0.0.1:8790/v1/feed`
+- HTTP 200
+- Panel card (no error): `Bitcoin Two-Hop Feed` / `Reach: wot` / `Tags: bitcoin` / **Apply**
+- URL still `http://localhost:3002/settings/pubchi` at stop
+
+Response JSON:
+
+```
+{"schema":"pubchi-feed-proposal","version":1,"bot":"hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo","owner":"bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o","generated_at":1788649121,"feed":{"feed":{"tags":["bitcoin"],"domain_tags":[],"reach":"wot","layout":"columns","sort":"recent","content":"short"},"name":"Bitcoin Two-Hop Feed","created_at":1735689600},"warnings":[],"installed_user_feed_id":null}
+```
+
+Matching `service.log`: **no new line.** File still ends at pid 37053 `started` (level 30). No level 40 for this call (it was 2xx). Not retried.
+
+```
+{"level":30,"time":1788648870613,"pid":37053,"hostname":"Mac","role":"pubchi","bind":"127.0.0.1","port":8790,"msg":"started"}
+```
+
+Apply: **not clicked.** No `06-feed-applied.png` / `07-feed-tab-content.png`.
+
+### Where Apply would persist (code, not live)
+
+`usePubchiQuery.applyFeed` → `FeedController.commitCreate(feedProposalToCreateParams(proposal))` → `FeedApplication.persist`: Dexie **and** `HomeserverService.request` PUT `pubky://<U>/pub/pubky.app/feeds/<id>`. `feed-map.ts` maps name/tags/reach/sort/content/layout only — it does **not** pass `created_at`. Live homeserver read-back was not run.
+
+### `created_at` (defect, not fixed)
+
+| Source | Value |
+| --- | --- |
+| FeedProposalV1 `feed.created_at` | `1735689600` (model-supplied; 2025-01-01T00:00:00Z) |
+| App stored `created_at` after Apply | **unverified** (Apply not run). Code uses `Date.now()` ms in `FeedApplication.persist`, not the proposal field. |
+
+## Item 5b — remotes during the feed call
+
+**Verdict: UNVERIFIED**
+
+`timeout 62 lsof -nP -p 37053 -a -i -r 1` failed immediately: `timeout: command not found`. `/tmp/pubchi-stage/lsof-round5.txt` is that one error line. No distinct remotes; `api.moonshot.ai` not observed in lsof this round. Brain almost certainly ran (200 FeedProposalV1 with a model `created_at`) but sockets were not sampled.
+
+## Item 5c — no service-side publish
+
+**Verdict: PASS**
+
+```
+rg -n "PUT|publish|homeserver_write" /tmp/pubchi-stage/service.log
+none
+```
+
+## Screenshots
+
+Round 5 did not write new PNGs (tool hang). `/tmp/pubchi-stage/shots/05-panel-feed-proposal.png` is still the **round 4** `PURPOSE_UNSUPPORTED` frame — do not treat it as this proposal.
+
+Integrity for this stop: no new PNGs. `md5` vs count not applicable.
+
+## Verdict table (round 5)
+
+| Item | Verdict |
+| --- | --- |
+| 4 two-hop feed proposal (in-browser) | PASS (`POST /v1/feed` 200 FeedProposalV1; panel rendered) |
+| 4 Apply + Dexie/homeserver + shots 06/07 | UNVERIFIED (not clicked; screenshot blocker) |
+| 5b egress | UNVERIFIED (`timeout` missing) |
+| 5c no service PUT/publish | PASS |
+
+## Unverified
+
+- Apply click, feed tab, homeserver public GET of a new feed from this Apply.
+- App-stored `created_at` after Apply.
+- `05`/`06`/`07` PNGs for this round.
+- `api.moonshot.ai` / Cloudflare `104.18.x` in lsof.
+- New level-30 service line for the 200 (pino may not log successful `/v1/feed`).
+
+---
+
 # Pubchi Phase 0 staging proof (round 4)
 
 Date: 2026-09-05. In-browser integrator after the service CORS allowlist and live Scout schema refresh (`pubky-ai-bot-w3` HEAD `61581d5`). Same U/B/T trio and enrollment as round 3. Secrets stay under `/tmp/pubchi-stage/secrets` (mode 700). This run did not delete that directory.
