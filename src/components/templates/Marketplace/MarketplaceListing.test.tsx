@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
 import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel, toCommerceShopModel } from '@/test/fixtures/commerce/listing-models';
 import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
@@ -8,6 +9,9 @@ import { MarketplaceListing } from './MarketplaceListing';
 
 const cartAdd = vi.hoisted(() => vi.fn());
 const projectionRefresh = vi.hoisted(() => vi.fn());
+const sellerReputation = vi.hoisted((): { value: CommerceSellerReputationOverview | { status: 'loading' } } => ({
+  value: { status: 'new_seller' as const },
+}));
 const authState = vi.hoisted(() => ({
   currentUserPubky: 'b'.repeat(52),
   setShowSignInDialog: vi.fn(),
@@ -75,6 +79,10 @@ vi.mock('@/hooks/useMarketplaceProjection/useMarketplaceProjection', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useMarketplaceReviews/useMarketplaceReviews', () => ({
+  useSellerReputation: () => sellerReputation.value,
+}));
+
 vi.mock('@/hooks/useMeasurementSystem/useMeasurementSystem', () => ({
   useMeasurementSystem: () => 'metric',
 }));
@@ -104,10 +112,6 @@ vi.mock('@/organisms/Marketplace/MarketplaceMessageDialog', () => ({
   MarketplaceMessageDialog: () => <button type="button">Message seller</button>,
 }));
 
-vi.mock('@/organisms/Marketplace/MarketplaceReputationHeader', () => ({
-  MarketplaceReputationHeader: () => null,
-}));
-
 vi.mock('@/organisms/Marketplace/MarketplaceReviewsSection', () => ({
   MarketplaceReviewsSection: () => <section aria-label="Reviews" />,
 }));
@@ -119,6 +123,7 @@ describe('MarketplaceListing', () => {
     view.projection = createListingProjectionFixture();
     view.projectionError = null;
     view.needsSession = false;
+    sellerReputation.value = { status: 'new_seller' };
     cartAdd.mockClear();
     projectionRefresh.mockClear();
     authState.setShowSignInDialog.mockClear();
@@ -143,6 +148,65 @@ describe('MarketplaceListing', () => {
     expect(screen.getByRole('region', { name: 'Reviews' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
+  });
+
+  it('renders the seller block with shop identity, tenure, actions, and shipping copy', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['physical'],
+        shippingOptions: [
+          {
+            id: 'ground',
+            pricing: 'flat',
+            label: 'Ground shipping',
+            price: { amountMinor: 899, currency: 'USD', exponent: 2 },
+            estimatedMinDays: 3,
+            estimatedMaxDays: 5,
+          },
+        ],
+      }),
+    );
+
+    renderListing();
+
+    expect(screen.getByText('Sold by')).toBeInTheDocument();
+    expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
+    expect(screen.getByText('New seller · no reviews yet')).toBeInTheDocument();
+    expect(screen.getByText('Shop opened Aug 2026')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View shop' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Message seller' })).toBeInTheDocument();
+    expect(screen.getByText('Shipping: Ground shipping $8.99')).toBeInTheDocument();
+  });
+
+  it('falls back to the seller pubky when no shop record exists', () => {
+    view.shop = null;
+    const listing = renderListing();
+
+    expect(screen.getByText(`${listing.seller_id.slice(0, 10)}…`)).toBeInTheDocument();
+    expect(screen.getByText('New seller · no reviews yet')).toBeInTheDocument();
+    expect(screen.queryByText('Shop opened Aug 2026')).not.toBeInTheDocument();
+  });
+
+  it('renders the seller rating aggregate when reputation is present', () => {
+    sellerReputation.value = {
+      status: 'rated',
+      summary: {
+        count: 12,
+        verifiedCount: 9,
+        avg: 4.7,
+        histogram: [0, 0, 1, 2, 9],
+        responseCount: 3,
+        editedLateCount: 0,
+        attestors: {},
+        lastReviewedAt: '2026-08-20T12:00:00.000Z',
+      },
+    };
+
+    renderListing();
+
+    expect(screen.getByRole('img', { name: 'Rated 4.7 out of 5 from 12 reviews' })).toBeInTheDocument();
+    expect(screen.getByText('(12)')).toBeInTheDocument();
+    expect(screen.queryByText('New seller · no reviews yet')).not.toBeInTheDocument();
   });
 
   it('adds the selected variant to cart without a marketplace session', async () => {

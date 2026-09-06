@@ -134,6 +134,12 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
       >
         Proof of Film
       </p>
+      <p
+        class="font-medium text-xs text-muted-foreground"
+        data-testid="typography"
+      >
+        New seller
+      </p>
       <div
         class="mt-auto flex items-center justify-between gap-2 pt-1"
       >
@@ -269,6 +275,12 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
         data-testid="typography"
       >
         Satoshi Vintage
+      </p>
+      <p
+        class="font-medium text-xs text-muted-foreground"
+        data-testid="typography"
+      >
+        New seller
       </p>
       <div
         class="mt-auto flex items-center justify-between gap-2 pt-1"

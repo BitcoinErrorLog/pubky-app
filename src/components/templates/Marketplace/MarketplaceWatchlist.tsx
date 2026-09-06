@@ -16,6 +16,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { useMarketplaceNotificationFeed } from '@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed';
+import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import {
@@ -239,7 +240,7 @@ function LastCheckedLabel({ checkedAt }: { checkedAt: number }) {
   const { formatRelativeTime } = useRelativeTime();
   return (
     <Typography as="span" className="text-xs text-muted-foreground">
-      Checked {formatRelativeTime(new Date(checkedAt))}
+      Checked {formatCheckedRelativeTime(formatRelativeTime(new Date(checkedAt)))}
     </Typography>
   );
 }
@@ -253,6 +254,7 @@ function WatchlistItemRow({ entry }: { entry: MarketplaceWatchlistEntry }) {
   const { item, snapshot, sellerId, rawListingId, listingId } = entry;
   const isAuction = item ? item.saleFormat === 'auction' : snapshot?.auction_ends_at !== null;
   const watch = useCommerceFavorite(listingId);
+  const seller = useMarketplaceSellerSummary(sellerId);
   const { ref: liveBidRef, bid } = useMarketplaceLiveBid(sellerId, rawListingId, Boolean(item && isAuction));
   const [mediaFailed, setMediaFailed] = useState(false);
 
@@ -290,6 +292,9 @@ function WatchlistItemRow({ entry }: { entry: MarketplaceWatchlistEntry }) {
           <div className="min-w-0 flex-1">
             <Typography as="h3" className="truncate text-base font-semibold">
               {title}
+            </Typography>
+            <Typography as="p" className="truncate text-xs text-muted-foreground">
+              {seller.displayName}
             </Typography>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <Badge variant="secondary">{isAuction ? 'Auction' : 'Buy now'}</Badge>
@@ -396,4 +401,13 @@ function deriveWatchlistState(entry: MarketplaceWatchlistEntry): { label: string
     default:
       return null;
   }
+}
+
+function formatCheckedRelativeTime(relativeTime: string): string {
+  if (relativeTime === '0s') return 'just now';
+
+  const seconds = relativeTime.match(/^(\d+)s$/);
+  if (seconds) return `${seconds[1]} sec ago`;
+
+  return relativeTime.endsWith('ago') ? relativeTime : `${relativeTime} ago`;
 }

@@ -18,11 +18,14 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
+import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
+import type { CommerceListingRecord, CommerceShippingOption } from '@/libs/commerce/marketplace-records';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { formatPackageDimensions, formatWeight } from '@/libs/commerce/units';
+import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceAuctionPanel } from '@/organisms/Marketplace/MarketplaceAuctionPanel';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
@@ -35,7 +38,6 @@ import { MarketplaceListingSpecifics } from '@/organisms/Marketplace/Marketplace
 import { MarketplaceMediaGallery } from '@/organisms/Marketplace/MarketplaceMediaGallery';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
-import { MarketplaceReputationHeader } from '@/organisms/Marketplace/MarketplaceReputationHeader';
 import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceReviewsSection';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -60,6 +62,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const isOwner = currentUserPubky === sellerPubky;
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
   const negotiation = useMarketplaceProjection(sellerPubky, listingId);
+  const sellerReputation = useSellerReputation(sellerPubky);
   const cart = useMarketplaceCart();
   const measurementSystem = useMeasurementSystem();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
@@ -144,6 +147,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const selectedVariant = record.variants.find(({ id }) => id === selectedVariantId) ?? record.variants[0];
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
+  const sellerDisplayName = shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`;
   const isSoldOut = !record.variants.some(({ enabled, quantity }) => enabled && quantity > 0);
   const isPurchasable = record.state === 'active';
   const stateNotice =
@@ -236,6 +240,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 {formatCommerceMoney(displayPrice)}
               </Typography>
               <MarketplaceIndicativePrice money={displayPrice} className="text-sm" />
+              <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                {formatListingShipping(record)}
+              </Typography>
               {negotiation.projection?.auction && (
                 <Typography as="p" className="mt-1 text-sm text-muted-foreground">
                   {negotiation.projection.auction.bidCount}{' '}
@@ -246,48 +253,43 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             </div>
 
             <Card className="gap-4 border py-5">
-              <CardContent className="flex items-center justify-between gap-4 px-5">
-                <div className="flex items-center gap-3">
-                  {shopAvatarUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
-                    <img
-                      src={shopAvatarUrl}
-                      alt={`${shop?.record.name ?? 'Shop'} avatar`}
-                      className="size-10 shrink-0 rounded-lg object-cover"
-                      onError={() => setShopAvatarFailed(true)}
-                    />
+              <CardContent className="flex flex-col gap-4 px-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <MarketplaceSellerIdentity
+                    sellerPubky={sellerPubky}
+                    displayName={sellerDisplayName}
+                    avatarUrl={shopAvatarUrl}
+                    avatarAlt={`${shop?.record.name ?? 'Shop'} avatar`}
+                    reputation={sellerReputation}
+                    createdAt={shop?.record.createdAt ?? null}
+                    onAvatarError={() => setShopAvatarFailed(true)}
+                  />
+                  {isOwner && !shop && (
+                    <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                      You haven&apos;t created a shop yet — buyers only see your key.
+                    </Typography>
+                  )}
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  {isOwner && !shop ? (
+                    <Button asChild size="sm" className="rounded-full">
+                      <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                        Set up your shop
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button asChild variant="secondary" size="sm" className="rounded-full">
+                      <Link href={getMarketplaceShopRoute(sellerPubky)} overrideDefaults>
+                        View shop
+                      </Link>
+                    </Button>
                   )}
                   <div>
-                    <Typography as="p" className="text-sm text-muted-foreground">
-                      Sold by
-                    </Typography>
-                    <Typography as="p" className="font-semibold">
-                      {shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`}
-                    </Typography>
-                    <MarketplaceReputationHeader sellerPubky={sellerPubky} variant="compact" className="mt-1" />
-                    {isOwner && !shop && (
-                      <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-                        You haven&apos;t created a shop yet — buyers only see your key.
-                      </Typography>
-                    )}
+                    <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
                   </div>
                 </div>
-                {isOwner && !shop ? (
-                  <Button asChild size="sm" className="rounded-full">
-                    <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
-                      Set up your shop
-                    </Link>
-                  </Button>
-                ) : (
-                  <Button asChild variant="secondary" size="sm" className="rounded-full">
-                    <Link href={getMarketplaceShopRoute(sellerPubky)} overrideDefaults>
-                      View shop
-                    </Link>
-                  </Button>
-                )}
               </CardContent>
             </Card>
-            <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
 
             <Typography as="p" className="text-base leading-7 text-muted-foreground">
               {record.description}
@@ -398,14 +400,16 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 the watch and collection buttons off-screen entirely. */}
             <div className="mt-auto flex flex-wrap gap-3">
               {record.sale.format === 'auction' ? (
-                <MarketplaceBidDialog
-                  aggregateId={aggregateId}
-                  projection={negotiation.projection}
-                  priceAsset={price}
-                  isSessionRequired={negotiation.needsSession}
-                  onSessionRequired={revealSessionRequired}
-                  onAccepted={negotiation.refresh}
-                />
+                <div className="[&_[data-slot=button]]:border-brand [&_[data-slot=button]]:bg-brand [&_[data-slot=button]]:text-background [&_[data-slot=button]:hover]:bg-brand/90">
+                  <MarketplaceBidDialog
+                    aggregateId={aggregateId}
+                    projection={negotiation.projection}
+                    priceAsset={price}
+                    isSessionRequired={negotiation.needsSession}
+                    onSessionRequired={revealSessionRequired}
+                    onAccepted={negotiation.refresh}
+                  />
+                </div>
               ) : (
                 <>
                   <Button
@@ -470,4 +474,18 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
       </Container>
     </ContentLayout>
   );
+}
+
+function formatListingShipping(record: CommerceListingRecord): string {
+  const flat = record.shippingOptions.find((option) => option.pricing === 'flat');
+  if (flat) return `Shipping: ${formatShippingOption(flat)} ${formatCommerceMoney(flat.price)}`;
+
+  const free = record.shippingOptions.find((option) => option.pricing === 'free');
+  if (free) return `Shipping: ${formatShippingOption(free)}`;
+
+  return 'Shipping: calculated at checkout';
+}
+
+function formatShippingOption(option: CommerceShippingOption): string {
+  return option.label.endsWith(':') ? option.label.slice(0, -1) : option.label;
 }

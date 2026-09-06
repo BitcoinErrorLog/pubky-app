@@ -157,19 +157,19 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           <Typography as="p" className="truncate text-sm text-muted-foreground">
             {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
           </Typography>
-          <CardTopAttributes listing={listing} />
-          {/* Seller reputation from the stream projection (zero extra requests).
-              Rendered only when the index actually reported reviews — absence
-              stays absence, never a fabricated 0.0 (ratified D5; display only
-              per D4, never a ranking input). */}
-          {listing.reputation !== null && listing.reputation.count > 0 && (
+          {listing.reputation !== null && listing.reputation.count > 0 ? (
             <MarketplaceStarRating
               rating={listing.reputation.avg}
               count={listing.reputation.count}
               verifiedCount={listing.reputation.verifiedCount}
               size="sm"
             />
+          ) : (
+            <Typography as="p" className="text-xs text-muted-foreground">
+              New seller
+            </Typography>
           )}
+          <CardTopAttributes listing={listing} />
           <div className="mt-auto flex items-center justify-between gap-2 pt-1">
             <Typography as="span" className="text-xs text-muted-foreground">
               {formatCommerceCondition(listing.condition)}
