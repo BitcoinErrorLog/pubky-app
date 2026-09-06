@@ -96,10 +96,10 @@ export function MarketplaceNotifications() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
-              Commerce activity
+              Transaction history
             </Heading>
             <Typography as="p" className="mt-2 text-muted-foreground">
-              {unreadCount} unread transaction {unreadCount === 1 ? 'update' : 'updates'}.
+              Durable events recorded by the transaction service: orders, payments, offers, bids.
             </Typography>
           </div>
           {canMarkRead ? (

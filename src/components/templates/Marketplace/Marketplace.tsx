@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -24,6 +25,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isDurableCommerceMode } from '@/config/commerce';
+import { FEATURE_DISCOVERY_STORAGE_PREFIX, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
 import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
@@ -37,6 +39,8 @@ import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListi
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
+const MARKETPLACE_PROMO_DEVICE_STORAGE_KEY = `${FEATURE_DISCOVERY_STORAGE_PREFIX}:${MARKETPLACE_PROMO_STORAGE_ID}`;
+
 export function Marketplace() {
   const router = useRouter();
   const { requireAuth } = useRequireAuth();
@@ -44,6 +48,8 @@ export function Marketplace() {
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const { listings, facetPool, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
+  const [promoStorageHydrated, setPromoStorageHydrated] = useState(false);
+  const [isPromoDismissedOnDevice, setIsPromoDismissedOnDevice] = useState(false);
   // Honest badges (see the hooks' contracts): the cart count is exactly what
   // the cart page shows; the activity count is device-local unread — never a
   // server-claimed read state, which the durable service does not have.
@@ -52,6 +58,27 @@ export function Marketplace() {
   // Visiting the marketplace (or refocusing its tab) runs the bounded
   // watchlist detection pass — the app has no background daemon.
   useMarketplaceWatchDetection();
+  const shouldShowPromo = showPromo && promoStorageHydrated && !isPromoDismissedOnDevice;
+
+  useEffect(() => {
+    try {
+      setIsPromoDismissedOnDevice(window.localStorage.getItem(MARKETPLACE_PROMO_DEVICE_STORAGE_KEY) === 'dismissed');
+    } catch {
+      setIsPromoDismissedOnDevice(false);
+    } finally {
+      setPromoStorageHydrated(true);
+    }
+  }, []);
+
+  const dismissMarketplacePromo = () => {
+    dismissPromo();
+    setIsPromoDismissedOnDevice(true);
+    try {
+      window.localStorage.setItem(MARKETPLACE_PROMO_DEVICE_STORAGE_KEY, 'dismissed');
+    } catch {
+      // The in-memory state still hides the promo for this tab.
+    }
+  };
 
   return (
     <ContentLayout
@@ -188,7 +215,7 @@ export function Marketplace() {
           </section>
         )}
 
-        {showPromo && (
+        {shouldShowPromo && (
           <section
             aria-label="Marketplace promo"
             className="relative overflow-hidden rounded-2xl border border-brand/20 bg-linear-to-br from-brand/20 via-card to-card p-6 sm:p-10"
@@ -198,7 +225,7 @@ export function Marketplace() {
               variant="ghost"
               size="icon"
               aria-label="Dismiss marketplace promo"
-              onClick={dismissPromo}
+              onClick={dismissMarketplacePromo}
               className="absolute top-3 right-3 z-10 text-muted-foreground hover:text-foreground"
             >
               <X className="size-4" />

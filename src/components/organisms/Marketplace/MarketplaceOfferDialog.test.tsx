@@ -52,6 +52,7 @@ describe('MarketplaceOfferDialog', () => {
         aggregateId="listing:x"
         expectedRevision={1}
         priceAsset={USD_ASSET}
+        askingPrice={{ amountMinor: 12_500, currency: 'USD', exponent: 2 }}
         onAccepted={vi.fn()}
       />,
     );
@@ -62,6 +63,7 @@ describe('MarketplaceOfferDialog', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Make a private offer' });
     // every field is reachable by its accessible name
     expect(screen.getByLabelText('Offer amount (USD)')).toBeInTheDocument();
+    expect(screen.getByText('Asking price: $125.00')).toBeInTheDocument();
     expect(screen.getByLabelText('Quantity')).toBeInTheDocument();
     expect(screen.getByLabelText('Message (optional)')).toBeInTheDocument();
     // focus starts inside the dialog
@@ -71,6 +73,29 @@ describe('MarketplaceOfferDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     // focus returns to the element that opened the dialog
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it('shows the live offer percentage against asking price', async () => {
+    const user = userEvent.setup();
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={1}
+        priceAsset={USD_ASSET}
+        askingPrice={{ amountMinor: 12_500, currency: 'USD', exponent: 2 }}
+        onAccepted={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Make offer' }));
+    const amount = screen.getByLabelText('Offer amount (USD)');
+
+    await user.type(amount, '100.00');
+    expect(screen.getByText('20% below asking')).toBeInTheDocument();
+
+    await user.clear(amount);
+    await user.type(amount, '150.00');
+    expect(screen.getByText('20% above asking')).toBeInTheDocument();
   });
 
   it('opens the sign-in dialog instead of the offer form for signed-out visitors', async () => {

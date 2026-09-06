@@ -64,7 +64,7 @@ export function MarketplaceBidDialog({
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>Set your private proxy maximum</DialogTitle>
+          <DialogTitle>Set your maximum bid</DialogTitle>
         </DialogHeader>
         {projection?.auction && (
           <div className="rounded-xl border bg-card p-4">
@@ -86,6 +86,9 @@ export function MarketplaceBidDialog({
           label={`Maximum bid (${amountInputUnitLabel(priceAsset)})`}
           placeholder={isBitcoinAsset(priceAsset) ? '100000' : '100.00'}
         />
+        <Typography as="p" className="text-sm text-muted-foreground">
+          We bid only what&apos;s needed to keep you ahead, up to your maximum.
+        </Typography>
         <Typography as="p" className="text-sm text-muted-foreground">
           Your maximum stays private. The visible price advances only enough to keep you ahead.
         </Typography>

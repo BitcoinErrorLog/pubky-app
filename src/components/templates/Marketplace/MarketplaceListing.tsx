@@ -427,6 +427,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}
                       priceAsset={price}
+                      askingPrice={record.sale.unitPrice}
                       isSessionRequired={negotiation.needsSession}
                       onSessionRequired={revealSessionRequired}
                       onAccepted={negotiation.refresh}

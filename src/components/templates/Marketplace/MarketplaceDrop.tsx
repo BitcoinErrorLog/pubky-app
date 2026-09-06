@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Archive, ArrowLeft, CalendarClock, ShieldCheck, Store, Users } from 'lucide-react';
-import { getMarketplaceDropRoute, getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import { Archive, ArrowLeft, Bell, CalendarClock, Search, ShieldCheck, Store, Users } from 'lucide-react';
+import { APP_ROUTES, getMarketplaceDropRoute, getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -12,6 +12,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
 import {
   DROP_ENDED_DESCRIPTIONS,
   DROP_ENDED_LABELS,
@@ -56,6 +57,7 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const drop = useMarketplaceDrop(sellerPubky, dropId);
   const claim = useMarketplaceDropClaim(drop.refresh);
+  const shopFollow = useCommerceShopFollow(sellerPubky);
   const [shopName, setShopName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -249,6 +251,23 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
           <Typography as="p" className="text-xs text-muted-foreground">
             This archive stays public: final terms and outcome, from the transaction service&rsquo;s record of the drop.
           </Typography>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="secondary"
+              className="rounded-full"
+              disabled={shopFollow.isLoading || shopFollow.isMutating}
+              onClick={shopFollow.toggle}
+            >
+              <Bell className={shopFollow.isFollowing ? 'mr-2 size-4 fill-brand text-brand' : 'mr-2 size-4'} />
+              {shopFollow.isFollowing ? 'Watching seller' : 'Watch this seller'}
+            </Button>
+            <Button asChild className="rounded-full">
+              <Link href={APP_ROUTES.MARKETPLACE} overrideDefaults>
+                <Search className="mr-2 size-4" />
+                Browse similar
+              </Link>
+            </Button>
+          </div>
         </section>
       )}
 

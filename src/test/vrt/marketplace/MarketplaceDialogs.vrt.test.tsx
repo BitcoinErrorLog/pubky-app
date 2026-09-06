@@ -152,6 +152,7 @@ describe('Marketplace dialogs — visual regression', () => {
           aggregateId={auctionProjection.aggregateId}
           expectedRevision={3}
           priceAsset={USD_ASSET}
+          askingPrice={auctionProjection.unitPrice}
           onAccepted={() => {}}
         />
       </DialogHarness>,
@@ -192,5 +193,4 @@ describe('Marketplace dialogs — visual regression', () => {
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-message-empty-open-desktop');
   });
-
 });
