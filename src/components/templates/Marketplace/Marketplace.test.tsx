@@ -107,9 +107,9 @@ describe('Marketplace', () => {
     expect(screen.getByRole('button', { name: 'Cart, 3' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Orders' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Activity, 5' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Seller dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Seller studio' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Seller dashboard' }));
+    await user.click(screen.getByRole('button', { name: 'Seller studio' }));
 
     expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.DASHBOARD);
   });

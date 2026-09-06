@@ -1,19 +1,31 @@
 'use client';
 
-import { ArrowLeft, ExternalLink, LayoutDashboard, Package } from 'lucide-react';
+import { ArrowLeft, ExternalLink, LayoutDashboard, MapPin, Package, Store } from 'lucide-react';
+import { useWatch } from 'react-hook-form';
 import { getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
+import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useMarketplaceShopSettings } from '@/hooks/useMarketplaceShopSettings/useMarketplaceShopSettings';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
-import { MarketplaceShopSettingsForm } from '@/organisms/Marketplace/MarketplaceShopSettingsForm';
+import { MarketplaceShopSettingsFormView } from '@/organisms/Marketplace/MarketplaceShopSettingsForm';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceMyShop() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const settings = useMarketplaceShopSettings();
+  const [name, bio, countryCode, region, vacationMode] = useWatch({
+    control: settings.form.control,
+    name: ['name', 'bio', 'countryCode', 'region', 'vacationMode'],
+  });
+  const previewName = String(name ?? '').trim() || 'Your shop name';
+  const previewBio = String(bio ?? '').trim() || 'Your shop bio will appear here as buyers see it.';
+  const previewCountryCode = String(countryCode ?? '').trim().toUpperCase();
+  const previewRegion = String(region ?? '').trim();
 
   return (
     <ContentLayout
@@ -31,7 +43,7 @@ export function MarketplaceMyShop() {
           className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          Seller dashboard
+          Seller studio
         </Link>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -68,7 +80,52 @@ export function MarketplaceMyShop() {
           </div>
         </div>
 
-        <MarketplaceShopSettingsForm />
+        <Card className="overflow-hidden border py-0" data-testid="shop-live-preview">
+          {settings.banner.previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- homeserver media and object URLs bypass Next image optimization
+            <img
+              src={settings.banner.previewUrl}
+              alt={`${previewName} banner preview`}
+              className="h-20 w-full object-cover sm:h-28"
+            />
+          ) : (
+            <div className="h-20 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-28" />
+          )}
+          <CardContent className="p-5">
+            <div className="-mt-12">
+              <div className="mb-3 flex size-16 items-center justify-center overflow-hidden rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg">
+                {settings.avatar.previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- homeserver media and object URLs bypass Next image optimization
+                  <img
+                    src={settings.avatar.previewUrl}
+                    alt={`${previewName} avatar preview`}
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <Store className="size-7" aria-hidden="true" />
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Heading level={2} size="lg" className="text-2xl sm:text-3xl">
+                  {previewName}
+                </Heading>
+                {vacationMode && <Badge variant="secondary">Vacation mode</Badge>}
+              </div>
+              <Typography as="p" className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                {previewBio}
+              </Typography>
+              {(previewCountryCode || previewRegion) && (
+                <Typography as="p" className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <MapPin className="size-4" aria-hidden="true" />
+                  {previewRegion ? `${previewRegion}, ` : ''}
+                  {previewCountryCode}
+                </Typography>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <MarketplaceShopSettingsFormView settings={settings} />
       </Container>
     </ContentLayout>
   );

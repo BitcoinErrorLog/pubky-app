@@ -40,6 +40,16 @@ function photoItem(key: string, altText = ''): ListingMediaItem {
   };
 }
 
+function expectIconOnlyButtonsToHaveLabels(container: HTMLElement) {
+  const iconOnlyButtons = Array.from(container.querySelectorAll('button')).filter(
+    (button) => button.textContent?.trim() === '' && button.querySelector('svg') !== null,
+  );
+  expect(iconOnlyButtons.length).toBeGreaterThan(0);
+  for (const button of iconOnlyButtons) {
+    expect(button).toHaveAttribute('aria-label', expect.stringMatching(/\S/));
+  }
+}
+
 function FormHarness({
   fulfillment = 'physical',
   onSubmit = vi.fn(),
@@ -167,6 +177,16 @@ describe('MarketplaceListingForm', () => {
 
     await user.click(screen.getByRole('button', { name: 'Remove variant 2' }));
     expect(screen.getAllByText('Seller SKU')).toHaveLength(1);
+  });
+
+  it('labels every icon-only control in listing forms', async () => {
+    const user = userEvent.setup();
+    const media = buildMedia([photoItem('one', 'Front'), photoItem('two', 'Back')]);
+    const { container } = render(<FormHarness media={media} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add variant' }));
+
+    expectIconOnlyButtonsToHaveLabels(container);
   });
 });
 

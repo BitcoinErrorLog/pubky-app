@@ -190,7 +190,7 @@ export function Marketplace() {
                   onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.DASHBOARD))}
                 >
                   <LayoutDashboard className="mr-2 size-4" />
-                  Seller dashboard
+                  Seller studio
                 </Button>
               </>
             )}

@@ -25,6 +25,49 @@ const fixtures = vi.hoisted(async () => {
     ORDER_FIXTURE_SELLER,
   } = await import('@/test/fixtures/commerce/orders');
   const { VRT_FROZEN_NOW_MS, HOUR_MS } = await import('@/test-utils/vrt.clock');
+  const sellerNeedsAttention = [
+    createOrderFixture('pending_payment', {
+      id: '018f47d2-6a27-7c23-a49d-000000000701',
+      buyerPubky: 'n'.repeat(52),
+      sellerPubky: ORDER_FIXTURE_BUYER,
+      lines: [
+        {
+          listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_camera`,
+          listingRevision: 1,
+          contentHash: 'b'.repeat(64),
+          title: 'Program-mode 35mm SLR',
+          quantity: 1,
+          unitPrice: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+          subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+        },
+      ],
+      subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+      total: { amountMinor: 16_200, currency: 'USD', exponent: 2 },
+    }),
+    createOrderFixture('return_requested', {
+      id: '018f47d2-6a27-7c23-a49d-000000000702',
+      buyerPubky: 'r'.repeat(52),
+      sellerPubky: ORDER_FIXTURE_BUYER,
+      lines: [
+        {
+          listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_boots`,
+          listingRevision: 2,
+          contentHash: 'c'.repeat(64),
+          title: 'Handmade leather boots',
+          quantity: 1,
+          unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+          subtotal: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+        },
+      ],
+    }),
+  ].map((order) => ({
+    order,
+    payment: createPaymentFixture(order.state === 'pending_payment' ? 'awaiting_entitlement' : 'confirmed', {
+      id: order.paymentId,
+      orderId: order.id,
+    }),
+    receipt: null,
+  }));
 
   // A completed order the buyer already reviewed; the review's age relative
   // to the frozen clock decides whether the durable-only 24h edit window is
@@ -68,6 +111,7 @@ const fixtures = vi.hoisted(async () => {
     buyer: ORDER_FIXTURE_BUYER,
     everyOrderState: createOrderViewsForEveryState(),
     everyPaymentState: createOrderViewsForEveryPaymentState(),
+    sellerNeedsAttention,
     reviewedInWindow: [reviewedOrderView(23)],
     reviewedOutOfWindow: [reviewedOrderView(25)],
     trackableShipped: [trackableShippedView()],
@@ -136,6 +180,16 @@ describe('Marketplace orders — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-every-state-mobile');
+  });
+
+  it('renders seller orders that need attention at desktop viewport', async () => {
+    const { sellerNeedsAttention } = await fixtures;
+    ordersState.orders = sellerNeedsAttention;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-needs-attention-desktop');
   });
 
   it('renders a shipped order with a carrier tracking link at desktop viewport', async () => {

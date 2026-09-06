@@ -84,7 +84,7 @@ export function MarketplaceSell() {
             </div>
             <Button asChild variant="secondary" className="shrink-0 rounded-full">
               <Link href={MARKETPLACE_ROUTES.SELL_DROPS} overrideDefaults>
-                Open Drop Studio
+                Open Drops
               </Link>
             </Button>
           </div>

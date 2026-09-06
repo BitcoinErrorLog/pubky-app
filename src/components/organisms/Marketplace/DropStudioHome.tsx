@@ -48,7 +48,7 @@ export function DropStudioHome() {
         </Link>
 
         <div>
-          <Badge className="mb-4">Drop Studio</Badge>
+          <Badge className="mb-4">Seller studio · Drops</Badge>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             Drops
           </Heading>

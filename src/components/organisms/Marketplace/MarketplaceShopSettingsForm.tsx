@@ -22,6 +22,16 @@ export interface MarketplaceShopSettingsFormProps {
 export function MarketplaceShopSettingsForm({ onSaved }: MarketplaceShopSettingsFormProps) {
   const settings = useMarketplaceShopSettings();
 
+  return <MarketplaceShopSettingsFormView settings={settings} onSaved={onSaved} />;
+}
+
+export type MarketplaceShopSettings = ReturnType<typeof useMarketplaceShopSettings>;
+
+export interface MarketplaceShopSettingsFormViewProps extends MarketplaceShopSettingsFormProps {
+  settings: MarketplaceShopSettings;
+}
+
+export function MarketplaceShopSettingsFormView({ settings, onSaved }: MarketplaceShopSettingsFormViewProps) {
   if (settings.isLoading) {
     return <Skeleton className="h-96 w-full" />;
   }

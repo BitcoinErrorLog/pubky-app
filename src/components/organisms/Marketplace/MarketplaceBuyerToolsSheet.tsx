@@ -38,7 +38,7 @@ const MARKETPLACE_BUYER_TOOLS: MarketplaceBuyerTool[] = [
   { label: 'Cart', href: MARKETPLACE_ROUTES.CART, icon: ShoppingCart, countKey: 'cart' },
   { label: 'Orders', href: MARKETPLACE_ROUTES.ORDERS, icon: ReceiptText },
   { label: 'Activity', href: MARKETPLACE_ROUTES.NOTIFICATIONS, icon: Bell, countKey: 'activity' },
-  { label: 'Seller dashboard', href: MARKETPLACE_ROUTES.DASHBOARD, icon: LayoutDashboard },
+  { label: 'Seller studio', href: MARKETPLACE_ROUTES.DASHBOARD, icon: LayoutDashboard },
 ] as const;
 
 export function MarketplaceBuyerToolsSheet({

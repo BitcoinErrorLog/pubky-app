@@ -27,13 +27,22 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
-type OrdersTab = 'to_ship' | 'in_transit' | 'completed' | 'all';
+type OrdersTab = 'to_ship' | 'needs_attention' | 'in_transit' | 'completed' | 'all';
 
 const ORDER_TABS: { id: OrdersTab; label: string }[] = [
   { id: 'to_ship', label: 'To ship' },
+  { id: 'needs_attention', label: 'Needs attention' },
   { id: 'in_transit', label: 'In transit' },
   { id: 'completed', label: 'Completed' },
   { id: 'all', label: 'All' },
+];
+
+const SELLER_NEEDS_ATTENTION_STATES: MarketplaceOrder['state'][] = [
+  'pending_payment',
+  'cancel_requested',
+  'return_requested',
+  'return_approved',
+  'return_received',
 ];
 
 export function MarketplaceOrders() {
@@ -50,8 +59,14 @@ export function MarketplaceOrders() {
 
   useEffect(() => {
     if (hasSelectedTab || !orders.length) return;
-    setActiveTab(orders.some(({ order }) => isCurrentUserSeller(order, currentUserPubky)) ? 'to_ship' : 'all');
-  }, [currentUserPubky, hasSelectedTab, orders]);
+    setActiveTab(
+      orderCounts.needs_attention > 0
+        ? 'needs_attention'
+        : orders.some(({ order }) => isCurrentUserSeller(order, currentUserPubky))
+          ? 'to_ship'
+          : 'all',
+    );
+  }, [currentUserPubky, hasSelectedTab, orderCounts.needs_attention, orders]);
 
   const chooseTab = (tab: OrdersTab) => {
     setHasSelectedTab(true);
@@ -263,6 +278,7 @@ function getOrderTabCounts(
 ): Record<OrdersTab, number> {
   return {
     to_ship: orders.filter(({ order }) => isOrderInTab(order, 'to_ship', currentUserPubky)).length,
+    needs_attention: orders.filter(({ order }) => isOrderInTab(order, 'needs_attention', currentUserPubky)).length,
     in_transit: orders.filter(({ order }) => isOrderInTab(order, 'in_transit', currentUserPubky)).length,
     completed: orders.filter(({ order }) => isOrderInTab(order, 'completed', currentUserPubky)).length,
     all: orders.length,
@@ -273,6 +289,8 @@ function isOrderInTab(order: MarketplaceOrder, tab: OrdersTab, currentUserPubky:
   switch (tab) {
     case 'to_ship':
       return isCurrentUserSeller(order, currentUserPubky) && order.state === 'paid';
+    case 'needs_attention':
+      return isCurrentUserSeller(order, currentUserPubky) && SELLER_NEEDS_ATTENTION_STATES.includes(order.state);
     case 'in_transit':
       return ['shipped', 'delivered'].includes(order.state);
     case 'completed':

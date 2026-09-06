@@ -103,6 +103,23 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.queryByText(/Bought shipped jacket/)).not.toBeInTheDocument();
   });
 
+  it('defaults to Needs attention when the seller has attention states', async () => {
+    ordersState.orders = [
+      orderView('paid', 'Sold paid boots', 'seller'),
+      orderView('return_requested', 'Sold return requested gloves', 'seller'),
+      orderView('pending_payment', 'Bought pending jacket', 'buyer'),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /Needs attention 1/i })).toHaveAttribute('aria-selected', 'true'),
+    );
+    expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
+    expect(screen.queryByText(/Sold paid boots/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bought pending jacket/)).not.toBeInTheDocument();
+  });
+
   it('defaults to All when the user has no seller orders', () => {
     ordersState.orders = [
       orderView('pending_payment', 'Bought pending boots', 'buyer'),
@@ -131,12 +148,19 @@ describe('MarketplaceOrders tabs', () => {
 
     render(<MarketplaceOrders />);
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: /To ship 1/i })).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByRole('tab', { name: /Needs attention 1/i })).toHaveAttribute('aria-selected', 'true'),
     );
 
+    expect(screen.getByRole('tab', { name: /To ship 1/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Needs attention 1/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /In transit 2/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Completed 3/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /All 8/i })).toBeInTheDocument();
+    expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /To ship 1/i }));
+    expect(screen.getByText(/Sold paid boots/)).toBeInTheDocument();
+    expect(screen.queryByText(/Sold return requested gloves/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /In transit 2/i }));
     expect(screen.getByText(/Sold shipped bag/)).toBeInTheDocument();
@@ -167,5 +191,18 @@ describe('MarketplaceOrders tabs', () => {
     const soldCard = screen.getByText(/Sold paid boots/).closest('[data-slot="card"]');
     expect(within(boughtCard as HTMLElement).getByText('You bought')).toBeInTheDocument();
     expect(within(soldCard as HTMLElement).getByText('You sold')).toBeInTheDocument();
+  });
+
+  it('keeps icon-only order card buttons accessible when they render', () => {
+    ordersState.orders = [orderView('paid', 'Sold paid boots', 'seller')];
+
+    const { container } = render(<MarketplaceOrders />);
+    const iconOnlyButtons = Array.from(container.querySelectorAll('button')).filter(
+      (button) => button.textContent?.trim() === '' && button.querySelector('svg') !== null,
+    );
+
+    for (const button of iconOnlyButtons) {
+      expect(button).toHaveAttribute('aria-label', expect.stringMatching(/\S/));
+    }
   });
 });

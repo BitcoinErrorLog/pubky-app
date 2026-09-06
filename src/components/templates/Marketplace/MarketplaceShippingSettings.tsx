@@ -271,7 +271,7 @@ export function MarketplaceShippingSettings() {
           className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
         >
           <ArrowLeft className="size-4" />
-          Seller dashboard
+          Seller studio
         </Link>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>

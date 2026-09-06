@@ -5,7 +5,7 @@ export { MarketplaceDashboard as default } from '@/templates/Marketplace/Marketp
 
 export function generateMetadata() {
   return gatedMarketplaceMetadata(
-    'Seller dashboard | Pubky Marketplace',
+    'Seller studio | Pubky Marketplace',
     'Manage your shop, listings, and sales on Pubky Marketplace.',
     MARKETPLACE_ROUTES.DASHBOARD,
   );
