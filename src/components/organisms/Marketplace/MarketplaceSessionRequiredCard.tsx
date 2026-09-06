@@ -6,17 +6,13 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
 
 /**
- * Replaces the dead-end "session required" error box on durable-mode
- * surfaces with the actual remedy: the session-connect dialog. `message` is
- * the REAL transport error (missing session vs. expired session carry
- * different guidance), never a rewritten summary. Rendered only when the
- * caught error is `isMarketplaceSessionRequiredError` — which only the
- * durable transport produces, so sandbox surfaces never see this card.
+ * Shows static Pubky Ring approval copy on durable marketplace surfaces when
+ * the durable transport reports `isMarketplaceSessionRequiredError`. Sandbox
+ * surfaces never see this card because they do not use the durable transport.
  */
 export function MarketplaceSessionRequiredCard({
   onConnected,
 }: {
-  message?: string;
   onConnected?: () => void | Promise<void>;
 }) {
   return (

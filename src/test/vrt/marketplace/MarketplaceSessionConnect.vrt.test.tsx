@@ -67,7 +67,7 @@ describe('Marketplace session connect — visual regression', () => {
     await preloadImages(QR_LOGO_URLS);
     const screen = await renderForVRT(
       <Harness>
-        <MarketplaceSessionConnectDialog />
+        <MarketplaceSessionConnectDialog triggerLabel="Approve in Pubky Ring" />
       </Harness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -81,7 +81,7 @@ describe('Marketplace session connect — visual regression', () => {
     await preloadImages(QR_LOGO_URLS);
     const screen = await renderForVRT(
       <Harness>
-        <MarketplaceSessionConnectDialog />
+        <MarketplaceSessionConnectDialog triggerLabel="Approve in Pubky Ring" />
       </Harness>,
       { viewport: VRT_VIEWPORT_MOBILE },
     );
@@ -94,7 +94,7 @@ describe('Marketplace session connect — visual regression', () => {
 
     const screen = await renderForVRT(
       <Harness>
-        <MarketplaceSessionConnectDialog />
+        <MarketplaceSessionConnectDialog triggerLabel="Approve in Pubky Ring" />
       </Harness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -108,7 +108,7 @@ describe('Marketplace session connect — visual regression', () => {
 
     const screen = await renderForVRT(
       <Harness>
-        <MarketplaceSessionConnectDialog />
+        <MarketplaceSessionConnectDialog triggerLabel="Approve in Pubky Ring" />
       </Harness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -119,7 +119,7 @@ describe('Marketplace session connect — visual regression', () => {
   it('renders the session-required card that replaces durable-mode dead ends at desktop viewport', async () => {
     const screen = await renderForVRT(
       <Harness>
-        <MarketplaceSessionRequiredCard message="A marketplace session is required. Approve the marketplace connection on your signer and try again." />
+        <MarketplaceSessionRequiredCard />
       </Harness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
@@ -129,7 +129,7 @@ describe('Marketplace session connect — visual regression', () => {
   it('renders the session-required card at mobile viewport', async () => {
     const screen = await renderForVRT(
       <Harness>
-        <MarketplaceSessionRequiredCard message="The marketplace session expired. Approve the marketplace connection on your signer and try again." />
+        <MarketplaceSessionRequiredCard />
       </Harness>,
       { viewport: VRT_VIEWPORT_MOBILE },
     );

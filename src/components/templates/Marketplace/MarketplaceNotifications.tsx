@@ -169,7 +169,7 @@ export function MarketplaceNotifications() {
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : needsSession && error ? (
-          <MarketplaceSessionRequiredCard message={error} />
+          <MarketplaceSessionRequiredCard />
         ) : error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">
             {error}

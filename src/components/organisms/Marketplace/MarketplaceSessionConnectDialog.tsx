@@ -32,7 +32,7 @@ export function MarketplaceSessionConnectDialog({
   const session = useMarketplaceSessionConnect({
     onConnected: () => {
       toast({
-        title: 'Marketplace session connected',
+        title: 'Purchases approved in Pubky Ring',
         description: 'This session stays on this device across tabs and restarts until it expires or you sign out.',
       });
       setOpen(false);
@@ -71,13 +71,12 @@ export function MarketplaceSessionConnectDialog({
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>Connect marketplace session</DialogTitle>
+          <DialogTitle>Approve purchases in Pubky Ring</DialogTitle>
         </DialogHeader>
 
         <Typography as="p" className="text-sm text-muted-foreground">
-          Approving with your signer (Pubky Ring) authorizes a marketplace session: this app may then transact as you
-          against the transaction service until the session expires or you sign out. The session stays on this device
-          across tabs, reloads, and restarts.
+          Approving with Pubky Ring lets this marketplace place orders, bids, and offers as you. Nothing is charged
+          until you pay. The approval stays on this device across tabs and restarts until it expires or you sign out.
         </Typography>
         <Typography as="p" className="text-sm text-muted-foreground">
           Ring will show an empty permission list — that is correct. This approval only proves your identity to the

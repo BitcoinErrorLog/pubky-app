@@ -149,7 +149,7 @@ export function MarketplaceDashboard() {
                 queues and revenue below would silently read as zero, so say
                 so and offer the connect affordance instead. */}
             {dashboard.needsSession && dashboard.sessionError && (
-              <MarketplaceSessionRequiredCard message={dashboard.sessionError} />
+              <MarketplaceSessionRequiredCard />
             )}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {[

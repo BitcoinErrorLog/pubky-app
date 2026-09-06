@@ -71,7 +71,7 @@ export function DropClaimPanel({
         refused, immediately.
       </Typography>
       {claim.needsSession && claim.sessionError ? (
-        <MarketplaceSessionRequiredCard message={claim.sessionError} />
+        <MarketplaceSessionRequiredCard />
       ) : (
         <ul className="flex flex-col gap-3">
           {(listings ?? record.listingIds.map((listingId) => ({ listingId, record: null }))).map(

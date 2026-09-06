@@ -263,7 +263,7 @@ export function MarketplaceCart() {
                 {/* A checkout rejected for a missing/expired durable session is
                     recoverable in place: connect, then place the order again. */}
                 {checkout.needsSession && checkout.sessionError && (
-                  <MarketplaceSessionRequiredCard message={checkout.sessionError} />
+                  <MarketplaceSessionRequiredCard />
                 )}
                 <Button className="w-full rounded-full" onClick={submit}>
                   {isSandbox ? 'Place sandbox order' : 'Place order'}

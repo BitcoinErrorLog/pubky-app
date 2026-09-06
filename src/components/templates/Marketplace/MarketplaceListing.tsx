@@ -461,10 +461,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </Typography>
             )}
             {isTransactionalCommerceMode(adapterMode) && negotiation.needsSession && showSessionRequired && (
-              <MarketplaceSessionRequiredCard
-                message={negotiation.error ?? undefined}
-                onConnected={onSessionConnected}
-              />
+              <MarketplaceSessionRequiredCard onConnected={onSessionConnected} />
             )}
             {isTransactionalCommerceMode(adapterMode) && negotiation.error && !negotiation.needsSession && (
               <Typography as="p" role="alert" className="text-center text-sm text-amber-300">

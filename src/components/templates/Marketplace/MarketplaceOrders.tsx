@@ -75,7 +75,7 @@ export function MarketplaceOrders() {
         ) : isLoading ? (
           <Skeleton className="h-48 w-full" />
         ) : needsSession && error ? (
-          <MarketplaceSessionRequiredCard message={error} />
+          <MarketplaceSessionRequiredCard />
         ) : error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">
             {error}
