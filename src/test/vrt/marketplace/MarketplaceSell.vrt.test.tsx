@@ -158,7 +158,7 @@ describe('Marketplace sell studio — visual regression', () => {
   // The shipping section with saved presets: the apply-preset picker renders
   // next to "Save as preset" once the seller has presets on this device.
   it('renders the shipping section with the preset picker at desktop viewport', async () => {
-    view.drafts = [];
+    view.drafts = [draftFixture];
     view.mediaItems = [];
     view.shippingPresets = presetFixtures;
 
@@ -314,13 +314,28 @@ describe('Marketplace sell studio — visual regression', () => {
   });
 
   it('renders validation errors after an empty submit at desktop viewport', async () => {
-    view.drafts = [];
-    view.mediaItems = [];
+    view.drafts = [
+      {
+        ...draftFixture,
+        data: {
+          form: {
+            ...draftFixture.data.form,
+            description: '',
+            fulfillment: 'pickup',
+          },
+        },
+      },
+    ];
+    view.mediaItems = [photoItem('photo_front', 'Front view of the boots')];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      const input = screen.container.querySelector<HTMLInputElement>('#title');
+      if (input?.value !== draftFixture.data.form.title) throw new Error('Draft has not populated the form yet.');
+    });
     await screen.getByRole('button', { name: 'Publish listing' }).click();
     await vi.waitFor(() => {
-      if (!screen.container.textContent?.includes('Title must be at least 3 characters.')) {
+      if (!screen.container.textContent?.includes('Description is required.')) {
         throw new Error('Validation errors have not rendered yet.');
       }
     });
