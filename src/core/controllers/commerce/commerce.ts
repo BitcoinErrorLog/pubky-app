@@ -1125,7 +1125,12 @@ export class CommerceController {
     this.clearMarketplaceSessionStore();
   }
 
-  private static writeMarketplaceSessionStore(session: MarketplaceSessionInfo): void {
+  /**
+   * Mirrors public session facts into the commerce store. Last write wins by
+   * `issuedAt` so a restore or a late connect cannot overwrite a newer session.
+   * Auth restore and `beginMarketplaceSessionConnect` both go through here.
+   */
+  static writeMarketplaceSessionStore(session: MarketplaceSessionInfo): void {
     const current = useCommerceStore.getState().marketplaceSession;
     if (current && Date.parse(current.issuedAt) > Date.parse(session.issuedAt)) return;
     useCommerceStore.getState().setMarketplaceSession(session);

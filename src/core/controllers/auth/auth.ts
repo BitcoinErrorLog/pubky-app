@@ -146,7 +146,7 @@ export class AuthController {
         // persisted for another account is dropped inside the restore.
         const marketplaceSession = CommerceApplication.restoreMarketplaceSession(pubky);
         if (marketplaceSession) {
-          useCommerceStore.getState().setMarketplaceSession(marketplaceSession);
+          CommerceController.writeMarketplaceSessionStore(marketplaceSession);
         }
         return { status: 'restored' };
       }

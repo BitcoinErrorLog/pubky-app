@@ -6,6 +6,7 @@ import { CommerceApplication } from '@/application/commerce/commerce';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
@@ -1207,11 +1208,55 @@ describe('AuthController', () => {
       vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({ status: 'restored', session: mockSession });
       vi.spyOn(Identity, 'z32FromSession').mockReturnValue(mockPubky);
       const restoreSpy = vi.spyOn(CommerceApplication, 'restoreMarketplaceSession').mockReturnValue(marketplaceSession);
+      const writeSpy = vi.spyOn(CommerceController, 'writeMarketplaceSessionStore');
 
       await AuthController.restorePersistedSession();
 
       expect(restoreSpy).toHaveBeenCalledWith(mockPubky);
+      expect(writeSpy).toHaveBeenCalledWith(marketplaceSession);
       expect(useCommerceStore.getState().marketplaceSession).toEqual(marketplaceSession);
+    });
+
+    it('does not overwrite a newer marketplace session when restore returns an older issuedAt', async () => {
+      const mockSession = buildMockSession();
+      const mockPubky = TEST_PUBKY as Pubky;
+      const newerSession = {
+        pubky: mockPubky,
+        capabilities: 'l:rw',
+        expiresAt: '2026-08-23T00:00:00.000Z',
+        issuedAt: '2026-08-22T12:00:00.000Z',
+      };
+      const olderSession = {
+        pubky: mockPubky,
+        capabilities: '',
+        expiresAt: '2026-08-22T00:00:00.000Z',
+        issuedAt: '2026-08-21T00:00:00.000Z',
+      };
+
+      useCommerceStore.getState().setMarketplaceSession(newerSession);
+
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        hasHydrated: true,
+        session: null,
+        sessionExport: 'session-export',
+        currentUserPubky: mockPubky,
+        hasProfile: true,
+        isRestoringSession: false,
+        setIsRestoringSession: vi.fn(),
+        init: vi.fn(),
+      });
+
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({ status: 'restored', session: mockSession });
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(mockPubky);
+      vi.spyOn(CommerceApplication, 'restoreMarketplaceSession').mockReturnValue(olderSession);
+      const writeSpy = vi.spyOn(CommerceController, 'writeMarketplaceSessionStore');
+
+      await AuthController.restorePersistedSession();
+
+      expect(writeSpy).toHaveBeenCalledWith(olderSession);
+      expect(useCommerceStore.getState().marketplaceSession).toEqual(newerSession);
     });
 
     it('should return false and run full cleanup when restoration fails', async () => {
