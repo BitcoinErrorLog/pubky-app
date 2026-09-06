@@ -1226,7 +1226,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
                 class="font-medium mt-1 text-sm text-muted-foreground"
                 data-testid="typography"
               >
-                Pickup can publish immediately; shipping details are required only when Ship item is selected.
+                Ship item requires shipping details and package size; Local pickup skips those fields.
               </p>
             </div>
             <div
@@ -1734,14 +1734,30 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
                   class="text-base text-foreground font-semibold"
                   data-testid="typography"
                 >
-                  Minimum publish fields
+                  Required to publish
                 </p>
-                <p
-                  class="font-medium text-sm text-muted-foreground"
-                  data-testid="typography"
+                <ul
+                  class="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground"
                 >
-                  Title, price, category, and at least one photo are required before the publish control is available.
-                </p>
+                  <li>
+                    At least one photo
+                  </li>
+                  <li>
+                    Title
+                  </li>
+                  <li>
+                    Description
+                  </li>
+                  <li>
+                    Category
+                  </li>
+                  <li>
+                    Price
+                  </li>
+                  <li>
+                    Shipping details
+                  </li>
+                </ul>
               </div>
             </div>
             <div>

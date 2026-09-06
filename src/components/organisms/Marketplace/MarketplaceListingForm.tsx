@@ -27,6 +27,8 @@ import { commerceAttributeFieldsFor, resolveCommerceCategory } from '@/config/ta
 import {
   CREATE_MARKETPLACE_LISTING_FIELDS,
   type CreateMarketplaceListingData,
+  createMarketplaceListingPublishChecklist,
+  isCreateMarketplaceListingPublishReady,
   listingAttributeFormField,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import type {
@@ -146,7 +148,8 @@ export function MarketplaceListingForm({
             ? `Listings support up to ${maxPhotos} photos.`
             : null;
   const sectionStatuses = getListingSectionStatuses(formValues, mediaItems.length);
-  const publishMinimumMet = sectionStatuses['listing-section-review'];
+  const publishMinimumMet = isCreateMarketplaceListingPublishReady(formValues, mediaItems.length);
+  const remainingRequired = createMarketplaceListingPublishChecklist(formValues, mediaItems.length);
   const optionalLaterItems = getOptionalLaterItems(formValues);
   const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(LISTING_FORM_SECTIONS[0].id);
   const activeSectionIndex = LISTING_FORM_SECTIONS.findIndex((section) => section.id === activeSectionId);
@@ -429,7 +432,7 @@ export function MarketplaceListingForm({
         <ListingFormSection
           id="listing-section-shipping"
           title="Shipping & returns"
-          description="Pickup can publish immediately; shipping details are required only when Ship item is selected."
+          description="Ship item requires shipping details and package size; Local pickup skips those fields."
           complete={sectionStatuses['listing-section-shipping']}
         >
           <div className="grid gap-5 sm:grid-cols-2">
@@ -560,7 +563,11 @@ export function MarketplaceListingForm({
           description="Publish is available after title, price, category, and at least one photo are ready."
           complete={sectionStatuses['listing-section-review']}
         >
-          <ReviewPublishChecklist optionalLaterItems={optionalLaterItems} publishMinimumMet={publishMinimumMet} />
+          <ReviewPublishChecklist
+            remainingRequired={remainingRequired}
+            optionalLaterItems={optionalLaterItems}
+            publishMinimumMet={publishMinimumMet}
+          />
           <Button type="submit" size="lg" className="w-full rounded-full" disabled={isPublishing || !publishMinimumMet}>
             {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
           </Button>
@@ -744,9 +751,11 @@ function ListingFormSection({
 }
 
 function ReviewPublishChecklist({
+  remainingRequired,
   optionalLaterItems,
   publishMinimumMet,
 }: {
+  remainingRequired: string[];
   optionalLaterItems: string[];
   publishMinimumMet: boolean;
 }) {
@@ -760,11 +769,19 @@ function ReviewPublishChecklist({
         )}
         <div>
           <Typography as="p" className="font-semibold">
-            Minimum publish fields
+            Required to publish
           </Typography>
-          <Typography as="p" className="text-sm text-muted-foreground">
-            Title, price, category, and at least one photo are required before the publish control is available.
-          </Typography>
+          {remainingRequired.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {remainingRequired.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+              Every schema-required field is valid and at least one photo is attached.
+            </Typography>
+          )}
         </div>
       </div>
       <div>
@@ -819,7 +836,7 @@ function getListingSectionStatuses(
     'listing-section-item': itemComplete,
     'listing-section-price': priceValid && variantsValid,
     'listing-section-shipping': shippingComplete,
-    'listing-section-review': values.title.trim().length >= 3 && priceValid && categoryResolved && photoCount > 0,
+    'listing-section-review': isCreateMarketplaceListingPublishReady(values, photoCount),
   };
 }
 

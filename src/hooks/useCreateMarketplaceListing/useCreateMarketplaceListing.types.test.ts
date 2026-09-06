@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createMarketplaceListingDefaults, createMarketplaceListingSchema } from './useCreateMarketplaceListing.types';
+import {
+  createMarketplaceListingDefaults,
+  createMarketplaceListingPublishChecklist,
+  createMarketplaceListingSchema,
+  isCreateMarketplaceListingPublishReady,
+} from './useCreateMarketplaceListing.types';
 
 /**
  * The form defaults deliberately ship no category (the seller must pick
@@ -9,8 +14,8 @@ import { createMarketplaceListingDefaults, createMarketplaceListingSchema } from
 const formDefaults = { ...createMarketplaceListingDefaults, categoryId: 'fashion' };
 
 describe('createMarketplaceListingSchema', () => {
-  it('defaults to pickup and final sale so shipping and returns can be added later', () => {
-    expect(createMarketplaceListingDefaults.fulfillment).toBe('pickup');
+  it('defaults to physical shipping and final sale', () => {
+    expect(createMarketplaceListingDefaults.fulfillment).toBe('physical');
     expect(createMarketplaceListingDefaults.returnDays).toBe('none');
   });
 
@@ -245,5 +250,48 @@ describe('createMarketplaceListingSchema', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+const pickupReady = {
+  ...formDefaults,
+  title: 'Vintage leather boots',
+  description: 'Well cared for boots with light wear.',
+  price: '125.00',
+  fulfillment: 'pickup' as const,
+};
+
+const physicalReady = {
+  ...pickupReady,
+  fulfillment: 'physical' as const,
+  shippingPrice: '12.00',
+  packageWeight: '1200',
+  packageLength: '35.0',
+  packageWidth: '25.0',
+  packageHeight: '15.0',
+};
+
+describe('isCreateMarketplaceListingPublishReady', () => {
+  it.each([
+    ['pickup with photos', pickupReady, 1, true],
+    ['physical shipping with photos', physicalReady, 1, true],
+    ['empty description', { ...pickupReady, description: '   ' }, 1, false],
+    ['physical without shipping fields', { ...pickupReady, fulfillment: 'physical' as const }, 1, false],
+    ['schema-valid pickup without photos', pickupReady, 0, false],
+    ['title too short', { ...pickupReady, title: 'ab' }, 1, false],
+  ] as const)('gate matches schema plus photos: %s', (_label, values, photoCount, expected) => {
+    const schemaValid = createMarketplaceListingSchema.safeParse(values).success;
+    const ready = isCreateMarketplaceListingPublishReady(values, photoCount);
+    expect(ready).toBe(expected);
+    expect(ready).toBe(schemaValid && photoCount > 0);
+  });
+
+  it('lists description and shipping until they satisfy the schema', () => {
+    expect(createMarketplaceListingPublishChecklist({ ...pickupReady, description: '' }, 1)).toContain('Description');
+    expect(createMarketplaceListingPublishChecklist({ ...pickupReady, fulfillment: 'physical' }, 1)).toContain(
+      'Shipping details',
+    );
+    expect(createMarketplaceListingPublishChecklist(physicalReady, 0)).toEqual(['At least one photo']);
+    expect(createMarketplaceListingPublishChecklist(physicalReady, 1)).toEqual([]);
   });
 });

@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
+  createMarketplaceListingSchema,
+  isCreateMarketplaceListingPublishReady,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import type {
   ListingMediaItem,
@@ -111,7 +113,12 @@ describe('MarketplaceListingForm', () => {
     render(
       <FormHarness
         fulfillment="pickup"
-        defaultValues={{ title: 'Vintage boots', categoryId: 'fashion', price: '125.00' }}
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+        }}
         onSubmit={onSubmit}
         media={media}
       />,
@@ -147,11 +154,46 @@ describe('MarketplaceListingForm', () => {
     expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
   });
 
-  it('enables publish after title, price, category, and one photo are present', () => {
+  it('keeps publish disabled when description is empty even if other minimums are filled', () => {
     render(
       <FormHarness
         fulfillment="pickup"
-        defaultValues={{ title: 'Vintage boots', categoryId: 'fashion', price: '125.00' }}
+        defaultValues={{ title: 'Vintage boots', categoryId: 'fashion', price: '125.00', description: '' }}
+        media={buildMedia([photoItem('one', 'Front')])}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeDisabled();
+    expect(screen.getByText('Required to publish').parentElement).toHaveTextContent('Description');
+  });
+
+  it('keeps physical listings unpublished until shipping fields are filled or pickup is chosen', () => {
+    const first = render(
+      <FormHarness
+        fulfillment="physical"
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+        }}
+        media={buildMedia([photoItem('one', 'Front')])}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeDisabled();
+    expect(screen.getByText('Shipping details')).toBeInTheDocument();
+    first.unmount();
+
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+        }}
         media={buildMedia([photoItem('one', 'Front')])}
       />,
     );
@@ -239,6 +281,78 @@ describe('MarketplaceListingForm', () => {
     await user.click(screen.getByRole('button', { name: 'Add variant' }));
 
     expectIconOnlyButtonsToHaveLabels(container);
+  });
+});
+
+describe('MarketplaceListingForm publish gate vs schema', () => {
+  const pickupReady = {
+    title: 'Vintage boots',
+    description: 'Well cared for boots.',
+    categoryId: 'fashion',
+    price: '125.00',
+  };
+
+  it.each([
+    {
+      label: 'pickup schema-valid with photo',
+      fulfillment: 'pickup' as const,
+      values: pickupReady,
+      photos: 1,
+      enabled: true,
+    },
+    {
+      label: 'empty description',
+      fulfillment: 'pickup' as const,
+      values: { ...pickupReady, description: '' },
+      photos: 1,
+      enabled: false,
+    },
+    {
+      label: 'physical without shipping',
+      fulfillment: 'physical' as const,
+      values: pickupReady,
+      photos: 1,
+      enabled: false,
+    },
+    {
+      label: 'physical with shipping fields',
+      fulfillment: 'physical' as const,
+      values: {
+        ...pickupReady,
+        shippingPrice: '12.00',
+        packageWeight: '1200',
+        packageLength: '35.0',
+        packageWidth: '25.0',
+        packageHeight: '15.0',
+      },
+      photos: 1,
+      enabled: true,
+    },
+    {
+      label: 'schema-valid without photo',
+      fulfillment: 'pickup' as const,
+      values: pickupReady,
+      photos: 0,
+      enabled: false,
+    },
+  ])('Publish enabled iff schema-valid plus photos ($label)', ({ fulfillment, values, photos, enabled }) => {
+    render(
+      <FormHarness
+        fulfillment={fulfillment}
+        defaultValues={values}
+        media={photos > 0 ? buildMedia([photoItem('one', 'Front')]) : buildMedia()}
+      />,
+    );
+
+    const formValues = { ...createMarketplaceListingDefaults, fulfillment, ...values };
+    const schemaValid = createMarketplaceListingSchema.safeParse(formValues).success;
+    expect(isCreateMarketplaceListingPublishReady(formValues, photos)).toBe(schemaValid && photos > 0);
+    expect(isCreateMarketplaceListingPublishReady(formValues, photos)).toBe(enabled);
+    if (enabled) {
+      expect(screen.getByRole('button', { name: 'Publish listing' })).toBeEnabled();
+    } else {
+      expect(screen.getByRole('button', { name: 'Publish listing' })).toBeDisabled();
+    }
   });
 });
 

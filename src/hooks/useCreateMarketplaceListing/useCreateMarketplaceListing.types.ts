@@ -421,7 +421,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   currency: 'USD',
   price: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
-  fulfillment: 'pickup',
+  fulfillment: 'physical',
   shippingLabel: 'Seller shipping',
   shippingPrice: '',
   shippingMinDays: '3',
@@ -433,3 +433,62 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   packageHeight: '',
   returnDays: 'none',
 };
+
+const PUBLISH_SHIPPING_PATHS = new Set<string>([
+  CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_LABEL,
+  CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE,
+  CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MIN_DAYS,
+  CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MAX_DAYS,
+  CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WEIGHT,
+  CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_LENGTH,
+  CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_WIDTH,
+  CREATE_MARKETPLACE_LISTING_FIELDS.PACKAGE_HEIGHT,
+]);
+
+const PUBLISH_CHECKLIST_LABELS: Record<string, string> = {
+  [CREATE_MARKETPLACE_LISTING_FIELDS.TITLE]: 'Title',
+  [CREATE_MARKETPLACE_LISTING_FIELDS.DESCRIPTION]: 'Description',
+  [CREATE_MARKETPLACE_LISTING_FIELDS.CATEGORY]: 'Category',
+  [CREATE_MARKETPLACE_LISTING_FIELDS.PRICE]: 'Price',
+  [CREATE_MARKETPLACE_LISTING_FIELDS.COUNTRY_CODE]: 'Country',
+  [CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS]: 'Inventory',
+  [CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT]: 'Choose shipping or pickup',
+};
+
+/**
+ * Publish is allowed only when the create schema accepts the current values
+ * and at least one photo is attached (photos are outside the Zod object).
+ */
+export function isCreateMarketplaceListingPublishReady(
+  values: CreateMarketplaceListingData,
+  photoCount: number,
+): boolean {
+  return photoCount > 0 && createMarketplaceListingSchema.safeParse(values).success;
+}
+
+/** Remaining required items until `isCreateMarketplaceListingPublishReady`. */
+export function createMarketplaceListingPublishChecklist(
+  values: CreateMarketplaceListingData,
+  photoCount: number,
+): string[] {
+  const items: string[] = [];
+  if (photoCount < 1) items.push('At least one photo');
+  const parsed = createMarketplaceListingSchema.safeParse(values);
+  if (parsed.success) return items;
+
+  const labels = new Set<string>();
+  for (const issue of parsed.error.issues) {
+    const key = String(issue.path[0] ?? '');
+    if (PUBLISH_SHIPPING_PATHS.has(key)) {
+      labels.add('Shipping details');
+      continue;
+    }
+    if (key.startsWith('attr')) {
+      labels.add('Required item specifics');
+      continue;
+    }
+    labels.add(PUBLISH_CHECKLIST_LABELS[key] ?? issue.message);
+  }
+  items.push(...labels);
+  return items;
+}
