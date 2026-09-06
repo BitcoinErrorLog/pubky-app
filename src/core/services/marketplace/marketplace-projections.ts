@@ -98,7 +98,9 @@ export const marketplaceNotificationSchema = z
       'payment_confirmed',
       'order_cancelled',
       'order_shipped',
+      'order_delivery_assumed',
       'order_delivered',
+      'order_completed',
       'return_updated',
       'refund_recorded',
       'review_received',
@@ -202,6 +204,12 @@ export const marketplaceOrderSchema = z
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),
     cancellationReason: z.string().nullable().optional(),
+    deliveryAssumed: z.boolean().optional().default(false),
+    nextActor: z
+      .enum(['buyer', 'seller', 'none'])
+      .nullable()
+      .optional()
+      .transform((value) => value ?? 'none'),
     // Embedded only by the durable service's order reads ("each order with
     // its payment projection"); the sandbox serves payments from a separate
     // endpoint instead.

@@ -274,8 +274,12 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'Order cancelled';
     case 'order_shipped':
       return 'Order shipped';
+    case 'order_delivery_assumed':
+      return 'Delivery marked automatically';
     case 'order_delivered':
       return 'Delivery confirmed';
+    case 'order_completed':
+      return 'Order completed';
     case 'return_updated':
       return 'Return updated';
     case 'refund_recorded':

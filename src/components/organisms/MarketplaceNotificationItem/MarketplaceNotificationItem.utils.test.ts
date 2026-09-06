@@ -6,6 +6,10 @@ describe('getMarketplaceNotificationActionText', () => {
     expect(getMarketplaceNotificationActionText({ type: 'auction_ended' })).toBe('ended an auction');
     expect(getMarketplaceNotificationActionText({ type: 'outbid' })).toBe('outbid you in an auction');
     expect(getMarketplaceNotificationActionText({ type: 'offer_received' })).toBe('sent you an offer');
+    expect(getMarketplaceNotificationActionText({ type: 'order_delivery_assumed' })).toBe(
+      'marked an order delivered automatically',
+    );
+    expect(getMarketplaceNotificationActionText({ type: 'order_completed' })).toBe('completed an order');
   });
 
   it('appends the §8-permitted amount to auction and offer copy', () => {

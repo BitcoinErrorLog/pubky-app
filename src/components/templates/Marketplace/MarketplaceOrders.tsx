@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink, ReceiptText } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -144,6 +144,7 @@ export function MarketplaceOrders() {
             <div className="grid gap-4">
               {visibleOrders.map(({ order, payment, receipt }) => {
                 const isBuyer = currentUserPubky === order.buyerPubky;
+                const nextActorHint = getNextActorHint(order, isBuyer);
                 return (
                   <Card key={order.id} className="border py-5">
                     <CardContent className="grid gap-5 px-5 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -154,6 +155,11 @@ export function MarketplaceOrders() {
                           </Badge>
                           <Badge variant="secondary">{order.state.replaceAll('_', ' ')}</Badge>
                           <DropEditionBadge order={order} />
+                          {nextActorHint && (
+                            <Badge variant={nextActorHint.isCurrentUser ? 'default' : 'outline'}>
+                              {nextActorHint.label}
+                            </Badge>
+                          )}
                         </div>
                         {order.lines.map((line) => (
                           <div key={line.listingAggregateId}>
@@ -219,6 +225,28 @@ export function MarketplaceOrders() {
                               ) : null;
                             })()}
                           </div>
+                        )}
+                        {order.deliveryAssumed && (
+                          <div className="mt-3 rounded-xl border border-brand/30 bg-brand/5 p-3">
+                            <Typography as="p" className="text-sm text-foreground">
+                              Marked delivered automatically after the delivery window; tell the seller if it hasn&apos;t
+                              arrived.
+                            </Typography>
+                            {isBuyer && (
+                              <div className="mt-2 max-w-44">
+                                <Button asChild variant="secondary" className="rounded-full">
+                                  <Link href={MARKETPLACE_ROUTES.MESSAGES} overrideDefaults>
+                                    Message seller
+                                  </Link>
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {order.state === 'delivered' && (
+                          <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                            Completes automatically after the return window unless a return is requested.
+                          </Typography>
                         )}
                         {order.returnRequest && (
                           <Typography as="p" className="mt-2 text-sm text-muted-foreground">
@@ -290,7 +318,7 @@ function isOrderInTab(order: MarketplaceOrder, tab: OrdersTab, currentUserPubky:
     case 'to_ship':
       return isCurrentUserSeller(order, currentUserPubky) && order.state === 'paid';
     case 'needs_attention':
-      return isCurrentUserSeller(order, currentUserPubky) && SELLER_NEEDS_ATTENTION_STATES.includes(order.state);
+      return isOrderNeedingCurrentUser(order, currentUserPubky);
     case 'in_transit':
       return ['shipped', 'delivered'].includes(order.state);
     case 'completed':
@@ -302,4 +330,25 @@ function isOrderInTab(order: MarketplaceOrder, tab: OrdersTab, currentUserPubky:
 
 function isCurrentUserSeller(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
   return currentUserPubky !== null && order.sellerPubky === currentUserPubky;
+}
+
+function isCurrentUserBuyer(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
+  return currentUserPubky !== null && order.buyerPubky === currentUserPubky;
+}
+
+function isOrderNeedingCurrentUser(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
+  if (currentUserPubky === null) return false;
+  if (order.nextActor === 'buyer') return isCurrentUserBuyer(order, currentUserPubky);
+  if (order.nextActor === 'seller') return isCurrentUserSeller(order, currentUserPubky);
+  return isCurrentUserSeller(order, currentUserPubky) && SELLER_NEEDS_ATTENTION_STATES.includes(order.state);
+}
+
+function getNextActorHint(order: MarketplaceOrder, isBuyer: boolean): { label: string; isCurrentUser: boolean } | null {
+  if (order.nextActor === 'buyer') {
+    return isBuyer ? { label: 'Your move', isCurrentUser: true } : { label: 'Waiting on buyer', isCurrentUser: false };
+  }
+  if (order.nextActor === 'seller') {
+    return isBuyer ? { label: 'Waiting on seller', isCurrentUser: false } : { label: 'Your move', isCurrentUser: true };
+  }
+  return null;
 }

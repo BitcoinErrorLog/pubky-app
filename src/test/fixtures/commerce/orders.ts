@@ -71,6 +71,8 @@ export function createOrderFixture(
     paymentId: uuid(100 + stateIndex),
     receiptId: state === 'pending_payment' ? null : uuid(200 + stateIndex),
     cancellationReason: state === 'cancelled' ? 'Buyer cancelled before handling' : null,
+    deliveryAssumed: false,
+    nextActor: defaultNextActor(state),
     shipment: isShipped
       ? {
           carrier: 'Local Courier',
@@ -161,4 +163,25 @@ export function createOrderViewsForEveryPaymentState() {
       receipt: null,
     };
   });
+}
+
+function defaultNextActor(state: MarketplaceOrder['state']): MarketplaceOrder['nextActor'] {
+  switch (state) {
+    case 'pending_payment':
+    case 'shipped':
+    case 'delivered':
+      return 'buyer';
+    case 'paid':
+    case 'processing':
+    case 'cancel_requested':
+    case 'return_requested':
+    case 'return_approved':
+    case 'return_received':
+      return 'seller';
+    case 'completed':
+    case 'cancelled':
+    case 'refunded_external':
+    case 'closed':
+      return 'none';
+  }
 }

@@ -65,8 +65,12 @@ function getBaseActionText(type: MarketplaceFeedNotification['type']): string {
       return 'updated an order cancellation';
     case 'order_shipped':
       return 'shipped your order';
+    case 'order_delivery_assumed':
+      return 'marked an order delivered automatically';
     case 'order_delivered':
       return 'confirmed delivery of an order';
+    case 'order_completed':
+      return 'completed an order';
     case 'return_updated':
       return 'updated a return';
     case 'refund_recorded':

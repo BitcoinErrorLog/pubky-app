@@ -107,6 +107,16 @@ const fixtures = vi.hoisted(async () => {
     receipt: null,
   });
 
+  const deliveryAssumedView = () => ({
+    order: createOrderFixture('delivered', {
+      id: '018f47d2-6a27-7c23-a49d-000000000703',
+      deliveryAssumed: true,
+      nextActor: 'buyer',
+    }),
+    payment: createPaymentFixture('confirmed'),
+    receipt: null,
+  });
+
   return {
     buyer: ORDER_FIXTURE_BUYER,
     everyOrderState: createOrderViewsForEveryState(),
@@ -115,6 +125,7 @@ const fixtures = vi.hoisted(async () => {
     reviewedInWindow: [reviewedOrderView(23)],
     reviewedOutOfWindow: [reviewedOrderView(25)],
     trackableShipped: [trackableShippedView()],
+    deliveryAssumed: [deliveryAssumedView()],
   };
 });
 
@@ -200,6 +211,16 @@ describe('Marketplace orders — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-shipped-track-link-desktop');
+  });
+
+  it('renders an assumed-delivery order at desktop viewport', async () => {
+    const { deliveryAssumed } = await fixtures;
+    ordersState.orders = deliveryAssumed;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-delivery-assumed-desktop');
   });
 
   it('renders every buyer-visible payment state at desktop viewport', async () => {

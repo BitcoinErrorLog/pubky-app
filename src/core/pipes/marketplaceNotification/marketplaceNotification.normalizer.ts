@@ -75,7 +75,9 @@ export class MarketplaceNotificationNormalizer {
       case 'payment_confirmed':
       case 'order_cancelled':
       case 'order_shipped':
+      case 'order_delivery_assumed':
       case 'order_delivered':
+      case 'order_completed':
       case 'return_updated':
       case 'refund_recorded':
       case 'review_received':

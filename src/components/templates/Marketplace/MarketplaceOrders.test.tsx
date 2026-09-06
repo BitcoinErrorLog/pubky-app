@@ -52,7 +52,12 @@ vi.mock('@/organisms/Marketplace/MarketplaceMyReviews', () => ({
   MarketplaceMyReviews: () => <div data-testid="my-reviews" />,
 }));
 
-function orderView(state: Parameters<typeof createOrderFixture>[0], title: string, role: 'buyer' | 'seller') {
+function orderView(
+  state: Parameters<typeof createOrderFixture>[0],
+  title: string,
+  role: 'buyer' | 'seller',
+  overrides: Partial<ReturnType<typeof createOrderFixture>> = {},
+) {
   const id = `test-${title.toLowerCase().replaceAll(' ', '-')}`;
   const order = createOrderFixture(state, {
     id,
@@ -70,6 +75,7 @@ function orderView(state: Parameters<typeof createOrderFixture>[0], title: strin
         subtotal: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
       },
     ],
+    ...overrides,
   });
   return {
     order,
@@ -84,10 +90,10 @@ describe('MarketplaceOrders tabs', () => {
     ordersState.orders = [];
   });
 
-  it('defaults to To ship when the user has seller orders', async () => {
+  it('defaults to To ship when the user has seller orders without a next actor', async () => {
     ordersState.orders = [
-      orderView('paid', 'Sold paid boots', 'seller'),
-      orderView('shipped', 'Bought shipped jacket', 'buyer'),
+      orderView('paid', 'Sold paid boots', 'seller', { nextActor: 'none' }),
+      orderView('shipped', 'Bought shipped jacket', 'buyer', { nextActor: 'none' }),
     ];
 
     render(<MarketplaceOrders />);
@@ -101,9 +107,9 @@ describe('MarketplaceOrders tabs', () => {
 
   it('defaults to Needs attention when the seller has attention states', async () => {
     ordersState.orders = [
-      orderView('paid', 'Sold paid boots', 'seller'),
+      orderView('paid', 'Sold paid boots', 'seller', { nextActor: 'none' }),
       orderView('return_requested', 'Sold return requested gloves', 'seller'),
-      orderView('pending_payment', 'Bought pending jacket', 'buyer'),
+      orderView('pending_payment', 'Bought pending jacket', 'buyer', { nextActor: 'none' }),
     ];
 
     render(<MarketplaceOrders />);
@@ -118,8 +124,8 @@ describe('MarketplaceOrders tabs', () => {
 
   it('defaults to All when the user has no seller orders', () => {
     ordersState.orders = [
-      orderView('pending_payment', 'Bought pending boots', 'buyer'),
-      orderView('shipped', 'Bought shipped jacket', 'buyer'),
+      orderView('pending_payment', 'Bought pending boots', 'buyer', { nextActor: 'none' }),
+      orderView('shipped', 'Bought shipped jacket', 'buyer', { nextActor: 'none' }),
     ];
 
     render(<MarketplaceOrders />);
@@ -132,10 +138,10 @@ describe('MarketplaceOrders tabs', () => {
   it('filters each tab by state and role while keeping counts visible', async () => {
     const user = userEvent.setup();
     ordersState.orders = [
-      orderView('paid', 'Sold paid boots', 'seller'),
-      orderView('paid', 'Bought paid coat', 'buyer'),
-      orderView('shipped', 'Sold shipped bag', 'seller'),
-      orderView('delivered', 'Bought delivered hat', 'buyer'),
+      orderView('paid', 'Sold paid boots', 'seller', { nextActor: 'none' }),
+      orderView('paid', 'Bought paid coat', 'buyer', { nextActor: 'none' }),
+      orderView('shipped', 'Sold shipped bag', 'seller', { nextActor: 'none' }),
+      orderView('delivered', 'Bought delivered hat', 'buyer', { nextActor: 'none' }),
       orderView('completed', 'Bought completed scarf', 'buyer'),
       orderView('refunded_external', 'Sold refunded belt', 'seller'),
       orderView('cancelled', 'Bought cancelled mittens', 'buyer'),
@@ -187,6 +193,64 @@ describe('MarketplaceOrders tabs', () => {
     const soldCard = screen.getByText(/Sold paid boots/).closest('[data-slot="card"]');
     expect(within(boughtCard as HTMLElement).getByText('You bought')).toBeInTheDocument();
     expect(within(soldCard as HTMLElement).getByText('You sold')).toBeInTheDocument();
+  });
+
+  it('shows next-actor hints from the signed-in user perspective', async () => {
+    const user = userEvent.setup();
+    ordersState.orders = [
+      orderView('paid', 'Sold paid boots', 'seller'),
+      orderView('paid', 'Bought paid coat', 'buyer'),
+    ];
+
+    render(<MarketplaceOrders />);
+    await user.click(screen.getByRole('tab', { name: /All 2/i }));
+
+    const soldCard = screen.getByText(/Sold paid boots/).closest('[data-slot="card"]');
+    const boughtCard = screen.getByText(/Bought paid coat/).closest('[data-slot="card"]');
+    expect(within(soldCard as HTMLElement).getByText('Your move')).toBeInTheDocument();
+    expect(within(boughtCard as HTMLElement).getByText('Waiting on seller')).toBeInTheDocument();
+  });
+
+  it('uses next_actor to place buyer and seller work in Needs attention', async () => {
+    ordersState.orders = [
+      orderView('pending_payment', 'Bought pending boots', 'buyer'),
+      orderView('paid', 'Sold paid boots', 'seller'),
+      orderView('completed', 'Bought completed scarf', 'buyer'),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /Needs attention 2/i })).toHaveAttribute('aria-selected', 'true'),
+    );
+    expect(screen.getByText(/Bought pending boots/)).toBeInTheDocument();
+    expect(screen.getByText(/Sold paid boots/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bought completed scarf/)).not.toBeInTheDocument();
+  });
+
+  it('shows assumed-delivery copy and buyer message affordance only when delivery was assumed', async () => {
+    const user = userEvent.setup();
+    ordersState.orders = [
+      orderView('delivered', 'Bought assumed boots', 'buyer', { deliveryAssumed: true }),
+      orderView('delivered', 'Bought confirmed coat', 'buyer', { deliveryAssumed: false }),
+    ];
+
+    render(<MarketplaceOrders />);
+    await user.click(screen.getByRole('tab', { name: /All 2/i }));
+
+    const assumedCard = screen.getByText(/Bought assumed boots/).closest('[data-slot="card"]');
+    const confirmedCard = screen.getByText(/Bought confirmed coat/).closest('[data-slot="card"]');
+    expect(within(assumedCard as HTMLElement).getByText(/Marked delivered automatically after the delivery window/))
+      .toBeInTheDocument();
+    expect(within(assumedCard as HTMLElement).getByRole('link', { name: 'Message seller' })).toHaveAttribute(
+      'href',
+      '/marketplace/messages',
+    );
+    expect(within(assumedCard as HTMLElement).getByText(/Completes automatically after the return window/))
+      .toBeInTheDocument();
+    expect(
+      within(confirmedCard as HTMLElement).queryByText(/Marked delivered automatically after the delivery window/),
+    ).not.toBeInTheDocument();
   });
 
   it('keeps icon-only order card buttons accessible when they render', () => {

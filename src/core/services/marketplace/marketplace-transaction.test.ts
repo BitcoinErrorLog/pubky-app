@@ -392,12 +392,36 @@ describe('MarketplaceTransactionService read projections', () => {
       id: ORDER_ID,
       revision: 2,
       state: 'delivered',
+      deliveryAssumed: false,
+      nextActor: 'none',
       payment: { id: PAYMENT_ID, state: 'awaiting_entitlement', adapter: 'sandbox' },
       shipment: { carrier: 'DHL', trackingNumber: 'JD014600003RU', state: 'delivered' },
       receiptId: null,
     });
     expect(orders[0]).not.toHaveProperty('deliveryAddress');
     expect(orders[0].payment).not.toHaveProperty('locksBundleId');
+  });
+
+  it('reads assumed-delivery and next-actor order projection fields when present', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        orders: [
+          orderWire({
+            state: 'delivered',
+            delivery_assumed: true,
+            next_actor: 'buyer',
+          }),
+        ],
+      }),
+    );
+
+    const [order] = await MarketplaceTransactionService.getOrders(ACTOR);
+
+    expect(order).toMatchObject({
+      deliveryAssumed: true,
+      nextActor: 'buyer',
+    });
   });
 
   it('reads a single payment and returns null for foreign/absent payments', async () => {
