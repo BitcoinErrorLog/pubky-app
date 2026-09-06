@@ -23,6 +23,7 @@ import {
   matchSingleCollectionRoute,
   ONBOARDING_ROUTES,
   PROFILE_ROUTES,
+  PUBLIC_ROUTES,
   SETTINGS_ROUTES,
   UNAUTHENTICATED_ROUTES,
 } from './routes';
@@ -153,6 +154,13 @@ describe('isDynamicPublicRoute', () => {
       expect(isDynamicPublicRoute('/marketplace/orders')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/messages')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/notifications')).toBe(false);
+    });
+
+    it('registers the catalog home as a static public route, not a prefix', () => {
+      expect(PUBLIC_ROUTES).toContain(APP_ROUTES.MARKETPLACE);
+      expect(PUBLIC_ROUTES.includes('/marketplace')).toBe(true);
+      expect(PUBLIC_ROUTES.includes('/marketplace/orders')).toBe(false);
+      expect(PUBLIC_ROUTES.includes('/marketplace/sell')).toBe(false);
     });
   });
 

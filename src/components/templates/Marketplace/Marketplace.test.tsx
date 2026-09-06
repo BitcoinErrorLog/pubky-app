@@ -15,6 +15,10 @@ const promoDismiss = vi.hoisted(() => vi.fn());
 const promoState = vi.hoisted(() => ({ showPromo: false }));
 const viewport = vi.hoisted(() => ({ isMobile: false }));
 const navCounts = vi.hoisted(() => ({ cart: 0, activity: 0 }));
+const catalogState = vi.hoisted(() => ({
+  listings: [] as Array<{ id: string; title: string }>,
+  isLoading: false,
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
@@ -30,10 +34,10 @@ vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', () => ({
   useMarketplaceCatalog: () => ({
-    listings: [],
-    facetPool: {},
+    listings: catalogState.listings,
+    facetPool: catalogState.listings,
     shopsBySeller: new Map(),
-    isLoading: false,
+    isLoading: catalogState.isLoading,
     adapterMode: 'sandbox',
   }),
 }));
@@ -68,7 +72,7 @@ vi.mock('@/organisms/Marketplace/MarketplaceFilters', () => ({
 }));
 
 vi.mock('@/organisms/Marketplace/MarketplaceListingCard', () => ({
-  MarketplaceListingCard: () => <article />,
+  MarketplaceListingCard: ({ listing }: { listing: { title: string } }) => <article>{listing.title}</article>,
 }));
 
 describe('Marketplace', () => {
@@ -80,7 +84,43 @@ describe('Marketplace', () => {
     viewport.isMobile = false;
     navCounts.cart = 0;
     navCounts.activity = 0;
+    catalogState.listings = [];
+    catalogState.isLoading = false;
     window.localStorage.clear();
+  });
+
+  it('renders guest catalog cards from server listings while the local cache hydrates', () => {
+    catalogState.isLoading = true;
+
+    render(
+      <Marketplace
+        initialListings={[
+          {
+            id: 'seller:boots_01',
+            sellerId: 'y'.repeat(52),
+            listingId: 'boots_01',
+            state: 'active',
+            title: 'Vintage leather boots',
+            description: 'Well cared for boots with light wear.',
+            categoryId: 'fashion-shoes-boots',
+            condition: 'good',
+            tags: ['vintage'],
+            saleFormat: 'fixed_price',
+            price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+            auction: null,
+            attributes: null,
+            location: { countryCode: 'US', region: 'NY' },
+            mediaUrls: [],
+            reputation: null,
+            revision: 1,
+            updatedAt: Date.parse('2026-08-19T21:00:00.000Z'),
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole('article')).toHaveTextContent('Vintage leather boots');
+    expect(screen.getByRole('button', { name: 'Orders' })).toBeInTheDocument();
   });
 
   it('renders an Orders marketplace nav entry for a signed-in buyer', async () => {

@@ -113,6 +113,10 @@ export const PUBLIC_ROUTES: string[] = [
   // Sentry verification harness must be reachable without a session on preview deploys.
   // The page returns 404 in production via isSentryTestHarnessEnabled().
   DEV_ROUTES.SENTRY_TEST,
+  // Catalog home is guest HTML (SSR of the public Nexus listing stream + OG).
+  // Exact match only — `PUBLIC_ROUTES.includes(pathname)` — so writable
+  // surfaces under `/marketplace/...` stay behind the auth gate.
+  APP_ROUTES.MARKETPLACE,
 ];
 
 export const ALLOWED_ROUTES = [

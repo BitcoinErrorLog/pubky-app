@@ -28,6 +28,7 @@ import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
+import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismissal/useMarketplacePromoDismissal';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
@@ -42,13 +43,17 @@ import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 const MARKETPLACE_PROMO_DEVICE_STORAGE_KEY = buildFeatureDiscoveryDeviceStorageKey(MARKETPLACE_PROMO_STORAGE_ID);
 
-export function Marketplace() {
+export function Marketplace({ initialListings = [] }: { initialListings?: MarketplaceCatalogItem[] }) {
   const router = useRouter();
   const { requireAuth } = useRequireAuth();
   const isMobile = useIsMobile({ breakpoint: 'md' });
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
-  const { listings, facetPool, shopsBySeller, isLoading, adapterMode } = useMarketplaceCatalog();
+  const catalog = useMarketplaceCatalog();
+  const { shopsBySeller, adapterMode } = catalog;
+  const isLoading = catalog.isLoading && initialListings.length === 0;
+  const listings = catalog.isLoading ? initialListings : catalog.listings;
+  const facetPool = catalog.isLoading ? initialListings : catalog.facetPool;
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
   const [promoStorageHydrated, setPromoStorageHydrated] = useState(false);
   const [isPromoDismissedOnDevice, setIsPromoDismissedOnDevice] = useState(false);
