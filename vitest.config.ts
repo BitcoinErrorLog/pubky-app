@@ -1,5 +1,7 @@
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import type { PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import { playwright } from '@vitest/browser-playwright';
@@ -18,12 +20,52 @@ import { VRT_VIEWPORT_DESKTOP } from './src/test-utils/vrt.viewports';
 const paykitWasmAlias = {
   'paykit-wasm': fileURLToPath(new URL('./vendor/paykit-wasm/paykit_wasm.js', import.meta.url)),
 };
+const assetIncludes = ['**/*.woff', '**/*.woff2', '**/*.ttf', '**/*.otf'];
+const repoRoot = fileURLToPath(new URL('.', import.meta.url));
+const nodeModulesRoot = realpathSync(new URL('./node_modules', import.meta.url));
+const fontAssetPattern = /\.(woff2?|ttf|otf)(?:\?.*)?$/;
+
+function fontUrlImportPlugin(): PluginOption {
+  return {
+    name: 'font-url-import',
+    enforce: 'pre',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url ?? '';
+        if (!fontAssetPattern.test(url) || !url.includes('import') || !url.includes('url')) {
+          next();
+          return;
+        }
+
+        const [servedPath] = url.split('?');
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/javascript');
+        res.end(`export default ${JSON.stringify(servedPath)};`);
+      });
+    },
+    load(id) {
+      if (!fontAssetPattern.test(id) || !id.includes('url')) return null;
+
+      const [filePath] = id.split('?');
+      const fsPath = filePath.startsWith('/@fs/') ? filePath.slice('/@fs'.length) : filePath;
+      const servedPath = `/@fs/${fsPath.replace(/^\/+/, '')}`;
+
+      return `export default ${JSON.stringify(servedPath)};`;
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react(), tsconfigPaths()],
+  plugins: [fontUrlImportPlugin(), react(), tsconfigPaths()],
+  assetsInclude: assetIncludes,
   resolve: {
     // Force a single copy of these packages so we never load two versions at once.
     dedupe: ['react', 'react-dom'],
+  },
+  server: {
+    fs: {
+      allow: [repoRoot, nodeModulesRoot],
+    },
   },
   test: {
     coverage: {
@@ -54,7 +96,8 @@ export default defineConfig({
     projects: [
       // Unit tests run in jsdom.
       {
-        plugins: [react(), tsconfigPaths()],
+        plugins: [fontUrlImportPlugin(), react(), tsconfigPaths()],
+        assetsInclude: assetIncludes,
         resolve: { alias: paykitWasmAlias },
         test: {
           name: 'unit',
@@ -70,7 +113,8 @@ export default defineConfig({
       },
       // VRT(Visual Regression Tests) run in real browsers via Playwright.
       {
-        plugins: [react(), tsconfigPaths()],
+        plugins: [fontUrlImportPlugin(), react(), tsconfigPaths()],
+        assetsInclude: assetIncludes,
         optimizeDeps: {
           include: [
             'react',
