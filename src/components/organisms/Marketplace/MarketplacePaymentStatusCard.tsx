@@ -331,6 +331,10 @@ export function MarketplacePaymentStatusCard({
                 usually within seconds. If it doesn&rsquo;t, you can report the payment here as a fallback and the
                 seller confirms receipt.
               </Typography>
+              <Typography as="p" className="text-xs text-muted-foreground">
+                Use this only if automatic confirmation fails. The seller must verify your PayPal transaction ID before
+                shipping.
+              </Typography>
               <div className="flex flex-wrap items-center gap-2">
                 <Button asChild size="sm" className="rounded-full">
                   <a href={order.fiatCheckoutUrl} target="_blank" rel="noopener noreferrer">

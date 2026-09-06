@@ -1,0 +1,64 @@
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { createOrderFixture, createPaymentFixture } from '@/test/fixtures/commerce/orders';
+import { MarketplacePaymentStatusCard } from './MarketplacePaymentStatusCard';
+
+vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => ({
+  useMarketplaceLocksPayment: () => ({
+    enabled: false,
+    correlation: null,
+    isStarting: false,
+    isUnlocking: false,
+    delivery: null,
+    error: null,
+    pollExhausted: false,
+    start: vi.fn(),
+    unlock: vi.fn(),
+    resumePolling: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment', () => ({
+  useMarketplaceOrderPayment: () => ({
+    availableMethods: null,
+    configError: null,
+    pendingAction: null,
+    bind: vi.fn(),
+    verifyStripe: vi.fn(),
+    markPaid: vi.fn(),
+    confirmReceived: vi.fn(),
+  }),
+}));
+
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    getOrFetchListing: vi.fn(async () => ({ digitalLock: null })),
+  },
+}));
+
+describe('MarketplacePaymentStatusCard', () => {
+  it('explains that PayPal buyer self-reporting does not confirm marketplace payment', () => {
+    const payment = createPaymentFixture('awaiting_entitlement');
+    const order = createOrderFixture('pending_payment', {
+      paymentId: payment.id,
+      paymentMethod: 'paypal',
+      fiatCheckoutUrl: 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=seller%40example.com',
+      fiatVerification: 'seller-attested',
+    });
+
+    render(
+      <MarketplacePaymentStatusCard
+        order={order}
+        payment={payment}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/Use this only if automatic confirmation fails/i)).toBeInTheDocument();
+    expect(screen.getByText(/seller must verify your PayPal transaction ID before shipping/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /I.ve paid/ })).toBeInTheDocument();
+  });
+});

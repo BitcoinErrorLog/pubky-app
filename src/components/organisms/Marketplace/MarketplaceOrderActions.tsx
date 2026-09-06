@@ -16,6 +16,7 @@ import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
 import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
 import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/MarketplacePackingSlipDialog';
 import { MarketplaceShippingLabelDialog } from '@/organisms/Marketplace/MarketplaceShippingLabelDialog';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
@@ -245,7 +246,11 @@ export function MarketplaceOrderActions({
           )}
           {['review', 'review_edit'].includes(actionType) && (
             <>
-              <ControlledInputField name="rating" control={action.form.control} label="Rating (1–5)" />
+              <Controller
+                name="rating"
+                control={action.form.control}
+                render={({ field }) => <MarketplaceStarRatingInput value={field.value} onChange={field.onChange} />}
+              />
               <ControlledTextareaField name="text" control={action.form.control} label="Review" />
             </>
           )}
@@ -280,6 +285,54 @@ export function MarketplaceOrderActions({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function MarketplaceStarRatingInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const moveRating = (currentRating: number, direction: -1 | 1) => {
+    const nextRating = currentRating + direction;
+    if (nextRating < 1 || nextRating > 5) return;
+    onChange(String(nextRating));
+  };
+
+  return (
+    <div className="grid gap-2">
+      <Label className={FORM_LABEL_CLASSES}>Rating</Label>
+      <div role="radiogroup" aria-label="Rating" className="flex flex-wrap gap-2">
+        {[1, 2, 3, 4, 5].map((rating) => {
+          const ratingValue = String(rating);
+          return (
+            <label
+              key={ratingValue}
+              className="relative cursor-pointer rounded-full border border-border/70 px-3 py-2 transition-colors has-[:checked]:border-brand has-[:checked]:bg-brand/10"
+            >
+              <input
+                type="radio"
+                name="rating"
+                value={ratingValue}
+                checked={value === ratingValue}
+                onChange={() => onChange(ratingValue)}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    moveRating(rating, -1);
+                  }
+                  if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    moveRating(rating, 1);
+                  }
+                }}
+                aria-label={`${rating} ${rating === 1 ? 'star' : 'stars'}`}
+                className="sr-only"
+              />
+              <span aria-hidden="true">
+                <MarketplaceStarRating rating={rating} size="sm" />
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

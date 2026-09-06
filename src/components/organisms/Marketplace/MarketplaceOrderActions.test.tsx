@@ -94,15 +94,38 @@ describe('MarketplaceOrderActions review editing', () => {
 
     const textField = screen.getByLabelText('Review');
     expect(textField).toHaveValue('Accurate and fast.');
-    expect(screen.getByLabelText('Rating (1–5)')).toHaveValue('5');
+    expect(screen.getByRole('radio', { name: '5 stars' })).toBeChecked();
 
+    await user.click(screen.getByRole('radio', { name: '3 stars' }));
     await user.clear(textField);
     await user.type(textField, 'Item arrived scratched after all.');
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
 
     expect(actOnOrder).toHaveBeenCalledWith(order, 'review.update', {
-      rating: 5,
+      rating: 3,
       text: 'Item arrived scratched after all.',
+    });
+  });
+
+  it('changes the review rating with arrow keys and submits the same form field', async () => {
+    const user = userEvent.setup();
+    const { order, actOnOrder } = renderActions({ withOwnReview: false });
+
+    await user.click(screen.getByRole('button', { name: 'Leave review' }));
+    const defaultRating = screen.getByRole('radio', { name: '5 stars' });
+    expect(defaultRating).toBeChecked();
+
+    defaultRating.focus();
+    await user.keyboard('{ArrowLeft}');
+    expect(screen.getByRole('radio', { name: '4 stars' })).toBeChecked();
+
+    await user.type(screen.getByLabelText('Review'), 'Accurate and fast.');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(actOnOrder).toHaveBeenCalledWith(order, 'review.create', {
+      rating: 4,
+      text: 'Accurate and fast.',
+      allowAmountBand: false,
     });
   });
 });
