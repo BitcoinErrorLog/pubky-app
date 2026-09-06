@@ -111,7 +111,9 @@ describe('Marketplace home drops entry — visual regression', () => {
     catalogView.adapterMode = 'transaction-service';
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect.element(screen.getByText('Browse drops')).toBeInTheDocument();
-    await expect(screen.getByTestId('marketplace-drops-shelf-entry')).toHaveAttribute('data-variant', 'desktop');
+    expect(
+      document.querySelector('[data-testid="marketplace-drops-shelf-entry"][data-variant="desktop"]'),
+    ).not.toBeNull();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-home-drops-entry-desktop');
   });
 

@@ -1,44 +1,43 @@
+import { renderToString } from 'react-dom/server';
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { MarketplaceDropsShelfEntry } from './MarketplaceDropsShelfEntry';
 
-const viewport = vi.hoisted(() => ({ isMobile: false }));
-
-vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
-  useIsMobile: () => viewport.isMobile,
-}));
+function variants() {
+  return screen.getAllByTestId('marketplace-drops-shelf-entry');
+}
 
 describe('MarketplaceDropsShelfEntry', () => {
-  beforeEach(() => {
-    viewport.isMobile = false;
+  it('renders both compact and desktop variants with breakpoint classes in SSR markup', () => {
+    const html = renderToString(<MarketplaceDropsShelfEntry />);
+
+    expect(html).toContain('data-variant="compact"');
+    expect(html).toContain('data-variant="desktop"');
+    expect(html).toMatch(/data-variant="compact"[^>]*class="[^"]*md:hidden/);
+    expect(html).toMatch(/data-variant="desktop"[^>]*class="[^"]*hidden[^"]*md:flex/);
   });
 
-  it('renders the full desktop entry with the long tagline and Browse drops CTA', () => {
+  it('keeps the full desktop entry with the long tagline and Browse drops CTA', () => {
     render(<MarketplaceDropsShelfEntry />);
 
-    const entry = screen.getByTestId('marketplace-drops-shelf-entry');
-    expect(entry).toHaveAttribute('data-variant', 'desktop');
-    expect(screen.getByRole('heading', { name: 'Drops' })).toBeInTheDocument();
+    const desktop = variants().find((node) => node.getAttribute('data-variant') === 'desktop');
+    expect(desktop).toBeDefined();
+    expect(desktop).toHaveClass('hidden', 'md:flex');
+    expect(desktop).not.toHaveClass('h-14');
+    expect(screen.getAllByRole('heading', { name: 'Drops' })).toHaveLength(2);
     expect(screen.getByText(/server-enforced clock/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Browse drops/ })).toHaveAttribute('href', MARKETPLACE_ROUTES.DROPS);
-    expect(screen.queryByRole('link', { name: 'Browse' })).not.toBeInTheDocument();
-    expect(entry).not.toHaveClass('h-14');
   });
 
-  it('renders a compact single row on mobile with a one-line tagline and Browse chevron', () => {
-    viewport.isMobile = true;
+  it('keeps the compact single row with a one-line tagline and Browse chevron', () => {
     render(<MarketplaceDropsShelfEntry />);
 
-    const entry = screen.getByTestId('marketplace-drops-shelf-entry');
-    expect(entry).toHaveAttribute('data-variant', 'compact');
-    expect(entry).toHaveClass('h-14');
-    expect(entry).toHaveClass('max-h-14');
-    expect(screen.getByRole('heading', { name: 'Drops' })).toBeInTheDocument();
+    const compact = variants().find((node) => node.getAttribute('data-variant') === 'compact');
+    expect(compact).toBeDefined();
+    expect(compact).toHaveClass('h-14', 'max-h-14', 'md:hidden');
     const tagline = screen.getByText('Timed, limited releases');
     expect(tagline).toHaveClass('truncate');
-    expect(screen.queryByText(/no fake queues/)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Browse' })).toHaveAttribute('href', MARKETPLACE_ROUTES.DROPS);
-    expect(screen.queryByRole('link', { name: /Browse drops/ })).not.toBeInTheDocument();
   });
 });

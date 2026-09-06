@@ -284,6 +284,137 @@ describe('MarketplaceListingForm', () => {
   });
 });
 
+describe('MarketplaceListingForm scoped status watch', () => {
+  function StatusWatchHarness({
+    defaultValues,
+    media = buildMedia([photoItem('one', 'Front')]),
+  }: {
+    defaultValues?: Partial<CreateMarketplaceListingData>;
+    media?: UseListingMediaManagerResult;
+  }) {
+    const form = useForm<CreateMarketplaceListingData>({
+      defaultValues: {
+        ...createMarketplaceListingDefaults,
+        fulfillment: 'pickup',
+        title: 'Vintage boots',
+        description: 'Well cared for boots.',
+        categoryId: 'fashion-shoes-boots',
+        price: '125.00',
+        ...defaultValues,
+      },
+    });
+    return (
+      <>
+        <button type="button" onClick={() => form.setValue('title', 'ab')}>
+          shorten-title
+        </button>
+        <button type="button" onClick={() => form.setValue('description', '')}>
+          clear-description
+        </button>
+        <button type="button" onClick={() => form.setValue('categoryId', '')}>
+          clear-category
+        </button>
+        <button type="button" onClick={() => form.setValue('price', '')}>
+          clear-price
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            form.setValue('variants', [{ sku: '', size: '', color: '', style: '', quantity: '0', priceOverride: '' }])
+          }
+        >
+          invalidate-variants
+        </button>
+        <button type="button" onClick={() => form.setValue('fulfillment', 'physical')}>
+          set-physical
+        </button>
+        <button type="button" onClick={() => form.setValue('shippingLabel', 'Ground')}>
+          set-shipping-label
+        </button>
+        <button type="button" onClick={() => form.setValue('shippingPrice', '12.00')}>
+          set-shipping-price
+        </button>
+        <button type="button" onClick={() => form.setValue('shippingMinDays', '3')}>
+          set-shipping-min
+        </button>
+        <button type="button" onClick={() => form.setValue('shippingMaxDays', '7')}>
+          set-shipping-max
+        </button>
+        <button type="button" onClick={() => form.setValue('packageWeight', '1200')}>
+          set-weight
+        </button>
+        <button type="button" onClick={() => form.setValue('packageLength', '35.0')}>
+          set-length
+        </button>
+        <button type="button" onClick={() => form.setValue('packageWidth', '25.0')}>
+          set-width
+        </button>
+        <button type="button" onClick={() => form.setValue('packageHeight', '15.0')}>
+          set-height
+        </button>
+        <button type="button" onClick={() => form.setValue('returnDays', '30')}>
+          set-returns
+        </button>
+        <MarketplaceListingForm form={form} media={media} onSubmit={async () => {}} isPublishing={false} />
+      </>
+    );
+  }
+
+  it('updates section status when each watched field changes', async () => {
+    const user = userEvent.setup();
+    const first = render(<StatusWatchHarness />);
+
+    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'true');
+    expect(document.getElementById('listing-section-price')).toHaveAttribute('data-section-complete', 'true');
+    expect(document.getElementById('listing-section-shipping')).toHaveAttribute('data-section-complete', 'true');
+    expect(document.getElementById('listing-section-review')).toHaveAttribute('data-section-complete', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'shorten-title' }));
+    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'false');
+    first.unmount();
+
+    const descriptionCase = render(<StatusWatchHarness />);
+    await user.click(screen.getByRole('button', { name: 'clear-description' }));
+    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'false');
+    descriptionCase.unmount();
+
+    const categoryCase = render(<StatusWatchHarness />);
+    await user.click(screen.getByRole('button', { name: 'clear-category' }));
+    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'false');
+    categoryCase.unmount();
+
+    const priceCase = render(<StatusWatchHarness />);
+    await user.click(screen.getByRole('button', { name: 'clear-price' }));
+    expect(document.getElementById('listing-section-price')).toHaveAttribute('data-section-complete', 'false');
+    priceCase.unmount();
+
+    const variantsCase = render(<StatusWatchHarness />);
+    await user.click(screen.getByRole('button', { name: 'invalidate-variants' }));
+    expect(document.getElementById('listing-section-price')).toHaveAttribute('data-section-complete', 'false');
+    variantsCase.unmount();
+
+    const shippingCase = render(<StatusWatchHarness />);
+    await user.click(screen.getByRole('button', { name: 'set-physical' }));
+    expect(document.getElementById('listing-section-shipping')).toHaveAttribute('data-section-complete', 'false');
+    await user.click(screen.getByRole('button', { name: 'set-shipping-label' }));
+    await user.click(screen.getByRole('button', { name: 'set-shipping-price' }));
+    await user.click(screen.getByRole('button', { name: 'set-shipping-min' }));
+    await user.click(screen.getByRole('button', { name: 'set-shipping-max' }));
+    await user.click(screen.getByRole('button', { name: 'set-weight' }));
+    await user.click(screen.getByRole('button', { name: 'set-length' }));
+    await user.click(screen.getByRole('button', { name: 'set-width' }));
+    await user.click(screen.getByRole('button', { name: 'set-height' }));
+    expect(document.getElementById('listing-section-shipping')).toHaveAttribute('data-section-complete', 'true');
+    shippingCase.unmount();
+
+    const returnsCase = render(<StatusWatchHarness />);
+    expect(screen.getByText('Returns policy')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'set-returns' }));
+    expect(screen.queryByText('Returns policy')).not.toBeInTheDocument();
+    returnsCase.unmount();
+  });
+});
+
 describe('MarketplaceListingForm publish gate vs schema', () => {
   const pickupReady = {
     title: 'Vintage boots',

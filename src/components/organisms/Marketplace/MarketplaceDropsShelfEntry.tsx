@@ -6,7 +6,6 @@ import { Button } from '@/atoms/Button/Button';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
-import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 
 const DROPS_TAGLINE =
   'Timed, limited releases on a server-enforced clock — no fake queues, no invented stock, editions you own on your homeserver.';
@@ -14,20 +13,19 @@ const DROPS_TAGLINE =
 const DROPS_TAGLINE_COMPACT = 'Timed, limited releases';
 
 /**
- * Home-shelf entry for Drops (ADR 0026). Desktop keeps the full explanation
- * and "Browse drops" CTA. Below `md` it collapses to a single ≤56px row so
- * listing cards stay in the first viewport.
+ * Home-shelf entry for Drops (ADR 0026). Both variants are always in the
+ * markup so SSR HTML matches the client; Tailwind `md` gates which one
+ * paints. Compact stays ≤56px below `md` so listing cards remain in the
+ * first viewport.
  */
 export function MarketplaceDropsShelfEntry() {
-  const isMobile = useIsMobile({ breakpoint: 'md' });
-
-  if (isMobile) {
-    return (
+  return (
+    <>
       <section
         aria-label="Drops"
         data-testid="marketplace-drops-shelf-entry"
         data-variant="compact"
-        className="flex h-14 max-h-14 items-center gap-3 overflow-hidden rounded-2xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card px-3"
+        className="flex h-14 max-h-14 items-center gap-3 overflow-hidden rounded-2xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card px-3 md:hidden"
       >
         <div className="shrink-0 rounded-full bg-brand/15 p-1.5 text-brand">
           <CalendarClock className="size-4" aria-hidden />
@@ -47,35 +45,32 @@ export function MarketplaceDropsShelfEntry() {
           <ChevronRight className="size-4" aria-hidden />
         </Link>
       </section>
-    );
-  }
-
-  return (
-    <section
-      aria-label="Drops"
-      data-testid="marketplace-drops-shelf-entry"
-      data-variant="desktop"
-      className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card p-5"
-    >
-      <div className="flex items-start gap-3">
-        <div className="rounded-full bg-brand/15 p-2 text-brand">
-          <CalendarClock className="size-5" />
+      <section
+        aria-label="Drops"
+        data-testid="marketplace-drops-shelf-entry"
+        data-variant="desktop"
+        className="hidden flex-wrap items-center justify-between gap-4 rounded-2xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card p-5 md:flex"
+      >
+        <div className="flex items-start gap-3">
+          <div className="rounded-full bg-brand/15 p-2 text-brand">
+            <CalendarClock className="size-5" />
+          </div>
+          <div>
+            <Heading level={2} size="md">
+              Drops
+            </Heading>
+            <Typography as="p" className="mt-1 max-w-xl text-sm text-muted-foreground">
+              {DROPS_TAGLINE}
+            </Typography>
+          </div>
         </div>
-        <div>
-          <Heading level={2} size="md">
-            Drops
-          </Heading>
-          <Typography as="p" className="mt-1 max-w-xl text-sm text-muted-foreground">
-            {DROPS_TAGLINE}
-          </Typography>
-        </div>
-      </div>
-      <Button asChild className="rounded-full">
-        <Link href={MARKETPLACE_ROUTES.DROPS} overrideDefaults>
-          Browse drops
-          <ArrowRight className="ml-2 size-4" />
-        </Link>
-      </Button>
-    </section>
+        <Button asChild className="rounded-full">
+          <Link href={MARKETPLACE_ROUTES.DROPS} overrideDefaults>
+            Browse drops
+            <ArrowRight className="ml-2 size-4" />
+          </Link>
+        </Button>
+      </section>
+    </>
   );
 }

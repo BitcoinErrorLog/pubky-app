@@ -24,7 +24,6 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isDurableCommerceMode } from '@/config/commerce';
 import { buildFeatureDiscoveryDeviceStorageKey, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
-import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
@@ -46,7 +45,6 @@ const MARKETPLACE_PROMO_DEVICE_STORAGE_KEY = buildFeatureDiscoveryDeviceStorageK
 export function Marketplace({ initialListings = [] }: { initialListings?: MarketplaceCatalogItem[] }) {
   const router = useRouter();
   const { requireAuth } = useRequireAuth();
-  const isMobile = useIsMobile({ breakpoint: 'md' });
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const catalog = useMarketplaceCatalog();
@@ -124,80 +122,79 @@ export function Marketplace({ initialListings = [] }: { initialListings?: Market
               <Gavel className="mr-2 size-4" />
               Browse auctions
             </Button>
-            {isMobile ? (
+            <div className="md:hidden" data-testid="marketplace-mobile-tools">
               <MarketplaceBuyerToolsSheet
                 cartCount={cartCount}
                 activityUnreadCount={activityUnreadCount}
                 onNavigate={(href) => requireAuth(() => router.push(href))}
               />
-            ) : (
-              <>
+            </div>
+            <div className="hidden flex-wrap gap-2 sm:gap-3 md:flex" data-testid="marketplace-desktop-tools">
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.MESSAGES))}
+              >
+                <MessageCircle className="mr-2 size-4" />
+                Messages
+              </Button>
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.OFFERS))}
+              >
+                <HandCoins className="mr-2 size-4" />
+                Offers
+              </Button>
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.WATCHLIST))}
+              >
+                <Heart className="mr-2 size-4" />
+                Watchlist
+              </Button>
+              <span className="relative inline-flex">
                 <Button
                   variant="ghost"
                   className="rounded-full"
-                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.MESSAGES))}
+                  aria-label={cartCount > 0 ? `Cart, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}` : undefined}
+                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
                 >
-                  <MessageCircle className="mr-2 size-4" />
-                  Messages
+                  <ShoppingCart className="mr-2 size-4" />
+                  Cart
                 </Button>
+                <NavPillCountBadge count={cartCount} dataCy="marketplace-nav-cart" />
+              </span>
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.ORDERS))}
+              >
+                <ReceiptText className="mr-2 size-4" />
+                Orders
+              </Button>
+              <span className="relative inline-flex">
                 <Button
                   variant="ghost"
                   className="rounded-full"
-                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.OFFERS))}
+                  aria-label={activityUnreadCount > 0 ? `Activity, ${activityUnreadCount} unread` : undefined}
+                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.NOTIFICATIONS))}
                 >
-                  <HandCoins className="mr-2 size-4" />
-                  Offers
+                  <Bell className="mr-2 size-4" />
+                  Activity
                 </Button>
-                <Button
-                  variant="ghost"
-                  className="rounded-full"
-                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.WATCHLIST))}
-                >
-                  <Heart className="mr-2 size-4" />
-                  Watchlist
-                </Button>
-                <span className="relative inline-flex">
-                  <Button
-                    variant="ghost"
-                    className="rounded-full"
-                    aria-label={cartCount > 0 ? `Cart, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}` : undefined}
-                    onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
-                  >
-                    <ShoppingCart className="mr-2 size-4" />
-                    Cart
-                  </Button>
-                  <NavPillCountBadge count={cartCount} dataCy="marketplace-nav-cart" />
-                </span>
-                <Button
-                  variant="ghost"
-                  className="rounded-full"
-                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.ORDERS))}
-                >
-                  <ReceiptText className="mr-2 size-4" />
-                  Orders
-                </Button>
-                <span className="relative inline-flex">
-                  <Button
-                    variant="ghost"
-                    className="rounded-full"
-                    aria-label={activityUnreadCount > 0 ? `Activity, ${activityUnreadCount} unread` : undefined}
-                    onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.NOTIFICATIONS))}
-                  >
-                    <Bell className="mr-2 size-4" />
-                    Activity
-                  </Button>
-                  <NavPillCountBadge count={activityUnreadCount} dataCy="marketplace-nav-activity" />
-                </span>
-                <Button
-                  variant="ghost"
-                  className="rounded-full"
-                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.DASHBOARD))}
-                >
-                  <LayoutDashboard className="mr-2 size-4" />
-                  Seller studio
-                </Button>
-              </>
-            )}
+                <NavPillCountBadge count={activityUnreadCount} dataCy="marketplace-nav-activity" />
+              </span>
+              <Button
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.DASHBOARD))}
+              >
+                <LayoutDashboard className="mr-2 size-4" />
+                Seller studio
+              </Button>
+            </div>
           </div>
         </section>
 

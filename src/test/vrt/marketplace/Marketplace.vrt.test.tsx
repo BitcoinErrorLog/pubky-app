@@ -171,7 +171,9 @@ describe('Marketplace — visual regression', () => {
     catalogView.adapterMode = 'locks-paykit';
     const screen = await renderForVRT(<Marketplace />, { viewport: { width: 375, height: 812 }, disableHover: true });
     await expect.element(screen.getByRole('link', { name: 'Browse' })).toBeInTheDocument();
-    await expect.element(screen.getByTestId('marketplace-drops-shelf-entry')).toHaveAttribute('data-variant', 'compact');
+    expect(
+      document.querySelector('[data-testid="marketplace-drops-shelf-entry"][data-variant="compact"]'),
+    ).not.toBeNull();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-mobile-with-drops');
   });
 });
