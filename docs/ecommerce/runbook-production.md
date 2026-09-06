@@ -113,14 +113,19 @@ railway redeploy --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment pr
 railway redeploy --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service nexusd --yes
 ```
 
-To inspect recent deployments and remove the most recent deployment so Railway falls back to the previous one:
+To roll back to an earlier build, list deployments, then use the Railway dashboard (service → Deployments → the
+known-good deployment → `Rollback`). The CLI cannot target an older deployment: `railway redeploy` only re-runs the
+latest one, and `railway down` removes the latest deployment and leaves the service with nothing running — it does not
+fall back to the previous deployment, so never use it as a rollback.
 
 ```bash
 railway deployment list --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service --limit 10
-railway down --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service --yes
 railway deployment list --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service nexusd --limit 10
-railway down --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service nexusd --yes
 ```
+
+CLI-only alternative when the dashboard is unavailable: check out the known-good commit on the service's deploy
+branch, push it to the BitcoinErrorLog fork, then
+`railway redeploy --from-source --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service <service> --yes`.
 
 Read-only checks that do not expose values if the output is not pasted:
 
