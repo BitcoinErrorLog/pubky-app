@@ -53,6 +53,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   // fetch, the page flashes "Listing unavailable" before the record lands.
   const [isFetchSettled, setIsFetchSettled] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState('');
+  const [showSessionRequired, setShowSessionRequired] = useState(false);
   const [shopAvatarFailed, setShopAvatarFailed] = useState(false);
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
@@ -93,6 +94,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
       setSelectedVariantId(firstVariant);
     }
   }, [listing, selectedVariantId]);
+
+  useEffect(() => {
+    if (!negotiation.needsSession) setShowSessionRequired(false);
+  }, [negotiation.needsSession]);
 
   if (listing === undefined || shop === undefined || (!listing && !isFetchSettled && !error)) {
     return (
@@ -149,6 +154,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
         : record.state === 'removed'
           ? 'This listing was removed.'
           : null;
+  const revealSessionRequired = () => setShowSessionRequired(true);
+  const onSessionConnected = () => {
+    setShowSessionRequired(false);
+    void negotiation.refresh();
+  };
+  const addSelectedVariantToCart = () => {
+    if (!selectedVariant) return;
+    if (negotiation.needsSession) {
+      revealSessionRequired();
+      return;
+    }
+    void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1);
+  };
 
   return (
     <ContentLayout
@@ -388,6 +406,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   aggregateId={aggregateId}
                   projection={negotiation.projection}
                   priceAsset={price}
+                  isSessionRequired={negotiation.needsSession}
+                  onSessionRequired={revealSessionRequired}
                   onAccepted={negotiation.refresh}
                 />
               ) : (
@@ -401,10 +421,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       !selectedVariant ||
                       selectedVariant.quantity === 0
                     }
-                    onClick={() =>
-                      selectedVariant &&
-                      void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1)
-                    }
+                    onClick={addSelectedVariantToCart}
                   >
                     <ShoppingCart className="mr-2 size-4" />
                     {isSoldOut ? 'Sold out' : isPurchasable ? 'Add to cart' : 'Unavailable'}
@@ -414,6 +431,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}
                       priceAsset={price}
+                      isSessionRequired={negotiation.needsSession}
+                      onSessionRequired={revealSessionRequired}
                       onAccepted={negotiation.refresh}
                     />
                   )}
@@ -441,15 +460,17 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 Transactions are disabled in this deployment.
               </Typography>
             )}
-            {isTransactionalCommerceMode(adapterMode) &&
-              negotiation.error &&
-              (negotiation.needsSession ? (
-                <MarketplaceSessionRequiredCard message={negotiation.error} onConnected={negotiation.refresh} />
-              ) : (
-                <Typography as="p" role="alert" className="text-center text-sm text-amber-300">
-                  {negotiation.error}
-                </Typography>
-              ))}
+            {isTransactionalCommerceMode(adapterMode) && negotiation.needsSession && showSessionRequired && (
+              <MarketplaceSessionRequiredCard
+                message={negotiation.error ?? undefined}
+                onConnected={onSessionConnected}
+              />
+            )}
+            {isTransactionalCommerceMode(adapterMode) && negotiation.error && !negotiation.needsSession && (
+              <Typography as="p" role="alert" className="text-center text-sm text-amber-300">
+                {negotiation.error}
+              </Typography>
+            )}
           </div>
         </div>
       </Container>

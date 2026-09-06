@@ -14,12 +14,16 @@ export function MarketplaceOfferDialog({
   aggregateId,
   expectedRevision,
   priceAsset,
+  isSessionRequired = false,
+  onSessionRequired,
   onAccepted,
 }: {
   aggregateId: string;
   expectedRevision: number | null;
   /** The listing's own pricing asset — offers are made in it, never converted. */
   priceAsset: CommerceAsset;
+  isSessionRequired?: boolean;
+  onSessionRequired?: () => void;
   onAccepted: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -43,11 +47,20 @@ export function MarketplaceOfferDialog({
           setOpen(false);
           return;
         }
+        if (isSessionRequired) {
+          requireAuth(() => onSessionRequired?.());
+          return;
+        }
         requireAuth(() => setOpen(true));
       }}
     >
       <DialogTrigger asChild>
-        <Button size="lg" variant="secondary" className="flex-1 rounded-full" disabled={expectedRevision === null}>
+        <Button
+          size="lg"
+          variant="secondary"
+          className="flex-1 rounded-full"
+          disabled={expectedRevision === null && !isSessionRequired}
+        >
           <HandCoins className="mr-2 size-4" />
           Make offer
         </Button>

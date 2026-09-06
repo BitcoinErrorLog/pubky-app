@@ -14,10 +14,9 @@ import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDial
  * durable transport produces, so sandbox surfaces never see this card.
  */
 export function MarketplaceSessionRequiredCard({
-  message,
   onConnected,
 }: {
-  message: string;
+  message?: string;
   onConnected?: () => void | Promise<void>;
 }) {
   return (
@@ -28,13 +27,13 @@ export function MarketplaceSessionRequiredCard({
       <KeyRound className="size-10 text-muted-foreground" />
       <div>
         <Heading level={2} size="md">
-          Marketplace session required
+          Approve purchases in Pubky Ring
         </Heading>
         <Typography as="p" className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
-          {message}
+          One approval lets you buy, bid, and make offers on this marketplace. Nothing is charged until you pay.
         </Typography>
       </div>
-      <MarketplaceSessionConnectDialog onConnected={onConnected} />
+      <MarketplaceSessionConnectDialog triggerLabel="Approve in Pubky Ring" onConnected={onConnected} />
     </div>
   );
 }

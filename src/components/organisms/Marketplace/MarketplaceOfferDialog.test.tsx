@@ -25,6 +25,26 @@ describe('MarketplaceOfferDialog', () => {
     expect(screen.getByRole('button', { name: 'Make offer' })).toBeDisabled();
   });
 
+  it('keeps the trigger enabled and asks for approval when only the marketplace session is missing', async () => {
+    const user = userEvent.setup();
+    const onSessionRequired = vi.fn();
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={null}
+        priceAsset={USD_ASSET}
+        isSessionRequired
+        onSessionRequired={onSessionRequired}
+        onAccepted={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Make offer' }));
+
+    expect(onSessionRequired).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('opens a labelled modal dialog, traps focus in labelled fields, and restores focus on close', async () => {
     const user = userEvent.setup();
     render(

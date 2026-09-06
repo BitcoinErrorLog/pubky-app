@@ -21,7 +21,13 @@ import { toast } from '@/molecules/Toaster/use-toast';
  * approval the controller mirrors the session facts into the commerce store,
  * which is what makes the dependent durable-mode surfaces refetch.
  */
-export function MarketplaceSessionConnectDialog({ onConnected }: { onConnected?: () => void | Promise<void> }) {
+export function MarketplaceSessionConnectDialog({
+  triggerLabel = 'Connect marketplace session',
+  onConnected,
+}: {
+  triggerLabel?: string;
+  onConnected?: () => void | Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const session = useMarketplaceSessionConnect({
     onConnected: () => {
@@ -60,7 +66,7 @@ export function MarketplaceSessionConnectDialog({ onConnected }: { onConnected?:
       <DialogTrigger asChild>
         <Button className="rounded-full">
           <KeyRound className="mr-2 size-4" />
-          Connect marketplace session
+          {triggerLabel}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">

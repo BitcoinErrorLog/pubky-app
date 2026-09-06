@@ -71,7 +71,7 @@ describe('Marketplace session connect — visual regression', () => {
       </Harness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-    await openDialog(screen.getByRole('button', { name: 'Connect marketplace session' }));
+    await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-awaiting-desktop');
   });
 
@@ -85,7 +85,7 @@ describe('Marketplace session connect — visual regression', () => {
       </Harness>,
       { viewport: VRT_VIEWPORT_MOBILE },
     );
-    await openDialog(screen.getByRole('button', { name: 'Connect marketplace session' }));
+    await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-awaiting-mobile');
   });
 
@@ -98,7 +98,7 @@ describe('Marketplace session connect — visual regression', () => {
       </Harness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-    await openDialog(screen.getByRole('button', { name: 'Connect marketplace session' }));
+    await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-generating-desktop');
   });
 
@@ -112,7 +112,7 @@ describe('Marketplace session connect — visual regression', () => {
       </Harness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-    await openDialog(screen.getByRole('button', { name: 'Connect marketplace session' }));
+    await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-error-desktop');
   });
 

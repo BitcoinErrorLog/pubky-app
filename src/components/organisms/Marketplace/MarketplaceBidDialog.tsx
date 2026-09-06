@@ -16,12 +16,16 @@ export function MarketplaceBidDialog({
   aggregateId,
   projection,
   priceAsset,
+  isSessionRequired = false,
+  onSessionRequired,
   onAccepted,
 }: {
   aggregateId: string;
   projection: MarketplaceListingProjection | null;
   /** The auction's own pricing asset — bids are made in it, never converted. */
   priceAsset: CommerceAsset;
+  isSessionRequired?: boolean;
+  onSessionRequired?: () => void;
   onAccepted: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -45,11 +49,15 @@ export function MarketplaceBidDialog({
           setOpen(false);
           return;
         }
+        if (isSessionRequired) {
+          requireAuth(() => onSessionRequired?.());
+          return;
+        }
         requireAuth(() => setOpen(true));
       }}
     >
       <DialogTrigger asChild>
-        <Button size="lg" className="flex-1 rounded-full" disabled={!projection?.auction}>
+        <Button size="lg" className="flex-1 rounded-full" disabled={!projection?.auction && !isSessionRequired}>
           <Gavel className="mr-2 size-4" />
           Place a bid
         </Button>
