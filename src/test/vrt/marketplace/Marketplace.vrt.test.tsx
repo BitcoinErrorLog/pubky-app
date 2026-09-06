@@ -15,6 +15,8 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
 
 const VRT_USER_PUBKY = vi.hoisted(() => 'y'.repeat(52));
 
+const catalogView = vi.hoisted(() => ({ adapterMode: 'sandbox' as string }));
+
 const fixtures = vi.hoisted(async () => {
   const { createCommerceSandboxCatalog } = await import('@/libs/commerce/sandbox-catalog');
   const { buildMarketplaceCatalogItems } = await import('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils');
@@ -46,9 +48,10 @@ vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
   return {
     useMarketplaceCatalog: () => ({
       listings: catalog.listings,
+      facetPool: catalog.listings,
       shopsBySeller: catalog.shopsBySeller,
       isLoading: false,
-      adapterMode: 'sandbox',
+      adapterMode: catalogView.adapterMode,
     }),
   };
 });
@@ -139,6 +142,7 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 describe('Marketplace — visual regression', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    catalogView.adapterMode = 'sandbox';
   });
 
   it('renders the sandbox catalog with the promo visible at desktop viewport', async () => {
@@ -158,5 +162,16 @@ describe('Marketplace — visual regression', () => {
   it('renders the sandbox catalog at mobile viewport', async () => {
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-mobile');
+  });
+
+  // Sandbox hides the drops shelf, so the existing mobile baseline cannot
+  // catch a tall drops card pushing listings off the first viewport. This
+  // scene uses a durable adapter (locks-paykit) at the live 375×812 frame.
+  it('renders durable-mode home at 375x812 with compact drops so a listing stays in frame', async () => {
+    catalogView.adapterMode = 'locks-paykit';
+    const screen = await renderForVRT(<Marketplace />, { viewport: { width: 375, height: 812 }, disableHover: true });
+    await expect.element(screen.getByRole('link', { name: 'Browse' })).toBeInTheDocument();
+    await expect.element(screen.getByTestId('marketplace-drops-shelf-entry')).toHaveAttribute('data-variant', 'compact');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-mobile-with-drops');
   });
 });
