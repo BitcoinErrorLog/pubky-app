@@ -7,9 +7,11 @@ import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/Marketplac
 
 // The seller's print-friendly packing slip. The slip renders ONLY what the
 // seller's client legitimately holds — the participant order projection — so
-// the baseline must show the truthful "Deliver to" notice (the delivery
-// address is withheld from all reads by design, ADR-0019 §8) instead of an
-// address block.
+// the empty-field baseline must show the truthful "Deliver to" notice (the
+// delivery address is withheld from all reads by design, ADR-0019 §8) with
+// ruled lines instead of an address block. The pasted-address scene covers
+// the optional local-only paste field: the pasted text renders onto the
+// slip but is never persisted or sent anywhere.
 const fixtures = vi.hoisted(async () => {
   const { createOrderFixture } = await import('@/test/fixtures/commerce/orders');
   return {
@@ -31,6 +33,11 @@ async function openSlip(trigger: { click: () => Promise<void> }) {
   await vi.waitFor(() => {
     if (!document.querySelector('[data-packing-slip]')) throw new Error('The packing slip has not opened yet.');
   });
+  // The dialog's open-auto-focus lands on the paste textarea; whether the
+  // focus ring paints depends on focus-visible heuristics that differ by
+  // browser and by what ran before in the session. Blur so the capture is
+  // deterministic regardless of suite context.
+  (document.activeElement as HTMLElement | null)?.blur();
 }
 
 function SlipHarness({ children }: { children: React.ReactNode }) {
@@ -75,5 +82,23 @@ describe('Marketplace packing slip — visual regression', () => {
     );
     await openSlip(screen.getByRole('button', { name: 'Packing slip' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('packing-slip-shipped-desktop');
+  });
+
+  it('renders the packing slip with a pasted delivery address at desktop viewport', async () => {
+    const { paidOrder } = await fixtures;
+
+    const screen = await renderForVRT(
+      <SlipHarness>
+        <MarketplacePackingSlipDialog order={paidOrder} />
+      </SlipHarness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openSlip(screen.getByRole('button', { name: 'Packing slip' }));
+    await screen
+      .getByLabelText('Paste delivery address (optional)')
+      .fill('Ada Buyer\n123 Privacy Lane\n83820 Someville, US');
+    // See openSlip: drop the focus the fill left on the textarea.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('packing-slip-pasted-address-desktop');
   });
 });
