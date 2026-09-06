@@ -19,6 +19,38 @@ export interface MarketplaceCartItem {
   listing: CommerceListingModelSchema;
 }
 
+export interface MarketplaceCartGroup {
+  sellerPubky: string;
+  items: MarketplaceCartItem[];
+  subtotals: ReturnType<typeof sumMoneyByAsset>;
+}
+
+function priceForCartItem(item: MarketplaceCartItem) {
+  const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+  return (
+    variant?.priceOverride ??
+    (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null)
+  );
+}
+
+export function groupMarketplaceCartItems(items: MarketplaceCartItem[]): MarketplaceCartGroup[] {
+  const groups = new Map<string, MarketplaceCartItem[]>();
+  for (const item of items) {
+    const sellerPubky = item.listing.record.ownerPubky;
+    groups.set(sellerPubky, [...(groups.get(sellerPubky) ?? []), item]);
+  }
+  return [...groups.entries()].map(([sellerPubky, groupItems]) => ({
+    sellerPubky,
+    items: groupItems,
+    subtotals: sumMoneyByAsset(
+      groupItems.flatMap((item) => {
+        const price = priceForCartItem(item);
+        return price ? [{ money: price, quantity: item.quantity }] : [];
+      }),
+    ),
+  }));
+}
+
 export function useMarketplaceCart() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { requireAuth } = useRequireAuth();
@@ -95,18 +127,17 @@ export function useMarketplaceCart() {
   // cents, bitcoin base units) are never added into one false number.
   const subtotals = sumMoneyByAsset(
     (items ?? []).flatMap((item) => {
-      const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-      const price =
-        variant?.priceOverride ??
-        (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+      const price = priceForCartItem(item);
       return price ? [{ money: price, quantity: item.quantity }] : [];
     }),
   );
+  const cartItems = items ?? [];
 
   return {
-    items: items ?? [],
-    itemCount: (items ?? []).reduce((total, item) => total + item.quantity, 0),
+    items: cartItems,
+    itemCount: cartItems.reduce((total, item) => total + item.quantity, 0),
     subtotals,
+    groups: groupMarketplaceCartItems(cartItems),
     isLoading: items === undefined,
     add,
     update,

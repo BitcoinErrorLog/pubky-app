@@ -48,11 +48,14 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   return { ...actual, getCommerceAdapterMode: () => 'transaction-service' };
 });
 
-vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async () => {
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useMarketplaceCart/useMarketplaceCart')>();
   const { sumMoneyByAsset } = await import('@/libs/commerce/pricing');
   return {
+    ...actual,
     useMarketplaceCart: () => {
       const items = view.items as Array<{
+        listingId: string;
         quantity: number;
         variantId: string;
         listing: {
@@ -79,6 +82,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async () => {
         update: vi.fn(),
         remove: vi.fn(),
         clear: vi.fn(),
+        groups: actual.groupMarketplaceCartItems(items as never),
       };
     },
   };

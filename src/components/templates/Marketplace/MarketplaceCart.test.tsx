@@ -14,6 +14,11 @@ const view = vi.hoisted(() => ({
   selectedAddressId: null as string | null,
 }));
 
+const cartActions = vi.hoisted(() => ({
+  update: vi.fn(),
+  remove: vi.fn(),
+}));
+
 const listing = {
   id: 'seller:boots',
   listing_id: 'boots',
@@ -27,6 +32,20 @@ const listing = {
   },
 };
 
+const secondSellerListing = {
+  ...listing,
+  id: 'other:camera',
+  listing_id: 'camera',
+  record: {
+    ...listing.record,
+    ownerPubky: 'o'.repeat(52),
+    listingId: 'camera',
+    title: 'Rangefinder camera',
+    variants: [{ id: 'variant_01', options: {}, quantity: 2 }],
+    sale: { format: 'fixed_price', unitPrice: { amountMinor: 15000, currency: 'BTC', exponent: 8 } },
+  },
+};
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace/cart',
@@ -37,11 +56,14 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
 });
 
-vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async () => {
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useMarketplaceCart/useMarketplaceCart')>();
   const { sumMoneyByAsset } = await import('@/libs/commerce/pricing');
   return {
+    ...actual,
     useMarketplaceCart: () => {
       const items = view.items as Array<{
+        listingId: string;
         quantity: number;
         variantId: string;
         listing: {
@@ -65,9 +87,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async () => {
         ),
         isLoading: view.isLoading,
         add: vi.fn(),
-        update: vi.fn(),
-        remove: vi.fn(),
+        update: cartActions.update,
+        remove: cartActions.remove,
         clear: vi.fn(),
+        groups: actual.groupMarketplaceCartItems(items as never),
       };
     },
   };
@@ -107,6 +130,14 @@ vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
   ),
 }));
 
+vi.mock('@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary', () => ({
+  useMarketplaceSellerSummary: (sellerPubky: string, options?: { includeReputation?: boolean }) => ({
+    shop: null,
+    reputation: options?.includeReputation === false ? { status: 'unavailable' } : { status: 'new_seller' },
+    displayName: sellerPubky === listing.record.ownerPubky ? 'Satoshi Vintage' : 'Film Camera Supply',
+  }),
+}));
+
 function seededCart() {
   view.items = [
     {
@@ -130,6 +161,8 @@ async function fillValidDelivery(user: ReturnType<typeof userEvent.setup>) {
 
 describe('MarketplaceCart', () => {
   beforeEach(() => {
+    cartActions.update.mockReset();
+    cartActions.remove.mockReset();
     view.items = [];
     view.isLoading = false;
     view.adapterMode = 'sandbox';
@@ -217,5 +250,52 @@ describe('MarketplaceCart', () => {
     expect(skeleton).toBeInTheDocument();
     expect(skeleton.className).toContain('lg:grid-cols-[1fr_420px]');
     expect(within(skeleton).getAllByRole('generic').length).toBeGreaterThan(1);
+  });
+
+  it('groups multi-seller cart items by seller with per-asset subtotals', () => {
+    seededCart();
+    view.items = [
+      ...(view.items as unknown[]),
+      {
+        id: 'other:camera:variant_01',
+        listingId: secondSellerListing.id,
+        variantId: 'variant_01',
+        quantity: 2,
+        listing: secondSellerListing,
+      },
+    ];
+
+    render(<MarketplaceCart />);
+
+    expect(screen.getByText('Each seller ships separately; shipping is calculated at checkout.')).toBeInTheDocument();
+    expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
+    expect(screen.getByText('Film Camera Supply')).toBeInTheDocument();
+    expect(screen.getAllByText('Seller subtotal')).toHaveLength(2);
+    expect(screen.getAllByText('$12.00')).not.toHaveLength(0);
+    expect(screen.getAllByText('₿30,000')).toHaveLength(2);
+  });
+
+  it('does not render a seller header for a single-seller cart', () => {
+    seededCart();
+
+    render(<MarketplaceCart />);
+
+    expect(screen.getByText('Each seller ships separately; shipping is calculated at checkout.')).toBeInTheDocument();
+    expect(screen.queryByText('Satoshi Vintage')).not.toBeInTheDocument();
+    expect(screen.queryByText('Seller subtotal')).not.toBeInTheDocument();
+    expect(screen.getByText('Vintage boots')).toBeInTheDocument();
+  });
+
+  it('keeps remove and quantity actions scoped to the cart line', async () => {
+    const user = userEvent.setup();
+    seededCart();
+
+    render(<MarketplaceCart />);
+
+    await user.click(screen.getByRole('button', { name: 'Increase Vintage boots quantity' }));
+    expect(cartActions.update).toHaveBeenCalledWith(listing.id, 'variant_42', 2);
+
+    await user.click(screen.getByRole('button', { name: 'Remove Vintage boots' }));
+    expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42');
   });
 });
