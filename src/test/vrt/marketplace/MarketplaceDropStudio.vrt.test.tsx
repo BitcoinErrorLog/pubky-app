@@ -162,11 +162,18 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.publishStatus = { record: 'ok', sync: 'failed' };
     view.publishedDropId = 'drop123';
 
-    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await screen.getByText('Technical details').click();
-    // The publish-status panel sits at the bottom of the composer — scroll it
-    // into the clipped viewport before capturing.
+    // Keep pointer events on: this scene must open the native <details> so the
+    // two-truth rows and retry control are in frame. disableHover would set
+    // pointer-events:none on the VRT root and make the trigger click time out.
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP });
+    // Overflow is clipped to the VRT viewport; the native <summary> lives below
+    // the fold. Native <summary> is not exposed as role=button in Playwright's
+    // a11y tree (chromium/webkit/firefox), so query by its accessible name.
     screen.container.querySelector('[role="status"]')?.scrollIntoView({ block: 'center' });
+    const detailsTrigger = screen.getByText('Technical details');
+    await expect.element(detailsTrigger).toBeVisible();
+    await detailsTrigger.click();
+    await expect.element(screen.getByText('Retry registration')).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-two-truth-sync-failed-desktop');
   });
 });
