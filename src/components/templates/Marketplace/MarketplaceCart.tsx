@@ -1,8 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
-import { Controller } from 'react-hook-form';
+import { ArrowLeft, Check, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { Controller, useWatch } from 'react-hook-form';
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -13,17 +13,18 @@ import { Image } from '@/atoms/Image/Image';
 import { Label } from '@/atoms/Label/Label';
 import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
-import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
-import { getCommerceAdapterMode, isLocksPaykitCommerceMode } from '@/config/commerce';
+import { getCommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMode } from '@/config/commerce';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
+import { marketplaceCheckoutSchema } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { MarketplaceCartSkeleton } from './MarketplaceCart.skeleton';
 
 export function MarketplaceCart() {
   const router = useRouter();
@@ -31,6 +32,11 @@ export function MarketplaceCart() {
   const checkout = useMarketplaceCheckout(cart.items, cart.clear);
   const adapterMode = getCommerceAdapterMode();
   const isSandbox = adapterMode === 'sandbox';
+  const formValues = useWatch({ control: checkout.form.control });
+  const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
+  const sessionExpired = Boolean(checkout.needsSession && checkout.sessionError);
+  const approvalNeeded = isDurableCommerceMode(adapterMode) && (!checkout.hasMarketplaceSession || sessionExpired);
+  const canPlaceOrder = !approvalNeeded && formValid;
 
   const submit = async () => {
     if (await checkout.submit()) router.push(MARKETPLACE_ROUTES.ORDERS);
@@ -64,7 +70,7 @@ export function MarketplaceCart() {
         </div>
 
         {cart.isLoading ? (
-          <Skeleton className="h-48 w-full" />
+          <MarketplaceCartSkeleton />
         ) : cart.items.length ? (
           <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
             <div className="flex flex-col gap-3">
@@ -153,96 +159,132 @@ export function MarketplaceCart() {
             </div>
 
             <Card className="h-fit border">
-              <CardContent className="grid gap-4 px-6">
-                <Typography as="h2" className="text-xl font-semibold">
-                  Delivery and guarantee
-                </Typography>
-                {checkout.addresses.length > 0 && (
-                  <div className="grid gap-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="checkout-address-picker">Saved addresses</Label>
-                      <Link
-                        href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}
-                        overrideDefaults
-                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        Manage
-                      </Link>
+              <CardContent className="grid gap-6 px-6">
+                <section className="grid gap-3" aria-label="1 Approve in Pubky Ring">
+                  <Heading level={2} size="sm" className="text-xl font-semibold">
+                    1 Approve in Pubky Ring
+                  </Heading>
+                  {approvalNeeded ? (
+                    <MarketplaceSessionRequiredCard />
+                  ) : (
+                    <div className="flex items-start gap-3 rounded-xl border px-4 py-3">
+                      <Check className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+                      <Typography as="p" className="text-sm text-muted-foreground">
+                        {isSandbox
+                          ? 'Sandbox checkout does not need a Pubky Ring approval.'
+                          : 'Purchases approved in Pubky Ring. This session stays on this device until it expires or you sign out.'}
+                      </Typography>
                     </div>
-                    <Select
-                      value={checkout.selectedAddressId ?? 'new'}
-                      onValueChange={(value) => checkout.selectAddress(value === 'new' ? null : value)}
-                    >
-                      <SelectTrigger id="checkout-address-picker" className="h-11 w-full rounded-md border px-3">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {checkout.addresses.map((address) => (
-                          <SelectItem key={address.id} value={address.id}>
-                            {address.label} · {address.city}
-                            {address.is_default ? ' (default)' : ''}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="new">New address</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Typography as="p" className="text-xs text-muted-foreground">
-                      Saved on this device only — never published, and shared only with the transaction service when you
-                      place the order.
-                    </Typography>
+                  )}
+                </section>
+
+                <section className="grid gap-4" aria-label="2 Delivery and guarantee">
+                  <Heading level={2} size="sm" className="text-xl font-semibold">
+                    2 Delivery and guarantee
+                  </Heading>
+                  {checkout.addresses.length > 0 && (
+                    <div className="grid gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="checkout-address-picker">Saved addresses</Label>
+                        <Link
+                          href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}
+                          overrideDefaults
+                          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          Manage
+                        </Link>
+                      </div>
+                      <Select
+                        value={checkout.selectedAddressId ?? 'new'}
+                        onValueChange={(value) => checkout.selectAddress(value === 'new' ? null : value)}
+                      >
+                        <SelectTrigger id="checkout-address-picker" className="h-11 w-full rounded-md border px-3">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {checkout.addresses.map((address) => (
+                            <SelectItem key={address.id} value={address.id}>
+                              {address.label} · {address.city}
+                              {address.is_default ? ' (default)' : ''}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="new">New address</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Typography as="p" className="text-xs text-muted-foreground">
+                        Saved on this device only — never published, and shared only with the transaction service when you
+                        place the order.
+                      </Typography>
+                    </div>
+                  )}
+                  <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
+                  <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
+                  <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <ControlledInputField name="city" control={checkout.form.control} label="City" />
+                    <ControlledInputField name="region" control={checkout.form.control} label="Region" />
+                    <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
+                    <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
                   </div>
-                )}
-                <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
-                <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
-                <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <ControlledInputField name="city" control={checkout.form.control} label="City" />
-                  <ControlledInputField name="region" control={checkout.form.control} label="Region" />
-                  <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
-                  <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
-                </div>
-                {checkout.selectedAddressId === null && (
-                  <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
-                    <Controller
-                      name="saveAddress"
-                      control={checkout.form.control}
-                      render={({ field }) => (
-                        <Label className="items-start gap-3">
-                          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                          <span>Save this address on this device for next time</span>
-                        </Label>
-                      )}
-                    />
-                    {checkout.form.watch('saveAddress') && (
-                      <ControlledInputField
-                        name="saveLabel"
+                  {checkout.selectedAddressId === null && (
+                    <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
+                      <Controller
+                        name="saveAddress"
                         control={checkout.form.control}
-                        label="Label"
-                        placeholder="Home"
+                        render={({ field }) => (
+                          <Label className="items-start gap-3">
+                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                            <span>Save this address on this device for next time</span>
+                          </Label>
+                        )}
                       />
-                    )}
-                  </div>
-                )}
-                <Controller
-                  name="acceptsGuarantee"
-                  control={checkout.form.control}
-                  render={({ field }) => (
-                    <Label className="items-start gap-3">
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                      <span>
-                        {/* The guarantee copy must stay truthful per mode: only
+                      {checkout.form.watch('saveAddress') && (
+                        <ControlledInputField
+                          name="saveLabel"
+                          control={checkout.form.control}
+                          label="Label"
+                          placeholder="Home"
+                        />
+                      )}
+                    </div>
+                  )}
+                  <Controller
+                    name="acceptsGuarantee"
+                    control={checkout.form.control}
+                    render={({ field, fieldState }) => (
+                      <div className="grid gap-2">
+                        <Label className="items-start gap-3">
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            onBlur={field.onBlur}
+                            aria-invalid={fieldState.error ? true : undefined}
+                          />
+                          <span>
+                            {/* The guarantee copy must stay truthful per mode: only
                             locks-paykit has live payment rails, and even there the
                             marketplace never holds or moves funds itself. */}
-                        {isSandbox
-                          ? 'I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.'
-                          : isLocksPaykitCommerceMode(adapterMode)
-                            ? 'I accept guarantee policy v1. This is not legal escrow — payment goes from your wallet directly to the seller, and this marketplace never holds funds.'
-                            : 'I accept guarantee policy v1. This is not legal escrow, and no payment rails are live in this deployment — no real funds move.'}
-                      </span>
-                    </Label>
-                  )}
-                />
-                <div className="border-t pt-4">
+                            {isSandbox
+                              ? 'I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.'
+                              : isLocksPaykitCommerceMode(adapterMode)
+                                ? 'I accept guarantee policy v1. This is not legal escrow — payment goes from your wallet directly to the seller, and this marketplace never holds funds.'
+                                : 'I accept guarantee policy v1. This is not legal escrow, and no payment rails are live in this deployment — no real funds move.'}
+                          </span>
+                        </Label>
+                        {fieldState.error && (
+                          <Typography as="p" role="alert" className="text-sm text-destructive">
+                            {fieldState.error.message}
+                          </Typography>
+                        )}
+                      </div>
+                    )}
+                  />
+                </section>
+
+                <section className="grid gap-3 border-t pt-4" aria-label="3 Place order">
+                  <Heading level={2} size="sm" className="text-xl font-semibold">
+                    3 Place order
+                  </Heading>
                   <div className="flex justify-between">
                     <Typography as="span">Items</Typography>
                     {/* One line per pricing asset: USD cents and bitcoin base
@@ -256,18 +298,20 @@ export function MarketplaceCart() {
                       ))}
                     </div>
                   </div>
-                  <Typography as="p" className="mt-2 text-xs text-muted-foreground">
+                  <Typography as="p" className="text-xs text-muted-foreground">
                     Shipping is calculated authoritatively at checkout.
                   </Typography>
-                </div>
-                {/* A checkout rejected for a missing/expired durable session is
-                    recoverable in place: connect, then place the order again. */}
-                {checkout.needsSession && checkout.sessionError && (
-                  <MarketplaceSessionRequiredCard />
-                )}
-                <Button className="w-full rounded-full" onClick={submit}>
-                  {isSandbox ? 'Place sandbox order' : 'Place order'}
-                </Button>
+                  <Button className="w-full rounded-full" onClick={submit} disabled={!canPlaceOrder}>
+                    {isSandbox ? 'Place sandbox order' : 'Place order'}
+                  </Button>
+                  {!canPlaceOrder && (
+                    <Typography as="p" className="text-xs text-muted-foreground">
+                      {approvalNeeded
+                        ? 'Approve purchases in Pubky Ring before placing the order.'
+                        : 'Fill in delivery details and accept the guarantee to place the order.'}
+                    </Typography>
+                  )}
+                </section>
               </CardContent>
             </Card>
           </div>

@@ -80,6 +80,8 @@ export function useMarketplaceCheckout(
   submit: () => Promise<boolean>;
   needsSession: boolean;
   sessionError: string | null;
+  /** True when the commerce store holds a durable marketplace session. */
+  hasMarketplaceSession: boolean;
   /** Saved addresses in picker order (default first, then last used). */
   addresses: CommerceDeliveryAddressModelSchema[];
   /** Composite row id of the applied saved address; null while entering a new one. */
@@ -97,7 +99,7 @@ export function useMarketplaceCheckout(
   const form = useForm<MarketplaceCheckoutData>({
     resolver: zodResolver(marketplaceCheckoutSchema),
     defaultValues: marketplaceCheckoutDefaults,
-    mode: 'onChange',
+    mode: 'onTouched',
   });
 
   const addresses = useLiveQuery(
@@ -296,5 +298,14 @@ export function useMarketplaceCheckout(
     return succeeded;
   };
 
-  return { form, submit, needsSession, sessionError, addresses, selectedAddressId, selectAddress };
+  return {
+    form,
+    submit,
+    needsSession,
+    sessionError,
+    hasMarketplaceSession: marketplaceSession !== null,
+    addresses,
+    selectedAddressId,
+    selectAddress,
+  };
 }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  clearRouteGuardReturnTo,
   consumeRouteGuardReturnTo,
   isValidRouteGuardReturnToPath,
   ROUTE_GUARD_RETURN_TO_STORAGE_KEY,
@@ -43,5 +44,14 @@ describe('RouteGuardProvider return path', () => {
 
     expect(consumeRouteGuardReturnTo(['/feed'])).toBeNull();
     expect(window.sessionStorage.getItem(ROUTE_GUARD_RETURN_TO_STORAGE_KEY)).toBeNull();
+  });
+
+  it('clears a stored return path without consuming it', () => {
+    storeRouteGuardReturnTo('/marketplace/orders');
+
+    clearRouteGuardReturnTo();
+
+    expect(window.sessionStorage.getItem(ROUTE_GUARD_RETURN_TO_STORAGE_KEY)).toBeNull();
+    expect(consumeRouteGuardReturnTo(['/marketplace'])).toBeNull();
   });
 });

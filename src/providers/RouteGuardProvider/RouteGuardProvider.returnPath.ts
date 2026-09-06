@@ -54,6 +54,14 @@ export function storeRouteGuardReturnTo(path: string): void {
   }
 }
 
+export function clearRouteGuardReturnTo(): void {
+  try {
+    getSessionStorage()?.removeItem(ROUTE_GUARD_RETURN_TO_STORAGE_KEY);
+  } catch {
+    // Best-effort: sign-out must keep working in storage-disabled contexts.
+  }
+}
+
 export function consumeRouteGuardReturnTo(allowedRoutes: string[]): string | null {
   let path: string | null | undefined;
 

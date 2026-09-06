@@ -193,6 +193,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       submit: vi.fn(async () => false),
       needsSession: false,
       sessionError: null,
+      hasMarketplaceSession: false,
       addresses: view.addresses,
       selectedAddressId: view.selectedAddressId,
       selectAddress: vi.fn(),

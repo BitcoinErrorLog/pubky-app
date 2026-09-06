@@ -12,7 +12,9 @@ export const marketplaceCheckoutSchema = z
       .string()
       .trim()
       .regex(/^[A-Za-z]{2}$/, 'Use a two-letter country code.'),
-    acceptsGuarantee: z.literal(true, { error: 'Accept the sandbox guarantee terms.' }),
+    acceptsGuarantee: z.boolean().refine((value) => value === true, {
+      error: 'Accept the guarantee terms.',
+    }),
     // Client-only address book controls; never part of the checkout command.
     saveAddress: z.boolean(),
     saveLabel: z.string().trim().max(40, 'Keep the label under 40 characters.'),
@@ -33,7 +35,7 @@ export const marketplaceCheckoutDefaults: MarketplaceCheckoutData = {
   region: '',
   postalCode: '',
   countryCode: 'US',
-  acceptsGuarantee: true,
+  acceptsGuarantee: false,
   saveAddress: false,
   saveLabel: '',
 };

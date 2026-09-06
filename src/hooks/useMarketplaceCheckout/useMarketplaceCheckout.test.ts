@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useMarketplaceCheckout } from './useMarketplaceCheckout';
 
 const listing = createCommerceSandboxCatalog().listings.find(({ sale }) => sale.format === 'fixed_price')!;
@@ -83,6 +84,7 @@ describe('useMarketplaceCheckout', () => {
     vi.clearAllMocks();
     config.mode = 'sandbox';
     authMock.currentUserPubky = null;
+    useCommerceStore.setState({ marketplaceSession: null });
     vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([]);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000001100');
     vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue({
@@ -117,6 +119,7 @@ describe('useMarketplaceCheckout', () => {
       result.current.form.setValue('city', 'New York');
       result.current.form.setValue('region', 'NY');
       result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
     });
 
     let succeeded = false;
@@ -174,6 +177,7 @@ describe('useMarketplaceCheckout', () => {
       result.current.form.setValue('city', 'New York');
       result.current.form.setValue('region', 'NY');
       result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
     });
 
     let succeeded = false;
@@ -209,6 +213,7 @@ describe('useMarketplaceCheckout', () => {
       result.current.form.setValue('city', 'New York');
       result.current.form.setValue('region', 'NY');
       result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
     });
 
     let succeeded = true;
@@ -239,6 +244,7 @@ describe('useMarketplaceCheckout', () => {
       result.current.form.setValue('city', 'New York');
       result.current.form.setValue('region', 'NY');
       result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
     });
 
     let succeeded = true;
@@ -265,6 +271,11 @@ describe('useMarketplaceCheckout', () => {
     });
     expect(result.current.addresses).toEqual([savedAddress]);
     expect(result.current.form.getValues('line1')).toBe('1 Market Street');
+    expect(result.current.form.getValues('acceptsGuarantee')).toBe(false);
+
+    act(() => {
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
 
     let succeeded = false;
     await act(async () => {
@@ -303,6 +314,7 @@ describe('useMarketplaceCheckout', () => {
       result.current.form.setValue('postalCode', '10001');
       result.current.form.setValue('saveAddress', true);
       result.current.form.setValue('saveLabel', 'Home');
+      result.current.form.setValue('acceptsGuarantee', true);
     });
 
     let succeeded = false;
@@ -351,5 +363,44 @@ describe('useMarketplaceCheckout', () => {
     });
     expect(result.current.form.getValues('line1')).toBe('1 Market Street');
     expect(result.current.selectedAddressId).toBe(savedAddress.id);
+  });
+
+  it('leaves the guarantee unchecked until the buyer opts in', async () => {
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    expect(result.current.form.getValues('acceptsGuarantee')).toBe(false);
+    expect(result.current.form.formState.errors.acceptsGuarantee).toBeUndefined();
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+    expect(result.current.form.formState.errors.acceptsGuarantee?.message).toBe('Accept the guarantee terms.');
+  });
+
+  it('reports hasMarketplaceSession from the commerce store', () => {
+    useCommerceStore.setState({
+      marketplaceSession: {
+        pubky: BUYER,
+        capabilities: '',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      },
+    });
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    expect(result.current.hasMarketplaceSession).toBe(true);
   });
 });
