@@ -80,7 +80,7 @@ export function useMarketplaceCheckout(
   submit: () => Promise<boolean>;
   needsSession: boolean;
   sessionError: string | null;
-  /** True when the commerce store holds a durable marketplace session. */
+  /** True when the store holds session facts and getActiveSession still accepts them. */
   hasMarketplaceSession: boolean;
   /** Saved addresses in picker order (default first, then last used). */
   addresses: CommerceDeliveryAddressModelSchema[];
@@ -92,6 +92,7 @@ export function useMarketplaceCheckout(
   // Connecting a session replaces this store object; the flag below clears so
   // the cart's session-required card disappears without a submit attempt.
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
+  const hasActiveServiceSession = CommerceController.hasActiveMarketplaceSession();
   const [needsSession, setNeedsSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
@@ -110,6 +111,14 @@ export function useMarketplaceCheckout(
     [currentUserPubky],
     [] as CommerceDeliveryAddressModelSchema[],
   );
+
+  // If getActiveSession dropped the bearer (TTL margin), null the store copy
+  // so step 1 cannot stay "approved" after the service would reject.
+  useEffect(() => {
+    if (marketplaceSession !== null && !CommerceController.hasActiveMarketplaceSession()) {
+      CommerceController.clearMarketplaceSession();
+    }
+  }, [marketplaceSession]);
 
   // Pre-fill once from the picker's top address (default, else last used) —
   // but never over anything the buyer already typed.
@@ -286,7 +295,7 @@ export function useMarketplaceCheckout(
         if (isMarketplaceSessionRequiredError(checkoutError)) {
           // The projection reads and the checkout command both require the
           // durable session; surface the reconnect affordance instead of a
-          // generic failure toast.
+          // generic failure toast. The controller already cleared store+service.
           setNeedsSession(true);
           setSessionError(checkoutError.message);
           toast({ variant: 'error', description: checkoutError.message });
@@ -303,7 +312,7 @@ export function useMarketplaceCheckout(
     submit,
     needsSession,
     sessionError,
-    hasMarketplaceSession: marketplaceSession !== null,
+    hasMarketplaceSession: marketplaceSession !== null && hasActiveServiceSession,
     addresses,
     selectedAddressId,
     selectAddress,

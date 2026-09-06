@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import type { CommerceAdapterMode } from '@/config/commerce';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
@@ -435,5 +438,54 @@ describe('CommerceController', () => {
       flow.cancel();
       expect(cancel).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('nulls the store when executeMarketplaceCommand gets SESSION_EXPIRED', async () => {
+    useCommerceStore.getState().setMarketplaceSession({
+      pubky: COMMERCE_FIXTURE_SELLER,
+      capabilities: '',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(false);
+    vi.spyOn(CommerceApplication, 'clearMarketplaceSession').mockImplementation(() => undefined);
+    vi.spyOn(CommerceApplication, 'executeMarketplaceCommand').mockRejectedValue(
+      Err.auth(
+        AuthErrorCode.SESSION_EXPIRED,
+        'The marketplace session expired. Approve the marketplace connection on your signer and try again.',
+        { service: ErrorService.Marketplace, operation: 'execute' },
+      ),
+    );
+
+    await expect(
+      CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001100',
+        aggregateId: 'checkout:00000000-0000-4000-8000-000000001100',
+        expectedRevision: 0,
+        issuedAt: '2026-08-21T00:00:00.000Z',
+        kind: 'checkout.create',
+        payload: {
+          lines: [
+            {
+              listingAggregateId: `listing:${COMMERCE_FIXTURE_SELLER}:boots`,
+              expectedRevision: 1,
+              quantity: 1,
+            },
+          ],
+          deliveryAddress: {
+            name: 'Alice',
+            line1: '1 Market Street',
+            line2: '',
+            city: 'New York',
+            region: 'NY',
+            postalCode: '10001',
+            countryCode: 'US',
+          },
+          guaranteePolicyVersion: 1,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+
+    expect(useCommerceStore.getState().marketplaceSession).toBeNull();
   });
 });

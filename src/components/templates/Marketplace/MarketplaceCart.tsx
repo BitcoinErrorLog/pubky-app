@@ -301,11 +301,16 @@ export function MarketplaceCart() {
                   <Typography as="p" className="text-xs text-muted-foreground">
                     Shipping is calculated authoritatively at checkout.
                   </Typography>
-                  <Button className="w-full rounded-full" onClick={submit} disabled={!canPlaceOrder}>
+                  <Button
+                    className="w-full rounded-full"
+                    onClick={submit}
+                    disabled={!canPlaceOrder}
+                    aria-describedby={!canPlaceOrder ? 'place-order-reason' : undefined}
+                  >
                     {isSandbox ? 'Place sandbox order' : 'Place order'}
                   </Button>
                   {!canPlaceOrder && (
-                    <Typography as="p" className="text-xs text-muted-foreground">
+                    <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
                       {approvalNeeded
                         ? 'Approve purchases in Pubky Ring before placing the order.'
                         : 'Fill in delivery details and accept the guarantee to place the order.'}

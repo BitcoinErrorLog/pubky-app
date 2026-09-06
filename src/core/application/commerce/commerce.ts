@@ -406,6 +406,14 @@ export class CommerceApplication {
     this.publishedReceiptUrls.clear();
   }
 
+  /**
+   * True while `MarketplaceSessionService.getActiveSession()` still holds a
+   * token inside the expiry margin. Callers must not duplicate that TTL rule.
+   */
+  static hasActiveMarketplaceSession(): boolean {
+    return MarketplaceSessionService.getActiveSession() !== null;
+  }
+
   static async getMarketplaceListingProjection(actorPubky: string | null, aggregateId: string) {
     return await MarketplaceGatewayService.getListing(actorPubky, aggregateId);
   }

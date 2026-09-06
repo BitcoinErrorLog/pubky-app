@@ -13,6 +13,7 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { CommerceIndexedReview } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
@@ -185,11 +186,29 @@ export class CommerceController {
     };
   }
 
+  /**
+   * Drops the service bearer and the store's public session facts together.
+   */
+  static clearMarketplaceSession(): void {
+    CommerceApplication.clearMarketplaceSession();
+    this.clearMarketplaceSessionStore();
+  }
+
+  /** True while getActiveSession still considers the bearer inside its margin. */
+  static hasActiveMarketplaceSession(): boolean {
+    return CommerceApplication.hasActiveMarketplaceSession();
+  }
+
   static async executeMarketplaceCommand(input: unknown) {
-    return await CommerceApplication.executeMarketplaceCommand(
-      this.getCurrentUserPubky(),
-      CommerceRecordNormalizer.marketplaceCommand(input),
-    );
+    try {
+      return await CommerceApplication.executeMarketplaceCommand(
+        this.getCurrentUserPubky(),
+        CommerceRecordNormalizer.marketplaceCommand(input),
+      );
+    } catch (error) {
+      this.reconcileMarketplaceSessionAfterTransport(error);
+      throw error;
+    }
   }
 
   /**
@@ -460,10 +479,15 @@ export class CommerceController {
     // Nullable on purpose: the sandbox serves this projection to signed-out
     // visitors, while the durable transport requires the signed-in pubky to
     // bind its bearer session and degrades with session guidance otherwise.
-    return await CommerceApplication.getMarketplaceListingProjection(
-      useAuthStore.getState().currentUserPubky,
-      buildMarketplaceListingAggregateId(owner, id),
-    );
+    try {
+      return await CommerceApplication.getMarketplaceListingProjection(
+        useAuthStore.getState().currentUserPubky,
+        buildMarketplaceListingAggregateId(owner, id),
+      );
+    } catch (error) {
+      this.reconcileMarketplaceSessionAfterTransport(error);
+      throw error;
+    }
   }
 
   /** The auction's visible-price bid history (durable service, signed-in). */
@@ -1075,6 +1099,25 @@ export class CommerceController {
         operation: 'assertCurrentUserOwns',
         context: { ownerMatches: false },
       });
+    }
+  }
+
+  /**
+   * Invariant: ending a marketplace session (local TTL via getActiveSession,
+   * 401/SESSION_EXPIRED from the transport, or sign-out) always nulls the
+   * zustand copy here — the controller owns the store; the service never does.
+   */
+  private static clearMarketplaceSessionStore(): void {
+    useCommerceStore.getState().setMarketplaceSession(null);
+  }
+
+  private static reconcileMarketplaceSessionAfterTransport(error: unknown): void {
+    if (isMarketplaceSessionRequiredError(error)) {
+      this.clearMarketplaceSession();
+      return;
+    }
+    if (!CommerceApplication.hasActiveMarketplaceSession()) {
+      this.clearMarketplaceSessionStore();
     }
   }
 

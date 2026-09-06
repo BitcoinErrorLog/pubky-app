@@ -149,8 +149,13 @@ describe('MarketplaceCart', () => {
 
     expect(screen.getByRole('heading', { name: '1 Approve in Pubky Ring' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Place order' })).toBeDisabled();
-    expect(screen.getByText('Approve purchases in Pubky Ring before placing the order.')).toBeInTheDocument();
+    const placeOrder = screen.getByRole('button', { name: 'Place order' });
+    expect(placeOrder).toBeDisabled();
+    expect(placeOrder).toHaveAttribute('aria-describedby', 'place-order-reason');
+    expect(screen.getByText('Approve purchases in Pubky Ring before placing the order.')).toHaveAttribute(
+      'id',
+      'place-order-reason',
+    );
     expect(screen.queryByText('Accept the guarantee terms.')).not.toBeInTheDocument();
   });
 

@@ -46,6 +46,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getDeliveryAddresses: vi.fn(async () => []),
     commitUpsertDeliveryAddress: vi.fn(async () => {}),
     commitMarkDeliveryAddressUsed: vi.fn(async () => {}),
+    hasActiveMarketplaceSession: vi.fn(() => false),
+    clearMarketplaceSession: vi.fn(),
   },
 }));
 
@@ -386,7 +388,8 @@ describe('useMarketplaceCheckout', () => {
     expect(result.current.form.formState.errors.acceptsGuarantee?.message).toBe('Accept the guarantee terms.');
   });
 
-  it('reports hasMarketplaceSession from the commerce store', () => {
+  it('reports hasMarketplaceSession only when the store and getActiveSession agree', () => {
+    vi.mocked(CommerceController.hasActiveMarketplaceSession).mockReturnValue(true);
     useCommerceStore.setState({
       marketplaceSession: {
         pubky: BUYER,
@@ -402,5 +405,14 @@ describe('useMarketplaceCheckout', () => {
     );
 
     expect(result.current.hasMarketplaceSession).toBe(true);
+
+    vi.mocked(CommerceController.hasActiveMarketplaceSession).mockReturnValue(false);
+    const expired = renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+    expect(expired.result.current.hasMarketplaceSession).toBe(false);
   });
 });
