@@ -5,10 +5,21 @@ import { useNotifications } from '@/hooks/useNotifications/useNotifications';
 import { type FlatNotification, NotificationType, PostChangedSource } from '@/models/notification/notification.types';
 import { NotificationsContainer } from './NotificationsContainer';
 
-const authStoreState = vi.hoisted(() => ({ session: {} as unknown }));
+const authStoreState = vi.hoisted(() => ({
+  session: {} as unknown,
+  currentUserPubky: 'viewer'.repeat(9).slice(0, 52),
+}));
+const marketplaceFeedState = vi.hoisted(() => ({
+  items: [] as unknown[],
+  markAllRead: vi.fn(async () => {}),
+}));
+const watchAlertFeedState = vi.hoisted(() => ({
+  items: [] as unknown[],
+  markAllSeen: vi.fn(async () => {}),
+}));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector?: (state: { session: unknown | null }) => unknown) =>
+  useAuthStore: (selector?: (state: { session: unknown | null; currentUserPubky: string }) => unknown) =>
     selector ? selector(authStoreState) : authStoreState,
 }));
 
@@ -16,7 +27,18 @@ vi.mock('@/stores/auth/auth.store', () => ({
 // these tests free of the async re-render the real hook schedules (several
 // scenarios use mockReturnValueOnce and must not re-render past it).
 vi.mock('@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed', () => ({
-  useMarketplaceWatchAlertFeed: () => ({ items: [], markAllSeen: vi.fn(async () => {}) }),
+  useMarketplaceWatchAlertFeed: () => ({
+    items: watchAlertFeedState.items,
+    markAllSeen: watchAlertFeedState.markAllSeen,
+  }),
+}));
+
+vi.mock('@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed', () => ({
+  useMarketplaceNotificationFeed: () => ({
+    items: marketplaceFeedState.items,
+    refresh: vi.fn(async () => {}),
+    markAllRead: marketplaceFeedState.markAllRead,
+  }),
 }));
 
 // The entry effect advances the device-local activity read checkpoint; the
@@ -130,9 +152,19 @@ vi.mock('@/organisms/NotificationsList/NotificationsList', () => ({
   ),
 }));
 
+function resetFeedMocks() {
+  marketplaceFeedState.items = [];
+  watchAlertFeedState.items = [];
+  marketplaceFeedState.markAllRead.mockClear();
+  watchAlertFeedState.markAllSeen.mockClear();
+  window.localStorage.clear();
+}
+
 describe('NotificationsContainer', () => {
   beforeEach(() => {
     authStoreState.session = {};
+    authStoreState.currentUserPubky = 'viewer'.repeat(9).slice(0, 52);
+    resetFeedMocks();
     mockMarkActivityRead.mockClear();
   });
 
@@ -345,6 +377,51 @@ describe('NotificationsContainer', () => {
     const { container } = render(<NotificationsContainer />);
     expect(container).toMatchSnapshot();
   });
+
+  it('filters tabs and persists the last selected tab for the account', async () => {
+    marketplaceFeedState.items = [
+      {
+        id: 'marketplace:offer1',
+        source: 'marketplace',
+        type: 'offer_received',
+        actorPubky: 'seller'.repeat(9).slice(0, 52),
+        aggregateId: 'offer:1',
+        timestamp: Date.now(),
+        isUnread: true,
+        href: '/marketplace/offers',
+      },
+    ];
+    watchAlertFeedState.items = [
+      {
+        id: 'watch:1',
+        source: 'watch-alert',
+        kind: 'outbid',
+        title: 'Vintage boots',
+        href: '/marketplace/listing/seller/boots',
+        timestamp: Date.now() - 1,
+        isUnseen: true,
+        endsAt: null,
+        previousAmount: null,
+        currentAmount: null,
+        bidCount: 4,
+        previousState: null,
+        nextState: null,
+      },
+    ];
+
+    render(<NotificationsContainer />);
+
+    expect(screen.getByRole('tab', { name: 'All (3)' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Marketplace (2)' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Social (1)' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Marketplace (2)' }));
+
+    expect(screen.getByTestId('notifications-list')).toHaveTextContent('2 notifications');
+    expect(
+      window.localStorage.getItem(`marketplace:general-notifications-tab:${authStoreState.currentUserPubky}`),
+    ).toBe('marketplace');
+  });
 });
 
 function buildNotificationsResult({
@@ -375,6 +452,7 @@ function buildNotificationsResult({
 describe('NotificationsContainer - grouping', () => {
   beforeEach(() => {
     authStoreState.session = {};
+    resetFeedMocks();
   });
 
   it('collapses consecutive deletions by the same actor into one row', () => {
@@ -423,6 +501,7 @@ describe('NotificationsContainer - auto-load guard', () => {
 
   beforeEach(() => {
     authStoreState.session = {};
+    resetFeedMocks();
     loadMore.mockClear();
     mockResumeAutoLoad.mockClear();
     infiniteScrollState.isStalled = false;

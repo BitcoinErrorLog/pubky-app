@@ -131,6 +131,7 @@ vi.mock('@/hooks/useRelativeTime/useRelativeTime', () => {
 });
 
 async function setView(overrides: Partial<typeof view>) {
+  window.localStorage.clear();
   view.social = [];
   view.unreadSocial = [];
   view.marketplaceItems = [];

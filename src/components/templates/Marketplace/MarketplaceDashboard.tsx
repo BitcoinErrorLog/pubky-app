@@ -2,7 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Download, Package, Pause, PencilLine, Play, ShoppingBag, Store, TrendingUp } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Download,
+  Package,
+  Pause,
+  PencilLine,
+  Play,
+  ShoppingBag,
+  Store,
+  TrendingUp,
+} from 'lucide-react';
 import {
   APP_ROUTES,
   getMarketplaceListingEditRoute,
@@ -148,8 +159,58 @@ export function MarketplaceDashboard() {
                 come from the durable service — without a session the work
                 queues and revenue below would silently read as zero, so say
                 so and offer the connect affordance instead. */}
-            {dashboard.needsSession && dashboard.sessionError && (
-              <MarketplaceSessionRequiredCard />
+            {dashboard.needsSession && dashboard.sessionError && <MarketplaceSessionRequiredCard />}
+            {dashboard.actionNeeded.total > 0 && (
+              <Card className="border border-brand/40 bg-brand/5">
+                <CardContent className="flex flex-col gap-4 px-5 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-1 size-5 shrink-0 text-brand" />
+                    <div>
+                      <Typography as="h2" className="font-semibold">
+                        Action needed
+                      </Typography>
+                      <Typography as="p" className="text-sm text-muted-foreground">
+                        {[
+                          dashboard.actionNeeded.ordersToShip > 0
+                            ? `${dashboard.actionNeeded.ordersToShip} paid ${dashboard.actionNeeded.ordersToShip === 1 ? 'order' : 'orders'} to ship`
+                            : null,
+                          dashboard.actionNeeded.offersAwaitingReply > 0
+                            ? `${dashboard.actionNeeded.offersAwaitingReply} open ${dashboard.actionNeeded.offersAwaitingReply === 1 ? 'offer' : 'offers'} awaiting your reply`
+                            : null,
+                          dashboard.actionNeeded.expiringAuctions > 0
+                            ? `${dashboard.actionNeeded.expiringAuctions} expiring ${dashboard.actionNeeded.expiringAuctions === 1 ? 'auction' : 'auctions'}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </Typography>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {dashboard.actionNeeded.ordersToShip > 0 && (
+                      <Button asChild variant="secondary" className="rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
+                          Ship orders
+                        </Link>
+                      </Button>
+                    )}
+                    {dashboard.actionNeeded.offersAwaitingReply > 0 && (
+                      <Button asChild variant="secondary" className="rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
+                          Review offers
+                        </Link>
+                      </Button>
+                    )}
+                    {dashboard.actionNeeded.expiringAuctions > 0 && (
+                      <Button asChild variant="secondary" className="rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
+                          Check auctions
+                        </Link>
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             )}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {[

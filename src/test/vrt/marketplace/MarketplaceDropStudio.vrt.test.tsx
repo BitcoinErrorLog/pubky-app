@@ -163,8 +163,9 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.publishedDropId = 'drop123';
 
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    // The two-truth panel sits at the bottom of the composer — scroll it into
-    // the clipped viewport before capturing.
+    await screen.getByText('Technical details').click();
+    // The publish-status panel sits at the bottom of the composer — scroll it
+    // into the clipped viewport before capturing.
     screen.container.querySelector('[role="status"]')?.scrollIntoView({ block: 'center' });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-two-truth-sync-failed-desktop');
   });

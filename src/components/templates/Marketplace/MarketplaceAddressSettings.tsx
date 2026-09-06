@@ -88,8 +88,7 @@ export function MarketplaceAddressSettings() {
               Delivery addresses
             </Heading>
             <Typography as="p" className="mt-2 max-w-xl text-muted-foreground">
-              Saved in this browser&apos;s account-scoped storage only — never published to your homeserver, and shared
-              with the transaction service exactly once per order, inside your own checkout.
+              These are your delivery addresses for purchases you make; sellers never see them.
             </Typography>
           </div>
           {editingId === null && (

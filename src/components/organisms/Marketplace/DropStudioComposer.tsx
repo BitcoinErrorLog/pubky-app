@@ -311,31 +311,48 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
   );
 }
 
-/** The two-truth publish status: record on the homeserver, registered with the service. */
+/** Publish status summary with the homeserver/service detail available on demand. */
 function DropStudioPublishTruths({ studio }: { studio: UseDropStudioResult }) {
   const { publishStatus, publishedDropId } = studio;
   if (publishStatus.record === 'idle' || publishStatus.record === 'publishing') return null;
+  const statusLabel = publishStatus.record === 'ok' && publishStatus.sync === 'ok' ? 'Scheduled' : 'Draft';
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-4" role="status">
-      <DropStudioTruthRow label="Record on your homeserver" state={publishStatus.record === 'ok' ? 'ok' : 'failed'} />
       <div className="flex flex-wrap items-center gap-2">
-        <DropStudioTruthRow
-          label="Registered with the service"
-          state={publishStatus.sync === 'ok' ? 'ok' : publishStatus.sync === 'syncing' ? 'pending' : 'failed'}
-        />
-        {publishStatus.sync === 'failed' && (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="rounded-full"
-            onClick={() => void studio.retrySync()}
-          >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Retry registration
-          </Button>
-        )}
+        <Badge variant={statusLabel === 'Scheduled' ? 'secondary' : 'outline'}>{statusLabel}</Badge>
+        <Typography as="p" className="text-sm text-muted-foreground">
+          {statusLabel === 'Scheduled'
+            ? 'The drop is registered and waiting for the service clock.'
+            : 'The drop is not registered with the service yet.'}
+        </Typography>
       </div>
+      <details className="rounded-md border border-border/70 p-3">
+        <summary className="cursor-pointer text-sm font-medium">Technical details</summary>
+        <div className="mt-3 flex flex-col gap-2">
+          <DropStudioTruthRow
+            label="Record on your homeserver"
+            state={publishStatus.record === 'ok' ? 'ok' : 'failed'}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <DropStudioTruthRow
+              label="Registered with the service"
+              state={publishStatus.sync === 'ok' ? 'ok' : publishStatus.sync === 'syncing' ? 'pending' : 'failed'}
+            />
+            {publishStatus.sync === 'failed' && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="rounded-full"
+                onClick={() => void studio.retrySync()}
+              >
+                <RefreshCw className="mr-1.5 size-3.5" />
+                Retry registration
+              </Button>
+            )}
+          </div>
+        </div>
+      </details>
       {publishStatus.record === 'ok' && publishedDropId && (
         <Link href={`${MARKETPLACE_ROUTES.SELL_DROPS}/${publishedDropId}`} className="inline-flex w-fit text-sm">
           Open mission control

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
@@ -9,6 +10,7 @@ import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function useMarketplaceSellerDashboard() {
+  const [nowMs, setNowMs] = useState(0);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const localListings = useLiveQuery(
     () => (currentUserPubky ? CommerceController.getListingsBySeller(currentUserPubky) : []),
@@ -17,7 +19,18 @@ export function useMarketplaceSellerDashboard() {
   const orders = useMarketplaceOrders();
   const offers = useMarketplaceOffers();
   const sellerOrders = orders.orders.filter(({ order }) => order.sellerPubky === currentUserPubky);
+  const sellerOffers = offers.offers.filter(({ sellerPubky }) => sellerPubky === currentUserPubky);
   const activeListings = (localListings ?? []).filter(({ state }) => state === 'active');
+  const expiringBefore = nowMs + 24 * 60 * 60 * 1_000;
+  const expiringAuctions = activeListings.filter((listing) => {
+    if (listing.record.sale.format !== 'auction') return false;
+    const endsAt = Date.parse(listing.record.sale.endsAt);
+    return endsAt > nowMs && endsAt <= expiringBefore;
+  }).length;
+  const ordersToShip = sellerOrders.filter(({ order }) => order.state === 'paid').length;
+  const offersAwaitingReply = sellerOffers.filter(
+    ({ state, offeredBy }) => (state === 'pending' || state === 'countered') && offeredBy !== currentUserPubky,
+  ).length;
   const totalInventory = activeListings.reduce(
     (total, listing) => total + listing.record.variants.reduce((sum, variant) => sum + variant.quantity, 0),
     0,
@@ -65,10 +78,14 @@ export function useMarketplaceSellerDashboard() {
     return [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
   };
 
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, []);
+
   return {
     listings: localListings ?? [],
     sellerOrders,
-    offers: offers.offers.filter(({ sellerPubky }) => sellerPubky === currentUserPubky),
+    offers: sellerOffers,
     isLoading: localListings === undefined || orders.isLoading || offers.isLoading,
     // Orders and offers ride the same durable session, so either flag means
     // the dashboard's remote-backed numbers are missing until reconnect.
@@ -82,9 +99,13 @@ export function useMarketplaceSellerDashboard() {
       ).length,
       paidOrders: sellerOrders.filter(({ order }) => order.state !== 'pending_payment').length,
       revenue,
-      openOffers: offers.offers.filter(
-        ({ sellerPubky, state }) => sellerPubky === currentUserPubky && (state === 'pending' || state === 'countered'),
-      ).length,
+      openOffers: sellerOffers.filter(({ state }) => state === 'pending' || state === 'countered').length,
+    },
+    actionNeeded: {
+      ordersToShip,
+      offersAwaitingReply,
+      expiringAuctions,
+      total: ordersToShip + offersAwaitingReply + expiringAuctions,
     },
     updateListingState,
     exportCsv,

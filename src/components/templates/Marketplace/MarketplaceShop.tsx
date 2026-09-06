@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, MapPin, Store, User, UserCheck, UserPlus } from 'lucide-react';
+import { ArrowLeft, CreditCard, MapPin, Store, User, UserCheck, UserPlus } from 'lucide-react';
 import { APP_ROUTES, getProfileRoute, MARKETPLACE_ROUTES, PROFILE_ROUTES } from '@/app/routes';
 import { TagKind } from '@/application/tag/tag.types';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -216,19 +216,27 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                   </Heading>
                   <Typography as="p" className="mt-2 max-w-2xl text-muted-foreground">
                     {isOwner
-                      ? 'You haven\u2019t set up a shop yet. Buyers who open your listings land here and only see your key.'
+                      ? 'Set up your seller account to start listing.'
                       : 'This seller hasn\u2019t set up a shop profile yet. Their owner-signed listings are below.'}
                   </Typography>
                   <MarketplaceReputationHeader sellerPubky={sellerPubky} variant="full" className="mt-3" />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {isOwner ? (
-                    <Button asChild className="rounded-full">
-                      <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
-                        <Store className="mr-2 size-4" />
-                        Set up your shop
-                      </Link>
-                    </Button>
+                    <>
+                      <Button asChild className="rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
+                          <CreditCard className="mr-2 size-4" />
+                          Payment settings
+                        </Link>
+                      </Button>
+                      <Button asChild variant="secondary" className="rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                          <Store className="mr-2 size-4" />
+                          My Shop
+                        </Link>
+                      </Button>
+                    </>
                   ) : (
                     <Button asChild variant="secondary" className="rounded-full">
                       <Link href={getProfileRoute(PROFILE_ROUTES.PROFILE, sellerPubky)} overrideDefaults>

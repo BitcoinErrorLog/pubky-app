@@ -18,7 +18,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
  * The drops home in the sell area: the seller's drops (each row carrying the
- * AUTHORITATIVE state from the service's seller projection, or "unregistered"
+ * AUTHORITATIVE state from the service's seller projection, or a Draft label
  * when the service has no aggregate) above the Drop Studio composer. Drops
  * are durable-mode only — server time is the feature — so every other mode
  * renders the affordance as unavailable, labeled.
@@ -127,11 +127,11 @@ export function DropStudioHome() {
 }
 
 const DROP_STATE_LABELS: Record<DropState, string> = {
-  announced: 'Announced',
+  announced: 'Scheduled',
   live: 'Live',
-  ended_sold_out: 'Sold out',
+  ended_sold_out: 'Ended',
   ended_closed: 'Ended',
-  ended_cancelled: 'Cancelled',
+  ended_cancelled: 'Ended',
 };
 
 function DropStudioHomeRow({ row }: { row: OwnDropRow }) {
@@ -159,7 +159,7 @@ function DropStudioHomeRow({ row }: { row: OwnDropRow }) {
             {DROP_STATE_LABELS[row.drop.state]}
           </Badge>
         ) : (
-          <Badge variant="outline">Unregistered</Badge>
+          <Badge variant="outline">Draft</Badge>
         )}
       </Link>
     </li>

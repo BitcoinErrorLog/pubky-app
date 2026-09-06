@@ -69,28 +69,26 @@ export function MarketplaceSell() {
           </Link>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <Rocket className="mt-0.5 size-5 shrink-0 text-brand" />
-            <div>
-              <Typography as="p" className="font-semibold">
-                Drops — timed limited releases
-              </Typography>
-              <Typography as="p" className="text-sm text-muted-foreground">
-                {isDurableCommerceMode(getCommerceAdapterMode())
-                  ? 'Bundle listings into a scheduled, capped release the transaction service enforces on server time.'
-                  : 'Unavailable in this mode: drops require the durable transaction service — server time is the feature.'}
-              </Typography>
+        {isDurableCommerceMode(getCommerceAdapterMode()) && (
+          <div className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Rocket className="mt-0.5 size-5 shrink-0 text-brand" />
+              <div>
+                <Typography as="p" className="font-semibold">
+                  Drops — timed limited releases
+                </Typography>
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  Bundle listings into a scheduled, capped release the transaction service enforces on server time.
+                </Typography>
+              </div>
             </div>
-          </div>
-          {isDurableCommerceMode(getCommerceAdapterMode()) && (
             <Button asChild variant="secondary" className="shrink-0 rounded-full">
               <Link href={MARKETPLACE_ROUTES.SELL_DROPS} overrideDefaults>
                 Open Drop Studio
               </Link>
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {listing.restoredDraft && (
           <div

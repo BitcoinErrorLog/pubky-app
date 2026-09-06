@@ -62,6 +62,12 @@ const fixtures = vi.hoisted(async () => {
       revenue: [{ amountMinor: 51_300, currency: 'USD', exponent: 2 }],
       openOffers: 2,
     },
+    populatedActionNeeded: {
+      ordersToShip: 2,
+      offersAwaitingReply: 2,
+      expiringAuctions: 1,
+      total: 5,
+    },
     emptyMetrics: {
       activeListings: 0,
       totalInventory: 0,
@@ -70,12 +76,19 @@ const fixtures = vi.hoisted(async () => {
       revenue: [],
       openOffers: 0,
     },
+    emptyActionNeeded: {
+      ordersToShip: 0,
+      offersAwaitingReply: 0,
+      expiringAuctions: 0,
+      total: 0,
+    },
   };
 });
 
 const view = vi.hoisted(() => ({
   listings: [] as unknown[],
   metrics: {} as unknown,
+  actionNeeded: {} as unknown,
   isLoading: false,
   shop: null as unknown,
 }));
@@ -131,6 +144,7 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     needsSession: false,
     sessionError: null,
     metrics: view.metrics,
+    actionNeeded: view.actionNeeded,
     updateListingState: vi.fn(async () => false),
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
   }),
@@ -142,9 +156,10 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 
 describe('Marketplace seller dashboard — visual regression', () => {
   it('renders populated metrics and inventory with row actions at desktop viewport', async () => {
-    const { listings, populatedMetrics, shop } = await fixtures;
+    const { listings, populatedMetrics, populatedActionNeeded, shop } = await fixtures;
     view.listings = listings;
     view.metrics = populatedMetrics;
+    view.actionNeeded = populatedActionNeeded;
     view.isLoading = false;
     view.shop = shop;
 
@@ -153,9 +168,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
   });
 
   it('renders populated metrics and inventory at mobile viewport', async () => {
-    const { listings, populatedMetrics, shop } = await fixtures;
+    const { listings, populatedMetrics, populatedActionNeeded, shop } = await fixtures;
     view.listings = listings;
     view.metrics = populatedMetrics;
+    view.actionNeeded = populatedActionNeeded;
     view.isLoading = false;
     view.shop = shop;
 
@@ -166,9 +182,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
   // A seller with published listings but NO shop record dead-ends buyers on
   // their shop link — the dashboard must say so and offer the setup path.
   it('renders the set-up-your-shop prompt when listings exist without a shop at desktop viewport', async () => {
-    const { listings, populatedMetrics } = await fixtures;
+    const { listings, populatedMetrics, populatedActionNeeded } = await fixtures;
     view.listings = listings;
     view.metrics = populatedMetrics;
+    view.actionNeeded = populatedActionNeeded;
     view.isLoading = false;
     view.shop = null;
 
@@ -182,9 +199,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
   });
 
   it('renders the new-seller empty state at desktop viewport', async () => {
-    const { emptyMetrics, shop } = await fixtures;
+    const { emptyMetrics, emptyActionNeeded, shop } = await fixtures;
     view.listings = [];
     view.metrics = emptyMetrics;
+    view.actionNeeded = emptyActionNeeded;
     view.isLoading = false;
     view.shop = shop;
 
@@ -193,9 +211,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
   });
 
   it('renders the loading state at desktop viewport', async () => {
-    const { emptyMetrics, shop } = await fixtures;
+    const { emptyMetrics, emptyActionNeeded, shop } = await fixtures;
     view.listings = [];
     view.metrics = emptyMetrics;
+    view.actionNeeded = emptyActionNeeded;
     view.isLoading = true;
     view.shop = shop;
 
