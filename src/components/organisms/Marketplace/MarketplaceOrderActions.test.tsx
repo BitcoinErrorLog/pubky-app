@@ -112,21 +112,42 @@ describe('MarketplaceOrderActions review editing', () => {
     const { order, actOnOrder } = renderActions({ withOwnReview: false });
 
     await user.click(screen.getByRole('button', { name: 'Leave review' }));
-    const defaultRating = screen.getByRole('radio', { name: '5 stars' });
-    expect(defaultRating).toBeChecked();
+    const oneStar = screen.getByRole('radio', { name: '1 star' });
+    await user.click(oneStar);
+    expect(oneStar).toBeChecked();
+    expect(oneStar).toHaveFocus();
 
-    defaultRating.focus();
-    await user.keyboard('{ArrowLeft}');
-    expect(screen.getByRole('radio', { name: '4 stars' })).toBeChecked();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('radio', { name: '2 stars' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: '2 stars' })).toHaveFocus();
+
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('radio', { name: '3 stars' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: '3 stars' })).toHaveFocus();
 
     await user.type(screen.getByLabelText('Review'), 'Accurate and fast.');
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
 
     expect(actOnOrder).toHaveBeenCalledWith(order, 'review.create', {
-      rating: 4,
+      rating: 3,
       text: 'Accurate and fast.',
       allowAmountBand: false,
     });
+  });
+
+  it('keeps a single tab stop on the checked rating radio', async () => {
+    const user = userEvent.setup();
+    renderActions({ withOwnReview: false });
+
+    await user.click(screen.getByRole('button', { name: 'Leave review' }));
+    const checked = screen.getByRole('radio', { name: '5 stars' });
+    const radios = screen.getAllByRole('radio');
+    expect(checked).toBeChecked();
+    expect(radios.filter((radio) => radio.tabIndex >= 0)).toEqual([checked]);
+
+    checked.focus();
+    await user.tab();
+    expect(screen.getByLabelText('Review')).toHaveFocus();
   });
 });
 

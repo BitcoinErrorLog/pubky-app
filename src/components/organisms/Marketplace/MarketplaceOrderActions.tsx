@@ -289,12 +289,6 @@ export function MarketplaceOrderActions({
 }
 
 function MarketplaceStarRatingInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const moveRating = (currentRating: number, direction: -1 | 1) => {
-    const nextRating = currentRating + direction;
-    if (nextRating < 1 || nextRating > 5) return;
-    onChange(String(nextRating));
-  };
-
   return (
     <div className="grid gap-2">
       <Label className={FORM_LABEL_CLASSES}>Rating</Label>
@@ -304,24 +298,15 @@ function MarketplaceStarRatingInput({ value, onChange }: { value: string; onChan
           return (
             <label
               key={ratingValue}
-              className="relative cursor-pointer rounded-full border border-border/70 px-3 py-2 transition-colors has-[:checked]:border-brand has-[:checked]:bg-brand/10"
+              className="relative cursor-pointer rounded-full border border-border/70 px-3 py-2 transition-colors has-[:checked]:border-brand has-[:checked]:bg-brand/10 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2"
             >
               <input
                 type="radio"
                 name="rating"
                 value={ratingValue}
                 checked={value === ratingValue}
+                tabIndex={value === ratingValue ? 0 : -1}
                 onChange={() => onChange(ratingValue)}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-                    event.preventDefault();
-                    moveRating(rating, -1);
-                  }
-                  if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-                    event.preventDefault();
-                    moveRating(rating, 1);
-                  }
-                }}
                 aria-label={`${rating} ${rating === 1 ? 'star' : 'stars'}`}
                 className="sr-only"
               />
