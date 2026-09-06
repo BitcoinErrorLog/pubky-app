@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, CreditCard, MapPin, Store, User, UserCheck, UserPlus } from 'lucide-react';
+import { ArrowLeft, CreditCard, Store, User, UserCheck, UserPlus } from 'lucide-react';
 import { APP_ROUTES, getProfileRoute, MARKETPLACE_ROUTES, PROFILE_ROUTES } from '@/app/routes';
 import { TagKind } from '@/application/tag/tag.types';
-import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
@@ -24,6 +23,7 @@ import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCom
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceReputationHeader } from '@/organisms/Marketplace/MarketplaceReputationHeader';
 import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceReviewsSection';
+import { ShopProfileCard } from '@/organisms/Marketplace/ShopProfileCard/ShopProfileCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -94,55 +94,26 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
           <MarketplaceSkeleton count={4} />
         ) : shop ? (
           <>
-            <Card className="overflow-hidden border py-0">
-              {bannerUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
-                <img
-                  src={bannerUrl}
-                  alt={`${shop.record.name} banner`}
-                  className="h-28 w-full object-cover sm:h-40"
-                  onError={() => setBannerFailed(true)}
+            <ShopProfileCard
+              variant="full"
+              name={shop.record.name}
+              bio={shop.record.bio}
+              avatarUrl={avatarUrl}
+              bannerUrl={bannerUrl}
+              location={shop.record.location}
+              vacation={shop.record.vacationMode}
+              bannerAlt={`${shop.record.name} banner`}
+              avatarAlt={`${shop.record.name} avatar`}
+              onBannerError={() => setBannerFailed(true)}
+              onAvatarError={() => setAvatarFailed(true)}
+              locationExtras={
+                <MarketplaceCommunityTags
+                  target={{ kind: TagKind.SHOP, ownerPubky: sellerPubky }}
+                  variant="inline"
                 />
-              ) : (
-                <div className="h-28 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-40" />
-              )}
-              <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-end sm:justify-between">
-                <div className="-mt-16">
-                  <div className="mb-4 flex size-20 items-center justify-center overflow-hidden rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg">
-                    {avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
-                      <img
-                        src={avatarUrl}
-                        alt={`${shop.record.name} avatar`}
-                        className="size-full object-cover"
-                        onError={() => setAvatarFailed(true)}
-                      />
-                    ) : (
-                      <Store className="size-9" />
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Heading level={1} size="xl" className="text-3xl sm:text-5xl">
-                      {shop.record.name}
-                    </Heading>
-                    {shop.record.vacationMode && <Badge variant="secondary">Vacation mode</Badge>}
-                  </div>
-                  <Typography as="p" className="mt-2 max-w-2xl text-muted-foreground">
-                    {shop.record.bio}
-                  </Typography>
-                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <Typography as="p" className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <MapPin className="size-4" />
-                      {shop.record.location.region ? `${shop.record.location.region}, ` : ''}
-                      {shop.record.location.countryCode}
-                    </Typography>
-                    <MarketplaceCommunityTags
-                      target={{ kind: TagKind.SHOP, ownerPubky: sellerPubky }}
-                      variant="inline"
-                    />
-                  </div>
-                  <MarketplaceReputationHeader sellerPubky={sellerPubky} variant="full" className="mt-3" />
-                </div>
+              }
+              afterLocation={<MarketplaceReputationHeader sellerPubky={sellerPubky} variant="full" className="mt-3" />}
+              aside={
                 <div className="flex flex-col items-start gap-4 sm:items-end">
                   <div className="flex flex-wrap gap-2">
                     {isOwner ? (
@@ -193,8 +164,8 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              }
+            />
 
             <ShopListingsGrid listings={listings} shopName={shop.record.name} isOwner={isOwner} />
 

@@ -29,9 +29,14 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
 
   return (
     <>
-      <Button size="sm" variant="secondary" className="rounded-full" onClick={() => setOpen(true)}>
-        <Printer className="mr-2 size-4" />
-        Packing slip
+      <Button
+        size="icon"
+        variant="secondary"
+        className="rounded-full"
+        aria-label="Packing slip"
+        onClick={() => setOpen(true)}
+      >
+        <Printer className="size-4" />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl border-border bg-popover">

@@ -44,10 +44,6 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
 
-vi.mock('@/organisms/Marketplace/MarketplaceOrderActions', () => ({
-  MarketplaceOrderActions: () => <div data-testid="order-actions" />,
-}));
-
 vi.mock('@/organisms/Marketplace/MarketplacePaymentStatusCard', () => ({
   MarketplacePaymentStatusCard: () => <div data-testid="payment-status" />,
 }));
@@ -201,6 +197,7 @@ describe('MarketplaceOrders tabs', () => {
       (button) => button.textContent?.trim() === '' && button.querySelector('svg') !== null,
     );
 
+    expect(iconOnlyButtons.length).toBeGreaterThan(0);
     for (const button of iconOnlyButtons) {
       expect(button).toHaveAttribute('aria-label', expect.stringMatching(/\S/));
     }
