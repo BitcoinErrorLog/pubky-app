@@ -1,15 +1,6 @@
 'use client';
 
-import {
-  ArrowLeft,
-  CheckCircle2,
-  ExternalLink,
-  KeyRound,
-  LoaderCircle,
-  SlidersHorizontal,
-  Store,
-  WalletCards,
-} from 'lucide-react';
+import { ArrowLeft, SlidersHorizontal, Store } from 'lucide-react';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -60,12 +51,18 @@ export function MarketplacePaymentSettings() {
         <div>
           <Badge className="mb-4">Pre-production integration</Badge>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
-            Payments and Locks
+            How you get paid
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            Connect creator authority with Pubky Ring, then approve a watch-only Paykit account through Bitkit.
+            Every method pays the seller directly — this marketplace never holds funds.
+          </Typography>
+          <Typography as="p" className="mt-2 text-muted-foreground">
+            Set up at least one method below to start selling. Each method works on its own — turn on any of them, in
+            any order, and change them whenever you like.
           </Typography>
         </div>
+
+        <MarketplaceGetPaidSettings locksConnect={locksConnect} onOpenPaykit={openPaykit} />
 
         <Card className="border">
           <CardContent className="flex flex-col gap-3 px-6 sm:flex-row sm:items-center sm:justify-between">
@@ -87,73 +84,6 @@ export function MarketplacePaymentSettings() {
             </Button>
           </CardContent>
         </Card>
-
-        <Card className="border">
-          <CardContent className="grid gap-4 px-6 sm:grid-cols-[1fr_auto] sm:items-center">
-            <div className="flex gap-3">
-              <KeyRound className="mt-1 size-5 text-brand" />
-              <div>
-                <Typography as="h2" className="font-semibold">
-                  1. Authorize the Lock Server
-                </Typography>
-                <Typography as="p" className="text-sm text-muted-foreground">
-                  Pubky Ring displays the exact creator capability grant. No identity secret enters Pubky App.
-                </Typography>
-                {locksConnect.connectedCreator && (
-                  <Typography as="p" className="mt-2 flex items-center gap-2 text-sm text-brand">
-                    <CheckCircle2 className="size-4" />
-                    Creator authority connected: {locksConnect.connectedCreator.slice(0, 12)}…
-                  </Typography>
-                )}
-                {locksConnect.error && (
-                  <Typography as="p" role="alert" className="mt-2 text-sm text-amber-300">
-                    {locksConnect.error}
-                  </Typography>
-                )}
-              </div>
-            </div>
-            {locksConnect.connectedCreator ? (
-              <Badge variant="secondary" className="justify-self-start sm:justify-self-auto">
-                Connected
-              </Badge>
-            ) : (
-              <Button
-                variant="secondary"
-                className="rounded-full"
-                disabled={locksConnect.isExchanging}
-                onClick={locksConnect.openConnect}
-              >
-                {locksConnect.isExchanging ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : null}
-                Open Locks connect
-                <ExternalLink className="ml-2 size-4" />
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border">
-          <CardContent className="grid gap-4 px-6 sm:grid-cols-[1fr_auto] sm:items-center">
-            <div className="flex gap-3">
-              <WalletCards className="mt-1 size-5 text-brand" />
-              <div>
-                <Typography as="h2" className="font-semibold">
-                  2. Approve Paykit in Bitkit
-                </Typography>
-                <Typography as="p" className="text-sm text-muted-foreground">
-                  Bitkit sends a watch-only BIP84 account claim directly to Paykit Server. Spending keys remain in the
-                  wallet. Completion is confirmed inside the setup window — this app has no API to verify Paykit setup
-                  state and does not pretend to.
-                </Typography>
-              </div>
-            </div>
-            <Button className="rounded-full" onClick={openPaykit}>
-              Open Bitkit setup
-              <ExternalLink className="ml-2 size-4" />
-            </Button>
-          </CardContent>
-        </Card>
-
-        <MarketplaceGetPaidSettings />
 
         <Card className="border">
           <CardContent className="grid gap-5 px-6">
