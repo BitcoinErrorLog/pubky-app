@@ -33,7 +33,7 @@ import {
   type UnsignedRequestObjectV1,
 } from '@/libs/pubchi/schemas';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
