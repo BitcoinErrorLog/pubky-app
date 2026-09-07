@@ -2,6 +2,15 @@
 
 Public changelog for Shop, the Pubky marketplace vibe. Newest changes first.
 
+## 2026-09-07
+
+- [implemented] Wave 6 backlog batch merged and deployed at `9483446f` on `marketplace/pr25-ux`. SSR catalog seeds shop names; the catalog URL lives as a libs-only constant; messaging VRT on firefox is deterministic; Duplicate asks before replacing an unsaved draft and seeds before deleting; SSR shop fetch is capped at 6 concurrent.
+- [implemented] Graduation dossier added at `2e022af5` (`docs/vibes/graduation-dossier.md`).
+- [implemented] Teammate PRs on `BitcoinErrorLog/pubky-app`: #20 (tax removal, icota) closed as superseded by Wave 2b; its guard test was cherry-picked as `c003e374` under his authorship. #22 (local pickup with post-payment reveal, icota) has changes requested and is being absorbed into Wave 7.
+- [known gap] Wave 7 kickoff: "Local pickup with scheduling". Design is in progress at `docs/ecommerce/local-pickup-design.md` on branch `marketplace/w7-design`. Owner decisions recorded: buyer may cancel if pickup terms change after payment; seller may delete details; one meeting point per order; pickup off without the encryption key; either party confirms handover, no automatic delivery; no pickup details on sandbox deployments; returns re-choose pickup or shipping with optional seller label.
+- [implemented] Address-sharing policy (unchanged product rule, restated): a physical address is shared only when its owner chooses to, for a reason shown to them, with the one person who needs it; buyer→seller only the delivery address for shipped items once the order exists; seller→buyer nothing by default except a deliberately published pickup point revealed only to the paying buyer.
+- [implemented] marketplace-service `c697e5f` deployed to both stacks (delivery auto-complete worker, return flow surfacing); migration 0019 verified.
+
 ## 2026-09-06
 
 - [implemented] Wave 6 UX remediation shipped on `marketplace/pr25-ux` as `6554dd1f..420856c1` (HEAD `420856c1`)

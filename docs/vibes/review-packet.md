@@ -57,6 +57,41 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Owner:
 - Blocking evidence:
 
+## Week Ending 2026-09-07
+
+**Live URLs**
+
+- Unchanged from 2026-09-06: production alias `https://pubky-marketplace-production.vercel.app`; `https://shop.pubky.app` still staging until cutover; marketplace-service production `https://marketplace-service-production-ce23.up.railway.app`; Nexus production `https://nexusd-production-95a0.up.railway.app`. Money rails remain `locks-paykit` testnet.
+
+**What users did (server-side facts only)**
+
+- Sign-ins / listings / checkouts / messages / watchlist / reviews: not measured beyond the 2026-09-06 rows.
+- Shop client: Wave 6 backlog batch `9483446f` merged and deployed (SSR catalog seeds shop names; libs-only catalog URL constant; deterministic firefox messaging VRT; Duplicate confirms before replacing an unsaved draft and seeds before deleting; SSR shop fetch capped at 6 concurrent). Graduation dossier `2e022af5`.
+- marketplace-service `c697e5f` deployed to both stacks (delivery auto-complete worker, return flow surfacing); migration 0019 verified.
+
+**What broke**
+
+- No new incident recorded on 2026-09-07.
+- Teammate PR #20 (tax removal) was closed as superseded by Wave 2b; the guard test was cherry-picked as `c003e374` under icota's authorship so a reintroduced tax field still fails CI.
+- Teammate PR #22 (local pickup with post-payment reveal) has changes requested; work is absorbed into Wave 7 rather than merged as-is.
+
+**What it taught**
+
+- Product boundary: address sharing stays owner-chosen and reason-shown, to the one person who needs it. Buyer→seller is only the delivery address for shipped items once the order exists. Seller→buyer is nothing by default except a deliberately published pickup point revealed only to the paying buyer.
+- Contribution boundary: overlapping teammate PRs are triaged against shipped waves; useful tests are kept, superseded product diffs are closed, and remaining design is folded into the next wave instead of dual-tracked.
+
+**Recommended Next State Per Experiment**
+
+- Catalog/index: harden. SSR catalog now seeds shop names and caps concurrent shop fetches at 6; guest-indexable catalog is still not the full Sprint 3 item.
+- Selling/listings: harden. Duplicate listing now asks before replacing an unsaved draft and seeds before deleting; sectioned listing studio remains unshipped.
+- Checkout/orders: harden. Service delivery auto-complete and return-flow surfacing shipped at `c697e5f`; Wave 7 local pickup is design-only (`docs/ecommerce/local-pickup-design.md` on `marketplace/w7-design`).
+- Payments / drops / reviews / watchlist / messaging / shared sign-in / step-up: unchanged from 2026-09-06. Messaging VRT firefox flake is recorded as fixed in the backlog batch.
+
+**Open Decisions**
+
+- Wave 7 local pickup (owner-recorded, design in progress): buyer may cancel if pickup terms change after payment; seller may delete details; one meeting point per order; pickup off without the encryption key; either party confirms handover, no automatic delivery; no pickup details on sandbox deployments; returns re-choose pickup or shipping with optional seller label.
+- Mainnet money, PayPal real purchase, Shippo live API, production `/priv` durability, messaging backup key, upstream bridge / TXT / cutover, Igor's $8.76 overpayment: still open as of 2026-09-06.
+
 ## Week Ending 2026-09-06
 
 **Live URLs**
