@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { createSessionBridgeHandler } from './handler';
-import { parsePersistedAuthStoreValue } from './persisted-session';
+import { parsePersistedAuthStoreValue, readPersistedSessionExport } from './persisted-session';
 
 const allowlist = ['https://vibes.pubky.app', 'https://*.vibes.pubky.app', 'http://localhost:3000'];
 
@@ -31,6 +31,28 @@ describe('createSessionBridgeHandler', () => {
       { type: 'pubky-session', v: 1, sessionExport: 'export-1' },
       'https://foo.vibes.pubky.app',
     );
+  });
+
+  it('replies pubky-session-none when localStorage.getItem throws', () => {
+    const source = { postMessage: vi.fn() };
+    const { handleMessage } = createSessionBridgeHandler({
+      allowlist,
+      getSessionExport: () =>
+        readPersistedSessionExport({
+          getItem: () => {
+            throw new DOMException('Access is denied for this document.', 'SecurityError');
+          },
+        }),
+    });
+
+    handleMessage({
+      origin: 'https://vibes.pubky.app',
+      source: asOpaque<MessageEventSource>(source),
+      data: { type: 'pubky-session-request', v: 1 },
+    });
+
+    expect(source.postMessage).toHaveBeenCalledTimes(1);
+    expect(source.postMessage).toHaveBeenCalledWith({ type: 'pubky-session-none', v: 1 }, 'https://vibes.pubky.app');
   });
 
   it('replies pubky-session-none when signed out', () => {

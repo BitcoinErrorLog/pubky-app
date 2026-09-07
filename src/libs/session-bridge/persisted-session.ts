@@ -38,5 +38,9 @@ export function parsePersistedAuthStoreValue(raw: string | null): string | null 
 }
 
 export function readPersistedSessionExport(storage: Pick<Storage, 'getItem'>): string | null {
-  return parsePersistedAuthStoreValue(storage.getItem(AUTH_PERSIST_KEY));
+  try {
+    return parsePersistedAuthStoreValue(storage.getItem(AUTH_PERSIST_KEY));
+  } catch {
+    return null;
+  }
 }
