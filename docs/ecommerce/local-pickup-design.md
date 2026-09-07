@@ -19,19 +19,25 @@ it to the entitled peer.
 
 ## Prior art and what this design fixes
 
-A teammate branch (`marketplace/local-pickup`) prototyped this with seller
-pickup details held **device-locally** and revealed on payment through the
-sandbox adapter only. (The branch was not reachable from this repo's remotes
-at writing; this section works from its described behavior.) Known issues,
-and how this design answers each:
+The prior art is PR 22 on `BitcoinErrorLog/pubky-app` (the
+`services/marketplace` prototype engine plus its client). It stored
+`pickupDetails` on the **service-side listing aggregate**, written by
+`listing.register`, and revealed them by copying the first order line's
+listing details onto the order projection when the payment confirmed. The
+naming defect: **the details rode `listing.register`, which `listing.sync`
+converges** — a sync replays the owner-signed record (which carries no
+details) over the listing aggregate, so any sync from a device without the
+details nulls them. A second defect: the reveal copied the address onto the
+cached, shape-logged order projection. Known issues, and how this design
+answers each:
 
 | Prior-art issue                                              | Fix here                                                                                          |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| Mixed carts silently fall back to shipping                   | One order per (seller, fulfillment); the buyer's choice is never overridden (§2)                  |
+| Mixed carts silently fall back to shipping (`?? 'shipping'`) | One order per (seller, fulfillment); the buyer's choice is never overridden (§2)                  |
 | Reveal reads only the first line                             | Reveal is per order line, every line of the order (§3)                                            |
-| Details built onto the public record, then stripped          | Details never touch the public record; only `fulfillmentMethods` is public (§1)                   |
+| Details ride `listing.register`, which `listing.sync` converges | Details are a separate service aggregate written only by `pickup_details.set`; sync carries no details and cannot null them (§1, §5) |
+| Reveal copies details onto the cached order projection       | Dedicated reveal read; the projection never carries details (§3)                                  |
 | No DB version bump                                           | Postgres migration + Dexie schema bump are both in the plan (§10)                                 |
-| No cross-device recovery                                     | The service is the source of truth; a new device re-reads the seller's own details (§5)           |
 | No durable-service counterpart                               | Full service design: commands, state machines, sealed storage, reveal entitlement (§1, §7, §8)    |
 
 ## 1. Data model
@@ -68,6 +74,10 @@ it removes casual and bulk exposure. The policy's operator clause is met
 because the service legitimately needs the plaintext at reveal time, and the
 only two read paths that ever decrypt are the seller's own read and the
 paying buyer's reveal read; support/moderation projections stay redacted.
+The decrypted plaintext must never reach logs, traces, or Sentry: the
+details types get a redacted `Debug` impl (the `locks.rs` pattern), the two
+entitled responses are excluded from request/response-body logging, and a
+redaction-scanning test mirrors the one in `locks.rs` (§10.1).
 
 Why not end-to-end encrypted to the buyer: the buyer is unknown when the
 seller authors the details. E2E would require the seller to be online after
@@ -112,6 +122,20 @@ pickup — never charge shipping and refund it later.
 any group ships (and it is then stored only on the shipped orders), absent
 when every group is pickup. Pickup-only checkouts therefore send **no** buyer
 address at all — the strictest reading of the policy, and less data held.
+Omission is not enough: a pickup-only checkout that **presents** a
+`delivery_address` is rejected with `INVALID_COMMAND` (the PR 22 behavior),
+so a buggy or malicious client cannot smuggle an address into storage the
+policy says should not exist.
+
+**Axis reconciliation: item type vs fulfillment.** The listing form's
+existing `physical` | `digital` axis is the item type; PR 22's
+`Array<'physical' | 'digital' | 'pickup'>` conflated that axis with
+fulfillment. This design keeps them separate: item type stays
+`physical` | `digital`; `fulfillmentMethods` (`shipping` | `pickup` | both)
+is a distinct field, meaningful only for physical items. Digital listings
+have no fulfillment choice: they are excluded from the
+`(seller, fulfillment)` split key (their orders keep today's behavior) and
+from the migration backfill (§10).
 
 v1 scope: pickup applies to fixed-price checkout. Auction listings are
 shipping-only (auction orders carry no address and no checkout step; pickup
@@ -130,32 +154,49 @@ service's exactly-once `confirm_order` path (`payment_confirmation` /
   cache, log shapes of, and render in lists) never carries details, so a
   replayed or cached projection cannot leak them.
 - Authorization: the actor must be the order's buyer **and** the order must
-  have reached `paid` (or any later state). `pending_payment` orders get a
-  typed refusal. Sellers never call this endpoint; they read their own
-  details through their seller-scoped read (§5).
+  carry a durable payment fact — not merely sit in a state set. `cancelled`
+  is reachable from `pending_payment`, so a "reached `paid`" state-membership
+  check would reveal the meeting point to a buyer who never paid. The gate is
+  a durable fact recorded by the exactly-once confirmation path: the order's
+  `receipt_id IS NOT NULL`, or equivalently the line's recorded
+  `version_at_payment` (below). Orders without that fact get a typed refusal.
+  Sellers never call this endpoint; they read their own details through their
+  seller-scoped read (§5).
+- The response is `Cache-Control: no-store` and the route is excluded from
+  the service worker's cache (threat model WEB-03): the entitlement is
+  re-evaluated against the durable fact on every read, and no intermediary or
+  browser cache may serve the address.
 - Per order line: the response maps each line's listing to its current
   details (kind, address-or-spot, instructions) plus `version` and
   `updated_at`. Every line is served, fixing the prior art's first-line-only
   read.
 - At confirmation the service records, per line, the details version
-  revealed (`revealed_version` on the order line). That pins what the buyer
-  was shown at payment for later dispute reading.
+  revealed (`version_at_payment` on the order line). That pins what the buyer
+  was shown at payment for later dispute reading, and doubles as the durable
+  payment fact: an absent `version_at_payment` JSON key on a line reads as
+  "no reveal recorded".
+
+> **OWNER DECISION PENDING:** which durable marker gates the reveal —
+> `receipt_id IS NOT NULL` on the order, or the per-line `version_at_payment`
+> key. Proposed default: `version_at_payment`, since confirmation records it
+> anyway and it is per line like the reveal itself.
 
 **Seller edits after payment.** `pickup_details.set` always bumps the
 version (append-only history is kept per listing; old versions are retained
 for evidence, latest is served). For every paid, non-terminal pickup order
 on that listing, the outbox carries a `pickup_details_updated` notification
 to the buyer, and the order view flags "meeting point updated since you
-ordered" when current version > `revealed_version`. Editing is always
+ordered" when current version > `version_at_payment`. Editing is always
 allowed — a seller who moves house cannot be blocked — but it is never
 silent. Changing the meeting point does not change an already-agreed slot
 (§4); the peers re-arrange or use cancel/return.
 
 Cancellation does not revoke the reveal. A buyer who paid and then cancelled
 (or was cancelled) already saw the address; pretending otherwise is security
-theater. The entitlement check is "reached `paid`", which stays true for
-`cancel_requested`, `cancelled`, returns, and refunds. An order cancelled
-from `pending_payment` never revealed anything.
+theater. The entitlement check is the durable payment fact, which stays true
+for `cancel_requested`, `cancelled`, returns, and refunds that passed through
+payment — and was never established for an order cancelled from
+`pending_payment`, which never revealed anything.
 
 ## 4. Scheduling
 
@@ -174,11 +215,24 @@ Flow, per pickup order:
 3. The seller confirms (`pickup_schedule.confirm`) or proposes a change
    (`pickup_schedule.propose` again from the other party — a counter). The
    buyer can likewise counter a counter. Only the party that did **not**
-   make the current proposal may confirm it.
+   make the current proposal may confirm it. Proposals are capped per order
+   (proposed cap: 6; a propose beyond the cap is a typed refusal) so a
+   hostile peer cannot counter forever, and `pickup_schedule.propose` on an
+   order with no schedule (any shipped order) is refused with a typed error.
+
+> **OWNER DECISION PENDING:** the exact proposals-per-order cap. Proposed
+> default: 6.
 4. On confirm, the agreed slot (start/end UTC instants) is written onto the
    order's participant-visible projection, so both peers see the same fact.
 5. Reminders: an outbox worker emits `pickup_reminder` notifications to both
    peers at slot−24 h and slot−1 h, deduplicated by (order, slot, kind).
+   Reminders are **in-app pull only** — no push — so a lock screen never
+   announces a meeting.
+
+> **OWNER DECISION PENDING:** reminders are specified as in-app pull only
+> with both the −24 h and −1 h emissions kept; the alternative on the table
+> is dropping the −1 h reminder entirely.
+
 6. No-show: no new states. If the buyer doesn't show, the seller keeps the
    funds and the peers sort it out with the existing cancel/return flows;
    if the seller doesn't show, the buyer requests cancellation and the
@@ -239,33 +293,82 @@ untouched; shipped orders behave exactly as today.
 | From              | To                 | Trigger                                       | Actor  |
 | ----------------- | ------------------ | --------------------------------------------- | ------ |
 | `paid`            | `ready_for_pickup` | command `fulfillment.mark_ready`              | seller |
+| `paid`            | `delivered`        | command `fulfillment.confirm_pickup`          | buyer  |
 | `ready_for_pickup`| `delivered`        | command `fulfillment.confirm_pickup`          | buyer  |
-| `ready_for_pickup`| `delivered`        | server `pickup_assume` (slot + assume window) | server |
-| `ready_for_pickup`| `cancel_requested` | command `order.cancel_request`                | either |
+| `ready_for_pickup`| `cancel_requested` | command `order.cancel_request`                | buyer  |
 
 `fulfillment.ship` is refused for pickup orders and `mark_ready`/`confirm_pickup`
-for shipped ones (`InvalidState`, typed). `pickup_assume` mirrors
-`delivery_assume`: it fires only when an agreed slot (or, with no slot, a
-fixed window after `ready_for_pickup`) has passed by the assume window, and
-sets `delivery_assumed` so the UI can ask the buyer to report a no-show.
-From `delivered` the existing transitions (return, complete) apply as-is.
+for shipped ones (`InvalidState`, typed). `confirm_pickup` is allowed from
+`paid` as well as `ready_for_pickup`, so a seller who never taps
+`mark_ready` cannot strand a paid order. `order.cancel_request` is
+buyer-only (`cancellation.rs` rejects any non-buyer actor), and its
+allowed-from list gains `ready_for_pickup` (§10.1).
+
+**Unattended slots: hold, don't assume.** When an agreed slot (or, with no
+slot, a fixed window after `ready_for_pickup`) plus the assume window passes
+with no confirmation, the server sets a distinct `pickup_assumed` flag on
+the order — not `delivery_assumed`, which is the shipped-order flag with its
+own UI semantics — and the order **holds in `ready_for_pickup`**; the flag
+exists so the UI can ask the buyer to report a no-show. Whether any
+auto-completion transition exists at all is pending the owner decision.
+
+> **OWNER DECISION PENDING:** the unattended-slot behaviour. As specified the
+> order holds in `ready_for_pickup` with `pickup_assumed` set; the
+> alternative is a `delivery_assume`-style server transition to `delivered`
+> after the assume window.
+
+`next_actor()` gains `ready_for_pickup` → buyer: once the seller marks the
+order ready, the hand-off is the buyer's move. From `delivered` the existing
+transitions (return, complete) apply as-is.
 
 ### New aggregate: `pickup_schedule` (one per pickup order)
 
+`awaiting_proposal` is the machine's `initial` state: the server creates the
+aggregate in that state on payment confirmation. The contract format has no
+creation transitions — every row must name a literal declared from-state
+(`transitions_reference_declared_states` in `state_machines.rs` rejects
+from-states that are not declared states, so "any non-terminal" is not
+expressible) — and the cancellation propagation is therefore enumerated row
+by row below.
+
 | From                | To                  | Trigger                                | Actor            |
 | ------------------- | ------------------- | -------------------------------------- | ---------------- |
-| —                   | `awaiting_proposal` | server `payment_confirmation` (create) | server           |
 | `awaiting_proposal` | `proposed`          | command `pickup_schedule.propose`      | buyer            |
 | `proposed`          | `proposed`          | command `pickup_schedule.propose`      | the non-proposer |
 | `proposed`          | `confirmed`         | command `pickup_schedule.confirm`      | the non-proposer |
 | `proposed`          | `expired`           | server `proposal_expiry` (72 h)        | server           |
 | `expired`           | `proposed`          | command `pickup_schedule.propose`      | either           |
 | `confirmed`         | `completed`         | command `fulfillment.confirm_pickup`   | buyer            |
-| `confirmed`         | `completed`         | server `pickup_assume`                 | server           |
-| any non-terminal    | `cancelled`         | server `order_cancelled` (propagation) | server           |
+| `awaiting_proposal` | `cancelled`         | server `order_cancelled` (propagation) | server           |
+| `proposed`          | `cancelled`         | server `order_cancelled` (propagation) | server           |
+| `expired`           | `cancelled`         | server `order_cancelled` (propagation) | server           |
 
-`completed` and `cancelled` are terminal. The schedule never drives money:
+`completed` and `cancelled` are terminal. Auto-completion of a `confirmed`
+schedule rides the same pending owner decision as the order machine's
+unattended-slot behaviour above; as specified, only `confirm_pickup`
+completes a schedule. The schedule never drives money:
 it informs reminders and displays; funds stay governed by the order machine.
+
+### Returns on a pickup order
+
+The existing return states (`return_requested` and on) apply to a pickup
+order unchanged — but the mechanism that moves the item back does not: the
+buyer never holds a postal address for the seller, so the shipped-order
+return flow (post the item to the seller's address) has no address to post
+to. How the item physically returns is owner decision pending, with two
+candidate paths:
+
+1. In-person hand-back, scheduled through the same `pickup_schedule` flow
+   (a return slot proposed and confirmed like the original pickup slot).
+2. The seller supplies a return method out of band (e.g. messages the buyer
+   a label or drop-off point) and marks the return received as today.
+
+v1 ships the states with neither mechanism built in; the peers arrange the
+hand-back themselves.
+
+> **OWNER DECISION PENDING:** the pickup-return mechanism — in-person
+> hand-back via the scheduling flow, or a seller-supplied out-of-band return
+> method.
 
 ## 8. Commands and roles
 
@@ -277,15 +380,24 @@ object-level, as today.
 | ----------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
 | `pickup_details.set`          | Seller, own listing only               | Sealed upsert of details + availability; version + 1; notifies paid buyers on change |
 | `checkout.create` (extended)  | Buyer                                  | Per-line `fulfillment`; splits per (seller, fulfillment); optional `delivery_address` |
-| `pickup_schedule.propose`     | Order participant (buyer first, then either, never twice in a row by the same party) | Proposes/counters a slot; server-time validated against windows |
+| `pickup_schedule.propose`     | Order participant (buyer first, then either, never twice in a row by the same party) | Proposes/counters a slot; server-time validated against windows; capped per order (§4); refused on orders with no schedule |
 | `pickup_schedule.confirm`     | Order participant, non-proposer only   | Fixes the agreed slot onto the order                                |
 | `fulfillment.mark_ready`      | Seller, own order, state `paid`        | Order → `ready_for_pickup`; notifies buyer                          |
-| `fulfillment.confirm_pickup`  | Buyer, own order, state `ready_for_pickup` | Order → `delivered`; schedule → `completed`                     |
+| `fulfillment.confirm_pickup`  | Buyer, own order, state `paid` or `ready_for_pickup` | Order → `delivered`; schedule → `completed`             |
 
-Reads (not commands): `GET /v1/listings/{seller}/{id}/pickup-details` —
-seller only (owner read, §5); `GET /v1/orders/{id}/pickup-details` — buyer
-only, order reached `paid` (reveal, §3); the schedule rides the ordinary
-order projection (slots are participant facts, not addresses).
+Reads (not commands): `GET /v1/listings/{aggregate_id}/pickup-details` —
+seller only (owner read, §5); `GET /v1/orders/{aggregate_id}/pickup-details`
+— buyer only, order carries the durable payment fact (reveal, §3). Both are
+keyed by aggregate id, matching the existing `/v1/listings/{aggregate_id}`
+route keying. The version prefix stays `/v1` deliberately: these are new,
+additive routes on the existing versioned API, and a `/v2` prefix exists to
+signal breaking changes to routes clients already call — introducing one
+here would split the API surface over no incompatibility. The schedule rides
+the ordinary order projection (slots are participant facts, not addresses).
+
+> **OWNER DECISION PENDING:** confirmation of the `/v1` prefix choice for
+> the two new read routes (additive, keyed by aggregate id) versus carving
+> pickup reads into a new prefix.
 
 No role outside the two participants can call any of these. Operator and
 support projections contain no pickup-details read path — ciphertext only.
@@ -298,9 +410,9 @@ Extends [`threat-model.md`](threat-model.md); assets: seller meeting point
 
 | Attack | Precondition | Result | Mitigation |
 | ------ | ------------ | ------ | ---------- |
-| Unpaid buyer reads the meeting point | Controls a buyer account, order in `pending_payment` | Refused: reveal read requires the order to have reached `paid`; projection never carries details | State-gated entitlement at the service, not the client; typed refusal |
+| Unpaid buyer reads the meeting point | Controls a buyer account, order never paid (including one cancelled from `pending_payment`) | Refused: reveal read requires the durable payment fact, not state membership; projection never carries details | Fact-gated entitlement at the service, not the client; typed refusal |
 | Replay of a paid order projection | Stale/cached projection from any source | Useless: details are not on the projection at all | Dedicated reveal endpoint; caches hold no address material |
-| Seller swaps the address after payment | Seller edits details on a paid order | Buyer is notified (`pickup_details_updated`), order view flags the version change, `revealed_version` pins what was shown at payment, version history is retained | Versioning + notification + evidence retention; editing is allowed but never silent |
+| Seller swaps the address after payment | Seller edits details on a paid order | Buyer is notified (`pickup_details_updated`), order view flags the version change, `version_at_payment` pins what was shown at payment, version history is retained | Versioning + notification + evidence retention; editing is allowed but never silent |
 | Buyer shares the address onward | Buyer is entitled and malicious | Unpreventable — the buyer must know where to go; same as telling a friend where you're meeting | Reveal only after payment (the seller is paid before the address exists for the buyer); spot-first UX keeps most listings off home addresses; reviews give the seller recourse |
 | Operator DB read | Operator runs SQL or exfiltrates a backup | Ciphertext only: XChaCha20-Poly1305, AAD-bound, fresh nonce per seal; key is an env secret distinct from the Locks key | Sealing (§1); operator with env access can still decrypt — acknowledged, bounded by policy's "what the service needs" clause; no operator/support read path exists |
 | Second-device seller | Seller signs in elsewhere | Owner read returns their details; recovery works | Service is truth (§5); no sync path can null details; save requires a successful read (CAS version) |
@@ -312,21 +424,42 @@ Extends [`threat-model.md`](threat-model.md); assets: seller meeting point
 
 ### Migration
 
-1. **Service Postgres migration** (new version, applied before code that
+1. **Prototype engine first** (`services/marketplace/src/transaction-service.ts`,
+   which ADR-0022 designates the executable specification — see the
+   `state_machines.rs` module header — folded explicitly into the service
+   slice rather than shipped as its own slice): the prototype gains the same
+   semantics alongside the Rust service, and its contract tests are extended
+   to cover: pickup details withheld until payment confirms, then revealed
+   per line; a pickup checkout presenting a `deliveryAddress` →
+   `INVALID_COMMAND` (and a shipped checkout missing one → `INVALID_COMMAND`,
+   the PR 22 pair); mixed-cart split per `(seller, fulfillment)` with
+   shipping zeroed on pickup orders; proposal cap and window validation;
+   `version_at_payment` pinned per line at confirmation.
+2. **Service Postgres migration** (new version, applied before code that
    uses it): `listing_pickup_details` (aggregate id, seller, version,
    `details_ciphertext`, history table or append-only versions,
    created/updated); `pickup_schedules` (order id, state, proposals,
    agreed slot, revision); order lines gain `fulfillment` and
-   `revealed_version`; orders gain nothing (fulfillment is derivable, but a
-   denormalized `fulfillment` column on orders is acceptable for query
-   simplicity). Backfill: all existing rows `fulfillment = 'shipping'`.
-2. **Contract version**: new commands and the extended `checkout.create` are
-   additive; old clients default to shipping and are unaffected. The
-   command contract version bumps; `state-machines.json` gains §7.
-3. **Client Dexie**: schema version bump adding the pickup-details cache
+   `version_at_payment` (nullable — an absent `version_at_payment` JSON key
+   on a line reads as "no reveal recorded"); orders gain a **required**
+   `fulfillment` column — not optional, not merely derivable: every order is
+   exactly one fulfillment kind, and queries should not have to derive it.
+   Backfill: all existing **physical** rows `fulfillment = 'shipping'`;
+   digital listings are excluded from the backfill (§2 — they carry no
+   fulfillment choice).
+3. **Contract version**: new commands and the extended `checkout.create` are
+   additive; old clients default to shipping and are unaffected.
+   `state-machines.json` gains §7 with `contract_version` **staying 1** —
+   the change is additive, and no client pins the version (verified: the
+   client contract test, `src/libs/commerce/state-machines.contract.test.ts`
+   in the app repo, covers aggregate names, states, and transitions against
+   the artifact but never reads `contract_version`). The service's
+   `contract_document_is_stable_json` test asserts exactly 8 aggregates
+   today; it is updated to 9 for the new `pickup_schedule` aggregate.
+4. **Client Dexie**: schema version bump adding the pickup-details cache
    table (account-scoped, sealed-blob-free — it caches the owner's plaintext
    like the address book caches addresses, this device only).
-4. Rollout: service first (accepts new commands, defaults keep old behavior),
+5. Rollout: service first (accepts new commands, defaults keep old behavior),
    client second. Sandbox adapter gains the same commands so local dev keeps
    working — the prior art's sandbox-only reveal becomes a sandbox mirror of
    the durable contract.
@@ -345,39 +478,70 @@ Extends [`threat-model.md`](threat-model.md); assets: seller meeting point
   seal, version bump, paid-buyer notifications), schedule propose/confirm,
   mark-ready/confirm-pickup, both reveal reads with their entitlement
   checks.
-- `handlers/checkout.rs`: group by `(seller, fulfillment)`; refuse
-  disallowed choices with typed errors; zero shipping on pickup orders;
+- `handlers/checkout.rs`: group physical lines by `(seller, fulfillment)`
+  (digital lines stay outside the split key, §2); refuse disallowed choices
+  with typed errors; reject a pickup-only checkout that presents a
+  `delivery_address` with `INVALID_COMMAND`; zero shipping on pickup orders;
   store address only on shipped orders.
+- `handlers/cancellation.rs`: `order.cancel_request` stays buyer-only (the
+  actor check at line 56); the allowed-from list (line 61, today
+  `pending_payment` | `paid` | `processing`) gains `ready_for_pickup`.
 - `workers.rs`: on payment confirmation, create the `pickup_schedule`
-  aggregate and record `revealed_version` per line; reminder sweep at
-  slot−24 h/−1 h; `proposal_expiry` and `pickup_assume` sweeps — all
-  server-time, deduplicated through the existing outbox.
+  aggregate and record `version_at_payment` per line; reminder sweep at
+  slot−24 h/−1 h (in-app pull only); `proposal_expiry` sweep; the
+  unattended-slot sweep that sets `pickup_assumed` while the order holds in
+  `ready_for_pickup` (any auto-completion is pending the owner decision, §7)
+  — all server-time, deduplicated through the existing outbox.
 - `model.rs`: `PickupDetailsRow` (no plaintext serialization path — only the
   two entitled reads open the seal), `PickupScheduleRow`, order line
   extension.
 - Encryption: extract the seal/open helpers from `locks.rs` into a shared
   module; add `PICKUP_DETAILS_ENCRYPTION_KEY` with the same
-  all-or-none config gating and key-distinctness check.
+  key-distinctness check. All-or-none config gating, concretely: if
+  `PICKUP_DETAILS_ENCRYPTION_KEY` is absent the service refuses
+  `pickup_details.set` and refuses to start if sealed rows exist — this is
+  the proposed default, pending the owner decision.
+
+> **OWNER DECISION PENDING:** the all-or-none gating default above (refuse
+> `pickup_details.set`, refuse to start when sealed rows exist and the key
+> is absent).
+
+- Redaction: the details types get a redacted `Debug` impl and the two
+  entitled responses are excluded from request/response-body logging and
+  tracing (the `locks.rs` pattern), so the decrypted reveal cannot reach
+  logs, traces, or Sentry (§1).
 - Notifications: new types `pickup_slot_proposed`, `pickup_slot_confirmed`,
   `pickup_reminder`, `pickup_details_updated`, `pickup_ready`.
 
 Service tests:
 
 - unpaid buyer reveal → typed refusal; paid buyer → full per-line details;
+  buyer reveal on an order cancelled from `pending_payment` → typed refusal
+  (no durable payment fact was ever recorded);
 - seller reveal read → own details; other seller → unauthorized;
 - projection replay contains no details fields (shape assertion);
-- mixed cart splits per (seller, fulfillment); shipping charged only on
+- redaction scan, mirroring the `locks.rs` test: no serialization surface
+  (command results, projections, notifications, logs) contains plaintext
+  details, and the redacted `Debug` impls hold;
+- mixed cart splits per (seller, fulfillment) with digital lines outside the
+  split key and the backfill; shipping charged only on
   shipped orders; pickup-only checkout sends and stores no address;
+  pickup-only checkout presenting a `delivery_address` → `INVALID_COMMAND`;
 - details edit after payment bumps version, notifies exactly the paid
   buyers, keeps history;
 - propose outside windows refused; propose inside accepted; only the
-  non-proposer confirms; 72 h proposal expiry; reminders deduplicated;
+  non-proposer confirms; proposals capped per order; propose on an order
+  with no schedule refused; 72 h proposal expiry; reminders deduplicated;
+- `confirm_pickup` from `paid` succeeds (no `mark_ready` required);
+  unattended-slot sweep sets `pickup_assumed` and the order holds in
+  `ready_for_pickup`;
 - `listing.sync` never alters details; `pickup_details.set` with stale
   `expected_version` conflicts;
 - 100 concurrent proposes produce one current proposal; command replay
   idempotent;
 - sealed round-trip with wrong key / wrong AAD fails; distinct-key check
-  enforced.
+  enforced; key absent → `pickup_details.set` refused, and startup refused
+  when sealed rows exist.
 
 ### 10.2 Client sketch
 
