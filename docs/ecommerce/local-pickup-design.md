@@ -224,10 +224,19 @@ service's exactly-once `confirm_order` path (`payment_confirmation` /
 - **The entitlement ends.** The reveal read stops once the order is
   terminal: a buyer of a long-terminal order has no remaining need, and
   holding the entitlement open forever would leak every future version.
-  After that point the read is a typed refusal and the pinned snapshot is
-  purged with the retained versions (retention below). Wave 7b extends the
-  cutoff to "terminal **and** its return window closed", because a
-  pickup-method return still needs the hand-back meeting point (§B3).
+  **A paid order that is later cancelled is terminal at the cancel
+  event** — on any cancel path, including the unilateral terms-change
+  cancel and the bounded withdrawal below — so its entitlement ends
+  there, not at some later deadline: the exact end condition is the
+  order's transition into `cancelled`. From that transition on, the read
+  is a typed refusal; the pinned snapshot is retained only as dispute
+  evidence, until the seller's refund evidence is recorded
+  (`refund.record_external`, ADR-0019) or, when no evidence ever lands,
+  until the ordinary retention purge for terminal orders runs — and is
+  then hard-deleted with the retained versions (retention below). Wave
+  7b extends the cutoff to "terminal **and** its return window closed",
+  because a pickup-method return still needs the hand-back meeting
+  point (§B3).
 - **Pinning happens inside `confirm_order`, in the receipt transaction.**
   The exactly-once confirmation function (`handlers/payment.rs`
   `confirm_order`, shared by `payment.sandbox_advance` and the
@@ -239,11 +248,16 @@ service's exactly-once `confirm_order` path (`payment_confirmation` /
   so a snapshot cannot be transplanted across orders, lines, or versions.
   Because both confirmation paths call this one function, sandbox
   confirmations pin exactly like worker-confirmed payments — no worker-side
-  afterthought that a sandbox advance would skip (slice 7.1). The pin
-  drives the version-change flag, the buyer's unilateral-cancel unlock and
-  bounded withdrawal (§A6), and later dispute reading. An absent
-  `version_at_payment` JSON key on a line reads as "no terms version
-  pinned" (pre-migration rows).
+  afterthought that a sandbox advance would skip (slice 7.1). The pin also
+  records **which adapter confirmed the payment** (`payment.sandbox_advance`
+  or the verification worker's rail), and the reveal read refuses when the
+  pinned adapter was `payment.sandbox_advance`, checked against the pin on
+  every read and independent of the deployment's current sandbox flag — a
+  flag toggle window (off→on→off) can never make a fake-money order's past
+  reveal free (§A8). The pin drives the version-change flag, the buyer's
+  unilateral-cancel unlock and bounded withdrawal (§A6), and later dispute
+  reading. An absent `version_at_payment` JSON key on a line reads as "no
+  terms version pinned" (pre-migration rows).
 
 **Seller edits after payment.** `pickup_details.set` always bumps the
 version (append-only history; retention below). Versions are **monotonic
@@ -303,17 +317,31 @@ retained version: the reveal endpoint keeps working and serves the pinned
 snapshot, flagged as withdrawn-by-seller, in place of the current details
 (there are none). Once every referencing order is terminal, the retained
 versions and snapshots are purged — hard-deleted; their ciphertext persists
-only inside DB backups and replicas until those rotate (§A1). Clearing
-notifies the paid buyers (`pickup_details_cleared`) and unlocks the same
-unilateral cancel. The seller's owner read after a clear returns "no
-details".
+only inside DB backups and replicas until those rotate (§A1). One exception
+to "terminal purges": a **cancelled-after-payment** order's pinned snapshot
+outlives the cancel only until the seller's refund evidence is recorded
+(`refund.record_external`, ADR-0019) — the snapshot is the dispute exhibit —
+after which it is purged with the rest; if no evidence is ever recorded,
+the ordinary terminal-order purge takes it. Clearing notifies the paid
+buyers (`pickup_details_cleared`) and unlocks the same unilateral cancel.
+The seller's owner read after a clear returns "no details" **alongside the
+surviving version counter**, so the client's next `pickup_details.set` can
+compare-and-swap against the counter (the post-clear CAS above) without a
+hidden second read.
 
-Cancellation does not revoke the reveal. A buyer who paid and then cancelled
-(or was cancelled) already saw the address; pretending otherwise is security
-theater. The entitlement check is the durable payment fact, which stays true
-for `cancel_requested`, `cancelled`, returns, and refunds that passed through
-payment — and was never established for an order cancelled from
-`pending_payment`, which never revealed anything.
+Cancellation **ends** the reveal. A paid order that is later cancelled is
+terminal at the cancel event, on any cancel path — the ordinary approved
+cancel, the unilateral terms-change cancel, and the bounded withdrawal
+alike — and its reveal entitlement ends there (the cutoff above). The
+pinned snapshot is retained only as dispute evidence: until the seller's
+refund evidence is recorded (`refund.record_external`, ADR-0019) or,
+failing that, until the retention purge for terminal orders runs. What the
+buyer already saw while the order was live stays seen — that cannot be
+un-happened — but no new read is served after the cancel. The entitlement
+check is the durable payment fact plus this cutoff: it stays true through
+`cancel_requested`, returns, and refunds that passed through payment, and
+was never established for an order cancelled from `pending_payment`, which
+never revealed anything.
 
 ## A4. Cross-device recovery (seller)
 
@@ -392,7 +420,15 @@ and its join locks **`FOR UPDATE OF orders`**, so the coalescing read
 cannot deadlock against concurrent order writers. Auto-complete therefore
 applies to pickup orders exactly as to shipped ones: a delivered pickup
 order with no return completes on the same deadline, and
-`fulfillment.delivered`-based reputation counts it.
+`fulfillment.delivered`-based reputation counts it — **with one
+confirming-actor rule**: a handover confirmed by the seller alone is a
+**seller-attested** handover, and reputation counts a pickup completion
+only when the **buyer** confirmed, or when the order **auto-completed with
+no buyer cancel or return in the window**. A seller's own confirm is never
+reputation-positive on its own: the seller is paid at payment time, so a
+self-confirm that also minted completion reputation would pay a fraudulent
+seller twice — funds plus standing — for a handover nobody else witnessed
+(§A8, threat model).
 
 `order.cancel_request` stays buyer-only (`cancellation.rs` rejects any
 non-buyer actor), and its allowed-from list gains `ready_for_pickup`
@@ -437,7 +473,7 @@ object-level, as today.
 | `pickup_details.clear`        | Seller, own listing only               | Deletes the details; retains only versions referenced by a paid, non-terminal order; everything else hard-deleted; the counter row survives; notifies paid buyers (§A3) |
 | `checkout.create` (extended)  | Buyer                                  | Per-line `fulfillment`; splits per (seller, fulfillment); optional `delivery_address` |
 | `fulfillment.mark_ready`      | Seller, own order, state `paid`        | Order → `ready_for_pickup`; notifies buyer                          |
-| `fulfillment.confirm_pickup`  | Buyer **or** seller, own order, state `paid` or `ready_for_pickup`; seller-actor refused while a post-payment terms change is unresolved (§A6) | Order → `delivered`; writes the handover record (server instant) |
+| `fulfillment.confirm_pickup`  | Buyer **or** seller, own order, state `paid` or `ready_for_pickup`; seller-actor refused while a post-payment terms change is unresolved (§A6) | Order → `delivered`; writes the handover record (server instant); a seller-only confirm is **seller-attested** — reputation counts the completion only on a buyer confirm or a dispute-free auto-complete (§A6) |
 
 Reads (not commands):
 
@@ -589,10 +625,14 @@ against an artifact that only lands in a later slice.
 - `handlers/payment.rs`: `confirm_order` — the one exactly-once writer,
   shared by `payment.sandbox_advance` and the verification worker — gains
   the pickup pinning **in the receipt transaction**: per pickup line,
-  record `version_at_payment` and the sealed pinned snapshot (kind,
+  record `version_at_payment`, the sealed pinned snapshot (kind,
   address-or-spot, instructions, availability windows with IANA zone; AAD =
-  order id ‖ line index ‖ version). Sandbox confirmations therefore pin
-  exactly like worker-confirmed payments (§A3).
+  order id ‖ line index ‖ version), **and the confirming payment adapter**
+  (`payment.sandbox_advance` or the worker's rail). Sandbox confirmations
+  therefore pin exactly like worker-confirmed payments (§A3), and the
+  reveal read refuses a snapshot whose pinned adapter was
+  `payment.sandbox_advance` regardless of the deployment's current sandbox
+  flag — a flag toggle window cannot free a past fake-money reveal (§A3).
 - `handlers/fulfillment.rs` (all `fulfillment.*` commands stay here):
   `fulfillment.ship` (allowed from `paid`/`processing` today) and
   `fulfillment.confirm_delivery` gain the fulfillment guard — refused for
@@ -626,7 +666,9 @@ against an artifact that only lands in a later slice.
   seller-recorded external evidence (`refund.record_external`, ADR-0019)
   either way.
 - `workers.rs`: the retention purge of pinned versions and snapshots once
-  referencing orders go terminal; the key-rotation re-seal job covering
+  referencing orders go terminal — with the cancelled-order exception of
+  §A3 (a cancelled-after-payment snapshot lives until refund evidence is
+  recorded, then purges); the key-rotation re-seal job covering
   **both sealed families** (details versions and pinned snapshots) with its
   completion criterion over both (§A1) — all server-time, deduplicated
   through the existing outbox. The auto-complete sweep
@@ -637,7 +679,12 @@ against an artifact that only lands in a later slice.
   sweep (§A6). The reputation worker's `terminated_badly` aggregation
   excludes the **whole order** — both the `order.cancelled` leg and any
   `refund.recorded_external` leg on the same order — when its terminal
-  cancel is `order.cancelled_terms_change`. There are no reminder or
+  cancel is `order.cancelled_terms_change`. The same worker's completion
+  counting gains the confirming-actor rule (§A6): a pickup completion
+  counts only when the **buyer** confirmed the handover, or when the order
+  **auto-completed with no buyer cancel or return in the window**; a
+  seller-unilateral confirm counts only after that dispute-free
+  auto-complete, never at confirm time. There are no reminder or
   proposal sweeps in Wave 7 (§B2). The version pin is **not** here — it
   lives in `confirm_order` (above), the only writer both confirmation paths
   share.
@@ -666,8 +713,11 @@ against an artifact that only lands in a later slice.
   `pickup_details.set` **and the buyer reveal read** are refused whenever
   `config.sandbox_payments_enabled` is on — the deployment boundary
   (executor.rs), not the per-order adapter column, which reads `sandbox`
-  for every order at checkout until a rail is chosen. Staging uses test
-  rails (§A8 rollout). The public config/health surface reports
+  for every order at checkout until a rail is chosen. The adapter pinned
+  **at confirmation** is accurate, though, and the reveal checks it
+  independently: the deployment flag gates storing and new reveals, the
+  pinned adapter gates past ones (§A3, `handlers/payment.rs` above).
+  Staging uses test rails (§A8 rollout). The public config/health surface reports
   `pickup_available` (key configured AND sandbox payments disabled) so
   clients can hide the pickup option (§A7, slice 7.2).
 - Redaction: the details types get a redacted `Debug` impl and the two
@@ -683,8 +733,13 @@ Service tests (slice 7.1 gate — all must pass):
   line (never current details, even after later edits);
   buyer reveal on an order cancelled from `pending_payment` → typed refusal
   (`receipt_id` is null — no durable payment fact was ever recorded);
-  cancelled-after-payment buyer reveal still serves the pinned details;
-  terminal order → typed refusal (the entitlement ends, §A3);
+  cancelled-after-payment buyer reveal → typed refusal **from the cancel
+  event on**, on every cancel path — the ordinary approved cancel, the
+  unilateral terms-change cancel, and the bounded withdrawal — while the
+  pinned snapshot is retained until the seller's refund evidence is
+  recorded and purged once it is (or with the terminal-order purge when no
+  evidence lands); any other terminal order → typed refusal (the
+  entitlement ends, §A3);
 - seller reveal read → own details; other seller → unauthorized;
 - projection replay contains no details fields (shape assertion);
 - redaction scan, mirroring the `locks.rs` test: no serialization surface
@@ -696,10 +751,13 @@ Service tests (slice 7.1 gate — all must pass):
   pickup-only checkout sends and stores no address; pickup-only checkout
   presenting a `delivery_address` → `INVALID_COMMAND`;
 - pinning: both confirmation paths (`payment.sandbox_advance` and the
-  verification worker) pin `version_at_payment` + snapshot in the receipt
-  transaction; the snapshot survives later edits and clears; the snapshot
-  opens only under AAD = order id ‖ line index ‖ version — a wrong order
-  id, line index, or version fails the open;
+  verification worker) pin `version_at_payment` + snapshot **+ confirming
+  adapter** in the receipt transaction; the snapshot survives later edits
+  and clears; the snapshot opens only under AAD = order id ‖ line index ‖
+  version — a wrong order id, line index, or version fails the open; a
+  snapshot pinned under `payment.sandbox_advance` is refused by the reveal
+  **even after the deployment sandbox flag flips back off** — the pinned
+  adapter, not the current flag, decides;
 - versions are monotonic per listing across clear: the counter lives in its
   own `listing_pickup_version_counters` row and survives
   `pickup_details.clear`; the post-clear `set` CAS on the counter continues
@@ -727,7 +785,10 @@ Service tests (slice 7.1 gate — all must pass):
 - `pickup_details.clear`: unreferenced versions hard-deleted; versions
   pinned by paid, non-terminal orders retained and served
   pinned-and-flagged-withdrawn on the buyer reveal; retained versions
-  purged once the referencing orders go terminal; owner read returns none;
+  purged once the referencing orders go terminal — with a
+  cancelled-after-payment order's snapshot living until refund evidence is
+  recorded, then purging; owner read returns no details **with the
+  surviving version counter**, and the next `set` CASes against it;
 - `confirm_pickup` by buyer and by seller, from `paid` and from
   `ready_for_pickup`, all succeed; seller-actor `confirm_pickup` with an
   unresolved terms change → typed refusal while buyer-actor succeeds; the
@@ -737,7 +798,11 @@ Service tests (slice 7.1 gate — all must pass):
   instant on the same deadline as a shipped order from
   `shipment->>'delivered_at'`; the sweep locks `FOR UPDATE OF orders` and
   emits no per-order warnings for pickup rows;
-  `fulfillment.delivered`-based reputation counts pickup completions;
+  `fulfillment.delivered`-based reputation counts pickup completions
+  **under the confirming-actor rule**: a buyer-confirmed handover counts at
+  once; a seller-unilateral confirm counts only once the order
+  auto-completes with no buyer cancel or return in the window, and never
+  counts when the buyer cancelled or returned in that window;
 - `fulfillment.ship` and `fulfillment.confirm_delivery` refused on pickup
   orders; `mark_ready`/`confirm_pickup` refused on shipped orders;
 - `next_actor` for pickup orders: `'seller'` in `paid`, `'buyer'` in
@@ -1077,8 +1142,9 @@ has a next step and never sits in `return_approved` with nothing to do:
     never reused. `return.provide_address` may be **re-issued** while the
     return is open: the new address supersedes the old (the old sealed row
     is hard-deleted), and the buyer is re-notified — a seller who gave a
-    stale address is not locked into it. Once the return finishes
-    (`refunded_external`), the read is a typed refusal and the sealed
+    stale address is not locked into it. Once the return reaches **any**
+    return-terminal state — withdrawn, rejected, expired, or refunded, not
+    only `refunded_external` — the read is a typed refusal and the sealed
     address is purged.
 
 **Sandbox gating and capability, exactly as for pickup details.**
@@ -1090,7 +1156,9 @@ boundary as `pickup_details.set` and the pickup reveal (§A8) — and both are
 folded into the `pickup_available` capability flag and into the boot
 probe's coverage. The sealed return addresses become a **third sealed
 family**: the re-seal job and the probe's trial open (§A8) extend to them
-when 7b lands.
+when 7b lands, and the job then enumerates **all sealed rows** — details
+versions, pinned snapshots, and single-return addresses alike; no sealed
+row sits outside its walk.
 
 With pickup returns, two Part A rules widen as noted there: the reveal
 entitlement ends only once the order is terminal **and** its return window
@@ -1147,11 +1215,12 @@ with an open return window alongside the paid, non-terminal ones (§A3).
   method at approve works; a pickup-method return spawns the hand-back
   schedule with the pinned snapshot as its location; `return_method:
   pickup` with no details → typed refusal; a label URL outside the carrier
-  allowlist → typed refusal; `return.provide_address` is sealed, revealed
+  allowlist → typed refusal;   `return.provide_address` is sealed, revealed
   buyer-only with `Cache-Control: no-store`, re-issue supersedes and
-  re-notifies, the read refuses once the return is `refunded_external`, the
-  sealed row is purged, and both the command and the read are refused when
-  `config.sandbox_payments_enabled` is on.
+  re-notifies, the read refuses **and the sealed row is purged on every
+  return-terminal state** (withdrawn, rejected, expired, refunded — not
+  only `refunded_external`), and both the command and the read are refused
+  when `config.sandbox_payments_enabled` is on.
 
 ## Threat model — self-attack table
 
@@ -1167,13 +1236,13 @@ Extends [`threat-model.md`](threat-model.md); assets: seller meeting point
 | Replay of a paid order projection | Stale/cached projection from any source | Useless: details are not on the projection at all | Dedicated reveal endpoint; caches hold no address material |
 | Seller swaps the address after payment | Seller edits details on a paid order | Buyer is notified (`pickup_details_updated`), the buyer may cancel unilaterally while the terms changed after payment, and `version_at_payment` pins what was shown at payment; in Wave 7b any live schedule also resets (§B2) | Versioning + notification + unilateral cancel; editing is allowed but never silent or free |
 | Seller deletes the details after payment | Seller issues `pickup_details.clear` on a paid order | Paid, non-terminal orders keep their pinned `version_at_payment` copy; the buyer's reveal read still serves what they were shown, flagged withdrawn; buyers are notified and may cancel unilaterally | Retention of referenced versions only; everything else hard-deleted; purge once referencing orders go terminal |
-| Handover dispute (he-said/she-said) | Either party marks `fulfillment.confirm_pickup`; the other claims otherwise | The service cannot tell who is lying — the handover record carries who confirmed and the server instant, nothing more. There is no escrow and no arbiter: a false confirm by the buyer strands the buyer's own funds, and a false confirm by the seller keeps funds **and** item | None at protocol level — stated plainly as a limitation. The buyer gets a prominent dispute/report affordance on a seller-confirmed handover they dispute, and the review hook copy names the risk before confirm ("Only confirm once the item is in your hands"); reviews and the external-refund evidence trail (ADR-0019) are the recourse |
+| Handover dispute (he-said/she-said) | Either party marks `fulfillment.confirm_pickup`; the other claims otherwise | The service cannot tell who is lying — the handover record carries who confirmed and the server instant, nothing more. There is no escrow and no arbiter: a false confirm by the buyer strands the buyer's own funds, and a false confirm by the seller keeps funds **and** item — but it does **not** mint completion reputation: reputation counts the completion only on a buyer confirm or a dispute-free auto-complete (§A6) | None at protocol level for the funds — stated plainly as a limitation. Reputation-side: the confirming-actor rule keeps a seller-unilateral confirm reputation-neutral until the window closes dispute-free. The buyer gets a prominent dispute/report affordance on a seller-confirmed handover they dispute, and the review hook copy names the risk before confirm ("Only confirm once the item is in your hands"); reviews and the external-refund evidence trail (ADR-0019) are the recourse |
 | Buyer induces a terms change to ding the seller | Buyer cancels via a buyer-protection exit (terms-change or bounded withdrawal, §A3) | The exit emits `order.cancelled_terms_change`, a distinct event kind; the reputation worker's `terminated_badly` window excludes the **whole order**, including any `refund.recorded_external` leg on it — the seller's completion rate is untouched | Distinct event kind, whole-order exclusion at the reputation aggregation (slice 7.1); ordinary `order.cancelled` keeps its existing reputation meaning |
-| Real meeting points on a sandbox deployment | Operator runs a deployment with sandbox payments enabled | Refused at the **deployment boundary**: `pickup_details.set` **and** the buyer reveal read are both rejected whenever `config.sandbox_payments_enabled` is on (the executor.rs gate), so no real address can ever be stored against — or revealed under — fake money. The per-order payment `adapter` column is `"sandbox"` for every order at checkout until a rail is chosen, so it cannot be the gate | Refusal at the command handler and the reveal read, plus the `pickup_available` capability flag (§A7). Staging runs durable mode against **test rails** (testnet BTC, Stripe test, PayPal sandbox) — real flow, never real money — so fake meeting spots on staging are fine (§A8) |
+| Real meeting points on a sandbox deployment | Operator runs a deployment with sandbox payments enabled | Refused at the **deployment boundary**: `pickup_details.set` **and** the buyer reveal read are both rejected whenever `config.sandbox_payments_enabled` is on (the executor.rs gate), so no real address can ever be stored against — or revealed under — fake money. The per-order payment `adapter` column is `"sandbox"` for every order at checkout until a rail is chosen, so it cannot be the gate at checkout; but the adapter **pinned at confirmation** is accurate, and the reveal refuses any snapshot pinned under `payment.sandbox_advance` regardless of the current flag — a flag toggle window (off→on→off) cannot make a past fake-money reveal free | Refusal at the command handler and the reveal read, the pinned-adapter check on every reveal (§A3), plus the `pickup_available` capability flag (§A7). Staging runs durable mode against **test rails** (testnet BTC, Stripe test, PayPal sandbox) — real flow, never real money — so fake meeting spots on staging are fine (§A8) |
 | Buyer shares the address onward | Buyer is entitled and malicious | Unpreventable — the buyer must know where to go; same as telling a friend where you're meeting | Reveal only after payment (the seller is paid before the address exists for the buyer); spot-first UX keeps most listings off home addresses; reviews give the seller recourse |
 | Operator DB read | Operator runs SQL or exfiltrates a backup | Ciphertext only: XChaCha20-Poly1305, AAD-bound, fresh nonce per seal; key is an env secret distinct from the Locks key | Sealing (§A1); operator with env access can still decrypt — acknowledged, bounded by policy's "what the service needs" clause; no operator/support read path exists |
 | Second-device seller | Seller signs in elsewhere | Owner read returns their details; recovery works | Service is truth (§A4); no sync path can null details; save requires a successful read (CAS version) |
-| Cancelled after reveal | Order paid, then cancelled | Buyer retains what they saw; the entitlement honestly reflects that | Reveal happens only after money moved; cancellation post-payment is a real-world dispute handled by cancel/return, not by pretending the address is secret again |
+| Cancelled after reveal | Order paid, then cancelled (any path, including the unilateral exits) | The entitlement ends at the cancel event; no new read is served. The pinned snapshot survives only as dispute evidence, until the seller's refund evidence is recorded or the terminal-order purge runs | Terminal-cutoff at cancellation; retention bound to refund evidence; what the buyer saw while the order was live cannot be un-seen and is not pretended secret again |
 
 ### Wave 7b rows (Part B)
 
