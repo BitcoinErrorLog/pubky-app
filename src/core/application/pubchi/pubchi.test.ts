@@ -485,6 +485,20 @@ describe('PubchiApplication', () => {
     expect(readPendingDelegationDeletes().some((item) => item.signer === liveSigner)).toBe(false);
   });
 
+  it('defers pending drain when live-device lookup fails and local keys must be preserved', async () => {
+    const signer = Keypair.random().publicKey.z32();
+    rememberPendingDelegationDeletes([{ owner: OWNER, signer }]);
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockRejectedValue(new Error('indexeddb unavailable'));
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+
+    await expect(
+      PubchiApplication.unpublishKnownDelegations(OWNER, { attemptRemote: true, includeLocalKeys: false }),
+    ).resolves.toEqual({ failed: [{ owner: OWNER, signer }] });
+
+    expect(requestSpy).not.toHaveBeenCalled();
+    expect(readPendingDelegationDeletes()).toEqual([{ owner: OWNER, signer }]);
+  });
+
   it('still DELETEs the live device signer when the caller revokes local keys', async () => {
     const liveSigner = Keypair.random().publicKey.z32();
     vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([

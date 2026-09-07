@@ -211,7 +211,12 @@ export class PubchiApplication {
       const known = includeLocalKeys ? await listKnownDelegations(owner) : [];
       if (known.length) rememberPendingDelegationDeletes(known);
 
-      const liveSigners = await liveDeviceSigners(owner);
+      const liveLookup = await liveDeviceSigners(owner);
+      if (!includeLocalKeys && !liveLookup.ok) {
+        Logger.warn('Pubchi live-device lookup failed; deferring pending drain', { owner });
+        return { failed: readPendingDelegationDeletes().filter((item) => item.owner === owner) };
+      }
+      const liveSigners = liveLookup.ok ? liveLookup.signers : new Set<string>();
       const pendingByKey = new Map<string, PendingDelegationDelete>();
       for (const item of [...readPendingDelegationDeletes().filter((entry) => entry.owner === owner), ...known]) {
         if (!includeLocalKeys && liveSigners.has(item.signer)) continue;
@@ -449,11 +454,11 @@ function assertPubchiCapability(): void {
   }
 }
 
-async function liveDeviceSigners(owner: string): Promise<Set<string>> {
+async function liveDeviceSigners(owner: string): Promise<{ ok: true; signers: Set<string> } | { ok: false }> {
   try {
-    return new Set((await getDeviceKeys(owner)).map((key) => key.signer));
+    return { ok: true, signers: new Set((await getDeviceKeys(owner)).map((key) => key.signer)) };
   } catch {
-    return new Set();
+    return { ok: false };
   }
 }
 
