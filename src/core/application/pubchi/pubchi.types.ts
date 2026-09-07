@@ -9,7 +9,6 @@ export type PubchiQueryApplicationParams = {
   owner: Pubky;
   question: string;
   purpose: Phase0Purpose;
-  secretSeed: Uint8Array;
   nowSeconds?: number;
 };
 

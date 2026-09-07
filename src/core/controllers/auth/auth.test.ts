@@ -17,7 +17,6 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
-import { clearPubchiSigningSeed, hasPubchiSigningSeed } from '@/libs/pubchi/signing-seed';
 import type { Pubky } from '@/models/models.types';
 import { NotificationType } from '@/models/notification/notification.types';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
@@ -325,8 +324,7 @@ vi.mock('@/libs/env/env', async (importOriginal) => {
 });
 
 afterEach(() => {
-  clearPubchiSigningSeed();
-  vi.restoreAllMocks();
+    vi.restoreAllMocks();
 });
 
 describe('AuthController', () => {
@@ -533,7 +531,6 @@ describe('AuthController', () => {
         hasProfile: false,
       });
       expect(result).toBeUndefined();
-      expect(hasPubchiSigningSeed()).toBe(true);
     });
 
     it('should throw error if signup fails', async () => {
@@ -619,7 +616,6 @@ describe('AuthController', () => {
       });
       expect(_authStore.setHasProfile).toHaveBeenCalledWith(true);
       expect(result).toBe(true);
-      expect(hasPubchiSigningSeed()).toBe(true);
     });
 
     it('should successfully login with mnemonic without bootstrap if user is not signed up', async () => {
@@ -1491,32 +1487,6 @@ describe('AuthController', () => {
       expect(storeMocks.resetMigrationStore).toHaveBeenCalled();
 
       expect(sessionStorage.getItem(muteSyncCursorKey)).toBeNull();
-      expect(hasPubchiSigningSeed()).toBe(false);
-    });
-
-    it('clears the in-memory Pubchi signing seed on logout', async () => {
-      const { retainPubchiSigningSeed } = await import('@/libs/pubchi/signing-seed');
-      retainPubchiSigningSeed({ secret: () => new Uint8Array(32).fill(4) });
-      expect(hasPubchiSigningSeed()).toBe(true);
-
-      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
-      mockClearDatabase.mockResolvedValue(undefined);
-      await spyOnClearCookies();
-      await spyOnClearAllQueryClients();
-      vi.spyOn(useAuthStore, 'getState').mockReturnValue(createAuthStore());
-      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
-      vi.spyOn(useSignInStore, 'getState').mockReturnValue(createSignInStore());
-      vi.spyOn(useLocalFilesStore, 'getState').mockReturnValue(createLocalFilesStore());
-      vi.spyOn(useHomeStore, 'getState').mockReturnValue(mockHomeStore(storeMocks.getHomeState()));
-      vi.spyOn(useHotStore, 'getState').mockReturnValue(mockHotStore(storeMocks.getHotState()));
-      vi.spyOn(useSearchStore, 'getState').mockReturnValue(mockSearchStore(storeMocks.getSearchState()));
-      vi.spyOn(useNotificationStore, 'getState').mockReturnValue(
-        mockNotificationStore(storeMocks.getNotificationState()),
-      );
-      vi.spyOn(useSettingsStore, 'getState').mockReturnValue(mockSettingsStore(storeMocks.getSettingsState()));
-
-      await AuthController.logout();
-      expect(hasPubchiSigningSeed()).toBe(false);
     });
 
     it('deletes the pubchi IndexedDB on logout when the flag is on', async () => {

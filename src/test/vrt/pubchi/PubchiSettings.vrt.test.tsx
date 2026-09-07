@@ -1,17 +1,47 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PUBCHI_SETTINGS_SURFACE, PubchiSettings } from '@/templates/Settings/Pubchi/Pubchi';
 import { renderForVRT } from '@/test-utils/vrt';
+import { VRT_FROZEN_NOW_MS } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 
+const OWNER = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+const BOT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const THIS_SIGNER = 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u';
+const OTHER_SIGNER = 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy';
+
+const enrollment = {
+  form: { control: {} },
+  submit: vi.fn(),
+  remove: vi.fn(),
+  revokeDevice: vi.fn(),
+  revokeAllDevices: vi.fn(),
+  reapprove: vi.fn(),
+  needsReapproval: false,
+  binding: undefined as
+    | {
+        schema: 'pubchi-owner-binding';
+        version: 1;
+        owner: string;
+        bot: string;
+        status: 'active';
+        created_at: number;
+        updated_at: number;
+      }
+    | undefined,
+  devices: [] as Array<{
+    id: string;
+    owner: string;
+    signer: string;
+    created_at: number;
+    expires_at: number;
+  }>,
+  currentSigner: THIS_SIGNER as string | undefined,
+  loading: false,
+  enabled: true,
+};
+
 vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
-  usePubchiEnrollment: () => ({
-    form: { control: {} },
-    submit: vi.fn(),
-    remove: vi.fn(),
-    binding: undefined,
-    loading: false,
-    enabled: true,
-  }),
+  usePubchiEnrollment: () => enrollment,
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -22,15 +52,55 @@ vi.mock('@/molecules/ControlledInputField/ControlledInputField', () => ({
   ControlledInputField: () => <input aria-label="Bot pubky" />,
 }));
 
+function bindWithDevices() {
+  enrollment.needsReapproval = false;
+  enrollment.binding = {
+    schema: 'pubchi-owner-binding',
+    version: 1,
+    owner: OWNER,
+    bot: BOT,
+    status: 'active',
+    created_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) - 86_400,
+    updated_at: Math.floor(VRT_FROZEN_NOW_MS / 1000),
+  };
+  enrollment.devices = [
+    {
+      id: `${OWNER}:${THIS_SIGNER}`,
+      owner: OWNER,
+      signer: THIS_SIGNER,
+      created_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) - 86_400,
+      expires_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) + 30 * 86_400,
+    },
+    {
+      id: `${OWNER}:${OTHER_SIGNER}`,
+      owner: OWNER,
+      signer: OTHER_SIGNER,
+      created_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) - 2 * 86_400,
+      expires_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) + 20 * 86_400,
+    },
+  ];
+  enrollment.currentSigner = THIS_SIGNER;
+}
+
 describe('PubchiSettings — visual regression', () => {
   it('guards the production surface marker', async () => {
+    bindWithDevices();
     const screen = await renderForVRT(<PubchiSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
     const surface = screen.getByTestId(PUBCHI_SETTINGS_SURFACE);
     await expect.element(surface).toHaveAttribute('data-surface', PUBCHI_SETTINGS_SURFACE);
+    await expect.element(screen.getByTestId('pubchi-device-signers')).toBeVisible();
   });
 
-  it('captures the production settings surface only', async () => {
+  it('captures the production settings surface with live device signers', async () => {
+    bindWithDevices();
     const screen = await renderForVRT(<PubchiSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toMatchScreenshot('pubchi-settings-desktop');
+  });
+
+  it('captures Ring re-approval on the production settings surface', async () => {
+    bindWithDevices();
+    enrollment.needsReapproval = true;
+    const screen = await renderForVRT(<PubchiSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toMatchScreenshot('pubchi-settings-reapprove-desktop');
   });
 });

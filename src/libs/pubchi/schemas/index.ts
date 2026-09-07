@@ -7,7 +7,19 @@
 
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
 export { err, ERROR_CODES, type ErrorCode, ok, type ParseErr, type ParseOk, type ParseResult } from './codes';
-export { signEd25519, verifyEd25519, verifyPubkySignature } from './ed25519';
+export {
+  delegationPath,
+  delegationUri,
+  DEVICE_DELEGATION_MAX_SECONDS,
+  type DeviceDelegationV1,
+  DeviceDelegationV1Schema,
+  parseDeviceDelegationV1,
+  signDeviceDelegationV1,
+  unsignedDelegationBytes,
+  type UnsignedDeviceDelegationV1,
+  verifyDeviceDelegationV1,
+} from './delegation';
+export { verifyEd25519, verifyPubkySignature } from './ed25519';
 export {
   type CommonEnvelopeV1,
   CommonEnvelopeV1Schema,
@@ -64,6 +76,8 @@ export {
   type VerifiedRequest,
   type VerifyRequestInput,
   verifyRequestObjectV1,
+  type VerifySignedRequestInput,
+  verifySignedRequestObjectV1,
 } from './request';
 export {
   type OwnerBindingV1,

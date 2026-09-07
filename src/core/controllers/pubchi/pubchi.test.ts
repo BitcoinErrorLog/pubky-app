@@ -44,7 +44,6 @@ describe('PubchiController', () => {
       PubchiController.fetchPubchiQuery({
         question: 'who tagged me?',
         purpose: 'who-tagged-me',
-        secretSeed: new Uint8Array(32),
       }),
     ).rejects.toThrow('PUBCHI_DISABLED');
 
@@ -60,16 +59,13 @@ describe('PubchiController', () => {
       result: { schema: 'pubchi-query-result' },
     };
     const querySpy = vi.spyOn(PubchiApplication, 'query').mockResolvedValue(success as never);
-    const seed = new Uint8Array(32);
-
     await expect(
-      PubchiController.fetchPubchiQuery({ question: 'who tagged me?', purpose: 'who-tagged-me', secretSeed: seed }),
+      PubchiController.fetchPubchiQuery({ question: 'who tagged me?', purpose: 'who-tagged-me' }),
     ).resolves.toEqual(success);
     expect(querySpy).toHaveBeenCalledWith({
       owner: OWNER,
       question: 'who tagged me?',
       purpose: 'who-tagged-me',
-      secretSeed: seed,
     });
   });
 

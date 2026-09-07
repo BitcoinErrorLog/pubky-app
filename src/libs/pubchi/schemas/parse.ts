@@ -5,6 +5,7 @@
  */
 
 import { err, type ParseResult } from './codes';
+import { parseDeviceDelegationV1 } from './delegation';
 import { parseCommonEnvelopeV1 } from './envelope';
 import { parseFeedProposalV1 } from './feed';
 import { parseManifestV1 } from './manifest';
@@ -26,6 +27,8 @@ export function parseBySchema(input: unknown): ParseResult<unknown> {
       return parseRequestBindingV1(input);
     case 'pubchi-request-object':
       return parseRequestObjectV1(input);
+    case 'pubchi-device-delegation':
+      return parseDeviceDelegationV1(input);
     case 'pubchi-feed-proposal':
       return parseFeedProposalV1(input);
     case 'pubchi-query-result':

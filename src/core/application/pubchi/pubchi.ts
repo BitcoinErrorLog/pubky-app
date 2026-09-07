@@ -2,23 +2,28 @@ import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
+import { deleteDeviceKey, getCurrentDeviceKey, loadOrGenerateDeviceKey } from '@/libs/pubchi/device-key';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
 import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
 import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
 import {
   bodySha256,
+  delegationUri,
   ownerBindingUri,
   parseFeedProposalV1,
   parseOwnerBindingV1,
   parseQueryResultV1,
   REQUEST_TTL_SECONDS,
+  signDeviceDelegationV1,
   signRequestObjectV1,
+  type UnsignedDeviceDelegationV1,
   type UnsignedRequestObjectV1,
 } from '@/libs/pubchi/schemas';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import type {
   PubchiAskBody,
   PubchiBindingRecordResult,
@@ -54,7 +59,9 @@ export class PubchiApplication {
       });
     }
 
+    assertPubchiCapability();
     const now = Math.floor(Date.now() / 1000);
+    const device = await loadOrGenerateDeviceKey(params.owner, now);
     const existing = await LocalPubchiBindingService.read(params.owner, params.bot);
     const createdAt = existing?.created_at ?? now;
     const candidate = {
@@ -73,6 +80,21 @@ export class PubchiApplication {
     await LocalPubchiBindingService.upsert(record);
 
     try {
+      const delegation: UnsignedDeviceDelegationV1 = {
+        schema: 'pubchi-device-delegation',
+        version: 1,
+        owner: params.owner,
+        signer: device.signer,
+        bot: params.bot,
+        purposes: ['who-tagged-me', 'build-feed', 'what-i-missed', 'summarize'],
+        created_at: device.created_at,
+        expires_at: device.expires_at,
+      };
+      await HomeserverService.request({
+        method: HttpMethod.PUT,
+        url: delegationUri(params.owner, device.signer),
+        bodyJson: await signDeviceDelegationV1(delegation, device.key),
+      });
       await HomeserverService.request({
         method: HttpMethod.PUT,
         url: ownerBindingUri(params.owner, params.bot),
@@ -80,6 +102,11 @@ export class PubchiApplication {
       });
     } catch (error) {
       await rollbackBindingWrite(params, existing);
+      await HomeserverService.request({
+        method: HttpMethod.DELETE,
+        url: delegationUri(params.owner, device.signer),
+      }).catch(() => undefined);
+      await deleteDeviceKey(params.owner, device.signer).catch(() => undefined);
       throw error;
     }
 
@@ -188,6 +215,7 @@ export class PubchiApplication {
         operation: 'query',
       });
     }
+    assertPubchiCapability();
 
     const question = params.question.trim();
     if (!question) {
@@ -221,7 +249,10 @@ export class PubchiApplication {
       expires_at: issuedAt + REQUEST_TTL_SECONDS,
       nonce: randomNonce(),
     };
-    const request = await signRequestObjectV1(unsigned, params.secretSeed);
+    const device = await getCurrentDeviceKey(params.owner, issuedAt);
+    if (!device) throw pubchiValidationError('SIGNATURE_INVALID', 'query');
+    const request = await signRequestObjectV1({ ...unsigned, signer: device.signer }, device.key);
+    assertRequestSignerIsStoredDevice(request.signer, device.signer);
 
     const response = await PubchiService.query({ request, body });
     return interpretQueryResponse(response);
@@ -283,4 +314,17 @@ function responseSchema(response: unknown): string | undefined {
   if (response === null || typeof response !== 'object' || Array.isArray(response)) return undefined;
   const schema = (response as { schema?: unknown }).schema;
   return typeof schema === 'string' ? schema : undefined;
+}
+
+export function assertRequestSignerIsStoredDevice(signer: string | undefined, storedSigner: string): void {
+  if (signer !== storedSigner) throw pubchiValidationError('DELEGATION_INVALID', 'query');
+}
+
+function assertPubchiCapability(): void {
+  const session = useAuthStore.getState().selectSession();
+  if (!session) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+  const capabilities = session.info.capabilities;
+  if (!capabilities.some((capability) => capability === '/pub/pubchi.app/:rw' || capability === '/pub/:rw')) {
+    throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+  }
 }

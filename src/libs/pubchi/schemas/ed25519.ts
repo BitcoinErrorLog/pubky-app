@@ -15,9 +15,6 @@
 import { asCryptoBytes, bytesToHex, hexToBytes } from './canonical';
 import { pubkyPublicBytes } from './pubky';
 
-const PKCS8_PREFIX = Uint8Array.from([
-  0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
-]);
 const SPKI_PREFIX = Uint8Array.from([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00]);
 
 function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
@@ -25,22 +22,6 @@ function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
   out.set(a, 0);
   out.set(b, a.length);
   return out;
-}
-
-export async function signEd25519(secretSeed: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
-  if (secretSeed.length !== 32) throw new Error('ed25519 seed must be 32 bytes');
-  const seedCopy = new Uint8Array(secretSeed);
-  const pkcs8 = concatBytes(PKCS8_PREFIX, seedCopy);
-  const keyBytes = asCryptoBytes(pkcs8);
-  try {
-    const key = await crypto.subtle.importKey('pkcs8', keyBytes, { name: 'Ed25519' }, false, ['sign']);
-    const signature = await crypto.subtle.sign({ name: 'Ed25519' }, key, asCryptoBytes(message));
-    return new Uint8Array(signature);
-  } finally {
-    pkcs8.fill(0);
-    seedCopy.fill(0);
-    keyBytes.fill(0);
-  }
 }
 
 export async function verifyEd25519(

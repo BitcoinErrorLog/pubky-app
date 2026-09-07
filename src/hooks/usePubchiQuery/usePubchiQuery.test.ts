@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import type { FeedProposalV1 } from '@/libs/pubchi/schemas';
@@ -39,7 +39,6 @@ const mocks = vi.hoisted(() => ({
   commitCreate: vi.fn(),
   toast: vi.fn(),
   signingAvailable: true,
-  seedCopy: new Uint8Array(32).fill(1),
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -62,10 +61,13 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: (...args: unknown[]) => mocks.toast(...args),
 }));
 
-vi.mock('@/libs/pubchi/signing-seed', () => ({
-  getPubchiSigningSeedCopy: () => new Uint8Array(mocks.seedCopy),
-  usePubchiSigningAvailable: (selector: (state: { available: boolean }) => unknown) =>
-    selector({ available: mocks.signingAvailable }),
+vi.mock('@/libs/pubchi/device-key', () => ({
+  getCurrentDeviceKey: () => Promise.resolve(mocks.signingAvailable ? {} : undefined),
+}));
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: 'a'.repeat(52) }),
 }));
 
 describe('usePubchiQuery', () => {
@@ -83,8 +85,9 @@ describe('usePubchiQuery', () => {
     vi.clearAllMocks();
   });
 
-  it('passes an explicit purpose and a seed copy through to the controller', async () => {
+  it('passes an explicit purpose through to the controller', async () => {
     const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
 
     await act(async () => {
       result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'build a feed of builders');
@@ -94,7 +97,6 @@ describe('usePubchiQuery', () => {
     expect(mocks.fetchPubchiQuery).toHaveBeenCalledWith({
       question: 'build a feed of builders',
       purpose: 'build-feed',
-      secretSeed: expect.any(Uint8Array),
     });
     expect(result.current.result).toEqual(FEED_SUCCESS);
     expect(result.current.errorCode).toBeUndefined();
