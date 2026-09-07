@@ -1,5 +1,7 @@
 # Shop Graduation Dossier
 
+Wave 5 per-feature proof table (recommended next state per capability): [`graduation-dossier.md`](graduation-dossier.md).
+
 One row per major feature from the evidence ledger. Proof statuses quote the source wording and date where the ledger gives one.
 
 | Feature                          | Proof status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Honest gaps                                                                                                                                                                                                                  | Recommended next state                                                                                           |
