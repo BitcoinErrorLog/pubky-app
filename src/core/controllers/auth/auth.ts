@@ -1,6 +1,7 @@
 import { AuthApplication } from '@/application/auth/auth';
 import type { TKeypairParams } from '@/application/auth/auth.types';
 import { BootstrapApplication, type BootstrapProgressCallback } from '@/application/bootstrap/bootstrap';
+import { PubchiApplication } from '@/application/pubchi/pubchi';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { TagApplication } from '@/application/tag/tag';
@@ -374,6 +375,16 @@ export class AuthController {
     authStore.setIsLoggingOut(true);
 
     let session = authStore.session;
+    const owner = authStore.currentUserPubky ?? authStore.selectCurrentUserPubky();
+
+    // Snapshot local device signers into the durable pending list before any
+    // path that might wipe Dexie. After homeserver sign-out there is no write
+    // capability left to authorize a DELETE.
+    try {
+      await PubchiApplication.unpublishKnownDelegations(owner, { attemptRemote: false });
+    } catch (error) {
+      Logger.warn('Pubchi delegation snapshot failed; logout continues', { error });
+    }
 
     // Fresh loads can still have a persisted session export before the live session is restored.
     // Reuse the restore flow so /logout performs a real homeserver sign-out before local cleanup.
@@ -394,6 +405,12 @@ export class AuthController {
     }
 
     if (session) {
+      // DELETE every known delegationUri while /pub/pubchi.app/:rw is still valid.
+      try {
+        await PubchiApplication.unpublishKnownDelegations(owner, { attemptRemote: true });
+      } catch (error) {
+        Logger.warn('Pubchi delegation DELETE failed; logout continues', { error });
+      }
       try {
         await AuthApplication.logout({ session });
       } catch (error) {

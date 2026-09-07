@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { deletePubchiDatabase, getPubchiDatabase, resetPubchiDatabaseForTests } from '@/database/pubchi/pubchi';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
-import { getCurrentDeviceKey, loadOrGenerateDeviceKey, signWithDeviceKey } from './device-key';
+import { getCurrentDeviceKey, loadOrGenerateDeviceKey, signWithDeviceKey, wipeDeviceKeysNotOwnedBy } from './device-key';
 
 const OWNER = 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u';
 
@@ -53,5 +53,24 @@ describe('Pubchi device signer persistence', () => {
       })),
     );
     await expect(loadOrGenerateDeviceKey(OWNER, 1_800_000_000)).rejects.toThrow('PUBCHI_DEVICE_LIMIT');
+  });
+
+  it('wipes local keys that belong to another identity', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const created = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+    const other = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    await getPubchiDatabase().deviceKeys.put({
+      id: `${other}:foreign`,
+      owner: other,
+      signer: 'foreign',
+      key: created.key,
+      created_at: 1,
+      expires_at: 1_900_000_000,
+    });
+    expect(await wipeDeviceKeysNotOwnedBy(OWNER)).toBe(1);
+    expect(await getCurrentDeviceKey(OWNER, 1_800_000_001)).toMatchObject({ signer: created.signer });
+    const leftover = await getPubchiDatabase().deviceKeys.where('owner').equals(other).toArray();
+    expect(leftover).toEqual([]);
   });
 });

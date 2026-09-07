@@ -2,10 +2,23 @@ import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
-import { deleteDeviceKey, getCurrentDeviceKey, loadOrGenerateDeviceKey } from '@/libs/pubchi/device-key';
+import { Logger } from '@/libs/logger/logger';
+import {
+  deleteDeviceKey,
+  getCurrentDeviceKey,
+  getDeviceKeys,
+  loadOrGenerateDeviceKey,
+  wipeDeviceKeysNotOwnedBy,
+} from '@/libs/pubchi/device-key';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
 import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
 import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
+import {
+  type PendingDelegationDelete,
+  readPendingDelegationDeletes,
+  rememberPendingDelegationDeletes,
+  replacePendingDelegationDeletesForOwner,
+} from '@/libs/pubchi/pending-delegation-deletes';
 import {
   bodySha256,
   delegationUri,
@@ -20,6 +33,7 @@ import {
   type UnsignedRequestObjectV1,
 } from '@/libs/pubchi/schemas';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
@@ -149,6 +163,63 @@ export class PubchiApplication {
   }
 
   /**
+   * Record known device delegations and, when `attemptRemote` is true, DELETE
+   * each `delegationUri` while the session still has `/pub/pubchi.app/:rw`.
+   *
+   * Does NOT delete the owner binding at `/pub/pubchi.app/bots/<bot>.json`.
+   * That object is the account-level U→B enrollment; logout revokes this
+   * browser's device key, not the bot binding. "Remove bot" is the unenroll path.
+   *
+   * Never throws: a homeserver failure is recorded in localStorage so the next
+   * session of the same owner can finish the DELETE. A previous identity's
+   * remote delegation cannot be revoked without that identity's live session.
+   */
+  static async unpublishKnownDelegations(
+    owner: string | undefined,
+    options: { attemptRemote: boolean } = { attemptRemote: true },
+  ): Promise<{ failed: PendingDelegationDelete[] }> {
+    try {
+      if (!owner) return { failed: [] };
+
+      const known = await listKnownDelegations(owner);
+      rememberPendingDelegationDeletes(known);
+      if (!options.attemptRemote) {
+        return { failed: readPendingDelegationDeletes().filter((item) => item.owner === owner) };
+      }
+
+      const pending = readPendingDelegationDeletes().filter((item) => item.owner === owner);
+      const failed: PendingDelegationDelete[] = [];
+      for (const item of pending) {
+        try {
+          await HomeserverService.request({
+            method: HttpMethod.DELETE,
+            url: delegationUri(item.owner, item.signer),
+          });
+        } catch (error) {
+          Logger.warn('Pubchi delegation DELETE failed; logout continues', {
+            owner: item.owner,
+            signer: item.signer,
+            error,
+          });
+          failed.push(item);
+        }
+      }
+      replacePendingDelegationDeletesForOwner(owner, failed);
+      if (failed.length) {
+        toast({
+          variant: 'warning',
+          title: 'Pubchi device access could not be revoked on the homeserver. It will be retried the next time you sign in.',
+          dismissButton: true,
+        });
+      }
+      return { failed };
+    } catch (error) {
+      Logger.warn('Pubchi unpublish threw; sign-out continues', { error });
+      return { failed: owner ? readPendingDelegationDeletes().filter((item) => item.owner === owner) : [] };
+    }
+  }
+
+  /**
    * Reconcile the Dexie binding with the homeserver object at
    * `pubky://<owner>/pub/pubchi.app/bots/<B>.json`. Revoke the local row only
    * on explicit 404/absence or a parsed body with `status !== 'active'`.
@@ -162,6 +233,9 @@ export class PubchiApplication {
         operation: 'reconcileActiveBinding',
       });
     }
+
+    await wipeLocalStateFromOtherIdentities(owner);
+    await PubchiApplication.unpublishKnownDelegations(owner, { attemptRemote: true });
 
     const local = await LocalPubchiBindingService.readActive(owner);
     if (!local) return undefined;
@@ -326,5 +400,32 @@ function assertPubchiCapability(): void {
   const capabilities = session.info.capabilities;
   if (!capabilities.some((capability) => capability === '/pub/pubchi.app/:rw' || capability === '/pub/:rw')) {
     throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+  }
+}
+
+async function listKnownDelegations(owner: string): Promise<PendingDelegationDelete[]> {
+  if (!isPubchiEnabled()) {
+    return readPendingDelegationDeletes().filter((item) => item.owner === owner);
+  }
+  try {
+    const keys = await getDeviceKeys(owner);
+    return keys.map((key) => ({ owner, signer: key.signer }));
+  } catch {
+    return readPendingDelegationDeletes().filter((item) => item.owner === owner);
+  }
+}
+
+/**
+ * Same-pubky restore keeps this owner's key. A missing key is left missing so
+ * enroll can mint a fresh signer. Foreign local rows are wiped. Remote
+ * delegations for a previous identity stay published until that identity signs
+ * in again — we have no write capability on their `/pub/pubchi.app/` path.
+ */
+async function wipeLocalStateFromOtherIdentities(owner: string): Promise<void> {
+  try {
+    await wipeDeviceKeysNotOwnedBy(owner);
+    await LocalPubchiBindingService.deleteNotOwnedBy(owner);
+  } catch (error) {
+    Logger.warn('Pubchi foreign-identity wipe failed', { error });
   }
 }
