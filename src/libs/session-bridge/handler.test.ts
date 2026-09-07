@@ -38,11 +38,11 @@ describe('createSessionBridgeHandler', () => {
     const { handleMessage } = createSessionBridgeHandler({
       allowlist,
       getSessionExport: () =>
-        readPersistedSessionExport({
+        readPersistedSessionExport(() => ({
           getItem: () => {
             throw new DOMException('Access is denied for this document.', 'SecurityError');
           },
-        }),
+        })),
     });
 
     handleMessage({

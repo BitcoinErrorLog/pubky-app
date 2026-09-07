@@ -47,7 +47,7 @@ export function installSessionBridgeListeners(win: Window = window): () => void 
   if (installed === null) {
     const handler = createSessionBridgeHandler({
       allowlist: readSessionBridgeAllowlistFromEnv(),
-      getSessionExport: () => readPersistedSessionExport(win.localStorage),
+      getSessionExport: () => readPersistedSessionExport(() => win.localStorage),
     });
 
     const handleMessage = (event: MessageEvent) => {

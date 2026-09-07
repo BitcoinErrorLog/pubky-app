@@ -69,6 +69,42 @@ describe('installSessionBridgeListeners', () => {
     setEmbedded(false);
   });
 
+  it('replies pubky-session-none when the localStorage getter throws', () => {
+    const hadOwn = Object.prototype.hasOwnProperty.call(window, 'localStorage');
+    const ownDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('Access is denied for this document.', 'SecurityError');
+      },
+    });
+
+    try {
+      const source = { postMessage: vi.fn() };
+      const uninstall = installSessionBridgeListeners();
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://vibes.pubky.app',
+          data: { type: 'pubky-session-request', v: 1 },
+          source: asOpaque<MessageEventSource>(source),
+        }),
+      );
+
+      expect(source.postMessage).toHaveBeenCalledTimes(1);
+      expect(source.postMessage).toHaveBeenCalledWith({ type: 'pubky-session-none', v: 1 }, 'https://vibes.pubky.app');
+
+      uninstall();
+    } finally {
+      if (hadOwn && ownDescriptor !== undefined) {
+        Object.defineProperty(window, 'localStorage', ownDescriptor);
+      } else {
+        Reflect.deleteProperty(window, 'localStorage');
+      }
+    }
+  });
+
   it('does not answer a request received before the listener exists, then answers after attach', () => {
     const source = { postMessage: vi.fn() };
     const request = new MessageEvent('message', {
