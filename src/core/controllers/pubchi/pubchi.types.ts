@@ -8,7 +8,6 @@ export type TPubchiEnrollParams = {
 export type TPubchiQueryParams = {
   question: string;
   purpose: Phase0Purpose;
-  secretSeed: Uint8Array;
 };
 
 export type TPubchiOwnerParam = {

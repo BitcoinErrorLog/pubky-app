@@ -1,17 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
+import { getCurrentDeviceKey } from '@/libs/pubchi/device-key';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
-import { getPubchiSigningSeedCopy, usePubchiSigningAvailable } from '@/libs/pubchi/signing-seed';
 import { toast } from '@/molecules/Toaster/toast';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import {
   type PubchiQueryFormData,
   pubchiQueryFormDefaults,
@@ -23,7 +24,8 @@ const SIGNING_UNAVAILABLE =
   'Pubchi signing is unavailable for this session type in Phase 0; sign in with your recovery phrase or key to use it';
 
 export function usePubchiQuery() {
-  const signingAvailable = usePubchiSigningAvailable((state) => state.available);
+  const owner = useAuthStore((state) => state.currentUserPubky);
+  const [signingAvailable, setSigningAvailable] = useState(false);
   const [result, setResult] = useState<PubchiQuerySuccess | undefined>(undefined);
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
@@ -32,6 +34,11 @@ export function usePubchiQuery() {
     resolver: zodResolver(pubchiQueryFormSchema),
     defaultValues: pubchiQueryFormDefaults,
   });
+
+  useEffect(() => {
+    if (!owner) return;
+    void getCurrentDeviceKey(owner).then((key) => setSigningAvailable(Boolean(key)));
+  }, [owner]);
 
   const submit = async (purpose: Phase0Purpose): Promise<boolean> => {
     if (!isPubchiPanelEnabled()) {
@@ -47,18 +54,11 @@ export function usePubchiQuery() {
     if (!valid) return false;
     setLoading(true);
     setErrorCode(undefined);
-    const secretSeed = getPubchiSigningSeedCopy();
-    if (!secretSeed) {
-      setLoading(false);
-      setErrorCode(SIGNING_UNAVAILABLE);
-      return false;
-    }
     try {
       const values = form.getValues();
       const next = await PubchiController.fetchPubchiQuery({
         question: values[QUERY_FORM_FIELDS.QUESTION],
         purpose,
-        secretSeed,
       });
       setResult(next);
       return true;
@@ -69,7 +69,6 @@ export function usePubchiQuery() {
       toast({ variant: 'error', title: message, dismissButton: true });
       return false;
     } finally {
-      secretSeed.fill(0);
       setLoading(false);
     }
   };

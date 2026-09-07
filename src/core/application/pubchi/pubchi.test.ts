@@ -1,12 +1,42 @@
 import { Keypair } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ERROR_CODES, type ErrorCode, parseQueryResultV1, signRequestObjectV1 } from '@/libs/pubchi/schemas';
+import { ERROR_CODES, type ErrorCode, parseQueryResultV1 } from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
-import { PubchiApplication } from './pubchi';
+import { assertRequestSignerIsStoredDevice,PubchiApplication } from './pubchi';
+
+vi.mock('@/libs/pubchi/device-key', () => {
+  const signer = 'a'.repeat(52);
+  const deviceKeyPromise = crypto.subtle
+    .generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    .then((pair) => ({ key: (pair as CryptoKeyPair).privateKey, signer }));
+  const get = async () => {
+    const { key } = await deviceKeyPromise;
+    return { key, signer, id: `test:${signer}`, owner: 'owner', created_at: 1, expires_at: 2_000_000_000 };
+  };
+  return {
+    getCurrentDeviceKey: get,
+    loadOrGenerateDeviceKey: get,
+    deleteDeviceKey: async () => undefined,
+    signWithDeviceKey: async (key: CryptoKey, message: Uint8Array) =>
+      Array.from(new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key, new Uint8Array(message))), (byte) =>
+        byte.toString(16).padStart(2, '0'),
+      ).join(''),
+  };
+});
+
+const sessionCapabilities = { current: ['/pub/pubchi.app/:rw'] as string[] };
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: {
+    getState: () => ({
+      selectSession: () => ({ info: { capabilities: sessionCapabilities.current } }),
+    }),
+  },
+}));
 
 const keypair = Keypair.random();
 const OWNER = keypair.publicKey.z32();
@@ -52,6 +82,7 @@ function setPubchiEnv(enabled = 'true', apiUrl = 'https://pubchi.example.com') {
 
 describe('PubchiApplication', () => {
   beforeEach(() => {
+    sessionCapabilities.current = ['/pub/pubchi.app/:rw'];
     setPubchiEnv();
     vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue(ACTIVE_BINDING);
     vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(ACTIVE_BINDING);
@@ -75,7 +106,6 @@ describe('PubchiApplication', () => {
       owner: OWNER,
       question: 'who tagged me?',
       purpose: 'who-tagged-me',
-      secretSeed: keypair.secret(),
       nowSeconds: 100,
     });
 
@@ -83,6 +113,7 @@ describe('PubchiApplication', () => {
     expect(querySpy).toHaveBeenCalledOnce();
     const payload = querySpy.mock.calls[0][0];
     expect(payload.request.asker).toBe(OWNER);
+    expect(payload.request.signer).toBe('a'.repeat(52));
     expect(payload.request.bot).toBe(BOT);
     expect(payload.request.purpose).toBe('who-tagged-me');
     expect(payload.body).toEqual({ question: 'who tagged me?' });
@@ -95,7 +126,6 @@ describe('PubchiApplication', () => {
         owner: OWNER,
         question: 'who tagged me?',
         purpose: 'who-tagged-me',
-        secretSeed: keypair.secret(),
         nowSeconds: 100,
       }),
     ).rejects.toThrow(code);
@@ -108,7 +138,6 @@ describe('PubchiApplication', () => {
         owner: OWNER,
         question: 'who tagged me?',
         purpose: 'who-tagged-me',
-        secretSeed: keypair.secret(),
         nowSeconds: 100,
       }),
     ).rejects.toThrow('SCHEMA_INVALID');
@@ -122,7 +151,6 @@ describe('PubchiApplication', () => {
         owner: OWNER,
         question: 'who tagged me?',
         purpose: 'who-tagged-me',
-        secretSeed: keypair.secret(),
       }),
     ).rejects.toThrow('PUBCHI_DISABLED');
     expect(querySpy).not.toHaveBeenCalled();
@@ -162,7 +190,6 @@ describe('PubchiApplication', () => {
       owner: OWNER,
       question: 'build a feed of builders',
       purpose: 'build-feed',
-      secretSeed: keypair.secret(),
       nowSeconds: 100,
     });
     expect(result).toEqual({ kind: 'feed', result: feedProposal, applyAllowed: true });
@@ -178,7 +205,6 @@ describe('PubchiApplication', () => {
           owner: OWNER,
           question: 'who tagged me in my feedreader?',
           purpose,
-          secretSeed: keypair.secret(),
           nowSeconds: 100,
         }),
       ).rejects.toThrow('PURPOSE_UNSUPPORTED');
@@ -192,7 +218,6 @@ describe('PubchiApplication', () => {
       owner: OWNER,
       question: 'who tagged me in my feedreader?',
       purpose: 'who-tagged-me',
-      secretSeed: keypair.secret(),
       nowSeconds: 100,
     });
     expect(vi.mocked(PubchiService.query).mock.calls[0][0].request.purpose).toBe('who-tagged-me');
@@ -222,38 +247,9 @@ describe('PubchiApplication', () => {
       owner: OWNER,
       question: 'build a feed of likes',
       purpose: 'build-feed',
-      secretSeed: keypair.secret(),
       nowSeconds: 100,
     });
     expect(result).toEqual({ kind: 'feed-unsupported', code: 'FEED_UNSUPPORTED_LIKES' });
-  });
-
-  it('signs with the user seed so the asker signature verifies', async () => {
-    vi.spyOn(PubchiService, 'query').mockResolvedValue(QUERY_RESULT);
-    const seed = keypair.secret();
-    await PubchiApplication.query({
-      owner: OWNER,
-      question: 'who tagged me?',
-      purpose: 'who-tagged-me',
-      secretSeed: seed,
-      nowSeconds: 50,
-    });
-    const payload = vi.mocked(PubchiService.query).mock.calls[0][0];
-    const resigned = await signRequestObjectV1(
-      {
-        schema: payload.request.schema,
-        version: payload.request.version,
-        asker: payload.request.asker,
-        bot: payload.request.bot,
-        purpose: payload.request.purpose,
-        body_sha256: payload.request.body_sha256,
-        issued_at: payload.request.issued_at,
-        expires_at: payload.request.expires_at,
-        nonce: payload.request.nonce,
-      },
-      seed,
-    );
-    expect(resigned.signature).toBe(payload.request.signature);
   });
 
   it('rejects a question longer than 500 characters', async () => {
@@ -263,7 +259,6 @@ describe('PubchiApplication', () => {
         owner: OWNER,
         question: 'x'.repeat(501),
         purpose: 'who-tagged-me',
-        secretSeed: keypair.secret(),
       }),
     ).rejects.toThrow('REQUEST_MALFORMED');
     expect(querySpy).not.toHaveBeenCalled();
@@ -321,5 +316,18 @@ describe('PubchiApplication', () => {
     const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
     await expect(PubchiApplication.reconcileActiveBinding(OWNER)).resolves.toEqual(ACTIVE_BINDING);
     expect(upsertSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses enrollment when the session lacks the Pubchi capability', async () => {
+    sessionCapabilities.current = ['/pub/pubky.app/:rw'];
+    const requestSpy = vi.spyOn(HomeserverService, 'request');
+    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+    await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('PATH_FORBIDDEN');
+    expect(requestSpy).not.toHaveBeenCalled();
+    expect(upsertSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects a request whose signer is not the stored device key', () => {
+    expect(() => assertRequestSignerIsStoredDevice('b'.repeat(52), 'a'.repeat(52))).toThrow('DELEGATION_INVALID');
   });
 });

@@ -3,8 +3,12 @@ import type { PubchiBindingRecordResult, PubchiQuerySuccess } from '@/applicatio
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { HttpMethod } from '@/libs/http/http.types';
+import { deleteDeviceKey, getDeviceKeys } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { isPubkyId } from '@/libs/pubchi/schemas';
+import { delegationUri } from '@/libs/pubchi/schemas';
+import { HomeserverService } from '@/services/homeserver/homeserver';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { TPubchiEnrollParams, TPubchiQueryParams } from './pubchi.types';
 
@@ -49,9 +53,9 @@ export class PubchiController {
   }
 
   /**
-   * Network-only query. Signs `RequestObjectV1` with the user's Ed25519 seed
-   * (`Keypair.secret()` / `Identity.keypairFromSecretKey`) and POSTs to the
-   * Pubchi API. The service never receives a session or key.
+   * Network-only query. Signs `RequestObjectV1` with the non-extractable
+   * device CryptoKey and POSTs to the Pubchi API. The service never receives
+   * a session or the account key.
    */
   static async fetchPubchiQuery(params: TPubchiQueryParams): Promise<PubchiQuerySuccess> {
     if (!isPubchiPanelEnabled()) {
@@ -65,7 +69,6 @@ export class PubchiController {
       owner,
       question: params.question,
       purpose: params.purpose,
-      secretSeed: params.secretSeed,
     });
   }
 
@@ -73,5 +76,32 @@ export class PubchiController {
     if (!isPubchiEnabled()) return undefined;
     const owner = useAuthStore.getState().selectCurrentUserPubky();
     return PubchiApplication.reconcileActiveBinding(owner);
+  }
+
+  static async listDeviceKeys() {
+    if (!isPubchiEnabled()) return [];
+    return await getDeviceKeys(useAuthStore.getState().selectCurrentUserPubky());
+  }
+
+  static async getCapabilityApprovalUrl(): Promise<string> {
+    const { authorizationUrl } = await HomeserverService.generateAuthUrl(
+      '/pub/pubky.app/:rw,/pub/pubchi.app/:rw',
+    );
+    return authorizationUrl;
+  }
+
+  static async revokeDevice(signer: string): Promise<void> {
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    await HomeserverService.request({ method: HttpMethod.DELETE, url: delegationUri(owner, signer) });
+    await deleteDeviceKey(owner, signer);
+  }
+
+  static async revokeAllDevices(): Promise<void> {
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const devices = await getDeviceKeys(owner);
+    for (const device of devices) {
+      await HomeserverService.request({ method: HttpMethod.DELETE, url: delegationUri(owner, device.signer) });
+      await deleteDeviceKey(owner, device.signer);
+    }
   }
 }

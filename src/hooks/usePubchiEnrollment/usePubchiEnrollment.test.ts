@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   create: vi.fn(),
   remove: vi.fn(),
+  devices: vi.fn(),
   toast: vi.fn(),
 }));
 
@@ -32,6 +33,10 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     reconcileActiveBinding: (...args: unknown[]) => mocks.reconcile(...args),
     commitCreateBinding: (...args: unknown[]) => mocks.create(...args),
     commitDeleteBinding: (...args: unknown[]) => mocks.remove(...args),
+    listDeviceKeys: (...args: unknown[]) => mocks.devices(...args),
+    revokeDevice: vi.fn(),
+    revokeAllDevices: vi.fn(),
+    getCapabilityApprovalUrl: vi.fn(),
   },
 }));
 
@@ -44,6 +49,7 @@ describe('usePubchiEnrollment', () => {
     mocks.reconcile.mockReset();
     mocks.create.mockReset();
     mocks.remove.mockReset();
+    mocks.devices.mockReset().mockResolvedValue([]);
     mocks.toast.mockReset();
   });
 

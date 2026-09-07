@@ -8,9 +8,10 @@
  */
 
 import { z } from 'zod';
+import { signWithDeviceKey } from '@/libs/pubchi/device-key';
 import { bodySha256, canonicalJson, hexToBytes, SHA256_HEX_RE } from './canonical';
 import { err, ok, type ParseResult } from './codes';
-import { bytesToHex, signEd25519, verifyPubkySignature } from './ed25519';
+import { verifyPubkySignature } from './ed25519';
 import type { NonceStore } from './nonce';
 import type { TenantV1 } from './tenant';
 import { fromZod, zPubky, zSha256, zUnix, zVersion1 } from './zod';
@@ -26,6 +27,7 @@ const UnsignedRequestObjectV1Schema = z
     schema: z.literal('pubchi-request-object'),
     version: zVersion1,
     asker: zPubky,
+    signer: zPubky.optional(),
     bot: zPubky,
     purpose: z.enum(PHASE0_PURPOSES),
     body_sha256: zSha256,
@@ -72,9 +74,9 @@ export function unsignedBytes(unsigned: UnsignedRequestObjectV1): Uint8Array {
 
 export async function signRequestObjectV1(
   unsigned: UnsignedRequestObjectV1,
-  secretSeed: Uint8Array,
+  key: CryptoKey,
 ): Promise<RequestObjectV1> {
-  const signature = bytesToHex(await signEd25519(secretSeed, unsignedBytes(unsigned)));
+  const signature = await signWithDeviceKey(key, unsignedBytes(unsigned));
   return { ...unsigned, signature };
 }
 
@@ -86,12 +88,24 @@ export type VerifyRequestInput = {
   nonces: NonceStore;
 };
 
+export type VerifySignedRequestInput = {
+  request: unknown;
+  body: unknown;
+  now: number;
+  nonces: NonceStore;
+  consumeNonce?: boolean;
+};
+
 export type VerifiedRequest = {
   request: RequestObjectV1;
   tenant: TenantV1;
 };
 
-export async function verifyRequestObjectV1(input: VerifyRequestInput): Promise<ParseResult<VerifiedRequest>> {
+async function verifyRequestSignatureV1(input: {
+  request: unknown;
+  body: unknown;
+  now: number;
+}): Promise<ParseResult<RequestObjectV1>> {
   const parsed = parseRequestObjectV1(input.request);
   if (!parsed.ok) return parsed;
   const request = parsed.value;
@@ -104,7 +118,7 @@ export async function verifyRequestObjectV1(input: VerifyRequestInput): Promise<
 
   const { signature, ...unsigned } = request;
   const sig = hexToBytes(signature);
-  if (!sig || !(await verifyPubkySignature(request.asker, unsignedBytes(unsigned), sig))) {
+  if (!sig || !(await verifyPubkySignature(request.signer ?? request.asker, unsignedBytes(unsigned), sig))) {
     return err('SIGNATURE_INVALID');
   }
 
@@ -112,8 +126,36 @@ export async function verifyRequestObjectV1(input: VerifyRequestInput): Promise<
     return err('BODY_HASH_MISMATCH');
   }
 
+  return ok(request);
+}
+
+/**
+ * Parse, expiry, signature, body hash, and nonce consume — no tenant.
+ * Phase 0 HTTP uses this before homeserver resolution so an unsigned POST
+ * cannot force outbound DHT/GET work.
+ */
+export async function verifySignedRequestObjectV1(
+  input: VerifySignedRequestInput,
+): Promise<ParseResult<RequestObjectV1>> {
+  const signed = await verifyRequestSignatureV1(input);
+  if (!signed.ok) return signed;
+  if (input.consumeNonce !== false) {
+    const first = await input.nonces.consume(signed.value.bot, signed.value.nonce, signed.value.expires_at);
+    if (!first) return err('NONCE_REPLAY');
+  }
+  return signed;
+}
+
+export async function verifyRequestObjectV1(input: VerifyRequestInput): Promise<ParseResult<VerifiedRequest>> {
+  const signed = await verifyRequestSignatureV1(input);
+  if (!signed.ok) return signed;
+  const request = signed.value;
+
   if (request.asker !== input.tenant.owner) return err('ASKER_MISMATCH');
   if (request.bot !== input.tenant.bot) return err('BOT_MISMATCH');
+  // Fail closed: this verifier has no DeviceDelegationV1. A self-consistent
+  // device signature is not authorization — reject before nonce consume.
+  if (request.signer !== undefined) return err('DELEGATION_INVALID');
 
   const first = await input.nonces.consume(request.bot, request.nonce, request.expires_at);
   if (!first) return err('NONCE_REPLAY');
