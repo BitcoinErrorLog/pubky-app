@@ -177,6 +177,21 @@ describe('MaskedPickupDetails telemetry masking', () => {
     // call sites) still emits the explicit redaction marker via toJSON.
     expect(JSON.stringify({ extra: { details: masked } })).toContain(PICKUP_DETAILS_REDACTED);
   });
+
+  it('negative control: the UNWRAPPED details DO leak through the same scrub call', () => {
+    // Proves the masking test above is not vacuous: the scrubber's patterns
+    // (pubky/email/phone, keyed denylist) do not catch pickup details, so
+    // only the wrapper keeps the plaintext out of telemetry.
+    const event = scrubSensitiveData(
+      asOpaque<Parameters<typeof scrubSensitiveData>[0]>({
+        message: 'pickup reveal failed',
+        extra: { details: pickupDetailsSchema.parse(spotDetails), orderId: 'order-1' },
+      }),
+    );
+    const serialized = JSON.stringify(event);
+    expect(serialized).toContain(SPOT);
+    expect(serialized).toContain(INSTRUCTIONS);
+  });
 });
 
 describe('reveal and owner-read schemas (captured shapes from crates/service/tests/pickup_test.rs)', () => {

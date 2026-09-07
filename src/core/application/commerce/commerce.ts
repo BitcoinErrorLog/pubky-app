@@ -47,6 +47,7 @@ import {
   buildMarketplaceListingAggregateId,
   buildMarketplaceOrderAggregateId,
   buildMarketplacePaymentAggregateId,
+  classifyMarketplacePickupCommandRefusal,
   type CreateMarketplaceCheckoutCommand,
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
@@ -372,15 +373,37 @@ export class CommerceApplication {
    * The client-side deployment boundary for pickup commands (§A8): the
    * sandbox deployment stores and reveals no pickup details, so the commands
    * are refused before any bytes leave the client — the same refusal the
-   * durable service answers on sandbox-payments deployments.
+   * durable service answers on sandbox-payments deployments, in the same
+   * shape: CONFLICT with the typed `pickup_unavailable` refusal.
    */
   private static assertPickupDeployment(operation: string): void {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) {
-      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Pickup is unavailable on this deployment.', {
+      throw Err.client(ClientErrorCode.CONFLICT, 'Pickup is unavailable on this deployment.', {
         service: ErrorService.Marketplace,
         operation,
+        context: { refusal: 'pickup_unavailable' },
       });
     }
+  }
+
+  /**
+   * Command refusals come back in the response envelope (`ok:false`), not as
+   * thrown errors, so the typed pickup refusals (§A3/§A6/§A7) would never
+   * reach a caller that branches on `context.refusal` — the entitled reads
+   * already throw that shape. Re-throw a classified pickup refusal as the
+   * same CONFLICT + `context.refusal` error the reads produce; unclassified
+   * failures (revision conflicts, validation) keep the envelope for the
+   * caller to handle.
+   */
+  private static throwIfPickupCommandRefusal(operation: string, response: MarketplaceCommandResponse): void {
+    if (response.ok) return;
+    const refusal = classifyMarketplacePickupCommandRefusal(response);
+    if (!refusal) return;
+    throw Err.client(ClientErrorCode.CONFLICT, response.error.message, {
+      service: ErrorService.Marketplace,
+      operation,
+      context: { refusal },
+    });
   }
 
   /**
@@ -441,7 +464,9 @@ export class CommerceApplication {
       kind: 'pickup_details.set',
       payload: { expectedVersion: input.expectedVersion, details: input.details },
     });
-    return await this.executeMarketplaceCommand(actorPubky, command);
+    const response = await this.executeMarketplaceCommand(actorPubky, command);
+    this.throwIfPickupCommandRefusal('commitSetPickupDetails', response);
+    return response;
   }
 
   /**
@@ -467,7 +492,9 @@ export class CommerceApplication {
       kind: 'pickup_details.clear',
       payload: { expectedVersion: input.expectedVersion },
     });
-    return await this.executeMarketplaceCommand(actorPubky, command);
+    const response = await this.executeMarketplaceCommand(actorPubky, command);
+    this.throwIfPickupCommandRefusal('commitClearPickupDetails', response);
+    return response;
   }
 
   /**
@@ -489,7 +516,9 @@ export class CommerceApplication {
       kind: 'fulfillment.mark_ready',
       payload: { orderId: input.orderId },
     });
-    return await this.executeMarketplaceCommand(actorPubky, command);
+    const response = await this.executeMarketplaceCommand(actorPubky, command);
+    this.throwIfPickupCommandRefusal('commitMarkReady', response);
+    return response;
   }
 
   /**
@@ -511,7 +540,9 @@ export class CommerceApplication {
       kind: 'fulfillment.confirm_pickup',
       payload: { orderId: input.orderId },
     });
-    return await this.executeMarketplaceCommand(actorPubky, command);
+    const response = await this.executeMarketplaceCommand(actorPubky, command);
+    this.throwIfPickupCommandRefusal('commitConfirmPickup', response);
+    return response;
   }
 
   /**

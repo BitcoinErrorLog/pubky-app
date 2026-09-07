@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
+import type { AppError } from '@/libs/error/error';
+import { ErrorService } from '@/libs/error/error.types';
+import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { Logger } from '@/libs/logger/logger';
+import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { MarketplaceSessionService } from './marketplace-session';
 import { MarketplaceTransactionService } from './marketplace-transaction';
 
@@ -973,6 +979,16 @@ describe('MarketplaceTransactionService.getOrderPickupDetails (the buyer reveal,
       code: 'NOT_FOUND',
     });
   });
+
+  it('sends cache: no-store on the request, mirroring the service response header (WEB-03)', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, revealWire));
+
+    await MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID);
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(init.cache).toBe('no-store');
+  });
 });
 
 describe('MarketplaceTransactionService.getListingPickupDetails (the seller owner read, §A4)', () => {
@@ -1024,6 +1040,91 @@ describe('MarketplaceTransactionService.getListingPickupDetails (the seller owne
       category: 'client',
       code: 'NOT_FOUND',
     });
+  });
+
+  it('sends cache: no-store on the request, mirroring the service response header (WEB-03)', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, { listing_aggregate_id: AGGREGATE_ID, current: null, last_version: 4 }),
+    );
+
+    await MarketplaceTransactionService.getListingPickupDetails(ACTOR, AGGREGATE_ID);
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(init.cache).toBe('no-store');
+  });
+});
+
+describe('pickup entitled reads never leak the plaintext into error telemetry', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  const SENTINEL = 'Central Station, north entrance';
+  // A malformed 200 whose body carries revealed pickup plaintext (truncated
+  // mid-payload, as a proxy/server fault would produce it).
+  const MALFORMED_BODY = `{"order_id":"${PICKUP_ORDER_ID}","lines":[{"details":{"spot":"${SENTINEL}","instructions":"Ask for the blue backpack.`;
+
+
+  const pickupReads = [
+    ['buyer reveal', () => MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)],
+    ['seller owner read', () => MarketplaceTransactionService.getListingPickupDetails(ACTOR, AGGREGATE_ID)],
+  ] as const;
+
+  it.each(pickupReads)(
+    'a malformed 200 on the %s throws INVALID_RESPONSE whose context, log output, and Sentry scrub carry no body excerpt',
+    async (_label, read) => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response(MALFORMED_BODY, { status: 200, headers: { 'content-type': 'application/json' } }),
+      );
+      const loggerError = vi.spyOn(Logger, 'error');
+
+      const error = (await read().catch((caught: unknown) => caught)) as AppError;
+
+      expect(error).toMatchObject({ name: 'AppError', category: 'server', code: 'INVALID_RESPONSE' });
+      // The thrown error's context carries the status code only — no excerpt.
+      expect(JSON.stringify(error.context)).not.toContain(SENTINEL);
+      expect(error.context).not.toHaveProperty('responseText');
+      // The Err.* factory logged the same context: no excerpt there either.
+      expect(loggerError).toHaveBeenCalled();
+      expect(JSON.stringify(loggerError.mock.calls)).not.toContain(SENTINEL);
+      // And the Sentry scrub of the error context is clean.
+      const scrubbed = scrubSensitiveData(
+        asOpaque<Parameters<typeof scrubSensitiveData>[0]>({
+          message: error.message,
+          contexts: { 'error.context': error.context },
+        }),
+      );
+      expect(JSON.stringify(scrubbed)).not.toContain(SENTINEL);
+      loggerError.mockRestore();
+    },
+  );
+
+  it('negative control: the generic parseResponseOrThrow WOULD embed the excerpt — and the scrubber denylist now redacts it', async () => {
+    const response = new Response(MALFORMED_BODY, { status: 200, headers: { 'content-type': 'application/json' } });
+
+    const error = (await parseResponseOrThrow(response, ErrorService.Marketplace, 'negativeControl').catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    // Proves the fixture is sensitive and the pickup-specific parser above is
+    // load-bearing: the generic path puts the body excerpt into the context.
+    expect(error).toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(JSON.stringify(error.context)).toContain(SENTINEL);
+    expect(error.context).toHaveProperty('responseText');
+
+    // Defense in depth: `responseText` is on the scrubber denylist, so even
+    // this context is redacted before it can reach Sentry.
+    const scrubbed = scrubSensitiveData(
+      asOpaque<Parameters<typeof scrubSensitiveData>[0]>({
+        message: error.message,
+        contexts: { 'error.context': error.context },
+      }),
+    );
+    expect(JSON.stringify(scrubbed)).not.toContain(SENTINEL);
+    expect(JSON.stringify(scrubbed)).toContain('[redacted: sensitive field]');
   });
 });
 

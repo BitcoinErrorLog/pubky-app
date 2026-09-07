@@ -52,7 +52,7 @@ answers each:
 | Reveal reads only the first line                             | Reveal is per order line, every line of the order (§A3)                                           |
 | Details ride `listing.register`, which `listing.sync` converges | Details are a separate service aggregate written only by `pickup_details.set`/`pickup_details.clear`; sync carries no details and cannot null them (§A1, §A4) |
 | Reveal copies details onto the cached order projection       | Dedicated reveal read; the projection never carries details (§A3)                                 |
-| No DB version bump                                           | Postgres migration + Dexie schema bump are both in the plan (§A8)                                 |
+| No DB version bump                                           | Postgres migration is in the plan (§A8); the client needs no Dexie bump — pickup details are memory-only (§A1) |
 | No durable-service counterpart                               | Full service design: commands, state machines, sealed storage, reveal entitlement (§A1, §A6, §A7) |
 
 # PART A — Wave 7 (build now)
@@ -65,7 +65,7 @@ answers each:
 | Optional coarse pickup area (city/neighborhood, free text, capped at 80 characters) | Owner-signed listing record                                              | Public — the seller's own choice to publish an **approximate** area; never the meeting point. The editor warns that this text is public, signed, and indexable **forever** (slice 7.2) |
 | Seller pickup details (address **or** spot, instructions, availability) | Transaction service, `listing_pickup_details` table, **sealed** (below)                 | The seller (owner read) and the paying buyer (reveal read, §A3). Nobody else |
 | Buyer delivery address (shipped orders)                         | Transaction service `orders.delivery_address` — unchanged                                      | Nobody through reads, per ADR-0019 §8                                  |
-| Device copies of any of the above                               | Seller's own details: account-scoped Dexie, this device only. **Buyer's revealed address: memory only — never persisted to Dexie or any storage**, fetched from the reveal read on each view (slice 7.2) | This browser profile; a read-through cache, never a source of truth    |
+| Device copies of any of the above                               | **Memory only — never persisted to Dexie or any storage.** The buyer's revealed address is fetched from the reveal read on each view; the seller's own details are fetched from the owner read when the editor opens (§A4, slice 7.2) | This browser session only; never a source of truth    |
 
 The public listing record carries `fulfillmentMethods` and optionally the
 coarse area — and nothing else about pickup. Details are never placed on the
@@ -345,12 +345,15 @@ never revealed anything.
 
 ## A4. Cross-device recovery (seller)
 
-The service is the source of truth for pickup details; the seller's Dexie
-copy is a read-through cache for offline editing convenience. A seller on a
-new device opens the sell studio, the client issues the seller-scoped details
-read, gets the sealed row opened for its owner, and the editor is populated.
-Nothing was ever on the homeserver, so there is nothing to lose with a
-browser profile.
+The service is the source of truth for pickup details, and the client holds
+the seller's own details **in memory only** — the same rule as the buyer's
+revealed copy (§A1), deliberately stricter than an earlier draft of this
+section that planned an account-scoped Dexie read-through cache. A seller on
+a new device opens the sell studio, the client issues the seller-scoped
+details read, gets the sealed row opened for its owner, and the editor is
+populated. Nothing was ever on the homeserver, and nothing is in Dexie, so
+there is nothing to lose with a browser profile — and no local copy to
+purge on account switch or to mark stale.
 
 The self-heal rule that must hold: **no sync path may null service-side
 details.** `listing.sync` converges only the public record's
@@ -358,10 +361,13 @@ details.** `listing.sync` converges only the public record's
 them. The only writes to details are the explicit seller commands
 `pickup_details.set` (which requires the full payload — details are replaced
 whole, version + 1, `expected_version` compare-and-swap against lost-update)
-and `pickup_details.clear` (§A3, §A7). A client that has a stale or empty
-local cache and issues a sync heals the listing aggregate, not the details. A
-details read that fails leaves the cache marked stale; the editor refuses to
-save over an unread row.
+and `pickup_details.clear` (§A3, §A7). A client that issues a sync heals the
+listing aggregate, not the details. The "unread row" save guard is satisfied
+without any cache: the editor must load the current version through the
+owner read before save is enabled, and the `expected_version` CAS on the
+surviving counter (§A3) is the enforcement — a save against a version the
+seller never read cannot be issued, and a save against a superseded version
+conflicts.
 
 ## A5. Packing slip
 
@@ -376,7 +382,11 @@ paper.
 ## A6. State machines
 
 Additions to `contracts/state-machines.json`. Existing transitions are
-untouched; shipped orders behave exactly as today.
+untouched; shipped orders behave exactly as today. (The order machine
+legitimately carries two pre-existing server triggers, `delivery_assume`
+and `order_auto_complete` — Wave 6 housekeeping that predates this
+document's "untouched" wording; they are not Part B scheduling, and Part A
+adds no server triggers of its own.)
 
 ### Order aggregate (pickup path)
 
@@ -518,8 +528,9 @@ gate — no slice merges until its gate is green:
 - **Slice 7.1** — the Rust service (schema, commands, handlers, workers,
   sealing, reveal reads). Gate: the full service test list below passes,
   including the redaction scan and the contract stability tests.
-- **Slice 7.2** — the client (sell studio, checkout, orders, Dexie,
-  re-vendored contract artifacts). Gate: the client test list below passes,
+- **Slice 7.2** — the client (sell studio, checkout, orders,
+  re-vendored contract artifacts; pickup details are memory-only, so no
+  Dexie work). Gate: the client test list below passes,
   including the contract test against the re-vendored artifact, plus
   regenerated VRT baselines.
 
@@ -561,10 +572,10 @@ gate — no slice merges until its gate is green:
    **stays at 8** — `pickup_schedule` is deferred to 7b (§B4) — while the
    listing machine's `sold → available` edge gains `order.cancel_request`
    in its `via` list (slice 7.1).
-4. **Client Dexie**: schema version bump adding the pickup-details cache
-   table (account-scoped, sealed-blob-free — it caches the owner's plaintext
-   like the address book caches addresses, this device only). The buyer's
-   revealed address is **never** persisted — no table, memory only (§A1).
+4. **Client persistence: none.** Pickup details are memory-only in the
+   client (§A1): the buyer's revealed address is never persisted, and the
+   seller's own details are likewise held in memory only — the owner read
+   (§A4) populates the editor on open. No Dexie table, no schema bump.
 5. Rollout: service first (accepts new commands, defaults keep old behavior),
    client second. Deployments with sandbox payments enabled never store or
    reveal pickup details — `pickup_details.set` and the reveal read are
@@ -888,11 +899,12 @@ Service tests (slice 7.1 gate — all must pass):
   `data-sentry-mask`; Sentry Replay keeps `maskAllText`/`maskAllInputs` on
   these surfaces (the shipping.md precedent); the decrypted payload is
   never logged, sent to analytics, or included in error reports.
-- Buyer-side caching: the revealed address is held in memory only — never
-  persisted to Dexie or any storage (§A1) — and fetched from the reveal
-  read on each view. The seller's own details keep the Dexie read-through
-  cache + self-heal: owner-read populates cache; stale-marked on read
-  failure; save blocked over an unread row; sync paths never write details.
+- Client-side caching: none. The revealed address is held in memory only —
+  never persisted to Dexie or any storage (§A1) — and fetched from the
+  reveal read on each view. The seller's own details are likewise
+  memory-only: the owner read populates the editor on open, save stays
+  disabled until that read succeeds, and the CAS version counter enforces
+  against lost-update (§A4); sync paths never write details.
 - VRT: order detail and sell-studio surfaces change; regenerate the
   affected baselines and add coverage for the pickup panel.
 
@@ -920,15 +932,14 @@ Client tests (slice 7.2 gate — all must pass, VRT baselines regenerated):
   unilateral-exit copy;
 - telemetry: reveal panel and owner-read editor carry `data-sentry-mask`,
   and the revealed payload appears in no log or analytics call;
-- buyer's revealed address is written to no Dexie table (memory-only
-  assertion);
+- pickup details are written to no Dexie table — the buyer's revealed
+  address and the seller's own details alike (memory-only assertion);
 - sell studio recovers details on a fresh profile (mocked owner read);
-  stale-cache save is blocked; delete affordance issues
+  save stays disabled until the owner read succeeds and submits the read's
+  version as the CAS; delete affordance issues
   `pickup_details.clear`; coarse-area editor enforces the cap and renders
   the public-forever warning;
 - packing slip hidden on pickup orders, unchanged on shipped ones;
-- account switch clears the pickup-details cache with other private
-  projections.
 
 # PART B — Wave 7b (deferred, not built now)
 

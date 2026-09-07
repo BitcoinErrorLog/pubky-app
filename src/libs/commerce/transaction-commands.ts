@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
+  classifyMarketplacePickupRefusal,
   marketplaceFulfillmentMethodSchema,
   marketplaceFulfillmentMethodsSchema,
+  type MarketplacePickupRefusal,
   pickupDetailsSchema,
 } from './pickup';
 import {
@@ -640,6 +642,23 @@ export function asPickupDetailsCommandResult(response: MarketplaceCommandRespons
  */
 export function isMarketplaceRevisionConflict(response: MarketplaceCommandResponse): boolean {
   return !response.ok && response.error.code === 'REVISION_CONFLICT';
+}
+
+/**
+ * The response-level counterpart of the entitled reads' refusal mapping
+ * (§A3/§A6/§A7): command refusals come back in the envelope
+ * (`ok:false, error:{code, message}`), never as thrown errors, so the typed
+ * pickup refusals — `pickup_not_published`, the `pickup_unavailable`
+ * deployment refusal, `terms_change_unresolved` on a seller-actor confirm —
+ * would otherwise reach callers as an opaque INVALID_STATE message. Returns
+ * the typed refusal, or null for non-refusal failures (revision conflicts,
+ * validation), which keep their envelope handling.
+ */
+export function classifyMarketplacePickupCommandRefusal(
+  response: MarketplaceCommandResponse,
+): MarketplacePickupRefusal | null {
+  if (response.ok || response.error.code !== 'INVALID_STATE') return null;
+  return classifyMarketplacePickupRefusal(response.error.message);
 }
 
 export function buildMarketplaceListingAggregateId(sellerPubky: string, listingId: string): string {

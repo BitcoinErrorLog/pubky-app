@@ -27,6 +27,9 @@ export const SENSITIVE_CONTEXT_KEYS = new Set([
   'phonenumber',
   'publickey',
   'pubky',
+  // Raw response-body excerpts (e.g. `responseText` from the generic HTTP
+  // parse error) can carry endpoint-returned personal data; never ship them.
+  'responsetext',
   'signature',
   'user',
   'userid',

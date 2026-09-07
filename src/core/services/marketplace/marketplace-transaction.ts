@@ -370,7 +370,10 @@ export class MarketplaceTransactionService {
     const url = `${getMarketplaceUrl()}${path}`;
     const response = await safeFetch(
       url,
-      { method: 'GET', headers: { authorization: `Bearer ${session.token}` } },
+      // `cache: 'no-store'` mirrors the service's `Cache-Control: no-store`
+      // response header (WEB-03) on the request side: revealed details must
+      // never sit in the browser's HTTP cache either.
+      { method: 'GET', headers: { authorization: `Bearer ${session.token}` }, cache: 'no-store' },
       ErrorService.Marketplace,
       operation,
     );
@@ -378,8 +381,31 @@ export class MarketplaceTransactionService {
     if (!response.ok) {
       await this.throwPickupRefusal(response, operation);
     }
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
+    const raw = await this.parsePickupEntitledBody(response, operation);
     return toCamelCaseWire(raw);
+  }
+
+  /**
+   * Reads and parses an entitled-details body WITHOUT the generic
+   * `parseResponseOrThrow`: that utility embeds a body excerpt in the error
+   * context (`responseText`), which the factories log and ship to Sentry —
+   * on a malformed 200 that excerpt would be the revealed pickup plaintext.
+   * Here the body is read locally and any parse failure throws
+   * INVALID_RESPONSE with NO excerpt: the context carries the status code
+   * only.
+   */
+  private static async parsePickupEntitledBody(response: Response, operation: string): Promise<unknown> {
+    const text = await response.text();
+    try {
+      return JSON.parse(text) as unknown;
+    } catch (error) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an unreadable pickup-details response.', {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { statusCode: response.status },
+        cause: error,
+      });
+    }
   }
 
   /**

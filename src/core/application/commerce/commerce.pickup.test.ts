@@ -119,12 +119,91 @@ describe('CommerceApplication local pickup (Wave 7)', () => {
 
       // @ts-expect-error the union of input shapes is exercised per branch above
       await expect(CommerceApplication[method](SELLER, input)).rejects.toMatchObject({
-        code: 'BAD_REQUEST',
+        code: 'CONFLICT',
         message: 'Pickup is unavailable on this deployment.',
+        context: { refusal: 'pickup_unavailable' },
       });
       expect(execute).not.toHaveBeenCalled();
     },
   );
+
+  describe('typed command refusals (§A3/§A6/§A7)', () => {
+    const refusalResponse = (message: string) => ({
+      ok: false as const,
+      error: { code: 'INVALID_STATE', message },
+    });
+
+    it('pickup_details.set on a listing that does not publish pickup throws the pickup_not_published refusal', async () => {
+      vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(
+        refusalResponse('The listing does not publish pickup.') as never,
+      );
+
+      await expect(
+        CommerceApplication.commitSetPickupDetails(SELLER, {
+          sellerPubky: SELLER,
+          listingId: LISTING_ID,
+          expectedVersion: 0,
+          details: spotDetails,
+        }),
+      ).rejects.toMatchObject({
+        category: 'client',
+        code: 'CONFLICT',
+        message: 'The listing does not publish pickup.',
+        context: { refusal: 'pickup_not_published' },
+      });
+    });
+
+    it('the service-side deployment refusal throws the same pickup_unavailable refusal as the client-side boundary', async () => {
+      vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(
+        refusalResponse('Pickup is unavailable on this deployment.') as never,
+      );
+
+      await expect(
+        CommerceApplication.commitMarkReady(SELLER, { orderId: ORDER_ID, expectedRevision: 1 }),
+      ).rejects.toMatchObject({
+        category: 'client',
+        code: 'CONFLICT',
+        context: { refusal: 'pickup_unavailable' },
+      });
+    });
+
+    it('a seller-actor confirm refused during an unresolved terms change throws the terms_change_unresolved refusal', async () => {
+      vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(
+        refusalResponse(
+          'The pickup terms changed after payment; the seller cannot confirm the handover until the buyer has seen the change.',
+        ) as never,
+      );
+
+      await expect(
+        CommerceApplication.commitConfirmPickup(SELLER, { orderId: ORDER_ID, expectedRevision: 2 }),
+      ).rejects.toMatchObject({
+        category: 'client',
+        code: 'CONFLICT',
+        context: { refusal: 'terms_change_unresolved' },
+      });
+    });
+
+    it.each(['commitSetPickupDetails', 'commitClearPickupDetails', 'commitMarkReady', 'commitConfirmPickup'] as const)(
+      '%s keeps unclassified envelope failures (revision conflicts) on the response, never thrown',
+      async (method) => {
+        const conflict = {
+          ok: false as const,
+          error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 5 },
+        };
+        vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(conflict as never);
+
+        const input =
+          method === 'commitSetPickupDetails'
+            ? { sellerPubky: SELLER, listingId: LISTING_ID, expectedVersion: 0, details: spotDetails }
+            : method === 'commitClearPickupDetails'
+              ? { sellerPubky: SELLER, listingId: LISTING_ID, expectedVersion: 0 }
+              : { orderId: ORDER_ID, expectedRevision: 1 };
+
+        // @ts-expect-error the union of input shapes is exercised per branch above
+        await expect(CommerceApplication[method](SELLER, input)).resolves.toEqual(conflict);
+      },
+    );
+  });
 
   describe('commitCreateMarketplaceCheckout (§A2 fulfillment plumbing)', () => {
     const sellerB = 'b'.repeat(52);
