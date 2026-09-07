@@ -90,4 +90,43 @@ describe('fetchMarketplaceCatalogForSsr', () => {
     expect(listings).toHaveLength(1);
     expect(shops).toEqual([]);
   });
+
+  it('caps concurrent shop fetches at six for a 30-seller stream', async () => {
+    const alphabet = 'ybndrfg8ejkmcpqxot1uwisza345h769';
+    const listings = Array.from({ length: 30 }, (_, index) => {
+      const ownerId = `${alphabet[index % alphabet.length]}${'y'.repeat(51)}`;
+      return createNexusListingDetailsFixture({
+        id: `listing_${index}`,
+        owner_id: ownerId,
+        uri: `pubky://${ownerId}/pub/pubky.app/marketplace/v1/listings/listing_${index}`,
+      });
+    });
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/v0/stream/listings')) {
+        return new Response(JSON.stringify(listings), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      inFlight -= 1;
+      return new Response(JSON.stringify(createCommerceShopFixture()), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const { listings: catalog, shops } = await fetchMarketplaceCatalogForSsr();
+
+    expect(catalog).toHaveLength(30);
+    expect(shops).toHaveLength(30);
+    expect(maxInFlight).toBeLessThanOrEqual(6);
+    expect(maxInFlight).toBe(6);
+  });
 });

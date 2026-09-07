@@ -69,23 +69,28 @@ export function useMarketplaceSellerDashboard() {
 
   const duplicateListing = async (
     listingId: string,
-    options: { replaceUnsavedDraft?: boolean } = {},
+    options: { replaceUnsavedDraft?: boolean; unsavedDraftId?: string | null } = {},
   ): Promise<boolean> => {
     if (!currentUserPubky) return false;
     try {
-      const unsavedDraftId = await unsavedListingDraftId();
+      const unsavedDraftId =
+        options.unsavedDraftId !== undefined ? options.unsavedDraftId : await unsavedListingDraftId();
       if (unsavedDraftId && !options.replaceUnsavedDraft) return false;
       const record = await CommerceController.getOrFetchListing(currentUserPubky, listingId);
       if (record.ownerPubky !== currentUserPubky) {
         toast({ variant: 'error', description: 'You can only duplicate your own listings.' });
         return false;
       }
-      if (unsavedDraftId && options.replaceUnsavedDraft) {
-        await CommerceController.commitDeleteListingDraft(unsavedDraftId);
-      }
       const draftId = crypto.randomUUID().replaceAll('-', '');
       const form = seedDraftFormFromListing(record, measurementSystem);
       await CommerceController.commitUpdateListingDraft(draftId, form);
+      if (unsavedDraftId && options.replaceUnsavedDraft) {
+        try {
+          await CommerceController.commitDeleteListingDraft(unsavedDraftId);
+        } catch {
+          // Newest draft is drafts[0]; leaving the old row is safe.
+        }
+      }
       return true;
     } catch {
       toast({ variant: 'error', description: 'Could not duplicate this listing.' });
@@ -93,7 +98,7 @@ export function useMarketplaceSellerDashboard() {
     }
   };
 
-  const hasUnsavedListingDraft = async (): Promise<boolean> => (await unsavedListingDraftId()) !== null;
+  const hasUnsavedListingDraft = async (): Promise<string | null> => unsavedListingDraftId();
 
   const exportCsv = (): string => {
     const header = ['listing_id', 'title', 'state', 'format', 'price_minor', 'currency', 'inventory'];
@@ -161,9 +166,80 @@ async function unsavedListingDraftId(): Promise<string | null> {
   if (!latest) return null;
   const form = latest.data.form;
   if (!form || typeof form !== 'object') return null;
-  const record = form as Record<string, unknown>;
-  const hasContent = [record.title, record.description, record.seededFromTitle].some(
-    (value) => typeof value === 'string' && value.trim() !== '',
+  return listingDraftHasUserContent(form as Record<string, unknown>) ? latest.listing_id : null;
+}
+
+function isNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function listingDraftHasUserContent(record: Record<string, unknown>): boolean {
+  if (
+    [record.title, record.description, record.seededFromTitle, record.categoryId, record.price].some(isNonEmptyString)
+  ) {
+    return true;
+  }
+  if (typeof record.condition === 'string' && record.condition.trim() !== '' && record.condition !== 'good') {
+    return true;
+  }
+  if (listingDraftHasCustomVariants(record.variants)) return true;
+  if (listingDraftHasMedia(record)) return true;
+  if (
+    [
+      record.shippingPrice,
+      record.packageWeight,
+      record.packageLength,
+      record.packageWidth,
+      record.packageHeight,
+      record.region,
+    ].some(isNonEmptyString)
+  ) {
+    return true;
+  }
+  if (
+    typeof record.shippingLabel === 'string' &&
+    record.shippingLabel.trim() !== '' &&
+    record.shippingLabel !== 'Seller shipping'
+  ) {
+    return true;
+  }
+  if (
+    typeof record.shippingMinDays === 'string' &&
+    record.shippingMinDays.trim() !== '' &&
+    record.shippingMinDays !== '3'
+  ) {
+    return true;
+  }
+  if (
+    typeof record.shippingMaxDays === 'string' &&
+    record.shippingMaxDays.trim() !== '' &&
+    record.shippingMaxDays !== '7'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function listingDraftHasMedia(record: Record<string, unknown>): boolean {
+  if (isNonEmptyString(record.altText)) return true;
+  return ['photos', 'media', 'photoIds', 'mediaIds'].some((key) => {
+    const value = record[key];
+    return Array.isArray(value) && value.length > 0;
+  });
+}
+
+function listingDraftHasCustomVariants(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  if (value.length > 1) return true;
+  const row = value[0];
+  if (!row || typeof row !== 'object') return true;
+  const variant = row as Record<string, unknown>;
+  return (
+    isNonEmptyString(variant.sku) ||
+    isNonEmptyString(variant.size) ||
+    isNonEmptyString(variant.color) ||
+    isNonEmptyString(variant.style) ||
+    isNonEmptyString(variant.priceOverride) ||
+    (typeof variant.quantity === 'string' && variant.quantity.trim() !== '' && variant.quantity.trim() !== '1')
   );
-  return hasContent ? latest.listing_id : null;
 }

@@ -51,9 +51,15 @@ export async function fetchMarketplaceCatalogForSsr(): Promise<MarketplaceCatalo
   }
 }
 
+const SHOP_FETCH_CONCURRENCY = 6;
+
 async function fetchShopsForCatalogSellers(listings: MarketplaceCatalogItem[]): Promise<CommerceShopRecord[]> {
   const sellers = [...new Set(listings.map((listing) => listing.sellerId))];
-  const settled = await Promise.allSettled(sellers.map((seller) => fetchShopForMetadata(seller)));
+  const settled: PromiseSettledResult<CommerceShopRecord | null>[] = [];
+  for (let offset = 0; offset < sellers.length; offset += SHOP_FETCH_CONCURRENCY) {
+    const chunk = sellers.slice(offset, offset + SHOP_FETCH_CONCURRENCY);
+    settled.push(...(await Promise.allSettled(chunk.map((seller) => fetchShopForMetadata(seller)))));
+  }
   return settled.flatMap((result) => {
     if (result.status !== 'fulfilled' || result.value === null) return [];
     return [result.value];

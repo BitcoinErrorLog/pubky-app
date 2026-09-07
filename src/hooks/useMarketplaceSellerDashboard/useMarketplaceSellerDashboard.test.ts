@@ -45,6 +45,8 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([]);
+    vi.mocked(CommerceController.commitUpdateListingDraft).mockResolvedValue(undefined);
+    vi.mocked(CommerceController.commitDeleteListingDraft).mockResolvedValue(undefined);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770999');
   });
 
@@ -100,16 +102,7 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
   });
 
   it('refuses to duplicate over an unsaved draft unless replaceUnsavedDraft is set', async () => {
-    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
-      {
-        id: `${OWNER}:existingdraft`,
-        owner_id: OWNER,
-        listing_id: 'existingdraft',
-        data: { ownerPubky: OWNER, listingId: 'existingdraft', form: { title: 'Unsaved boots' } },
-        created_at: 1_000,
-        updated_at: 2_000,
-      },
-    ]);
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([unsavedDraft({ title: 'Unsaved boots' })]);
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(createCommerceListingFixture());
 
     const { result } = renderHook(() => useMarketplaceSellerDashboard());
@@ -126,8 +119,84 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     });
 
     expect(seeded).toBe(true);
-    expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalledWith('existingdraft');
     expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledOnce();
+    expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalledWith('existingdraft');
+    expect(vi.mocked(CommerceController.commitUpdateListingDraft).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(CommerceController.commitDeleteListingDraft).mock.invocationCallOrder[0],
+    );
+  });
+
+  it('leaves the old draft when seeding the replacement fails', async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([unsavedDraft({ title: 'Unsaved boots' })]);
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(createCommerceListingFixture());
+    vi.mocked(CommerceController.commitUpdateListingDraft).mockRejectedValue(new Error('dexie write failed'));
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    let seeded = true;
+    await act(async () => {
+      seeded = await result.current.duplicateListing('boots_01', { replaceUnsavedDraft: true });
+    });
+
+    expect(seeded).toBe(false);
+    expect(CommerceController.commitDeleteListingDraft).not.toHaveBeenCalled();
+  });
+
+  it('keeps the new draft when deleting the old one fails', async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([unsavedDraft({ title: 'Unsaved boots' })]);
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(createCommerceListingFixture());
+    vi.mocked(CommerceController.commitDeleteListingDraft).mockRejectedValue(new Error('dexie delete failed'));
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    let seeded = false;
+    await act(async () => {
+      seeded = await result.current.duplicateListing('boots_01', {
+        replaceUnsavedDraft: true,
+        unsavedDraftId: 'existingdraft',
+      });
+    });
+
+    expect(seeded).toBe(true);
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledOnce();
+    expect(CommerceController.getListingDrafts).not.toHaveBeenCalled();
+  });
+
+  it('treats a photos-only draft as unsaved content', async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      unsavedDraft({ photos: [{ name: 'boots.jpg' }] }),
+    ]);
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    let draftId: string | null = null;
+    await act(async () => {
+      draftId = await result.current.hasUnsavedListingDraft();
+    });
+
+    expect(draftId).toBe('existingdraft');
+  });
+
+  it('ignores a default empty autosaved draft', async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      unsavedDraft({
+        title: '',
+        description: '',
+        categoryId: '',
+        condition: 'good',
+        price: '',
+        variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
+        shippingLabel: 'Seller shipping',
+        shippingPrice: '',
+        shippingMinDays: '3',
+        shippingMaxDays: '7',
+      }),
+    ]);
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    let draftId: string | null = 'existingdraft';
+    await act(async () => {
+      draftId = await result.current.hasUnsavedListingDraft();
+    });
+
+    expect(draftId).toBeNull();
   });
 
   it('copies an auction as fixed price with a notice flag', async () => {
@@ -156,3 +225,14 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     expect(form.seededAuctionAsFixedPrice).toBe(true);
   });
 });
+
+function unsavedDraft(form: Record<string, unknown>) {
+  return {
+    id: `${OWNER}:existingdraft`,
+    owner_id: OWNER,
+    listing_id: 'existingdraft',
+    data: { ownerPubky: OWNER, listingId: 'existingdraft', form: JSON.parse(JSON.stringify(form)) },
+    created_at: 1_000,
+    updated_at: 2_000,
+  };
+}

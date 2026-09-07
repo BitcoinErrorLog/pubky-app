@@ -51,6 +51,7 @@ export function MarketplaceDashboard() {
   const [selected, setSelected] = useState<string[]>([]);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
+  const [pendingUnsavedDraftId, setPendingUnsavedDraftId] = useState<string | null>(null);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // Normalize "no record" to null so `undefined` keeps meaning "still loading".
   const shop = useLiveQuery(
@@ -73,16 +74,21 @@ export function MarketplaceDashboard() {
     };
   }, [currentUserPubky]);
 
-  const runDuplicate = async (listingId: string, replaceUnsavedDraft = false) => {
+  const runDuplicate = async (listingId: string, replaceUnsavedDraft = false, unsavedDraftId?: string) => {
     setDuplicatingId(listingId);
-    const seeded = await dashboard.duplicateListing(listingId, { replaceUnsavedDraft });
+    const seeded = await dashboard.duplicateListing(
+      listingId,
+      unsavedDraftId ? { replaceUnsavedDraft, unsavedDraftId } : { replaceUnsavedDraft },
+    );
     setDuplicatingId(null);
     if (seeded) router.push(MARKETPLACE_ROUTES.SELL);
   };
 
   const requestDuplicate = async (listingId: string) => {
-    if (await dashboard.hasUnsavedListingDraft()) {
+    const unsavedDraftId = await dashboard.hasUnsavedListingDraft();
+    if (unsavedDraftId) {
       setPendingDuplicateId(listingId);
+      setPendingUnsavedDraftId(unsavedDraftId);
       return;
     }
     await runDuplicate(listingId);
@@ -437,7 +443,10 @@ export function MarketplaceDashboard() {
       <Dialog
         open={pendingDuplicateId !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingDuplicateId(null);
+          if (!open) {
+            setPendingDuplicateId(null);
+            setPendingUnsavedDraftId(null);
+          }
         }}
       >
         <DialogContent className="w-xl" hiddenTitle="Replace your unsaved draft?">
@@ -448,7 +457,14 @@ export function MarketplaceDashboard() {
             Duplicating this listing will replace the unsaved draft currently in the sell studio.
           </Typography>
           <DialogFooter>
-            <Button variant="outline" size="lg" onClick={() => setPendingDuplicateId(null)}>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => {
+                setPendingDuplicateId(null);
+                setPendingUnsavedDraftId(null);
+              }}
+            >
               Keep
             </Button>
             <Button
@@ -456,8 +472,10 @@ export function MarketplaceDashboard() {
               size="lg"
               onClick={() => {
                 const listingId = pendingDuplicateId;
+                const unsavedDraftId = pendingUnsavedDraftId;
                 setPendingDuplicateId(null);
-                if (listingId) void runDuplicate(listingId, true);
+                setPendingUnsavedDraftId(null);
+                if (listingId) void runDuplicate(listingId, true, unsavedDraftId ?? undefined);
               }}
             >
               Replace

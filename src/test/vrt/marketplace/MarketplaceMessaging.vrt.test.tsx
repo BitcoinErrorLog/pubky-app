@@ -133,12 +133,7 @@ async function openDialog(trigger: { click: () => Promise<void> }) {
   const dialog = document.querySelector('[role="dialog"]');
   if (dialog) {
     const images = Array.from(dialog.querySelectorAll('img'));
-    await Promise.all(
-      images.map(
-        (img) =>
-          img.decode?.().catch(() => undefined) ?? Promise.resolve(),
-      ),
-    );
+    await Promise.all(images.map((img) => img.decode?.().catch(() => undefined) ?? Promise.resolve()));
   }
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -182,14 +177,17 @@ describe('Marketplace encrypted messaging — visual regression', () => {
       styleEl.id = '__vrt_messaging_stabilizer__';
       styleEl.textContent = `
         [data-slot="dialog-overlay"],
-        [data-slot="dialog-content"],
-        [data-slot="dialog-content"] * {
+        [data-slot="dialog-content"] {
           animation: none !important;
           transition: none !important;
-          transform: none !important;
         }
-        .animate-spin {
+        .animate-spin,
+        [data-state].zoom-in-95,
+        [data-state].zoom-out-95,
+        [data-state][class*="slide-in-"],
+        [data-state][class*="slide-out-"] {
           animation: none !important;
+          transition: none !important;
           transform: none !important;
         }
         textarea:focus,
@@ -260,7 +258,11 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     conversationView.status = 'handshaking-initiator';
     conversationView.thread = [
       fixedQueued('00000000-0000-4000-8000-000000000901', 'Is this still available?', VRT_FROZEN_NOW_MS - 2 * 60_000),
-      fixedQueued('00000000-0000-4000-8000-000000000902', 'Happy to pick it up in person too.', VRT_FROZEN_NOW_MS - 60_000),
+      fixedQueued(
+        '00000000-0000-4000-8000-000000000902',
+        'Happy to pick it up in person too.',
+        VRT_FROZEN_NOW_MS - 60_000,
+      ),
     ];
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
