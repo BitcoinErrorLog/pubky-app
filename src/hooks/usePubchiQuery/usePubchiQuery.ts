@@ -11,7 +11,7 @@ import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 import { getPubchiSigningSeedCopy, usePubchiSigningAvailable } from '@/libs/pubchi/signing-seed';
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import {
   type PubchiQueryFormData,
   pubchiQueryFormDefaults,

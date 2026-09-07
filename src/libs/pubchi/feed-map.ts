@@ -1,4 +1,5 @@
 import { PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort, PubkyAppPostKind } from 'pubky-app-specs';
+import { DEFAULT_CUSTOM_FEED_ICON } from '@/config/feed';
 import type { TFeedCreateParams } from '@/controllers/feed/feed.types';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -49,6 +50,7 @@ export function feedProposalToCreateParams(proposal: FeedProposalV1): TFeedCreat
   const content = config.content ? (CONTENT[config.content] ?? null) : null;
   return {
     name: proposal.feed.name,
+    icon: proposal.feed.icon ?? DEFAULT_CUSTOM_FEED_ICON,
     tags: config.tags ?? [],
     domain_tags: config.domain_tags ?? [],
     reach,

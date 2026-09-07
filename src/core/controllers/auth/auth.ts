@@ -137,7 +137,7 @@ export class AuthController {
    * @returns Configured homeserver service instance
    */
   private static async signIn({ keypair }: TKeypairParams): Promise<boolean> {
-    BootstrapApplication.cancelModerationFollow();
+    this.cancelModerationFollow();
     clearPubchiSigningSeed();
     // Clear query clients to ensure no stale cache from previous session
     clearAllQueryClients();
@@ -274,7 +274,7 @@ export class AuthController {
    * @param params.signupToken - Invitation code for user registration
    */
   static async signUp({ secretKey, signupToken }: TSignUpParams) {
-    BootstrapApplication.cancelModerationFollow();
+    this.cancelModerationFollow();
     clearPubchiSigningSeed();
     // Clear query clients to ensure no stale cache from previous session
     clearAllQueryClients();
@@ -322,7 +322,7 @@ export class AuthController {
   private static async wrapAuthFlow(
     generateFn: () => Promise<TGenerateAuthUrlResult>,
   ): Promise<TGenerateAuthUrlResult> {
-    BootstrapApplication.cancelModerationFollow();
+    this.cancelModerationFollow();
     clearPubchiSigningSeed();
     await clearDatabase();
     // Skip post-migration resync — full bootstrap below covers all data

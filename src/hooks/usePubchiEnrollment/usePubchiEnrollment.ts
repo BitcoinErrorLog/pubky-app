@@ -7,7 +7,7 @@ import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import type { OwnerBindingV1 } from '@/libs/pubchi/schemas';
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import {
   ENROLL_FORM_FIELDS,
   type EnrollPubchiFormData,

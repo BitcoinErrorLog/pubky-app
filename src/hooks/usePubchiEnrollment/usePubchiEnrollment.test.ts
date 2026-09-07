@@ -35,7 +35,7 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
   },
 }));
 
-vi.mock('@/molecules/Toaster/use-toast', () => ({
+vi.mock('@/molecules/Toaster/toast', () => ({
   toast: (...args: unknown[]) => mocks.toast(...args),
 }));
 
