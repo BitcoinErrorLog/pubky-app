@@ -80,9 +80,7 @@ export class AuthApplication {
             return { session };
           } catch (error) {
             if (isWrongEnvironmentHomeserverError(error)) {
-              // The session is about to be discarded and its persisted export
-              // erased — sign it out on its own homeserver so it is not left
-              // dangling there. Best-effort: the rejection surfaces anyway.
+              // Not user logout: this session never minted a device delegation.
               if (session) {
                 await HomeserverService.logout({ session }).catch((logoutError) => {
                   Logger.warn('Failed to sign out wrong-environment session', { logoutError });

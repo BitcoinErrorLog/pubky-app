@@ -15,6 +15,11 @@ Schema: `src/libs/runtime-config/runtime-config.schema.ts`. Getters: `getPubchiE
 
 When the flag is on and a user enrolls, the isolated `pubchi` IndexedDB is created. It is deleted in `cleanupLocalState` on sign-out (`Dexie.delete('pubchi')`, gated by `isPubchiEnabled()`). Toggling the flag off does not itself delete an already-created database.
 
+## Accepted limitations
+
+- A previous identity's homeserver delegation cannot be revoked without that identity's live session. The 30-day delegation expiry is the only backstop.
+- `Dexie.delete('pubchi')` can be blocked by another open tab holding the database. In that multi-tab case, a failed remote DELETE can leave a live device key and a live delegation in the sibling tab after this tab's logout.
+
 ## Surfaces
 
 - Settings: `/settings/pubchi` (`PubchiSettings`, `data-surface="pubchi-settings"`). Paste bot pubky B; write/remove the U → B binding. On load the Dexie row is reconciled with the homeserver object; if it is absent the local row is marked revoked and the page shows "not enrolled".

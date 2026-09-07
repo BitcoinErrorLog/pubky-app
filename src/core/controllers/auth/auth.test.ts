@@ -1371,6 +1371,23 @@ describe('AuthController', () => {
 
       expect(logoutSpy).toHaveBeenCalledWith({ session: mockSession });
     });
+
+    it('drains pending Pubchi delegations after a successful sign-in without throwing', async () => {
+      const mockSession = buildMockSession();
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(TEST_PUBKY as Pubky);
+      vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+      vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(false);
+      const authStore = storeMocks.getAuthState();
+      const signInStore = storeMocks.getSignInState();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(mockAuthStore(authStore));
+      vi.spyOn(useSignInStore, 'getState').mockReturnValue(mockSignInStore(signInStore));
+      const drainSpy = vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockRejectedValue(new Error('drain boom'));
+
+      await expect(AuthController.initializeAuthenticatedSession({ session: mockSession })).resolves.toBeUndefined();
+
+      expect(authStore.init).toHaveBeenCalled();
+      expect(drainSpy).toHaveBeenCalledWith(TEST_PUBKY, { attemptRemote: true, includeLocalKeys: false });
+    });
   });
 
   describe('logout', () => {
@@ -1666,6 +1683,34 @@ describe('AuthController', () => {
       expect(logoutSpy).toHaveBeenCalledWith({ session: restoredSession });
       expect(clearCookiesSpy).toHaveBeenCalledWith();
       expect(clearDatabaseSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('snapshots pending delegations before restoring a persisted session', async () => {
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+
+      const authStore = createAuthStore({
+        session: null,
+        sessionExport: 'session-export',
+      });
+      vi.spyOn(useAuthStore, 'getState').mockImplementation(() => authStore);
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+
+      const order: string[] = [];
+      vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockImplementation(async () => {
+        order.push('snapshot');
+        return { failed: [{ owner: 'test-pubky', signer: 's'.repeat(52) }] };
+      });
+      vi.spyOn(AuthController, 'restorePersistedSession').mockImplementation(async () => {
+        order.push('restore');
+        return false;
+      });
+
+      await AuthController.logout();
+
+      expect(order).toEqual(['snapshot', 'restore']);
     });
 
     it('should not run local cleanup twice when persisted session restore fails', async () => {

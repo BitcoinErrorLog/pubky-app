@@ -167,9 +167,7 @@ export class AuthController {
     try {
       await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
     } catch (error) {
-      // The just-approved session lives on the user's actual homeserver — sign it
-      // out instead of leaving it dangling, whether the key was rejected or the
-      // lookup failed. Best-effort: the failure must surface regardless.
+      // Not user logout: this session never minted a device delegation.
       await AuthApplication.logout({ session }).catch((logoutError) => {
         Logger.warn('Failed to sign out session after environment check failure', { logoutError });
       });
@@ -194,6 +192,12 @@ export class AuthController {
       const pubky = Identity.z32FromSession({ session });
 
       authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
+
+      try {
+        await PubchiApplication.unpublishKnownDelegations(pubky, { attemptRemote: true, includeLocalKeys: false });
+      } catch (error) {
+        Logger.warn('Pubchi pending delegation drain failed; sign-in continues', { error });
+      }
 
       const isSignedUp = await AuthApplication.userIsSignedUp({ pubky });
       signInStore.setProfileChecked(true); // Step 2 complete (40%)
