@@ -46,6 +46,27 @@ import type {
   PubchiQuerySuccess,
 } from './pubchi.types';
 
+export const PUBCHI_DELEGATION_DELETE_TIMEOUT_MS = 4_000;
+
+type UnpublishOptions = {
+  attemptRemote: boolean;
+  includeLocalKeys?: boolean;
+};
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 function randomNonce(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -176,34 +197,49 @@ export class PubchiApplication {
    */
   static async unpublishKnownDelegations(
     owner: string | undefined,
-    options: { attemptRemote: boolean } = { attemptRemote: true },
+    options: UnpublishOptions = { attemptRemote: true },
   ): Promise<{ failed: PendingDelegationDelete[] }> {
     try {
       if (!owner) return { failed: [] };
 
-      const known = await listKnownDelegations(owner);
-      rememberPendingDelegationDeletes(known);
+      const includeLocalKeys = options.includeLocalKeys !== false;
+      const known = includeLocalKeys ? await listKnownDelegations(owner) : [];
+      if (known.length) rememberPendingDelegationDeletes(known);
+
+      const pendingByKey = new Map<string, PendingDelegationDelete>();
+      for (const item of [...readPendingDelegationDeletes().filter((entry) => entry.owner === owner), ...known]) {
+        pendingByKey.set(`${item.owner}:${item.signer}`, item);
+      }
+      const pending = [...pendingByKey.values()];
       if (!options.attemptRemote) {
-        return { failed: readPendingDelegationDeletes().filter((item) => item.owner === owner) };
+        return { failed: pending };
       }
 
-      const pending = readPendingDelegationDeletes().filter((item) => item.owner === owner);
       const failed: PendingDelegationDelete[] = [];
-      for (const item of pending) {
-        try {
-          await HomeserverService.request({
-            method: HttpMethod.DELETE,
-            url: delegationUri(item.owner, item.signer),
-          });
-        } catch (error) {
+      const results = await Promise.allSettled(
+        pending.map((item) =>
+          withTimeout(
+            HomeserverService.request({
+              method: HttpMethod.DELETE,
+              url: delegationUri(item.owner, item.signer),
+            }),
+            PUBCHI_DELEGATION_DELETE_TIMEOUT_MS,
+            'Pubchi delegation DELETE timed out',
+          ),
+        ),
+      );
+      results.forEach((result, index) => {
+        const item = pending[index];
+        if (!item) return;
+        if (result.status === 'rejected') {
           Logger.warn('Pubchi delegation DELETE failed; logout continues', {
             owner: item.owner,
             signer: item.signer,
-            error,
+            error: result.reason,
           });
           failed.push(item);
         }
-      }
+      });
       replacePendingDelegationDeletesForOwner(owner, failed);
       if (failed.length) {
         toast({

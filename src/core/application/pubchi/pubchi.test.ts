@@ -12,7 +12,7 @@ import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.sc
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
-import { assertRequestSignerIsStoredDevice, PubchiApplication } from './pubchi';
+import { assertRequestSignerIsStoredDevice, PUBCHI_DELEGATION_DELETE_TIMEOUT_MS, PubchiApplication } from './pubchi';
 
 vi.mock('@/libs/pubchi/device-key', () => {
   const signer = 'a'.repeat(52);
@@ -343,7 +343,7 @@ describe('PubchiApplication', () => {
   });
 
   it('DELETEs known delegation URIs and does not touch the owner binding', async () => {
-    const signer = 's'.repeat(52);
+    const signer = Keypair.random().publicKey.z32();
     vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
       { id: `${OWNER}:${signer}`, owner: OWNER, signer, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
     ]);
@@ -361,7 +361,7 @@ describe('PubchiApplication', () => {
   });
 
   it('records a failed DELETE so the next same-owner session can finish it', async () => {
-    const signer = 't'.repeat(52);
+    const signer = Keypair.random().publicKey.z32();
     vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
       { id: `${OWNER}:${signer}`, owner: OWNER, signer, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
     ]);
@@ -374,7 +374,7 @@ describe('PubchiApplication', () => {
   });
 
   it('retries a recorded DELETE for the signed-in owner during reconcile', async () => {
-    const signer = 'u'.repeat(52);
+    const signer = Keypair.random().publicKey.z32();
     rememberPendingDelegationDeletes([{ owner: OWNER, signer }]);
     const requestSpy = vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
       if (input.method === 'DELETE') return undefined;
@@ -390,9 +390,49 @@ describe('PubchiApplication', () => {
     expect(readPendingDelegationDeletes()).toEqual([]);
   });
 
+  it('never DELETEs a planted path-injection signer', async () => {
+    const signer = Keypair.random().publicKey.z32();
+    rememberPendingDelegationDeletes([{ owner: OWNER, signer }]);
+    localStorage.setItem(
+      PENDING_DELEGATION_DELETES_KEY,
+      JSON.stringify([
+        { owner: OWNER, signer: '../../foo' },
+        { owner: OWNER, signer },
+      ]),
+    );
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+
+    await PubchiApplication.unpublishKnownDelegations(OWNER, { attemptRemote: true });
+
+    expect(requestSpy.mock.calls.every((call) => !String(call[0].url).includes('../../'))).toBe(true);
+    expect(requestSpy).toHaveBeenCalledWith({
+      method: 'DELETE',
+      url: delegationUri(OWNER, signer),
+    });
+    expect(readPendingDelegationDeletes().some((item) => item.signer === '../../foo')).toBe(false);
+  });
+
+  it('bounds a never-resolving DELETE and keeps the pending record', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const signer = Keypair.random().publicKey.z32();
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
+      { id: `${OWNER}:${signer}`, owner: OWNER, signer, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
+    ]);
+    vi.spyOn(HomeserverService, 'request').mockReturnValue(new Promise(() => {}));
+
+    try {
+      const result = PubchiApplication.unpublishKnownDelegations(OWNER, { attemptRemote: true });
+      await vi.advanceTimersByTimeAsync(PUBCHI_DELEGATION_DELETE_TIMEOUT_MS);
+      await expect(result).resolves.toEqual({ failed: [{ owner: OWNER, signer }] });
+      expect(readPendingDelegationDeletes()).toEqual([{ owner: OWNER, signer }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('wipes local keys from another identity and does not DELETE that identity remote delegation', async () => {
     const previousOwner = Keypair.random().publicKey.z32();
-    const signer = 'v'.repeat(52);
+    const signer = Keypair.random().publicKey.z32();
     rememberPendingDelegationDeletes([{ owner: previousOwner, signer }]);
     const wipeSpy = vi.spyOn(deviceKey, 'wipeDeviceKeysNotOwnedBy').mockResolvedValue(1);
     const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
