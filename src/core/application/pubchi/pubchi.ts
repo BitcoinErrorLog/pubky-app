@@ -194,6 +194,11 @@ export class PubchiApplication {
    * Never throws: a homeserver failure is recorded in localStorage so the next
    * session of the same owner can finish the DELETE. A previous identity's
    * remote delegation cannot be revoked without that identity's live session.
+   *
+   * When `includeLocalKeys` is false (sign-in / reconcile drains), a stored
+   * record that names a currently-live local device key is discarded and never
+   * DELETEd. Logout keeps the default `includeLocalKeys: true` so the live
+   * device is revoked.
    */
   static async unpublishKnownDelegations(
     owner: string | undefined,
@@ -206,11 +211,16 @@ export class PubchiApplication {
       const known = includeLocalKeys ? await listKnownDelegations(owner) : [];
       if (known.length) rememberPendingDelegationDeletes(known);
 
+      const liveSigners = await liveDeviceSigners(owner);
       const pendingByKey = new Map<string, PendingDelegationDelete>();
       for (const item of [...readPendingDelegationDeletes().filter((entry) => entry.owner === owner), ...known]) {
+        if (!includeLocalKeys && liveSigners.has(item.signer)) continue;
         pendingByKey.set(`${item.owner}:${item.signer}`, item);
       }
       const pending = [...pendingByKey.values()];
+      if (!includeLocalKeys) {
+        replacePendingDelegationDeletesForOwner(owner, pending);
+      }
       if (!options.attemptRemote) {
         return { failed: pending };
       }
@@ -271,7 +281,7 @@ export class PubchiApplication {
     }
 
     await wipeLocalStateFromOtherIdentities(owner);
-    await PubchiApplication.unpublishKnownDelegations(owner, { attemptRemote: true });
+    await PubchiApplication.unpublishKnownDelegations(owner, { attemptRemote: true, includeLocalKeys: false });
 
     const local = await LocalPubchiBindingService.readActive(owner);
     if (!local) return undefined;
@@ -436,6 +446,14 @@ function assertPubchiCapability(): void {
   const capabilities = session.info.capabilities;
   if (!capabilities.some((capability) => capability === '/pub/pubchi.app/:rw' || capability === '/pub/:rw')) {
     throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+  }
+}
+
+async function liveDeviceSigners(owner: string): Promise<Set<string>> {
+  try {
+    return new Set((await getDeviceKeys(owner)).map((key) => key.signer));
+  } catch {
+    return new Set();
   }
 }
 
