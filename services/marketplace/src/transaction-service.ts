@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
+import { z } from 'zod';
+import {
+  commercePubkySchema,
+  createCommerceCommandSchema,
+} from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
   type AdvanceSandboxPaymentCommand,
@@ -17,6 +21,7 @@ import {
   type ConfirmOrderDeliveryCommand,
   type CounterOfferCommand,
   type CreateMarketplaceCheckoutCommand,
+  createMarketplaceCheckoutCommandSchema,
   type CreateOfferCommand,
   type CreateReviewCommand,
   type MarketplaceCommand,
@@ -26,6 +31,7 @@ import {
   type ReceiveReturnCommand,
   type RecordExternalRefundCommand,
   type RegisterListingCommand,
+  registerListingCommandSchema,
   type RejectOfferCommand,
   type RequestOrderCancellationCommand,
   type RequestReturnCommand,
@@ -35,6 +41,198 @@ import {
   type UpdateMarketplaceNotificationPreferencesCommand,
   type WithdrawOfferCommand,
 } from './contracts';
+
+// ---------------------------------------------------------------------------
+// Wave 7 local-pickup contract additions — PART A of
+// docs/ecommerce/local-pickup-design.md (the safe subset; Part B is deferred
+// and deliberately not built here). The shared client/durable command schemas
+// in `src/libs/commerce/transaction-commands.ts` stay untouched in this
+// slice: the prototype is the executable specification, so it extends the
+// shared schemas LOCALLY, and the durable service mirrors the same shapes in
+// slice 7.1 (the client re-vendors them in 7.2).
+// ---------------------------------------------------------------------------
+
+export type MarketplaceFulfillmentMethod = 'shipping' | 'pickup';
+
+const fulfillmentMethodSchema = z.enum(['shipping', 'pickup']);
+
+/**
+ * The public listing record's fulfillment axis (item type stays
+ * `physical` | `digital` and is orthogonal, §A2). Public like the rest of the
+ * record; it signals THAT pickup is offered and never carries the meeting
+ * point.
+ */
+const fulfillmentMethodsSchema = z
+  .array(fulfillmentMethodSchema)
+  .min(1)
+  .max(2)
+  .refine((methods) => new Set(methods).size === methods.length, {
+    message: 'Fulfillment methods must not repeat.',
+  })
+  .default(['shipping']);
+
+const prototypeRegisterListingCommandSchema = registerListingCommandSchema
+  .extend({
+    payload: registerListingCommandSchema.shape.payload
+      .extend({ fulfillmentMethods: fulfillmentMethodsSchema })
+      .strict(),
+  })
+  .strict();
+
+const checkoutPayloadSchema = createMarketplaceCheckoutCommandSchema.shape.payload;
+const prototypeCheckoutCommandSchema = createMarketplaceCheckoutCommandSchema
+  .extend({
+    // The shared payload is rebuilt key-by-key (zod refuses `.extend()`,
+    // `.partial()`, and `.omit()` key surgery on refined objects), keeping
+    // every shared validator and re-applying the duplicate-lines refinement
+    // verbatim. Wave 7 changes (§A2): per-line fulfillment choice (optional,
+    // defaulting to shipping — the service splits per (seller, fulfillment)
+    // and never silently falls back), and an OPTIONAL delivery address
+    // (required iff any group ships; rejected on pickup-only checkouts).
+    payload: z
+      .object({
+        ...checkoutPayloadSchema.shape,
+        lines: z
+          .array(
+            checkoutPayloadSchema.shape.lines.element.extend({
+              fulfillment: fulfillmentMethodSchema.default('shipping'),
+            }),
+          )
+          .min(1)
+          .max(50),
+        deliveryAddress: checkoutPayloadSchema.shape.deliveryAddress.optional(),
+      })
+      .strict()
+      .superRefine((payload, context) => {
+        const ids = payload.lines.map(({ listingAggregateId }) => listingAggregateId);
+        if (new Set(ids).size !== ids.length) {
+          context.addIssue({ code: 'custom', path: ['lines'], message: 'Checkout listing lines must be unique.' });
+        }
+      }),
+  })
+  .strict();
+
+const pickupAvailabilityWindowSchema = z
+  .object({
+    day: z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']),
+    start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected HH:mm local wall-clock time'),
+    end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected HH:mm local wall-clock time'),
+  })
+  .strict();
+
+/** Availability authored with the details; READ-ONLY information for the buyer in Wave 7 (scheduling is 7b). */
+const pickupAvailabilitySchema = z.union([
+  z
+    .object({
+      kind: z.literal('windows'),
+      zone: z.string().trim().min(1).max(64),
+      windows: z.array(pickupAvailabilityWindowSchema).min(1).max(14),
+    })
+    .strict(),
+  z.object({ kind: z.literal('arrange_after_payment') }).strict(),
+]);
+
+/** A full address OR a free-text pickup spot (spot-first: the seller never has to publish their home, §A1). */
+const pickupLocationSchema = z.union([
+  z.object({ kind: z.literal('spot'), spot: z.string().trim().min(1).max(200) }).strict(),
+  z
+    .object({
+      kind: z.literal('address'),
+      line1: z.string().trim().min(1).max(200),
+      line2: z.string().trim().max(200).default(''),
+      city: z.string().trim().min(1).max(100),
+      region: z.string().trim().min(1).max(100),
+      postalCode: z.string().trim().min(1).max(32),
+      countryCode: z.string().regex(/^[A-Z]{2}$/),
+    })
+    .strict(),
+]);
+
+/** The sealed seller pickup details (§A1): held by the service, never on the public listing record. */
+const pickupDetailsTermsSchema = z
+  .object({
+    location: pickupLocationSchema,
+    instructions: z.string().trim().max(1_000).default(''),
+    availability: pickupAvailabilitySchema,
+  })
+  .strict();
+
+export type MarketplacePickupTerms = z.infer<typeof pickupDetailsTermsSchema>;
+
+/**
+ * `pickup_details.set` (seller, own listing): whole-payload replace, version
+ * + 1. The envelope's `expected_revision` doubles as `expected_version` —
+ * the CAS runs against the per-listing version COUNTER (its own row,
+ * surviving `pickup_details.clear`), never against the listing's server
+ * revision (§A3).
+ */
+const setPickupDetailsCommandSchema = createCommerceCommandSchema(
+  'pickup_details.set',
+  z.object({ details: pickupDetailsTermsSchema }).strict(),
+);
+
+/**
+ * `pickup_details.clear` (seller, own listing): deletes the details row;
+ * retains only the versions referenced as `version_at_payment` by a paid,
+ * non-terminal order; the version counter row survives (§A3). Same counter
+ * CAS as `pickup_details.set`.
+ */
+const clearPickupDetailsCommandSchema = createCommerceCommandSchema(
+  'pickup_details.clear',
+  z.object({}).strict(),
+);
+
+const pickupOrderIdPayload = z.object({ orderId: z.uuid() }).strict();
+
+/** `fulfillment.mark_ready` (seller, pickup order in `paid`): order → `ready_for_pickup`. */
+const markReadyForPickupCommandSchema = createCommerceCommandSchema('fulfillment.mark_ready', pickupOrderIdPayload);
+
+/**
+ * `fulfillment.confirm_pickup` (buyer OR seller, pickup order in `paid` or
+ * `ready_for_pickup`): order → `delivered` with a handover record. A
+ * seller-actor confirm is refused while a post-payment terms change is
+ * unresolved (§A6).
+ */
+const confirmPickupCommandSchema = createCommerceCommandSchema('fulfillment.confirm_pickup', pickupOrderIdPayload);
+
+const sharedWave7CommandSchemas = marketplaceCommandSchema.options.filter(
+  (option) => !['listing.register', 'checkout.create'].includes(option.shape.kind.value as string),
+);
+
+const prototypeMarketplaceCommandSchema = z.union([
+  prototypeRegisterListingCommandSchema,
+  prototypeCheckoutCommandSchema,
+  setPickupDetailsCommandSchema,
+  clearPickupDetailsCommandSchema,
+  markReadyForPickupCommandSchema,
+  confirmPickupCommandSchema,
+  ...sharedWave7CommandSchemas,
+]);
+
+type PrototypeRegisterListingCommand = z.infer<typeof prototypeRegisterListingCommandSchema>;
+type PrototypeCheckoutCommand = z.infer<typeof prototypeCheckoutCommandSchema>;
+type SetPickupDetailsCommand = z.infer<typeof setPickupDetailsCommandSchema>;
+type ClearPickupDetailsCommand = z.infer<typeof clearPickupDetailsCommandSchema>;
+type MarkReadyForPickupCommand = z.infer<typeof markReadyForPickupCommandSchema>;
+type ConfirmPickupCommand = z.infer<typeof confirmPickupCommandSchema>;
+
+/**
+ * The prototype's command union: the shared contract minus the two schemas
+ * the prototype extends locally (the runtime filter above keeps the two
+ * shared variants out of the parse union; this type mirrors that exclusion,
+ * which `Array.filter` cannot express).
+ */
+type PrototypeMarketplaceCommand =
+  | Exclude<MarketplaceCommand, RegisterListingCommand | CreateMarketplaceCheckoutCommand>
+  | PrototypeRegisterListingCommand
+  | PrototypeCheckoutCommand
+  | SetPickupDetailsCommand
+  | ClearPickupDetailsCommand
+  | MarkReadyForPickupCommand
+  | ConfirmPickupCommand;
+
+/** Server-side actors (the verification worker and the auto-complete sweep) sign events with this identity. */
+const SERVER_ACTOR_PUBKY = 's'.repeat(52);
 
 export interface MarketplaceListingAggregate {
   aggregateId: string;
@@ -55,6 +253,12 @@ export interface MarketplaceListingAggregate {
     exponent: number;
   };
   saleFormat: 'fixed_price' | 'auction';
+  /**
+   * Public record (§A1): which fulfillment methods the listing offers.
+   * Public like the rest of the listing — the seller's pickup DETAILS are
+   * never placed here; they live only in the service's sealed store.
+   */
+  fulfillmentMethods: MarketplaceFulfillmentMethod[];
   auction: {
     status: 'scheduled' | 'active' | 'sold' | 'unsold' | 'cancelled';
     startsAt: string;
@@ -175,7 +379,10 @@ export interface MarketplaceNotification {
     | 'order_delivered'
     | 'return_updated'
     | 'refund_recorded'
-    | 'review_received';
+    | 'review_received'
+    | 'pickup_details_updated'
+    | 'pickup_details_cleared'
+    | 'pickup_ready';
   aggregateId: string;
   createdAt: string;
   readAt: string | null;
@@ -202,6 +409,16 @@ export interface MarketplaceOrderLine {
   /** The buyer's variant snapshot, echoed for fulfillment display (packing slips, order rows). */
   variantId?: string;
   variantOptions?: Array<{ name: string; value: string }>;
+  /** Every line is exactly one fulfillment kind; one order never mixes kinds (§A2). */
+  fulfillment: MarketplaceFulfillmentMethod;
+  /**
+   * The pickup-details version shown at payment, pinned per line inside the
+   * exactly-once confirmation path (§A3). An ABSENT key reads as "no terms
+   * version pinned" (the listing had no details at payment, or pre-migration
+   * rows). The sealed snapshot itself lives in the service's snapshot store,
+   * bound to (order id ‖ line index ‖ version) — never on this projection.
+   */
+  versionAtPayment?: number;
 }
 
 export interface MarketplaceDeliveryAddress {
@@ -246,6 +463,48 @@ export interface MarketplaceExternalRefund {
 }
 
 
+/** One sealed details version (§A1). Cleared listings keep referenced versions only (§A3 retention). */
+export interface MarketplacePickupDetailsVersion {
+  listingAggregateId: string;
+  version: number;
+  terms: MarketplacePickupTerms;
+  updatedAt: string;
+}
+
+/**
+ * The per-line pinned snapshot written inside payment confirmation (§A3),
+ * bound to (order id ‖ line index ‖ version) — the prototype's analogue of
+ * the sealed snapshot's AAD, so a snapshot cannot be transplanted across
+ * orders, lines, or versions.
+ */
+export interface MarketplacePickupSnapshot {
+  orderId: string;
+  lineIndex: number;
+  /** `null` when the listing had no details at payment ("no terms version pinned"). */
+  version: number | null;
+  terms: MarketplacePickupTerms | null;
+  /**
+   * Which confirmation path pinned this snapshot. The buyer reveal refuses
+   * `sandbox_advance` pins on every read, independent of the deployment's
+   * current sandbox flag — a flag toggle window can never free a past
+   * fake-money reveal (§A3).
+   */
+  pinnedAdapter: 'sandbox_advance' | 'locks_verification';
+  pinnedAt: string;
+}
+
+/** The `fulfillment.confirm_pickup` record (§A6): one row per order, keyed on the order id. */
+export interface MarketplacePickupHandover {
+  orderId: string;
+  confirmedBy: string;
+  /**
+   * A seller-only confirm is SELLER-ATTESTED: reputation counts the
+   * completion only on a buyer confirm or a dispute-free auto-complete (§A6).
+   */
+  attestation: 'buyer_confirmed' | 'seller_attested';
+  confirmedAt: string;
+}
+
 export interface MarketplaceOrder {
   id: string;
   buyerPubky: string;
@@ -255,6 +514,7 @@ export interface MarketplaceOrder {
     | 'pending_payment'
     | 'paid'
     | 'processing'
+    | 'ready_for_pickup'
     | 'shipped'
     | 'delivered'
     | 'completed'
@@ -266,7 +526,15 @@ export interface MarketplaceOrder {
     | 'refunded_external'
     | 'closed';
   lines: MarketplaceOrderLine[];
-  deliveryAddress: MarketplaceDeliveryAddress;
+  /** Every order is exactly one fulfillment kind (§A2: split per (seller, fulfillment)). */
+  fulfillment: MarketplaceFulfillmentMethod;
+  /** Shipped orders carry the buyer address; pickup orders carry none (§A2). */
+  deliveryAddress: MarketplaceDeliveryAddress | null;
+  /** Stamped by the first successful buyer reveal read; opens the bounded withdrawal window (§A3). */
+  firstRevealedAt: string | null;
+  /** Set on the transition into `cancelled` (any path): ends the reveal entitlement (§A3). */
+  revealRevokedAt: string | null;
+  handover: MarketplacePickupHandover | null;
   subtotal: MarketplaceListingAggregate['unitPrice'];
   shipping: MarketplaceListingAggregate['unitPrice'];
   total: MarketplaceListingAggregate['unitPrice'];
@@ -336,8 +604,13 @@ export interface MarketplaceEvent {
     | 'receipt.issued'
     | 'order.cancel_requested'
     | 'order.cancelled'
+    | 'order.cancelled_terms_change'
+    | 'order.completed'
+    | 'fulfillment.ready_for_pickup'
     | 'fulfillment.shipped'
     | 'fulfillment.delivered'
+    | 'pickup_details.updated'
+    | 'pickup_details.cleared'
     | 'return.requested'
     | 'return.approved'
     | 'return.received'
@@ -391,7 +664,42 @@ export type MarketplaceCommandSuccess = {
       }
     | { kind: 'order'; order: MarketplaceOrder }
     | { kind: 'review'; order: MarketplaceOrder; review: MarketplaceReview }
+    | {
+        kind: 'pickup_details';
+        listingAggregateId: string;
+        /** The surviving per-listing version counter (post-clear CAS target, §A3). */
+        version: number;
+        details: MarketplacePickupDetailsVersion | null;
+      }
 };
+
+/** The verification worker's confirmation of a payment (non-sandbox deployments only). */
+export type MarketplaceWorkerConfirmationResult =
+  | { ok: true; payment: MarketplacePayment; order: MarketplaceOrder; receipt: MarketplaceReceipt }
+  | { ok: false; error: { code: MarketplaceCommandFailure['error']['code']; message: string } };
+
+/** One line of the buyer-only pickup reveal read (§A3): the PINNED snapshot, never current details. */
+export interface MarketplacePickupRevealLine {
+  lineIndex: number;
+  listingAggregateId: string;
+  /** The pinned `version_at_payment`; `null` when no terms version was pinned. */
+  version: number | null;
+  /** Read-only pinned terms, availability windows and their IANA zone included (no propose path in Wave 7). */
+  terms: MarketplacePickupTerms | null;
+  currentVersion: number;
+  updatedSincePayment: boolean;
+  /** Set after a `pickup_details.clear`: the pinned snapshot stands in for the (deleted) current details. */
+  withdrawnBySeller: boolean;
+}
+
+export type MarketplacePickupRevealResult =
+  | { ok: true; orderId: string; firstRevealedAt: string; lines: MarketplacePickupRevealLine[] }
+  | { ok: false; error: { code: MarketplaceCommandFailure['error']['code']; message: string } };
+
+/** The seller's owner read of their own pickup details (§A4). */
+export type MarketplaceSellerPickupDetailsResult =
+  | { ok: true; listingAggregateId: string; version: number; details: MarketplacePickupTerms | null }
+  | { ok: false; error: { code: MarketplaceCommandFailure['error']['code']; message: string } };
 
 export type MarketplaceCommandFailure = {
   ok: false;
@@ -437,6 +745,15 @@ export class InMemoryMarketplaceRepository {
   private orders = new Map<string, MarketplaceOrder>();
   private payments = new Map<string, MarketplacePayment>();
   private receipts = new Map<string, MarketplaceReceipt>();
+  // Sealed pickup families (§A1): the current details row per listing, the
+  // append-only version history under retention (§A3), the per-listing
+  // monotonic version counter in its OWN row (survives `pickup_details.clear`),
+  // the per-line pinned snapshots written at payment, and the handover records.
+  private pickupDetailsCurrent = new Map<string, MarketplacePickupDetailsVersion>();
+  private pickupDetailsVersions = new Map<string, MarketplacePickupDetailsVersion>();
+  private pickupVersionCounters = new Map<string, number>();
+  private pickupSnapshots = new Map<string, MarketplacePickupSnapshot>();
+  private handovers = new Map<string, MarketplacePickupHandover>();
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -550,6 +867,72 @@ export class InMemoryMarketplaceRepository {
     return this.orders.get(id);
   }
 
+  getAllOrders(): MarketplaceOrder[] {
+    return [...this.orders.values()];
+  }
+
+  getCurrentPickupDetails(listingAggregateId: string): MarketplacePickupDetailsVersion | undefined {
+    return this.pickupDetailsCurrent.get(listingAggregateId);
+  }
+
+  putCurrentPickupDetails(details: MarketplacePickupDetailsVersion): void {
+    this.pickupDetailsCurrent.set(details.listingAggregateId, details);
+  }
+
+  deleteCurrentPickupDetails(listingAggregateId: string): void {
+    this.pickupDetailsCurrent.delete(listingAggregateId);
+  }
+
+  getPickupVersionCounter(listingAggregateId: string): number {
+    return this.pickupVersionCounters.get(listingAggregateId) ?? 0;
+  }
+
+  putPickupVersionCounter(listingAggregateId: string, version: number): void {
+    this.pickupVersionCounters.set(listingAggregateId, version);
+  }
+
+  getPickupDetailsVersions(listingAggregateId: string): MarketplacePickupDetailsVersion[] {
+    const prefix = `${listingAggregateId}:`;
+    return [...this.pickupDetailsVersions.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, details]) => details);
+  }
+
+  getAllPickupDetailsVersions(): MarketplacePickupDetailsVersion[] {
+    return [...this.pickupDetailsVersions.values()];
+  }
+
+  putPickupDetailsVersion(details: MarketplacePickupDetailsVersion): void {
+    this.pickupDetailsVersions.set(`${details.listingAggregateId}:${details.version}`, details);
+  }
+
+  deletePickupDetailsVersion(details: MarketplacePickupDetailsVersion): void {
+    this.pickupDetailsVersions.delete(`${details.listingAggregateId}:${details.version}`);
+  }
+
+  getPickupSnapshot(orderId: string, lineIndex: number): MarketplacePickupSnapshot | undefined {
+    return this.pickupSnapshots.get(`${orderId}:${lineIndex}`);
+  }
+
+  putPickupSnapshot(snapshot: MarketplacePickupSnapshot): void {
+    this.pickupSnapshots.set(`${snapshot.orderId}:${snapshot.lineIndex}`, snapshot);
+  }
+
+  deletePickupSnapshotsForOrder(orderId: string): void {
+    const prefix = `${orderId}:`;
+    for (const key of [...this.pickupSnapshots.keys()]) {
+      if (key.startsWith(prefix)) this.pickupSnapshots.delete(key);
+    }
+  }
+
+  getHandover(orderId: string): MarketplacePickupHandover | undefined {
+    return this.handovers.get(orderId);
+  }
+
+  putHandover(handover: MarketplacePickupHandover): void {
+    this.handovers.set(handover.orderId, handover);
+  }
+
   getOrdersForActor(actorPubky: string): MarketplaceOrder[] {
     return [...this.orders.values()]
       .filter((order) => order.buyerPubky === actorPubky || order.sellerPubky === actorPubky)
@@ -591,10 +974,34 @@ export class InMemoryMarketplaceRepository {
 }
 
 export class MarketplaceTransactionService {
+  /**
+   * The deployment sandbox-payments flag (`config.sandbox_payments_enabled`,
+   * §A7/§A8). The prototype IS the sandbox adapter, so the flag defaults ON
+   * and the `pickup_available` capability is therefore OFF by default:
+   * `pickup_details.set` and the buyer reveal read are refused, mirroring the
+   * durable service on a sandbox-payments deployment. Tests exercise the
+   * reveal only by explicitly enabling non-sandbox mode
+   * (`{ sandboxPaymentsEnabled: false }`) — documented per test.
+   */
+  private sandboxPaymentsEnabled: boolean;
+
   constructor(
     private readonly repository: InMemoryMarketplaceRepository,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+    options: { sandboxPaymentsEnabled?: boolean } = {},
+  ) {
+    this.sandboxPaymentsEnabled = options.sandboxPaymentsEnabled ?? true;
+  }
+
+  /** Simulates a redeploy flipping the sandbox-payments flag (the §A3 flag-toggle window). */
+  setSandboxPaymentsEnabled(enabled: boolean): void {
+    this.sandboxPaymentsEnabled = enabled;
+  }
+
+  /** The public config/health surface (§A7): pickup is available iff sandbox payments are disabled. */
+  getPickupCapability(): { pickupAvailable: boolean; sandboxPaymentsEnabled: boolean } {
+    return { pickupAvailable: !this.sandboxPaymentsEnabled, sandboxPaymentsEnabled: this.sandboxPaymentsEnabled };
+  }
 
   getListingProjection(aggregateId: string): MarketplaceListingAggregate | undefined {
     return this.repository.getListing(aggregateId);
@@ -685,7 +1092,7 @@ export class MarketplaceTransactionService {
 
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
-    const commandResult = marketplaceCommandSchema.safeParse(commandInput);
+    const commandResult = prototypeMarketplaceCommandSchema.safeParse(commandInput);
     if (!actorResult.success || !commandResult.success) {
       const issues = [
         ...(actorResult.success
@@ -699,7 +1106,7 @@ export class MarketplaceTransactionService {
     }
 
     const actorPubky = actorResult.data;
-    const command = commandResult.data;
+    const command = commandResult.data as PrototypeMarketplaceCommand;
     const requestHash = hashCommand(command);
 
     return await this.repository.transaction(() => {
@@ -719,15 +1126,26 @@ export class MarketplaceTransactionService {
     });
   }
 
-  private dispatchCommand(actorPubky: string, command: MarketplaceCommand): MarketplaceCommandResult {
+  private dispatchCommand(actorPubky: string, command: PrototypeMarketplaceCommand): MarketplaceCommandResult {
     switch (command.kind) {
       case 'listing.register':
         return this.registerListing(actorPubky, command);
       case 'listing.sync':
         // The sandbox has no homeserver to fetch canonical records from —
         // service-side sync exists only on the durable service. Refuse
-        // honestly rather than fabricate a registration.
+        // honestly rather than fabricate a registration. On the durable
+        // service, sync converges only the public record (including
+        // `fulfillmentMethods`); it carries no pickup details and can never
+        // null the service-side sealed store (§A4).
         return failure('INVALID_COMMAND', 'Listing sync is not available on the sandbox service.');
+      case 'pickup_details.set':
+        return this.setPickupDetails(actorPubky, command);
+      case 'pickup_details.clear':
+        return this.clearPickupDetails(actorPubky, command);
+      case 'fulfillment.mark_ready':
+        return this.markReadyForPickup(actorPubky, command);
+      case 'fulfillment.confirm_pickup':
+        return this.confirmPickup(actorPubky, command);
       case 'drop.sync':
       case 'drop.cancel':
       case 'drop.release_listings':
@@ -792,10 +1210,14 @@ export class MarketplaceTransactionService {
     }
   }
 
-  private registerListing(actorPubky: string, command: RegisterListingCommand): MarketplaceCommandResult {
+  private registerListing(actorPubky: string, command: PrototypeRegisterListingCommand): MarketplaceCommandResult {
     const { payload } = command;
     if (actorPubky !== payload.sellerPubky) {
       return failure('UNAUTHORIZED', 'Only the listing seller may register inventory.');
+    }
+    // v1 scope (§A2): auction listings are shipping-only — pickup auctions are future work.
+    if (payload.saleFormat === 'auction' && payload.fulfillmentMethods.includes('pickup')) {
+      return failure('INVALID_COMMAND', 'Auction listings are shipping-only.');
     }
 
     const expectedAggregateId = buildMarketplaceListingAggregateId(payload.sellerPubky, payload.listingId);
@@ -835,6 +1257,7 @@ export class MarketplaceTransactionService {
       soldQuantity: current?.soldQuantity ?? 0,
       unitPrice: payload.unitPrice,
       saleFormat: payload.saleFormat,
+      fulfillmentMethods: payload.fulfillmentMethods,
       auction: payload.auctionTerms
         ? {
             ...payload.auctionTerms,
@@ -927,6 +1350,11 @@ export class MarketplaceTransactionService {
       return failure('INSUFFICIENT_INVENTORY', 'The requested offer quantity is unavailable.', {
         currentRevision: listing.serverRevision,
       });
+    }
+    // v1 scope (§A2): offers are shipping-only; refuse with a typed error
+    // rather than silently converting the fulfillment to shipping.
+    if (!listing.fulfillmentMethods.includes('shipping')) {
+      return failure('INVALID_COMMAND', 'This listing does not offer shipping; offers are shipping-only.');
     }
     if (!sameAsset(listing.unitPrice, command.payload.amount)) {
       return failure('INVALID_COMMAND', 'Offer amount must use the listing asset and exponent.');
@@ -1496,7 +1924,7 @@ export class MarketplaceTransactionService {
     return success(command, preferences.revision, event.id, { kind: 'notification_preferences', preferences });
   }
 
-  private createCheckout(actorPubky: string, command: CreateMarketplaceCheckoutCommand): MarketplaceCommandResult {
+  private createCheckout(actorPubky: string, command: PrototypeCheckoutCommand): MarketplaceCommandResult {
     if (
       command.aggregateId !== buildMarketplaceCheckoutAggregateId(command.commandId) ||
       command.expectedRevision !== 0
@@ -1528,6 +1956,12 @@ export class MarketplaceTransactionService {
           currentRevision: listing.serverRevision,
         });
       }
+      // The buyer's choice is never rewritten (§A2): a fulfillment the
+      // listing does not publish is a typed refusal, never a silent fallback
+      // to shipping (the prior art's `?? 'shipping'`).
+      if (!listing.fulfillmentMethods.includes(requested.fulfillment)) {
+        return failure('INVALID_COMMAND', 'A checkout line chooses a fulfillment its listing does not publish.');
+      }
     }
     const listings = resolved.map(({ listing }) => listing!);
     const asset = listings[0].unitPrice;
@@ -1535,23 +1969,46 @@ export class MarketplaceTransactionService {
       return failure('INVALID_COMMAND', 'One checkout may contain only one asset and exponent.');
     }
 
+    // Address policy (§A2): required when any group ships (stored only on the
+    // shipped orders); a pickup-only checkout that PRESENTS one is rejected —
+    // a buggy or malicious client cannot smuggle an address into storage.
+    const anyShipped = resolved.some(({ requested }) => requested.fulfillment === 'shipping');
+    if (anyShipped && !command.payload.deliveryAddress) {
+      return failure('INVALID_COMMAND', 'A checkout with shipped orders requires a delivery address.');
+    }
+    if (!anyShipped && command.payload.deliveryAddress) {
+      return failure('INVALID_COMMAND', 'A pickup-only checkout must not carry a delivery address.');
+    }
+
     const now = this.now();
     const occurredAt = now.toISOString();
+    // One order per (seller, fulfillment) — Wave 7 has no location_key, so
+    // several pickup lines from one seller share one pickup order and the
+    // reveal is per order line (§A2).
     const sellerGroups = new Map<
       string,
-      Array<{ requested: (typeof resolved)[number]['requested']; listing: MarketplaceListingAggregate }>
+      {
+        sellerPubky: string;
+        fulfillment: MarketplaceFulfillmentMethod;
+        items: Array<{ requested: (typeof resolved)[number]['requested']; listing: MarketplaceListingAggregate }>;
+      }
     >();
     for (const item of resolved) {
       const listing = item.listing!;
-      const group = sellerGroups.get(listing.sellerPubky) ?? [];
-      group.push({ requested: item.requested, listing });
-      sellerGroups.set(listing.sellerPubky, group);
+      const key = `${listing.sellerPubky}${item.requested.fulfillment}`;
+      const group = sellerGroups.get(key) ?? {
+        sellerPubky: listing.sellerPubky,
+        fulfillment: item.requested.fulfillment,
+        items: [],
+      };
+      group.items.push({ requested: item.requested, listing });
+      sellerGroups.set(key, group);
     }
 
     const orders: MarketplaceOrder[] = [];
     const payments: MarketplacePayment[] = [];
     const eventIds: string[] = [];
-    for (const [sellerPubky, items] of sellerGroups) {
+    for (const { sellerPubky, fulfillment, items } of sellerGroups.values()) {
       const lines: MarketplaceOrderLine[] = items.map(({ requested, listing }) => ({
         listingAggregateId: listing.aggregateId,
         listingRevision: listing.listingRevision,
@@ -1564,9 +2021,12 @@ export class MarketplaceTransactionService {
         // service: display data validated for shape only.
         ...(requested.variantId ? { variantId: requested.variantId } : {}),
         ...(requested.variantOptions ? { variantOptions: requested.variantOptions } : {}),
+        fulfillment: requested.fulfillment,
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
-      const shippingMinor = 1_200;
+      // Pickup charges no shipping (§A2): the seller-signed flat rate applies
+      // only to shipped orders — never charge and refund later.
+      const shippingMinor = fulfillment === 'pickup' ? 0 : 1_200;
       const orderId = randomUUID();
       const paymentId = randomUUID();
       const order: MarketplaceOrder = {
@@ -1576,7 +2036,11 @@ export class MarketplaceTransactionService {
         revision: 1,
         state: 'pending_payment',
         lines,
-        deliveryAddress: command.payload.deliveryAddress,
+        fulfillment,
+        deliveryAddress: fulfillment === 'shipping' ? command.payload.deliveryAddress! : null,
+        firstRevealedAt: null,
+        revealRevokedAt: null,
+        handover: null,
         subtotal: { ...asset, amountMinor: subtotalMinor },
         shipping: { ...asset, amountMinor: shippingMinor },
         total: { ...asset, amountMinor: subtotalMinor + shippingMinor },
@@ -1629,6 +2093,9 @@ export class MarketplaceTransactionService {
   }
 
   private advanceSandboxPayment(actorPubky: string, command: AdvanceSandboxPaymentCommand): MarketplaceCommandResult {
+    if (!this.sandboxPaymentsEnabled) {
+      return failure('INVALID_COMMAND', 'Sandbox payments are disabled on this deployment.');
+    }
     const payment = this.repository.getPayment(command.payload.paymentId);
     if (!payment) return failure('NOT_FOUND', 'The sandbox payment was not found.');
     if (payment.buyerPubky !== actorPubky) {
@@ -1665,56 +2132,177 @@ export class MarketplaceTransactionService {
     };
     const eventKind = `payment.${command.payload.target}` as MarketplaceEvent['kind'];
     const paymentEvent = this.createEvent(actorPubky, command, updatedPayment.revision, eventKind, occurredAt);
-    let updatedOrder = order;
-    let receipt: MarketplaceReceipt | null = null;
-    const eventIds = [paymentEvent.id];
     if (updatedPayment.state === 'confirmed') {
-      const receiptId = randomUUID();
-      updatedOrder = {
-        ...order,
-        revision: order.revision + 1,
-        state: 'paid',
-        receiptId,
-        updatedAt: occurredAt,
-      };
-      const receiptPayload = JSON.stringify({
-        orderId: order.id,
-        paymentId: payment.id,
-        total: order.total,
-        issuedAt: occurredAt,
-      });
-      receipt = {
-        id: receiptId,
-        orderId: order.id,
-        paymentId: payment.id,
-        issuerPubky: order.sellerPubky,
-        recipientPubky: order.buyerPubky,
-        total: order.total,
-        contentHash: bytesToHex(blake3(new TextEncoder().encode(receiptPayload))),
-        issuedAt: occurredAt,
-      };
-      const receiptEvent = this.createEvent(
-        actorPubky,
-        command,
-        updatedOrder.revision,
-        'receipt.issued',
-        occurredAt,
-        `order:${order.id}`,
-      );
-      eventIds.push(receiptEvent.id);
-      this.repository.putReceipt(receipt);
-      this.repository.appendEvent(receiptEvent);
-      this.notify(order.sellerPubky, actorPubky, 'payment_confirmed', `order:${order.id}`, occurredAt);
+      this.repository.putPayment(updatedPayment);
+      this.repository.appendEvent(paymentEvent);
+      return this.confirmOrder(actorPubky, command, updatedPayment, 'sandbox_advance', occurredAt, [paymentEvent.id]);
     }
     this.repository.putPayment(updatedPayment);
-    this.repository.putOrder(updatedOrder);
     this.repository.appendEvent(paymentEvent);
-    return success(command, updatedPayment.revision, eventIds, {
+    return success(command, updatedPayment.revision, paymentEvent.id, {
       kind: 'payment',
       payment: updatedPayment,
+      order,
+      receipt: null,
+    });
+  }
+
+  /**
+   * The verification worker's confirmation path (§A3): durable deployments
+   * with sandbox payments disabled confirm payments through the worker's
+   * independent verification, never through `payment.sandbox_advance`. The
+   * prototype exposes it as a service method (workers are not command
+   * actors); it shares the one exactly-once `confirmOrder` writer with the
+   * sandbox path, so worker confirmations pin pickup snapshots exactly like
+   * sandbox ones.
+   */
+  async confirmPaymentAsWorker(paymentId: string): Promise<MarketplaceWorkerConfirmationResult> {
+    if (this.sandboxPaymentsEnabled) {
+      return {
+        ok: false,
+        error: { code: 'INVALID_COMMAND', message: 'Sandbox-payments deployments run no verification worker.' },
+      };
+    }
+    return await this.repository.transaction(() => {
+      const payment = this.repository.getPayment(paymentId);
+      if (!payment) {
+        return { ok: false as const, error: { code: 'NOT_FOUND' as const, message: 'The payment was not found.' } };
+      }
+      if (payment.state !== 'awaiting_entitlement' && payment.state !== 'detected') {
+        return {
+          ok: false as const,
+          error: { code: 'INVALID_STATE' as const, message: 'The payment is not awaiting verification.' },
+        };
+      }
+      const occurredAt = this.now().toISOString();
+      const updatedPayment: MarketplacePayment = {
+        ...payment,
+        revision: payment.revision + 1,
+        state: 'confirmed',
+        confirmations: Math.max(1, payment.confirmations),
+        updatedAt: occurredAt,
+      };
+      const commandRef = { commandId: `worker:${payment.id}`, aggregateId: buildMarketplacePaymentAggregateId(payment.id) };
+      const paymentEvent = this.createEvent(
+        SERVER_ACTOR_PUBKY,
+        commandRef,
+        updatedPayment.revision,
+        'payment.confirmed',
+        occurredAt,
+      );
+      this.repository.putPayment(updatedPayment);
+      this.repository.appendEvent(paymentEvent);
+      const result = this.confirmOrder(
+        SERVER_ACTOR_PUBKY,
+        commandRef,
+        updatedPayment,
+        'locks_verification',
+        occurredAt,
+        [paymentEvent.id],
+      );
+      if (!result.ok || result.result.kind !== 'payment' || !result.result.receipt) {
+        return { ok: false as const, error: { code: 'INVARIANT_VIOLATION' as const, message: 'Worker confirmation failed.' } };
+      }
+      return {
+        ok: true as const,
+        payment: result.result.payment,
+        order: result.result.order,
+        receipt: result.result.receipt,
+      };
+    });
+  }
+
+  /**
+   * The one exactly-once confirmation writer (§A3), shared by
+   * `payment.sandbox_advance` and the verification worker: moves the order to
+   * `paid`, issues the receipt, and pins — per pickup line, in the same
+   * transaction as the receipt — the details version (`version_at_payment`),
+   * a snapshot of the terms as shown at payment bound to
+   * (order id ‖ line index ‖ version), and the confirming adapter.
+   */
+  private confirmOrder(
+    actorPubky: string,
+    command: { commandId: string; aggregateId: string },
+    payment: MarketplacePayment,
+    adapter: 'sandbox_advance' | 'locks_verification',
+    occurredAt: string,
+    eventIds: string[],
+  ): MarketplaceCommandResult {
+    const order = this.repository.getOrder(payment.orderId);
+    if (!order) return failure('INVARIANT_VIOLATION', 'Payment order is missing.');
+    const receiptId = randomUUID();
+    let updatedOrder: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'paid',
+      receiptId,
+      updatedAt: occurredAt,
+    };
+    const receiptPayload = JSON.stringify({
+      orderId: order.id,
+      paymentId: payment.id,
+      total: order.total,
+      issuedAt: occurredAt,
+    });
+    const receipt: MarketplaceReceipt = {
+      id: receiptId,
+      orderId: order.id,
+      paymentId: payment.id,
+      issuerPubky: order.sellerPubky,
+      recipientPubky: order.buyerPubky,
+      total: order.total,
+      contentHash: bytesToHex(blake3(new TextEncoder().encode(receiptPayload))),
+      issuedAt: occurredAt,
+    };
+    const receiptEvent = this.createEvent(
+      actorPubky,
+      command,
+      updatedOrder.revision,
+      'receipt.issued',
+      occurredAt,
+      `order:${order.id}`,
+    );
+    eventIds.push(receiptEvent.id);
+    updatedOrder = this.pinPickupSnapshots(updatedOrder, adapter, occurredAt);
+    this.repository.putReceipt(receipt);
+    this.repository.appendEvent(receiptEvent);
+    this.repository.putOrder(updatedOrder);
+    this.notify(order.sellerPubky, actorPubky, 'payment_confirmed', `order:${order.id}`, occurredAt);
+    return success(command, payment.revision, eventIds, {
+      kind: 'payment',
+      payment,
       order: updatedOrder,
       receipt,
     });
+  }
+
+  /**
+   * Pinning (§A3): per pickup line, record `version_at_payment` on the line
+   * and the snapshot in the sealed snapshot store — bound to
+   * (order id ‖ line index ‖ version), so a snapshot cannot be transplanted
+   * across orders, lines, or versions. A listing with no details at payment
+   * pins `null` (the line's `version_at_payment` key stays absent).
+   */
+  private pinPickupSnapshots(
+    order: MarketplaceOrder,
+    adapter: 'sandbox_advance' | 'locks_verification',
+    occurredAt: string,
+  ): MarketplaceOrder {
+    if (order.fulfillment !== 'pickup') return order;
+    const lines = order.lines.map((line, lineIndex) => {
+      if (line.fulfillment !== 'pickup') return line;
+      const current = this.repository.getCurrentPickupDetails(line.listingAggregateId);
+      this.repository.putPickupSnapshot({
+        orderId: order.id,
+        lineIndex,
+        version: current?.version ?? null,
+        terms: current?.terms ?? null,
+        pinnedAdapter: adapter,
+        pinnedAt: occurredAt,
+      });
+      return current ? { ...line, versionAtPayment: current.version } : line;
+    });
+    return { ...order, lines };
   }
 
   private requestCancellation(actorPubky: string, command: RequestOrderCancellationCommand): MarketplaceCommandResult {
@@ -1722,28 +2310,59 @@ export class MarketplaceTransactionService {
     if (!resolved.ok) return resolved.failure;
     const order = resolved.order;
     if (order.buyerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the buyer may request cancellation.');
-    if (!['pending_payment', 'paid', 'processing'].includes(order.state)) {
+    if (!['pending_payment', 'paid', 'processing', 'ready_for_pickup'].includes(order.state)) {
       return failure('INVALID_STATE', 'This order can no longer be cancelled.');
     }
     const occurredAt = this.now().toISOString();
     const immediate = order.state === 'pending_payment';
+    // Unilateral exits (§A3): no seller approval while (a) a post-payment
+    // pickup-terms change exists (version bump or clear), or (b) the bounded
+    // post-reveal withdrawal window is open (`first_revealed_at` stamped, no
+    // handover confirm yet — `mark_ready` does NOT close it). Outside those
+    // conditions — including a cancel that races `mark_ready` before the
+    // first reveal — the command degrades to the ordinary `cancel_requested`.
+    const unilateral =
+      (order.state === 'paid' || order.state === 'ready_for_pickup') &&
+      (this.hasUnresolvedTermsChange(order) || order.firstRevealedAt !== null);
+    const cancelled = immediate || unilateral;
     const updated: MarketplaceOrder = {
       ...order,
       revision: order.revision + 1,
-      state: immediate ? 'cancelled' : 'cancel_requested',
+      state: cancelled ? 'cancelled' : 'cancel_requested',
       cancellationReason: command.payload.reason,
+      // Cancellation ENDS the reveal on every cancel path (§A3).
+      revealRevokedAt: cancelled ? occurredAt : order.revealRevokedAt,
       updatedAt: occurredAt,
     };
-    if (immediate) this.releaseOrderInventory(order, occurredAt);
+    // The unilateral exits release inventory exactly like an approved cancel.
+    if (cancelled) this.releaseOrderInventory(order, occurredAt);
     return this.persistOrderAction(
       actorPubky,
       command,
       updated,
-      immediate ? 'order.cancelled' : 'order.cancel_requested',
+      unilateral ? 'order.cancelled_terms_change' : immediate ? 'order.cancelled' : 'order.cancel_requested',
       order.sellerPubky,
       'order_cancelled',
       occurredAt,
     );
+  }
+
+  /**
+   * A post-payment pickup-terms change (§A3) exists when, for any pickup
+   * line, the listing's version counter advanced past `version_at_payment`,
+   * or the details were cleared (counter advanced, current row gone). A
+   * listing that never had details (counter 0, nothing pinned) is NOT a
+   * terms change.
+   */
+  private hasUnresolvedTermsChange(order: MarketplaceOrder): boolean {
+    if (order.fulfillment !== 'pickup') return false;
+    return order.lines.some((line) => {
+      if (line.fulfillment !== 'pickup') return false;
+      const counter = this.repository.getPickupVersionCounter(line.listingAggregateId);
+      if (counter === 0) return false;
+      const cleared = !this.repository.getCurrentPickupDetails(line.listingAggregateId);
+      return cleared || counter > (line.versionAtPayment ?? 0);
+    });
   }
 
   private approveCancellation(actorPubky: string, command: ApproveOrderCancellationCommand): MarketplaceCommandResult {
@@ -1753,7 +2372,14 @@ export class MarketplaceTransactionService {
     if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may approve cancellation.');
     if (order.state !== 'cancel_requested') return failure('INVALID_STATE', 'No cancellation is pending.');
     const occurredAt = this.now().toISOString();
-    const updated = { ...order, revision: order.revision + 1, state: 'cancelled' as const, updatedAt: occurredAt };
+    const updated = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'cancelled' as const,
+      // Cancellation ENDS the reveal on every cancel path (§A3).
+      revealRevokedAt: occurredAt,
+      updatedAt: occurredAt,
+    };
     this.releaseOrderInventory(order, occurredAt);
     return this.persistOrderAction(
       actorPubky,
@@ -1771,6 +2397,8 @@ export class MarketplaceTransactionService {
     if (!resolved.ok) return resolved.failure;
     const order = resolved.order;
     if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may ship this order.');
+    // Pickup orders are never shipped (§A6): typed refusal, no silent conversion.
+    if (order.fulfillment === 'pickup') return failure('INVALID_STATE', 'A pickup order cannot be shipped.');
     if (!['paid', 'processing'].includes(order.state))
       return failure('INVALID_STATE', 'The order is not ready to ship.');
     const occurredAt = this.now().toISOString();
@@ -1955,6 +2583,371 @@ export class MarketplaceTransactionService {
 
 
 
+  private setPickupDetails(actorPubky: string, command: SetPickupDetailsCommand): MarketplaceCommandResult {
+    // Deployment boundary (§A7/§A8): refused whenever sandbox payments are
+    // enabled, so no real meeting point is stored against fake money.
+    if (this.sandboxPaymentsEnabled) {
+      return failure('INVALID_COMMAND', 'Pickup details cannot be stored on a sandbox-payments deployment.');
+    }
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The listing is not registered.');
+    if (listing.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the listing seller may set pickup details.');
+    }
+    if (!listing.fulfillmentMethods.includes('pickup')) {
+      return failure('INVALID_COMMAND', 'The listing does not offer pickup.');
+    }
+    // CAS against the per-listing version COUNTER row (§A3) — never against
+    // the listing's server revision; post-clear the next set continues the
+    // sequence against the surviving counter.
+    const counter = this.repository.getPickupVersionCounter(listing.aggregateId);
+    if (command.expectedRevision !== counter) {
+      return failure('REVISION_CONFLICT', 'The pickup details version is stale.', { currentRevision: counter });
+    }
+
+    const occurredAt = this.now().toISOString();
+    const details: MarketplacePickupDetailsVersion = {
+      listingAggregateId: listing.aggregateId,
+      version: counter + 1,
+      terms: command.payload.details,
+      updatedAt: occurredAt,
+    };
+    const event = this.createEvent(actorPubky, command, details.version, 'pickup_details.updated', occurredAt);
+    this.repository.putCurrentPickupDetails(details);
+    this.repository.putPickupDetailsVersion(details);
+    this.repository.putPickupVersionCounter(listing.aggregateId, details.version);
+    this.repository.appendEvent(event);
+    this.notifyPaidPickupBuyers(listing.aggregateId, actorPubky, 'pickup_details_updated', occurredAt);
+    return success(command, details.version, event.id, {
+      kind: 'pickup_details',
+      listingAggregateId: listing.aggregateId,
+      version: details.version,
+      details,
+    });
+  }
+
+  private clearPickupDetails(actorPubky: string, command: ClearPickupDetailsCommand): MarketplaceCommandResult {
+    if (this.sandboxPaymentsEnabled) {
+      return failure('INVALID_COMMAND', 'Pickup details cannot be cleared on a sandbox-payments deployment.');
+    }
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The listing is not registered.');
+    if (listing.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the listing seller may clear pickup details.');
+    }
+    const counter = this.repository.getPickupVersionCounter(listing.aggregateId);
+    if (command.expectedRevision !== counter) {
+      return failure('REVISION_CONFLICT', 'The pickup details version is stale.', { currentRevision: counter });
+    }
+
+    const occurredAt = this.now().toISOString();
+    this.repository.deleteCurrentPickupDetails(listing.aggregateId);
+    // Retention (§A3): hard-delete every version NOT referenced as
+    // `version_at_payment` by a paid, non-terminal order; the per-listing
+    // version counter row survives, so versions never restart.
+    for (const version of this.repository.getPickupDetailsVersions(listing.aggregateId)) {
+      if (!this.isPickupVersionReferenced(version)) {
+        this.repository.deletePickupDetailsVersion(version);
+      }
+    }
+    const event = this.createEvent(actorPubky, command, counter, 'pickup_details.cleared', occurredAt);
+    this.repository.appendEvent(event);
+    this.notifyPaidPickupBuyers(listing.aggregateId, actorPubky, 'pickup_details_cleared', occurredAt);
+    return success(command, counter, event.id, {
+      kind: 'pickup_details',
+      listingAggregateId: listing.aggregateId,
+      version: counter,
+      details: null,
+    });
+  }
+
+  private markReadyForPickup(actorPubky: string, command: MarkReadyForPickupCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the seller may mark the order ready for pickup.');
+    }
+    // Guarded the other way for shipped orders (§A6): typed refusal.
+    if (order.fulfillment !== 'pickup') {
+      return failure('INVALID_STATE', 'Only a pickup order can be marked ready for pickup.');
+    }
+    if (order.state !== 'paid') {
+      return failure('INVALID_STATE', 'The order is not awaiting pickup readiness.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'ready_for_pickup',
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'fulfillment.ready_for_pickup',
+      order.buyerPubky,
+      'pickup_ready',
+      occurredAt,
+    );
+  }
+
+  private confirmPickup(actorPubky: string, command: ConfirmPickupCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.fulfillment !== 'pickup') {
+      return failure('INVALID_STATE', 'Only a pickup order confirms a pickup handover.');
+    }
+    if (order.state !== 'paid' && order.state !== 'ready_for_pickup') {
+      return failure('INVALID_STATE', 'The order is not awaiting a pickup handover.');
+    }
+    // The seller cannot self-confirm away the buyer's exit (§A6): a
+    // seller-actor confirm is refused while a post-payment terms change is
+    // unresolved; the buyer's own confirm stays allowed.
+    if (actorPubky === order.sellerPubky && this.hasUnresolvedTermsChange(order)) {
+      return failure('INVALID_STATE', 'The seller cannot confirm the handover while a terms change is unresolved.');
+    }
+    const occurredAt = this.now().toISOString();
+    // One handover per order (PK on the order id, §A6): who confirmed and the
+    // server instant. A seller-only confirm is seller-attested, never
+    // reputation-positive on its own.
+    const handover: MarketplacePickupHandover = {
+      orderId: order.id,
+      confirmedBy: actorPubky,
+      attestation: actorPubky === order.buyerPubky ? 'buyer_confirmed' : 'seller_attested',
+      confirmedAt: occurredAt,
+    };
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'delivered',
+      handover,
+      updatedAt: occurredAt,
+    };
+    this.repository.putHandover(handover);
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      // The same delivery fact a shipped order's confirm emits (§A6).
+      'fulfillment.delivered',
+      actorPubky === order.buyerPubky ? order.sellerPubky : order.buyerPubky,
+      'order_delivered',
+      occurredAt,
+    );
+  }
+
+  /**
+   * The buyer-only reveal read (§A3): serves the PINNED per-line snapshots —
+   * never the listing's current details — with read-only availability
+   * windows. Entitlement = the durable payment fact (`receipt_id` set by the
+   * exactly-once confirmation path), re-evaluated on every read, ending at
+   * the terminal transition (cancel on any path included). Refused outright
+   * on sandbox-payments deployments, and for any order whose pin recorded
+   * `sandbox_advance` as the confirming adapter — checked against the pin on
+   * every read, independent of the deployment's current flag. The first
+   * successful read stamps `first_revealed_at`, opening the bounded
+   * withdrawal window.
+   */
+  revealPickupDetails(actorPubky: string, orderId: string): MarketplacePickupRevealResult {
+    const refuse = (code: MarketplaceCommandFailure['error']['code'], message: string): MarketplacePickupRevealResult => ({
+      ok: false,
+      error: { code, message },
+    });
+    if (this.sandboxPaymentsEnabled) {
+      return refuse('INVALID_COMMAND', 'The pickup reveal is unavailable on a sandbox-payments deployment.');
+    }
+    const order = this.repository.getOrder(orderId);
+    if (!order) return refuse('NOT_FOUND', 'The order was not found.');
+    if (order.buyerPubky !== actorPubky) {
+      return refuse('UNAUTHORIZED', 'Only the order buyer may reveal pickup details.');
+    }
+    if (order.fulfillment !== 'pickup') {
+      return refuse('INVALID_STATE', 'The order is not a pickup order.');
+    }
+    if (!order.receiptId) {
+      return refuse('INVALID_STATE', 'The order carries no durable payment fact.');
+    }
+    if (order.revealRevokedAt || order.state === 'completed' || order.state === 'closed') {
+      return refuse('INVALID_STATE', 'The pickup reveal entitlement has ended.');
+    }
+    const pickupLines = order.lines
+      .map((line, lineIndex) => ({ line, lineIndex }))
+      .filter(({ line }) => line.fulfillment === 'pickup');
+    const snapshots = pickupLines.map(({ lineIndex }) => this.repository.getPickupSnapshot(order.id, lineIndex));
+    if (snapshots.some((snapshot) => snapshot?.pinnedAdapter === 'sandbox_advance')) {
+      return refuse('INVALID_STATE', 'The order was confirmed under sandbox_advance; its meeting point is never revealed.');
+    }
+
+    const occurredAt = this.now().toISOString();
+    if (!order.firstRevealedAt) {
+      this.repository.putOrder({ ...order, firstRevealedAt: occurredAt });
+    }
+    const lines: MarketplacePickupRevealLine[] = pickupLines.map(({ line, lineIndex }) => {
+      const snapshot = this.repository.getPickupSnapshot(order.id, lineIndex);
+      const pinnedVersion = snapshot?.version ?? null;
+      const counter = this.repository.getPickupVersionCounter(line.listingAggregateId);
+      const current = this.repository.getCurrentPickupDetails(line.listingAggregateId);
+      return {
+        lineIndex,
+        listingAggregateId: line.listingAggregateId,
+        version: pinnedVersion,
+        terms: snapshot?.terms ?? null,
+        currentVersion: counter,
+        updatedSincePayment: pinnedVersion !== null && counter > pinnedVersion,
+        withdrawnBySeller: counter > 0 && !current,
+      };
+    });
+    return { ok: true, orderId: order.id, firstRevealedAt: order.firstRevealedAt ?? occurredAt, lines };
+  }
+
+  /**
+   * The seller's owner read (§A4): their own details, or — after a
+   * `pickup_details.clear` — "no details" ALONGSIDE the surviving version
+   * counter, so the next `pickup_details.set` can CAS against the counter
+   * without a hidden second read (§A3).
+   */
+  getSellerPickupDetails(actorPubky: string, listingAggregateId: string): MarketplaceSellerPickupDetailsResult {
+    const listing = this.repository.getListing(listingAggregateId);
+    if (!listing) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'The listing is not registered.' } };
+    }
+    if (listing.sellerPubky !== actorPubky) {
+      return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Only the listing seller may read its pickup details.' } };
+    }
+    const current = this.repository.getCurrentPickupDetails(listingAggregateId);
+    return {
+      ok: true,
+      listingAggregateId,
+      version: this.repository.getPickupVersionCounter(listingAggregateId),
+      details: current?.terms ?? null,
+    };
+  }
+
+  /**
+   * §A6 `next_actor()`: `'buyer' | 'seller'` only. For a pickup order in
+   * `paid` the seller is armed (mark ready, or confirm the handover); in
+   * `ready_for_pickup` the buyer is armed (confirm on receipt). Shipped
+   * orders keep the existing mapping.
+   */
+  getNextActor(order: MarketplaceOrder): 'buyer' | 'seller' | null {
+    switch (order.state) {
+      case 'pending_payment':
+        return 'buyer';
+      case 'paid':
+      case 'processing':
+        return 'seller';
+      case 'ready_for_pickup':
+        return 'buyer';
+      case 'shipped':
+      case 'delivered':
+      case 'completed':
+        return 'buyer';
+      case 'cancel_requested':
+      case 'cancelled':
+      case 'return_requested':
+      case 'return_approved':
+      case 'return_received':
+        return 'seller';
+      case 'refunded_external':
+      case 'closed':
+        return null;
+    }
+  }
+
+  /**
+   * The auto-complete sweep (§A6): completes `delivered` orders on one
+   * deadline, coalescing the delivery instant — the handover record's server
+   * instant for pickup orders, `shipment.deliveredAt` for shipped ones — so
+   * pickup orders auto-complete exactly like shipped ones instead of being
+   * warn-and-skipped forever.
+   */
+  completeDueDeliveredOrders(): MarketplaceOrder[] {
+    const nowMs = this.now().getTime();
+    const occurredAt = this.now().toISOString();
+    const completed: MarketplaceOrder[] = [];
+    for (const order of this.repository.getAllOrders()) {
+      if (order.state !== 'delivered') continue;
+      const deliveredAt = order.fulfillment === 'pickup' ? order.handover?.confirmedAt : order.shipment?.deliveredAt;
+      if (!deliveredAt) continue;
+      if (nowMs - Date.parse(deliveredAt) < ORDER_AUTO_COMPLETE_AFTER_MS) continue;
+      const updated: MarketplaceOrder = {
+        ...order,
+        revision: order.revision + 1,
+        state: 'completed',
+        updatedAt: occurredAt,
+      };
+      this.repository.putOrder(updated);
+      this.repository.appendEvent(
+        this.createEvent(
+          SERVER_ACTOR_PUBKY,
+          { commandId: `sweep:${order.id}`, aggregateId: buildMarketplaceOrderAggregateId(order.id) },
+          updated.revision,
+          'order.completed',
+          occurredAt,
+        ),
+      );
+      this.runPickupRetentionSweep();
+      completed.push(updated);
+    }
+    return completed;
+  }
+
+  /** Every paid, non-terminal pickup order referencing the listing gets the terms-change notification (§A3). */
+  private notifyPaidPickupBuyers(
+    listingAggregateId: string,
+    actorPubky: string,
+    type: 'pickup_details_updated' | 'pickup_details_cleared',
+    occurredAt: string,
+  ): void {
+    for (const order of this.repository.getAllOrders()) {
+      if (order.fulfillment !== 'pickup' || !order.receiptId || isTerminalForPickupRetention(order)) continue;
+      if (!order.lines.some((line) => line.fulfillment === 'pickup' && line.listingAggregateId === listingAggregateId)) {
+        continue;
+      }
+      this.notify(order.buyerPubky, actorPubky, type, `order:${order.id}`, occurredAt);
+    }
+  }
+
+  /** A version row survives `pickup_details.clear` only while a paid, non-terminal order pins it (§A3). */
+  private isPickupVersionReferenced(version: MarketplacePickupDetailsVersion): boolean {
+    return this.repository
+      .getAllOrders()
+      .some(
+        (order) =>
+          order.receiptId !== null &&
+          !isTerminalForPickupRetention(order) &&
+          order.lines.some(
+            (line) => line.listingAggregateId === version.listingAggregateId && line.versionAtPayment === version.version,
+          ),
+      );
+  }
+
+  /**
+   * The terminal-order purge (§A3): hard-delete version rows whose referencing
+   * orders all went terminal, and purge pinned snapshots — immediately on
+   * `completed`, and on `refund.record_external` for a cancelled-after-payment
+   * order (the snapshot outlives the cancel only as dispute evidence, until
+   * the seller's refund evidence lands).
+   */
+  private runPickupRetentionSweep(): void {
+    for (const order of this.repository.getAllOrders()) {
+      if (order.state === 'completed' || order.state === 'closed') {
+        this.repository.deletePickupSnapshotsForOrder(order.id);
+      }
+      if (order.state === 'refunded_external' && order.revealRevokedAt) {
+        this.repository.deletePickupSnapshotsForOrder(order.id);
+      }
+    }
+    for (const version of this.repository.getAllPickupDetailsVersions()) {
+      if (!this.isPickupVersionReferenced(version)) {
+        this.repository.deletePickupDetailsVersion(version);
+      }
+    }
+  }
+
   private createReview(actorPubky: string, command: CreateReviewCommand): MarketplaceCommandResult {
     const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
     if (!resolved.ok) return resolved.failure;
@@ -1982,6 +2975,7 @@ export class MarketplaceTransactionService {
       updatedAt: occurredAt,
     };
     this.repository.putOrder(updated);
+    if (updated.state === 'completed') this.runPickupRetentionSweep();
     const event = this.createEvent(actorPubky, command, updated.revision, 'review.created', occurredAt);
     this.repository.appendEvent(event);
     this.notify(review.subjectPubky, actorPubky, 'review_received', `order:${order.id}`, occurredAt);
@@ -1992,7 +2986,7 @@ export class MarketplaceTransactionService {
   private getOrderAction(
     actorPubky: string,
     orderId: string,
-    command: MarketplaceCommand,
+    command: PrototypeMarketplaceCommand,
   ): { ok: true; order: MarketplaceOrder } | { ok: false; failure: MarketplaceCommandFailure } {
     const order = this.repository.getOrder(orderId);
     if (!order) return { ok: false, failure: failure('NOT_FOUND', 'The order was not found.') };
@@ -2013,7 +3007,7 @@ export class MarketplaceTransactionService {
 
   private persistOrderAction(
     actorPubky: string,
-    command: MarketplaceCommand,
+    command: PrototypeMarketplaceCommand,
     order: MarketplaceOrder,
     eventKind: MarketplaceEvent['kind'],
     notificationRecipient: string,
@@ -2021,6 +3015,9 @@ export class MarketplaceTransactionService {
     occurredAt: string,
   ): MarketplaceCommandResult {
     this.repository.putOrder(order);
+    if (['cancelled', 'completed', 'closed', 'refunded_external'].includes(order.state)) {
+      this.runPickupRetentionSweep();
+    }
     const event = this.createEvent(
       actorPubky,
       command,
@@ -2066,6 +3063,9 @@ export class MarketplaceTransactionService {
       'return_updated',
       'refund_recorded',
       'review_received',
+      'pickup_details_updated',
+      'pickup_details_cleared',
+      'pickup_ready',
     ].includes(type)
       ? true
       : type === 'message_received'
@@ -2090,7 +3090,7 @@ export class MarketplaceTransactionService {
 
   private createEvent(
     actorPubky: string,
-    command: MarketplaceCommand,
+    command: { commandId: string; aggregateId: string },
     revision: number,
     kind: MarketplaceEvent['kind'],
     occurredAt: string,
@@ -2108,8 +3108,30 @@ export class MarketplaceTransactionService {
   }
 }
 
+/**
+ * The auto-complete deadline (§A6), mirrored from the durable service's
+ * `complete_due_delivered_orders_batch` sweep: a `delivered` order with no
+ * return completes this long after its delivery instant.
+ */
+export const ORDER_AUTO_COMPLETE_AFTER_MS = 3 * 24 * 60 * 60 * 1_000;
+
+/**
+ * Terminal for pickup retention and the reveal cutoff (§A3): `cancelled` (any
+ * path — stamped via `revealRevokedAt`), `completed`, `closed`, and the
+ * cancelled-then-refunded leg. The entitlement stays true through
+ * `cancel_requested`, returns, and refunds that passed through payment.
+ */
+function isTerminalForPickupRetention(order: MarketplaceOrder): boolean {
+  return (
+    order.state === 'cancelled' ||
+    order.state === 'completed' ||
+    order.state === 'closed' ||
+    (order.state === 'refunded_external' && order.revealRevokedAt !== null)
+  );
+}
+
 function success(
-  command: MarketplaceCommand,
+  command: { commandId: string; aggregateId: string },
   revision: number,
   eventIds: string | string[],
   result: MarketplaceCommandSuccess['result'],
@@ -2133,7 +3155,7 @@ function failure(
   return { ok: false, error: { code, message, ...details } };
 }
 
-function hashCommand(command: MarketplaceCommand): string {
+function hashCommand(command: PrototypeMarketplaceCommand): string {
   return createHash('sha256').update(JSON.stringify(command)).digest('hex');
 }
 
@@ -2186,5 +3208,223 @@ function toAttachmentMetadata(attachment: MarketplaceStoredAttachment): Marketpl
     byteSize: attachment.byteSize,
     contentHash: attachment.contentHash,
     createdAt: attachment.createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The emitted state-machine document (slice 7.0 gate, §A8): the Wave 7 Part A
+// machine contract, diffed in the contract test against the checked-in
+// `services/marketplace/contracts/expected-state-machines.wave7.json`. Once
+// the durable service vendors its artifact in 7.1, the same document is
+// diffed against that artifact. `contract_version` stays 1 (additive), the
+// aggregate count stays 8 (`pickup_schedule` is a Wave 7b aggregate), and the
+// format deliberately matches the service's `state-machines.json`.
+// ---------------------------------------------------------------------------
+
+type MachineVia = { trigger: 'command' | 'server'; name: string };
+type MachineTransition = { from: string; to: string; via: MachineVia[] };
+type AggregateMachine = {
+  aggregate: string;
+  states: string[];
+  initial: string;
+  transitions: MachineTransition[];
+  commands: string[];
+  unreachable_states: string[];
+};
+
+const command = (name: string): MachineVia => ({ trigger: 'command', name });
+const server = (name: string): MachineVia => ({ trigger: 'server', name });
+
+export function buildPrototypeStateMachineDocument(): {
+  contract_version: 1;
+  source: string;
+  aggregates: AggregateMachine[];
+} {
+  return {
+    contract_version: 1,
+    source: 'marketplace-domain::state_machines',
+    aggregates: [
+      {
+        aggregate: 'listing',
+        states: ['available', 'reserved', 'sold'],
+        initial: 'available',
+        transitions: [
+          {
+            from: 'available',
+            to: 'reserved',
+            via: [command('inventory.reserve'), command('checkout.create'), command('offer.accept'), command('auction.close')],
+          },
+          {
+            from: 'reserved',
+            to: 'available',
+            via: [server('reservation_expiry'), command('order.cancel_request'), command('order.cancel_approve')],
+          },
+          {
+            from: 'reserved',
+            to: 'sold',
+            via: [command('payment.sandbox_advance'), server('payment_confirmation')],
+          },
+          {
+            from: 'sold',
+            to: 'available',
+            // The unilateral buyer exits release inventory through approve's
+            // path (§A6/§A8), so `order.cancel_request` joins this edge.
+            via: [command('order.cancel_request'), command('order.cancel_approve')],
+          },
+        ],
+        commands: ['listing.register', 'listing.sync', 'inventory.reserve', 'checkout.create', 'offer.accept', 'auction.close'],
+        unreachable_states: [],
+      },
+      {
+        aggregate: 'reservation',
+        states: ['active', 'converted', 'released', 'expired'],
+        initial: 'active',
+        transitions: [
+          { from: 'active', to: 'expired', via: [server('reservation_expiry')] },
+          { from: 'active', to: 'released', via: [command('order.cancel_request'), command('order.cancel_approve')] },
+          { from: 'active', to: 'converted', via: [command('payment.sandbox_advance'), server('payment_confirmation')] },
+        ],
+        commands: ['inventory.reserve'],
+        unreachable_states: [],
+      },
+      {
+        aggregate: 'offer',
+        states: ['pending', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired'],
+        initial: 'pending',
+        transitions: [
+          { from: 'pending', to: 'countered', via: [command('offer.counter')] },
+          { from: 'pending', to: 'accepted', via: [command('offer.accept')] },
+          { from: 'pending', to: 'rejected', via: [command('offer.reject')] },
+          { from: 'pending', to: 'withdrawn', via: [command('offer.withdraw')] },
+          { from: 'pending', to: 'expired', via: [server('offer_expiry')] },
+          { from: 'countered', to: 'countered', via: [command('offer.counter')] },
+          { from: 'countered', to: 'accepted', via: [command('offer.accept')] },
+          { from: 'countered', to: 'rejected', via: [command('offer.reject')] },
+          { from: 'countered', to: 'withdrawn', via: [command('offer.withdraw')] },
+          { from: 'countered', to: 'expired', via: [server('offer_expiry')] },
+        ],
+        commands: ['offer.create', 'offer.counter', 'offer.accept', 'offer.reject', 'offer.withdraw'],
+        unreachable_states: [],
+      },
+      {
+        aggregate: 'auction',
+        states: ['scheduled', 'active', 'sold', 'unsold', 'cancelled'],
+        initial: 'scheduled',
+        transitions: [
+          { from: 'scheduled', to: 'active', via: [server('auction_start')] },
+          { from: 'active', to: 'sold', via: [command('auction.close'), server('auction_close')] },
+          { from: 'active', to: 'unsold', via: [command('auction.close'), server('auction_close')] },
+        ],
+        commands: ['listing.register', 'auction.place_bid', 'auction.close'],
+        unreachable_states: ['cancelled'],
+      },
+      {
+        aggregate: 'order',
+        states: [
+          'pending_payment',
+          'paid',
+          'ready_for_pickup',
+          'processing',
+          'shipped',
+          'delivered',
+          'completed',
+          'cancel_requested',
+          'cancelled',
+          'return_requested',
+          'return_approved',
+          'return_received',
+          'refunded_external',
+          'closed',
+        ],
+        initial: 'pending_payment',
+        transitions: [
+          { from: 'pending_payment', to: 'paid', via: [command('payment.sandbox_advance'), server('payment_confirmation')] },
+          { from: 'pending_payment', to: 'cancelled', via: [command('order.cancel_request'), server('payment_window')] },
+          { from: 'paid', to: 'shipped', via: [command('fulfillment.ship')] },
+          // Wave 7 pickup path (§A6): everything below this row is additive;
+          // the shipped-order edges behave exactly as before.
+          { from: 'paid', to: 'ready_for_pickup', via: [command('fulfillment.mark_ready')] },
+          { from: 'paid', to: 'delivered', via: [command('fulfillment.confirm_pickup')] },
+          { from: 'paid', to: 'cancel_requested', via: [command('order.cancel_request')] },
+          // Unilateral: post-payment terms change, or the bounded post-reveal
+          // withdrawal window (§A3).
+          { from: 'paid', to: 'cancelled', via: [command('order.cancel_request')] },
+          { from: 'processing', to: 'shipped', via: [command('fulfillment.ship')] },
+          { from: 'processing', to: 'cancel_requested', via: [command('order.cancel_request')] },
+          { from: 'ready_for_pickup', to: 'delivered', via: [command('fulfillment.confirm_pickup')] },
+          { from: 'ready_for_pickup', to: 'cancel_requested', via: [command('order.cancel_request')] },
+          { from: 'ready_for_pickup', to: 'cancelled', via: [command('order.cancel_request')] },
+          { from: 'cancel_requested', to: 'cancelled', via: [command('order.cancel_approve')] },
+          { from: 'shipped', to: 'delivered', via: [command('fulfillment.confirm_delivery')] },
+          { from: 'delivered', to: 'return_requested', via: [command('return.request')] },
+          { from: 'delivered', to: 'completed', via: [command('review.create')] },
+          { from: 'completed', to: 'return_requested', via: [command('return.request')] },
+          { from: 'return_requested', to: 'return_approved', via: [command('return.approve')] },
+          { from: 'return_approved', to: 'return_received', via: [command('return.receive')] },
+          { from: 'return_received', to: 'refunded_external', via: [command('refund.record_external')] },
+          { from: 'cancelled', to: 'refunded_external', via: [command('refund.record_external')] },
+        ],
+        commands: [
+          'checkout.create',
+          'payment.sandbox_advance',
+          'order.cancel_request',
+          'order.cancel_approve',
+          'fulfillment.ship',
+          'fulfillment.confirm_delivery',
+          'fulfillment.mark_ready',
+          'fulfillment.confirm_pickup',
+          'return.request',
+          'return.approve',
+          'return.receive',
+          'refund.record_external',
+          'review.create',
+          'review.update',
+        ],
+        unreachable_states: ['processing', 'closed'],
+      },
+      {
+        aggregate: 'payment',
+        states: ['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review'],
+        initial: 'awaiting_entitlement',
+        transitions: [
+          { from: 'awaiting_entitlement', to: 'detected', via: [command('payment.sandbox_advance')] },
+          { from: 'awaiting_entitlement', to: 'confirmed', via: [command('payment.sandbox_advance'), server('locks_verification')] },
+          { from: 'awaiting_entitlement', to: 'expired', via: [command('payment.sandbox_advance'), server('payment_window')] },
+          { from: 'awaiting_entitlement', to: 'manual_review', via: [command('payment.sandbox_advance'), server('locks_verification')] },
+          { from: 'detected', to: 'confirmed', via: [command('payment.sandbox_advance')] },
+          { from: 'detected', to: 'manual_review', via: [command('payment.sandbox_advance')] },
+          { from: 'expired', to: 'manual_review', via: [server('locks_late_completion')] },
+        ],
+        commands: ['payment.sandbox_advance', 'payment.register_locks'],
+        unreachable_states: [],
+      },
+      {
+        aggregate: 'return',
+        states: ['requested', 'approved', 'received', 'refunded'],
+        initial: 'requested',
+        transitions: [
+          { from: 'requested', to: 'approved', via: [command('return.approve')] },
+          { from: 'approved', to: 'received', via: [command('return.receive')] },
+          { from: 'received', to: 'refunded', via: [command('refund.record_external')] },
+        ],
+        commands: ['return.request', 'return.approve', 'return.receive', 'refund.record_external'],
+        unreachable_states: [],
+      },
+      {
+        aggregate: 'drop',
+        states: ['announced', 'live', 'ended_sold_out', 'ended_closed', 'ended_cancelled'],
+        initial: 'announced',
+        transitions: [
+          { from: 'announced', to: 'live', via: [command('inventory.reserve'), command('checkout.create'), server('drop_start')] },
+          { from: 'announced', to: 'ended_closed', via: [server('drop_end')] },
+          { from: 'live', to: 'ended_closed', via: [server('drop_end')] },
+          { from: 'live', to: 'ended_sold_out', via: [command('payment.sandbox_advance'), server('payment_confirmation')] },
+          { from: 'announced', to: 'ended_cancelled', via: [command('drop.cancel')] },
+          { from: 'live', to: 'ended_cancelled', via: [command('drop.cancel')] },
+        ],
+        commands: ['drop.sync', 'drop.cancel', 'drop.release_listings', 'inventory.reserve', 'checkout.create'],
+        unreachable_states: [],
+      },
+    ],
   };
 }
