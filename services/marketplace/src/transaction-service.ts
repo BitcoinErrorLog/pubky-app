@@ -898,10 +898,6 @@ export class InMemoryMarketplaceRepository {
       .map(([, details]) => details);
   }
 
-  getAllPickupDetailsVersions(): MarketplacePickupDetailsVersion[] {
-    return [...this.pickupDetailsVersions.values()];
-  }
-
   putPickupDetailsVersion(details: MarketplacePickupDetailsVersion): void {
     this.pickupDetailsVersions.set(`${details.listingAggregateId}:${details.version}`, details);
   }
@@ -1995,7 +1991,9 @@ export class MarketplaceTransactionService {
     >();
     for (const item of resolved) {
       const listing = item.listing!;
-      const key = `${listing.sellerPubky}${item.requested.fulfillment}`;
+      // Explicit separator: never concatenate a pubky and a fulfillment
+      // into an ambiguous compound key.
+      const key = `${listing.sellerPubky}:${item.requested.fulfillment}`;
       const group = sellerGroups.get(key) ?? {
         sellerPubky: listing.sellerPubky,
         fulfillment: item.requested.fulfillment,
@@ -2350,18 +2348,20 @@ export class MarketplaceTransactionService {
   /**
    * A post-payment pickup-terms change (§A3) exists when, for any pickup
    * line, the listing's version counter advanced past `version_at_payment`,
-   * or the details were cleared (counter advanced, current row gone). A
-   * listing that never had details (counter 0, nothing pinned) is NOT a
-   * terms change.
+   * or the details were cleared after a version was pinned. Both are only
+   * meaningful AGAINST a pinned version: a listing whose details were
+   * cleared (or never set) BEFORE checkout pins nothing
+   * (`version_at_payment` absent), so there is no post-payment terms change
+   * to resolve.
    */
   private hasUnresolvedTermsChange(order: MarketplaceOrder): boolean {
     if (order.fulfillment !== 'pickup') return false;
     return order.lines.some((line) => {
       if (line.fulfillment !== 'pickup') return false;
+      if (line.versionAtPayment == null) return false;
       const counter = this.repository.getPickupVersionCounter(line.listingAggregateId);
-      if (counter === 0) return false;
       const cleared = !this.repository.getCurrentPickupDetails(line.listingAggregateId);
-      return cleared || counter > (line.versionAtPayment ?? 0);
+      return cleared || counter > line.versionAtPayment;
     });
   }
 
@@ -2776,17 +2776,35 @@ export class MarketplaceTransactionService {
     const pickupLines = order.lines
       .map((line, lineIndex) => ({ line, lineIndex }))
       .filter(({ line }) => line.fulfillment === 'pickup');
-    const snapshots = pickupLines.map(({ lineIndex }) => this.repository.getPickupSnapshot(order.id, lineIndex));
-    if (snapshots.some((snapshot) => snapshot?.pinnedAdapter === 'sandbox_advance')) {
+    const snapshots = pickupLines.map(({ line, lineIndex }) => ({
+      line,
+      lineIndex,
+      snapshot: this.repository.getPickupSnapshot(order.id, lineIndex),
+    }));
+    if (snapshots.some(({ snapshot }) => snapshot?.pinnedAdapter === 'sandbox_advance')) {
       return refuse('INVALID_STATE', 'The order was confirmed under sandbox_advance; its meeting point is never revealed.');
+    }
+    // Binding assertion (§A3): the snapshot served for a line must be the
+    // one pinned FOR that line — bound to (order id ‖ line index ‖
+    // version), its version must equal the line's `version_at_payment`. A
+    // transplanted or mismatched snapshot is refused, never served.
+    if (
+      snapshots.some(
+        ({ line, lineIndex, snapshot }) =>
+          snapshot !== undefined &&
+          (snapshot.orderId !== order.id ||
+            snapshot.lineIndex !== lineIndex ||
+            snapshot.version !== (line.versionAtPayment ?? null)),
+      )
+    ) {
+      return refuse('INVARIANT_VIOLATION', 'A pinned pickup snapshot does not match the order line it was pinned for.');
     }
 
     const occurredAt = this.now().toISOString();
     if (!order.firstRevealedAt) {
       this.repository.putOrder({ ...order, firstRevealedAt: occurredAt });
     }
-    const lines: MarketplacePickupRevealLine[] = pickupLines.map(({ line, lineIndex }) => {
-      const snapshot = this.repository.getPickupSnapshot(order.id, lineIndex);
+    const lines: MarketplacePickupRevealLine[] = snapshots.map(({ line, lineIndex, snapshot }) => {
       const pinnedVersion = snapshot?.version ?? null;
       const counter = this.repository.getPickupVersionCounter(line.listingAggregateId);
       const current = this.repository.getCurrentPickupDetails(line.listingAggregateId);
@@ -2797,7 +2815,10 @@ export class MarketplaceTransactionService {
         terms: snapshot?.terms ?? null,
         currentVersion: counter,
         updatedSincePayment: pinnedVersion !== null && counter > pinnedVersion,
-        withdrawnBySeller: counter > 0 && !current,
+        // "Withdrawn" is only meaningful against a pinned version: details
+        // cleared BEFORE checkout pin nothing, so there is nothing this
+        // order was shown that could have been withdrawn.
+        withdrawnBySeller: pinnedVersion !== null && !current,
       };
     });
     return { ok: true, orderId: order.id, firstRevealedAt: order.firstRevealedAt ?? occurredAt, lines };
@@ -2889,7 +2910,7 @@ export class MarketplaceTransactionService {
           occurredAt,
         ),
       );
-      this.runPickupRetentionSweep();
+      this.runPickupRetentionSweep([updated]);
       completed.push(updated);
     }
     return completed;
@@ -2930,9 +2951,13 @@ export class MarketplaceTransactionService {
    * orders all went terminal, and purge pinned snapshots — immediately on
    * `completed`, and on `refund.record_external` for a cancelled-after-payment
    * order (the snapshot outlives the cancel only as dispute evidence, until
-   * the seller's refund evidence lands).
+   * the seller's refund evidence lands). The version-row walk is SCOPED to
+   * the listings referenced by the order(s) that just went terminal — an
+   * unrelated order going terminal can never purge another listing's
+   * version history — and a listing's CURRENT row (the live details, not
+   * purgeable history) is never deleted.
    */
-  private runPickupRetentionSweep(): void {
+  private runPickupRetentionSweep(terminalOrders: MarketplaceOrder[]): void {
     for (const order of this.repository.getAllOrders()) {
       if (order.state === 'completed' || order.state === 'closed') {
         this.repository.deletePickupSnapshotsForOrder(order.id);
@@ -2941,9 +2966,18 @@ export class MarketplaceTransactionService {
         this.repository.deletePickupSnapshotsForOrder(order.id);
       }
     }
-    for (const version of this.repository.getAllPickupDetailsVersions()) {
-      if (!this.isPickupVersionReferenced(version)) {
-        this.repository.deletePickupDetailsVersion(version);
+    const affectedListings = new Set(
+      terminalOrders.flatMap((order) =>
+        order.lines.filter((line) => line.fulfillment === 'pickup').map((line) => line.listingAggregateId),
+      ),
+    );
+    for (const listingAggregateId of affectedListings) {
+      const current = this.repository.getCurrentPickupDetails(listingAggregateId);
+      for (const version of this.repository.getPickupDetailsVersions(listingAggregateId)) {
+        if (current?.version === version.version) continue;
+        if (!this.isPickupVersionReferenced(version)) {
+          this.repository.deletePickupDetailsVersion(version);
+        }
       }
     }
   }
@@ -2975,7 +3009,7 @@ export class MarketplaceTransactionService {
       updatedAt: occurredAt,
     };
     this.repository.putOrder(updated);
-    if (updated.state === 'completed') this.runPickupRetentionSweep();
+    if (updated.state === 'completed') this.runPickupRetentionSweep([updated]);
     const event = this.createEvent(actorPubky, command, updated.revision, 'review.created', occurredAt);
     this.repository.appendEvent(event);
     this.notify(review.subjectPubky, actorPubky, 'review_received', `order:${order.id}`, occurredAt);
@@ -3016,7 +3050,7 @@ export class MarketplaceTransactionService {
   ): MarketplaceCommandResult {
     this.repository.putOrder(order);
     if (['cancelled', 'completed', 'closed', 'refunded_external'].includes(order.state)) {
-      this.runPickupRetentionSweep();
+      this.runPickupRetentionSweep([order]);
     }
     const event = this.createEvent(
       actorPubky,

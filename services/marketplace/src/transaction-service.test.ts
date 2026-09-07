@@ -1660,6 +1660,65 @@ describe('MarketplaceTransactionService', () => {
         error: { code: 'INVALID_STATE' },
       });
     });
+
+    it('refuses the reveal when a pinned snapshot does not match its order line (version or line transplant)', async () => {
+      // Two pickup lines: listing A pinned at v1, listing B pinned at v2.
+      const setup = async (start: number) => {
+        const { repository, service } = createDurableService();
+        const nextId = nextCommandIds(start);
+        const aggregateA = buildMarketplaceListingAggregateId(SELLER, 'spot_a');
+        const aggregateB = buildMarketplaceListingAggregateId(SELLER, 'spot_b');
+        await service.execute(SELLER, registerFulfillmentCommand(SELLER, 'spot_a', ['pickup'], nextId()));
+        await service.execute(SELLER, registerFulfillmentCommand(SELLER, 'spot_b', ['pickup'], nextId()));
+        await service.execute(SELLER, setPickupDetailsCommand(aggregateA, 0, nextId(), spotPickupDetails('Alpha spot')));
+        await service.execute(SELLER, setPickupDetailsCommand(aggregateB, 0, nextId(), spotPickupDetails('Beta spot')));
+        await service.execute(
+          SELLER,
+          setPickupDetailsCommand(aggregateB, 1, nextId(), spotPickupDetails('Beta spot, moved')),
+        );
+        const checkout = await service.execute(
+          BUYER,
+          fulfillmentCheckoutCommand(
+            nextId(),
+            [
+              { aggregateId: aggregateA, expectedRevision: 1, fulfillment: 'pickup' },
+              { aggregateId: aggregateB, expectedRevision: 1, fulfillment: 'pickup' },
+            ],
+            false,
+          ),
+        );
+        if (!checkout.ok || checkout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+        const order = checkout.result.orders[0];
+        const confirmed = await service.confirmPaymentAsWorker(checkout.result.payments[0].id);
+        if (!confirmed.ok) throw new Error('Worker confirmation fixture failed');
+        expect(confirmed.order.lines.map((line) => line.versionAtPayment)).toEqual([1, 2]);
+        // Sanity: the untampered reveal is served.
+        expect(service.revealPickupDetails(BUYER, order.id)).toMatchObject({ ok: true });
+        return { repository, service, order };
+      };
+
+      // A snapshot whose VERSION does not match the line's pin is refused.
+      const wrongVersion = await setup(4_500);
+      const pinned = wrongVersion.repository.getPickupSnapshot(wrongVersion.order.id, 0);
+      if (!pinned) throw new Error('Snapshot fixture failed');
+      wrongVersion.repository.putPickupSnapshot({ ...pinned, version: 2 });
+      expect(wrongVersion.service.revealPickupDetails(BUYER, wrongVersion.order.id)).toMatchObject({
+        ok: false,
+        error: { code: 'INVARIANT_VIOLATION' },
+      });
+
+      // A snapshot TRANSPLANTED across lines — line 0's pin stored under
+      // line 1's key — is refused: its version is not line 1's
+      // version_at_payment.
+      const transplanted = await setup(4_600);
+      const lineZero = transplanted.repository.getPickupSnapshot(transplanted.order.id, 0);
+      if (!lineZero) throw new Error('Snapshot fixture failed');
+      transplanted.repository.putPickupSnapshot({ ...lineZero, lineIndex: 1 });
+      expect(transplanted.service.revealPickupDetails(BUYER, transplanted.order.id)).toMatchObject({
+        ok: false,
+        error: { code: 'INVARIANT_VIOLATION' },
+      });
+    });
   });
 
   describe('Wave 7 local pickup — handover flow (§A6)', () => {
@@ -1891,6 +1950,76 @@ describe('MarketplaceTransactionService', () => {
       // Command replay is idempotent.
       await expect(service.execute(BUYER, command)).resolves.toEqual(first);
     });
+
+    it('treats details cleared BEFORE checkout as no terms change: ordinary cancel, seller confirm, clean reveal', async () => {
+      // The seller sets v1, then clears before any checkout: the buyer's
+      // payment pins NOTHING (no version_at_payment), so a "cleared" flag is
+      // meaningless against this order — no unilateral exit, no seller
+      // confirm refusal, no withdrawn-by-seller flag (§A3).
+      const { repository, service } = createDurableService();
+      const nextId = nextCommandIds(4_300);
+      const aggregateId = buildMarketplaceListingAggregateId(SELLER, 'cleared_pre_checkout');
+      await service.execute(
+        SELLER,
+        registerFulfillmentCommand(SELLER, 'cleared_pre_checkout', ['pickup'], nextId()),
+      );
+      await service.execute(SELLER, setPickupDetailsCommand(aggregateId, 0, nextId()));
+      await service.execute(SELLER, clearPickupDetailsCommand(aggregateId, 1, nextId()));
+      const checkout = await service.execute(
+        BUYER,
+        fulfillmentCheckoutCommand(nextId(), [{ aggregateId, expectedRevision: 1, fulfillment: 'pickup' }], false),
+      );
+      if (!checkout.ok || checkout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+      const order = checkout.result.orders[0];
+      const confirmed = await service.confirmPaymentAsWorker(checkout.result.payments[0].id);
+      if (!confirmed.ok) throw new Error('Worker confirmation fixture failed');
+      // Nothing was pinned: the line carries no version_at_payment and the
+      // snapshot records a null version.
+      expect(confirmed.order.lines[0].versionAtPayment).toBeUndefined();
+      expect(repository.getPickupSnapshot(order.id, 0)).toMatchObject({ version: null, terms: null });
+
+      // No terms change is unresolved: the buyer's cancel degrades to the
+      // ordinary cancel_requested path (asserted BEFORE any reveal, so the
+      // bounded withdrawal window is not what decides it).
+      await expect(
+        service.execute(BUYER, orderCommand('order.cancel_request', order.id, 2, { reason: 'Changed mind' }, 4_350)),
+      ).resolves.toMatchObject({ ok: true, result: { order: { state: 'cancel_requested' } } });
+      const eventKinds = repository.getEvents().map(({ kind }) => kind);
+      expect(eventKinds).toContain('order.cancel_requested');
+      expect(eventKinds).not.toContain('order.cancelled_terms_change');
+
+      // The reveal (still open through cancel_requested) is not flagged
+      // withdrawn-by-seller: nothing was ever pinned against this order.
+      const reveal = service.revealPickupDetails(BUYER, order.id);
+      if (!reveal.ok) throw new Error('Reveal fixture failed');
+      expect(reveal.lines[0]).toMatchObject({ version: null, terms: null, withdrawnBySeller: false });
+
+      // …and the seller may confirm the handover on a twin order.
+      const { service: confirmService } = createDurableService();
+      const confirmNextId = nextCommandIds(4_400);
+      const confirmAggregateId = buildMarketplaceListingAggregateId(SELLER, 'cleared_pre_checkout');
+      await confirmService.execute(
+        SELLER,
+        registerFulfillmentCommand(SELLER, 'cleared_pre_checkout', ['pickup'], confirmNextId()),
+      );
+      await confirmService.execute(SELLER, setPickupDetailsCommand(confirmAggregateId, 0, confirmNextId()));
+      await confirmService.execute(SELLER, clearPickupDetailsCommand(confirmAggregateId, 1, confirmNextId()));
+      const confirmCheckout = await confirmService.execute(
+        BUYER,
+        fulfillmentCheckoutCommand(
+          confirmNextId(),
+          [{ aggregateId: confirmAggregateId, expectedRevision: 1, fulfillment: 'pickup' }],
+          false,
+        ),
+      );
+      if (!confirmCheckout.ok || confirmCheckout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+      const confirmOrder = confirmCheckout.result.orders[0];
+      const workerConfirmed = await confirmService.confirmPaymentAsWorker(confirmCheckout.result.payments[0].id);
+      if (!workerConfirmed.ok) throw new Error('Worker confirmation fixture failed');
+      await expect(
+        confirmService.execute(SELLER, orderCommand('fulfillment.confirm_pickup', confirmOrder.id, 2, {}, 4_450)),
+      ).resolves.toMatchObject({ ok: true, result: { order: { state: 'delivered' } } });
+    });
   });
 
   describe('Wave 7 local pickup — versioning, clear, and retention (§A3)', () => {
@@ -2000,6 +2129,52 @@ describe('MarketplaceTransactionService', () => {
         ),
       );
       expect(repository.getPickupSnapshot(order.id, 0)).toBeUndefined();
+    });
+
+    it('scopes the terminal-order retention purge to the listings the terminal order referenced', async () => {
+      let now = new Date(NOW);
+      const { repository, service } = createDurableService(() => new Date(now));
+      const nextId = nextCommandIds(4_700);
+      // Listing A: a pickup listing with version history — v1 superseded,
+      // v2 current — that no paid order ever references.
+      const listingA = buildMarketplaceListingAggregateId(SELLER, 'retention_pickup');
+      await service.execute(SELLER, registerFulfillmentCommand(SELLER, 'retention_pickup', ['pickup'], nextId()));
+      await service.execute(SELLER, setPickupDetailsCommand(listingA, 0, nextId(), spotPickupDetails('First spot')));
+      await service.execute(SELLER, setPickupDetailsCommand(listingA, 1, nextId(), spotPickupDetails('Second spot')));
+
+      // An UNRELATED shipped order runs to completion.
+      await service.execute(SELLER, registerCommand(1, { commandId: nextId() }));
+      const shippedCheckout = await service.execute(BUYER, checkoutCommand());
+      if (!shippedCheckout.ok || shippedCheckout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+      const shippedOrder = shippedCheckout.result.orders[0];
+      const workerConfirmed = await service.confirmPaymentAsWorker(shippedCheckout.result.payments[0].id);
+      if (!workerConfirmed.ok) throw new Error('Worker confirmation fixture failed');
+      await service.execute(
+        SELLER,
+        orderCommand('fulfillment.ship', shippedOrder.id, 2, { carrier: 'Sandbox Post', trackingNumber: 'T' }, 4_750),
+      );
+      await service.execute(BUYER, orderCommand('fulfillment.confirm_delivery', shippedOrder.id, 3, {}, 4_751));
+      now = new Date(now.getTime() + ORDER_AUTO_COMPLETE_AFTER_MS + 1_000);
+      expect(service.completeDueDeliveredOrders()).toHaveLength(1);
+
+      // The unrelated completion cannot purge listing A's version rows: the
+      // unreferenced, superseded v1 AND the live current v2 both survive.
+      expect(repository.getPickupDetailsVersions(listingA).map(({ version }) => version)).toEqual([1, 2]);
+
+      // A pickup order whose pinned version IS the listing's current row:
+      // completing it purges the pinned snapshot but never the live current
+      // version row.
+      const { order: pickupOrder, aggregateId: listingB } = await createConfirmedPickupOrder(service, nextId, {
+        listingId: 'retention_live',
+      });
+      await service.execute(BUYER, orderCommand('fulfillment.confirm_pickup', pickupOrder.id, 2, {}, 4_752));
+      now = new Date(now.getTime() + ORDER_AUTO_COMPLETE_AFTER_MS + 1_000);
+      expect(service.completeDueDeliveredOrders()).toHaveLength(1);
+      expect(repository.getPickupSnapshot(pickupOrder.id, 0)).toBeUndefined();
+      expect(repository.getPickupDetailsVersions(listingB).map(({ version }) => version)).toEqual([1]);
+      expect(repository.getCurrentPickupDetails(listingB)).toMatchObject({ version: 1 });
+      // Listing A's rows are still untouched.
+      expect(repository.getPickupDetailsVersions(listingA).map(({ version }) => version)).toEqual([1, 2]);
     });
   });
 
