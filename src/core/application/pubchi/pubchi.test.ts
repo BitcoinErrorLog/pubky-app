@@ -445,4 +445,58 @@ describe('PubchiApplication', () => {
     );
     expect(readPendingDelegationDeletes()).toEqual([{ owner: previousOwner, signer }]);
   });
+
+  it('does not DELETE or record the live device signer during reconcile', async () => {
+    const liveSigner = Keypair.random().publicKey.z32();
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
+      { id: `${OWNER}:${liveSigner}`, owner: OWNER, signer: liveSigner, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
+    ]);
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
+      if (input.method === 'DELETE') return undefined;
+      return ACTIVE_BINDING;
+    });
+    vi.spyOn(HomeserverService, 'exists').mockResolvedValue(true);
+
+    await PubchiApplication.reconcileActiveBinding(OWNER);
+
+    expect(requestSpy.mock.calls.some((call) => String(call[0].url) === delegationUri(OWNER, liveSigner))).toBe(false);
+    expect(readPendingDelegationDeletes().some((item) => item.signer === liveSigner)).toBe(false);
+  });
+
+  it('discards a stored pending DELETE that names a currently-live device', async () => {
+    const liveSigner = Keypair.random().publicKey.z32();
+    const staleSigner = Keypair.random().publicKey.z32();
+    rememberPendingDelegationDeletes([
+      { owner: OWNER, signer: liveSigner },
+      { owner: OWNER, signer: staleSigner },
+    ]);
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
+      { id: `${OWNER}:${liveSigner}`, owner: OWNER, signer: liveSigner, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
+    ]);
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+
+    await PubchiApplication.unpublishKnownDelegations(OWNER, { attemptRemote: true, includeLocalKeys: false });
+
+    expect(requestSpy.mock.calls.some((call) => String(call[0].url) === delegationUri(OWNER, liveSigner))).toBe(false);
+    expect(requestSpy).toHaveBeenCalledWith({
+      method: 'DELETE',
+      url: delegationUri(OWNER, staleSigner),
+    });
+    expect(readPendingDelegationDeletes().some((item) => item.signer === liveSigner)).toBe(false);
+  });
+
+  it('still DELETEs the live device signer when the caller revokes local keys', async () => {
+    const liveSigner = Keypair.random().publicKey.z32();
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
+      { id: `${OWNER}:${liveSigner}`, owner: OWNER, signer: liveSigner, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
+    ]);
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+
+    await PubchiApplication.unpublishKnownDelegations(OWNER, { attemptRemote: true });
+
+    expect(requestSpy).toHaveBeenCalledWith({
+      method: 'DELETE',
+      url: delegationUri(OWNER, liveSigner),
+    });
+  });
 });
