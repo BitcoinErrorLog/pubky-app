@@ -87,6 +87,15 @@ describe('useMarketplaceCatalog', () => {
     );
   });
 
+  it('seeds shopsBySeller from SSR shop records before Dexie hydrates', () => {
+    mockGetAllShops.mockReturnValue(undefined);
+    const shop = createCommerceShopFixture({ name: 'Satoshi Vintage' });
+
+    const { result } = renderHook(() => useMarketplaceCatalog([], [shop]));
+
+    expect(result.current.shopsBySeller.get(shop.ownerPubky)?.name).toBe('Satoshi Vintage');
+  });
+
   it('renders index-discovered entries without any cached record', () => {
     const entry = createCommerceCatalogEntryFixture();
     mockGetAllCatalogEntries.mockReturnValue([entry]);

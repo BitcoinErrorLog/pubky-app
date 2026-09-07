@@ -28,6 +28,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Checkbox } from '@/atoms/Checkbox/Checkbox';
 import { Container } from '@/atoms/Container/Container';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
@@ -49,6 +50,7 @@ export function MarketplaceDashboard() {
   const router = useRouter();
   const [selected, setSelected] = useState<string[]>([]);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // Normalize "no record" to null so `undefined` keeps meaning "still loading".
   const shop = useLiveQuery(
@@ -70,6 +72,21 @@ export function MarketplaceDashboard() {
       active = false;
     };
   }, [currentUserPubky]);
+
+  const runDuplicate = async (listingId: string, replaceUnsavedDraft = false) => {
+    setDuplicatingId(listingId);
+    const seeded = await dashboard.duplicateListing(listingId, { replaceUnsavedDraft });
+    setDuplicatingId(null);
+    if (seeded) router.push(MARKETPLACE_ROUTES.SELL);
+  };
+
+  const requestDuplicate = async (listingId: string) => {
+    if (await dashboard.hasUnsavedListingDraft()) {
+      setPendingDuplicateId(listingId);
+      return;
+    }
+    await runDuplicate(listingId);
+  };
 
   const exportCsv = () => {
     const url = URL.createObjectURL(new Blob([dashboard.exportCsv()], { type: 'text/csv;charset=utf-8' }));
@@ -397,12 +414,7 @@ export function MarketplaceDashboard() {
                                     className="rounded-full"
                                     disabled={duplicatingId === listing.listing_id}
                                     onClick={() => {
-                                      void (async () => {
-                                        setDuplicatingId(listing.listing_id);
-                                        const seeded = await dashboard.duplicateListing(listing.listing_id);
-                                        setDuplicatingId(null);
-                                        if (seeded) router.push(MARKETPLACE_ROUTES.SELL);
-                                      })();
+                                      void requestDuplicate(listing.listing_id);
                                     }}
                                   >
                                     <Copy className="mr-2 size-4" />
@@ -422,6 +434,37 @@ export function MarketplaceDashboard() {
           </>
         )}
       </Container>
+      <Dialog
+        open={pendingDuplicateId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDuplicateId(null);
+        }}
+      >
+        <DialogContent className="w-xl" hiddenTitle="Replace your unsaved draft?">
+          <DialogHeader>
+            <DialogTitle>Replace your unsaved draft?</DialogTitle>
+          </DialogHeader>
+          <Typography className="text-base tracking-wide text-white/80">
+            Duplicating this listing will replace the unsaved draft currently in the sell studio.
+          </Typography>
+          <DialogFooter>
+            <Button variant="outline" size="lg" onClick={() => setPendingDuplicateId(null)}>
+              Keep
+            </Button>
+            <Button
+              variant="destructive"
+              size="lg"
+              onClick={() => {
+                const listingId = pendingDuplicateId;
+                setPendingDuplicateId(null);
+                if (listingId) void runDuplicate(listingId, true);
+              }}
+            >
+              Replace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

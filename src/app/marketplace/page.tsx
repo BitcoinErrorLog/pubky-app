@@ -36,6 +36,6 @@ export function generateMetadata(): NextMetadata {
 }
 
 export default async function MarketplacePage() {
-  const initialListings = await fetchMarketplaceCatalogForSsr();
-  return <Marketplace initialListings={initialListings} />;
+  const { listings, shops } = await fetchMarketplaceCatalogForSsr();
+  return <Marketplace initialListings={listings} initialShops={shops} />;
 }

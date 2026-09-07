@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { APP_ROUTES } from '@/app/routes';
 import { MARKETPLACE_STATIC_SEO } from '@/libs/commerce/seo';
-import { createNexusListingDetailsFixture } from '@/test/fixtures/commerce/commerce';
+import { createCommerceShopFixture, createNexusListingDetailsFixture } from '@/test/fixtures/commerce/commerce';
 import MarketplacePage, { generateMetadata } from './page';
 
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
@@ -14,10 +14,19 @@ vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
 });
 
 vi.mock('@/templates/Marketplace/Marketplace', () => ({
-  Marketplace: ({ initialListings }: { initialListings: Array<{ title: string }> }) => (
+  Marketplace: ({
+    initialListings,
+    initialShops = [],
+  }: {
+    initialListings: Array<{ title: string }>;
+    initialShops?: Array<{ name: string }>;
+  }) => (
     <main>
       {initialListings.map((listing) => (
-        <article key={listing.title}>{listing.title}</article>
+        <article key={listing.title}>
+          {listing.title}
+          {initialShops[0]?.name}
+        </article>
       ))}
     </main>
   ),
@@ -40,12 +49,20 @@ describe('marketplace catalog page', () => {
 
   it('server-renders listing cards from a fixture Nexus stream', async () => {
     const fixture = createNexusListingDetailsFixture();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify([fixture]), { status: 200, headers: { 'Content-Type': 'application/json' } }),
-    );
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([fixture]), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(createCommerceShopFixture()), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
 
     render(await MarketplacePage());
 
     expect(screen.getByRole('article')).toHaveTextContent('Vintage leather boots');
+    expect(screen.getByRole('article')).toHaveTextContent('Satoshi Vintage');
   });
 });

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { Logger } from '@/libs/logger/logger';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
@@ -13,7 +14,10 @@ import {
   type MarketplaceCatalogItem,
 } from './useMarketplaceCatalog.utils';
 
-export function useMarketplaceCatalog(initialListings: MarketplaceCatalogItem[] = []) {
+export function useMarketplaceCatalog(
+  initialListings: MarketplaceCatalogItem[] = [],
+  initialShops: CommerceShopRecord[] = [],
+) {
   const query = useCommerceStore((state) => state.query);
   const categoryId = useCommerceStore((state) => state.categoryId);
   const attributeFilters = useCommerceStore((state) => state.attributeFilters);
@@ -82,7 +86,12 @@ export function useMarketplaceCatalog(initialListings: MarketplaceCatalogItem[] 
     sort,
   });
   const listings = applyMarketplaceAttributeFilters(facetPool, attributeFilters);
-  const shopsBySeller = new Map((localShops ?? []).map(({ owner_id, record }) => [owner_id, record]));
+  const shopsBySeller = new Map<string, (typeof initialShops)[number]>(
+    initialShops.map((shop) => [shop.ownerPubky, shop]),
+  );
+  for (const { owner_id, record } of localShops ?? []) {
+    shopsBySeller.set(owner_id, record);
+  }
 
   return {
     listings,

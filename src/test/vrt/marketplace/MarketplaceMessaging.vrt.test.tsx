@@ -2,6 +2,7 @@
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { preloadImages, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { VRT_FROZEN_NOW_MS } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { Button } from '@/atoms/Button/Button';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
@@ -36,7 +37,7 @@ function fixedMessage(
       counterparty_pubky: SELLER,
       direction,
       body,
-      sent_at: '2026-08-20T12:00:00.000Z',
+      sent_at: '2026-01-01T12:00:00.000Z',
       recorded_at: recordedAt,
     },
   };
@@ -123,7 +124,24 @@ vi.mock('@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable', (
 async function openDialog(trigger: { click: () => Promise<void> }) {
   await trigger.click();
   await vi.waitFor(() => {
-    if (!document.querySelector('[role="dialog"]')) throw new Error('Dialog has not opened yet.');
+    if (!document.querySelector('[role="dialog"][data-state="open"], [role="dialog"]')) {
+      throw new Error('Dialog has not opened yet.');
+    }
+  });
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement) focused.blur();
+  const dialog = document.querySelector('[role="dialog"]');
+  if (dialog) {
+    const images = Array.from(dialog.querySelectorAll('img'));
+    await Promise.all(
+      images.map(
+        (img) =>
+          img.decode?.().catch(() => undefined) ?? Promise.resolve(),
+      ),
+    );
+  }
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
 }
 
@@ -159,13 +177,37 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     enableView.authorizationUrl = '';
     enableView.errorMessage = null;
     enableView.isOpeningRing = false;
+    if (!document.getElementById('__vrt_messaging_stabilizer__')) {
+      const styleEl = document.createElement('style');
+      styleEl.id = '__vrt_messaging_stabilizer__';
+      styleEl.textContent = `
+        [data-slot="dialog-overlay"],
+        [data-slot="dialog-content"],
+        [data-slot="dialog-content"] * {
+          animation: none !important;
+          transition: none !important;
+          transform: none !important;
+        }
+        .animate-spin {
+          animation: none !important;
+          transform: none !important;
+        }
+        textarea:focus,
+        textarea:focus-visible {
+          caret-color: transparent !important;
+          outline: none !important;
+          box-shadow: none !important;
+        }
+      `;
+      document.head.appendChild(styleEl);
+    }
   });
 
   it('renders the active conversation with messages and byte budget at desktop viewport', async () => {
     conversationView.thread = [
-      fixedMessage('m1', 'sent', 'Is this still available?', 10),
-      fixedMessage('m2', 'received', 'Yes — happy to answer questions.', 20),
-      fixedMessage('m3', 'sent', 'Great. Does the price include shipping to Lisbon?', 30),
+      fixedMessage('m1', 'sent', 'Is this still available?', VRT_FROZEN_NOW_MS - 3 * 60_000),
+      fixedMessage('m2', 'received', 'Yes — happy to answer questions.', VRT_FROZEN_NOW_MS - 2 * 60_000),
+      fixedMessage('m3', 'sent', 'Great. Does the price include shipping to Lisbon?', VRT_FROZEN_NOW_MS - 60_000),
     ];
     conversationView.draft = 'Asking because the listing does not say.';
     conversationView.draftBytes = 40;
@@ -177,8 +219,8 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
   it('renders the active conversation at mobile viewport', async () => {
     conversationView.thread = [
-      fixedMessage('m1', 'sent', 'Is this still available?', 10),
-      fixedMessage('m2', 'received', 'Yes — happy to answer questions.', 20),
+      fixedMessage('m1', 'sent', 'Is this still available?', VRT_FROZEN_NOW_MS - 3 * 60_000),
+      fixedMessage('m2', 'received', 'Yes — happy to answer questions.', VRT_FROZEN_NOW_MS - 2 * 60_000),
     ];
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_MOBILE });
@@ -196,7 +238,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
   });
 
   it('renders the send-failure state with the kept draft at desktop viewport', async () => {
-    conversationView.thread = [fixedMessage('m1', 'sent', 'First message went through.', 10)];
+    conversationView.thread = [fixedMessage('m1', 'sent', 'First message went through.', VRT_FROZEN_NOW_MS - 60_000)];
     conversationView.draft = 'This one failed to send.';
     conversationView.draftBytes = 24;
     conversationView.sendError = 'The homeserver write failed. Your draft is kept — try again.';
@@ -217,8 +259,8 @@ describe('Marketplace encrypted messaging — visual regression', () => {
   it('renders queued messages with cancel affordances while the handshake is pending at desktop viewport', async () => {
     conversationView.status = 'handshaking-initiator';
     conversationView.thread = [
-      fixedQueued('00000000-0000-4000-8000-000000000901', 'Is this still available?', 10),
-      fixedQueued('00000000-0000-4000-8000-000000000902', 'Happy to pick it up in person too.', 20),
+      fixedQueued('00000000-0000-4000-8000-000000000901', 'Is this still available?', VRT_FROZEN_NOW_MS - 2 * 60_000),
+      fixedQueued('00000000-0000-4000-8000-000000000902', 'Happy to pick it up in person too.', VRT_FROZEN_NOW_MS - 60_000),
     ];
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
@@ -232,7 +274,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
       fixedQueued(
         '00000000-0000-4000-8000-000000000903',
         'This one hit a transient failure.',
-        10,
+        VRT_FROZEN_NOW_MS - 60_000,
         'The homeserver write failed.',
       ),
     ];

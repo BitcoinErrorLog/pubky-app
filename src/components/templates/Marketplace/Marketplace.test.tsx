@@ -8,6 +8,7 @@ import {
   FEATURE_DISCOVERY_STORAGE_PREFIX,
   MARKETPLACE_PROMO_STORAGE_ID,
 } from '@/config/featureDiscovery';
+import { createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
 import { Marketplace } from './Marketplace';
 
 const routerPush = vi.hoisted(() => vi.fn());
@@ -29,10 +30,13 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
 }));
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', () => ({
-  useMarketplaceCatalog: (initialListings: typeof catalogState.listings = []) => ({
+  useMarketplaceCatalog: (
+    initialListings: typeof catalogState.listings = [],
+    initialShops: Array<{ ownerPubky: string; name: string }> = [],
+  ) => ({
     listings: catalogState.isLoading && initialListings.length > 0 ? initialListings : catalogState.listings,
     facetPool: catalogState.isLoading && initialListings.length > 0 ? initialListings : catalogState.listings,
-    shopsBySeller: new Map(),
+    shopsBySeller: new Map(initialShops.map((shop) => [shop.ownerPubky, shop])),
     isLoading: catalogState.isLoading,
     adapterMode: 'sandbox',
   }),
@@ -128,11 +132,15 @@ describe('Marketplace', () => {
       },
     ];
 
-    const html = renderToString(<Marketplace initialListings={initialListings} />);
+    const html = renderToString(
+      <Marketplace initialListings={initialListings} initialShops={[createCommerceShopFixture()]} />,
+    );
 
     expect(html).toContain('Vintage leather boots');
+    expect(html).toContain('Satoshi Vintage');
     expect(html).toContain('Buy now');
     expect(html).not.toContain('marketplace-skeleton');
+    expect(html).not.toContain(`${'y'.repeat(8)}…`);
 
     render(<Marketplace initialListings={initialListings} />);
 

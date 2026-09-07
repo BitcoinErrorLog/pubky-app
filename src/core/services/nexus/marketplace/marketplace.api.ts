@@ -1,4 +1,5 @@
 import { getMarketplaceNexusUrl } from '@/config/nexus';
+import { NEXUS_STREAM_LISTINGS_ROUTE } from '@/libs/commerce/nexus-routes';
 import {
   MARKETPLACE_TAGS_PATH_PARAMS,
   type TListingDetailsParams,
@@ -33,13 +34,12 @@ import { buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.uti
  * deployment" and degrades to local-only tags.
  */
 
-const STREAM_LISTINGS_ROUTE = 'v0/stream/listings';
 const LISTING_PREFIX = 'v0/listing';
 const SHOP_PREFIX = 'v0/shop';
 
 export const marketplaceApi = {
   listingStream: (params: TListingStreamParams) =>
-    buildUrlWithQuery({ baseRoute: STREAM_LISTINGS_ROUTE, params, baseUrl: getMarketplaceNexusUrl() }),
+    buildUrlWithQuery({ baseRoute: NEXUS_STREAM_LISTINGS_ROUTE, params, baseUrl: getMarketplaceNexusUrl() }),
   listingDetails: (params: TListingDetailsParams) => {
     const seller = encodePathSegment(params.seller_id);
     const listing = encodePathSegment(params.listing_id);

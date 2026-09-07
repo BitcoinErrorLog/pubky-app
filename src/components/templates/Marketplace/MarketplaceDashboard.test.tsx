@@ -9,6 +9,7 @@ const viewport = vi.hoisted(() => ({ isMobile: false }));
 const router = vi.hoisted(() => ({ push: vi.fn() }));
 const dashboardFns = vi.hoisted(() => ({
   duplicateListing: vi.fn(async () => true),
+  hasUnsavedListingDraft: vi.fn(async () => false),
 }));
 const dashboardState = vi.hoisted(() => ({
   listings: [] as unknown[],
@@ -48,6 +49,7 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     actionNeeded: dashboardState.actionNeeded,
     updateListingState: vi.fn(async () => true),
     duplicateListing: dashboardFns.duplicateListing,
+    hasUnsavedListingDraft: dashboardFns.hasUnsavedListingDraft,
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
   }),
 }));
@@ -122,6 +124,7 @@ describe('MarketplaceDashboard', () => {
   it('seeds a sell draft from Duplicate and navigates to the sell studio', async () => {
     viewport.isMobile = false;
     dashboardFns.duplicateListing.mockClear();
+    dashboardFns.hasUnsavedListingDraft.mockResolvedValue(false);
     router.push.mockClear();
     const rowListing = listing({ listingId: 'no_media', title: 'No media listing', media: [] });
     dashboardState.listings = [rowListing];
@@ -132,7 +135,47 @@ describe('MarketplaceDashboard', () => {
     expect(within(row).getByLabelText('No thumbnail for No media listing')).toBeInTheDocument();
     fireEvent.click(within(row).getByRole('button', { name: /Duplicate/ }));
 
-    expect(dashboardFns.duplicateListing).toHaveBeenCalledWith('no_media');
+    await vi.waitFor(() => {
+      expect(dashboardFns.duplicateListing).toHaveBeenCalledWith('no_media', { replaceUnsavedDraft: false });
+    });
+    await vi.waitFor(() => {
+      expect(router.push).toHaveBeenCalledWith(MARKETPLACE_ROUTES.SELL);
+    });
+  });
+
+  it('asks before replacing an unsaved draft and keeps it when Keep is chosen', async () => {
+    viewport.isMobile = false;
+    dashboardFns.duplicateListing.mockClear();
+    dashboardFns.hasUnsavedListingDraft.mockResolvedValue(true);
+    router.push.mockClear();
+    dashboardState.listings = [listing({ listingId: 'no_media', title: 'No media listing', media: [] })];
+
+    render(<MarketplaceDashboard />);
+
+    fireEvent.click(within(screen.getByRole('row', { name: /No media listing/ })).getByRole('button', { name: /Duplicate/ }));
+
+    expect(await screen.findByTestId('dialog-title')).toHaveTextContent('Replace your unsaved draft?');
+    fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
+
+    expect(dashboardFns.duplicateListing).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('replaces an unsaved draft when Replace is confirmed', async () => {
+    viewport.isMobile = false;
+    dashboardFns.duplicateListing.mockClear();
+    dashboardFns.hasUnsavedListingDraft.mockResolvedValue(true);
+    router.push.mockClear();
+    dashboardState.listings = [listing({ listingId: 'no_media', title: 'No media listing', media: [] })];
+
+    render(<MarketplaceDashboard />);
+
+    fireEvent.click(within(screen.getByRole('row', { name: /No media listing/ })).getByRole('button', { name: /Duplicate/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace' }));
+
+    await vi.waitFor(() => {
+      expect(dashboardFns.duplicateListing).toHaveBeenCalledWith('no_media', { replaceUnsavedDraft: true });
+    });
     await vi.waitFor(() => {
       expect(router.push).toHaveBeenCalledWith(MARKETPLACE_ROUTES.SELL);
     });

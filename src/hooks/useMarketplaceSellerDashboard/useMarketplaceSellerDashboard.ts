@@ -67,13 +67,21 @@ export function useMarketplaceSellerDashboard() {
     }
   };
 
-  const duplicateListing = async (listingId: string): Promise<boolean> => {
+  const duplicateListing = async (
+    listingId: string,
+    options: { replaceUnsavedDraft?: boolean } = {},
+  ): Promise<boolean> => {
     if (!currentUserPubky) return false;
     try {
+      const unsavedDraftId = await unsavedListingDraftId();
+      if (unsavedDraftId && !options.replaceUnsavedDraft) return false;
       const record = await CommerceController.getOrFetchListing(currentUserPubky, listingId);
       if (record.ownerPubky !== currentUserPubky) {
         toast({ variant: 'error', description: 'You can only duplicate your own listings.' });
         return false;
+      }
+      if (unsavedDraftId && options.replaceUnsavedDraft) {
+        await CommerceController.commitDeleteListingDraft(unsavedDraftId);
       }
       const draftId = crypto.randomUUID().replaceAll('-', '');
       const form = seedDraftFormFromListing(record, measurementSystem);
@@ -84,6 +92,8 @@ export function useMarketplaceSellerDashboard() {
       return false;
     }
   };
+
+  const hasUnsavedListingDraft = async (): Promise<boolean> => (await unsavedListingDraftId()) !== null;
 
   const exportCsv = (): string => {
     const header = ['listing_id', 'title', 'state', 'format', 'price_minor', 'currency', 'inventory'];
@@ -136,10 +146,24 @@ export function useMarketplaceSellerDashboard() {
     },
     updateListingState,
     duplicateListing,
+    hasUnsavedListingDraft,
     exportCsv,
   };
 }
 
 function csvCell(value: string): string {
   return `"${value.replaceAll('"', '""').replace(/^[=+\-@]/, "'$&")}"`;
+}
+
+async function unsavedListingDraftId(): Promise<string | null> {
+  const drafts = await CommerceController.getListingDrafts();
+  const latest = drafts[0];
+  if (!latest) return null;
+  const form = latest.data.form;
+  if (!form || typeof form !== 'object') return null;
+  const record = form as Record<string, unknown>;
+  const hasContent = [record.title, record.description, record.seededFromTitle].some(
+    (value) => typeof value === 'string' && value.trim() !== '',
+  );
+  return hasContent ? latest.listing_id : null;
 }

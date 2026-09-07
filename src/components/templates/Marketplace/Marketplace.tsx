@@ -31,6 +31,7 @@ import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMa
 import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismissal/useMarketplacePromoDismissal';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBuyerToolsSheet } from '@/organisms/Marketplace/MarketplaceBuyerToolsSheet';
@@ -42,12 +43,18 @@ import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 const MARKETPLACE_PROMO_DEVICE_STORAGE_KEY = buildFeatureDiscoveryDeviceStorageKey(MARKETPLACE_PROMO_STORAGE_ID);
 
-export function Marketplace({ initialListings = [] }: { initialListings?: MarketplaceCatalogItem[] }) {
+export function Marketplace({
+  initialListings = [],
+  initialShops = [],
+}: {
+  initialListings?: MarketplaceCatalogItem[];
+  initialShops?: CommerceShopRecord[];
+}) {
   const router = useRouter();
   const { requireAuth } = useRequireAuth();
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
-  const catalog = useMarketplaceCatalog(initialListings);
+  const catalog = useMarketplaceCatalog(initialListings, initialShops);
   const { shopsBySeller, adapterMode, listings, facetPool } = catalog;
   const isLoading = catalog.isLoading && listings.length === 0;
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();

@@ -32,6 +32,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: vi.fn(),
     commitUpdateListingDraft: vi.fn(),
     commitUpsertListing: vi.fn(),
+    getListingDrafts: vi.fn(async () => []),
+    commitDeleteListingDraft: vi.fn(),
   },
 }));
 
@@ -42,6 +44,7 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 describe('useMarketplaceSellerDashboard duplicateListing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([]);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770999');
   });
 
@@ -94,6 +97,37 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     expect(JSON.stringify(form)).not.toContain('boots_01');
     expect(JSON.stringify(form)).not.toContain('variant_01');
     expect(JSON.stringify(form)).not.toContain('image_01');
+  });
+
+  it('refuses to duplicate over an unsaved draft unless replaceUnsavedDraft is set', async () => {
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      {
+        id: `${OWNER}:existingdraft`,
+        owner_id: OWNER,
+        listing_id: 'existingdraft',
+        data: { ownerPubky: OWNER, listingId: 'existingdraft', form: { title: 'Unsaved boots' } },
+        created_at: 1_000,
+        updated_at: 2_000,
+      },
+    ]);
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(createCommerceListingFixture());
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    let seeded = true;
+    await act(async () => {
+      seeded = await result.current.duplicateListing('boots_01');
+    });
+
+    expect(seeded).toBe(false);
+    expect(CommerceController.commitUpdateListingDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      seeded = await result.current.duplicateListing('boots_01', { replaceUnsavedDraft: true });
+    });
+
+    expect(seeded).toBe(true);
+    expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalledWith('existingdraft');
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledOnce();
   });
 
   it('copies an auction as fixed price with a notice flag', async () => {

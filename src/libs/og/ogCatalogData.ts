@@ -3,40 +3,59 @@ import {
   catalogItemFromCatalogEntry,
   type MarketplaceCatalogItem,
 } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import { NEXUS_STREAM_LISTINGS_ROUTE } from '@/libs/commerce/nexus-routes';
 import { Logger } from '@/libs/logger/logger';
-import { getCommerceAdapterMode } from '@/libs/runtime-config/runtime-config';
+import { getCommerceAdapterMode, getMarketplaceNexusUrl } from '@/libs/runtime-config/runtime-config';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
-import { marketplaceApi } from '@/services/nexus/marketplace/marketplace.api';
-import { OG_COMMERCE_REVALIDATE } from './ogCommerceData';
+import { fetchShopForMetadata, OG_COMMERCE_REVALIDATE } from './ogCommerceData';
+
+export interface MarketplaceCatalogSsrPayload {
+  listings: MarketplaceCatalogItem[];
+  shops: CommerceShopRecord[];
+}
 
 /**
  * Server-only first page of the public Nexus marketplace listing stream for
- * the `/marketplace` catalog HTML. Same constraints as `ogCommerceData`: no
- * Dexie/controller writes — a read of public index projections, cached with
- * the listing/shop OG revalidate window. The Nexus base URL is resolved from
- * runtime config at call time (`getMarketplaceNexusUrl` inside `marketplaceApi`).
+ * the `/marketplace` catalog HTML, plus shop records for the distinct sellers
+ * on that page so SSR cards render the shop name (not the pubky fallback).
+ * Same constraints as `ogCommerceData`: no Dexie/controller writes — a read of
+ * public index projections and public `shop.json` records, cached with the
+ * listing/shop OG revalidate window.
  *
  * Sandbox deployments never query Nexus (seeded local catalogs only).
  */
-export async function fetchMarketplaceCatalogForSsr(): Promise<MarketplaceCatalogItem[]> {
-  if (getCommerceAdapterMode() === 'sandbox') return [];
+export async function fetchMarketplaceCatalogForSsr(): Promise<MarketplaceCatalogSsrPayload> {
+  if (getCommerceAdapterMode() === 'sandbox') return { listings: [], shops: [] };
 
-  const url = marketplaceApi.listingStream({
+  const query = new URLSearchParams({
     state: 'active',
-    limit: NEXUS_LISTINGS_PER_PAGE,
+    limit: String(NEXUS_LISTINGS_PER_PAGE),
   });
+  const url = `${getMarketplaceNexusUrl()}/${NEXUS_STREAM_LISTINGS_ROUTE}?${query.toString()}`;
 
   try {
     const res = await fetch(url, { next: { revalidate: OG_COMMERCE_REVALIDATE } });
     if (!res.ok) {
       Logger.warn('[ogCatalogData] Listing stream failed', { url, status: res.status });
-      return [];
+      return { listings: [], shops: [] };
     }
 
     const json: unknown = await res.json();
-    return CommerceRecordNormalizer.nexusListingStream(json).map(catalogItemFromCatalogEntry);
+    const listings = CommerceRecordNormalizer.nexusListingStream(json).map(catalogItemFromCatalogEntry);
+    const shops = await fetchShopsForCatalogSellers(listings);
+    return { listings, shops };
   } catch (error) {
     Logger.warn('[ogCatalogData] Failed to fetch marketplace listing stream', { error });
-    return [];
+    return { listings: [], shops: [] };
   }
+}
+
+async function fetchShopsForCatalogSellers(listings: MarketplaceCatalogItem[]): Promise<CommerceShopRecord[]> {
+  const sellers = [...new Set(listings.map((listing) => listing.sellerId))];
+  const settled = await Promise.allSettled(sellers.map((seller) => fetchShopForMetadata(seller)));
+  return settled.flatMap((result) => {
+    if (result.status !== 'fulfilled' || result.value === null) return [];
+    return [result.value];
+  });
 }
