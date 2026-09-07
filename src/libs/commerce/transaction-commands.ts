@@ -1,5 +1,10 @@
 import { z } from 'zod';
 import {
+  marketplaceFulfillmentMethodSchema,
+  marketplaceFulfillmentMethodsSchema,
+  pickupDetailsSchema,
+} from './pickup';
+import {
   commerceEntityIdSchema,
   commercePositiveMoneySchema,
   commercePubkySchema,
@@ -32,6 +37,10 @@ const registerListingPayloadSchema = z
     shippingMinor: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
     saleFormat: z.enum(['fixed_price', 'auction']).default('fixed_price'),
     auctionTerms: auctionTermsSchema.optional(),
+    // The fulfillment methods the owner-signed record publishes (local
+    // pickup design §A1). Public catalog data echoed at register/sync;
+    // defaults to shipping-only so pre-pickup clients are unaffected.
+    fulfillmentMethods: marketplaceFulfillmentMethodsSchema,
   })
   .strict()
   .superRefine((payload, context) => {
@@ -59,6 +68,19 @@ const registerListingPayloadSchema = z
           });
         }
       }
+    }
+    // Auction listings are shipping-only (§A2 v1 scope): an auction order
+    // carries no address and no checkout step, so a pickup choice could
+    // never be expressed for it. Mirrors the service's register validation.
+    if (
+      payload.saleFormat === 'auction' &&
+      !(payload.fulfillmentMethods.length === 1 && payload.fulfillmentMethods[0] === 'shipping')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['fulfillmentMethods'],
+        message: 'Auction listings are shipping-only.',
+      });
     }
   });
 
@@ -202,6 +224,12 @@ const checkoutLineSchema = z.object({
   // like quantity.
   variantId: commerceEntityIdSchema.optional(),
   variantOptions: z.array(checkoutLineVariantOptionSchema).min(1).max(3).optional(),
+  // The buyer's fulfillment choice for this line (local pickup design §A2).
+  // Absent means `shipping` — old clients are unaffected. The service
+  // validates the choice against the methods the line's listing publishes
+  // and never silently rewrites it; the client mirrors that up front via
+  // `resolveCheckoutFulfillment` (see pickup.ts).
+  fulfillment: marketplaceFulfillmentMethodSchema.optional(),
 });
 
 export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchema(
@@ -209,6 +237,10 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
   z
     .object({
       lines: z.array(checkoutLineSchema).min(1).max(50),
+      // The buyer's delivery address. Required when any seller group ships;
+      // absent when every group is pickup — a pickup-only checkout that
+      // PRESENTS an address is rejected, so a buggy or malicious client
+      // cannot smuggle one into storage (§A2).
       deliveryAddress: z
         .object({
           name: z.string().trim().min(1).max(100),
@@ -219,7 +251,8 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
           postalCode: z.string().trim().min(1).max(32),
           countryCode: z.string().regex(/^[A-Z]{2}$/),
         })
-        .strict(),
+        .strict()
+        .optional(),
       guaranteePolicyVersion: z.literal(1),
     })
     .strict()
@@ -227,6 +260,22 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
       const ids = payload.lines.map(({ listingAggregateId }) => listingAggregateId);
       if (new Set(ids).size !== ids.length) {
         context.addIssue({ code: 'custom', path: ['lines'], message: 'Checkout listing lines must be unique.' });
+      }
+      // The address rule of §A2, mirroring the service's checkout validator.
+      const anyShipping = payload.lines.some((line) => line.fulfillment !== 'pickup');
+      if (anyShipping && payload.deliveryAddress === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryAddress'],
+          message: 'A delivery address is required when any checkout line ships.',
+        });
+      }
+      if (!anyShipping && payload.deliveryAddress !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryAddress'],
+          message: 'A pickup-only checkout must not carry a delivery address.',
+        });
       }
     }),
 );
@@ -306,6 +355,62 @@ export const confirmOrderDeliveryCommandSchema = createCommerceCommandSchema(
   'fulfillment.confirm_delivery',
   orderIdPayload,
 );
+
+// -----------------------------------------------------------------------------
+// Local pickup (Wave 7 safe subset, local pickup design PART A). The shapes
+// mirror the durable service (`crates/domain/src/commands.rs`,
+// `crates/service/src/handlers/pickup.rs`) — the service is the source of
+// truth. All four are durable-service commands: deployments with sandbox
+// payments enabled refuse them, and this client gates them to durable modes
+// at the application layer.
+// -----------------------------------------------------------------------------
+
+/**
+ * `pickup_details.set` (seller, own listing only): sealed whole-payload
+ * upsert of the listing's pickup details. Versions are monotonic per listing
+ * via the service's counters row (§A3); `expectedVersion` is the
+ * compare-and-swap against lost updates, 0 when no details exist yet. The
+ * envelope's `expectedRevision` is always 0 — the CAS rides the payload, and
+ * the details aggregate is distinct from the listing's own revision
+ * sequence. Refused (`INVALID_STATE`) when the listing does not publish
+ * pickup, when the sealing key is absent, or on sandbox-payments
+ * deployments.
+ */
+export const setPickupDetailsCommandSchema = createCommerceCommandSchema(
+  'pickup_details.set',
+  z
+    .object({
+      expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      details: pickupDetailsSchema,
+    })
+    .strict(),
+);
+
+/**
+ * `pickup_details.clear` (seller, own listing only): removes the details.
+ * The service retains only the versions pinned by a paid, non-terminal
+ * order; the per-listing version counter survives, so versions never
+ * restart (§A3). Same payload CAS as `pickup_details.set`.
+ */
+export const clearPickupDetailsCommandSchema = createCommerceCommandSchema(
+  'pickup_details.clear',
+  z
+    .object({
+      expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+);
+
+/** `fulfillment.mark_ready` (seller, own pickup order in `paid`): order → `ready_for_pickup`; notifies the buyer. */
+export const markReadyForPickupCommandSchema = createCommerceCommandSchema('fulfillment.mark_ready', orderIdPayload);
+
+/**
+ * `fulfillment.confirm_pickup` (buyer OR seller, own pickup order in `paid`
+ * or `ready_for_pickup`): order → `delivered` with the one-row handover
+ * record. A seller-actor confirm is refused (`INVALID_STATE`) while a
+ * post-payment terms change is unresolved (§A6).
+ */
+export const confirmPickupCommandSchema = createCommerceCommandSchema('fulfillment.confirm_pickup', orderIdPayload);
 
 export const requestReturnCommandSchema = createCommerceCommandSchema(
   'return.request',
@@ -401,6 +506,10 @@ export const marketplaceCommandSchema = z.union([
   approveOrderCancellationCommandSchema,
   shipOrderCommandSchema,
   confirmOrderDeliveryCommandSchema,
+  setPickupDetailsCommandSchema,
+  clearPickupDetailsCommandSchema,
+  markReadyForPickupCommandSchema,
+  confirmPickupCommandSchema,
   requestReturnCommandSchema,
   approveReturnCommandSchema,
   receiveReturnCommandSchema,
@@ -435,6 +544,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'order',
             'review',
             'drop',
+            'pickup_details',
           ]),
         })
         .passthrough(),
@@ -479,6 +589,10 @@ export type RequestOrderCancellationCommand = z.infer<typeof requestOrderCancell
 export type ApproveOrderCancellationCommand = z.infer<typeof approveOrderCancellationCommandSchema>;
 export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;
 export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCommandSchema>;
+export type SetPickupDetailsCommand = z.infer<typeof setPickupDetailsCommandSchema>;
+export type ClearPickupDetailsCommand = z.infer<typeof clearPickupDetailsCommandSchema>;
+export type MarkReadyForPickupCommand = z.infer<typeof markReadyForPickupCommandSchema>;
+export type ConfirmPickupCommand = z.infer<typeof confirmPickupCommandSchema>;
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
 export type ApproveReturnCommand = z.infer<typeof approveReturnCommandSchema>;
 export type ReceiveReturnCommand = z.infer<typeof receiveReturnCommandSchema>;
@@ -487,6 +601,35 @@ export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
 export type UpdateReviewCommand = z.infer<typeof updateReviewCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
+
+/**
+ * The `result` view of a successful `pickup_details.set` /
+ * `pickup_details.clear` (mirrors `handlers/pickup.rs`): the new (or, after
+ * a clear, surviving) details version the client's next CAS builds on.
+ * `cleared` is present only on the clear result.
+ */
+export const pickupDetailsCommandResultSchema = z
+  .object({
+    kind: z.literal('pickup_details'),
+    listingAggregateId: z.string().min(1),
+    version: z.number().int().nonnegative(),
+    cleared: z.boolean().optional(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+export type PickupDetailsCommandResult = z.infer<typeof pickupDetailsCommandResultSchema>;
+
+/**
+ * Narrows a command response to the pickup-details result, or null for a
+ * refusal / a different command's result. Callers that need the new version
+ * for the next CAS use this instead of casting the passthrough result.
+ */
+export function asPickupDetailsCommandResult(response: MarketplaceCommandResponse): PickupDetailsCommandResult | null {
+  if (!response.ok) return null;
+  const parsed = pickupDetailsCommandResultSchema.safeParse(response.result);
+  return parsed.success ? parsed.data : null;
+}
 
 /**
  * True when a command was refused because the caller's `expected_revision`

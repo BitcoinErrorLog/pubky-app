@@ -26,6 +26,7 @@ import {
   COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS,
   COMMERCE_LISTING_MAX_ATTRIBUTES,
 } from '@/config/taxonomy/taxonomy';
+import type { MarketplaceFulfillmentMethod } from './pickup';
 import {
   commerceEntityIdSchema,
   commerceMoneySchema,
@@ -213,6 +214,30 @@ export function commerceListingShippingMinor(shippingOptions: readonly CommerceS
   return priceable.length > 0 ? Math.min(...priceable) : 0;
 }
 
+/**
+ * The service-facing fulfillment methods a listing record publishes
+ * (`shipping` | `pickup`), derived from the record's `fulfillmentMethods`
+ * EXACTLY as the durable service derives them from a fetched record
+ * (`homeserver.rs::registration_payload_from_record`): only the
+ * `shipping`/`pickup` vocabulary maps, first-seen dedup (not just adjacent),
+ * and an empty result defaults to shipping-only — so records predating
+ * pickup, and digital listings (which carry no fulfillment choice, §A2),
+ * register as shipping-only. The register payload validation mirrors the
+ * service (non-empty, known values, deduped), so this derivation's output
+ * always validates.
+ */
+export function commerceListingFulfillmentMethods(
+  methods: readonly CommerceListingRecord['fulfillmentMethods'][number][],
+): MarketplaceFulfillmentMethod[] {
+  const derived: MarketplaceFulfillmentMethod[] = [];
+  for (const method of methods) {
+    if ((method === 'shipping' || method === 'pickup') && !derived.includes(method)) {
+      derived.push(method);
+    }
+  }
+  return derived.length > 0 ? derived : ['shipping'];
+}
+
 export const commercePackageSchema = z
   .object({
     weightGrams: z.number().int().positive().max(1_000_000),
@@ -376,10 +401,26 @@ const commerceListingRecordSchemaInner = commercePublicRecordBaseSchema
     media: z.array(commerceMediaSchema).min(1).max(COMMERCE_LISTING_MAX_MEDIA),
     variants: z.array(commerceVariantSchema).min(1).max(COMMERCE_LISTING_MAX_VARIANTS),
     sale: commerceSaleSchema,
+    /**
+     * One public array carrying two orthogonal vocabularies (local pickup
+     * design §A2): the ITEM TYPE (`physical` | `digital`) this client and
+     * the Nexus index read, and the FULFILLMENT METHODS (`shipping` |
+     * `pickup`) the transaction service reads. The service's homeserver
+     * derivation maps only `shipping`/`pickup` and deliberately ignores
+     * every other value ("an unrecognized method is not a parse failure"),
+     * so item types and fulfillment methods coexist here without either
+     * side misreading the other: a shipped listing is `['physical']` (the
+     * service defaults it to shipping-only), a pickup-offering listing adds
+     * `'pickup'`, and a listing offering BOTH carries `'shipping'`
+     * explicitly alongside `'pickup'` (without it the service derivation
+     * would converge to pickup-only). Records predating pickup need no
+     * migration — their array contains no fulfillment vocabulary and
+     * derives to `['shipping']` (see {@link commerceListingFulfillmentMethods}).
+     */
     fulfillmentMethods: z
-      .array(z.enum(['physical', 'digital', 'pickup']))
+      .array(z.enum(['physical', 'digital', 'shipping', 'pickup']))
       .min(1)
-      .max(3),
+      .max(4),
     package: commercePackageSchema.optional(),
     shippingOptions: z.array(commerceShippingOptionSchema).max(20),
     returnPolicy: commerceReturnPolicySchema,

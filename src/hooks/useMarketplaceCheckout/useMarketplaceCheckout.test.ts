@@ -99,6 +99,7 @@ describe('useMarketplaceCheckout', () => {
       reservedQuantity: 0,
       unitPrice: price,
       saleFormat: 'fixed_price',
+      fulfillmentMethods: ['shipping'],
       auction: null,
     });
     vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({

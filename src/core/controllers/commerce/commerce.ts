@@ -1,4 +1,4 @@
-import { CommerceApplication } from '@/application/commerce/commerce';
+import { CommerceApplication, type CommerceCheckoutFulfillmentInput } from '@/application/commerce/commerce';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS,
@@ -627,6 +627,108 @@ export class CommerceController {
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.entityId(orderId),
     );
+  }
+
+  // --- Local pickup (Wave 7 safe subset, local pickup design PART A) ------
+  //
+  // Pickup details are restricted personal data: nothing below writes them
+  // to a store or to Dexie. The buyer's reveal and the seller's owner-read
+  // copy are returned to the caller and held in memory only (§A1).
+
+  /** The deployment's `pickup_available` capability (§A7) — false unless the durable service reports pickup on. */
+  static async fetchPickupAvailable(): Promise<boolean> {
+    return await CommerceApplication.fetchPickupAvailable();
+  }
+
+  /**
+   * The current buyer's per-line pickup-details reveal for one of their
+   * paid orders (§A3). Memory only: re-fetch on each view, never persist.
+   */
+  static async fetchPickupReveal(orderId: unknown) {
+    return await CommerceApplication.fetchPickupReveal(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  /** The current seller's own pickup details for one of their listings, plus the surviving version counter (§A4). */
+  static async fetchSellerPickupDetails(listingId: unknown) {
+    const pubky = this.getCurrentUserPubky();
+    const aggregateId = buildMarketplaceListingAggregateId(pubky, CommerceRecordNormalizer.entityId(listingId));
+    return await CommerceApplication.fetchSellerPickupDetails(pubky, aggregateId);
+  }
+
+  /**
+   * `pickup_details.set` on one of the current seller's listings (§A7):
+   * whole-payload sealed upsert, CAS on `expectedVersion` against the
+   * per-listing version counter (0 when no details exist yet).
+   */
+  static async commitSetPickupDetails(listingId: unknown, input: { expectedVersion: unknown; details: unknown }) {
+    const pubky = this.getCurrentUserPubky();
+    return await CommerceApplication.commitSetPickupDetails(pubky, {
+      sellerPubky: pubky,
+      listingId: CommerceRecordNormalizer.entityId(listingId),
+      expectedVersion: this.pickupDetailsVersion(input?.expectedVersion),
+      details: CommerceRecordNormalizer.pickupDetails(input?.details),
+    });
+  }
+
+  /** `pickup_details.clear` on one of the current seller's listings (§A3/§A7). */
+  static async commitClearPickupDetails(listingId: unknown, expectedVersion: unknown) {
+    const pubky = this.getCurrentUserPubky();
+    return await CommerceApplication.commitClearPickupDetails(pubky, {
+      sellerPubky: pubky,
+      listingId: CommerceRecordNormalizer.entityId(listingId),
+      expectedVersion: this.pickupDetailsVersion(expectedVersion),
+    });
+  }
+
+  /** `fulfillment.mark_ready` (§A6): the current seller arms a paid pickup order for handover. */
+  static async commitMarkReady(orderId: unknown, expectedRevision: unknown) {
+    return await CommerceApplication.commitMarkReady(this.getCurrentUserPubky(), {
+      orderId: CommerceRecordNormalizer.entityId(orderId),
+      expectedRevision: this.pickupOrderRevision(expectedRevision),
+    });
+  }
+
+  /** `fulfillment.confirm_pickup` (§A6): either party confirms the handover on a paid/ready pickup order. */
+  static async commitConfirmPickup(orderId: unknown, expectedRevision: unknown) {
+    return await CommerceApplication.commitConfirmPickup(this.getCurrentUserPubky(), {
+      orderId: CommerceRecordNormalizer.entityId(orderId),
+      expectedRevision: this.pickupOrderRevision(expectedRevision),
+    });
+  }
+
+  /**
+   * `checkout.create` with the per-(seller, fulfillment) group choices of
+   * §A2: each group's choice is validated against what its listings publish
+   * and assigned to every line; a pickup-only checkout sends no delivery
+   * address.
+   */
+  static async commitCreateMarketplaceCheckout(input: CommerceCheckoutFulfillmentInput) {
+    return await CommerceApplication.commitCreateMarketplaceCheckout(this.getCurrentUserPubky(), input);
+  }
+
+  /** The pickup-details CAS version: a non-negative safe integer (0 when no details exist yet). */
+  private static pickupDetailsVersion(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A non-negative pickup details version is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'pickupDetailsVersion',
+      });
+    }
+    return value;
+  }
+
+  /** An order revision for a pickup handover command: a positive safe integer. */
+  private static pickupOrderRevision(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > Number.MAX_SAFE_INTEGER) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A positive order revision is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'pickupOrderRevision',
+      });
+    }
+    return value;
   }
 
 

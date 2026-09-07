@@ -23,6 +23,7 @@ import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-pay
 import {
   type CommerceDigitalLock,
   type CommerceDropRecord,
+  commerceListingFulfillmentMethods,
   type CommerceListingRecord,
   commerceListingShippingMinor,
   commerceReviewRecordSchema,
@@ -30,12 +31,23 @@ import {
   type CommerceWatchlistRecord,
 } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
+import {
+  type MarketplaceCheckoutFulfillmentLine,
+  type MarketplaceFulfillmentMethod,
+  type MarketplacePickupDetails,
+  type MarketplacePickupReveal,
+  type MarketplaceSellerPickupDetails,
+  resolveCheckoutFulfillment,
+} from '@/libs/commerce/pickup';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
 import {
+  buildMarketplaceCheckoutAggregateId,
   buildMarketplaceDropAggregateId,
   buildMarketplaceListingAggregateId,
+  buildMarketplaceOrderAggregateId,
   buildMarketplacePaymentAggregateId,
+  type CreateMarketplaceCheckoutCommand,
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
 } from '@/libs/commerce/transaction-commands';
@@ -167,6 +179,30 @@ export type CommerceSellerReputationOverview =
   | { status: 'rated'; summary: CommerceReputationSummary }
   | { status: 'new_seller' }
   | { status: 'unavailable' };
+
+/**
+ * One checkout line as the fulfillment plumbing needs it (local pickup §A2):
+ * the projection facts plus the seller identity and the listing's published
+ * methods, so the buyer's per-(seller, fulfillment) group choice can be
+ * validated and assigned before submit.
+ */
+export type CommerceCheckoutLineInput = MarketplaceCheckoutFulfillmentLine & {
+  expectedRevision: number;
+  quantity: number;
+  variantId?: string;
+  variantOptions?: { name: string; value: string }[];
+};
+
+/**
+ * A checkout submission with per-group fulfillment choices. A seller group
+ * with no recorded choice ships (the default); a pickup-only checkout sends
+ * NO delivery address (§A2).
+ */
+export type CommerceCheckoutFulfillmentInput = {
+  lines: CommerceCheckoutLineInput[];
+  fulfillmentChoiceBySeller?: Readonly<Record<string, MarketplaceFulfillmentMethod | undefined>>;
+  deliveryAddress?: CreateMarketplaceCheckoutCommand['payload']['deliveryAddress'];
+};
 
 /** A review-list page, or the honest signal that no review index serves this deployment. */
 export type CommerceIndexedReviewsResult =
@@ -320,6 +356,215 @@ export class CommerceApplication {
   static async executeMarketplaceCommand(actorPubky: string, command: MarketplaceCommand) {
     await this.assertSellerAuthorityRoutable(command);
     return await MarketplaceGatewayService.execute(actorPubky, command);
+  }
+
+  // ---------------------------------------------------------------------
+  // Local pickup (Wave 7 safe subset, local pickup design PART A)
+  //
+  // Pickup details are restricted personal data. This layer NEVER writes
+  // them to Dexie, a store, or any persistence: the buyer's revealed copy
+  // is memory-only and re-fetched from the reveal read on each view (§A1),
+  // and the seller's owner-read copy is returned to the caller, which holds
+  // it in memory. The only writes are the service commands themselves.
+  // ---------------------------------------------------------------------
+
+  /**
+   * The client-side deployment boundary for pickup commands (§A8): the
+   * sandbox deployment stores and reveals no pickup details, so the commands
+   * are refused before any bytes leave the client — the same refusal the
+   * durable service answers on sandbox-payments deployments.
+   */
+  private static assertPickupDeployment(operation: string): void {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Pickup is unavailable on this deployment.', {
+        service: ErrorService.Marketplace,
+        operation,
+      });
+    }
+  }
+
+  /**
+   * The deployment's `pickup_available` capability (§A7), read from the
+   * service's /health surface: false in every non-durable mode and whenever
+   * the sealing key is absent or sandbox payments are enabled. 7.2b gates
+   * every pickup affordance on this.
+   */
+  static async fetchPickupAvailable(): Promise<boolean> {
+    return await MarketplaceGatewayService.getPickupAvailability();
+  }
+
+  /**
+   * The paying buyer's per-line pickup-details reveal (§A3): the pinned
+   * snapshot recorded at payment, straight from the service's entitled read.
+   * The returned details stay IN MEMORY ONLY — they are written to no Dexie
+   * table, no store, and no cache, and must be re-fetched on each view.
+   */
+  static async fetchPickupReveal(actorPubky: string, orderId: string): Promise<MarketplacePickupReveal> {
+    return await MarketplaceGatewayService.getOrderPickupDetails(actorPubky, orderId);
+  }
+
+  /**
+   * The seller's owner read of their own current pickup details plus the
+   * surviving version counter (§A4): the input the next
+   * `pickup_details.set` compare-and-swaps against.
+   */
+  static async fetchSellerPickupDetails(
+    actorPubky: string,
+    listingAggregateId: string,
+  ): Promise<MarketplaceSellerPickupDetails> {
+    return await MarketplaceGatewayService.getListingPickupDetails(actorPubky, listingAggregateId);
+  }
+
+  /**
+   * `pickup_details.set` (§A7): sealed whole-payload upsert of a listing's
+   * pickup details. `expectedVersion` CASes against the per-listing version
+   * counter (0 when no details exist yet); a stale value gets the standard
+   * 409 REVISION_CONFLICT refetch-and-retry treatment. The envelope's
+   * `expectedRevision` is always 0 — the CAS rides the payload.
+   */
+  static async commitSetPickupDetails(
+    actorPubky: string,
+    input: {
+      sellerPubky: string;
+      listingId: string;
+      expectedVersion: number;
+      details: MarketplacePickupDetails;
+    },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertPickupDeployment('commitSetPickupDetails');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(input.sellerPubky, input.listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'pickup_details.set',
+      payload: { expectedVersion: input.expectedVersion, details: input.details },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * `pickup_details.clear` (§A3/§A7): removes the listing's pickup details.
+   * The service retains only versions pinned by a paid, non-terminal order;
+   * the version counter survives, so the next set continues the sequence.
+   */
+  static async commitClearPickupDetails(
+    actorPubky: string,
+    input: {
+      sellerPubky: string;
+      listingId: string;
+      expectedVersion: number;
+    },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertPickupDeployment('commitClearPickupDetails');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(input.sellerPubky, input.listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'pickup_details.clear',
+      payload: { expectedVersion: input.expectedVersion },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * `fulfillment.mark_ready` (§A6): the seller arms a paid pickup order for
+   * handover (`paid` → `ready_for_pickup`). `expectedRevision` is the
+   * order's current revision.
+   */
+  static async commitMarkReady(
+    actorPubky: string,
+    input: { orderId: string; expectedRevision: number },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertPickupDeployment('commitMarkReady');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceOrderAggregateId(input.orderId),
+      expectedRevision: input.expectedRevision,
+      issuedAt: new Date().toISOString(),
+      kind: 'fulfillment.mark_ready',
+      payload: { orderId: input.orderId },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * `fulfillment.confirm_pickup` (§A6): either party confirms the handover
+   * (`paid`/`ready_for_pickup` → `delivered`). A seller-actor confirm is
+   * refused service-side while a post-payment terms change is unresolved.
+   */
+  static async commitConfirmPickup(
+    actorPubky: string,
+    input: { orderId: string; expectedRevision: number },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertPickupDeployment('commitConfirmPickup');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceOrderAggregateId(input.orderId),
+      expectedRevision: input.expectedRevision,
+      issuedAt: new Date().toISOString(),
+      kind: 'fulfillment.confirm_pickup',
+      payload: { orderId: input.orderId },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * `checkout.create` with the Wave 7 fulfillment plumbing (§A2): the
+   * buyer's per-(seller, fulfillment) group choice is assigned to every
+   * line of the group and validated against what each line's listing
+   * publishes — a disallowed choice is refused locally with a typed
+   * validation error, never silently rewritten to shipping. The delivery
+   * address rule is enforced by the command schema (required when any group
+   * ships; forbidden on pickup-only checkouts).
+   */
+  static async commitCreateMarketplaceCheckout(
+    actorPubky: string,
+    input: CommerceCheckoutFulfillmentInput,
+  ): Promise<MarketplaceCommandResponse> {
+    const plan = resolveCheckoutFulfillment(input.lines, input.fulfillmentChoiceBySeller ?? {});
+    if (!plan.ok) {
+      throw Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        'A checkout group chooses a fulfillment its listing does not publish.',
+        {
+          service: ErrorService.Marketplace,
+          operation: 'commitCreateMarketplaceCheckout',
+          context: {
+            sellerPubky: plan.sellerPubky,
+            fulfillment: plan.fulfillment,
+            listingAggregateId: plan.listingAggregateId,
+          },
+        },
+      );
+    }
+    const commandId = crypto.randomUUID();
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId,
+      aggregateId: buildMarketplaceCheckoutAggregateId(commandId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'checkout.create',
+      payload: {
+        lines: input.lines.map((line, index) => ({
+          listingAggregateId: line.listingAggregateId,
+          expectedRevision: line.expectedRevision,
+          quantity: line.quantity,
+          ...(line.variantId ? { variantId: line.variantId } : {}),
+          ...(line.variantOptions && line.variantOptions.length > 0 ? { variantOptions: line.variantOptions } : {}),
+          fulfillment: plan.lineFulfillments[index],
+        })),
+        ...(input.deliveryAddress ? { deliveryAddress: input.deliveryAddress } : {}),
+        guaranteePolicyVersion: 1 as const,
+      },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
   }
 
   /**
@@ -2195,6 +2440,9 @@ export class CommerceApplication {
         unitPrice,
         shippingMinor: commerceListingShippingMinor(listing.shippingOptions),
         saleFormat: listing.sale.format,
+        // The service-facing fulfillment methods (§A1), derived from the
+        // record exactly as the service's own homeserver derivation would.
+        fulfillmentMethods: commerceListingFulfillmentMethods(listing.fulfillmentMethods),
         auctionTerms:
           listing.sale.format === 'auction'
             ? {

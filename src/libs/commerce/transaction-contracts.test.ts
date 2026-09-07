@@ -211,6 +211,8 @@ describe('commerce state vocabularies', () => {
     [auctionStateSchema, 'unsold'],
     [paymentStateSchema, 'detected'],
     [orderStateSchema, 'return_approved'],
+    // Wave 7 local pickup (§A6): the state the seller's `fulfillment.mark_ready` arms.
+    [orderStateSchema, 'ready_for_pickup'],
   ])('accepts a canonical state', (schema, state) => {
     expect(schema.parse(state)).toBe(state);
   });
@@ -232,7 +234,6 @@ describe('commerce state vocabularies', () => {
     [paymentStateSchema, 'created'],
     [paymentStateSchema, 'window_elapsed'],
     [paymentStateSchema, 'external_refund_required'],
-    [orderStateSchema, 'ready_for_pickup'],
     [orderStateSchema, 'return_in_transit'],
     [orderStateSchema, 'return_inspection'],
   ])('rejects states the canonical service contract resolved away', (schema, state) => {

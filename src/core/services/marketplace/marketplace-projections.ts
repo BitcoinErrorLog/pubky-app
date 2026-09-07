@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { commercePubkySchema, dropStateSchema } from '@/libs/commerce/transaction-contracts';
+import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
+import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
 
 /**
  * Read-projection schemas shared by BOTH marketplace transports.
@@ -32,6 +33,10 @@ export const marketplaceListingProjectionSchema = z
     reservedQuantity: z.number().int().nonnegative(),
     unitPrice: marketplaceMoneySchema,
     saleFormat: z.enum(['fixed_price', 'auction']),
+    // The fulfillment methods the listing publishes (local pickup design
+    // §A1), served by both backends. Defaults to shipping-only for rows
+    // registered before the field existed — the service's own default.
+    fulfillmentMethods: marketplaceFulfillmentMethodsSchema,
     auction: z
       .object({
         startsAt: z.string(),
@@ -104,6 +109,11 @@ export const marketplaceNotificationSchema = z
       'return_updated',
       'refund_recorded',
       'review_received',
+      // Local pickup (Wave 7, §A3/§A6): details edited or cleared on a paid
+      // order (buyer-facing), and the seller arming pickup readiness.
+      'pickup_details_updated',
+      'pickup_details_cleared',
+      'pickup_ready',
     ]),
     aggregateId: z.string(),
     // Optional monetary context (ADR-0019 §8: present only where the
@@ -167,21 +177,7 @@ export const marketplaceOrderSchema = z
     buyerPubky: commercePubkySchema,
     sellerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
-    state: z.enum([
-      'pending_payment',
-      'paid',
-      'processing',
-      'shipped',
-      'delivered',
-      'completed',
-      'cancel_requested',
-      'cancelled',
-      'return_requested',
-      'return_approved',
-      'return_received',
-      'refunded_external',
-      'closed',
-    ]),
+    state: orderStateSchema,
     lines: z.array(
       z.object({
         listingAggregateId: z.string(),
@@ -195,6 +191,12 @@ export const marketplaceOrderSchema = z
         // display. Absent on orders placed before the field existed.
         variantId: z.string().optional(),
         variantOptions: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+        // The line's fulfillment kind (§A2). Absent on order lines placed
+        // before Wave 7 — they read as shipped lines.
+        fulfillment: marketplaceFulfillmentMethodSchema.optional(),
+        // The pickup-details version pinned at payment (§A3). An absent key
+        // reads as "no terms version pinned" (shipped lines and pre-Wave 7 rows).
+        versionAtPayment: z.number().int().positive().optional(),
       }),
     ),
     subtotal: marketplaceMoneySchema,
@@ -203,6 +205,17 @@ export const marketplaceOrderSchema = z
     guaranteePolicyVersion: z.literal(1),
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),
+    // How this order reaches the buyer (§A2): exactly one fulfillment kind,
+    // required on the service — one order per (seller, fulfillment). Orders
+    // served by backends predating Wave 7 read as shipped orders.
+    fulfillment: marketplaceFulfillmentMethodSchema.default('shipping'),
+    // Durable service only: the first successful buyer reveal stamped the
+    // bounded withdrawal window (§A3); null until then, absent on the sandbox.
+    firstRevealedAt: z.string().nullable().optional(),
+    // Durable service only (§A3): "meeting point updated since you ordered" —
+    // the current details version exceeds a line's version_at_payment, or the
+    // details were cleared. The reveal itself keeps serving the pinned snapshot.
+    pickupTermsChanged: z.boolean().optional(),
     cancellationReason: z.string().nullable().optional(),
     deliveryAssumed: z.boolean().optional().default(false),
     nextActor: z

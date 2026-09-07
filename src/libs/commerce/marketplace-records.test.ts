@@ -3,6 +3,7 @@ import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/c
 import {
   commerceCollectionRecordSchema,
   commerceDropRecordSchema,
+  commerceListingFulfillmentMethods,
   type CommerceListingRecord,
   commerceListingRecordSchema,
   commerceListingShippingMinor,
@@ -625,5 +626,50 @@ describe('marketplace URI contracts', () => {
     expect(locksPublicUriSchema.safeParse(LOCK_URL).success).toBe(true);
     expect(marketplacePublicUriSchema.safeParse('https://example.com/image.jpg').success).toBe(false);
     expect(locksPublicUriSchema.safeParse(`${IMAGE_URL}.json`).success).toBe(false);
+  });
+});
+
+describe('listing fulfillmentMethods — item type and fulfillment axes (§A2)', () => {
+  it('accepts the fulfillment vocabulary alongside the item types in the one public array', () => {
+    const listing = makeFixedListing();
+    // A physical listing offering BOTH shipping and pickup: the explicit
+    // 'shipping' keeps the service derivation from converging to pickup-only.
+    listing.fulfillmentMethods = ['physical', 'shipping', 'pickup'];
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+  });
+
+  it('keeps pre-pickup records valid unchanged (item-type values only)', () => {
+    const listing = makeFixedListing();
+    expect(listing.fulfillmentMethods).toEqual(['physical']);
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+  });
+
+  it('rejects unknown values and repeats across both vocabularies', () => {
+    const listing = makeFixedListing();
+    listing.fulfillmentMethods = ['physical', 'drone'] as CommerceListingRecord['fulfillmentMethods'];
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
+
+    const repeated = makeFixedListing();
+    repeated.fulfillmentMethods = ['physical', 'shipping', 'shipping'];
+    expect(commerceListingRecordSchema.safeParse(repeated).success).toBe(false);
+  });
+});
+
+describe('commerceListingFulfillmentMethods (mirrors the service homeserver derivation)', () => {
+  it('maps only the shipping/pickup vocabulary, ignoring item types', () => {
+    expect(commerceListingFulfillmentMethods(['physical'])).toEqual(['shipping']);
+    expect(commerceListingFulfillmentMethods(['physical', 'pickup'])).toEqual(['pickup']);
+    expect(commerceListingFulfillmentMethods(['physical', 'shipping', 'pickup'])).toEqual(['shipping', 'pickup']);
+  });
+
+  it('defaults records predating pickup (and digital listings) to shipping-only', () => {
+    expect(commerceListingFulfillmentMethods(['digital'])).toEqual(['shipping']);
+    expect(commerceListingFulfillmentMethods([])).toEqual(['shipping']);
+  });
+
+  it('dedupes non-adjacent repeats preserving first-seen order, like the service', () => {
+    // The service deliberately dedupes set-wise (not Vec::dedup's adjacent-only
+    // collapse) so a non-adjacent repeat cannot fail registration validation.
+    expect(commerceListingFulfillmentMethods(['shipping', 'pickup', 'shipping'])).toEqual(['shipping', 'pickup']);
   });
 });

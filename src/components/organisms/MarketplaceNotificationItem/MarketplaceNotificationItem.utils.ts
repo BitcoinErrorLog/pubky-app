@@ -77,5 +77,11 @@ function getBaseActionText(type: MarketplaceFeedNotification['type']): string {
       return 'recorded a refund';
     case 'review_received':
       return 'left you a review';
+    case 'pickup_details_updated':
+      return 'updated the pickup details';
+    case 'pickup_details_cleared':
+      return 'removed the pickup details';
+    case 'pickup_ready':
+      return 'marked your order ready for pickup';
   }
 }

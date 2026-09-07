@@ -418,6 +418,7 @@ describe('locks-paykit live purchase (composed environment)', () => {
         unitPrice: { amountMinor: AMOUNT_SATS, currency: 'BTC', exponent: 8 },
         shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
+        fulfillmentMethods: ['shipping'] as ('shipping' | 'pickup')[],
       },
     });
     expect(registered).toMatchObject({ ok: true, revision: 1 });

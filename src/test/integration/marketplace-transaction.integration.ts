@@ -100,6 +100,7 @@ describe('marketplace transaction service integration', () => {
         unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
         shippingMinor: 0,
         saleFormat: 'fixed_price' as const,
+        fulfillmentMethods: ['shipping'] as ('shipping' | 'pickup')[],
       },
     };
     const registered = await MarketplaceGatewayService.execute(seller, registerCommand);

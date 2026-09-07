@@ -128,6 +128,15 @@ describe('order state machine', () => {
     ['pending_payment', 'cancelled'],
     ['paid', 'shipped'],
     ['paid', 'cancel_requested'],
+    // Wave 7 local pickup (§A6): mark_ready arms the handover, confirm_pickup
+    // completes it from either pickup state, and the buyer-protection
+    // unilateral exits cancel straight from both.
+    ['paid', 'ready_for_pickup'],
+    ['paid', 'delivered'],
+    ['paid', 'cancelled'],
+    ['ready_for_pickup', 'delivered'],
+    ['ready_for_pickup', 'cancel_requested'],
+    ['ready_for_pickup', 'cancelled'],
     ['shipped', 'delivered'],
     ['delivered', 'completed'],
     ['delivered', 'return_requested'],
@@ -143,8 +152,9 @@ describe('order state machine', () => {
 
   it.each<[OrderState, OrderState]>([
     ['pending_payment', 'shipped'],
-    ['paid', 'delivered'],
     ['paid', 'processing'],
+    ['ready_for_pickup', 'shipped'],
+    ['ready_for_pickup', 'paid'],
     ['shipped', 'return_requested'],
     ['shipped', 'cancelled'],
     ['completed', 'closed'],

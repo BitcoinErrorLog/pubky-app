@@ -7,6 +7,7 @@ import type {
   SellerPaymentConfig,
   SellerPaymentConfigOwnView,
 } from '@/libs/commerce/payment-methods';
+import type { MarketplacePickupReveal, MarketplaceSellerPickupDetails } from '@/libs/commerce/pickup';
 import type {
   SellerShippingConfig,
   ShipFromAddress,
@@ -423,6 +424,40 @@ export class MarketplaceGatewayService {
   static async getOrder(actor: string, orderId: string): Promise<MarketplaceOrder | null> {
     this.assertDurableServiceOnly('getOrder');
     return await MarketplaceTransactionService.getOrder(actor, orderId);
+  }
+
+  /**
+   * The paying buyer's per-line pickup-details reveal (local pickup §A3) —
+   * durable service only: the sandbox deployment refuses pickup outright
+   * (§A8), so no sandbox counterpart exists. The revealed details are held
+   * in memory only and are never persisted to Dexie or any store.
+   */
+  static async getOrderPickupDetails(actor: string, orderId: string): Promise<MarketplacePickupReveal> {
+    this.assertDurableServiceOnly('getOrderPickupDetails');
+    return await MarketplaceTransactionService.getOrderPickupDetails(actor, orderId);
+  }
+
+  /**
+   * The seller's owner read of their own pickup details plus the surviving
+   * version counter (§A4) — durable service only, same boundary as the
+   * buyer reveal.
+   */
+  static async getListingPickupDetails(actor: string, aggregateId: string): Promise<MarketplaceSellerPickupDetails> {
+    this.assertDurableServiceOnly('getListingPickupDetails');
+    return await MarketplaceTransactionService.getListingPickupDetails(actor, aggregateId);
+  }
+
+  /**
+   * The deployment's `pickup_available` capability (§A7): true iff the
+   * durable service reports the pickup sealing key configured AND sandbox
+   * payments disabled. False in every non-durable mode — the sandbox
+   * deployment stores and reveals no pickup details — so UI gates the
+   * pickup option off everywhere else.
+   */
+  static async getPickupAvailability(): Promise<boolean> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return false;
+    const health = await MarketplaceTransactionService.getHealth();
+    return health.pickupAvailable;
   }
 
 

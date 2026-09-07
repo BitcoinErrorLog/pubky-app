@@ -27,6 +27,7 @@ import {
   commerceWatchlistRecordSchema,
   locksPublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
+import { type MarketplacePickupDetails, pickupDetailsSchema } from '@/libs/commerce/pickup';
 import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import {
@@ -338,6 +339,16 @@ export class CommerceRecordNormalizer {
 
   static marketplaceCommand(input: unknown): MarketplaceCommand {
     return this.parse(marketplaceCommandSchema, input, 'marketplaceCommand');
+  }
+
+  /**
+   * Validates seller-authored pickup details against the pickup contract
+   * (mirrors the service's `validate_pickup_details`), so a `pickup_details.set`
+   * command always carries a payload the service accepts. Pure validation —
+   * the details themselves are sealed service-side and never persisted here.
+   */
+  static pickupDetails(input: unknown): MarketplacePickupDetails {
+    return this.parse(pickupDetailsSchema, input, 'pickupDetails');
   }
 
   /**

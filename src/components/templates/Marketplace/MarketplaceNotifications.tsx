@@ -286,5 +286,11 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'External refund recorded';
     case 'review_received':
       return 'New review received';
+    case 'pickup_details_updated':
+      return 'Pickup details updated';
+    case 'pickup_details_cleared':
+      return 'Pickup details removed';
+    case 'pickup_ready':
+      return 'Order ready for pickup';
   }
 }

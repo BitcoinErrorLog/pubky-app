@@ -81,6 +81,9 @@ export class MarketplaceNotificationNormalizer {
       case 'return_updated':
       case 'refund_recorded':
       case 'review_received':
+      case 'pickup_details_updated':
+      case 'pickup_details_cleared':
+      case 'pickup_ready':
         return MARKETPLACE_ROUTES.ORDERS;
     }
   }

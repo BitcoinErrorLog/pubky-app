@@ -131,6 +131,10 @@ export const paymentStateSchema = z.enum(['awaiting_entitlement', 'detected', 'c
 export const orderStateSchema = z.enum([
   'pending_payment',
   'paid',
+  // Wave 7 local pickup (local pickup design §A6): the seller armed the
+  // handover; the buyer confirms on receipt. Declared between `paid` and
+  // `processing`, matching the vendored artifact's state list.
+  'ready_for_pickup',
   'processing',
   'shipped',
   'delivered',

@@ -134,6 +134,7 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
       reservedQuantity: 0,
       unitPrice: { amountMinor: 1200, currency: 'USD', exponent: 2 },
       saleFormat: 'fixed_price',
+      fulfillmentMethods: ['shipping'],
       auction: null,
     });
     vi.spyOn(CommerceApplication, 'executeMarketplaceCommand').mockImplementation(async () => {

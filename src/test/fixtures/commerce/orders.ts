@@ -12,6 +12,7 @@ const usd = (amountMinor: number) => ({ amountMinor, currency: 'USD', exponent: 
 export const ORDER_STATES = [
   'pending_payment',
   'paid',
+  'ready_for_pickup',
   'processing',
   'shipped',
   'delivered',
@@ -70,6 +71,9 @@ export function createOrderFixture(
     guaranteePolicyVersion: 1,
     paymentId: uuid(100 + stateIndex),
     receiptId: state === 'pending_payment' ? null : uuid(200 + stateIndex),
+    // `ready_for_pickup` is the pickup-path state (§A6); every other state
+    // fixture rides the shipped path.
+    fulfillment: state === 'ready_for_pickup' ? 'pickup' : 'shipping',
     cancellationReason: state === 'cancelled' ? 'Buyer cancelled before handling' : null,
     deliveryAssumed: false,
     nextActor: defaultNextActor(state),
@@ -170,6 +174,9 @@ function defaultNextActor(state: MarketplaceOrder['state']): MarketplaceOrder['n
     case 'pending_payment':
     case 'shipped':
     case 'delivered':
+    // A pickup order in `ready_for_pickup` waits on the buyer to confirm the
+    // handover (the service's `next_actor` rule, §A6).
+    case 'ready_for_pickup':
       return 'buyer';
     case 'paid':
     case 'processing':

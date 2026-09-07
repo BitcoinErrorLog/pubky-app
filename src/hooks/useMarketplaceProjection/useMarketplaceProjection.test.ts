@@ -33,6 +33,7 @@ describe('useMarketplaceProjection', () => {
       reservedQuantity: 0,
       unitPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
       saleFormat: 'auction',
+      fulfillmentMethods: ['shipping'],
       auction: {
         startsAt: '2026-08-19T20:00:00.000Z',
         endsAt: '2026-08-29T20:00:00.000Z',

@@ -17,8 +17,10 @@ import {
   buildMarketplaceOfferAggregateId,
   buildMarketplaceOrderAggregateId,
   buildMarketplacePaymentAggregateId,
+  type ClearPickupDetailsCommand as SharedClearPickupDetailsCommand,
   type CloseAuctionCommand,
   type ConfirmOrderDeliveryCommand,
+  type ConfirmPickupCommand as SharedConfirmPickupCommand,
   type CounterOfferCommand,
   type CreateMarketplaceCheckoutCommand,
   createMarketplaceCheckoutCommandSchema,
@@ -27,6 +29,7 @@ import {
   type MarketplaceCommand,
   marketplaceCommandSchema,
   type MarkMarketplaceNotificationReadCommand,
+  type MarkReadyForPickupCommand as SharedMarkReadyForPickupCommand,
   type PlaceBidCommand,
   type ReceiveReturnCommand,
   type RecordExternalRefundCommand,
@@ -37,6 +40,9 @@ import {
   type RequestReturnCommand,
   type ReserveInventoryCommand,
   type SendMarketplaceMessageCommand,
+  // The shared (durable-shaped) pickup commands, aliased to stay distinct
+  // from the prototype's local variants below.
+  type SetPickupDetailsCommand as SharedSetPickupDetailsCommand,
   type ShipOrderCommand,
   type UpdateMarketplaceNotificationPreferencesCommand,
   type WithdrawOfferCommand,
@@ -45,39 +51,23 @@ import {
 // ---------------------------------------------------------------------------
 // Wave 7 local-pickup contract additions — PART A of
 // docs/ecommerce/local-pickup-design.md (the safe subset; Part B is deferred
-// and deliberately not built here). The shared client/durable command schemas
-// in `src/libs/commerce/transaction-commands.ts` stay untouched in this
-// slice: the prototype is the executable specification, so it extends the
-// shared schemas LOCALLY, and the durable service mirrors the same shapes in
-// slice 7.1 (the client re-vendors them in 7.2).
+// and deliberately not built here). Slice 7.0 extended the shared schemas
+// LOCALLY; slice 7.2a re-vendored the durable service's shapes into the
+// shared registry (`src/libs/commerce/transaction-commands.ts`), so the
+// register contract (including `fulfillmentMethods`) now comes from the
+// shared schema directly. The prototype keeps local variants only where its
+// executable-spec semantics differ: the checkout line's shipping DEFAULT and
+// its own pickup-details terms shape.
 // ---------------------------------------------------------------------------
 
 export type MarketplaceFulfillmentMethod = 'shipping' | 'pickup';
 
 const fulfillmentMethodSchema = z.enum(['shipping', 'pickup']);
 
-/**
- * The public listing record's fulfillment axis (item type stays
- * `physical` | `digital` and is orthogonal, §A2). Public like the rest of the
- * record; it signals THAT pickup is offered and never carries the meeting
- * point.
- */
-const fulfillmentMethodsSchema = z
-  .array(fulfillmentMethodSchema)
-  .min(1)
-  .max(2)
-  .refine((methods) => new Set(methods).size === methods.length, {
-    message: 'Fulfillment methods must not repeat.',
-  })
-  .default(['shipping']);
-
-const prototypeRegisterListingCommandSchema = registerListingCommandSchema
-  .extend({
-    payload: registerListingCommandSchema.shape.payload
-      .extend({ fulfillmentMethods: fulfillmentMethodsSchema })
-      .strict(),
-  })
-  .strict();
+// The shared register schema carries the Wave 7 fulfillment contract:
+// `fulfillmentMethods` (shipping | pickup, non-empty, deduped) defaulting to
+// shipping-only, with auctions shipping-only (§A2).
+const prototypeRegisterListingCommandSchema = registerListingCommandSchema;
 
 const checkoutPayloadSchema = createMarketplaceCheckoutCommandSchema.shape.payload;
 const prototypeCheckoutCommandSchema = createMarketplaceCheckoutCommandSchema
@@ -195,8 +185,20 @@ const markReadyForPickupCommandSchema = createCommerceCommandSchema('fulfillment
  */
 const confirmPickupCommandSchema = createCommerceCommandSchema('fulfillment.confirm_pickup', pickupOrderIdPayload);
 
+// The shared registry (re-vendored in 7.2a) now also carries the durable
+// service's pickup command shapes; the prototype keeps its LOCAL variants
+// (its executable-spec details shape predates the durable one), so the
+// shared pickup kinds are excluded alongside register/checkout.
 const sharedWave7CommandSchemas = marketplaceCommandSchema.options.filter(
-  (option) => !['listing.register', 'checkout.create'].includes(option.shape.kind.value as string),
+  (option) =>
+    ![
+      'listing.register',
+      'checkout.create',
+      'pickup_details.set',
+      'pickup_details.clear',
+      'fulfillment.mark_ready',
+      'fulfillment.confirm_pickup',
+    ].includes(option.shape.kind.value as string),
 );
 
 const prototypeMarketplaceCommandSchema = z.union([
@@ -223,7 +225,15 @@ type ConfirmPickupCommand = z.infer<typeof confirmPickupCommandSchema>;
  * which `Array.filter` cannot express).
  */
 type PrototypeMarketplaceCommand =
-  | Exclude<MarketplaceCommand, RegisterListingCommand | CreateMarketplaceCheckoutCommand>
+  | Exclude<
+      MarketplaceCommand,
+      | RegisterListingCommand
+      | CreateMarketplaceCheckoutCommand
+      | SharedSetPickupDetailsCommand
+      | SharedClearPickupDetailsCommand
+      | SharedMarkReadyForPickupCommand
+      | SharedConfirmPickupCommand
+    >
   | PrototypeRegisterListingCommand
   | PrototypeCheckoutCommand
   | SetPickupDetailsCommand

@@ -14,6 +14,15 @@ import {
   sellerPaymentConfigSchema,
 } from '@/libs/commerce/payment-methods';
 import {
+  classifyMarketplacePickupRefusal,
+  type MarketplaceHealth,
+  marketplaceHealthSchema,
+  type MarketplacePickupReveal,
+  marketplacePickupRevealSchema,
+  type MarketplaceSellerPickupDetails,
+  marketplaceSellerPickupDetailsSchema,
+} from '@/libs/commerce/pickup';
+import {
   type SellerShippingConfig,
   sellerShippingConfigSchema,
   type ShipFromAddress,
@@ -94,6 +103,14 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'payment.register_locks',
   'fulfillment.ship',
   'fulfillment.confirm_delivery',
+  // Local pickup (Wave 7 safe subset, §A7): the sealed-details commands and
+  // the pickup handover path. The service refuses them on sandbox-payments
+  // deployments; this client additionally gates them to durable modes at the
+  // application layer.
+  'pickup_details.set',
+  'pickup_details.clear',
+  'fulfillment.mark_ready',
+  'fulfillment.confirm_pickup',
   'order.cancel_request',
   'order.cancel_approve',
   'return.request',
@@ -268,6 +285,142 @@ export class MarketplaceTransactionService {
     });
     if (raw === null) return null;
     return this.parseProjection('getOrder', marketplaceOrderSchema, raw, 'Marketplace returned an invalid order.');
+  }
+
+  /**
+   * `GET /v1/orders/{id}/pickup-details` (local pickup §A3): the paying
+   * buyer's per-line reveal of the PINNED pickup-details snapshot recorded
+   * at payment — never the listing's current details — with the
+   * version-change and withdrawn-by-seller flags. Buyer only; the service
+   * re-evaluates the entitlement (durable payment fact + terminal cutoff)
+   * on every read and answers `Cache-Control: no-store`.
+   *
+   * The revealed details are restricted personal data: they are returned in
+   * their self-redacting wrapper, held IN MEMORY ONLY, and are never
+   * persisted to Dexie or any store (§A1). This module never logs the
+   * response body.
+   *
+   * Refusals are typed: the service's INVALID_STATE answers map to
+   * `Err.client(CONFLICT)` carrying the classified
+   * `context.refusal` (`pickup_unavailable` for the key-absent /
+   * sandbox-payments deployment boundary, `no_pinned_details` for the empty
+   * reveal, `sandbox_confirmed`, `order_terminal`, `payment_unconfirmed`,
+   * `not_pickup_order`); a non-buyer maps to `Err.auth(FORBIDDEN)` and an
+   * absent/foreign order to `Err.client(NOT_FOUND)`.
+   */
+  static async getOrderPickupDetails(actor: string, orderId: string): Promise<MarketplacePickupReveal> {
+    const raw = await this.readPickupEntitled('getOrderPickupDetails', actor, `/v1/orders/${encodeURIComponent(orderId)}/pickup-details`);
+    return this.parseProjection(
+      'getOrderPickupDetails',
+      marketplacePickupRevealSchema,
+      raw,
+      'Marketplace returned an invalid pickup-details reveal.',
+    );
+  }
+
+  /**
+   * `GET /v1/listings/{aggregate_id}/pickup-details` (§A4): the seller's
+   * owner read — their own current details alongside the surviving version
+   * counter, so the next `pickup_details.set` can compare-and-swap without
+   * a hidden second read. After a clear, `current` is null and the counter
+   * still answers. Seller only; a foreign or absent listing maps to
+   * `Err.client(NOT_FOUND)`.
+   */
+  static async getListingPickupDetails(
+    actor: string,
+    aggregateId: string,
+  ): Promise<MarketplaceSellerPickupDetails> {
+    const raw = await this.readPickupEntitled(
+      'getListingPickupDetails',
+      actor,
+      `/v1/listings/${encodeURIComponent(aggregateId)}/pickup-details`,
+    );
+    return this.parseProjection(
+      'getListingPickupDetails',
+      marketplaceSellerPickupDetailsSchema,
+      raw,
+      'Marketplace returned an invalid seller pickup-details read.',
+    );
+  }
+
+  /**
+   * `GET /health` — deliberately public (no bearer): the service's
+   * health/capability surface. `pickupAvailable` is on iff the deployment
+   * has the pickup sealing key configured AND sandbox payments are disabled
+   * (§A7); the client hides the pickup option everywhere when it is off.
+   */
+  static async getHealth(): Promise<MarketplaceHealth> {
+    this.assertTransactionServiceMode('getHealth');
+    const url = `${getMarketplaceUrl()}/health`;
+    const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getHealth');
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getHealth', url);
+    return this.parseProjection('getHealth', marketplaceHealthSchema, toCamelCaseWire(raw), 'Marketplace returned an invalid health read.');
+  }
+
+  /**
+   * One bearer-authenticated entitled-details read with the pickup refusal
+   * mapping of §A3/§A7 applied before the generic HTTP error mapping: the
+   * service answers refusals as `{ok:false, error:{code, message}}` with
+   * the wire code carrying the HTTP status (403 buyer-only, 404
+   * absent/foreign, 409 INVALID_STATE for every pickup refusal).
+   */
+  private static async readPickupEntitled(operation: string, actor: string, path: string): Promise<unknown> {
+    this.assertTransactionServiceMode(operation);
+    const session = this.requireSession(operation, actor);
+    const url = `${getMarketplaceUrl()}${path}`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { authorization: `Bearer ${session.token}` } },
+      ErrorService.Marketplace,
+      operation,
+    );
+    this.throwIfSessionRejected(response.status, operation);
+    if (!response.ok) {
+      await this.throwPickupRefusal(response, operation);
+    }
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
+    return toCamelCaseWire(raw);
+  }
+
+  /**
+   * Maps an entitled-read failure body to a typed `Err.*`. Pickup details
+   * are never in scope here — refusal bodies carry only a code and a
+   * static message, so logging the message (the factories log) leaks
+   * nothing. Falls through (returns) when the body is not the service's
+   * refusal shape, letting the generic response parser report it.
+   */
+  private static async throwPickupRefusal(response: Response, operation: string): Promise<void> {
+    let code: string | undefined;
+    let message: string | undefined;
+    try {
+      const body = (await response.clone().json()) as { error?: { code?: unknown; message?: unknown } };
+      code = typeof body.error?.code === 'string' ? body.error.code : undefined;
+      message = typeof body.error?.message === 'string' ? body.error.message : undefined;
+    } catch {
+      return; // A non-JSON failure body falls through to the generic parse error.
+    }
+    if (!code || !message) return;
+    if (code === 'NOT_FOUND') {
+      throw Err.client(ClientErrorCode.NOT_FOUND, message, {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { statusCode: response.status },
+      });
+    }
+    if (code === 'UNAUTHORIZED') {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, message, {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { statusCode: response.status },
+      });
+    }
+    if (code === 'INVALID_STATE') {
+      throw Err.client(ClientErrorCode.CONFLICT, message, {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { statusCode: response.status, refusal: classifyMarketplacePickupRefusal(message) },
+      });
+    }
   }
 
 

@@ -29,7 +29,10 @@ export const listingTransitions = {
   // Approving the cancellation of a paid order returns its quantity to stock.
   // The durable service moves quantity reserved -> sold on payment confirmation,
   // so releasing it again is a sold -> available edge rather than reserved ->
-  // available. Driven only by order.cancel_approve.
+  // available. Driven by order.cancel_approve and — for the Wave 7 unilateral
+  // pickup exits (terms-change cancel and bounded post-reveal withdrawal,
+  // local pickup design §A3), which reuse approve's release path verbatim —
+  // by order.cancel_request.
   sold: ['available'],
 } as const satisfies TransitionMap<ListingState>;
 
@@ -69,10 +72,21 @@ export const paymentTransitions = {
   manual_review: [],
 } as const satisfies TransitionMap<PaymentState>;
 
-/** `processing` and `closed` are declared but unreachable — reserved for future commands. */
+/**
+ * `processing` and `closed` are declared but unreachable — reserved for future commands.
+ *
+ * The Wave 7 local-pickup path (local pickup design §A6): `fulfillment.mark_ready`
+ * arms `ready_for_pickup` from `paid`; `fulfillment.confirm_pickup` (buyer OR
+ * seller) completes the handover from `paid` or `ready_for_pickup`; the
+ * buyer-protection unilateral exits (terms-change cancel, bounded post-reveal
+ * withdrawal) move `paid`/`ready_for_pickup` straight to `cancelled` through
+ * `order.cancel_request`, which also gains the ordinary `ready_for_pickup ->
+ * cancel_requested` edge. Shipped orders behave exactly as before.
+ */
 export const orderTransitions = {
   pending_payment: ['paid', 'cancelled'],
-  paid: ['shipped', 'cancel_requested'],
+  paid: ['shipped', 'ready_for_pickup', 'delivered', 'cancel_requested', 'cancelled'],
+  ready_for_pickup: ['delivered', 'cancel_requested', 'cancelled'],
   processing: ['shipped', 'cancel_requested'],
   shipped: ['delivered'],
   delivered: ['return_requested', 'completed'],

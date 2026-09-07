@@ -258,3 +258,35 @@ describe('MarketplaceGatewayService', () => {
     expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(bytes);
   });
 });
+
+describe('MarketplaceGatewayService local pickup facade (Wave 7)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    config.mode = 'sandbox';
+  });
+
+  it.each(['sandbox', 'unavailable'])('reports pickup unavailable in %s mode without a network read', async (mode) => {
+    config.mode = mode;
+    await expect(MarketplaceGatewayService.getPickupAvailability()).resolves.toBe(false);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it('reads the capability from the durable service /health surface', async () => {
+    config.mode = 'transaction-service';
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { status: 'ok', pickup_available: true }));
+
+    await expect(MarketplaceGatewayService.getPickupAvailability()).resolves.toBe(true);
+
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string];
+    expect(url).toBe('http://localhost:3100/health');
+  });
+
+  it.each([
+    ['getOrderPickupDetails', () => MarketplaceGatewayService.getOrderPickupDetails(SELLER, '00000000-0000-4000-8000-000000000920')],
+    ['getListingPickupDetails', () => MarketplaceGatewayService.getListingPickupDetails(SELLER, AGGREGATE_ID)],
+  ] as const)('refuses %s outside durable modes before any bytes leave the client', async (operation, call) => {
+    config.mode = 'sandbox';
+    await expect(call()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+});

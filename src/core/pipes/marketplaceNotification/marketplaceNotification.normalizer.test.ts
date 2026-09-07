@@ -111,6 +111,9 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
     return_updated: MARKETPLACE_ROUTES.ORDERS,
     refund_recorded: MARKETPLACE_ROUTES.ORDERS,
     review_received: MARKETPLACE_ROUTES.ORDERS,
+    pickup_details_updated: MARKETPLACE_ROUTES.ORDERS,
+    pickup_details_cleared: MARKETPLACE_ROUTES.ORDERS,
+    pickup_ready: MARKETPLACE_ROUTES.ORDERS,
   };
 
   it.each(NOTIFICATION_TYPES)('routes %s to its marketplace surface', (type) => {

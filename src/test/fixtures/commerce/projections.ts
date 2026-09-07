@@ -20,6 +20,7 @@ export function createListingProjectionFixture(
     reservedQuantity: 0,
     unitPrice: usd(12_500),
     saleFormat: 'fixed_price',
+    fulfillmentMethods: ['shipping'],
     auction: null,
     ...overrides,
   };

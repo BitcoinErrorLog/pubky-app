@@ -83,6 +83,7 @@ describe('useMarketplaceOrders', () => {
         guaranteePolicyVersion: 1,
         paymentId: PAYMENT_ID,
         receiptId: null,
+        fulfillment: 'shipping',
         deliveryAssumed: false,
         nextActor: 'buyer',
         createdAt: '2026-08-19T23:00:00.000Z',

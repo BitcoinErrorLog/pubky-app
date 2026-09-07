@@ -767,3 +767,281 @@ describe('MarketplaceTransactionService read projections', () => {
     });
   });
 });
+
+// -----------------------------------------------------------------------------
+// Local pickup (Wave 7 safe subset) — request/response shapes captured from
+// crates/service/tests/pickup_test.rs (snake_case on the wire).
+// -----------------------------------------------------------------------------
+
+const PICKUP_ORDER_ID = '00000000-0000-4000-8000-000000000920';
+
+const spotDetailsWire = {
+  kind: 'spot',
+  spot: 'Central Station, north entrance',
+  instructions: 'Ask for the blue backpack.',
+  availability: {
+    windows: [{ day: 'sat', start: '10:00', end: '14:00' }],
+    zone: 'Europe/Berlin',
+  },
+};
+
+function setPickupDetailsCommand() {
+  return {
+    version: 1 as const,
+    commandId: COMMAND_ID,
+    aggregateId: AGGREGATE_ID,
+    expectedRevision: 0,
+    issuedAt: '2026-08-19T22:00:00.000Z',
+    kind: 'pickup_details.set' as const,
+    payload: {
+      expectedVersion: 0,
+      details: {
+        kind: 'spot' as const,
+        spot: 'Central Station, north entrance',
+        instructions: 'Ask for the blue backpack.',
+        availability: {
+          windows: [{ day: 'sat' as const, start: '10:00', end: '14:00' }],
+          zone: 'Europe/Berlin',
+        },
+      },
+    },
+  };
+}
+
+describe('MarketplaceTransactionService pickup commands', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  it('sends pickup_details.set as a snake_case envelope with the payload CAS', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        ok: true,
+        version: 1,
+        command_id: COMMAND_ID,
+        aggregate_id: AGGREGATE_ID,
+        revision: 1,
+        event_ids: ['00000000-0000-4000-8000-000000000701'],
+        result: { kind: 'pickup_details', listing_aggregate_id: AGGREGATE_ID, version: 1, updated_at: '2026-08-19T22:00:00.000Z' },
+      }),
+    );
+
+    const response = await MarketplaceTransactionService.execute(ACTOR, setPickupDetailsCommand());
+
+    expect(response).toMatchObject({ ok: true, result: { kind: 'pickup_details', version: 1 } });
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      version: 1,
+      command_id: COMMAND_ID,
+      aggregate_id: AGGREGATE_ID,
+      expected_revision: 0,
+      issued_at: '2026-08-19T22:00:00.000Z',
+      kind: 'pickup_details.set',
+      payload: { expected_version: 0, details: spotDetailsWire },
+    });
+  });
+
+  it.each(['pickup_details.clear', 'fulfillment.mark_ready', 'fulfillment.confirm_pickup'] as const)(
+    'accepts %s as a supported command kind',
+    async (kind) => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          ok: true,
+          version: 1,
+          command_id: COMMAND_ID,
+          aggregate_id: kind.startsWith('fulfillment') ? `order:${PICKUP_ORDER_ID}` : AGGREGATE_ID,
+          revision: 2,
+          event_ids: [],
+          result: { kind: 'order' },
+        }),
+      );
+      const base = { version: 1 as const, commandId: COMMAND_ID, issuedAt: '2026-08-19T22:00:00.000Z' };
+      const command =
+        kind === 'pickup_details.clear'
+          ? { ...base, aggregateId: AGGREGATE_ID, expectedRevision: 0, kind, payload: { expectedVersion: 3 } }
+          : {
+              ...base,
+              aggregateId: `order:${PICKUP_ORDER_ID}`,
+              expectedRevision: 1,
+              kind,
+              payload: { orderId: PICKUP_ORDER_ID },
+            };
+      const response = await MarketplaceTransactionService.execute(ACTOR, command);
+      expect(response.ok).toBe(true);
+    },
+  );
+});
+
+describe('MarketplaceTransactionService.getOrderPickupDetails (the buyer reveal, §A3)', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  const revealWire = {
+    order_id: PICKUP_ORDER_ID,
+    first_revealed_at: '2026-08-19T22:05:00.000Z',
+    lines: [
+      {
+        line_index: 0,
+        listing_aggregate_id: AGGREGATE_ID,
+        version: 1,
+        current_version: 2,
+        updated_since_payment: true,
+        withdrawn_by_seller: false,
+        updated_at: '2026-08-19T22:00:00.000Z',
+        details: spotDetailsWire,
+      },
+    ],
+  };
+
+  it('reads the pinned snapshot per line with the service flags, camelCased', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, revealWire));
+
+    const reveal = await MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID);
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${PICKUP_ORDER_ID}/pickup-details`);
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+    expect(reveal.orderId).toBe(PICKUP_ORDER_ID);
+    expect(reveal.firstRevealedAt).toBe('2026-08-19T22:05:00.000Z');
+    expect(reveal.lines).toHaveLength(1);
+    expect(reveal.lines[0]).toMatchObject({
+      lineIndex: 0,
+      version: 1,
+      currentVersion: 2,
+      updatedSincePayment: true,
+      withdrawnBySeller: false,
+    });
+    expect(reveal.lines[0].details.value.spot).toBe('Central Station, north entrance');
+  });
+
+  it('keeps the revealed details masked at every serialization boundary', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, revealWire));
+
+    const reveal = await MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID);
+
+    const serialized = JSON.stringify(reveal);
+    expect(serialized).not.toContain('Central Station');
+    expect(serialized).not.toContain('blue backpack');
+    expect(serialized).toContain('[redacted: pickup details]');
+  });
+
+  it.each([
+    ['Pickup is unavailable on this deployment.', 'pickup_unavailable'],
+    ['The order carries no payment confirmation.', 'payment_unconfirmed'],
+    ['The order is terminal; the pickup details are no longer revealed.', 'order_terminal'],
+    ['This order was confirmed by a sandbox payment; its pickup details are never revealed.', 'sandbox_confirmed'],
+    ['This order carries no pinned pickup details.', 'no_pinned_details'],
+    ['Only pickup orders carry pickup details.', 'not_pickup_order'],
+  ] as const)('maps the INVALID_STATE refusal "%s" to a typed CONFLICT error', async (message, refusal) => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(409, { ok: false, error: { code: 'INVALID_STATE', message } }));
+
+    await expect(MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)).rejects.toMatchObject({
+      category: 'client',
+      code: 'CONFLICT',
+      context: { statusCode: 409, refusal },
+    });
+  });
+
+  it('maps the non-buyer 403 to an auth FORBIDDEN error', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(403, { ok: false, error: { code: 'UNAUTHORIZED', message: 'Only the buyer may reveal the pickup details.' } }),
+    );
+
+    await expect(MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)).rejects.toMatchObject({
+      category: 'auth',
+      code: 'FORBIDDEN',
+    });
+  });
+
+  it('maps an absent or foreign order 404 to a client NOT_FOUND error', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The order was not found.' } }),
+    );
+
+    await expect(MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)).rejects.toMatchObject({
+      category: 'client',
+      code: 'NOT_FOUND',
+    });
+  });
+});
+
+describe('MarketplaceTransactionService.getListingPickupDetails (the seller owner read, §A4)', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  it('returns the current details with the version counter', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        listing_aggregate_id: AGGREGATE_ID,
+        current: { details: spotDetailsWire, version: 4, updated_at: '2026-08-19T22:02:00.000Z' },
+        last_version: 4,
+      }),
+    );
+
+    const read = await MarketplaceTransactionService.getListingPickupDetails(ACTOR, AGGREGATE_ID);
+
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/listings/${encodeURIComponent(AGGREGATE_ID)}/pickup-details`);
+    expect(read.listingAggregateId).toBe(AGGREGATE_ID);
+    expect(read.current?.version).toBe(4);
+    expect(read.current?.details.value.spot).toBe('Central Station, north entrance');
+    expect(read.lastVersion).toBe(4);
+    expect(JSON.stringify(read)).not.toContain('Central Station');
+  });
+
+  it('returns the post-clear shape: no current details, the counter survives', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, { listing_aggregate_id: AGGREGATE_ID, current: null, last_version: 4 }),
+    );
+
+    const read = await MarketplaceTransactionService.getListingPickupDetails(ACTOR, AGGREGATE_ID);
+
+    expect(read.current).toBeNull();
+    expect(read.lastVersion).toBe(4);
+  });
+
+  it('maps a foreign or absent listing 404 to a client NOT_FOUND error', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'The listing was not found.' } }),
+    );
+
+    await expect(MarketplaceTransactionService.getListingPickupDetails(ACTOR, AGGREGATE_ID)).rejects.toMatchObject({
+      category: 'client',
+      code: 'NOT_FOUND',
+    });
+  });
+});
+
+describe('MarketplaceTransactionService.getHealth (the pickup_available capability, §A7)', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  it.each([true, false])('parses pickup_available %s from the public health read', async (pickupAvailable) => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { status: 'ok', pickup_available: pickupAvailable }));
+
+    const health = await MarketplaceTransactionService.getHealth();
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:8080/health');
+    // The capability read is deliberately public: no session, no bearer.
+    expect(init?.headers).toBeUndefined();
+    expect(health.pickupAvailable).toBe(pickupAvailable);
+  });
+});
