@@ -1,4 +1,7 @@
 import { getPubchiDatabase } from '@/database/pubchi/pubchi';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { bytesToHex } from './schemas/canonical';
 
 const SPKI_PREFIX_LENGTH = 12;
@@ -58,7 +61,12 @@ export async function loadOrGenerateDeviceKey(owner: string, now = Math.floor(Da
   if (current) await getPubchiDatabase().deviceKeys.delete(current.id);
 
   const live = (await getDeviceKeys(owner)).filter((key) => key.expires_at > now);
-  if (live.length >= 3) throw new Error('PUBCHI_DEVICE_LIMIT');
+  if (live.length >= 3) {
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DEVICE_LIMIT', {
+      service: ErrorService.Pubchi,
+      operation: 'loadOrGenerateDeviceKey',
+    });
+  }
 
   const generated = await generateDeviceKey();
   const record: StoredDeviceKey = {
@@ -75,11 +83,27 @@ export async function loadOrGenerateDeviceKey(owner: string, now = Math.floor(Da
 }
 
 export async function signWithDeviceKey(key: CryptoKey, message: Uint8Array): Promise<string> {
-  if (key.type !== 'private' || key.algorithm.name !== 'Ed25519') throw new Error('PUBCHI_DEVICE_KEY_REQUIRED');
+  if (key.type !== 'private' || key.algorithm.name !== 'Ed25519') {
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DEVICE_KEY_REQUIRED', {
+      service: ErrorService.Pubchi,
+      operation: 'signWithDeviceKey',
+    });
+  }
   const signature = await crypto.subtle.sign({ name: 'Ed25519' }, key, new Uint8Array(message));
   return bytesToHex(new Uint8Array(signature));
 }
 
 export async function deleteDeviceKey(owner: string, signer: string): Promise<void> {
   await getPubchiDatabase().deviceKeys.delete(`${owner}:${signer}`);
+}
+
+/**
+ * Drop local device keys that do not belong to the signed-in owner.
+ * Does not touch homeserver objects: a previous identity's published
+ * delegation can only be DELETEd with that identity's live session.
+ */
+export async function wipeDeviceKeysNotOwnedBy(owner: string): Promise<number> {
+  const foreign = (await getPubchiDatabase().deviceKeys.toArray()).filter((row) => row.owner !== owner);
+  await Promise.all(foreign.map((row) => getPubchiDatabase().deviceKeys.delete(row.id)));
+  return foreign.length;
 }

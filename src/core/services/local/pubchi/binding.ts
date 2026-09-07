@@ -60,4 +60,19 @@ export class LocalPubchiBindingService {
       });
     }
   }
+
+  static async deleteNotOwnedBy(owner: string): Promise<number> {
+    try {
+      const db = getPubchiDatabase();
+      const foreign = (await db.bindings.toArray()).filter((row) => row.owner !== owner);
+      await Promise.all(foreign.map((row) => db.bindings.delete(row.id)));
+      return foreign.length;
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.DELETE_FAILED, 'Failed to delete foreign Pubchi bindings', {
+        service: ErrorService.Pubchi,
+        operation: 'deleteNotOwnedBy',
+        cause: error,
+      });
+    }
+  }
 }

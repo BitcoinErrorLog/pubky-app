@@ -3,6 +3,7 @@ import { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
 import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
+import { PubchiApplication } from '@/application/pubchi/pubchi';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { UserApplication } from '@/application/user/user';
@@ -1762,6 +1763,47 @@ describe('AuthController', () => {
 
       await AuthController.logout();
       expect(mockDeletePubchiDatabase).toHaveBeenCalledOnce();
+    });
+
+    it('DELETEs known delegations before AuthApplication.logout while the session is still live', async () => {
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      mockDeletePubchiDatabase.mockResolvedValue(undefined);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      const authStore = createAuthStore();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      const unpublishSpy = vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockResolvedValue({ failed: [] });
+
+      await AuthController.logout();
+
+      const remoteRevoke = unpublishSpy.mock.calls.findIndex((call) => call[1]?.attemptRemote === true);
+      expect(remoteRevoke).toBeGreaterThanOrEqual(0);
+      expect(unpublishSpy.mock.invocationCallOrder[remoteRevoke]!).toBeLessThan(logoutSpy.mock.invocationCallOrder[0]!);
+      expect(logoutSpy.mock.invocationCallOrder[0]!).toBeLessThan(mockDeletePubchiDatabase.mock.invocationCallOrder[0]!);
+      expect(mockDeletePubchiDatabase).toHaveBeenCalledOnce();
+      expect(authStore.reset).toHaveBeenCalled();
+    });
+
+    it('still completes logout and destroys the pubchi database when delegation DELETE fails', async () => {
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      mockDeletePubchiDatabase.mockResolvedValue(undefined);
+      mockClearDatabase.mockResolvedValue(undefined);
+      await spyOnClearCookies();
+      await spyOnClearAllQueryClients();
+      const authStore = createAuthStore();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(useOnboardingStore, 'getState').mockReturnValue(createOnboardingStore());
+      vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockImplementation(async (_owner, options) => {
+        if (options?.attemptRemote) throw new Error('homeserver unreachable');
+        return { failed: [{ owner: 'test-pubky', signer: 's'.repeat(52) }] };
+      });
+
+      await expect(AuthController.logout()).resolves.toBeUndefined();
+      expect(logoutSpy).toHaveBeenCalledWith({ session: expect.anything() });
+      expect(mockDeletePubchiDatabase).toHaveBeenCalledOnce();
+      expect(authStore.reset).toHaveBeenCalled();
     });
 
     it('deletes an existing pubchi IndexedDB on cleanupLocalState when the flag is off', async () => {

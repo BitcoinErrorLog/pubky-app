@@ -116,7 +116,7 @@ describe('usePubchiQuery', () => {
     });
   });
 
-  it('does not toast SIGNATURE_INVALID when the in-memory seed is missing', async () => {
+  it('does not toast SIGNATURE_INVALID when no device key is available', async () => {
     mocks.signingAvailable = false;
     const { result } = renderHook(() => usePubchiQuery());
 
