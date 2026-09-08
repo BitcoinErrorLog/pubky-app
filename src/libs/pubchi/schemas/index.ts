@@ -45,7 +45,7 @@ export {
   FeedProposalV1Schema,
   parseFeedProposalV1,
 } from './feed';
-export { FORBIDDEN_CATEGORIES, scanForbidden } from './forbidden';
+export { FORBIDDEN_CATEGORIES, scanForbidden, scanForbiddenPublicState } from './forbidden';
 export { type ManifestV1, ManifestV1Schema, parseManifestV1 } from './manifest';
 export { MemoryNonceStore, type NonceStore } from './nonce';
 export { parseBySchema } from './parse';

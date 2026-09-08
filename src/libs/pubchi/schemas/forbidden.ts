@@ -112,6 +112,26 @@ export function scanForbidden(value: unknown): ParseResult<void> {
   return code ? err(code) : ok(undefined);
 }
 
+const SECRET_VALUE_PATTERNS = [
+  /^(?:bearer|authtoken|signup[_-]?token)\s+\S+$/i,
+  /^(?:sk|pk|api|ghp)[_-][A-Za-z0-9_-]{16,}$/,
+  /^(?:[a-z]+\s+){11}[a-z]+$/i,
+  /^[0-9a-f]{64,}$/i,
+] as const;
+
+export function scanForbiddenPublicState(value: unknown): ParseResult<void> {
+  const forbidden = scanForbidden(value);
+  if (!forbidden.ok) return forbidden;
+  return hasSecretLookingValue(value) ? err('FORBIDDEN_SECRET') : ok(undefined);
+}
+
+function hasSecretLookingValue(value: unknown): boolean {
+  if (typeof value === 'string') return SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(value.trim()));
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(hasSecretLookingValue);
+  return Object.values(value as Record<string, unknown>).some(hasSecretLookingValue);
+}
+
 function walk(value: unknown): ErrorCode | undefined {
   if (value === null || typeof value !== 'object') return undefined;
   if (Array.isArray(value)) {

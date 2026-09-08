@@ -3,7 +3,14 @@ import { z } from 'zod';
 const topic = z.object({ label: z.string().trim().min(1).max(40), weight: z.number().int().min(1).max(5) });
 
 export const pubchiPreferencesFormSchema = z.object({
-  display_name: z.string().trim().min(1).max(40),
+  display_name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .refine((value) => !/^(?:[a-z]+\s+){11}[a-z]+$/i.test(value), {
+      message: 'That looks like a secret or recovery phrase. Bot state is public — choose something else.',
+    }),
   language: z.enum(['en', 'es', 'de', 'fr', 'pt']),
   summary_length: z.enum(['short', 'medium', 'long']),
   include_sources: z.boolean(),

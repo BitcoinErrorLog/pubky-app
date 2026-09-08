@@ -4,7 +4,7 @@ import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ClientErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
-import { HttpStatusCode } from '@/libs/http/http.types';
+import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import * as deviceKey from '@/libs/pubchi/device-key';
 import {
@@ -28,6 +28,7 @@ import {
   listKnownDelegations,
   PUBCHI_DELEGATION_DELETE_TIMEOUT_MS,
   PubchiApplication,
+  refreshPublishedDelegation,
 } from './pubchi';
 
 vi.mock('@/molecules/Toaster/toast', () => ({
@@ -41,9 +42,11 @@ vi.mock('@/libs/pubchi/device-key', () => {
     .then((pair) => ({ key: (pair as CryptoKeyPair).privateKey, signer }));
   const get = async () => {
     const { key } = await deviceKeyPromise;
-    return { key, signer, id: `test:${signer}`, owner: 'owner', created_at: 1, expires_at: 2_000_000_000 };
+    const now = Math.floor(Date.now() / 1000);
+    return { key, signer, id: `test:${signer}`, owner: 'owner', created_at: now - 24 * 60 * 60, expires_at: now + 10 * 24 * 60 * 60 };
   };
   return {
+    DEVICE_DELEGATION_REFRESH_SECONDS: 3 * 24 * 60 * 60,
     getCurrentDeviceKey: get,
     loadOrGenerateDeviceKey: get,
     getDeviceKeys: async () => [],
@@ -427,7 +430,7 @@ describe('PubchiApplication', () => {
       owner: OWNER,
       signer: planted,
       key: {} as CryptoKey,
-      created_at: 1,
+      created_at: Math.floor(Date.now() / 1000) - 24 * 60 * 60,
       expires_at: 2_000_000_000,
     }));
     const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
@@ -999,5 +1002,70 @@ describe('PubchiApplication', () => {
     request.mockReset();
     request.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
     await expect(PubchiApplication.savePubchiConfig(OWNER, {})).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('refreshes a stale delegation with the served purposes and same signer', async () => {
+    const device = await deviceKey.getCurrentDeviceKey(OWNER);
+    const stale = {
+      schema: 'pubchi-device-delegation',
+      version: 1,
+      owner: OWNER,
+      signer: device!.signer,
+      bot: BOT,
+      purposes: ['who-tagged-me'] as const,
+      created_at: Math.floor(Date.now() / 1000) - 24 * 60 * 60,
+      expires_at: Math.floor(Date.now() / 1000) + 10 * 24 * 60 * 60,
+      signature: '0'.repeat(128),
+    };
+    const request = vi.mocked(HomeserverService.request);
+    let published: unknown;
+    request.mockReset();
+    request.mockImplementation(async ({ method, bodyJson }) => {
+      if (method === HttpMethod.GET) return published ?? stale;
+      published = bodyJson;
+      return undefined;
+    });
+
+    await refreshPublishedDelegation(OWNER);
+
+    expect(published).toMatchObject({
+      signer: device!.signer,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'],
+    });
+    expect(request.mock.calls.filter(([input]) => input.method === HttpMethod.PUT)).toHaveLength(1);
+  });
+
+  it('does not refresh a current delegation without Pubchi write coverage', async () => {
+    sessionIdentity.capabilities = ['/pub/pubky.app/:rw'];
+    const request = vi.mocked(HomeserverService.request);
+    request.mockReset();
+
+    await refreshPublishedDelegation(OWNER);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('does not put a delegation that already has served purposes', async () => {
+    const device = await deviceKey.getCurrentDeviceKey(OWNER);
+    const now = Math.floor(Date.now() / 1000);
+    const current = {
+      schema: 'pubchi-device-delegation',
+      version: 1,
+      owner: OWNER,
+      signer: device!.signer,
+      bot: BOT,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'] as const,
+      created_at: now - 24 * 60 * 60,
+      expires_at: now + 10 * 24 * 60 * 60,
+      signature: '0'.repeat(128),
+    };
+    const request = vi.mocked(HomeserverService.request);
+    request.mockReset().mockResolvedValue(current);
+
+    await refreshPublishedDelegation(OWNER);
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.PUT }));
   });
 });

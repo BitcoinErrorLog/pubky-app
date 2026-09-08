@@ -8,6 +8,7 @@ import { Logger } from '@/libs/logger/logger';
 import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
 import {
   deleteDeviceKey,
+  DEVICE_DELEGATION_REFRESH_SECONDS,
   getCurrentDeviceKey,
   getDeviceKeys,
   listDeviceKeysNotOwnedBy,
@@ -30,6 +31,7 @@ import {
   delegationUri,
   isPubkyId,
   ownerBindingUri,
+  parseDeviceDelegationV1,
   parseFeedProposalV1,
   parseOwnerBindingV1,
   parsePubchiAnswerV1,
@@ -37,6 +39,7 @@ import {
   parseQueryResultV1,
   type PubchiConfigV1,
   REQUEST_TTL_SECONDS,
+  scanForbiddenPublicState,
   signDeviceDelegationV1,
   signRequestObjectV1,
   type UnsignedDeviceDelegationV1,
@@ -100,12 +103,13 @@ function randomNonce(): string {
 export class PubchiApplication {
   private constructor() {}
 
-  static async loadPubchiConfig(owner: string): Promise<PubchiConfigV1 | null> {
+  static async loadPubchiConfig(owner: string, refreshDelegation = true): Promise<PubchiConfigV1 | null> {
     const url = pubchiConfigUri(owner);
     try {
       const raw = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
       const parsed = parsePubchiConfigV1(raw);
       if (!parsed.ok) throw pubchiValidationError(parsed.code, 'loadPubchiConfig');
+      if (refreshDelegation) await refreshPublishedDelegation(owner);
       return parsed.value;
     } catch (error) {
       if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
@@ -120,7 +124,7 @@ export class PubchiApplication {
     const url = pubchiConfigUri(owner);
     let existing: PubchiConfigV1 | null;
     try {
-      existing = await this.loadPubchiConfig(owner);
+      existing = await this.loadPubchiConfig(owner, false);
     } catch (error) {
       if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) throw error;
       existing = null;
@@ -135,6 +139,8 @@ export class PubchiApplication {
     };
     const parsed = parsePubchiConfigV1(candidate);
     if (!parsed.ok) throw pubchiValidationError(parsed.code, 'savePubchiConfig');
+    const forbidden = scanForbiddenPublicState(candidate);
+    if (!forbidden.ok) throw pubchiValidationError(forbidden.code, 'savePubchiConfig');
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: parsed.value });
     const readBack = await this.loadPubchiConfig(owner);
     if (!readBack || !deepEqual(readBack, parsed.value)) {
@@ -177,6 +183,8 @@ export class PubchiApplication {
     };
     const parsed = parseOwnerBindingV1(candidate);
     if (!parsed.ok) throw pubchiValidationError(parsed.code, 'commitCreateBinding');
+    const forbidden = scanForbiddenPublicState(candidate);
+    if (!forbidden.ok) throw pubchiValidationError(forbidden.code, 'commitCreateBinding');
 
     const record = { ...parsed.value, id: bindingRecordId(params.owner, params.bot) };
     await LocalPubchiBindingService.upsert(record);
@@ -403,6 +411,7 @@ export class PubchiApplication {
       }
       const record = { ...parsed.value, id: bindingRecordId(owner, parsed.value.bot) };
       await LocalPubchiBindingService.upsert(record);
+      await refreshPublishedDelegation(owner);
       return parsed.value;
     } catch {
       return local;
@@ -584,6 +593,53 @@ function defaultPubchiConfig(owner: string, bot: string, now: number): PubchiCon
       send_public_web_context: false,
     },
   };
+}
+
+const SERVED_DELEGATION_PURPOSES = ['ask', 'who-tagged-me', 'build-feed'] as const;
+
+export async function refreshPublishedDelegation(owner: string): Promise<void> {
+  if (!sessionCanWritePubchi(owner)) return;
+  const binding = await LocalPubchiBindingService.readActive(owner);
+  if (!binding) return;
+  const now = Math.floor(Date.now() / 1000);
+  const device = await getCurrentDeviceKey(owner, now);
+  if (!device) return;
+  const url = delegationUri(owner, device.signer);
+  let current: ReturnType<typeof parseDeviceDelegationV1>;
+  try {
+    const raw = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
+    current = parseDeviceDelegationV1(raw);
+    if (!current.ok && raw !== undefined) return;
+  } catch (error) {
+    if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return;
+    current = { ok: false, code: 'SCHEMA_INVALID' };
+  }
+  if (
+    current.ok &&
+    current.value.owner === owner &&
+    current.value.signer === device.signer &&
+    current.value.bot === binding.bot &&
+    SERVED_DELEGATION_PURPOSES.every((purpose) => current.value.purposes.includes(purpose)) &&
+    current.value.expires_at - now > DEVICE_DELEGATION_REFRESH_SECONDS
+  ) {
+    return;
+  }
+  const unsigned: UnsignedDeviceDelegationV1 = {
+    schema: 'pubchi-device-delegation',
+    version: 1,
+    owner,
+    signer: device.signer,
+    bot: binding.bot,
+    purposes: [...SERVED_DELEGATION_PURPOSES],
+    created_at: device.created_at,
+    expires_at: device.expires_at,
+  };
+  const signed = await signDeviceDelegationV1(unsigned, device.key);
+  await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: signed });
+  const readBack = parseDeviceDelegationV1(await HomeserverService.request<unknown>({ method: HttpMethod.GET, url }));
+  if (!readBack.ok || JSON.stringify(readBack.value) !== JSON.stringify(signed)) {
+    throw pubchiValidationError('SCHEMA_INVALID', 'refreshPublishedDelegation');
+  }
 }
 
 function deepEqual(left: unknown, right: unknown): boolean {
