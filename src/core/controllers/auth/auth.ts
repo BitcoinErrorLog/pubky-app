@@ -209,7 +209,7 @@ export class AuthController {
           hasProfile,
         });
         this.markLocalStateDirty();
-        // The marketplace bearer session survives reloads in sessionStorage,
+        // The marketplace bearer session survives reloads in localStorage,
         // scoped to the account whose app session was just restored; anything
         // persisted for another account is dropped inside the restore.
         const marketplaceSession = CommerceApplication.restoreMarketplaceSession(pubky);

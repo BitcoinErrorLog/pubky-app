@@ -63,6 +63,24 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 
 - Client `383b6d3e` (Wave 7) is on `https://shop.pubky.app` via Vercel project `pubky-marketplace-production`. Staging Shop is `https://pubky-marketplace-staging.vercel.app`. marketplace-service `462ed54` on `main` is deployed to staging and production; production `/health` reports `pickup_available:true`, while staging reports false because it is sandbox.
 
+**Single-approval sign-in**
+
+- Shipped 2026-09-08 on `marketplace/one-approval`. One Pubky Ring approval dual-presents the same `AuthToken` bytes to the homeserver first and the marketplace transaction service second, minting both sessions. `singleApprovalSignIn` (`PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN`) defaults to true; disabling it retains the legacy two-step flow.
+- Commits: feature `c213ae9f`; tests `454828c5`; fixer round `454828c5..3e737732` (8 commits); cleanup batch `e482e603..8881f90f` (5 commits); N-1 follow-up `ac593082`.
+- Review record: round 1 Kimi SHIP on the security lens plus Opus FIX-FIRST (5 P1, 4 P2, 3 P3); all findings were closed; round 2 Kimi SHIP plus Opus SHIP; cleanup batch Opus SHIP; N-1 fix Opus SHIP.
+- Pinned behavior: marketplace outage does not block sign-in; bridged and direct ceremonies share one single-flight guard; joined dialogs show that approval is already in progress; closing a joined dialog does not cancel the owner; wrong-identity step-up is rejected before the marketplace POST and preserves the signed-in user's valid bearer; and every uncommitted sign-in failure removes any newly minted bearer from memory, `localStorage`, and the commerce store. The marketplace capability string is echoed but not stored; see the marketplace-service record.
+- Deployments: staging `pubky-marketplace-staging.vercel.app` at 19:33 on 2026-09-08; production `shop.pubky.app` and `pubky-marketplace-production.vercel.app` at 19:37; the `ac593082` N-1 fix deployed 2026-09-08 evening.
+- Process gap: between 12:53 and 19:37, the P1 credential-leak fix and session-fixation fix were pushed to GitHub but not deployed to Vercel; production continued serving the 07:47 build (`383b6d3e`). Push is not deploy: every merge to `pr25-ux` that changes `src/` must be followed by `vercel --prod --yes` (or `npx vercel --prod --yes`) from `mp-ux` (staging) and `mp-prod-deploy` (production), with the deploy timestamp recorded.
+
+**Known gaps**
+
+- P4: the commerce store is not persisted while `currentUserPubky` is; after reload and before restore completes, a wrong-Ring step-up can clear the signed-in user's localStorage-only bearer once. Possible fix: use the persisted mirror's owner pubky when the store is empty.
+- P3: a wrong-identity step-up can replace the signed-in user's homeserver cookie before the gate rejects it; the gate signs the other identity out, leaving `authStore` on the signed-in identity without a live cookie. Pre-existing and strictly better than before.
+- P3: `getSignupAuthUrl` remains outside the ceremony guard; a signup-page mount during the ceremony POST window can wipe local state.
+- P3: the guard is released before `initializeAuthenticatedSession` finishes (legacy parity, waived).
+- P3: the guard is bounded by the token wait; a `/session` POST that never settles holds the ceremony until the 120-second flow timeout.
+- P4: `marketplaceError` from a partial ceremony failure is logged but not surfaced directly; reconnect is inferred from the absent marketplace session.
+
 **What users did (server-side facts only)**
 
 - Local pickup Part A is deployed. A seller may publish shipping, pickup, or both. Public listings contain the fulfillment choice only; seller meeting-point details are sealed at rest in the transaction service with XChaCha20-Poly1305, are key-gated, and are disabled without the key and in sandbox deployments.
