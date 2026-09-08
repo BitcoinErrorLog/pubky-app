@@ -291,7 +291,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
           data-slot="badge"
           data-variant="secondary"
         >
-          Local pickup
+          Shipping
         </div>
       </div>
       <p

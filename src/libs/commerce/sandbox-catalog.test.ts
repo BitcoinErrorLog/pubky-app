@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { commerceListingRecordSchema, commerceShopRecordSchema } from './marketplace-records';
+import {
+  commerceListingFulfillmentMethods,
+  commerceListingRecordSchema,
+  commerceShopRecordSchema,
+} from './marketplace-records';
 import { createCommerceSandboxCatalog } from './sandbox-catalog';
 
 describe('createCommerceSandboxCatalog', () => {
@@ -43,5 +47,31 @@ describe('createCommerceSandboxCatalog', () => {
 
     const fleece = listings.find(({ listingId }) => listingId === 'varsity_fleece');
     expect(fleece?.attributes).toMatchObject({ size: 'L', brand: 'Champion', color: ['grey', 'navy'] });
+  });
+
+  it('ships by default: auctions never publish pickup, shipped listings carry an option, all three badge states appear', () => {
+    const { listings } = createCommerceSandboxCatalog();
+    const methodsOf = (listing: (typeof listings)[number]) => commerceListingFulfillmentMethods(listing.fulfillmentMethods);
+
+    // Auctions and offers are shipping-only (local pickup design §A2): the
+    // service refuses to register a pickup auction.
+    const auctions = listings.filter(({ sale }) => sale.format === 'auction');
+    expect(auctions.length).toBeGreaterThan(0);
+    expect(auctions.map((listing) => methodsOf(listing).join('+'))).toEqual(auctions.map(() => 'shipping'));
+
+    // Every listing whose published methods include shipping prices it.
+    const shipped = listings.filter((listing) => methodsOf(listing).includes('shipping'));
+    expect(shipped.length).toBeGreaterThan(0);
+    expect(shipped.every((listing) => listing.shippingOptions.length > 0)).toBe(true);
+
+    // The catalog exercises all three badge labels: Shipping, Local pickup,
+    // Pickup or shipping — via exactly two fixed-price pickup demos.
+    const states = new Set(listings.map((listing) => methodsOf(listing).join('+')));
+    expect(states).toContain('shipping');
+    expect(states).toContain('pickup');
+    expect(states).toContain('shipping+pickup');
+    const pickupListings = listings.filter((listing) => methodsOf(listing).includes('pickup'));
+    expect(pickupListings).toHaveLength(2);
+    expect(pickupListings.every(({ sale }) => sale.format === 'fixed_price')).toBe(true);
   });
 });

@@ -31,6 +31,14 @@ type CatalogEntry = {
   amountMinor: number;
   tags: string[];
   saleFormat: CommerceListingRecord['sale']['format'];
+  /**
+   * Pickup demo axis (local pickup design §A2): listings ship by default and
+   * auctions are ALWAYS shipping-only (the service refuses to register a
+   * pickup auction), so exactly two fixed-price entries opt into pickup —
+   * one pickup-only, one shipping-and-pickup — exercising all three badge
+   * states. Record vocabulary mirrors the studio's fulfillmentMethodsFromForm.
+   */
+  pickup?: 'only' | 'also';
   colorHash: string;
 };
 
@@ -85,6 +93,7 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     amountMinor: 6_400,
     tags: ['ceramics', 'handmade'],
     saleFormat: 'fixed_price',
+    pickup: 'only',
     colorHash: 'd',
   },
   {
@@ -98,6 +107,7 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     amountMinor: 3_800,
     tags: ['vinyl', 'jazz'],
     saleFormat: 'fixed_price',
+    pickup: 'also',
     colorHash: 'e',
   },
   {
@@ -225,6 +235,12 @@ export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
 
 function createListing(entry: CatalogEntry, index: number): CommerceListingRecord {
   const imageId = `${entry.listingId}_image`;
+  // Auctions never reach this helper with pickup set (see CatalogEntry), so
+  // the default branch covers them: shipped physical goods with one flat
+  // ground option, matching the studio's shipping publish shape.
+  const fulfillmentMethods: CommerceListingRecord['fulfillmentMethods'] =
+    entry.pickup === 'only' ? ['pickup'] : entry.pickup === 'also' ? ['physical', 'shipping', 'pickup'] : ['physical'];
+  const ships = fulfillmentMethods.includes('physical');
   const sale: CommerceListingRecord['sale'] =
     entry.saleFormat === 'auction'
       ? {
@@ -284,8 +300,27 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
       },
     ],
     sale,
-    fulfillmentMethods: ['pickup'],
-    shippingOptions: [],
+    fulfillmentMethods,
+    ...(ships
+      ? {
+          package: {
+            weightGrams: 1_200,
+            lengthMillimeters: 350,
+            widthMillimeters: 250,
+            heightMillimeters: 150,
+          },
+          shippingOptions: [
+            {
+              id: 'ground',
+              pricing: 'flat' as const,
+              label: 'Ground shipping',
+              price: { amountMinor: 1_200, currency: 'USD', exponent: 2 },
+              estimatedMinDays: 3,
+              estimatedMaxDays: 7,
+            },
+          ],
+        }
+      : { shippingOptions: [] }),
     returnPolicy: {
       acceptsReturns: true,
       returnWindowDays: 30,
