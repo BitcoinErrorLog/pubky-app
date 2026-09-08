@@ -358,21 +358,26 @@ export class AuthController {
 
   private static async runInitializeAuthenticatedSession({ session }: THomeserverSessionResult) {
     try {
-      await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
+      try {
+        await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
+      } catch (error) {
+        // The just-approved session lives on the user's actual homeserver — sign it
+        // out instead of leaving it dangling, whether the key was rejected or the
+        // lookup failed. Best-effort: the failure must surface regardless.
+        await AuthApplication.logout({ session }).catch((logoutError) => {
+          Logger.warn('Failed to sign out session after environment check failure', { logoutError });
+        });
+        throw error;
+      }
+      await this.completeAuthenticatedSession({ session });
     } catch (error) {
       // The marketplace half of the ceremony may already have minted (and
-      // persisted) a bearer for this approval; a REFUSED sign-in must not
-      // leave that bearer at rest.
+      // persisted) a bearer for this approval; a sign-in that does NOT commit
+      // — refused by the environment check OR failed anywhere in the
+      // post-mint bootstrap — must not leave that bearer at rest.
       CommerceController.clearMarketplaceSession();
-      // The just-approved session lives on the user's actual homeserver — sign it
-      // out instead of leaving it dangling, whether the key was rejected or the
-      // lookup failed. Best-effort: the failure must surface regardless.
-      await AuthApplication.logout({ session }).catch((logoutError) => {
-        Logger.warn('Failed to sign out session after environment check failure', { logoutError });
-      });
       throw error;
     }
-    await this.completeAuthenticatedSession({ session });
   }
 
   /**

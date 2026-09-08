@@ -369,6 +369,66 @@ describe('AuthController single-approval ceremony', () => {
     expect(clearSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('clears the marketplace bearer when the post-mint bootstrap fails after the env check', async () => {
+    process.env.PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE = 'transaction-service';
+    resetRuntimeConfigForTests();
+    try {
+      vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+      // The bootstrap half of the init blows up AFTER the env check passed.
+      vi.spyOn(AuthApplication, 'userIsSignedUp').mockRejectedValue(new Error('nexus unreachable'));
+      const authStoreModule = await import('@/stores/auth/auth.store');
+      vi.spyOn(authStoreModule.useAuthStore, 'getState').mockReturnValue(
+        asOpaque<ReturnType<typeof authStoreModule.useAuthStore.getState>>({
+          init: vi.fn(),
+          setHasProfile: vi.fn(),
+          reset: vi.fn(),
+        }),
+      );
+      const signInStoreModule = await import('@/stores/signIn/signIn.store');
+      vi.spyOn(signInStoreModule.useSignInStore, 'getState').mockReturnValue(
+        asOpaque<ReturnType<typeof signInStoreModule.useSignInStore.getState>>({
+          reset: vi.fn(),
+          setAuthUrlResolved: vi.fn(),
+          setProfileChecked: vi.fn(),
+        }),
+      );
+
+      // Seed a bearer at rest the way the ceremony's marketplace half leaves
+      // it: real service memory + localStorage mirror + commerce store.
+      const bearerPubky = 'y'.repeat(52);
+      const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
+        '@/services/marketplace/marketplace-session'
+      );
+      window.localStorage.setItem(
+        MARKETPLACE_SESSION_STORAGE_KEY,
+        JSON.stringify({
+          token: 'A'.repeat(43),
+          pubky: bearerPubky,
+          capabilities: '',
+          expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        }),
+      );
+      const restored = MarketplaceSessionService.restorePersistedSession(bearerPubky);
+      expect(restored).not.toBeNull();
+      const { CommerceController } = await import('@/controllers/commerce/commerce');
+      CommerceController.writeMarketplaceSessionStore(restored as NonNullable<typeof restored>);
+      const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
+      expect(useCommerceStore.getState().marketplaceSession).not.toBeNull();
+
+      await expect(AuthController.initializeAuthenticatedSession({ session: mockSession })).rejects.toThrow(
+        'nexus unreachable',
+      );
+
+      // Service memory, the localStorage mirror, and the store all hold NO bearer.
+      expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+      expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+      expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    } finally {
+      delete process.env.PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE;
+      resetRuntimeConfigForTests();
+    }
+  });
+
   it('joins two bridged commerce starts into ONE Ring flow', async () => {
     const startSpy = mockDirectSignInFlow({});
     const marketplace = {
