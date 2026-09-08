@@ -613,6 +613,17 @@ describe('PubchiApplication', () => {
     expect(pending.some((item) => item.signer === foreignSigner)).toBe(false);
   });
 
+  it('refuses enrollment when the session pubky is not the binding owner before minting a device key', async () => {
+    sessionIdentity.pubky = Keypair.random().publicKey.z32();
+    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw', '/:rw'];
+    const mintSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey');
+    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+
+    await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('PATH_FORBIDDEN');
+    expect(mintSpy).not.toHaveBeenCalled();
+    expect(upsertSpy).not.toHaveBeenCalled();
+  });
+
   it('does not DELETE or record the live device signer during reconcile', async () => {
     const liveSigner = Keypair.random().publicKey.z32();
     vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([

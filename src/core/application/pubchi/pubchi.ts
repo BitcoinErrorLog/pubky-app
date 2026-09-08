@@ -115,7 +115,7 @@ export class PubchiApplication {
       });
     }
 
-    assertPubchiCapability();
+    assertPubchiCapability(params.owner);
     const now = Math.floor(Date.now() / 1000);
     const device = await loadTrustedDeviceKey(params.owner, now);
     const existing = await LocalPubchiBindingService.read(params.owner, params.bot);
@@ -258,7 +258,7 @@ export class PubchiApplication {
       if (!options.attemptRemote) {
         return { failed: dedupePending([...skippedLive, ...toDelete]) };
       }
-      if (!sessionCanWritePubchi()) {
+      if (!sessionCanWritePubchi(owner)) {
         const retained = dedupePending([...skippedLive, ...toDelete]);
         replacePendingDelegationDeletesForOwner(owner, retained);
         return { failed: retained };
@@ -378,7 +378,7 @@ export class PubchiApplication {
         operation: 'query',
       });
     }
-    assertPubchiCapability();
+    assertPubchiCapability(params.owner);
 
     const question = params.question.trim();
     if (!question) {
@@ -490,6 +490,7 @@ export function assertDeviceSignerIsPubkyId(signer: string, operation: string): 
 }
 
 async function loadTrustedDeviceKey(owner: string, now: number) {
+  assertPubchiCapability(owner);
   const device = await loadOrGenerateDeviceKey(owner, now);
   try {
     assertDeviceSignerIsPubkyId(device.signer, 'commitCreateBinding');
@@ -502,13 +503,15 @@ async function loadTrustedDeviceKey(owner: string, now: number) {
   }
 }
 
-function assertPubchiCapability(): void {
-  if (!sessionCanWritePubchi()) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+function assertPubchiCapability(owner: string): void {
+  if (!sessionCanWritePubchi(owner)) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
 }
 
-function sessionCanWritePubchi(): boolean {
+function sessionCanWritePubchi(owner: string): boolean {
   const session = useAuthStore.getState().selectSession();
   if (!session) return false;
+  const sessionPubky = session.info?.publicKey?.z32?.();
+  if (!sessionPubky || sessionPubky !== owner) return false;
   return capabilitiesCoverPubchiWrite(session.info.capabilities);
 }
 
