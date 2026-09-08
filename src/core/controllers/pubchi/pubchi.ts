@@ -7,7 +7,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
-import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { deleteDeviceKey, getDeviceKeys } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { isPubkyId } from '@/libs/pubchi/schemas';
@@ -99,7 +99,8 @@ export class PubchiController {
    * already replaced the legitimate one.
    */
   static async adoptCapabilityApproval(session: Session): Promise<void> {
-    const expected = useAuthStore.getState().selectCurrentUserPubky();
+    const authState = useAuthStore.getState();
+    const expected = authState.selectCurrentUserPubky();
     const approved = Identity.z32FromSession({ session });
     if (approved !== expected) {
       try {
@@ -112,7 +113,20 @@ export class PubchiController {
         operation: 'adoptCapabilityApproval',
       });
     }
-    useAuthStore.getState().setSession(session);
+    const currentCoversPubchi = capabilitiesCoverPubchiWrite(authState.session?.info.capabilities ?? []);
+    const approvedCoversPubchi = capabilitiesCoverPubchiWrite(session.info.capabilities ?? []);
+    if (currentCoversPubchi && !approvedCoversPubchi) {
+      try {
+        await HomeserverService.logout({ session });
+      } catch (error) {
+        Logger.warn('Pubchi narrower capability-approval session sign-out failed', { error });
+      }
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'PUBCHI_SESSION_CAPABILITY_NARROWER', {
+        service: ErrorService.Pubchi,
+        operation: 'adoptCapabilityApproval',
+      });
+    }
+    authState.setSession(session);
   }
 
   static async revokeDevice(signer: string): Promise<void> {

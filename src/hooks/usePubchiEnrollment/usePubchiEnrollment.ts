@@ -18,6 +18,17 @@ import {
   enrollPubchiFormSchema,
 } from './usePubchiEnrollment.types';
 
+const PUBCHI_SESSION_CAPABILITY_NARROWER_MESSAGE =
+  "That approval granted less access than this browser already has, so it wasn't applied. Approve the request that includes the Pubchi folder.";
+
+function reapprovalErrorMessage(error: unknown): string {
+  if (!(error instanceof AppError)) return 'SCHEMA_INVALID';
+  if (error.message === 'PUBCHI_SESSION_CAPABILITY_NARROWER') {
+    return PUBCHI_SESSION_CAPABILITY_NARROWER_MESSAGE;
+  }
+  return error.message;
+}
+
 export function usePubchiEnrollment() {
   const owner = useAuthStore((state) => state.currentUserPubky);
   const session = useAuthStore((state) => state.session);
@@ -151,7 +162,7 @@ export function usePubchiEnrollment() {
       }
     } catch (error) {
       cancelReapproval();
-      const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
+      const message = reapprovalErrorMessage(error);
       toast({ variant: 'error', title: message, dismissButton: true });
       return false;
     }

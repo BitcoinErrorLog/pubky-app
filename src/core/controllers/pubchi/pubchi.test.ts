@@ -19,6 +19,7 @@ const OTHER = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Pubky;
 
 const authState = {
   setSession: vi.fn(),
+  session: undefined as Session | undefined,
 };
 
 function setPubchiEnv(enabled?: string, apiUrl?: string) {
@@ -29,19 +30,21 @@ function setPubchiEnv(enabled?: string, apiUrl?: string) {
   resetRuntimeConfigForTests();
 }
 
-function sessionFor(pubky: string) {
+function sessionFor(pubky: string, capabilities: string[] = []) {
   return asOpaque<Session>({
-    info: { publicKey: { z32: () => pubky } },
+    info: { publicKey: { z32: () => pubky }, capabilities },
   });
 }
 
 describe('PubchiController', () => {
   beforeEach(() => {
     authState.setSession.mockReset();
+    authState.session = sessionFor(OWNER);
     vi.spyOn(useAuthStore, 'getState').mockReturnValue(
       asOpaque<AuthStore>({
         selectCurrentUserPubky: () => OWNER,
         currentUserPubky: OWNER,
+        session: authState.session,
         setSession: authState.setSession,
       }),
     );
@@ -142,16 +145,89 @@ describe('PubchiController', () => {
     });
   });
 
-  it('adopts a matching capability approval via setSession and not the bootstrap path', async () => {
-    const session = sessionFor(OWNER);
+  it('adopts broader Pubchi coverage over a non-covering session', async () => {
+    authState.session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        session: authState.session,
+        setSession: authState.setSession,
+      }),
+    );
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/pubchi.app/:rw']);
     const bootstrapSpy = vi.spyOn(AuthController, 'initializeAuthenticatedSession');
     await PubchiController.adoptCapabilityApproval(session);
     expect(authState.setSession).toHaveBeenCalledWith(session);
     expect(bootstrapSpy).not.toHaveBeenCalled();
   });
 
+  it('refuses to replace root coverage with a non-covering approval', async () => {
+    authState.session = sessionFor(OWNER, ['/:rw']);
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        session: authState.session,
+        setSession: authState.setSession,
+      }),
+    );
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
+    const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
+
+    await expect(PubchiController.adoptCapabilityApproval(session)).rejects.toMatchObject({
+      code: AuthErrorCode.FORBIDDEN,
+      message: 'PUBCHI_SESSION_CAPABILITY_NARROWER',
+    });
+    expect(logoutSpy).toHaveBeenCalledWith({ session });
+    expect(authState.setSession).not.toHaveBeenCalled();
+  });
+
+  it('adopts equal root coverage', async () => {
+    authState.session = sessionFor(OWNER, ['/:rw']);
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        session: authState.session,
+        setSession: authState.setSession,
+      }),
+    );
+    const session = sessionFor(OWNER, ['/:rw']);
+
+    await PubchiController.adoptCapabilityApproval(session);
+
+    expect(authState.setSession).toHaveBeenCalledWith(session);
+  });
+
+  it('adopts equal non-covering coverage', async () => {
+    authState.session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        session: authState.session,
+        setSession: authState.setSession,
+      }),
+    );
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
+
+    await PubchiController.adoptCapabilityApproval(session);
+
+    expect(authState.setSession).toHaveBeenCalledWith(session);
+  });
+
   it('signs out a mismatched capability-approval session and does not adopt it', async () => {
-    const session = sessionFor(OTHER);
+    authState.session = sessionFor(OWNER, ['/:rw']);
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        session: authState.session,
+        setSession: authState.setSession,
+      }),
+    );
+    const session = sessionFor(OTHER, ['/pub/pubchi.app/:rw']);
     const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
     await expect(PubchiController.adoptCapabilityApproval(session)).rejects.toMatchObject({
       code: AuthErrorCode.FORBIDDEN,
