@@ -44,7 +44,7 @@ import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
   type MarketplaceBidHistory,
   marketplaceBidHistorySchema,
@@ -172,7 +172,13 @@ export class MarketplaceTransactionService {
       'execute',
     );
     this.throwIfSessionRejected(response.status, 'execute');
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'execute', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'execute',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     const parsed = marketplaceCommandResponseSchema.safeParse(toCamelCaseWire(raw));
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid command response.', {
@@ -309,7 +315,11 @@ export class MarketplaceTransactionService {
    * absent/foreign order to `Err.client(NOT_FOUND)`.
    */
   static async getOrderPickupDetails(actor: string, orderId: string): Promise<MarketplacePickupReveal> {
-    const raw = await this.readPickupEntitled('getOrderPickupDetails', actor, `/v1/orders/${encodeURIComponent(orderId)}/pickup-details`);
+    const raw = await this.readPickupEntitled(
+      'getOrderPickupDetails',
+      actor,
+      `/v1/orders/${encodeURIComponent(orderId)}/pickup-details`,
+    );
     return this.parseProjection(
       'getOrderPickupDetails',
       marketplacePickupRevealSchema,
@@ -326,10 +336,7 @@ export class MarketplaceTransactionService {
    * still answers. Seller only; a foreign or absent listing maps to
    * `Err.client(NOT_FOUND)`.
    */
-  static async getListingPickupDetails(
-    actor: string,
-    aggregateId: string,
-  ): Promise<MarketplaceSellerPickupDetails> {
+  static async getListingPickupDetails(actor: string, aggregateId: string): Promise<MarketplaceSellerPickupDetails> {
     const raw = await this.readPickupEntitled(
       'getListingPickupDetails',
       actor,
@@ -353,8 +360,19 @@ export class MarketplaceTransactionService {
     this.assertTransactionServiceMode('getHealth');
     const url = `${getMarketplaceUrl()}/health`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getHealth');
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getHealth', url);
-    return this.parseProjection('getHealth', marketplaceHealthSchema, toCamelCaseWire(raw), 'Marketplace returned an invalid health read.');
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getHealth',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
+    return this.parseProjection(
+      'getHealth',
+      marketplaceHealthSchema,
+      toCamelCaseWire(raw),
+      'Marketplace returned an invalid health read.',
+    );
   }
 
   /**
@@ -387,10 +405,9 @@ export class MarketplaceTransactionService {
 
   /**
    * Reads and parses an entitled-details body WITHOUT the generic
-   * `parseResponseOrThrow`: that utility embeds a body excerpt in the error
-   * context (`responseText`), which the factories log and ship to Sentry —
-   * on a malformed 200 that excerpt would be the revealed pickup plaintext.
-   * Here the body is read locally and any parse failure throws
+   * `parseResponseOrThrow`: even with excerpts opt-in off, a `cause` on the
+   * generic path used to carry V8 parse-error text. Pickup plaintext must
+   * never appear in logs. The body is read locally and any parse failure throws
    * INVALID_RESPONSE with NO excerpt: the context carries the status code
    * only.
    */
@@ -402,11 +419,15 @@ export class MarketplaceTransactionService {
       // No `cause`: a V8 parse-error message can embed a window of the source
       // text — here the revealed pickup plaintext — and Sentry's linkedErrors
       // would attach it. The status-code context is enough.
-      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an unreadable pickup-details response.', {
-        service: ErrorService.Marketplace,
-        operation,
-        context: { statusCode: response.status },
-      });
+      throw Err.server(
+        ServerErrorCode.INVALID_RESPONSE,
+        'Marketplace returned an unreadable pickup-details response.',
+        {
+          service: ErrorService.Marketplace,
+          operation,
+          context: { statusCode: response.status },
+        },
+      );
     }
   }
 
@@ -450,7 +471,6 @@ export class MarketplaceTransactionService {
       });
     }
   }
-
 
   /**
    * `GET /v1/sellers/{pubky}/band-consent`: the seller's standing
@@ -531,7 +551,13 @@ export class MarketplaceTransactionService {
     const url = `${getMarketplaceUrl()}/v0/drops/${encodeURIComponent(sellerPubky)}/${encodeURIComponent(dropId)}`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getPublicDrop');
     if (response.status === 404) return null;
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getPublicDrop', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getPublicDrop',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     return this.parseProjection(
       'getPublicDrop',
       z.object({ drop: marketplacePublicDropSchema }),
@@ -627,7 +653,13 @@ export class MarketplaceTransactionService {
     const url = `${getMarketplaceUrl()}/v0/sellers/${encodeURIComponent(sellerPubky)}/payment-config`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getSellerPaymentConfig');
     await this.throwPaymentMethodError(response, 'getSellerPaymentConfig');
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getSellerPaymentConfig', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getSellerPaymentConfig',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     return this.parseProjection(
       'getSellerPaymentConfig',
       sellerPaymentConfigSchema,
@@ -855,7 +887,13 @@ export class MarketplaceTransactionService {
     );
     this.throwIfSessionRejected(response.status, operation);
     await this.throwPaymentMethodError(response, operation);
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      operation,
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     return toCamelCaseWire(raw);
   }
 
@@ -913,7 +951,13 @@ export class MarketplaceTransactionService {
     this.throwIfSessionRejected(response.status, operation);
     if (options.nullOnNotFound && response.status === HttpStatusCode.NOT_FOUND) return null;
     if (options.nullOnForbidden && response.status === HttpStatusCode.FORBIDDEN) return null;
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      operation,
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     return toCamelCaseWire(raw);
   }
 

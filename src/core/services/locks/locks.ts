@@ -8,7 +8,7 @@ import { ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 
 type LocksSdkModule = typeof import('locks-sdk-wasm');
 
@@ -181,6 +181,7 @@ export class LocksGatewayService {
       'issueAccessCredential',
     );
     if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'issueAccessCredential', url);
+    // Access credentials are bearer material — no body excerpt on parse failure.
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Locks, 'issueAccessCredential', url);
     const parsed = accessCredentialSchema.safeParse(raw);
     if (!parsed.success) {
@@ -230,6 +231,7 @@ export class LocksGatewayService {
       'createFrontendSession',
     );
     if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'createFrontendSession', url);
+    // Frontend session_token is creator bearer material — no body excerpt.
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Locks, 'createFrontendSession', url);
     const parsed = frontendSessionSchema.safeParse(raw);
     if (!parsed.success) {
@@ -261,7 +263,13 @@ export class LocksGatewayService {
       'postLifecycle',
     );
     if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'postLifecycle', url);
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Locks, 'postLifecycle', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Locks,
+      'postLifecycle',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     const parsed = lifecycleSchema.safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Locks returned an invalid lifecycle response.', {

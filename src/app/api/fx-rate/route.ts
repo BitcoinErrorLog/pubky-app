@@ -5,7 +5,7 @@ import { safeFetch } from '@/libs/error/error.http';
 import { httpResponseToError } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 
 /**
  * Same-origin proxy for the BTC/USD indicative-rate source. The upstream
@@ -31,7 +31,13 @@ export async function GET() {
     if (!response.ok) {
       throw httpResponseToError(response, ErrorService.Exchangerate, 'fxRateProxy', upstream);
     }
-    const body = await parseResponseOrThrow<unknown>(response, ErrorService.Exchangerate, 'fxRateProxy', upstream);
+    const body = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Exchangerate,
+      'fxRateProxy',
+      upstream,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     return NextResponse.json(body, CACHE_HEADERS);
   } catch (error) {
     return handleApiError(error, 'fxRateProxy');

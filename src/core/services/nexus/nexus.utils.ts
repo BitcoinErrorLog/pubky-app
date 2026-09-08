@@ -2,7 +2,7 @@ import { getCdnUrl, getNexusUrl } from '@/config/nexus';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod, JSON_HEADERS } from '@/libs/http/http.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { nexusQueryClient } from './nexus.query-client';
 import type {
   TBuildUrlWithQueryParams,
@@ -88,7 +88,13 @@ export async function fetchNexus<T>({ url, method = HttpMethod.GET, body = null 
   if (!response.ok) {
     throw httpResponseToError(response, ErrorService.Nexus, FETCH_NEXUS_OPERATION, url);
   }
-  return parseResponseOrThrow<T>(response, ErrorService.Nexus, FETCH_NEXUS_OPERATION, url);
+  return parseResponseOrThrow<T>(
+    response,
+    ErrorService.Nexus,
+    FETCH_NEXUS_OPERATION,
+    url,
+    PARSE_JSON_WITH_BODY_EXCERPT,
+  );
 }
 
 /** Like fetchNexus but for endpoints that return no body (e.g. PUT v0/ingest); throws on non-ok. */

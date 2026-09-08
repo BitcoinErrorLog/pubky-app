@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import type { AppError } from '@/libs/error/error';
 import { ErrorService } from '@/libs/error/error.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { Logger } from '@/libs/logger/logger';
 import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -211,7 +211,6 @@ describe('MarketplaceTransactionService.execute', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
-
 
 describe('MarketplaceTransactionService read projections', () => {
   beforeEach(() => {
@@ -529,7 +528,6 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 
-
   describe('seller payment methods', () => {
     beforeEach(() => {
       config.mode = 'transaction-service';
@@ -830,7 +828,12 @@ describe('MarketplaceTransactionService pickup commands', () => {
         aggregate_id: AGGREGATE_ID,
         revision: 1,
         event_ids: ['00000000-0000-4000-8000-000000000701'],
-        result: { kind: 'pickup_details', listing_aggregate_id: AGGREGATE_ID, version: 1, updated_at: '2026-08-19T22:00:00.000Z' },
+        result: {
+          kind: 'pickup_details',
+          listing_aggregate_id: AGGREGATE_ID,
+          version: 1,
+          updated_at: '2026-08-19T22:00:00.000Z',
+        },
       }),
     );
 
@@ -959,7 +962,10 @@ describe('MarketplaceTransactionService.getOrderPickupDetails (the buyer reveal,
   it('maps the non-buyer 403 to an auth FORBIDDEN error', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(403, { ok: false, error: { code: 'UNAUTHORIZED', message: 'Only the buyer may reveal the pickup details.' } }),
+      jsonResponse(403, {
+        ok: false,
+        error: { code: 'UNAUTHORIZED', message: 'Only the buyer may reveal the pickup details.' },
+      }),
     );
 
     await expect(MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)).rejects.toMatchObject({
@@ -1066,7 +1072,6 @@ describe('pickup entitled reads never leak the plaintext into error telemetry', 
   // mid-payload, as a proxy/server fault would produce it).
   const MALFORMED_BODY = `{"order_id":"${PICKUP_ORDER_ID}","lines":[{"details":{"spot":"${SENTINEL}","instructions":"Ask for the blue backpack.`;
 
-
   const pickupReads = [
     ['buyer reveal', () => MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)],
     ['seller owner read', () => MarketplaceTransactionService.getListingPickupDetails(ACTOR, AGGREGATE_ID)],
@@ -1109,9 +1114,13 @@ describe('pickup entitled reads never leak the plaintext into error telemetry', 
   it('negative control: the generic parseResponseOrThrow WOULD embed the excerpt — and the scrubber denylist now redacts it', async () => {
     const response = new Response(MALFORMED_BODY, { status: 200, headers: { 'content-type': 'application/json' } });
 
-    const error = (await parseResponseOrThrow(response, ErrorService.Marketplace, 'negativeControl').catch(
-      (caught: unknown) => caught,
-    )) as AppError;
+    const error = (await parseResponseOrThrow(
+      response,
+      ErrorService.Marketplace,
+      'negativeControl',
+      undefined,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    ).catch((caught: unknown) => caught)) as AppError;
 
     // Proves the fixture is sensitive and the pickup-specific parser above is
     // load-bearing: the generic path puts the body excerpt into the context.

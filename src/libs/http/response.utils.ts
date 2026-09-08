@@ -2,14 +2,37 @@ import { ServerErrorCode } from '../error/error.codes';
 import { Err } from '../error/error.factories';
 import { ErrorService } from '../error/error.types';
 
+export type ParseResponseOrThrowOptions = {
+  /**
+   * Opt IN to putting a 200-character body excerpt in error context when JSON
+   * parse fails. The default is OFF because a new call site otherwise logs
+   * credentials, session tokens, invite codes, or private payloads to the
+   * console (Sentry scrubs `responseText`; `Logger.error` does not).
+   *
+   * Enable only for endpoints whose bodies cannot contain tokens, keys,
+   * session identifiers, invite codes, pickup plaintext, or private files.
+   * Never attach a `cause`: V8 `SyntaxError` messages can embed a window of
+   * the source text.
+   */
+  includeBodyExcerpt?: boolean;
+};
+
+/** Pass as the last argument of {@link parseResponseOrThrow} for ordinary (non-sensitive) APIs. */
+export const PARSE_JSON_WITH_BODY_EXCERPT: ParseResponseOrThrowOptions = { includeBodyExcerpt: true };
+
 /**
  * Parses response body as JSON, throws AppError if parsing fails.
  * Generic utility that can be used across different services.
+ *
+ * Body excerpts in error context are opt-in. Auth, session, credential, and
+ * other sensitive endpoints must leave {@link ParseResponseOrThrowOptions.includeBodyExcerpt}
+ * unset (or false).
  *
  * @param response - Response object to parse
  * @param service - The service to attribute errors to
  * @param operation - The operation name for error context
  * @param url - Optional endpoint URL for error context
+ * @param options - Opt-in body excerpt for ordinary (non-sensitive) APIs
  * @returns Parsed JSON data
  * @throws {AppError} When response body is empty or not valid JSON
  */
@@ -18,6 +41,7 @@ export async function parseResponseOrThrow<T>(
   service: ErrorService,
   operation: string,
   url?: string,
+  options?: ParseResponseOrThrowOptions,
 ): Promise<T> {
   const text = await response.text();
 
@@ -31,12 +55,16 @@ export async function parseResponseOrThrow<T>(
 
   try {
     return JSON.parse(text) as T;
-  } catch (error) {
+  } catch {
+    // No `cause`: a V8 parse-error message can embed a window of the source.
     throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Failed to parse JSON response', {
       service,
       operation,
-      context: { statusCode: response.status, responseText: text.slice(0, 200), ...(url && { endpoint: url }) },
-      cause: error,
+      context: {
+        statusCode: response.status,
+        ...(options?.includeBodyExcerpt ? { responseText: text.slice(0, 200) } : {}),
+        ...(url && { endpoint: url }),
+      },
     });
   }
 }

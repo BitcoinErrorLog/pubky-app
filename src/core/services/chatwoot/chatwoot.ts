@@ -105,6 +105,7 @@ export class ChatwootService {
       throw httpResponseToError(searchResponse, ErrorService.Chatwoot, 'searchContact', searchUrl);
     }
 
+    // Contact payloads include emails — do not opt in to body excerpts.
     const searchData = await parseResponseOrThrow<TChatwootContactSearchResponse>(
       searchResponse,
       ErrorService.Chatwoot,

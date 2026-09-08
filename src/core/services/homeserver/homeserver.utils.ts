@@ -146,6 +146,7 @@ export const parseResponseOrUndefined = async <T>({
   url,
 }: TParseResponseOrUndefinedParams): Promise<T | undefined> => {
   try {
+    // No body excerpt: homeserver payloads include private files and session-adjacent JSON.
     return await parseResponseOrThrow<T>(response, ErrorService.Homeserver, operation, url);
   } catch (error) {
     // Empty/invalid JSON responses return undefined instead of throwing

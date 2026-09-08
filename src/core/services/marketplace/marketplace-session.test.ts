@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppError } from '@/libs/error/error';
+import { Logger } from '@/libs/logger/logger';
 import {
   MARKETPLACE_SESSION_STORAGE_KEY,
   MarketplaceSessionService,
@@ -278,5 +280,38 @@ describe('MarketplaceSessionService', () => {
     await Promise.resolve();
     expect(reasons).toEqual(['expired', 'rejected', 'cleared']);
     unsubscribe();
+  });
+
+  it('does not put a truncated session-mint body into error context, logs, or cause', async () => {
+    const truncated = `{"token":"${TOKEN}","pubky":"${PUBKY}","capabilities":"","expires_at":"`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(truncated, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const error = (await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1])).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ name: 'AppError', category: 'server', code: 'INVALID_RESPONSE' });
+    expect(JSON.stringify(error.context)).not.toContain(TOKEN);
+    expect(error.context).not.toHaveProperty('responseText');
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(TOKEN);
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    loggerError.mockRestore();
+  });
+
+  it('salvages a usable session when trailing garbage follows well-formed JSON', async () => {
+    const expiresAt = inOneDay();
+    const body = `${JSON.stringify({ token: TOKEN, pubky: PUBKY, capabilities: '', expires_at: expiresAt })}<!DOCTYPE html>`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(body, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+
+    const info = await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+
+    expect(info).toMatchObject({ pubky: PUBKY });
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
   });
 });

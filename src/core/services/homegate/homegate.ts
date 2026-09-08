@@ -212,6 +212,8 @@ export class HomegateService {
       throw httpResponseToError(response, ErrorService.Homegate, 'verifySmsCode', url);
     }
 
+    // Do not pass PARSE_JSON_WITH_BODY_EXCERPT: a 200 body can include a
+    // signup token (`signupCode`). The shared helper defaults to no excerpt.
     const { valid, signupCode, homeserverPubky } = await parseResponseOrThrow<TRawApiResponse>(
       response,
       ErrorService.Homegate,

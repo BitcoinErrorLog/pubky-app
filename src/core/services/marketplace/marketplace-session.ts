@@ -6,7 +6,6 @@ import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode } fro
 import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import { Logger } from '@/libs/logger/logger';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 
@@ -187,7 +186,7 @@ export class MarketplaceSessionService {
         context: { statusCode: response.status },
       });
     }
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'establishWithAuthToken', url);
+    const raw = await this.parseSessionMintBody(response);
     const parsed = sessionResponseSchema.safeParse(toCamelCaseWire(raw));
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid session response.', {
@@ -303,6 +302,32 @@ export class MarketplaceSessionService {
     }
   }
 
+  /**
+   * Reads the `/v1/auth/sessions` body WITHOUT the generic
+   * `parseResponseOrThrow`: that helper used to embed a body excerpt in error
+   * context (`responseText`), which the factories log to the console — and this
+   * body BEGINS with the freshly minted bearer token.
+   *
+   * If JSON.parse fails on the raw text but a brace-delimited prefix still
+   * yields a usable session object (typical proxy trailing garbage), salvage
+   * that object: the server has already committed a single-use AuthToken
+   * exchange, and throwing here forces a second signer approval. A truncated
+   * body that is not well-formed JSON still throws INVALID_RESPONSE with
+   * status-code context only — no excerpt, no `cause`.
+   */
+  private static async parseSessionMintBody(response: Response): Promise<unknown> {
+    const text = await response.text();
+    const raw = parseJsonAllowingTrailingGarbage(text);
+    if (raw === null) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an unreadable session response.', {
+        service: ErrorService.Marketplace,
+        operation: 'establishWithAuthToken',
+        context: { statusCode: response.status },
+      });
+    }
+    return raw;
+  }
+
   private static parseJson(raw: string): unknown {
     try {
       return JSON.parse(raw);
@@ -317,6 +342,21 @@ export class MarketplaceSessionService {
         service: ErrorService.Marketplace,
         operation,
       });
+    }
+  }
+}
+
+function parseJsonAllowingTrailingGarbage(text: string): unknown | null {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+      return JSON.parse(text.slice(start, end + 1)) as unknown;
+    } catch {
+      return null;
     }
   }
 }
