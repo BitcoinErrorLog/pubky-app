@@ -1,9 +1,11 @@
 import { Keypair } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode, ClientErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
-import { ErrorService } from '@/libs/error/error.types';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
+import { Logger } from '@/libs/logger/logger';
 import * as deviceKey from '@/libs/pubchi/device-key';
 import {
   PENDING_DELEGATION_DELETES_KEY,
@@ -17,14 +19,22 @@ import { toast } from '@/molecules/Toaster/toast';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
-import { assertRequestSignerIsStoredDevice, PUBCHI_DELEGATION_DELETE_TIMEOUT_MS, PubchiApplication } from './pubchi';
+import {
+  assertDeviceSignerIsPubkyId,
+  assertRequestSignerIsStoredDevice,
+  deleteDelegationRecord,
+  isDrainTimeout,
+  listKnownDelegations,
+  PUBCHI_DELEGATION_DELETE_TIMEOUT_MS,
+  PubchiApplication,
+} from './pubchi';
 
 vi.mock('@/molecules/Toaster/toast', () => ({
   toast: vi.fn(),
 }));
 
 vi.mock('@/libs/pubchi/device-key', () => {
-  const signer = 'a'.repeat(52);
+  const signer = Keypair.random().publicKey.z32();
   const deviceKeyPromise = crypto.subtle
     .generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
     .then((pair) => ({ key: (pair as CryptoKeyPair).privateKey, signer }));
@@ -134,7 +144,7 @@ describe('PubchiApplication', () => {
     expect(querySpy).toHaveBeenCalledOnce();
     const payload = querySpy.mock.calls[0][0];
     expect(payload.request.asker).toBe(OWNER);
-    expect(payload.request.signer).toBe('a'.repeat(52));
+    expect(payload.request.signer).toMatch(/^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/);
     expect(payload.request.bot).toBe(BOT);
     expect(payload.request.purpose).toBe('who-tagged-me');
     expect(payload.body).toEqual({ question: 'who tagged me?' });
@@ -347,6 +357,33 @@ describe('PubchiApplication', () => {
 
   it('rejects a request whose signer is not the stored device key', () => {
     expect(() => assertRequestSignerIsStoredDevice('b'.repeat(52), 'a'.repeat(52))).toThrow('DELEGATION_INVALID');
+  });
+
+  it('rejects a stored device signer that is not a pubky id', () => {
+    expect(() => assertDeviceSignerIsPubkyId('../../pubky.app/profile', 'commitCreateBinding')).toThrow(
+      'DELEGATION_INVALID',
+    );
+  });
+
+  it('discards a planted Dexie signer and mints before the enrollment PUT', async () => {
+    const planted = '../../pubky.app/profile';
+    const deleteSpy = vi.spyOn(deviceKey, 'deleteDeviceKey').mockResolvedValue(undefined);
+    vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey').mockImplementationOnce(async () => ({
+      id: `${OWNER}:${planted}`,
+      owner: OWNER,
+      signer: planted,
+      key: {} as CryptoKey,
+      created_at: 1,
+      expires_at: 2_000_000_000,
+    }));
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+
+    await PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT });
+
+    expect(deleteSpy).toHaveBeenCalledWith(OWNER, planted);
+    const urls = requestSpy.mock.calls.map((call) => String(call[0].url));
+    expect(urls.every((url) => !url.includes('..'))).toBe(true);
+    expect(urls.some((url) => url.includes('/pub/pubchi.app/devices/'))).toBe(true);
   });
 
   it('DELETEs known delegation URIs and does not touch the owner binding', async () => {
@@ -572,6 +609,60 @@ describe('PubchiApplication', () => {
     expect(urls).toEqual([]);
   });
 
+  it('listKnownDelegations keeps a valid Dexie signer', async () => {
+    const signer = Keypair.random().publicKey.z32();
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
+      {
+        id: `${OWNER}:${signer}`,
+        owner: OWNER,
+        signer,
+        key: {} as CryptoKey,
+        created_at: 1,
+        expires_at: 2_000_000_000,
+      },
+    ]);
+
+    await expect(listKnownDelegations(OWNER)).resolves.toEqual({
+      kind: 'ok',
+      items: [{ owner: OWNER, signer }],
+    });
+  });
+
+  it('listKnownDelegations drops a Dexie-planted path-injection signer', async () => {
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
+      {
+        id: `${OWNER}:../bots/x`,
+        owner: OWNER,
+        signer: '../bots/x',
+        key: {} as CryptoKey,
+        created_at: 1,
+        expires_at: 2_000_000_000,
+      },
+    ]);
+
+    await expect(listKnownDelegations(OWNER)).resolves.toEqual({ kind: 'ok', items: [] });
+  });
+
+  it('deleteDelegationRecord DELETEs a valid signer', async () => {
+    const signer = Keypair.random().publicKey.z32();
+    const deleteSpy = vi.spyOn(HomeserverService, 'delete').mockResolvedValue(undefined);
+
+    await deleteDelegationRecord({ owner: OWNER, signer });
+
+    expect(deleteSpy).toHaveBeenCalledWith(delegationUri(OWNER, signer));
+  });
+
+  it('deleteDelegationRecord rejects a path-injection signer before the homeserver call', async () => {
+    const deleteSpy = vi.spyOn(HomeserverService, 'delete').mockResolvedValue(undefined);
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+
+    await expect(deleteDelegationRecord({ owner: OWNER, signer: '../../pubky.app/profile' })).rejects.toThrow(
+      'INVALID_PUBKY',
+    );
+    expect(deleteSpy).not.toHaveBeenCalled();
+    expect(requestSpy).not.toHaveBeenCalled();
+  });
+
   it('retains a live-signer pending record across the multi-tab survivor sign-in', async () => {
     const liveSigner = Keypair.random().publicKey.z32();
     vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
@@ -649,6 +740,7 @@ describe('PubchiApplication', () => {
     rememberPendingDelegationDeletes([{ owner: OWNER, signer }]);
     vi.spyOn(deviceKey, 'getDeviceKeys').mockReturnValue(new Promise(() => {}));
     const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    const errorSpy = vi.spyOn(Logger, 'error');
 
     try {
       const result = PubchiApplication.unpublishKnownDelegations(OWNER, {
@@ -659,6 +751,18 @@ describe('PubchiApplication', () => {
       await expect(result).resolves.toEqual({ failed: [{ owner: OWNER, signer }] });
       expect(requestSpy).not.toHaveBeenCalled();
       expect(readPendingDelegationDeletes()).toEqual([{ owner: OWNER, signer }]);
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(
+        isDrainTimeout(
+          new AppError({
+            category: ErrorCategory.Timeout,
+            code: TimeoutErrorCode.REQUEST_TIMEOUT,
+            message: 'Pubchi device-key read timed out',
+            service: ErrorService.Pubchi,
+            operation: 'unpublishKnownDelegations',
+          }),
+        ),
+      ).toBe(true);
     } finally {
       vi.useRealTimers();
     }

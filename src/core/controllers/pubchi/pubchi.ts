@@ -110,7 +110,10 @@ export class PubchiController {
     }
     const devices = await getDeviceKeys(owner);
     for (const device of devices) {
-      if (!isPubkyId(device.signer)) continue;
+      if (!isPubkyId(device.signer)) {
+        await deleteDeviceKey(owner, device.signer);
+        continue;
+      }
       await HomeserverService.request({ method: HttpMethod.DELETE, url: delegationUri(owner, device.signer) });
       await deleteDeviceKey(owner, device.signer);
     }

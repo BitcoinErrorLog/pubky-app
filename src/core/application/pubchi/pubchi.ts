@@ -66,7 +66,12 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
         timer = setTimeout(
           () =>
             reject(
-              Err.timeout(TimeoutErrorCode.REQUEST_TIMEOUT, message, {
+              // Expected multi-tab contention: keep Timeout category for isDrainTimeout
+              // without Err.timeout's error-level log + Sentry capture.
+              new AppError({
+                category: ErrorCategory.Timeout,
+                code: TimeoutErrorCode.REQUEST_TIMEOUT,
+                message,
                 service: ErrorService.Pubchi,
                 operation: 'unpublishKnownDelegations',
               }),
@@ -109,7 +114,7 @@ export class PubchiApplication {
 
     assertPubchiCapability();
     const now = Math.floor(Date.now() / 1000);
-    const device = await loadOrGenerateDeviceKey(params.owner, now);
+    const device = await loadTrustedDeviceKey(params.owner, now);
     const existing = await LocalPubchiBindingService.read(params.owner, params.bot);
     const createdAt = existing?.created_at ?? now;
     const candidate = {
@@ -477,6 +482,23 @@ export function assertRequestSignerIsStoredDevice(signer: string | undefined, st
   if (signer !== storedSigner) throw pubchiValidationError('DELEGATION_INVALID', 'query');
 }
 
+export function assertDeviceSignerIsPubkyId(signer: string, operation: string): void {
+  if (!isPubkyId(signer)) throw pubchiValidationError('DELEGATION_INVALID', operation);
+}
+
+async function loadTrustedDeviceKey(owner: string, now: number) {
+  const device = await loadOrGenerateDeviceKey(owner, now);
+  try {
+    assertDeviceSignerIsPubkyId(device.signer, 'commitCreateBinding');
+    return device;
+  } catch {
+    await deleteDeviceKey(owner, device.signer);
+    const minted = await loadOrGenerateDeviceKey(owner, now);
+    assertDeviceSignerIsPubkyId(minted.signer, 'commitCreateBinding');
+    return minted;
+  }
+}
+
 function assertPubchiCapability(): void {
   if (!sessionCanWritePubchi()) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
 }
@@ -497,7 +519,7 @@ function dedupePending(items: PendingDelegationDelete[]): PendingDelegationDelet
   return [...new Map(items.map((item) => [`${item.owner}:${item.signer}`, item])).values()];
 }
 
-function isDrainTimeout(error: unknown): boolean {
+export function isDrainTimeout(error: unknown): boolean {
   return error instanceof AppError && error.category === ErrorCategory.Timeout;
 }
 
@@ -509,7 +531,7 @@ function isAuthDenied(error: unknown): boolean {
   );
 }
 
-async function deleteDelegationRecord(item: PendingDelegationDelete): Promise<void> {
+export async function deleteDelegationRecord(item: PendingDelegationDelete): Promise<void> {
   if (!isPubkyId(item.owner) || !isPubkyId(item.signer)) {
     throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'INVALID_PUBKY', {
       service: ErrorService.Pubchi,
@@ -538,7 +560,7 @@ async function liveDeviceSigners(
   }
 }
 
-async function listKnownDelegations(
+export async function listKnownDelegations(
   owner: string,
 ): Promise<{ kind: 'ok'; items: PendingDelegationDelete[] } | { kind: 'defer' }> {
   if (!isPubchiEnabled()) {
