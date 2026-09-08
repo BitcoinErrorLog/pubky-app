@@ -1,7 +1,9 @@
-import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode, TimeoutErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
-import { ErrorService } from '@/libs/error/error.types';
-import { HttpMethod } from '@/libs/http/http.types';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { hasHttpStatus } from '@/libs/error/error.utils';
+import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import {
   deleteDeviceKey,
@@ -14,6 +16,7 @@ import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/err
 import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
 import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
 import {
+  parsePendingEntry,
   type PendingDelegationDelete,
   readPendingDelegationDeletes,
   rememberPendingDelegationDeletes,
@@ -22,6 +25,7 @@ import {
 import {
   bodySha256,
   delegationUri,
+  isPubkyId,
   ownerBindingUri,
   parseFeedProposalV1,
   parseOwnerBindingV1,
@@ -59,7 +63,16 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
     return await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
+        timer = setTimeout(
+          () =>
+            reject(
+              Err.timeout(TimeoutErrorCode.REQUEST_TIMEOUT, message, {
+                service: ErrorService.Pubchi,
+                operation: 'unpublishKnownDelegations',
+              }),
+            ),
+          ms,
+        );
       }),
     ]);
   } finally {
@@ -196,9 +209,9 @@ export class PubchiApplication {
    * remote delegation cannot be revoked without that identity's live session.
    *
    * When `includeLocalKeys` is false (sign-in / reconcile drains), a stored
-   * record that names a currently-live local device key is discarded and never
-   * DELETEd. Logout keeps the default `includeLocalKeys: true` so the live
-   * device is revoked.
+   * record that names a currently-live local device key is skipped (no DELETE)
+   * but retained. Logout keeps the default `includeLocalKeys: true` so the
+   * live device is revoked.
    */
   static async unpublishKnownDelegations(
     owner: string | undefined,
@@ -208,65 +221,82 @@ export class PubchiApplication {
       if (!owner) return { failed: [] };
 
       const includeLocalKeys = options.includeLocalKeys !== false;
-      const known = includeLocalKeys ? await listKnownDelegations(owner) : [];
+      const listed = includeLocalKeys ? await listKnownDelegations(owner) : { kind: 'ok' as const, items: [] };
+      if (listed.kind === 'defer') {
+        Logger.warn('Pubchi device-key read timed out; deferring pending drain', { owner });
+        return { failed: ownerPending(owner) };
+      }
+      const known = listed.items;
       if (known.length) rememberPendingDelegationDeletes(known);
 
       const liveLookup = await liveDeviceSigners(owner);
-      if (!includeLocalKeys && !liveLookup.ok) {
+      if (!liveLookup.ok && (liveLookup.defer || !includeLocalKeys)) {
         Logger.warn('Pubchi live-device lookup failed; deferring pending drain', { owner });
-        return { failed: readPendingDelegationDeletes().filter((item) => item.owner === owner) };
+        return { failed: ownerPending(owner) };
       }
       const liveSigners = liveLookup.ok ? liveLookup.signers : new Set<string>();
-      const pendingByKey = new Map<string, PendingDelegationDelete>();
-      for (const item of [...readPendingDelegationDeletes().filter((entry) => entry.owner === owner), ...known]) {
-        if (!includeLocalKeys && liveSigners.has(item.signer)) continue;
-        pendingByKey.set(`${item.owner}:${item.signer}`, item);
+      const skippedLive: PendingDelegationDelete[] = [];
+      const toDeleteByKey = new Map<string, PendingDelegationDelete>();
+      for (const item of [...ownerPending(owner), ...known]) {
+        const parsed = parsePendingEntry(item);
+        if (!parsed) continue;
+        if (!includeLocalKeys && liveSigners.has(parsed.signer)) {
+          skippedLive.push(parsed);
+          continue;
+        }
+        toDeleteByKey.set(`${parsed.owner}:${parsed.signer}`, parsed);
       }
-      const pending = [...pendingByKey.values()];
-      if (!includeLocalKeys) {
-        replacePendingDelegationDeletesForOwner(owner, pending);
-      }
+      const toDelete = [...toDeleteByKey.values()];
       if (!options.attemptRemote) {
-        return { failed: pending };
+        return { failed: dedupePending([...skippedLive, ...toDelete]) };
+      }
+      if (!sessionCanWritePubchi()) {
+        const retained = dedupePending([...skippedLive, ...toDelete]);
+        replacePendingDelegationDeletesForOwner(owner, retained);
+        return { failed: retained };
       }
 
-      const failed: PendingDelegationDelete[] = [];
+      const retryable: PendingDelegationDelete[] = [];
+      const authTerminal: PendingDelegationDelete[] = [];
       const results = await Promise.allSettled(
-        pending.map((item) =>
+        toDelete.map((item) =>
           withTimeout(
-            HomeserverService.request({
-              method: HttpMethod.DELETE,
-              url: delegationUri(item.owner, item.signer),
-            }),
+            deleteDelegationRecord(item),
             PUBCHI_DELEGATION_DELETE_TIMEOUT_MS,
             'Pubchi delegation DELETE timed out',
           ),
         ),
       );
       results.forEach((result, index) => {
-        const item = pending[index];
+        const item = toDelete[index];
         if (!item) return;
-        if (result.status === 'rejected') {
-          Logger.warn('Pubchi delegation DELETE failed; logout continues', {
-            owner: item.owner,
-            signer: item.signer,
-            error: result.reason,
-          });
-          failed.push(item);
+        if (result.status === 'fulfilled') return;
+        const error = result.reason;
+        if (isAuthDenied(error)) {
+          authTerminal.push(item);
+          return;
         }
+        Logger.warn('Pubchi delegation DELETE failed; logout continues', {
+          owner: item.owner,
+          signer: item.signer,
+          error,
+        });
+        retryable.push(item);
       });
-      replacePendingDelegationDeletesForOwner(owner, failed);
-      if (failed.length) {
+      const retained = dedupePending([...skippedLive, ...authTerminal, ...retryable]);
+      replacePendingDelegationDeletesForOwner(owner, retained);
+      if (retryable.length) {
         toast({
           variant: 'warning',
-          title: 'Pubchi device access could not be revoked on the homeserver. It will be retried the next time you sign in.',
+          title:
+            'Pubchi device access could not be revoked on the homeserver. It will be retried the next time you sign in.',
           dismissButton: true,
         });
       }
-      return { failed };
+      return { failed: retained };
     } catch (error) {
       Logger.warn('Pubchi unpublish threw; sign-out continues', { error });
-      return { failed: owner ? readPendingDelegationDeletes().filter((item) => item.owner === owner) : [] };
+      return { failed: owner ? ownerPending(owner) : [] };
     }
   }
 
@@ -395,7 +425,9 @@ async function rollbackBindingWrite(
   await LocalPubchiBindingService.delete(params.owner, params.bot);
 }
 
-async function markBindingRevoked(local: NonNullable<Awaited<ReturnType<typeof LocalPubchiBindingService.readActive>>>) {
+async function markBindingRevoked(
+  local: NonNullable<Awaited<ReturnType<typeof LocalPubchiBindingService.readActive>>>,
+) {
   const now = Math.floor(Date.now() / 1000);
   const revoked = {
     schema: 'pubchi-owner-binding' as const,
@@ -446,31 +478,84 @@ export function assertRequestSignerIsStoredDevice(signer: string | undefined, st
 }
 
 function assertPubchiCapability(): void {
+  if (!sessionCanWritePubchi()) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+}
+
+function sessionCanWritePubchi(): boolean {
   const session = useAuthStore.getState().selectSession();
-  if (!session) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
-  const capabilities = session.info.capabilities;
-  if (!capabilities.some((capability) => capability === '/pub/pubchi.app/:rw' || capability === '/pub/:rw')) {
-    throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
-  }
+  if (!session) return false;
+  return session.info.capabilities.some(
+    (capability) => capability === '/pub/pubchi.app/:rw' || capability === '/pub/:rw',
+  );
 }
 
-async function liveDeviceSigners(owner: string): Promise<{ ok: true; signers: Set<string> } | { ok: false }> {
+function ownerPending(owner: string): PendingDelegationDelete[] {
+  return readPendingDelegationDeletes().filter((item) => item.owner === owner);
+}
+
+function dedupePending(items: PendingDelegationDelete[]): PendingDelegationDelete[] {
+  return [...new Map(items.map((item) => [`${item.owner}:${item.signer}`, item])).values()];
+}
+
+function isDrainTimeout(error: unknown): boolean {
+  return error instanceof AppError && error.category === ErrorCategory.Timeout;
+}
+
+function isAuthDenied(error: unknown): boolean {
+  return (
+    hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED) ||
+    hasHttpStatus(error, HttpStatusCode.FORBIDDEN) ||
+    (error instanceof AppError && error.category === ErrorCategory.Auth)
+  );
+}
+
+async function deleteDelegationRecord(item: PendingDelegationDelete): Promise<void> {
+  if (!isPubkyId(item.owner) || !isPubkyId(item.signer)) {
+    throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'INVALID_PUBKY', {
+      service: ErrorService.Pubchi,
+      operation: 'unpublishKnownDelegations',
+    });
+  }
   try {
-    return { ok: true, signers: new Set((await getDeviceKeys(owner)).map((key) => key.signer)) };
-  } catch {
-    return { ok: false };
+    await HomeserverService.delete(delegationUri(item.owner, item.signer));
+  } catch (error) {
+    if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return;
+    throw error;
   }
 }
 
-async function listKnownDelegations(owner: string): Promise<PendingDelegationDelete[]> {
+async function getDeviceKeysBounded(owner: string) {
+  return withTimeout(getDeviceKeys(owner), PUBCHI_DELEGATION_DELETE_TIMEOUT_MS, 'Pubchi device-key read timed out');
+}
+
+async function liveDeviceSigners(
+  owner: string,
+): Promise<{ ok: true; signers: Set<string> } | { ok: false; defer: boolean }> {
+  try {
+    return { ok: true, signers: new Set((await getDeviceKeysBounded(owner)).map((key) => key.signer)) };
+  } catch (error) {
+    return { ok: false, defer: isDrainTimeout(error) };
+  }
+}
+
+async function listKnownDelegations(
+  owner: string,
+): Promise<{ kind: 'ok'; items: PendingDelegationDelete[] } | { kind: 'defer' }> {
   if (!isPubchiEnabled()) {
-    return readPendingDelegationDeletes().filter((item) => item.owner === owner);
+    return { kind: 'ok', items: ownerPending(owner) };
   }
   try {
-    const keys = await getDeviceKeys(owner);
-    return keys.map((key) => ({ owner, signer: key.signer }));
-  } catch {
-    return readPendingDelegationDeletes().filter((item) => item.owner === owner);
+    const keys = await getDeviceKeysBounded(owner);
+    return {
+      kind: 'ok',
+      items: keys.flatMap((key) => {
+        const entry = parsePendingEntry({ owner, signer: key.signer });
+        return entry ? [entry] : [];
+      }),
+    };
+  } catch (error) {
+    if (isDrainTimeout(error)) return { kind: 'defer' };
+    return { kind: 'ok', items: ownerPending(owner) };
   }
 }
 

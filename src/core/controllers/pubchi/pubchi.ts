@@ -84,22 +84,33 @@ export class PubchiController {
   }
 
   static async getCapabilityApprovalUrl(): Promise<string> {
-    const { authorizationUrl } = await HomeserverService.generateAuthUrl(
-      '/pub/pubky.app/:rw,/pub/pubchi.app/:rw',
-    );
+    const { authorizationUrl } = await HomeserverService.generateAuthUrl('/pub/pubky.app/:rw,/pub/pubchi.app/:rw');
     return authorizationUrl;
   }
 
   static async revokeDevice(signer: string): Promise<void> {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
+    if (!isPubkyId(owner) || !isPubkyId(signer)) {
+      throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'INVALID_PUBKY', {
+        service: ErrorService.Pubchi,
+        operation: 'revokeDevice',
+      });
+    }
     await HomeserverService.request({ method: HttpMethod.DELETE, url: delegationUri(owner, signer) });
     await deleteDeviceKey(owner, signer);
   }
 
   static async revokeAllDevices(): Promise<void> {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
+    if (!isPubkyId(owner)) {
+      throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'INVALID_PUBKY', {
+        service: ErrorService.Pubchi,
+        operation: 'revokeAllDevices',
+      });
+    }
     const devices = await getDeviceKeys(owner);
     for (const device of devices) {
+      if (!isPubkyId(device.signer)) continue;
       await HomeserverService.request({ method: HttpMethod.DELETE, url: delegationUri(owner, device.signer) });
       await deleteDeviceKey(owner, device.signer);
     }

@@ -3,6 +3,7 @@ import { PubchiApplication } from '@/application/pubchi/pubchi';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import type { Pubky } from '@/models/models.types';
+import { HomeserverService } from '@/services/homeserver/homeserver';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { AuthStore } from '@/stores/auth/auth.types';
 import { PubchiController } from './pubchi';
@@ -74,5 +75,13 @@ describe('PubchiController', () => {
     const createSpy = vi.spyOn(PubchiApplication, 'commitCreateBinding');
     await expect(PubchiController.commitCreateBinding({ bot: 'not-a-pubky' })).rejects.toThrow('INVALID_PUBKY');
     expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not DELETE a UI-supplied path-injection signer', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    await expect(PubchiController.revokeDevice('../bots/x')).rejects.toThrow('INVALID_PUBKY');
+    await expect(PubchiController.revokeDevice('../../pubky.app/profile')).rejects.toThrow('INVALID_PUBKY');
+    expect(requestSpy).not.toHaveBeenCalled();
   });
 });

@@ -18,7 +18,8 @@ When the flag is on and a user enrolls, the isolated `pubchi` IndexedDB is creat
 ## Accepted limitations
 
 - A previous identity's homeserver delegation cannot be revoked without that identity's live session. The 30-day delegation expiry is the only backstop.
-- `Dexie.delete('pubchi')` can be blocked by another open tab holding the database. In that multi-tab case, a failed remote DELETE can leave a live device key and a live delegation in the sibling tab after this tab's logout.
+- `Dexie.delete('pubchi')` can be blocked by another open tab holding the database. In that multi-tab case, a failed remote DELETE can leave a live device key and a live delegation in the sibling tab after this tab's logout. A pending DELETE record for that signer is retained across sign-in/reconcile while the key is still live locally, so the next drain after a genuine wipe can finish revocation. It is not discarded merely because the skip path ran.
+- `pubchi.pendingDelegationDeletes` is capped at 32 unique `owner:signer` rows (FIFO, newest-wins). That bound is a storage bound, not a security boundary: anyone who can write localStorage can already delete the pending list or the device key. Ordinary churn (~11 identities × 3 keys) can also evict a legitimate not-yet-attempted record. Do not treat eviction as an access-control failure.
 
 ## Surfaces
 
@@ -36,10 +37,10 @@ Vendored from `@pubky/pubchi-schemas` commit `bbf8a73` into `src/libs/pubchi/sch
 
 Endpoint is selected by the purpose the user chose. `pubchiEndpointFor(purpose)` in `src/libs/pubchi/flags.ts` is the mapping; the service layer uses it. Do not POST every purpose to `/v1/query`.
 
-| Purpose                      | Method + path                     | Response                        |
-| ---------------------------- | --------------------------------- | ------------------------------- |
-| `who-tagged-me` (Ask)        | `POST ${PUBCHI_API_URL}/v1/query` | `QueryResultV1`                 |
-| `build-feed` (Build feed)    | `POST ${PUBCHI_API_URL}/v1/feed`  | `FeedProposalV1`                |
+| Purpose                      | Method + path                     | Response                                            |
+| ---------------------------- | --------------------------------- | --------------------------------------------------- |
+| `who-tagged-me` (Ask)        | `POST ${PUBCHI_API_URL}/v1/query` | `QueryResultV1`                                     |
+| `build-feed` (Build feed)    | `POST ${PUBCHI_API_URL}/v1/feed`  | `FeedProposalV1`                                    |
 | `what-i-missed`, `summarize` | not served in Phase 0             | App refuses with `PURPOSE_UNSUPPORTED` (no network) |
 
 The service accepts only those two purpose/path pairs. A mismatched pair returns `400 {"error":"PURPOSE_UNSUPPORTED"}`. Responses are parsed by `schema` (`pubchi-query-result` vs `pubchi-feed-proposal`).
@@ -48,14 +49,14 @@ The service accepts only those two purpose/path pairs. A mismatched pair returns
 
 `RequestObjectV1` is signed with a 32-byte Ed25519 seed held in a **non-persisted** in-memory holder (`src/libs/pubchi/signing-seed.ts`). The holder is populated only when the App has the secret in hand at sign-in / signup:
 
-| Session type                                                         | Can sign in Phase 0 |
-| -------------------------------------------------------------------- | ------------------- |
-| Recovery phrase (`loginWithMnemonic`)                                | yes                 |
-| Recovery file (`loginWithEncryptedFile`)                             | yes                 |
-| In-browser signup (`signUp` after `ProfileController.generateSecrets`) | yes                 |
-| Secret-key path that goes through `AuthController.signIn({ keypair })` | yes                 |
-| Pubky Ring / auth-URL (`getAuthUrl` / `initializeAuthenticatedSession`) | no                |
-| Restored persisted session after reload (seed was never persisted)   | no                  |
+| Session type                                                            | Can sign in Phase 0 |
+| ----------------------------------------------------------------------- | ------------------- |
+| Recovery phrase (`loginWithMnemonic`)                                   | yes                 |
+| Recovery file (`loginWithEncryptedFile`)                                | yes                 |
+| In-browser signup (`signUp` after `ProfileController.generateSecrets`)  | yes                 |
+| Secret-key path that goes through `AuthController.signIn({ keypair })`  | yes                 |
+| Pubky Ring / auth-URL (`getAuthUrl` / `initializeAuthenticatedSession`) | no                  |
+| Restored persisted session after reload (seed was never persisted)      | no                  |
 
 `secretSeedFromSession` (the hook) reads **only** this holder. It does not read `useOnboardingStore.secretKey`. The onboarding persist partialize is unchanged and is not used for Pubchi.
 
