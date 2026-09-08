@@ -128,6 +128,23 @@ describe('usePubchiQuery', () => {
     expect(mocks.fetchPubchiQuery).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
     expect(result.current.signingAvailable).toBe(false);
-    expect(result.current.errorCode).toMatch(/sign in with your recovery phrase/i);
+    expect(result.current.signingUnavailableMessage).toBe(
+      'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
+    );
+    expect(result.current.errorCode).toBe('This browser is not enrolled. Enroll a bot in Settings → Pubchi.');
+  });
+
+  it('surfaces the schema message when a question is missing', async () => {
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    void result.current.form.formState.errors;
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, '   ');
+      await expect(result.current.submit('who-tagged-me')).resolves.toBe(false);
+    });
+
+    expect(mocks.fetchPubchiQuery).not.toHaveBeenCalled();
+    expect(result.current.form.formState.errors[QUERY_FORM_FIELDS.QUESTION]?.message).toBe('Enter a question.');
   });
 });

@@ -17,8 +17,7 @@ const hookState = {
   loading: false,
   enabled: true,
   signingAvailable: true,
-  signingUnavailableMessage:
-    'Pubchi signing is unavailable for this session type in Phase 0; sign in with your recovery phrase or key to use it',
+  signingUnavailableMessage: 'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
 };
 
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
@@ -54,7 +53,7 @@ describe('PubchiPanel', () => {
     hookState.signingAvailable = false;
     render(<PubchiPanel open onOpenChange={() => {}} />);
     expect(screen.getByTestId('pubchi-signing-unavailable')).toHaveTextContent(
-      'Pubchi signing is unavailable for this session type in Phase 0',
+      'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
     );
     expect(screen.getByTestId('pubchi-ask')).toBeDisabled();
     expect(screen.getByTestId('pubchi-build-feed')).toBeDisabled();

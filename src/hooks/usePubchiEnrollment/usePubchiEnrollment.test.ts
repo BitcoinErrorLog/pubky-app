@@ -88,4 +88,22 @@ describe('usePubchiEnrollment', () => {
 
     expect(result.current.binding).toEqual(ACTIVE);
   });
+
+  it('surfaces the schema message when enroll is submitted with an invalid bot', async () => {
+    mocks.reconcile.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    void result.current.form.formState.errors;
+    await act(async () => {
+      result.current.form.setValue(ENROLL_FORM_FIELDS.BOT, 'not-a-pubky');
+      await expect(result.current.submit()).resolves.toBe(false);
+    });
+
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.BOT]?.message).toBe(
+      'Enter a 52-character z-base-32 bot pubky.',
+    );
+  });
 });

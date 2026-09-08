@@ -20,8 +20,7 @@ import {
   QUERY_FORM_FIELDS,
 } from './usePubchiQuery.types';
 
-const SIGNING_UNAVAILABLE =
-  'Pubchi signing is unavailable for this session type in Phase 0; sign in with your recovery phrase or key to use it';
+const SIGNING_UNAVAILABLE = 'This browser is not enrolled. Enroll a bot in Settings → Pubchi.';
 
 export function usePubchiQuery() {
   const owner = useAuthStore((state) => state.currentUserPubky);
@@ -50,27 +49,32 @@ export function usePubchiQuery() {
       setErrorCode(SIGNING_UNAVAILABLE);
       return false;
     }
-    const valid = await form.trigger();
-    if (!valid) return false;
-    setLoading(true);
-    setErrorCode(undefined);
-    try {
-      const values = form.getValues();
-      const next = await PubchiController.fetchPubchiQuery({
-        question: values[QUERY_FORM_FIELDS.QUESTION],
-        purpose,
-      });
-      setResult(next);
-      return true;
-    } catch (error) {
-      const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
-      setErrorCode(message);
-      setResult(undefined);
-      toast({ variant: 'error', title: message, dismissButton: true });
-      return false;
-    } finally {
-      setLoading(false);
-    }
+    let ok = false;
+    await form.handleSubmit(
+      async (values) => {
+        setLoading(true);
+        setErrorCode(undefined);
+        try {
+          const next = await PubchiController.fetchPubchiQuery({
+            question: values[QUERY_FORM_FIELDS.QUESTION],
+            purpose,
+          });
+          setResult(next);
+          ok = true;
+        } catch (error) {
+          const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
+          setErrorCode(message);
+          setResult(undefined);
+          toast({ variant: 'error', title: message, dismissButton: true });
+        } finally {
+          setLoading(false);
+        }
+      },
+      () => {
+        document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
+      },
+    )();
+    return ok;
   };
 
   const applyFeed = async (): Promise<boolean> => {

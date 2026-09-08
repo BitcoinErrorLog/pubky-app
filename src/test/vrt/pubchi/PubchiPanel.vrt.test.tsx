@@ -3,6 +3,10 @@ import { PUBCHI_PANEL_SURFACE, PubchiPanel } from '@/organisms/Pubchi/PubchiPane
 import { renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 
+const mockQuery = vi.hoisted(() => ({
+  signingAvailable: true,
+}));
+
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
   usePubchiQuery: () => ({
     form: {
@@ -16,9 +20,8 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
     errorCode: undefined,
     loading: false,
     enabled: true,
-    signingAvailable: true,
-    signingUnavailableMessage:
-      'Pubchi signing is unavailable for this session type in Phase 0; sign in with your recovery phrase or key to use it',
+    signingAvailable: mockQuery.signingAvailable,
+    signingUnavailableMessage: 'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
   }),
 }));
 
@@ -38,6 +41,7 @@ vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
 
 describe('PubchiPanel — visual regression', () => {
   it('guards the production surface marker', async () => {
+    mockQuery.signingAvailable = true;
     const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
@@ -46,9 +50,18 @@ describe('PubchiPanel — visual regression', () => {
   });
 
   it('captures the production panel surface only', async () => {
+    mockQuery.signingAvailable = true;
     const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toMatchScreenshot('pubchi-panel-desktop');
+  });
+
+  it('captures the unenrolled signing copy', async () => {
+    mockQuery.signingAvailable = false;
+    const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toMatchScreenshot('pubchi-panel-unenrolled-desktop');
   });
 });

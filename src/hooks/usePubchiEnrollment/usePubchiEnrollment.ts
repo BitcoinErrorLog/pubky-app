@@ -50,24 +50,29 @@ export function usePubchiEnrollment() {
   }, [owner]);
 
   const submit = async (): Promise<boolean> => {
-    const valid = await form.trigger();
-    if (!valid) return false;
-    setLoading(true);
-    try {
-      const values = form.getValues();
-      const next = await PubchiController.commitCreateBinding({ bot: values[ENROLL_FORM_FIELDS.BOT] });
-      setBinding(next);
-      setDevices(await PubchiController.listDeviceKeys());
-      form.reset(enrollPubchiFormDefaults);
-      toast({ variant: 'default', title: 'Pubchi bot enrolled', dismissButton: true });
-      return true;
-    } catch (error) {
-      const message = error instanceof AppError ? error.message : 'INVALID_PUBKY';
-      toast({ variant: 'error', title: message, dismissButton: true });
-      return false;
-    } finally {
-      setLoading(false);
-    }
+    let ok = false;
+    await form.handleSubmit(
+      async (values) => {
+        setLoading(true);
+        try {
+          const next = await PubchiController.commitCreateBinding({ bot: values[ENROLL_FORM_FIELDS.BOT] });
+          setBinding(next);
+          setDevices(await PubchiController.listDeviceKeys());
+          form.reset(enrollPubchiFormDefaults);
+          toast({ variant: 'default', title: 'Pubchi bot enrolled', dismissButton: true });
+          ok = true;
+        } catch (error) {
+          const message = error instanceof AppError ? error.message : 'INVALID_PUBKY';
+          toast({ variant: 'error', title: message, dismissButton: true });
+        } finally {
+          setLoading(false);
+        }
+      },
+      () => {
+        document.getElementById(ENROLL_FORM_FIELDS.BOT)?.focus();
+      },
+    )();
+    return ok;
   };
 
   const remove = async (): Promise<boolean> => {
