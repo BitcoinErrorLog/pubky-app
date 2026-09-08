@@ -132,7 +132,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getShopTags: () => view.shopTags,
     fetchShopTags: () => Promise.resolve([]),
     // Cards carry a watch toggle; VRT keeps them at the unwatched baseline.
-    isFavorite: () => false,
+    // The toggle's favorite hook and the live-bid hook read through the
+    // controller, so every static the card reaches stays on the mock.
+    isFavorite: () => Promise.resolve(false),
+    commitCreateFavorite: () => Promise.resolve(),
+    commitDeleteFavorite: () => Promise.resolve(),
+    getMarketplaceListingProjection: () => Promise.resolve(null),
     // No reputation-aware index in these scenarios: the rating header and the
     // reviews section render nothing, keeping the existing baselines. The
     // review surfaces have their own VRT file (MarketplaceReviewsPublic).

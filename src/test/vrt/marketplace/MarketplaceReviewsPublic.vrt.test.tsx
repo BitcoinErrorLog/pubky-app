@@ -33,6 +33,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     fetchSellerReviews: vi.fn(async () => ({ status: 'ok', reviews: controllerState.reviews })),
     fetchListingReviews: vi.fn(async () => ({ status: 'ok', reviews: controllerState.reviews })),
     getOwnMarketplaceReviewResponse: vi.fn(async () => controllerState.ownResponse),
+    // The scenes render real MarketplaceListingCards against the real auth
+    // store (one scene signs the seller in), so the cards' watch toggle
+    // reaches the controller: keep the favorite statics on the mock.
+    isFavorite: () => Promise.resolve(false),
+    commitCreateFavorite: () => Promise.resolve(),
+    commitDeleteFavorite: () => Promise.resolve(),
   },
 }));
 

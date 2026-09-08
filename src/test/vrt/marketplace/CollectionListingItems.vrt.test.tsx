@@ -78,6 +78,15 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getListing: (_seller: string, listingId: string) => view.cachedByListingId.get(listingId),
     // Hydration settles immediately; the cells render from the "cache" above.
     getOrFetchListing: () => Promise.resolve(null),
+    // The hydrated cells are real MarketplaceListingCards: their watch toggle
+    // reads favorite state through the controller (and would hit the real
+    // auth store under a full-suite run, where another file may leave a
+    // signed-in user behind), and the live-bid hook reads the projection in
+    // durable mode. Keep every static the card reaches on the mock.
+    isFavorite: () => Promise.resolve(false),
+    commitCreateFavorite: () => Promise.resolve(),
+    commitDeleteFavorite: () => Promise.resolve(),
+    getMarketplaceListingProjection: () => Promise.resolve(null),
   },
 }));
 
