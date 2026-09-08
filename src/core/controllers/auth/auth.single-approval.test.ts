@@ -1,11 +1,12 @@
 import type { AuthToken, Session } from '@synonymdev/pubky';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
 import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
 import { clearDatabase } from '@/database/franky/franky.helpers';
 import { Err } from '@/libs/error/error.factories';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorService } from '@/libs/error/error.types';
+import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { useMigrationStore } from '@/stores/migration/migration.store';
 import { mockMigrationStore } from '@/test-utils/stores';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -385,5 +386,52 @@ describe('AuthController single-approval ceremony', () => {
     expect(startSpy).toHaveBeenCalledTimes(1);
     await expect(bridged.awaitSession()).resolves.toEqual(marketplace);
     await expect(awaitApproval).resolves.toBe(mockSession);
+  });
+
+  describe('flag off (PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN=false)', () => {
+    beforeEach(() => {
+      process.env.PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN = 'false';
+      resetRuntimeConfigForTests();
+    });
+
+    afterEach(() => {
+      delete process.env.PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN;
+      resetRuntimeConfigForTests();
+    });
+
+    it('getAuthUrl uses the legacy wrapAuthFlow path: clearDatabase + generateAuthUrl, no ceremony flow', async () => {
+      const genSpy = vi.spyOn(AuthApplication, 'generateAuthUrl').mockResolvedValue({
+        authorizationUrl: 'https://example.com/auth?legacy',
+        awaitApproval: new Promise<Session>(() => {}),
+        cancelAuthFlow: vi.fn(),
+      });
+      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow');
+
+      const result = await AuthController.getAuthUrl();
+      result.awaitApproval.catch(() => {});
+
+      expect(genSpy).toHaveBeenCalledTimes(1);
+      expect(startSpy).not.toHaveBeenCalled();
+      expect(mockClearDatabase).toHaveBeenCalledTimes(1);
+      expect(result.authorizationUrl).toBe('https://example.com/auth?legacy');
+    });
+
+    it('getStepUpAuthUrl uses the legacy wrapAuthFlow path and preserves local state', async () => {
+      const genSpy = vi.spyOn(AuthApplication, 'generateAuthUrl').mockResolvedValue({
+        authorizationUrl: 'https://example.com/auth?legacy-step-up',
+        awaitApproval: new Promise<Session>(() => {}),
+        cancelAuthFlow: vi.fn(),
+      });
+      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow');
+
+      const result = await AuthController.getStepUpAuthUrl();
+      result.awaitApproval.catch(() => {});
+
+      expect(genSpy).toHaveBeenCalledTimes(1);
+      expect(startSpy).not.toHaveBeenCalled();
+      // preserveLocalState: a step-up must not wipe local state.
+      expect(mockClearDatabase).not.toHaveBeenCalled();
+      expect(result.authorizationUrl).toBe('https://example.com/auth?legacy-step-up');
+    });
   });
 });

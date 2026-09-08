@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SINGLE_APPROVAL_SIGN_IN } from '@/config/app';
+import { isSingleApprovalSignInEnabled } from '@/config/app';
 import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { getErrorMessage } from '@/libs/error/error.utils';
@@ -68,7 +68,7 @@ export function useMarketplaceSessionConnect(
    * the rendered copy and the flow `start()` actually begins can never
    * diverge (the dialog renders this value; it must not re-evaluate it).
    */
-  const requestsFullGrant = SINGLE_APPROVAL_SIGN_IN && !CommerceController.hasFullHomeserverGrant();
+  const requestsFullGrant = isSingleApprovalSignInEnabled() && !CommerceController.hasFullHomeserverGrant();
 
   const start = useCallback(() => {
     detachActiveFlow();

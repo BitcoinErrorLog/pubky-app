@@ -1,4 +1,5 @@
 import { Env } from '@/libs/env/env';
+import { getSingleApprovalSignIn } from '@/libs/runtime-config/runtime-config';
 
 export const APP_VERSION = Env.NEXT_PUBLIC_APP_VERSION;
 
@@ -20,11 +21,15 @@ export const APP_VERSION = Env.NEXT_PUBLIC_APP_VERSION;
 export const CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw';
 
 /**
- * Interim dual-POST ceremony (docs/ecommerce/single-approval.md). Flag off
- * restores `awaitApproval()` sign-in plus empty-capability marketplace connect.
+ * Interim dual-POST ceremony (docs/ecommerce/single-approval.md). Runtime
+ * flag (`PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN`, default on): `false`
+ * restores `awaitApproval()` sign-in plus empty-capability marketplace
+ * connect. Read at call time so a deploy can roll back without a rebuild.
  * Do not roll back by POSTing empty capabilities to `/session`.
  */
-export const SINGLE_APPROVAL_SIGN_IN = true;
+export function isSingleApprovalSignInEnabled(): boolean {
+  return getSingleApprovalSignIn();
+}
 
 /** Order-insensitive set equality with {@link CAPABILITIES} split on commas. */
 export function capabilitiesMatchFullGrant(capabilities: readonly string[]): boolean {

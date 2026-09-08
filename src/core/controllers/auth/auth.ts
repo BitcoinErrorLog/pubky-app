@@ -11,7 +11,7 @@ import { MessagingApplication } from '@/application/messaging/messaging';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { TagApplication } from '@/application/tag/tag';
-import { SINGLE_APPROVAL_SIGN_IN } from '@/config/app';
+import { isSingleApprovalSignInEnabled } from '@/config/app';
 import type {
   TLoginWithEncryptedFileParams,
   TLoginWithMnemonicParams,
@@ -573,14 +573,14 @@ export class AuthController {
    * @returns Promise resolving to the generated authentication URL
    */
   static async getAuthUrl(): Promise<TGenerateAuthUrlResult> {
-    if (!SINGLE_APPROVAL_SIGN_IN) {
+    if (!isSingleApprovalSignInEnabled()) {
       return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl());
     }
     return this.wrapDirectSignInCeremony({ preserveLocalState: false });
   }
 
   static async getStepUpAuthUrl(): Promise<TGenerateAuthUrlResult> {
-    if (!SINGLE_APPROVAL_SIGN_IN) {
+    if (!isSingleApprovalSignInEnabled()) {
       return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl(), { preserveLocalState: true });
     }
     return this.wrapDirectSignInCeremony({ preserveLocalState: true });

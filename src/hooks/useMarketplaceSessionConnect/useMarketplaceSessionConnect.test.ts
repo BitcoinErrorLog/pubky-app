@@ -98,6 +98,28 @@ describe('useMarketplaceSessionConnect', () => {
     expect(AuthController.beginBridgedCommerceSessionFlow).not.toHaveBeenCalled();
   });
 
+  it('flag off: starts the legacy empty-capability connect even with a narrow grant', async () => {
+    process.env.PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN = 'false';
+    const { resetRuntimeConfigForTests } = await import('@/libs/runtime-config/runtime-config');
+    resetRuntimeConfigForTests();
+    try {
+      const { flow } = createDeferredFlow('pubkyauth:///?caps=empty');
+      vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
+      vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockReturnValue(flow);
+      const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+      expect(result.current.requestsFullGrant).toBe(false);
+      act(() => result.current.start());
+
+      expect(CommerceController.beginMarketplaceSessionConnect).toHaveBeenCalledTimes(1);
+      expect(AuthController.beginBridgedCommerceSessionFlow).not.toHaveBeenCalled();
+      expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=empty');
+    } finally {
+      delete process.env.PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN;
+      resetRuntimeConfigForTests();
+    }
+  });
+
   it('frees a cancelled bridged flow THROUGH the controller so retry mints a fresh URL', () => {
     const { flow } = createDeferredFlow('pubkyauth:///?caps=full');
     vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
