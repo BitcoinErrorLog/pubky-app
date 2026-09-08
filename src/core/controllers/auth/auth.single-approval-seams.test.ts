@@ -1,6 +1,7 @@
 import type { AuthToken, Session } from '@synonymdev/pubky';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CAPABILITIES } from '@/config/app';
+import { AuthErrorCode } from '@/libs/error/error.codes';
 import { asOpaque } from '@/test-utils/type-assertions';
 
 /**
@@ -21,6 +22,9 @@ const mockState = vi.hoisted(() => ({
   restoreSession: vi.fn(),
   startAuthFlow: vi.fn(),
   authTokenFromBytes: vi.fn(),
+  // Who the device is signed in as, read by the auth-store mock below. Null
+  // means "no signed-in identity" (the plain sign-in tests).
+  currentUserPubky: null as string | null,
 }));
 
 vi.mock('@synonymdev/pubky', () => {
@@ -85,6 +89,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: {
     getState: () => ({
       selectSession: () => null,
+      currentUserPubky: mockState.currentUserPubky,
     }),
   },
 }));
@@ -105,6 +110,7 @@ const mockSession = asOpaque<Session>({
 describe('single-approval ceremony at the transport seams', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockState.currentUserPubky = null;
     const { AuthController } = await import('./auth');
     AuthController.resetSignInCeremonyGuard();
 
@@ -178,5 +184,49 @@ describe('single-approval ceremony at the transport seams', () => {
 
     // The marketplace rejection must NOT discard the restored session.
     await expect(awaitApproval).resolves.toBe(mockSession);
+  });
+
+  it('step-up approved by a different identity mints no marketplace bearer and signs the session out', async () => {
+    // The device is signed in as A; the signer approves the step-up as B
+    // (PUBKY). The identity gate must run BEFORE the marketplace POST.
+    mockState.currentUserPubky = 'a'.repeat(52);
+    const signout = vi.fn();
+    const wrongIdentitySession = asOpaque<Session>({
+      info: { publicKey: { z32: () => PUBKY } },
+      signout,
+    });
+    mockState.restoreSession.mockResolvedValue(wrongIdentitySession);
+    mockState.clientFetch.mockResolvedValue(new Response(SESSION_INFO_BODY, { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          token: BEARER,
+          pubky: PUBKY,
+          capabilities: CAPABILITIES,
+          expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const { AuthController } = await import('./auth');
+    const { awaitApproval } = await AuthController.getStepUpAuthUrl();
+
+    await expect(awaitApproval).rejects.toMatchObject({ code: AuthErrorCode.UNAUTHORIZED });
+
+    // The marketplace POST never ran, so no bearer exists anywhere: not in
+    // the service's memory, not in its localStorage mirror, not in the
+    // commerce store.
+    expect(fetch).not.toHaveBeenCalled();
+    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
+      '@/services/marketplace/marketplace-session'
+    );
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+    const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
+    expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+
+    // The wrong-identity session is signed back out, not left dangling.
+    expect(signout).toHaveBeenCalledTimes(1);
   });
 });

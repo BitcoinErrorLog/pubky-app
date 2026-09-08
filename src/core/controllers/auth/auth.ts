@@ -755,7 +755,16 @@ export class AuthController {
 
       const outcome: Promise<TSingleApprovalResult> = (async () => {
         const authToken = await AuthApplication.withAuthFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
-        const result = await AuthApplication.completeSingleApprovalCeremony(authToken);
+        // Step-up only (preserveLocalState): refuse a wrong-identity approval
+        // INSIDE the ceremony, BEFORE the marketplace POST can mint (and
+        // persist) a bearer for the other pubky — the same ordering the
+        // bridged ceremony gets from its onHomeserverSession swap. A direct
+        // sign-in changes identity by design, so it gets no gate.
+        const result = preserveLocalState
+          ? await AuthApplication.completeSingleApprovalCeremony(authToken, {
+              onHomeserverSession: async (session) => this.assertStepUpSessionMatchesSignedInUser({ session }),
+            })
+          : await AuthApplication.completeSingleApprovalCeremony(authToken);
         if (result.marketplace) {
           CommerceController.writeMarketplaceSessionStore(result.marketplace);
         }
@@ -797,6 +806,38 @@ export class AuthController {
   }
 
   /**
+   * Identity gate for an externally-approved session on the step-up path: the
+   * approval must widen the SIGNED-IN identity, never silently switch
+   * accounts. On mismatch the marketplace bearer is dropped from memory,
+   * localStorage, and the commerce store (a bearer must never stay at rest
+   * for an identity this device is not signed in as), the wrong-identity
+   * session is signed back out, and the call rejects.
+   *
+   * Runs in two places: inside the step-up ceremony BEFORE the marketplace
+   * POST (mirroring the bridged ceremony's onHomeserverSession ordering, so a
+   * bearer for the wrong pubky is never even minted), and in
+   * completeStepUpReauth for the hook-driven completion.
+   */
+  private static async assertStepUpSessionMatchesSignedInUser({ session }: THomeserverSessionResult): Promise<void> {
+    const authStore = useAuthStore.getState();
+    const approvedPubky = Identity.z32FromSession({ session });
+    if (authStore.currentUserPubky && approvedPubky === authStore.currentUserPubky) return;
+    CommerceController.clearMarketplaceSession();
+    await AuthApplication.logout({ session }).catch((logoutError) => {
+      Logger.warn('Failed to sign out a step-up session approved for a different identity', { logoutError });
+    });
+    throw Err.auth(
+      AuthErrorCode.UNAUTHORIZED,
+      'The approval was for a different identity. Reconnect only widens the permissions of the signed-in account.',
+      {
+        service: ErrorService.Homeserver,
+        operation: 'completeStepUpReauth',
+        context: { expectedPubky: authStore.currentUserPubky, approvedPubky },
+      },
+    );
+  }
+
+  /**
    * Applies an approved step-up session to the CURRENT identity. The
    * approval replaces the homeserver cookie with the superset grant, so
    * watchlist sync, portable receipts, and messaging cookie-resume all
@@ -816,21 +857,7 @@ export class AuthController {
     { releaseAuthFlow = true }: { releaseAuthFlow?: boolean } = {},
   ): Promise<void> {
     const authStore = useAuthStore.getState();
-    const approvedPubky = Identity.z32FromSession({ session });
-    if (!authStore.currentUserPubky || approvedPubky !== authStore.currentUserPubky) {
-      await AuthApplication.logout({ session }).catch((logoutError) => {
-        Logger.warn('Failed to sign out a step-up session approved for a different identity', { logoutError });
-      });
-      throw Err.auth(
-        AuthErrorCode.UNAUTHORIZED,
-        'The approval was for a different identity. Reconnect only widens the permissions of the signed-in account.',
-        {
-          service: ErrorService.Homeserver,
-          operation: 'completeStepUpReauth',
-          context: { expectedPubky: authStore.currentUserPubky, approvedPubky },
-        },
-      );
-    }
+    await this.assertStepUpSessionMatchesSignedInUser({ session });
     try {
       // Same externally-approved-session checkpoint as first sign-in.
       await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
