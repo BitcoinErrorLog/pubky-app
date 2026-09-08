@@ -896,9 +896,107 @@ describe('AuthApplication', () => {
       vi.spyOn(await import('@/config/commerce'), 'isDurableCommerceMode').mockReturnValue(true);
       vi.spyOn(await import('@/config/commerce'), 'getCommerceAdapterMode').mockReturnValue('transaction-service');
 
-      await AuthApplication.completeSingleApprovalCeremony(token);
+      const result = await AuthApplication.completeSingleApprovalCeremony(token);
 
       expect(order).toEqual(['hs', 'mp']);
+      expect(result.marketplace).not.toBeNull();
+      expect(result.marketplaceError).toBeNull();
+    });
+
+    it('keeps the homeserver session when the marketplace half fails, with a no-excerpt marketplaceError', async () => {
+      const session = mockSession();
+      const token = asOpaque<AuthToken>({
+        toBytes: () => new Uint8Array([3, 2, 1]),
+        publicKey: { z32: () => 'y'.repeat(52) },
+      });
+      vi.spyOn(HomeserverService, 'signInWithFullGrantAuthToken').mockResolvedValue(session);
+      vi.spyOn(MarketplaceSessionService, 'redeemAuthTokenAfterHomeserver').mockRejectedValue(
+        Err.auth(AuthErrorCode.INVALID_TOKEN, 'The marketplace service rejected the auth token.', {
+          service: ErrorService.Marketplace,
+          operation: 'establishWithAuthToken',
+          context: { statusCode: 401, alreadyUsed: true },
+        }),
+      );
+      vi.spyOn(await import('@/config/commerce'), 'isDurableCommerceMode').mockReturnValue(true);
+      vi.spyOn(await import('@/config/commerce'), 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+
+      const result = await AuthApplication.completeSingleApprovalCeremony(token);
+
+      expect(result.session).toBe(session);
+      expect(result.marketplace).toBeNull();
+      // No-excerpt discipline: exactly statusCode/alreadyUsed, nothing else.
+      expect(result.marketplaceError).toEqual({ statusCode: 401, alreadyUsed: true });
+    });
+
+    it('returns an empty marketplaceError for a non-AppError marketplace failure', async () => {
+      const token = asOpaque<AuthToken>({
+        toBytes: () => new Uint8Array([3, 2, 1]),
+        publicKey: { z32: () => 'y'.repeat(52) },
+      });
+      vi.spyOn(HomeserverService, 'signInWithFullGrantAuthToken').mockResolvedValue(mockSession());
+      vi.spyOn(MarketplaceSessionService, 'redeemAuthTokenAfterHomeserver').mockRejectedValue(
+        new TypeError('network down'),
+      );
+      vi.spyOn(await import('@/config/commerce'), 'isDurableCommerceMode').mockReturnValue(true);
+      vi.spyOn(await import('@/config/commerce'), 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+
+      const result = await AuthApplication.completeSingleApprovalCeremony(token);
+
+      expect(result.marketplace).toBeNull();
+      expect(result.marketplaceError).toEqual({});
+    });
+
+    it('runs the onHomeserverSession hook after the homeserver half and before the marketplace POST', async () => {
+      const session = mockSession();
+      const token = asOpaque<AuthToken>({
+        toBytes: () => new Uint8Array([3, 2, 1]),
+        publicKey: { z32: () => 'y'.repeat(52) },
+      });
+      const order: string[] = [];
+      vi.spyOn(HomeserverService, 'signInWithFullGrantAuthToken').mockImplementation(async () => {
+        order.push('hs');
+        return session;
+      });
+      vi.spyOn(MarketplaceSessionService, 'redeemAuthTokenAfterHomeserver').mockImplementation(async () => {
+        order.push('mp');
+        return {
+          pubky: 'y'.repeat(52),
+          capabilities: '',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          issuedAt: '2026-09-08T00:00:00.000Z',
+        };
+      });
+      vi.spyOn(await import('@/config/commerce'), 'isDurableCommerceMode').mockReturnValue(true);
+      vi.spyOn(await import('@/config/commerce'), 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+
+      await AuthApplication.completeSingleApprovalCeremony(token, {
+        onHomeserverSession: async (got) => {
+          order.push('hook');
+          expect(got).toBe(session);
+        },
+      });
+
+      expect(order).toEqual(['hs', 'hook', 'mp']);
+    });
+
+    it('aborts before the marketplace POST when the onHomeserverSession hook throws', async () => {
+      const token = asOpaque<AuthToken>({
+        toBytes: () => new Uint8Array([3, 2, 1]),
+        publicKey: { z32: () => 'y'.repeat(52) },
+      });
+      vi.spyOn(HomeserverService, 'signInWithFullGrantAuthToken').mockResolvedValue(mockSession());
+      const redeemSpy = vi.spyOn(MarketplaceSessionService, 'redeemAuthTokenAfterHomeserver');
+      vi.spyOn(await import('@/config/commerce'), 'isDurableCommerceMode').mockReturnValue(true);
+      vi.spyOn(await import('@/config/commerce'), 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+
+      await expect(
+        AuthApplication.completeSingleApprovalCeremony(token, {
+          onHomeserverSession: async () => {
+            throw new Error('different identity approved');
+          },
+        }),
+      ).rejects.toThrow('different identity approved');
+      expect(redeemSpy).not.toHaveBeenCalled();
     });
   });
 });

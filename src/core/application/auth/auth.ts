@@ -2,9 +2,11 @@ import type { AuthToken, Session } from '@synonymdev/pubky';
 import { userUriBuilder } from 'pubky-app-specs';
 import type {
   TKeypairParams,
+  TMarketplaceRedeemError,
   TRestoreSessionOutcome,
   TRestoreSessionParams,
   TRestoreSessionResult,
+  TSingleApprovalCeremonyHooks,
   TSingleApprovalResult,
 } from '@/application/auth/auth.types';
 import { CAPABILITIES } from '@/config/app';
@@ -305,18 +307,63 @@ export class AuthApplication {
   }
 
   /**
-   * Homeserver first, marketplace second. Token bytes live only for this call.
+   * The approval-flow wait bounded by the marketplace session-flow timeout.
+   * Lives on the Application so controllers never call the service directly.
    */
-  static async completeSingleApprovalCeremony(token: AuthToken): Promise<TSingleApprovalResult> {
+  static async withAuthFlowTimeout<T>(pending: Promise<T>, cancelFlow: () => void): Promise<T> {
+    return await MarketplaceSessionService.withFlowTimeout(pending, cancelFlow);
+  }
+
+  /**
+   * Homeserver first, marketplace second. Token bytes live only for this call.
+   *
+   * A marketplace failure is NOT a sign-in failure (single-approval.md §4.3
+   * rows 4–5): the homeserver session stands and the caller gets
+   * `marketplace: null` plus a no-excerpt `marketplaceError`, so commerce
+   * surfaces can offer a separate reconnect approval instead of throwing away
+   * a valid session.
+   */
+  static async completeSingleApprovalCeremony(
+    token: AuthToken,
+    hooks?: TSingleApprovalCeremonyHooks,
+  ): Promise<TSingleApprovalResult> {
     const bytes = token.toBytes();
     const pubky = token.publicKey.z32();
     const tokenResolvedAtMs = Date.now();
     const session = await HomeserverService.signInWithFullGrantAuthToken(bytes);
+    // The bridged ceremony swaps the auth-store session here, while the
+    // widened cookie and the store cannot drift apart (a failure after the
+    // marketplace POST would otherwise leave the cookie wide and the store
+    // narrow, and the next click would re-prompt for a grant already held).
+    await hooks?.onHomeserverSession?.(session);
     let marketplace = null;
+    let marketplaceError: TMarketplaceRedeemError | null = null;
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
-      marketplace = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(bytes, pubky, tokenResolvedAtMs);
+      try {
+        marketplace = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(bytes, pubky, tokenResolvedAtMs);
+      } catch (error) {
+        marketplaceError = this.toMarketplaceRedeemError(error);
+        Logger.warn('Marketplace session redemption failed after homeserver sign-in; the Shop session stands', {
+          marketplaceError,
+        });
+      }
     }
-    return { session, marketplace };
+    return { session, marketplace, marketplaceError };
+  }
+
+  /**
+   * No-excerpt discipline for the marketplace half's failure: only
+   * `statusCode` / `alreadyUsed` may cross this boundary, never body text.
+   */
+  private static toMarketplaceRedeemError(error: unknown): TMarketplaceRedeemError {
+    if (!isAppError(error)) {
+      return {};
+    }
+    const context = error.context ?? {};
+    return {
+      statusCode: typeof context.statusCode === 'number' ? context.statusCode : undefined,
+      alreadyUsed: context.alreadyUsed === true ? true : undefined,
+    };
   }
 
   /**
