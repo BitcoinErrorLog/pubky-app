@@ -9,7 +9,11 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
-import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
+import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
+import {
+  classifyMarketplacePickupCommandRefusal,
+  isMarketplaceRevisionConflict,
+} from '@/libs/commerce/transaction-commands';
 import { AppError } from '@/libs/error/error';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { CommerceDeliveryAddressModelSchema } from '@/models/commerce/commerce.schema';
@@ -355,7 +359,13 @@ export function useMarketplaceCheckout(
             });
             return;
           }
-          toast({ variant: 'error', description: response.error.message });
+          const pickupRefusal = classifyMarketplacePickupCommandRefusal(response);
+          toast({
+            variant: 'error',
+            description: pickupRefusal
+              ? pickupRefusalFailureMessage(pickupRefusal)
+              : response.error.message,
+          });
           return;
         }
         // The address book only learns an address that actually traveled —
