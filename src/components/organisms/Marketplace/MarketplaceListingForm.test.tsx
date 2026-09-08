@@ -60,7 +60,7 @@ function expectIconOnlyButtonsToHaveLabels(container: HTMLElement) {
 }
 
 function FormHarness({
-  fulfillment = 'physical',
+  fulfillment = 'shipping',
   defaultValues = {},
   onSubmit = vi.fn(),
   media = buildMedia(),
@@ -201,7 +201,7 @@ describe('MarketplaceListingForm', () => {
   it('keeps physical listings unpublished until shipping fields are filled or pickup is chosen', () => {
     const first = render(
       <FormHarness
-        fulfillment="physical"
+        fulfillment="shipping"
         defaultValues={{
           title: 'Vintage boots',
           description: 'Well cared for boots.',
@@ -356,7 +356,7 @@ describe('MarketplaceListingForm scoped status watch', () => {
         >
           invalidate-variants
         </button>
-        <button type="button" onClick={() => form.setValue('fulfillment', 'physical')}>
+        <button type="button" onClick={() => form.setValue('fulfillment', 'shipping')}>
           set-physical
         </button>
         <button type="button" onClick={() => form.setValue('shippingLabel', 'Ground')}>
@@ -391,7 +391,10 @@ describe('MarketplaceListingForm scoped status watch', () => {
     );
   }
 
-  it('updates section status when each watched field changes', async () => {
+  // This re-renders the full studio per case (8 mounts of a 1,000-line
+  // form); under full-suite load it exceeds the 5s default even on a clean
+  // tree, so it gets an explicit budget.
+  it('updates section status when each watched field changes', { timeout: 20_000 }, async () => {
     const user = userEvent.setup();
     const first = render(<StatusWatchHarness />);
 
@@ -471,14 +474,14 @@ describe('MarketplaceListingForm publish gate vs schema', () => {
     },
     {
       label: 'physical without shipping',
-      fulfillment: 'physical' as const,
+      fulfillment: 'shipping' as const,
       values: pickupReady,
       photos: 1,
       enabled: false,
     },
     {
       label: 'physical with shipping fields',
-      fulfillment: 'physical' as const,
+      fulfillment: 'shipping' as const,
       values: {
         ...pickupReady,
         shippingPrice: '12.00',

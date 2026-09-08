@@ -201,6 +201,13 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       addresses: view.addresses,
       selectedAddressId: view.selectedAddressId,
       selectAddress: vi.fn(),
+      // The fixture listings ship only, so no fulfillment choice renders.
+      fulfillmentOptionsForSeller: () => ['shipping' as const],
+      fulfillmentForSeller: () => 'shipping' as const,
+      setFulfillmentChoice: vi.fn(),
+      requiresDeliveryAddress: true,
+      hasFulfillmentConflict: false,
+      orderCount: 1,
     }),
   };
 });

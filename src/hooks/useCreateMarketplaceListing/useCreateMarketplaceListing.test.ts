@@ -218,7 +218,7 @@ describe('useCreateMarketplaceListing', () => {
       result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
       result.current.form.setValue('attrSize', 'US 9');
       result.current.form.setValue('price', '125.00');
-      result.current.form.setValue('fulfillment', 'physical');
+      result.current.form.setValue('fulfillment', 'shipping');
       result.current.form.setValue('shippingPrice', '12.00');
       result.current.form.setValue('packageWeight', '42.3');
       result.current.form.setValue('packageLength', '13.8');

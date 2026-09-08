@@ -110,3 +110,30 @@ describe('MarketplacePackingSlipDialog — paste delivery address', () => {
     await expectNothingPersisted(PASTED_ADDRESS);
   });
 });
+
+describe('MarketplacePackingSlipDialog — pickup orders (§A5)', () => {
+  it('suppresses the delivery-address block and the paste field, naming the in-app meeting point', async () => {
+    render(<MarketplacePackingSlipDialog order={createOrderFixture('ready_for_pickup')} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Packing slip' }));
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).queryByLabelText('Paste delivery address (optional)')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/withheld from all transaction-service reads/)).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Local pickup — meeting point is only visible to the buyer in the app.'),
+    ).toBeInTheDocument();
+    // The slip keeps the line items and totals — there is just no address.
+    const slip = dialog.querySelector('[data-packing-slip]')!;
+    expect(within(slip as HTMLElement).getByText('Handmade leather boots')).toBeInTheDocument();
+  });
+
+  it('keeps the shipped-order slip unchanged', async () => {
+    const dialog = await openSlip();
+
+    expect(within(dialog).getByLabelText('Paste delivery address (optional)')).toBeInTheDocument();
+    expect(within(dialog).getByText(/withheld from all transaction-service reads/)).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText('Local pickup — meeting point is only visible to the buyer in the app.'),
+    ).not.toBeInTheDocument();
+  });
+});

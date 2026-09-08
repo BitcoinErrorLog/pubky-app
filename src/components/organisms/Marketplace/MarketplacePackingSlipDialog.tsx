@@ -37,6 +37,11 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
   const [open, setOpen] = useState(false);
   const { address, setAddress, clear } = usePackingSlipAddress();
   const pastedAddress = address.trim();
+  // Pickup orders (local pickup design §A5): nothing is posted, so the
+  // delivery-address block and the paste field are suppressed — a pickup
+  // order never had an address, and the meeting point is only ever visible
+  // to the buyer in the app.
+  const isPickup = order.fulfillment === 'pickup';
 
   const handleOpenChange = (next: boolean) => {
     // Closing the dialog always drops the staged address — it is staged for
@@ -66,23 +71,25 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
               value lives only in component state (usePackingSlipAddress) —
               never persisted, never sent — and Sentry Replay masks all
               inputs (`maskAllInputs`), with `data-sentry-mask` making that
-              explicit for this field. */}
-          <div className="space-y-1.5">
-            <Label htmlFor="packing-slip-address">Paste delivery address (optional)</Label>
-            <Textarea
-              id="packing-slip-address"
-              data-sentry-mask
-              autoComplete="off"
-              rows={3}
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              placeholder="Paste the destination the buyer sent you, exactly as you want it printed…"
-            />
-            <p className="text-xs text-muted-foreground">
-              Kept only in this dialog on this device — not saved, not sent to the marketplace or any server. Anything
-              you print (including print-to-PDF) will contain it.
-            </p>
-          </div>
+              explicit for this field. Suppressed on pickup orders (§A5). */}
+          {!isPickup && (
+            <div className="space-y-1.5">
+              <Label htmlFor="packing-slip-address">Paste delivery address (optional)</Label>
+              <Textarea
+                id="packing-slip-address"
+                data-sentry-mask
+                autoComplete="off"
+                rows={3}
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+                placeholder="Paste the destination the buyer sent you, exactly as you want it printed…"
+              />
+              <p className="text-xs text-muted-foreground">
+                Kept only in this dialog on this device — not saved, not sent to the marketplace or any server. Anything
+                you print (including print-to-PDF) will contain it.
+              </p>
+            </div>
+          )}
           <div
             data-packing-slip
             className="rounded-lg border border-neutral-300 bg-white p-6 font-mono text-sm text-black"
@@ -144,7 +151,11 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
 
             <div className="mt-4 border-t border-neutral-300 pt-3">
               <p className="font-semibold">Deliver to</p>
-              {pastedAddress ? (
+              {isPickup ? (
+                <p className="mt-1 text-xs leading-relaxed text-neutral-700">
+                  Local pickup — meeting point is only visible to the buyer in the app.
+                </p>
+              ) : pastedAddress ? (
                 // The seller pasted the destination they got from the buyer
                 // directly — print it verbatim, preserving line breaks.
                 <p className="mt-1 whitespace-pre-line">{pastedAddress}</p>

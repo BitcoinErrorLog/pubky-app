@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -52,6 +52,7 @@ import { ControlledInputField } from '@/molecules/ControlledInputField/Controlle
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
 import { MarketplaceListingAttributeFields } from '@/organisms/Marketplace/MarketplaceListingAttributeFields';
+import { MarketplacePickupDetailsEditor } from '@/organisms/Marketplace/MarketplacePickupDetailsEditor';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
 const LISTING_FORM_SECTIONS = [
@@ -69,6 +70,12 @@ export interface MarketplaceListingFormProps {
   media: UseListingMediaManagerResult;
   onSubmit: () => Promise<void>;
   isPublishing: boolean;
+  /**
+   * The listing id the pickup-details editor addresses (the draft id in
+   * create — reused as the listing id at publish — the real id in edit).
+   * When omitted, the pickup-details editor is not rendered.
+   */
+  listingId?: string;
   /** Edit mode locks the sale format (and auction terms) and relabels submit. */
   mode?: 'create' | 'edit';
   /** True for auctions being edited: price and format were fixed at publish. */
@@ -80,6 +87,7 @@ export function MarketplaceListingForm({
   media,
   onSubmit,
   isPublishing,
+  listingId,
   mode = 'create',
   saleTermsLocked = false,
 }: MarketplaceListingFormProps) {
@@ -138,6 +146,14 @@ export function MarketplaceListingForm({
     }
   };
   const isEdit = mode === 'edit';
+  // Auctions are shipping-only (local pickup design §A2 — an auction order
+  // has no checkout step to express a pickup choice), so switching the format
+  // to auction coerces fulfillment back to shipping; the schema backstops it.
+  useEffect(() => {
+    if (saleFormat === 'auction' && form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT) !== 'shipping') {
+      form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, 'shipping', { shouldValidate: true });
+    }
+  }, [saleFormat, form]);
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
   const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
   const isImperial = measurementSystem === 'imperial';
@@ -440,18 +456,19 @@ export function MarketplaceListingForm({
         <ListingFormSection
           id="listing-section-shipping"
           title="Shipping & returns"
-          description="Ship item requires shipping details and package size; Local pickup skips those fields."
+          description="Fulfillment: ship the item, offer local pickup, or both. Shipping requires the shipping details and package size; pickup-only listings skip those fields."
           complete={sectionStatuses['listing-section-shipping']}
         >
           <div className="grid gap-5 sm:grid-cols-2">
             <FormSelect
               form={form}
               name={CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT}
-              label="Delivery"
-              disabled={isPublishing}
+              label="Fulfillment"
+              disabled={isPublishing || saleFormat === 'auction'}
               options={[
-                { value: 'physical', label: 'Ship item' },
+                { value: 'shipping', label: 'Ship item' },
                 { value: 'pickup', label: 'Local pickup' },
+                { value: 'shipping_and_pickup', label: 'Pickup or shipping' },
               ]}
             />
             <FormSelect
@@ -466,8 +483,17 @@ export function MarketplaceListingForm({
               ]}
             />
           </div>
+          {saleFormat === 'auction' && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Auctions ship only — local pickup is available on Buy now listings.
+            </Typography>
+          )}
 
-          {fulfillment === 'physical' && (
+          {fulfillment !== 'shipping' && listingId && (
+            <MarketplacePickupDetailsEditor listingId={listingId} disabled={isPublishing} />
+          )}
+
+          {fulfillment !== 'pickup' && (
             <>
               <ListingShippingPresetRow form={form} isPublishing={isPublishing} />
               <div className="grid gap-5 sm:grid-cols-2">

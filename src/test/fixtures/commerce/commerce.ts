@@ -164,6 +164,7 @@ export function createCommerceCatalogEntryFixture(
     sale_format: 'fixed_price',
     price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
     auction: null,
+    fulfillment_methods: ['pickup'],
     reputation: null,
     listing_reputation: null,
     revision: 1,

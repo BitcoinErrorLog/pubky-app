@@ -31,6 +31,7 @@ const listing = {
     media: [],
     variants: [{ id: 'variant_42', options: { size: '42' }, quantity: 3 }],
     sale: { format: 'fixed_price', unitPrice: { amountMinor: 1200, currency: 'USD', exponent: 2 } },
+    fulfillmentMethods: ['physical'],
   },
 };
 
@@ -124,6 +125,7 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     useCommerceStore.getState().setMarketplaceSession(restored);
     CommerceController.bindMarketplaceSessionStore();
     vi.spyOn(CommerceApplication, 'getDeliveryAddresses').mockResolvedValue([]);
+    vi.spyOn(CommerceApplication, 'fetchPickupAvailable').mockResolvedValue(true);
     vi.spyOn(CommerceApplication, 'getMarketplaceListingProjection').mockResolvedValue({
       aggregateId: `listing:${BUYER}_boots`,
       sellerPubky: BUYER,

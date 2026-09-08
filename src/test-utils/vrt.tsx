@@ -21,6 +21,26 @@ export interface RenderForVRTOptions {
 
 export const VRT_ROOT_TESTID = 'vrt-root';
 
+/**
+ * Surface guard: a VRT scene must capture a PRODUCTION surface, marked with
+ * `data-surface="<name>"` on the surface root inside the component under
+ * test — never a test-only stand-in. Returns a locator over the marker so
+ * the capture wraps exactly the surface (including portaled dialog content,
+ * which lives outside the VRT root in the DOM but inside its screenshot
+ * region). A scene missing the production root is rejected here rather than
+ * silently baselining a mock.
+ */
+export function expectVrtSurface(surface: string) {
+  const marker = document.querySelector(`[data-surface="${surface}"]`);
+  if (!marker) {
+    throw new Error(
+      `VRT scene rejected: no production [data-surface="${surface}"] root is mounted. ` +
+        'Mount the production component that carries the marker, not a test stand-in.',
+    );
+  }
+  return page.elementLocator(marker as HTMLElement);
+}
+
 interface VRTProvidersProps {
   children: ReactNode;
   viewport: VrtViewport;

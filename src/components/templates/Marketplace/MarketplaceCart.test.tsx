@@ -1,7 +1,16 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceCart } from './MarketplaceCart';
+
+beforeAll(() => {
+  // Radix Select needs pointer-capture and scrollIntoView in jsdom (same
+  // stubs the listing-form tests use).
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.setPointerCapture = vi.fn();
+});
 
 const view = vi.hoisted(() => ({
   items: [] as unknown[],
@@ -12,11 +21,17 @@ const view = vi.hoisted(() => ({
   sessionError: null as string | null,
   addresses: [] as unknown[],
   selectedAddressId: null as string | null,
+  fulfillmentOptions: {} as Record<string, Array<'shipping' | 'pickup'>>,
+  fulfillmentEffective: {} as Record<string, 'shipping' | 'pickup'>,
+  requiresDeliveryAddress: true,
+  hasFulfillmentConflict: false,
+  orderCount: 1,
 }));
 
 const cartActions = vi.hoisted(() => ({
   update: vi.fn(),
   remove: vi.fn(),
+  setFulfillmentChoice: vi.fn(),
 }));
 
 const listing = {
@@ -116,6 +131,12 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       addresses: view.addresses,
       selectedAddressId: view.selectedAddressId,
       selectAddress: vi.fn(),
+      fulfillmentOptionsForSeller: (sellerPubky: string) => view.fulfillmentOptions[sellerPubky] ?? ['shipping'],
+      fulfillmentForSeller: (sellerPubky: string) => view.fulfillmentEffective[sellerPubky] ?? 'shipping',
+      setFulfillmentChoice: cartActions.setFulfillmentChoice,
+      requiresDeliveryAddress: view.requiresDeliveryAddress,
+      hasFulfillmentConflict: view.hasFulfillmentConflict,
+      orderCount: view.orderCount,
     }),
   };
 });
@@ -163,6 +184,7 @@ describe('MarketplaceCart', () => {
   beforeEach(() => {
     cartActions.update.mockReset();
     cartActions.remove.mockReset();
+    cartActions.setFulfillmentChoice.mockReset();
     view.items = [];
     view.isLoading = false;
     view.adapterMode = 'sandbox';
@@ -171,6 +193,11 @@ describe('MarketplaceCart', () => {
     view.sessionError = null;
     view.addresses = [];
     view.selectedAddressId = null;
+    view.fulfillmentOptions = {};
+    view.fulfillmentEffective = {};
+    view.requiresDeliveryAddress = true;
+    view.hasFulfillmentConflict = false;
+    view.orderCount = 1;
   });
 
   it('disables Place order without a marketplace session in durable mode', () => {
@@ -297,5 +324,101 @@ describe('MarketplaceCart', () => {
 
     await user.click(screen.getByRole('button', { name: 'Remove Vintage boots' }));
     expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42');
+  });
+});
+
+describe('MarketplaceCart local pickup (Wave 7, §A2)', () => {
+  beforeEach(() => {
+    cartActions.update.mockReset();
+    cartActions.remove.mockReset();
+    cartActions.setFulfillmentChoice.mockReset();
+    view.items = [];
+    view.isLoading = false;
+    view.adapterMode = 'sandbox';
+    view.hasMarketplaceSession = false;
+    view.needsSession = false;
+    view.sessionError = null;
+    view.addresses = [];
+    view.selectedAddressId = null;
+    view.fulfillmentOptions = {};
+    view.fulfillmentEffective = {};
+    view.requiresDeliveryAddress = true;
+    view.hasFulfillmentConflict = false;
+    view.orderCount = 1;
+  });
+
+  it('offers the fulfillment choice only when every line in the group publishes both', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.fulfillmentOptions = { [listing.record.ownerPubky]: ['shipping', 'pickup'] };
+
+    render(<MarketplaceCart />);
+
+    const select = screen.getByLabelText(`Fulfillment for items from ${listing.record.ownerPubky}`);
+    expect(select).toHaveTextContent('Ship it');
+    await user.click(select);
+    await user.click(screen.getByRole('option', { name: 'Local pickup' }));
+    expect(cartActions.setFulfillmentChoice).toHaveBeenCalledWith(listing.record.ownerPubky, 'pickup');
+  });
+
+  it('renders a pickup group with no shipping line and the reveal note', () => {
+    seededCart();
+    view.fulfillmentEffective = { [listing.record.ownerPubky]: 'pickup' };
+    view.requiresDeliveryAddress = false;
+
+    render(<MarketplaceCart />);
+
+    const group = screen.getByRole('region', { name: `Cart items from ${listing.record.ownerPubky}` });
+    expect(group).toHaveAttribute('data-surface', 'cart-pickup-group');
+    expect(
+      within(group).getByText(/Local pickup — no delivery address or shipping for these items/),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the delivery-address step on a pickup-only checkout and says why', () => {
+    seededCart();
+    view.fulfillmentEffective = { [listing.record.ownerPubky]: 'pickup' };
+    view.requiresDeliveryAddress = false;
+
+    render(<MarketplaceCart />);
+
+    expect(screen.queryByLabelText('Recipient')).not.toBeInTheDocument();
+    expect(screen.getByText(/No delivery address is needed/)).toBeInTheDocument();
+    expect(screen.getByText('No shipping — pickup is arranged with the seller after payment.')).toBeInTheDocument();
+    // The guarantee step stays — it is not address-bearing.
+    expect(screen.getByRole('checkbox', { name: /I accept sandbox guarantee policy v1/ })).toBeInTheDocument();
+  });
+
+  it('states the (seller, fulfillment) split plainly before submit', () => {
+    view.items = [
+      { id: 'seller:boots:variant_42', listingId: listing.id, variantId: 'variant_42', quantity: 1, listing },
+      {
+        id: 'other:camera:variant_01',
+        listingId: secondSellerListing.id,
+        variantId: 'variant_01',
+        quantity: 1,
+        listing: secondSellerListing,
+      },
+    ];
+    view.orderCount = 2;
+
+    render(<MarketplaceCart />);
+
+    expect(screen.getByText('This places 2 orders — one per seller.')).toBeInTheDocument();
+  });
+
+  it('blocks the order and explains when a group has no common fulfillment', () => {
+    seededCart();
+    view.fulfillmentOptions = { [listing.record.ownerPubky]: [] };
+    view.fulfillmentEffective = {};
+    view.hasFulfillmentConflict = true;
+
+    render(<MarketplaceCart />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/can't be checked out together/);
+    expect(screen.getByRole('button', { name: 'Place sandbox order' })).toBeDisabled();
+    expect(
+      screen.getByText("Some items can't be checked out together — see the note in your cart."),
+    ).toHaveAttribute('id', 'place-order-reason');
   });
 });

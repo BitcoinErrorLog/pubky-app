@@ -166,7 +166,9 @@ const nexusListingDetailsSchema: z.ZodType<NexusListingDetails> = z
     auction_reserve_price_minor: z.number().int().positive().nullable(),
     auction_buy_now_price_minor: z.number().int().positive().nullable(),
     auction_minimum_increment_minor: z.number().int().positive().nullable(),
-    fulfillment_methods: z.array(z.enum(['physical', 'digital', 'pickup'])),
+    // The record's fulfillment vocabulary, echoed: a both-ways pickup
+    // listing carries `shipping` explicitly alongside `pickup` (§A2).
+    fulfillment_methods: z.array(z.enum(['physical', 'digital', 'shipping', 'pickup'])),
     adult_only: z.boolean(),
     created_at: commerceTimestampSchema,
     updated_at: commerceTimestampSchema,
@@ -444,6 +446,7 @@ export class CommerceRecordNormalizer {
       sale_format: listing.sale_format,
       price: this.toCatalogMoney(listing, listing.price_amount_minor),
       auction: this.toCatalogAuctionTerms(listing),
+      fulfillment_methods: [...listing.fulfillment_methods],
       reputation: this.toReputationSnippet(listing.reputation),
       listing_reputation: this.toReputationSnippet(listing.listing_reputation),
       revision: listing.revision,

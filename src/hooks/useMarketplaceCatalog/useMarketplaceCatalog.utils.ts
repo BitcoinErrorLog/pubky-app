@@ -1,3 +1,5 @@
+import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
+import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import type {
   CommerceCatalogAuctionTerms,
@@ -43,6 +45,13 @@ export interface MarketplaceCatalogItem {
    */
   attributes: Record<string, string | string[]> | null;
   location: { countryCode: string; region: string | null };
+  /**
+   * The fulfillment methods the listing publishes (local pickup design §A1),
+   * derived exactly as the service derives them. `null` (or absent) when the
+   * source does not carry the vocabulary (index rows cached before it was
+   * kept), so the card renders no badge rather than guessing.
+   */
+  fulfillmentMethods?: MarketplaceFulfillmentMethod[] | null;
   /**
    * Media URIs for the card image, in display order: the record's image media
    * (videos excluded — a card cover is an image) or the index projection's
@@ -102,6 +111,7 @@ export function catalogItemFromListingModel(listing: CommerceListingModelSchema)
     auction,
     attributes: record.attributes ?? {},
     location: { countryCode: record.location.countryCode, region: record.location.region ?? null },
+    fulfillmentMethods: commerceListingFulfillmentMethods(record.fulfillmentMethods),
     mediaUrls: record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
     // Canonical records carry no aggregate; the catalog merge fills this in
     // from the index entry when one exists for the same listing.
@@ -127,6 +137,7 @@ export function catalogItemFromCatalogEntry(entry: CommerceCatalogEntryModelSche
     auction: entry.auction,
     attributes: null,
     location: { countryCode: entry.country_code, region: entry.region },
+    fulfillmentMethods: entry.fulfillment_methods ? commerceListingFulfillmentMethods(entry.fulfillment_methods) : null,
     // Nullish fallback: entries cached before the model carried media_urls.
     mediaUrls: entry.media_urls ?? [],
     // Nullish fallback: entries cached before the model carried reputation.

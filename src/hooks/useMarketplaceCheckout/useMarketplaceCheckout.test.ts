@@ -17,7 +17,7 @@ const item: MarketplaceCartItem = {
     id: `${listing.ownerPubky}:${listing.listingId}`,
     seller_id: listing.ownerPubky,
     listing_id: listing.listingId,
-    record: listing,
+    record: { ...listing, fulfillmentMethods: ['physical' as const] },
     revision: 1,
     state: 'active',
     category_id: listing.categoryId,
@@ -43,6 +43,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getMarketplaceListingProjection: vi.fn(),
     syncListingRegistration: vi.fn(),
     executeMarketplaceCommand: vi.fn(),
+    fetchPickupAvailable: vi.fn(async () => true),
+    commitCreateMarketplaceCheckout: vi.fn(),
     getDeliveryAddresses: vi.fn(async () => []),
     commitUpsertDeliveryAddress: vi.fn(async () => {}),
     commitMarkDeliveryAddressUsed: vi.fn(async () => {}),
@@ -102,7 +104,7 @@ describe('useMarketplaceCheckout', () => {
       fulfillmentMethods: ['shipping'],
       auction: null,
     });
-    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
       ok: true,
       version: 1,
       commandId: '00000000-0000-4000-8000-000000001100',
@@ -131,14 +133,15 @@ describe('useMarketplaceCheckout', () => {
     });
 
     expect(succeeded).toBe(true);
-    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+    expect(CommerceController.commitCreateMarketplaceCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
-        aggregateId: 'checkout:00000000-0000-4000-8000-000000001100',
-        kind: 'checkout.create',
-        payload: expect.objectContaining({
-          lines: [
+        fulfillmentChoiceBySeller: { [listing.ownerPubky]: 'shipping' },
+        deliveryAddress: expect.objectContaining({ line1: '1 Market Street' }),
+        lines: [
             {
               listingAggregateId: `listing:${listing.ownerPubky}_${listing.listingId}`,
+              sellerPubky: listing.ownerPubky,
+              publishedFulfillmentMethods: ['shipping'],
               expectedRevision: 1,
               quantity: 1,
               // The chosen variant rides the line as a display snapshot: the
@@ -155,8 +158,6 @@ describe('useMarketplaceCheckout', () => {
                 : {}),
             },
           ],
-          guaranteePolicyVersion: 1,
-        }),
       }),
     );
     expect(clear).toHaveBeenCalled();
@@ -191,12 +192,9 @@ describe('useMarketplaceCheckout', () => {
     expect(succeeded).toBe(true);
     expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
     expect(CommerceController.syncListingRegistration).toHaveBeenCalledWith(listing.ownerPubky, listing.listingId);
-    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+    expect(CommerceController.commitCreateMarketplaceCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'checkout.create',
-        payload: expect.objectContaining({
-          lines: [expect.objectContaining({ listingAggregateId: registered.aggregateId, expectedRevision: 1 })],
-        }),
+        lines: [expect.objectContaining({ listingAggregateId: registered.aggregateId, expectedRevision: 1 })],
       }),
     );
   });
@@ -226,7 +224,7 @@ describe('useMarketplaceCheckout', () => {
 
     expect(succeeded).toBe(false);
     expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
-    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+    expect(CommerceController.commitCreateMarketplaceCheckout).not.toHaveBeenCalled();
     expect(clear).not.toHaveBeenCalled();
     const { toast } = await import('@/molecules/Toaster/use-toast');
     expect(vi.mocked(toast)).toHaveBeenCalledWith(
@@ -235,7 +233,7 @@ describe('useMarketplaceCheckout', () => {
   });
 
   it('keeps the cart and asks for a retry when a listing revision conflicts mid-checkout', async () => {
-    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
       ok: false,
       error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 2 },
     });
@@ -286,19 +284,17 @@ describe('useMarketplaceCheckout', () => {
     });
 
     expect(succeeded).toBe(true);
-    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+    expect(CommerceController.commitCreateMarketplaceCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({
-          deliveryAddress: {
-            name: 'Alice Buyer',
-            line1: '1 Market Street',
-            line2: '',
-            city: 'New York',
-            region: 'NY',
-            postalCode: '10001',
-            countryCode: 'US',
-          },
-        }),
+        deliveryAddress: {
+          name: 'Alice Buyer',
+          line1: '1 Market Street',
+          line2: '',
+          city: 'New York',
+          region: 'NY',
+          postalCode: '10001',
+          countryCode: 'US',
+        },
       }),
     );
     expect(CommerceController.commitMarkDeliveryAddressUsed).toHaveBeenCalledWith('addr1');
@@ -385,7 +381,7 @@ describe('useMarketplaceCheckout', () => {
     });
 
     expect(succeeded).toBe(false);
-    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+    expect(CommerceController.commitCreateMarketplaceCheckout).not.toHaveBeenCalled();
     expect(result.current.form.formState.errors.acceptsGuarantee?.message).toBe('Accept the guarantee terms.');
   });
 

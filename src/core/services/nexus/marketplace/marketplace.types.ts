@@ -127,7 +127,13 @@ export type NexusListingCondition = 'new' | 'like_new' | 'excellent' | 'good' | 
 
 export type NexusListingSaleFormat = 'fixed_price' | 'auction';
 
-export type NexusFulfillmentMethod = 'physical' | 'digital' | 'pickup';
+/**
+ * The fulfillment vocabulary Nexus echoes from the listing record: item
+ * types (`physical` | `digital`) plus fulfillment methods (`shipping` |
+ * `pickup`). A both-ways pickup listing carries `shipping` explicitly
+ * alongside `pickup` (local pickup design §A1/§A2), so the wire accepts it.
+ */
+export type NexusFulfillmentMethod = 'physical' | 'digital' | 'shipping' | 'pickup';
 
 export type NexusSortOrder = 'ascending' | 'descending';
 

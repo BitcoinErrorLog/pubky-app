@@ -21,10 +21,15 @@ import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMa
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
-import type { CommerceListingRecord, CommerceShippingOption } from '@/libs/commerce/marketplace-records';
+import {
+  commerceListingFulfillmentMethods,
+  type CommerceListingRecord,
+  type CommerceShippingOption,
+} from '@/libs/commerce/marketplace-records';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { formatPackageDimensions, formatWeight } from '@/libs/commerce/units';
+import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceAuctionPanel } from '@/organisms/Marketplace/MarketplaceAuctionPanel';
@@ -219,6 +224,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             <div>
               <div className="mb-3 flex flex-wrap gap-2">
                 <Badge variant="secondary">{formatCommerceCondition(record.condition)}</Badge>
+                <MarketplaceFulfillmentBadge methods={commerceListingFulfillmentMethods(record.fulfillmentMethods)} />
                 {isSoldOut && record.sale.format === 'fixed_price' && <Badge variant="outline">Sold out</Badge>}
                 {shop?.record.vacationMode && (
                   <Badge variant="outline" className="border-amber-500/50 bg-amber-500/10 text-amber-300">

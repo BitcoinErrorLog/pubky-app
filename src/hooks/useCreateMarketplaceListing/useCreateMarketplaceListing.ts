@@ -37,12 +37,20 @@ import {
   type CreateMarketplaceListingDraftData,
   createMarketplaceListingDraftSchema,
   createMarketplaceListingSchema,
+  fulfillmentFormValueFromRecord,
+  fulfillmentMethodsFromForm,
+  fulfillmentRequiresShipping,
   listingAttributeFormField,
 } from './useCreateMarketplaceListing.types';
 
 export interface UseCreateMarketplaceListingResult {
   form: UseFormReturn<CreateMarketplaceListingData>;
   media: UseListingMediaManagerResult;
+  /**
+   * The draft's listing id — also the id the publish path reuses, so the
+   * pickup-details editor can address the listing aggregate before publish.
+   */
+  draftId: string;
   /** True when the form was hydrated from a locally autosaved draft. */
   restoredDraft: boolean;
   /** Source listing title when this draft was seeded by Duplicate. */
@@ -155,8 +163,11 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
 
       // One listing id per draft, held across retries: a submit that fails
       // AFTER the homeserver PUT must overwrite the same record when
-      // retried, never publish a duplicate.
-      pendingListingIdRef.current ??= crypto.randomUUID().replaceAll('-', '');
+      // retried, never publish a duplicate. The id is the draft id itself, so
+      // pickup details saved from the studio before publish attach to the
+      // listing this publish creates (local pickup design §A1 — details are a
+      // separate service aggregate keyed by the listing aggregate id).
+      pendingListingIdRef.current ??= draftId;
 
       try {
         await uploadListingMedia(preparedMedia.uploads);
@@ -199,7 +210,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     draftReadyRef.current = true;
   };
 
-  return { form, media, restoredDraft, seededFromTitle, seededAuctionAsFixedPrice, submit, reset };
+  return { form, media, draftId, restoredDraft, seededFromTitle, seededAuctionAsFixedPrice, submit, reset };
 }
 
 /**
@@ -218,6 +229,7 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
     widthMillimeters: legacyWidthMm,
     heightMillimeters: legacyHeightMm,
     currency: draftCurrency,
+    fulfillment: draftFulfillment,
     seededFromTitle: _seededFromTitle,
     seededAuctionAsFixedPrice: _seededAuctionAsFixedPrice,
     ...draftForm
@@ -225,6 +237,11 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
   const normalized: Partial<CreateMarketplaceListingData> = { ...draftForm };
   if (draftCurrency !== undefined) {
     normalized.currency = draftCurrency === 'SATS' ? 'BTC' : draftCurrency;
+  }
+  // Legacy drafts stored the shipping choice as 'physical' (the old conflated
+  // item-type/fulfillment axis); the fulfillment control now says 'shipping'.
+  if (draftFulfillment !== undefined) {
+    normalized.fulfillment = draftFulfillment === 'physical' ? 'shipping' : draftFulfillment;
   }
 
   const legacyDimension = (value: string | undefined): string | null =>
@@ -273,6 +290,7 @@ export function seedDraftFormFromListing(
   if (!isPhysical && !record.fulfillmentMethods.includes('pickup')) {
     throw new Error('unsupported-fulfillment');
   }
+  const fulfillment = fulfillmentFormValueFromRecord(record.fulfillmentMethods);
   const auctionAsFixed = record.sale.format === 'auction';
   const flatShipping = record.shippingOptions.find((option) => option.pricing === 'flat');
   const returnDays =
@@ -302,7 +320,7 @@ export function seedDraftFormFromListing(
       quantity: String(variant.quantity),
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
-    fulfillment: isPhysical ? 'physical' : 'pickup',
+    fulfillment,
     shippingLabel: flatShipping ? flatShipping.label : createMarketplaceListingDefaults.shippingLabel,
     shippingPrice: flatShipping ? amountInputFromMoney(flatShipping.price) : '',
     shippingMinDays: flatShipping
@@ -405,7 +423,7 @@ function buildListingRecord(
           unitPrice,
           acceptsOffers: true,
         };
-  const isPhysical = data.fulfillment === 'physical';
+  const requiresShipping = fulfillmentRequiresShipping(data.fulfillment);
   const returnWindowDays = data.returnDays === 'none' ? undefined : Number(data.returnDays);
 
   return commerceListingRecordSchema.parse({
@@ -431,9 +449,9 @@ function buildListingRecord(
     media,
     variants: buildListingVariants(data, media),
     sale,
-    fulfillmentMethods: [data.fulfillment],
-    package: isPhysical ? buildPackageRecord(data) : undefined,
-    shippingOptions: isPhysical
+    fulfillmentMethods: fulfillmentMethodsFromForm(data.fulfillment),
+    package: requiresShipping ? buildPackageRecord(data) : undefined,
+    shippingOptions: requiresShipping
       ? [
           {
             id: 'seller_flat_rate',

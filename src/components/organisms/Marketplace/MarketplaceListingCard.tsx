@@ -15,6 +15,7 @@ import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketpl
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { cn } from '@/libs/utils/utils';
+import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
 import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
@@ -157,6 +158,9 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           <Typography as="p" className="truncate text-sm text-muted-foreground">
             {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
           </Typography>
+          <div>
+            <MarketplaceFulfillmentBadge methods={listing.fulfillmentMethods} />
+          </div>
           {listing.reputation !== null && listing.reputation.count > 0 ? (
             <MarketplaceStarRating
               rating={listing.reputation.avg}

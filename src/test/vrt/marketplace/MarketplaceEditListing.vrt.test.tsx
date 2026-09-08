@@ -75,6 +75,9 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitUpsertListing: () => Promise.resolve(),
     getShippingPresets: () => Promise.resolve([]),
     commitUpsertShippingPreset: () => Promise.resolve(),
+    // Pickup is unavailable on this capture's deployment: the studio renders
+    // the deterministic unavailability note, not an async capability race.
+    fetchPickupAvailable: () => Promise.resolve(false),
   },
 }));
 

@@ -130,6 +130,7 @@ export function MarketplaceSell() {
           media={listing.media}
           onSubmit={submit}
           isPublishing={isPublishing}
+          listingId={listing.draftId}
         />
       </Container>
     </ContentLayout>

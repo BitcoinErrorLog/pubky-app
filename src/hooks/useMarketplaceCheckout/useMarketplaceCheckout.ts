@@ -7,10 +7,10 @@ import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
-import {
-  buildMarketplaceCheckoutAggregateId,
-  isMarketplaceRevisionConflict,
-} from '@/libs/commerce/transaction-commands';
+import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
+import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
+import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
+import { AppError } from '@/libs/error/error';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { CommerceDeliveryAddressModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -87,6 +87,22 @@ export function useMarketplaceCheckout(
   /** Composite row id of the applied saved address; null while entering a new one. */
   selectedAddressId: string | null;
   selectAddress: (id: string | null) => void;
+  /**
+   * The fulfillment methods a seller group's lines ALL publish (the choice
+   * is selectable only among these, §A2), filtered by the deployment's
+   * `pickup_available` capability. Empty when the group's lines force
+   * incompatible single methods — a conflict the cart must surface.
+   */
+  fulfillmentOptionsForSeller: (sellerPubky: string) => MarketplaceFulfillmentMethod[];
+  /** The group's effective choice: the buyer's, else shipping when shippable. */
+  fulfillmentForSeller: (sellerPubky: string) => MarketplaceFulfillmentMethod | undefined;
+  setFulfillmentChoice: (sellerPubky: string, method: MarketplaceFulfillmentMethod) => void;
+  /** False only when EVERY group is pickup — a pickup-only checkout sends no address (§A2). */
+  requiresDeliveryAddress: boolean;
+  /** True when a group's lines force incompatible single fulfillments. */
+  hasFulfillmentConflict: boolean;
+  /** The number of orders this checkout places — one per (seller, fulfillment) group. */
+  orderCount: number;
 } {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // Connecting a session replaces this store object; the flag below clears so
@@ -96,6 +112,8 @@ export function useMarketplaceCheckout(
   const [needsSession, setNeedsSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  const [pickupAvailable, setPickupAvailable] = useState<boolean | null>(null);
+  const [choiceOverrides, setChoiceOverrides] = useState<Record<string, MarketplaceFulfillmentMethod>>({});
   const appliedInitialAddressRef = useRef(false);
   const form = useForm<MarketplaceCheckoutData>({
     resolver: zodResolver(marketplaceCheckoutSchema),
@@ -154,6 +172,62 @@ export function useMarketplaceCheckout(
     setNeedsSession(false);
     setSessionError(null);
   }, [marketplaceSession]);
+
+  // The deployment capability (§A7): pickup choices are offered only when
+  // the service reports `pickup_available` (off without the sealing key, and
+  // off on every sandbox-payments deployment — the sandbox included).
+  useEffect(() => {
+    let active = true;
+    CommerceController.fetchPickupAvailable()
+      .then((available) => {
+        if (active) setPickupAvailable(available);
+      })
+      .catch(() => {
+        if (active) setPickupAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Per-seller-group fulfillment resolution (§A2): the intersection of the
+  // methods every line in the group publishes — the choice is selectable
+  // only among those, never silently rewritten to shipping (the prior art's
+  // `?? 'shipping'` defect, PR 22 review item 1).
+  const optionsBySeller = new Map<string, MarketplaceFulfillmentMethod[]>();
+  for (const item of items) {
+    const sellerPubky = item.listing.record.ownerPubky;
+    const published = commerceListingFulfillmentMethods(item.listing.record.fulfillmentMethods);
+    const allowed = pickupAvailable === false ? published.filter((method) => method !== 'pickup') : published;
+    const existing = optionsBySeller.get(sellerPubky);
+    optionsBySeller.set(
+      sellerPubky,
+      existing ? existing.filter((method) => allowed.includes(method)) : [...allowed],
+    );
+  }
+  const fulfillmentOptionsForSeller = (sellerPubky: string) => optionsBySeller.get(sellerPubky) ?? [];
+  const fulfillmentForSeller = (sellerPubky: string): MarketplaceFulfillmentMethod | undefined => {
+    const options = fulfillmentOptionsForSeller(sellerPubky);
+    if (options.length === 0) return undefined;
+    const override = choiceOverrides[sellerPubky];
+    if (override && options.includes(override)) return override;
+    return options.includes('shipping') ? 'shipping' : options[0];
+  };
+  const hasFulfillmentConflict = [...optionsBySeller.values()].some((options) => options.length === 0);
+  const requiresDeliveryAddress =
+    items.length === 0 ||
+    [...optionsBySeller.keys()].some((sellerPubky) => fulfillmentForSeller(sellerPubky) !== 'pickup');
+  const orderCount = optionsBySeller.size;
+
+  // Keep the hidden schema flag in sync so the address requirement follows
+  // the groups (a pickup-only checkout must not demand — or send — one, §A2).
+  useEffect(() => {
+    form.setValue('requiresDeliveryAddress', requiresDeliveryAddress, { shouldValidate: true });
+  }, [form, requiresDeliveryAddress]);
+
+  const setFulfillmentChoice = (sellerPubky: string, method: MarketplaceFulfillmentMethod) => {
+    setChoiceOverrides((current) => ({ ...current, [sellerPubky]: method }));
+  };
 
   const selectAddress = (id: string | null) => {
     if (id === null) {
@@ -226,6 +300,8 @@ export function useMarketplaceCheckout(
             const variantOptions = variant ? Object.entries(variant.options) : [];
             return {
               listingAggregateId: projection.aggregateId,
+              sellerPubky: record.ownerPubky,
+              publishedFulfillmentMethods: commerceListingFulfillmentMethods(record.fulfillmentMethods),
               expectedRevision: projection.serverRevision,
               quantity: item.quantity,
               ...(variant ? { variantId: variant.id } : {}),
@@ -243,27 +319,31 @@ export function useMarketplaceCheckout(
           });
           return;
         }
-        const commandId = crypto.randomUUID();
-        const response = await CommerceController.executeMarketplaceCommand({
-          version: 1,
-          commandId,
-          aggregateId: buildMarketplaceCheckoutAggregateId(commandId),
-          expectedRevision: 0,
-          issuedAt: new Date().toISOString(),
-          kind: 'checkout.create',
-          payload: {
-            lines,
-            deliveryAddress: {
-              name: data.name,
-              line1: data.line1,
-              line2: data.line2,
-              city: data.city,
-              region: data.region,
-              postalCode: data.postalCode,
-              countryCode: data.countryCode.toUpperCase(),
-            },
-            guaranteePolicyVersion: 1,
-          },
+        // The fulfillment-aware checkout (§A2): one choice per seller group,
+        // the service splits one order per (seller, fulfillment), and the
+        // delivery address rides only when at least one group ships.
+        const fulfillmentChoiceBySeller: Record<string, MarketplaceFulfillmentMethod> = {};
+        for (const sellerPubky of optionsBySeller.keys()) {
+          const fulfillment = fulfillmentForSeller(sellerPubky);
+          if (fulfillment) fulfillmentChoiceBySeller[sellerPubky] = fulfillment;
+        }
+        const checkoutLines = lines.filter((line): line is NonNullable<typeof line> => line !== null);
+        const response = await CommerceController.commitCreateMarketplaceCheckout({
+          lines: checkoutLines,
+          fulfillmentChoiceBySeller,
+          ...(requiresDeliveryAddress
+            ? {
+                deliveryAddress: {
+                  name: data.name,
+                  line1: data.line1,
+                  line2: data.line2,
+                  city: data.city,
+                  region: data.region,
+                  postalCode: data.postalCode,
+                  countryCode: data.countryCode.toUpperCase(),
+                },
+              }
+            : {}),
         });
         if (!response.ok) {
           if (isMarketplaceRevisionConflict(response)) {
@@ -278,7 +358,9 @@ export function useMarketplaceCheckout(
           toast({ variant: 'error', description: response.error.message });
           return;
         }
-        await persistAddressBookAfterOrder(data);
+        // The address book only learns an address that actually traveled —
+        // a pickup-only checkout sent none (§A2).
+        if (requiresDeliveryAddress) await persistAddressBookAfterOrder(data);
         await clearCart();
         succeeded = true;
         const mode = getCommerceAdapterMode();
@@ -301,6 +383,12 @@ export function useMarketplaceCheckout(
           toast({ variant: 'error', description: checkoutError.message });
           return;
         }
+        if (checkoutError instanceof AppError) {
+          // Typed validation refusals (e.g. a group choosing a fulfillment
+          // its listing does not publish, §A2) carry user-facing copy.
+          toast({ variant: 'error', description: checkoutError.message });
+          return;
+        }
         toast({ variant: 'error', description: 'Checkout could not be completed.' });
       }
     })();
@@ -316,5 +404,11 @@ export function useMarketplaceCheckout(
     addresses,
     selectedAddressId,
     selectAddress,
+    fulfillmentOptionsForSeller,
+    fulfillmentForSeller,
+    setFulfillmentChoice,
+    requiresDeliveryAddress,
+    hasFulfillmentConflict,
+    orderCount,
   };
 }

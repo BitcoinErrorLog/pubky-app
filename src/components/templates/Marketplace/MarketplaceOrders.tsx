@@ -153,7 +153,8 @@ export function MarketplaceOrders() {
                           <Badge variant="outline" className="border-border/60 text-muted-foreground">
                             {isBuyer ? 'You bought' : 'You sold'}
                           </Badge>
-                          <Badge variant="secondary">{order.state.replaceAll('_', ' ')}</Badge>
+                          <Badge variant="secondary">{orderStateLabel(order)}</Badge>
+                          {order.fulfillment === 'pickup' && <Badge variant="secondary">Local pickup</Badge>}
                           <DropEditionBadge order={order} />
                           {nextActorHint && (
                             <Badge variant={nextActorHint.isCurrentUser ? 'default' : 'outline'}>
@@ -181,6 +182,16 @@ export function MarketplaceOrders() {
                         <Typography as="p" className="mt-1 text-xs text-muted-foreground">
                           Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
                         </Typography>
+                        {/* A post-payment terms change (§A3): the buyer is told
+                            plainly, and their unilateral exit is named. */}
+                        {isBuyer && order.fulfillment === 'pickup' && order.pickupTermsChanged && (
+                          <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3" role="status">
+                            <Typography as="p" className="text-sm text-amber-200">
+                              The seller changed the pickup terms since you paid. Show the meeting point to see the
+                              terms you paid against — you can cancel this order instantly from the order actions.
+                            </Typography>
+                          </div>
+                        )}
                         {receipt && (
                           <div className="mt-3 flex flex-col gap-1">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -278,6 +289,7 @@ export function MarketplaceOrders() {
                         isBuyer={isBuyer}
                         canEditReview={adapterMode === 'transaction-service'}
                         actOnOrder={actOnOrder}
+                        onChanged={refresh}
                       />
                     </CardContent>
                   </Card>
@@ -341,6 +353,25 @@ function isOrderNeedingCurrentUser(order: MarketplaceOrder, currentUserPubky: st
   if (order.nextActor === 'buyer') return isCurrentUserBuyer(order, currentUserPubky);
   if (order.nextActor === 'seller') return isCurrentUserSeller(order, currentUserPubky);
   return isCurrentUserSeller(order, currentUserPubky) && SELLER_NEEDS_ATTENTION_STATES.includes(order.state);
+}
+
+/**
+ * The state pill. Pickup orders get plain-language labels for their path
+ * (§A6): paid means paid-and-not-yet-collected, ready_for_pickup speaks for
+ * itself, and a delivered pickup order was handed over in person.
+ */
+function orderStateLabel(order: MarketplaceOrder): string {
+  if (order.fulfillment === 'pickup') {
+    switch (order.state) {
+      case 'paid':
+        return 'Paid';
+      case 'ready_for_pickup':
+        return 'Ready for pickup';
+      case 'delivered':
+        return 'Picked up';
+    }
+  }
+  return order.state.replaceAll('_', ' ');
 }
 
 function getNextActorHint(order: MarketplaceOrder, isBuyer: boolean): { label: string; isCurrentUser: boolean } | null {

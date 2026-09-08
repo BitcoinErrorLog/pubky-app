@@ -9,6 +9,7 @@ import {
   commerceAttributeFieldsFor,
   resolveCommerceCategory,
 } from '@/config/taxonomy/taxonomy';
+import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import {
   amountInputSchemaForAsset,
   assetForListingCurrency,
@@ -254,7 +255,7 @@ export const createMarketplaceListingSchema = z
     currency: z.enum(['USD', 'BTC']),
     price: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
-    fulfillment: z.enum(['pickup', 'physical']),
+    fulfillment: z.enum(['shipping', 'pickup', 'shipping_and_pickup']),
     shippingLabel: z.string().trim().max(100, 'Keep the shipping label under 100 characters.'),
     shippingPrice: z.string().trim(),
     shippingMinDays: z.string().trim(),
@@ -274,7 +275,7 @@ export const createMarketplaceListingSchema = z
         validateMoneyField(variant.priceOverride, data.currency, ['variants', index, 'priceOverride'], context);
       }
     });
-    if (data.fulfillment === 'physical') {
+    if (data.fulfillment !== 'pickup') {
       validateMoneyField(
         data.shippingPrice,
         data.currency,
@@ -319,6 +320,17 @@ export const createMarketplaceListingSchema = z
       ] as const) {
         validatePackageDimension(data[field], field, data.measurementSystem, context);
       }
+    }
+    // Auctions are shipping-only (local pickup design §A2): an auction order
+    // carries no address and no checkout step, so a pickup choice could never
+    // be expressed. The studio coerces the field on format switch; this rule
+    // is the schema backstop (and drives the publish checklist).
+    if (data.saleFormat === 'auction' && data.fulfillment !== 'shipping') {
+      context.addIssue({
+        code: 'custom',
+        path: [CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT],
+        message: 'Auctions ship only — pickup is available on Buy now listings.',
+      });
     }
     if (data.saleFormat === 'auction' && data.variants.length !== 1) {
       context.addIssue({
@@ -370,7 +382,8 @@ export const createMarketplaceListingDraftSchema = z
         priceOverride: z.string(),
       }),
     ),
-    fulfillment: z.enum(['pickup', 'physical']),
+    /** Legacy drafts stored the shipping choice as 'physical'; accepted here and migrated to 'shipping' on restore. */
+    fulfillment: z.enum(['pickup', 'physical', 'shipping', 'shipping_and_pickup']),
     shippingLabel: z.string(),
     shippingPrice: z.string(),
     shippingMinDays: z.string(),
@@ -398,6 +411,50 @@ export const createMarketplaceListingDraftSchema = z
 
 export type CreateMarketplaceListingData = z.infer<typeof createMarketplaceListingSchema>;
 export type CreateMarketplaceListingDraftData = z.infer<typeof createMarketplaceListingDraftSchema>;
+
+/**
+ * The studio's fulfillment axis (local pickup design §A2). The record
+ * vocabulary couples `physical` to package facts and a shipping option (the
+ * record schema's own rule), so: a shipped listing is `['physical']` (the
+ * service defaults it to shipping-only); a pickup-only listing is
+ * `['pickup']` (no package facts — nothing ships); a both-ways listing ships
+ * too, so it keeps `physical` AND must carry `shipping` explicitly alongside
+ * `pickup` — without it the service's derivation would converge to
+ * pickup-only.
+ */
+export function fulfillmentMethodsFromForm(
+  fulfillment: CreateMarketplaceListingData['fulfillment'],
+): CommerceListingRecord['fulfillmentMethods'] {
+  switch (fulfillment) {
+    case 'shipping':
+      return ['physical'];
+    case 'pickup':
+      return ['pickup'];
+    case 'shipping_and_pickup':
+      return ['physical', 'shipping', 'pickup'];
+  }
+}
+
+/**
+ * The inverse mapping for edit/duplicate hydration. Records published before
+ * the fulfillment choice existed carry no pickup vocabulary and read as
+ * shipping (existing seller listings default to shipping); a legacy
+ * pickup-only record (`['pickup']` or `['physical','pickup']`) reads as
+ * pickup, and only an explicit `shipping` entry alongside `pickup` reads as
+ * both — mirroring `commerceListingFulfillmentMethods`.
+ */
+export function fulfillmentFormValueFromRecord(
+  methods: readonly CommerceListingRecord['fulfillmentMethods'][number][],
+): CreateMarketplaceListingData['fulfillment'] {
+  const offersPickup = methods.includes('pickup');
+  if (!offersPickup) return 'shipping';
+  return methods.includes('shipping') ? 'shipping_and_pickup' : 'pickup';
+}
+
+/** True when the fulfillment choice includes shipping (the shipping/package fields stay required). */
+export function fulfillmentRequiresShipping(fulfillment: CreateMarketplaceListingData['fulfillment']): boolean {
+  return fulfillment !== 'pickup';
+}
 
 /** Schema field names for a scoped `useWatch` — keep this derived, never hand-typed. */
 export const CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS = Object.keys(
@@ -450,7 +507,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   currency: 'USD',
   price: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
-  fulfillment: 'physical',
+  fulfillment: 'shipping',
   shippingLabel: 'Seller shipping',
   shippingPrice: '',
   shippingMinDays: '3',

@@ -15,7 +15,17 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMarketplaceBandConsent: vi.fn(async () => null),
     getOwnMarketplaceReview: vi.fn(async () => null),
+    commitMarkReady: vi.fn(async () => ({ ok: true })),
+    commitConfirmPickup: vi.fn(async () => ({ ok: true })),
+    executeMarketplaceCommand: vi.fn(async () => ({ ok: true, result: { kind: 'order', order: { state: 'cancelled' } } })),
+    fetchPickupReveal: vi.fn(async () => {
+      throw new Error('not under test here');
+    }),
   },
+}));
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({
+  toast: vi.fn(),
 }));
 
 const mockedController = vi.mocked(CommerceController);
@@ -252,6 +262,172 @@ describe('MarketplaceOrderActions own-review verified status', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('own-review-status')).toHaveTextContent(/No public record was published/);
+    });
+  });
+});
+
+describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
+  const pickupControllerState = {
+    confirmResponse: { ok: true } as unknown,
+    cancelResponse: { ok: true, result: { kind: 'order', order: { state: 'cancelled' } } } as unknown,
+  };
+
+  beforeEach(() => {
+    mockedController.commitMarkReady.mockClear().mockResolvedValue({ ok: true } as never);
+    mockedController.commitConfirmPickup.mockClear().mockImplementation(async () => pickupControllerState.confirmResponse as never);
+    mockedController.executeMarketplaceCommand.mockClear().mockImplementation(async () => pickupControllerState.cancelResponse as never);
+    pickupControllerState.confirmResponse = { ok: true };
+    pickupControllerState.cancelResponse = { ok: true, result: { kind: 'order', order: { state: 'cancelled' } } };
+  });
+
+  function renderPickupActions({
+    state,
+    isBuyer,
+    overrides = {},
+  }: {
+    state: 'paid' | 'ready_for_pickup' | 'delivered';
+    isBuyer: boolean;
+    overrides?: Partial<MarketplaceOrder>;
+  }) {
+    const order = createOrderFixture(state, { fulfillment: 'pickup', ...overrides });
+    const actOnOrder = vi.fn(async () => true);
+    const onChanged = vi.fn();
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={isBuyer}
+        canEditReview={false}
+        actOnOrder={actOnOrder}
+        onChanged={onChanged}
+      />,
+    );
+    return { order, actOnOrder, onChanged };
+  }
+
+  it('offers the seller Mark ready for pickup and Confirm handover from paid — and no shipping actions', () => {
+    renderPickupActions({ state: 'paid', isBuyer: false });
+
+    expect(screen.getByRole('button', { name: 'Mark ready for pickup' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm handover' })).toBeInTheDocument();
+    // Pickup orders never ship (§A6): no tracking, no label.
+    expect(screen.queryByRole('button', { name: 'Add tracking' })).not.toBeInTheDocument();
+  });
+
+  it('marks ready through commitMarkReady and reloads the timeline', async () => {
+    const user = userEvent.setup();
+    const { order, onChanged } = renderPickupActions({ state: 'paid', isBuyer: false });
+
+    await user.click(screen.getByRole('button', { name: 'Mark ready for pickup' }));
+
+    await waitFor(() => {
+      expect(mockedController.commitMarkReady).toHaveBeenCalledWith(order.id, order.revision);
+    });
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('offers the buyer Show meeting point and Confirm handover from ready_for_pickup', () => {
+    renderPickupActions({ state: 'ready_for_pickup', isBuyer: true });
+
+    expect(screen.getByRole('button', { name: 'Show meeting point' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm handover' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel order' })).toBeInTheDocument();
+  });
+
+  it('withholds the meeting-point reveal once the order is terminal (§A3)', () => {
+    // A delivered pickup order is NOT terminal — the buyer may still need the
+    // pinned meeting point (a return is still possible).
+    renderPickupActions({ state: 'delivered', isBuyer: true });
+    expect(screen.getByRole('button', { name: 'Show meeting point' })).toBeInTheDocument();
+  });
+
+  it('hides the reveal on a cancelled pickup order — the entitlement ended at the cancel (§A3)', () => {
+    // The order keeps its payment receipt — the gate is the terminal state,
+    // not the receipt, per the reveal cutoff.
+    renderPickupActions({ state: 'delivered', isBuyer: true, overrides: { state: 'cancelled' } });
+    expect(screen.queryByRole('button', { name: 'Show meeting point' })).not.toBeInTheDocument();
+  });
+
+  it('warns the buyer before confirm — only once the item is in their hands', async () => {
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'ready_for_pickup', isBuyer: true });
+
+    await user.click(screen.getByRole('button', { name: 'Confirm handover' }));
+    expect(screen.getByText('Only confirm once the item is in your hands.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Confirm handover' }));
+    await waitFor(() => {
+      expect(mockedController.commitConfirmPickup).toHaveBeenCalled();
+    });
+  });
+
+  it('carries the seller-attested wording on the seller confirm', async () => {
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'paid', isBuyer: false });
+
+    await user.click(screen.getByRole('button', { name: 'Confirm handover' }));
+    expect(screen.getByText(/A handover you confirm yourself counts toward your reputation/)).toBeInTheDocument();
+  });
+
+  it('renders the seller-actor terms-change refusal as an explanation, not an error toast', async () => {
+    pickupControllerState.confirmResponse = {
+      ok: false,
+      error: {
+        code: 'INVALID_STATE',
+        message:
+          'The pickup terms changed after payment; the seller cannot confirm the handover until the buyer has seen the change.',
+      },
+    };
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'ready_for_pickup', isBuyer: false });
+
+    await user.click(screen.getByRole('button', { name: 'Confirm handover' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm handover' }));
+
+    expect(
+      await screen.findByText(/Until the buyer has seen the change, only the buyer can confirm the handover/),
+    ).toBeInTheDocument();
+  });
+
+  it('states that cancelling moves no money on the pickup cancel dialog, and confirms the unilateral exit', async () => {
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'paid', isBuyer: true, overrides: { pickupTermsChanged: true } });
+
+    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
+    expect(screen.getByText('Cancel this pickup order')).toBeInTheDocument();
+    expect(screen.getByText(/Cancelling does not move any money/)).toBeInTheDocument();
+    // The projection flagged a terms change: the instant-exit copy (§A3).
+    expect(screen.getByText(/cancels the order instantly — no seller approval needed/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Reason'), 'The new spot is unreachable for me');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    await waitFor(() => {
+      expect(mockedController.executeMarketplaceCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'order.cancel_request' }),
+      );
+    });
+  });
+
+  it('renders the degraded cancel_requested outcome honestly (the lost race, §7.2)', async () => {
+    pickupControllerState.cancelResponse = {
+      ok: true,
+      result: { kind: 'order', order: { state: 'cancel_requested' } },
+    };
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'paid', isBuyer: true, overrides: { firstRevealedAt: '2026-08-19T21:00:00.000Z' } });
+
+    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
+    await user.type(screen.getByLabelText('Reason'), 'The spot does not work for me');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    await waitFor(() => {
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'warning',
+          description: 'Instant cancellation was not available; your cancellation request now awaits the seller.',
+        }),
+      );
     });
   });
 });

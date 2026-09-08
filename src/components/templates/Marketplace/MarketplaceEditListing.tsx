@@ -112,6 +112,7 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
           media={editing.media}
           onSubmit={submit}
           isPublishing={isSaving}
+          listingId={listingId}
           mode="edit"
           saleTermsLocked={editing.saleTermsLocked}
         />

@@ -12,6 +12,22 @@ describe('getMarketplaceNotificationActionText', () => {
     expect(getMarketplaceNotificationActionText({ type: 'order_completed' })).toBe('completed an order');
   });
 
+  it('renders the local pickup copy (Wave 7, §A3/§A6)', () => {
+    // pickup_details_updated / pickup_ready are their own types; a handover
+    // confirm emits fulfillment.delivered (the order_delivered type, shared
+    // with shipped orders by contract) and the unilateral buyer-protection
+    // exits notify as order_cancelled — both truthful for either path.
+    expect(getMarketplaceNotificationActionText({ type: 'pickup_details_updated' })).toBe(
+      'updated the pickup details',
+    );
+    expect(getMarketplaceNotificationActionText({ type: 'pickup_details_cleared' })).toBe(
+      'removed the pickup details',
+    );
+    expect(getMarketplaceNotificationActionText({ type: 'pickup_ready' })).toBe('marked your order ready for pickup');
+    expect(getMarketplaceNotificationActionText({ type: 'order_delivered' })).toBe('confirmed delivery of an order');
+    expect(getMarketplaceNotificationActionText({ type: 'order_cancelled' })).toBe('updated an order cancellation');
+  });
+
   it('appends the §8-permitted amount to auction and offer copy', () => {
     const usd = { amountMinor: 8_500, currency: 'USD', exponent: 2 };
     expect(getMarketplaceNotificationActionText({ type: 'auction_ended', amount: usd })).toBe(

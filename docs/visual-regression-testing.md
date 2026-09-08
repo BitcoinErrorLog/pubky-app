@@ -20,6 +20,23 @@ const screen = await renderForVRT(<Component />, { viewport: VRT_VIEWPORT_DESKTO
 await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('name-desktop');
 ```
 
+### Surface captures (`expectVrtSurface`)
+
+When a scene should capture one production surface rather than the whole
+viewport (a dialog, a form section, a cart group), the production component
+marks its root with `data-surface="<name>"` and the test asserts through the
+guard before capturing — the capture then wraps exactly that element
+(including portaled dialog content, which sits outside the VRT root in the
+DOM but inside its screenshot region):
+
+```tsx
+await expect(expectVrtSurface('pickup-reveal-dialog')).toMatchScreenshot('orders-pickup-reveal-desktop');
+```
+
+A scene without the production `data-surface` root is rejected by the guard
+(see the negative test in `src/test/vrt/marketplace/MarketplacePickup.vrt.test.tsx`),
+so a test-only stand-in can never be baselined by accident.
+
 `renderForVRT` wraps the tree in a viewport-clamped root (the screenshot is
 exactly the viewport, not full scroll height), freezes the clock, seeds
 `Math.random`, and waits for fonts + successfully loaded images. Mock every

@@ -1226,7 +1226,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
                 class="font-medium mt-1 text-sm text-muted-foreground"
                 data-testid="typography"
               >
-                Ship item requires shipping details and package size; Local pickup skips those fields.
+                Fulfillment: ship the item, offer local pickup, or both. Shipping requires the shipping details and package size; pickup-only listings skip those fields.
               </p>
             </div>
             <div
@@ -1248,7 +1248,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
                 data-slot="label"
                 for="fulfillment"
               >
-                Delivery
+                Fulfillment
               </label>
               <button
                 aria-autocomplete="none"
@@ -1295,7 +1295,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               >
                 <option
                   selected=""
-                  value="physical"
+                  value="shipping"
                 >
                   Ship item
                 </option>
@@ -1303,6 +1303,11 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
                   value="pickup"
                 >
                   Local pickup
+                </option>
+                <option
+                  value="shipping_and_pickup"
+                >
+                  Pickup or shipping
                 </option>
               </select>
             </div>

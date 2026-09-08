@@ -17,6 +17,9 @@ import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
   createMarketplaceListingSchema,
+  fulfillmentFormValueFromRecord,
+  fulfillmentMethodsFromForm,
+  fulfillmentRequiresShipping,
   listingAttributeFormField,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import {
@@ -209,7 +212,12 @@ function formDataFromRecord(
   measurementSystem: MeasurementSystem,
 ): CreateMarketplaceListingData {
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
-  const isPhysical = record.fulfillmentMethods.includes('physical');
+  // Auctions are shipping-only (local pickup design §A2): an auction record
+  // carrying pickup vocabulary predates the rule — the register path refuses
+  // pickup auctions — so the editor hydrates it as shipping rather than
+  // deadlocking the form on a combination the schema cannot accept.
+  const fulfillment =
+    record.sale.format === 'auction' ? 'shipping' : fulfillmentFormValueFromRecord(record.fulfillmentMethods);
   const flatShipping = record.shippingOptions.find((option) => option.pricing === 'flat');
   const returnDays =
     record.returnPolicy.acceptsReturns && record.returnPolicy.returnWindowDays !== undefined
@@ -238,7 +246,7 @@ function formDataFromRecord(
       quantity: String(variant.quantity),
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
-    fulfillment: isPhysical ? 'physical' : 'pickup',
+    fulfillment,
     shippingLabel: flatShipping ? flatShipping.label : createMarketplaceListingDefaults.shippingLabel,
     shippingPrice: flatShipping ? amountInputFromMoney(flatShipping.price) : '',
     shippingMinDays: flatShipping
@@ -276,7 +284,7 @@ function buildUpdatedRecord(
     record.sale.format === 'auction'
       ? record.sale
       : { format: 'fixed_price', unitPrice, acceptsOffers: record.sale.acceptsOffers };
-  const isPhysical = data.fulfillment === 'physical';
+  const requiresShipping = fulfillmentRequiresShipping(data.fulfillment);
   const returnWindowDays = data.returnDays === 'none' ? undefined : Number(data.returnDays);
 
   // Attributes this client cannot express (foreign keys/values) survive the
@@ -303,9 +311,9 @@ function buildUpdatedRecord(
     media,
     variants: buildListingVariants(data, media),
     sale,
-    fulfillmentMethods: [data.fulfillment],
-    package: isPhysical ? buildPackageRecord(data) : undefined,
-    shippingOptions: isPhysical
+    fulfillmentMethods: fulfillmentMethodsFromForm(data.fulfillment),
+    package: requiresShipping ? buildPackageRecord(data) : undefined,
+    shippingOptions: requiresShipping
       ? [
           {
             id: 'seller_flat_rate',

@@ -206,6 +206,8 @@ describe('useEditMarketplaceListing', () => {
   });
 
   it('preserves auction sale terms verbatim when editing an auction', async () => {
+    // Auctions are shipping-only (local pickup design §A2), so the auction
+    // record carries the shipped-listing vocabulary with its package facts.
     const auctionRecord = {
       ...structuredClone(publishedRecord),
       sale: {
@@ -217,6 +219,18 @@ describe('useEditMarketplaceListing', () => {
         antiSnipingWindowSeconds: 120,
         antiSnipingExtensionSeconds: 120,
       },
+      fulfillmentMethods: ['physical' as const],
+      package: { weightGrams: 1_200, lengthMillimeters: 350, widthMillimeters: 250, heightMillimeters: 150 },
+      shippingOptions: [
+        {
+          id: 'seller_flat_rate',
+          pricing: 'flat' as const,
+          label: 'Standard shipping',
+          price: { amountMinor: 1_200, currency: 'USD', exponent: 2 },
+          estimatedMinDays: 3,
+          estimatedMaxDays: 7,
+        },
+      ],
     };
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(auctionRecord);
 

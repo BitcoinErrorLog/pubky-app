@@ -7,17 +7,21 @@ import { Checkbox } from '@/atoms/Checkbox/Checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
 import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
+import { Typography } from '@/atoms/Typography/Typography';
 import { COMMERCE_REVIEW_EDIT_WINDOW_SECONDS } from '@/config/commerce';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
+import { usePickupOrderActions } from '@/hooks/usePickupOrderActions/usePickupOrderActions';
 import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
 import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/MarketplacePackingSlipDialog';
+import { MarketplacePickupRevealDialog } from '@/organisms/Marketplace/MarketplacePickupRevealDialog';
 import { MarketplaceShippingLabelDialog } from '@/organisms/Marketplace/MarketplaceShippingLabelDialog';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 
@@ -26,6 +30,7 @@ export function MarketplaceOrderActions({
   isBuyer,
   canEditReview,
   actOnOrder,
+  onChanged,
 }: {
   order: MarketplaceOrder;
   isBuyer: boolean;
@@ -38,7 +43,10 @@ export function MarketplaceOrderActions({
    */
   canEditReview: boolean;
   actOnOrder: (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => Promise<boolean>;
+  /** Reloads the timeline after a pickup-path command (the same refetch `actOnOrder` performs). */
+  onChanged?: () => Promise<void> | void;
 }) {
+  const reloadOrders = onChanged ?? (() => undefined);
   const [open, setOpen] = useState(false);
   // Read once per mount (render must stay pure, so the clock is sampled in an
   // effect): the affordance freezes at page entry rather than vanishing
@@ -104,8 +112,50 @@ export function MarketplaceOrderActions({
     ownReview !== undefined &&
     nowMs !== null &&
     nowMs <= Date.parse(ownReview.createdAt) + COMMERCE_REVIEW_EDIT_WINDOW_SECONDS * 1000;
+
+  // Local pickup (Wave 7, §A6): the pickup path has its own commands and its
+  // own exits; shipped orders behave exactly as before.
+  const isPickup = order.fulfillment === 'pickup';
+  const pickup = usePickupOrderActions(order, reloadOrders);
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [termsBlocked, setTermsBlocked] = useState(false);
+  // The unilateral exits (§A3): a post-payment terms change, or the bounded
+  // withdrawal window (first reveal stamped, no handover confirm yet).
+  const unilateralCancelOpen = Boolean(order.pickupTermsChanged) || Boolean(order.firstRevealedAt);
+  const canReveal =
+    isBuyer && isPickup && order.receiptId !== null && !['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+
   const submit = async () => {
+    // Pickup cancellations keep the reason field but run the pickup-aware
+    // flow: the service either cancels outright (unilateral exit) or
+    // degrades to the ordinary cancel_requested, and each outcome gets its
+    // own honest copy (§7.2).
+    if (isPickup && actionType === 'cancel') {
+      if (!(await action.form.trigger('reason'))) return;
+      const outcome = await pickup.cancelOrder(action.form.getValues('reason'));
+      if (outcome === 'cancelled') {
+        toast({
+          title: 'Order cancelled',
+          description:
+            'Cancelling moved no money. If you already paid, the refund is arranged with the seller and recorded as external evidence.',
+        });
+        setOpen(false);
+      } else if (outcome === 'cancel_requested') {
+        toast({
+          variant: 'warning',
+          description: 'Instant cancellation was not available; your cancellation request now awaits the seller.',
+        });
+        setOpen(false);
+      }
+      return;
+    }
     if (await action.submit()) setOpen(false);
+  };
+
+  const confirmHandover = async () => {
+    const outcome = await pickup.confirmHandover();
+    if (outcome === 'confirmed') setHandoverOpen(false);
+    if (outcome === 'terms_blocked') setTermsBlocked(true);
   };
 
   return (
@@ -113,13 +163,44 @@ export function MarketplaceOrderActions({
       <div className="flex flex-wrap gap-2">
         {/* Cancellation (order.cancel_request / order.cancel_approve) is now
             implemented by BOTH engines — the sandbox and the durable service —
-            so the affordance is no longer mode-gated. */}
-        {isBuyer && ['pending_payment', 'paid', 'processing'].includes(order.state) && (
-          <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('cancel')}>
-            Cancel order
+            so the affordance is no longer mode-gated. Pickup orders add
+            `ready_for_pickup` to the cancellable states (§A6). */}
+        {isBuyer &&
+          (['pending_payment', 'paid', 'processing'].includes(order.state) ||
+            (isPickup && order.state === 'ready_for_pickup')) && (
+            <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('cancel')}>
+              Cancel order
+            </Button>
+          )}
+        {canReveal && <MarketplacePickupRevealDialog order={order} />}
+        {/* The handover confirm belongs to EITHER party — whoever is standing
+            there with the item taps confirm (§A6). */}
+        {isPickup && ['paid', 'ready_for_pickup'].includes(order.state) && (
+          <Button
+            size="sm"
+            className="rounded-full"
+            disabled={pickup.isActing}
+            onClick={() => {
+              setTermsBlocked(false);
+              setHandoverOpen(true);
+            }}
+          >
+            Confirm handover
           </Button>
         )}
-        {!isBuyer && ['paid', 'processing'].includes(order.state) && (
+        {!isBuyer && isPickup && order.state === 'paid' && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="rounded-full"
+            disabled={pickup.isActing}
+            onClick={() => void pickup.markReady()}
+          >
+            Mark ready for pickup
+          </Button>
+        )}
+        {/* Pickup orders never ship: no tracking, no label (§A6). */}
+        {!isBuyer && !isPickup && ['paid', 'processing'].includes(order.state) && (
           <>
             <Button size="sm" className="rounded-full" onClick={() => begin('ship')}>
               Add tracking
@@ -193,8 +274,17 @@ export function MarketplaceOrderActions({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="border-border bg-popover">
           <DialogHeader>
-            <DialogTitle>{actionTitle(actionType)}</DialogTitle>
+            <DialogTitle>{actionTitle(actionType, isPickup)}</DialogTitle>
           </DialogHeader>
+          {isPickup && actionType === 'cancel' && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Cancelling does not move any money. If you already paid, the refund is arranged with the seller and
+              recorded as external evidence.{' '}
+              {unilateralCancelOpen
+                ? 'Because the pickup terms changed after you paid (or you have seen the meeting point), this cancels the order instantly — no seller approval needed, and it does not count against the seller.'
+                : 'The seller is asked to approve the cancellation.'}
+            </Typography>
+          )}
           {['cancel', 'return'].includes(actionType) && (
             <ControlledTextareaField
               name="reason"
@@ -278,9 +368,43 @@ export function MarketplaceOrderActions({
             <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button className="rounded-full" onClick={submit}>
+            <Button className="rounded-full" onClick={submit} disabled={isPickup && actionType === 'cancel' && pickup.isActing}>
               Confirm
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* The pickup handover confirm (§A6). The review-hook copy names the
+          risk before confirm; the seller-attested wording states the
+          reputation asymmetry; a seller-actor confirm refused during an
+          unresolved terms change gets the explanation, not an error toast. */}
+      <Dialog open={handoverOpen} onOpenChange={setHandoverOpen}>
+        <DialogContent className="border-border bg-popover">
+          <DialogHeader>
+            <DialogTitle>Confirm the handover</DialogTitle>
+          </DialogHeader>
+          {termsBlocked ? (
+            <Typography as="p" role="alert" className="text-sm text-muted-foreground">
+              You changed the pickup terms after this order was paid. Until the buyer has seen the change, only the
+              buyer can confirm the handover — this keeps their instant-cancel exit open.
+            </Typography>
+          ) : (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              {isBuyer
+                ? 'Only confirm once the item is in your hands.'
+                : 'Confirm only once the buyer has left with the item. A handover you confirm yourself counts toward your reputation only once the order completes without a dispute — the buyer\u2019s confirm counts right away.'}
+            </Typography>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" className="rounded-full" onClick={() => setHandoverOpen(false)}>
+              {termsBlocked ? 'Close' : 'Not yet'}
+            </Button>
+            {!termsBlocked && (
+              <Button className="rounded-full" disabled={pickup.isActing} onClick={() => void confirmHandover()}>
+                Confirm handover
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -340,10 +464,10 @@ function reviewRecordStatus(record: CommerceReviewModelSchema | null): string {
   return 'Your review record is published, but its embedded attestation did not verify.';
 }
 
-function actionTitle(action: MarketplaceOrderActionData['action']): string {
+function actionTitle(action: MarketplaceOrderActionData['action'], isPickup = false): string {
   switch (action) {
     case 'cancel':
-      return 'Request cancellation';
+      return isPickup ? 'Cancel this pickup order' : 'Request cancellation';
     case 'ship':
       return 'Add shipment tracking';
     case 'return':

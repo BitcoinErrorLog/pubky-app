@@ -40,7 +40,7 @@ export function MarketplaceCart() {
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
   const sessionExpired = Boolean(checkout.needsSession && checkout.sessionError);
   const approvalNeeded = isDurableCommerceMode(adapterMode) && (!checkout.hasMarketplaceSession || sessionExpired);
-  const canPlaceOrder = !approvalNeeded && formValid;
+  const canPlaceOrder = !approvalNeeded && formValid && !checkout.hasFulfillmentConflict;
 
   const submit = async () => {
     if (await checkout.submit()) router.push(MARKETPLACE_ROUTES.ORDERS);
@@ -81,9 +81,61 @@ export function MarketplaceCart() {
               <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
                 Each seller ships separately; shipping is calculated at checkout.
               </Typography>
-              {cart.groups.map((group) => (
-                <section key={group.sellerPubky} className="grid gap-3" aria-label={`Cart items from ${group.sellerPubky}`}>
+              {cart.groups.map((group) => {
+                // Per-(seller, fulfillment) grouping (§A2): the choice is
+                // offered only among the methods every line in the group
+                // publishes; a pickup group carries no shipping line and no
+                // delivery-address step.
+                const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
+                const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
+                const isPickupGroup = fulfillment === 'pickup';
+                return (
+                <section
+                  key={group.sellerPubky}
+                  className="grid gap-3"
+                  aria-label={`Cart items from ${group.sellerPubky}`}
+                  data-surface={isPickupGroup ? 'cart-pickup-group' : undefined}
+                >
                   {cart.groups.length > 1 && <MarketplaceCartSellerHeader group={group} />}
+                  {fulfillmentOptions.length > 1 && fulfillment && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
+                      <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
+                      <Select
+                        value={fulfillment}
+                        onValueChange={(value) => {
+                          if (value === 'shipping' || value === 'pickup') {
+                            checkout.setFulfillmentChoice(group.sellerPubky, value);
+                          }
+                        }}
+                      >
+                        <SelectTrigger
+                          id={`fulfillment-${group.sellerPubky}`}
+                          className="h-11 w-56 rounded-md border px-3"
+                          aria-label={`Fulfillment for items from ${group.sellerPubky}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fulfillmentOptions.includes('shipping') && <SelectItem value="shipping">Ship it</SelectItem>}
+                          {fulfillmentOptions.includes('pickup') && (
+                            <SelectItem value="pickup">Local pickup</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {isPickupGroup && (
+                    <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+                      Local pickup — no delivery address or shipping for these items. The meeting point is revealed on
+                      the order as soon as your payment confirms.
+                    </Typography>
+                  )}
+                  {fulfillmentOptions.length === 0 && (
+                    <Typography as="p" role="alert" className="rounded-xl border border-destructive/40 px-4 py-3 text-sm">
+                      These items can&apos;t be checked out together: they don&apos;t share a fulfillment method this
+                      deployment supports (one ships while another is pickup-only). Remove one to continue.
+                    </Typography>
+                  )}
                   {group.items.map((item) => {
                     const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
                     const price =
@@ -167,7 +219,8 @@ export function MarketplaceCart() {
                     );
                   })}
                 </section>
-              ))}
+                );
+              })}
             </div>
 
             <Card className="h-fit border">
@@ -194,7 +247,25 @@ export function MarketplaceCart() {
                   <Heading level={2} size="sm" className="text-xl font-semibold">
                     2 Delivery and guarantee
                   </Heading>
-                  {checkout.addresses.length > 0 && (
+                  {/* A pickup-only checkout sends NO delivery address (§A2 —
+                      the strictest reading of the address-privacy policy), so
+                      the whole address step collapses to the explanation. */}
+                  {/* The pickup panel concept is carried over from Igor's PR
+                      22 cart (credited prior art), rebuilt on the grouped
+                      (seller, fulfillment) cart: his single isPickupOnly
+                      branch is now the "every group is pickup" case. */}
+                  {!checkout.requiresDeliveryAddress && (
+                    <div className="rounded-xl border bg-card/60 p-4">
+                      <Typography as="p" className="text-sm font-medium">
+                        Local pickup
+                      </Typography>
+                      <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                        No delivery address is needed — every item in this cart is collected in person. The
+                        seller&apos;s meeting point is revealed on the order as soon as your payment confirms.
+                      </Typography>
+                    </div>
+                  )}
+                  {checkout.requiresDeliveryAddress && checkout.addresses.length > 0 && (
                     <div className="grid gap-2">
                       <div className="flex items-center justify-between gap-2">
                         <Label htmlFor="checkout-address-picker">Saved addresses</Label>
@@ -229,16 +300,20 @@ export function MarketplaceCart() {
                       </Typography>
                     </div>
                   )}
-                  <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
-                  <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
-                  <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <ControlledInputField name="city" control={checkout.form.control} label="City" />
-                    <ControlledInputField name="region" control={checkout.form.control} label="Region" />
-                    <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
-                    <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
-                  </div>
-                  {checkout.selectedAddressId === null && (
+                  {checkout.requiresDeliveryAddress && (
+                    <>
+                      <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
+                      <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
+                      <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <ControlledInputField name="city" control={checkout.form.control} label="City" />
+                        <ControlledInputField name="region" control={checkout.form.control} label="Region" />
+                        <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
+                        <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
+                      </div>
+                    </>
+                  )}
+                  {checkout.requiresDeliveryAddress && checkout.selectedAddressId === null && (
                     <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
                       <Controller
                         name="saveAddress"
@@ -311,8 +386,17 @@ export function MarketplaceCart() {
                     </div>
                   </div>
                   <Typography as="p" className="text-xs text-muted-foreground">
-                    Shipping is calculated authoritatively at checkout.
+                    {checkout.requiresDeliveryAddress
+                      ? 'Shipping is calculated authoritatively at checkout for the items that ship.'
+                      : 'No shipping — pickup is arranged with the seller after payment.'}
                   </Typography>
+                  {/* The (seller, fulfillment) split, stated plainly before
+                      submit (§A2): one order per seller group. */}
+                  {checkout.orderCount > 1 && (
+                    <Typography as="p" className="text-xs text-muted-foreground">
+                      This places {checkout.orderCount} orders — one per seller.
+                    </Typography>
+                  )}
                   <Button
                     className="w-full rounded-full"
                     onClick={submit}
@@ -325,7 +409,9 @@ export function MarketplaceCart() {
                     <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
                       {approvalNeeded
                         ? 'Approve purchases in Pubky Ring before placing the order.'
-                        : 'Fill in delivery details and accept the guarantee to place the order.'}
+                        : checkout.hasFulfillmentConflict
+                          ? "Some items can't be checked out together — see the note in your cart."
+                          : 'Fill in delivery details and accept the guarantee to place the order.'}
                     </Typography>
                   )}
                 </section>

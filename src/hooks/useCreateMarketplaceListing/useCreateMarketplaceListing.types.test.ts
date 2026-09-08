@@ -17,7 +17,7 @@ const formDefaults = { ...createMarketplaceListingDefaults, categoryId: 'fashion
 
 describe('createMarketplaceListingSchema', () => {
   it('defaults to physical shipping and final sale', () => {
-    expect(createMarketplaceListingDefaults.fulfillment).toBe('physical');
+    expect(createMarketplaceListingDefaults.fulfillment).toBe('shipping');
     expect(createMarketplaceListingDefaults.returnDays).toBe('none');
   });
 
@@ -25,7 +25,7 @@ describe('createMarketplaceListingSchema', () => {
     expect(
       createMarketplaceListingSchema.safeParse({
         ...formDefaults,
-        fulfillment: 'physical',
+        fulfillment: 'shipping',
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125.00',
@@ -42,7 +42,7 @@ describe('createMarketplaceListingSchema', () => {
     expect(
       createMarketplaceListingSchema.safeParse({
         ...formDefaults,
-        fulfillment: 'physical',
+        fulfillment: 'shipping',
         title: 'Vintage leather boots',
         description: 'Well cared for boots with light wear.',
         price: '125.00',
@@ -59,7 +59,7 @@ describe('createMarketplaceListingSchema', () => {
   it('rejects fractional grams in metric but allows one-decimal ounces in imperial', () => {
     const base = {
       ...formDefaults,
-      fulfillment: 'physical' as const,
+      fulfillment: 'shipping' as const,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       price: '125.00',
@@ -91,7 +91,7 @@ describe('createMarketplaceListingSchema', () => {
   it('validates variant price overrides and shipping in the chosen currency', () => {
     const base = {
       ...formDefaults,
-      fulfillment: 'physical' as const,
+      fulfillment: 'shipping' as const,
       title: 'Vintage leather boots',
       description: 'Well cared for boots with light wear.',
       currency: 'BTC' as const,
@@ -265,7 +265,7 @@ const pickupReady = {
 
 const physicalReady = {
   ...pickupReady,
-  fulfillment: 'physical' as const,
+  fulfillment: 'shipping' as const,
   shippingPrice: '12.00',
   packageWeight: '1200',
   packageLength: '35.0',
@@ -278,7 +278,7 @@ describe('isCreateMarketplaceListingPublishReady', () => {
     ['pickup with photos', pickupReady, 1, true],
     ['physical shipping with photos', physicalReady, 1, true],
     ['empty description', { ...pickupReady, description: '   ' }, 1, false],
-    ['physical without shipping fields', { ...pickupReady, fulfillment: 'physical' as const }, 1, false],
+    ['physical without shipping fields', { ...pickupReady, fulfillment: 'shipping' as const }, 1, false],
     ['schema-valid pickup without photos', pickupReady, 0, false],
     ['title too short', { ...pickupReady, title: 'ab' }, 1, false],
   ] as const)('gate matches schema plus photos: %s', (_label, values, photoCount, expected) => {
@@ -290,7 +290,7 @@ describe('isCreateMarketplaceListingPublishReady', () => {
 
   it('lists description and shipping until they satisfy the schema', () => {
     expect(createMarketplaceListingPublishChecklist({ ...pickupReady, description: '' }, 1)).toContain('Description');
-    expect(createMarketplaceListingPublishChecklist({ ...pickupReady, fulfillment: 'physical' }, 1)).toContain(
+    expect(createMarketplaceListingPublishChecklist({ ...pickupReady, fulfillment: 'shipping' }, 1)).toContain(
       'Shipping details',
     );
     expect(createMarketplaceListingPublishChecklist(physicalReady, 0)).toEqual(['At least one photo']);

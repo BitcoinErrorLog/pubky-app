@@ -267,3 +267,60 @@ describe('MarketplaceOrders tabs', () => {
     }
   });
 });
+
+describe('MarketplaceOrders local pickup cards (Wave 7, §A3/§A6)', () => {
+  beforeEach(() => {
+    ordersState.currentUserPubky = CURRENT_USER;
+    ordersState.orders = [];
+  });
+
+  it('renders plain-language pickup labels and the Local pickup badge on the buyer card', () => {
+    ordersState.orders = [
+      orderView('ready_for_pickup', 'Bought pickup boots', 'buyer', { fulfillment: 'pickup', nextActor: 'buyer' }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getByText(/Bought pickup boots/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText('Local pickup')).toBeInTheDocument();
+    expect(within(card).getByText('Ready for pickup')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Show meeting point' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Confirm handover' })).toBeInTheDocument();
+  });
+
+  it('labels a delivered pickup order as picked up', () => {
+    ordersState.orders = [
+      orderView('delivered', 'Bought pickup boots', 'buyer', { fulfillment: 'pickup', nextActor: 'none' }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getByText(/Bought pickup boots/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText('Picked up')).toBeInTheDocument();
+  });
+
+  it('warns the buyer when the pickup terms changed after payment (§A3)', () => {
+    ordersState.orders = [
+      orderView('paid', 'Bought pickup boots', 'buyer', {
+        fulfillment: 'pickup',
+        nextActor: 'seller',
+        pickupTermsChanged: true,
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getByText(/Bought pickup boots/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText(/The seller changed the pickup terms since you paid/)).toBeInTheDocument();
+  });
+
+  it('shows the seller Mark ready for pickup on a paid pickup order', () => {
+    ordersState.orders = [orderView('paid', 'Sold pickup boots', 'seller', { fulfillment: 'pickup' })];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getByText(/Sold pickup boots/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByRole('button', { name: 'Mark ready for pickup' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Add tracking' })).not.toBeInTheDocument();
+  });
+});

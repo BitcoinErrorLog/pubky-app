@@ -114,6 +114,13 @@ export interface CommerceCatalogEntryModelSchema {
   price: CommerceMoney;
   auction: CommerceCatalogAuctionTerms | null;
   /**
+   * The record's fulfillment vocabulary as Nexus echoed it (item types plus
+   * `shipping`/`pickup` methods). `null` for entries cached before the model
+   * carried it — honest absence, and the card simply renders no fulfillment
+   * badge rather than guessing.
+   */
+  fulfillment_methods: CommerceListingRecord['fulfillmentMethods'] | null;
+  /**
    * Seller-scoped reputation from the stream projection (buyer reviews
    * across all the seller's listings). `null` for entries cached before the
    * model carried it and for sellers without indexed reviews.

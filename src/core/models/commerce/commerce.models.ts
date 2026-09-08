@@ -266,6 +266,7 @@ export class CommerceCatalogEntryModel
   sale_format: CommerceCatalogEntryModelSchema['sale_format'];
   price: CommerceCatalogEntryModelSchema['price'];
   auction: CommerceCatalogEntryModelSchema['auction'];
+  fulfillment_methods: CommerceCatalogEntryModelSchema['fulfillment_methods'];
   reputation: CommerceCatalogEntryModelSchema['reputation'];
   listing_reputation: CommerceCatalogEntryModelSchema['listing_reputation'];
   revision: number;
@@ -287,6 +288,8 @@ export class CommerceCatalogEntryModel
     this.sale_format = entry.sale_format;
     this.price = entry.price;
     this.auction = entry.auction;
+    // Entries cached before the model carried the vocabulary: honest absence.
+    this.fulfillment_methods = entry.fulfillment_methods ?? null;
     this.reputation = entry.reputation ?? null;
     this.listing_reputation = entry.listing_reputation ?? null;
     this.revision = entry.revision;
