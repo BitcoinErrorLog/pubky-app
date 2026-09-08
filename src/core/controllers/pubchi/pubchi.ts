@@ -83,8 +83,10 @@ export class PubchiController {
     }
     const owner = useAuthStore.getState().selectCurrentUserPubky();
     const binding = await PubchiApplication.getActiveBinding(owner);
-    if (!binding) return;
-    await PubchiApplication.commitDeleteBinding({ owner, bot: binding.bot });
+    const remote = await PubchiApplication.loadPubchi(owner);
+    const bot = remote?.bot ?? binding?.bot;
+    if (!bot) return;
+    await PubchiApplication.commitDeleteBinding({ owner, bot });
   }
 
   /**

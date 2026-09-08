@@ -79,6 +79,12 @@ export function usePubchiEnrollment() {
           void getCurrentDeviceKey(owner).then((key) => setCurrentSigner(key?.signer));
         }
       },
+      () => {
+        setBinding(undefined);
+        setPubchi(undefined);
+        setDevices([]);
+        toast({ variant: 'error', title: 'Pubchi could not be loaded', dismissButton: true });
+      },
     );
   }, [owner]);
 
@@ -111,8 +117,22 @@ export function usePubchiEnrollment() {
           form.reset(enrollPubchiFormDefaults);
           toast({ variant: 'default', title: 'Pubchi created', dismissButton: true });
           ok = true;
-        } catch {
-          toast({ variant: 'error', title: 'Pubchi could not be created', dismissButton: true });
+        } catch (error) {
+          if (error instanceof AppError && error.message === 'PUBCHI_ALREADY_EXISTS') {
+            setPubchi(await PubchiController.loadPubchi());
+            setBinding(await PubchiController.reconcileActiveBinding());
+            toast({
+              variant: 'info',
+              title: 'You already have a Pubchi on this account. It is shown below.',
+              dismissButton: true,
+            });
+          } else {
+            toast({
+              variant: 'error',
+              title: 'Pubchi could not be created because the homeserver state could not be verified',
+              dismissButton: true,
+            });
+          }
         } finally {
           setCreating(false);
           setLoading(false);
@@ -182,7 +202,18 @@ export function usePubchiEnrollment() {
         ok = true;
       } catch {
         backupForm.reset(backupConfirmationDefaults);
-        toast({ variant: 'error', title: 'Those words did not match', dismissButton: true });
+        const locked = backupController.recordMismatch();
+        if (locked) {
+          if (phraseTimerRef.current) clearTimeout(phraseTimerRef.current);
+          setBackupOpen(false);
+          toast({
+            variant: 'warning',
+            title: 'Too many mismatches. The recovery phrase has been cleared.',
+            dismissButton: true,
+          });
+        } else {
+          toast({ variant: 'error', title: 'Those words did not match', dismissButton: true });
+        }
       } finally {
         setLoading(false);
       }

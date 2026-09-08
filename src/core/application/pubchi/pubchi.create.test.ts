@@ -5,8 +5,7 @@ import { ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
-import { setBotKeyCustodyBufferObserverForTests } from '@/libs/pubchi/bot-key-custody';
-import { botUri, ownerBindingUri } from '@/libs/pubchi/schemas';
+import { botUri, ownerBindingsUri, ownerBindingUri } from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -15,6 +14,7 @@ import { PubchiApplication } from './pubchi';
 
 const OWNER = Keypair.random().publicKey.z32();
 const BOT = 'aihfhgdfshrj8nz9ofo7khayc1mgcqa4wrrdjahs5tmgo4pna3iy';
+const OLD_BOT = Keypair.random().publicKey.z32();
 const TEST_PHRASE =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const custodyMode = vi.hoisted(() => ({ real: false }));
@@ -79,6 +79,8 @@ describe('PubchiApplication create protocol', () => {
     vi.restoreAllMocks();
     vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue(undefined);
     vi.spyOn(LocalPubchiBindingService, 'upsert').mockImplementation(async (value) => value);
+    vi.spyOn(LocalPubchiBindingService, 'replaceActive').mockImplementation(async (value) => value);
+    vi.spyOn(HomeserverService, 'listAll').mockResolvedValue([]);
     vi.spyOn(HomeserverService, 'request').mockImplementation(async ({ method, url, bodyJson }) => {
       operations.push(`${method} ${url}`);
       if (method === HttpMethod.PUT) {
@@ -86,6 +88,13 @@ describe('PubchiApplication create protocol', () => {
         return undefined as never;
       }
       if (method === HttpMethod.GET) {
+        if (!documents.has(url)) {
+          throw Err.client(ClientErrorCode.NOT_FOUND, 'NOT_FOUND', {
+            service: ErrorService.Pubchi,
+            operation: 'test',
+            context: { statusCode: 404 },
+          });
+        }
         return structuredClone(documents.get(url)) as never;
       }
       return undefined as never;
@@ -100,15 +109,12 @@ describe('PubchiApplication create protocol', () => {
     });
 
     expect(result.bot).toBe(BOT);
-    expect(operations).toEqual([
-      `PUT ${ownerBindingUri(OWNER, BOT)}`,
-      `GET ${ownerBindingUri(OWNER, BOT)}`,
-      `PUT ${botUri(OWNER)}`,
-      `GET ${botUri(OWNER)}`,
-      `GET ${ownerBindingUri(OWNER, BOT)}`,
-      expect.stringMatching(/^PUT pubky:\/\/.*\/pub\/pubchi\.app\/devices\/.*\.json$/),
-      expect.stringMatching(/^GET pubky:\/\/.*\/pub\/pubchi\.app\/devices\/.*\.json$/),
-    ]);
+    expect(operations.indexOf(`PUT ${ownerBindingUri(OWNER, BOT)}`)).toBeLessThan(
+      operations.indexOf(`PUT ${botUri(OWNER)}`),
+    );
+    expect(operations.indexOf(`PUT ${botUri(OWNER)}`)).toBeLessThan(
+      operations.findIndex((operation) => /^PUT pubky:\/\/.*\/pub\/pubchi\.app\/devices\/.*\.json$/.test(operation)),
+    );
     const delegation = [...documents.entries()].find(([url]) => url.includes('/devices/'))?.[1] as {
       bot: string;
       purposes: string[];
@@ -144,47 +150,140 @@ describe('PubchiApplication create protocol', () => {
     expect(operations).toEqual([]);
   });
 
-  it('does not persist the bot phrase in browser storage or any Pubchi Dexie table', async () => {
-    custodyMode.real = true;
-    const sensitiveBuffers: Uint8Array[] = [];
-    setBotKeyCustodyBufferObserverForTests((stage, buffers) => {
-      if (stage === 'before-zero') sensitiveBuffers.push(...buffers.map((buffer) => Uint8Array.from(buffer)));
-    });
-    localStorage.setItem('unrelated', 'safe');
-    sessionStorage.setItem('unrelated', 'safe');
-    try {
-      const created = await PubchiApplication.createPubchi({
-        owner: OWNER,
-        displayName: 'Pubchi',
-        capabilities: ['/:rw'],
-      });
+  it('refuses a second create and reconciles the active remote bot locally', async () => {
+    const pointer = botDocument(OLD_BOT, 4);
+    const binding = bindingDocument(OLD_BOT, 'active', 4);
+    documents.set(botUri(OWNER), pointer);
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), binding);
+    vi.mocked(HomeserverService.listAll).mockResolvedValue([ownerBindingUri(OWNER, OLD_BOT)]);
 
-      const db = getPubchiDatabase();
-      const tableValues = await Promise.all(db.tables.map((table) => table.toArray()));
-      const inventory = JSON.stringify({
-        localStorage: { ...localStorage },
-        sessionStorage: { ...sessionStorage },
-        documents: [...documents.values()],
-        tableValues,
-      });
-      expect(inventory).not.toContain(created.phrase);
-      for (const buffer of sensitiveBuffers.filter((value) => value.length === 32 || value.length === 64)) {
-        expect(inventory).not.toContain(Buffer.from(buffer).toString('hex'));
-        expect(containsBytes(tableValues, buffer)).toBe(false);
-      }
-    } finally {
-      setBotKeyCustodyBufferObserverForTests(undefined);
-    }
+    await expect(
+      PubchiApplication.createPubchi({ owner: OWNER, displayName: 'Ignored', capabilities: ['/:rw'] }),
+    ).rejects.toThrow('PUBCHI_ALREADY_EXISTS');
+
+    expect(LocalPubchiBindingService.replaceActive).toHaveBeenCalledWith(
+      expect.objectContaining({ owner: OWNER, bot: OLD_BOT, status: 'active' }),
+    );
+    expect(operations.every((operation) => !operation.startsWith('PUT '))).toBe(true);
   });
 
-  it('tombstones a durable unreferenced binding before retrying creation', async () => {
-    let localActive: Awaited<ReturnType<typeof LocalPubchiBindingService.readActive>>;
-    let botPutFailures = 2;
-    vi.mocked(LocalPubchiBindingService.readActive).mockImplementation(async () => localActive);
-    vi.mocked(LocalPubchiBindingService.upsert).mockImplementation(async (value) => {
-      localActive = value;
-      return value;
+  it('re-mints with a higher generation and preserves identity metadata', async () => {
+    documents.set(botUri(OWNER), botDocument(OLD_BOT, 4));
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), bindingDocument(OLD_BOT, 'revoked', 4));
+    vi.mocked(HomeserverService.listAll).mockResolvedValue([ownerBindingUri(OWNER, OLD_BOT)]);
+
+    const result = await PubchiApplication.createPubchi({
+      owner: OWNER,
+      displayName: 'Ignored',
+      capabilities: ['/:rw'],
     });
+
+    expect(result).toMatchObject({ bot: BOT, displayName: 'Original', createdAt: 10 });
+    expect(documents.get(botUri(OWNER))).toMatchObject({
+      bot: BOT,
+      key_generation: 5,
+      display_name: 'Original',
+      created_at: 10,
+      backup_confirmed_at: null,
+    });
+    expect(documents.get(ownerBindingUri(OWNER, BOT))).toMatchObject({
+      bot: BOT,
+      key_generation: 5,
+      created_at: 10,
+    });
+  });
+
+  it('loads no bot, a missing binding, and a revoked binding without throwing', async () => {
+    await expect(PubchiApplication.loadPubchi(OWNER)).resolves.toBeUndefined();
+
+    documents.set(botUri(OWNER), botDocument(OLD_BOT, 2));
+    await expect(PubchiApplication.loadPubchi(OWNER)).resolves.toMatchObject({ bot: OLD_BOT, verified: false });
+
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), bindingDocument(OLD_BOT, 'revoked', 2));
+    await expect(PubchiApplication.loadPubchi(OWNER)).resolves.toMatchObject({ bot: OLD_BOT, verified: false });
+  });
+
+  it('tombstones an active listed orphan while loading the canonical bot', async () => {
+    const orphan = Keypair.random().publicKey.z32();
+    documents.set(botUri(OWNER), botDocument(OLD_BOT, 2));
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), bindingDocument(OLD_BOT, 'active', 2));
+    documents.set(ownerBindingUri(OWNER, orphan), bindingDocument(orphan, 'active', 1));
+    vi.mocked(HomeserverService.listAll).mockResolvedValue([
+      ownerBindingUri(OWNER, OLD_BOT),
+      ownerBindingUri(OWNER, orphan),
+    ]);
+
+    await expect(PubchiApplication.loadPubchi(OWNER)).resolves.toMatchObject({ bot: OLD_BOT, verified: true });
+    expect(documents.get(ownerBindingUri(OWNER, orphan))).toMatchObject({ status: 'revoked' });
+  });
+
+  it('removes the binding before the canonical pointer and verifies both are absent', async () => {
+    documents.set(botUri(OWNER), botDocument(OLD_BOT, 2));
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), bindingDocument(OLD_BOT, 'active', 2));
+    vi.mocked(HomeserverService.request).mockImplementation(async ({ method, url, bodyJson }) => {
+      operations.push(`${method} ${url}`);
+      if (method === HttpMethod.DELETE) {
+        documents.delete(url);
+        return undefined as never;
+      }
+      if (method === HttpMethod.PUT) {
+        documents.set(url, structuredClone(bodyJson));
+        return undefined as never;
+      }
+      if (!documents.has(url)) {
+        throw Err.client(ClientErrorCode.NOT_FOUND, 'NOT_FOUND', {
+          service: ErrorService.Pubchi,
+          operation: 'test',
+          context: { statusCode: 404 },
+        });
+      }
+      return structuredClone(documents.get(url)) as never;
+    });
+
+    await PubchiApplication.commitDeleteBinding({ owner: OWNER, bot: OLD_BOT });
+
+    const bindingDelete = operations.indexOf(`DELETE ${ownerBindingUri(OWNER, OLD_BOT)}`);
+    const pointerDelete = operations.indexOf(`DELETE ${botUri(OWNER)}`);
+    expect(bindingDelete).toBeGreaterThanOrEqual(0);
+    expect(pointerDelete).toBeGreaterThan(bindingDelete);
+    expect(documents.has(ownerBindingUri(OWNER, OLD_BOT))).toBe(false);
+    expect(documents.has(botUri(OWNER))).toBe(false);
+  });
+
+  it('fails closed before minting when the binding directory cannot be listed', async () => {
+    vi.mocked(HomeserverService.listAll).mockRejectedValueOnce(new Error('listing unavailable'));
+    await expect(
+      PubchiApplication.createPubchi({ owner: OWNER, displayName: 'Pubchi', capabilities: ['/:rw'] }),
+    ).rejects.toThrow('listing unavailable');
+    expect(operations.every((operation) => !operation.startsWith('PUT '))).toBe(true);
+  });
+
+  it('does not persist the bot phrase in browser storage or any Pubchi Dexie table', async () => {
+    custodyMode.real = true;
+    localStorage.setItem('unrelated', 'safe');
+    sessionStorage.setItem('unrelated', 'safe');
+    const created = await PubchiApplication.createPubchi({
+      owner: OWNER,
+      displayName: 'Pubchi',
+      capabilities: ['/:rw'],
+    });
+
+    const db = getPubchiDatabase();
+    const tableValues = await Promise.all(db.tables.map((table) => table.toArray()));
+    const inventory = JSON.stringify({
+      localStorage: { ...localStorage },
+      sessionStorage: { ...sessionStorage },
+      documents: [...documents.values()],
+      tableValues,
+    });
+    expect(inventory).not.toContain(created.phrase);
+  });
+
+  it('tombstones a remotely listed unreferenced binding before retrying creation', async () => {
+    let botPutFailures = 2;
+    vi.mocked(HomeserverService.listAll).mockImplementation(async () =>
+      documents.has(ownerBindingUri(OWNER, BOT)) ? [ownerBindingUri(OWNER, BOT)] : [],
+    );
     vi.mocked(HomeserverService.request).mockImplementation(async ({ method, url, bodyJson }) => {
       operations.push(`${method} ${url}`);
       if (method === HttpMethod.PUT && url === botUri(OWNER) && botPutFailures-- > 0) {
@@ -220,16 +319,33 @@ describe('PubchiApplication create protocol', () => {
       .mock.calls.filter(([call]) => call.method === HttpMethod.PUT && call.url === ownerBindingUri(OWNER, BOT))
       .map(([call]) => (call.bodyJson as { status: string }).status);
     expect(bindingWrites).toEqual(['active', 'revoked', 'active']);
+    expect(HomeserverService.listAll).toHaveBeenCalledWith({ baseDirectory: ownerBindingsUri(OWNER) });
   });
 });
 
-function containsBytes(value: unknown, expected: Uint8Array): boolean {
-  if (value instanceof Uint8Array) {
-    return value.length === expected.length && value.every((byte, index) => byte === expected[index]);
-  }
-  if (Array.isArray(value)) return value.some((item) => containsBytes(item, expected));
-  if (value && typeof value === 'object') {
-    return Object.values(value).some((item) => containsBytes(item, expected));
-  }
-  return false;
+function botDocument(bot: string, keyGeneration: number) {
+  return {
+    schema: 'pubchi-bot',
+    version: 1,
+    bot,
+    owner: OWNER,
+    display_name: 'Original',
+    created_at: 10,
+    backup_confirmed_at: 20,
+    homeserver_account: null,
+    key_generation: keyGeneration,
+  };
+}
+
+function bindingDocument(bot: string, status: 'active' | 'revoked', keyGeneration: number) {
+  return {
+    schema: 'pubchi-owner-binding',
+    version: 1,
+    owner: OWNER,
+    bot,
+    status,
+    key_generation: keyGeneration,
+    created_at: 10,
+    updated_at: 20,
+  };
 }

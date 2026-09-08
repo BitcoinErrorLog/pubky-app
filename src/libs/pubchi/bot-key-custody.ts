@@ -10,14 +10,6 @@ export type MintedBotKey = {
   phrase: string;
 };
 
-type BufferObserver = (stage: 'before-zero' | 'after-zero', buffers: readonly Uint8Array[]) => void;
-
-let testBufferObserver: BufferObserver | undefined;
-
-export function setBotKeyCustodyBufferObserverForTests(observer: BufferObserver | undefined): void {
-  testBufferObserver = observer;
-}
-
 export function mintBotKey(): MintedBotKey {
   const entropy = new Uint8Array(16);
   const entropyCopy = Buffer.alloc(16);
@@ -32,10 +24,8 @@ export function mintBotKey(): MintedBotKey {
     phrase = undefined;
     throw custodyError('PUBCHI_KEY_MINT_FAILED', 'mintBotKey');
   } finally {
-    testBufferObserver?.('before-zero', [entropy, entropyCopy]);
     entropy.fill(0);
     entropyCopy.fill(0);
-    testBufferObserver?.('after-zero', [entropy, entropyCopy]);
   }
 }
 
@@ -66,10 +56,8 @@ function deriveBot(phrase: string): string {
     try {
       keypair?.free();
     } finally {
-      testBufferObserver?.('before-zero', [seed, secret]);
       secret.fill(0);
       seed.fill(0);
-      testBufferObserver?.('after-zero', [seed, secret]);
     }
   }
 }

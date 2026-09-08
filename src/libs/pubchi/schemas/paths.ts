@@ -47,6 +47,10 @@ export function ownerBindingPath(bot: string): string {
   return `/pub/pubchi.app/bots/${bot}.json`;
 }
 
+export function ownerBindingsUri(owner: string): string {
+  return `pubky://${owner}/pub/pubchi.app/bots/`;
+}
+
 export function ownerBindingUri(owner: string, bot: string): string {
   return `pubky://${owner}${ownerBindingPath(bot)}`;
 }

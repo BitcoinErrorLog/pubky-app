@@ -78,7 +78,10 @@ export function PubchiSettings() {
                   {pubchi.verified ? 'Verified' : 'Not verified'} ·{' '}
                   {pubchi.backupConfirmedAt ? 'Backed up' : 'Not backed up'}
                 </Typography>
-                {!pubchi.backupConfirmedAt ? (
+                {!pubchi.verified ? (
+                  <Typography size="sm">Ownership unverified — re-create or remove</Typography>
+                ) : null}
+                {pubchi.verified && !pubchi.backupConfirmedAt ? (
                   <Button type="button" variant="secondary" disabled={loading} onClick={openBackup}>
                     Back up your Pubchi&apos;s key
                   </Button>

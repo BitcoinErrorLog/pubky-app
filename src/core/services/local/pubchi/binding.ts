@@ -25,11 +25,40 @@ export class LocalPubchiBindingService {
     try {
       const db = getPubchiDatabase();
       const matches = await db.bindings.where('owner').equals(owner).toArray();
-      return matches.find((row) => row.status === 'active');
+      const active = matches.filter((row) => row.status === 'active');
+      if (active.length > 1) {
+        throw Err.database(DatabaseErrorCode.INTEGRITY_ERROR, 'Multiple active Pubchi bindings found', {
+          service: ErrorService.Pubchi,
+          operation: 'readActive',
+        });
+      }
+      return active[0];
     } catch (error) {
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, 'Failed to read Pubchi binding', {
         service: ErrorService.Pubchi,
         operation: 'readActive',
+        cause: error,
+      });
+    }
+  }
+
+  static async replaceActive(record: PubchiBindingRecord): Promise<PubchiBindingRecord> {
+    try {
+      const db = getPubchiDatabase();
+      await db.transaction('rw', db.bindings, async () => {
+        const matches = await db.bindings.where('owner').equals(record.owner).toArray();
+        await Promise.all(
+          matches
+            .filter((row) => row.status === 'active' && row.id !== record.id)
+            .map((row) => db.bindings.put({ ...row, status: 'revoked', updated_at: record.updated_at })),
+        );
+        await db.bindings.put(record);
+      });
+      return record;
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to replace active Pubchi binding', {
+        service: ErrorService.Pubchi,
+        operation: 'replaceActive',
         cause: error,
       });
     }

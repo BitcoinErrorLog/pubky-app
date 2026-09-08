@@ -62,6 +62,7 @@ export {
   followerSnapshotPath,
   isAllowlistedPath,
   ownerBindingPath,
+  ownerBindingsUri,
   ownerBindingUri,
   PATHS,
   PUBCHI_APP,
