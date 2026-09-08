@@ -3,7 +3,7 @@ import withSerwistInit from '@serwist/next';
 import { withSentryConfig } from '@sentry/nextjs';
 import packageJson from './package.json';
 
-const nextConfig: NextConfig = {
+export const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version,
   },
@@ -20,6 +20,17 @@ const nextConfig: NextConfig = {
   ...(process.env.NEXT_STANDALONE === 'true' && { output: 'standalone' }),
   async redirects() {
     return [
+      // Vercel's production project alias is public even with
+      // ssoProtection.deploymentType = all_except_custom_domains. Pubchi CORS
+      // allowlists only bots.pubky.app (and pubky.app), so this alias would
+      // otherwise serve a working shell whose Pubchi calls all fail. Hardcoded
+      // hosts: an env-driven canonical origin can loop if mis-set.
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'pubky-app-pubchi.vercel.app' }],
+        destination: 'https://bots.pubky.app/:path*',
+        permanent: true,
+      },
       // /profile/[pubky] is the canonical other-user posts view (see app/profile/[pubky]/page.tsx).
       // The legacy /profile/[pubky]/posts route is kept as a 308 permanent redirect so existing
       // bookmarks, shares, and search indexes consolidate onto the canonical URL without invoking
