@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import { MarketplaceSell } from '@/templates/Marketplace/MarketplaceSell';
@@ -51,6 +51,7 @@ const view = vi.hoisted(() => ({
   drafts: [] as unknown[],
   mediaItems: [] as unknown[],
   shippingPresets: [] as unknown[],
+  pickupAvailable: false,
 }));
 
 // Two device-local shipping presets so the shipping section's apply-preset
@@ -102,9 +103,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitUpsertListing: () => Promise.resolve(),
     getShippingPresets: () => Promise.resolve(view.shippingPresets),
     commitUpsertShippingPreset: () => Promise.resolve(),
-    // Pickup is unavailable on this capture's deployment: the studio renders
-    // the deterministic unavailability note, not an async capability race.
-    fetchPickupAvailable: () => Promise.resolve(false),
+    fetchPickupAvailable: () => Promise.resolve(view.pickupAvailable),
   },
 }));
 
@@ -140,6 +139,7 @@ describe('Marketplace sell studio — visual regression', () => {
     // unpinned preference here renders whichever ran last. Pin the system the
     // committed baselines were captured with.
     useMarketplaceDisplayStore.setState({ measurementSystem: 'imperial' });
+    view.pickupAvailable = false;
   });
 
   it('renders the empty listing form at desktop viewport', async () => {
@@ -342,5 +342,35 @@ describe('Marketplace sell studio — visual regression', () => {
       }
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-validation-errors-desktop');
+  });
+
+  it('renders the seller studio with pickup enabled and a pickup-only draft at desktop viewport', async () => {
+    view.pickupAvailable = true;
+    view.drafts = [
+      {
+        ...draftFixture,
+        data: {
+          form: {
+            ...draftFixture.data.form,
+            fulfillment: 'pickup',
+          },
+        },
+      },
+    ];
+    view.mediaItems = [];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      const input = screen.container.querySelector<HTMLInputElement>('#title');
+      if (input?.value !== draftFixture.data.form.title) throw new Error('Draft has not populated the form yet.');
+    });
+    await vi.waitFor(() => {
+      if (!screen.container.textContent?.includes('Publish first, then add your meeting point')) {
+        throw new Error('The pickup-enabled studio copy has not rendered yet.');
+      }
+    });
+    await expect(expectVrtSurface('listing-section-shipping')).toMatchScreenshot('sell-pickup-enabled-desktop');
+    view.pickupAvailable = false;
+    view.drafts = [];
   });
 });
