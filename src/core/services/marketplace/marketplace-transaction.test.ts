@@ -991,6 +991,31 @@ describe('MarketplaceTransactionService.getOrderPickupDetails (the buyer reveal,
     });
   });
 
+  it('maps pickup refusals to static copy and never logs the server message', async () => {
+    await establishSession();
+    const echoed = 'Meet at 14 Oak Lane after 6pm; ask for the red jacket.';
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(409, { ok: false, error: { code: 'INVALID_STATE', message: echoed } }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const error = (await MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({
+      category: 'client',
+      code: 'CONFLICT',
+      message: 'The pickup request was refused.',
+      context: { statusCode: 409, refusal: null },
+    });
+    expect(error.message).not.toContain(echoed);
+    expect(JSON.stringify(error.context)).not.toContain(echoed);
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(echoed);
+    loggerError.mockRestore();
+  });
+
   it('maps the non-buyer 403 to an auth FORBIDDEN error', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(

@@ -308,6 +308,30 @@ export function classifyMarketplacePickupRefusal(message: string): MarketplacePi
   return PICKUP_REFUSAL_MESSAGES.get(message) ?? null;
 }
 
+/**
+ * Client-owned copy for pickup refusals. Map a classified reason to this
+ * table — never copy a server `error.message`, which can echo request
+ * content or sealed pickup details into logs and the reporter.
+ */
+export const PICKUP_REFUSAL_FAILURE_MESSAGES: Record<string, string> = {
+  pickup_unavailable: 'Pickup is unavailable on this deployment.',
+  pickup_not_published: 'The listing does not publish pickup.',
+  payment_unconfirmed: 'The order carries no payment confirmation.',
+  order_terminal: 'The order is terminal; the pickup details are no longer revealed.',
+  not_pickup_order: 'Only pickup orders carry pickup details.',
+  sandbox_confirmed: 'This order was confirmed by a sandbox payment; its pickup details are never revealed.',
+  no_pinned_details: 'This order carries no pinned pickup details.',
+  terms_change_unresolved:
+    'The pickup terms changed after payment; the seller cannot confirm the handover until the buyer has seen the change.',
+  not_found: 'The pickup details were not found.',
+  forbidden: 'You are not allowed to read these pickup details.',
+  unavailable: 'The pickup request was refused.',
+};
+
+export function pickupRefusalFailureMessage(refusal: MarketplacePickupRefusal | null | undefined): string {
+  return PICKUP_REFUSAL_FAILURE_MESSAGES[refusal ?? ''] ?? PICKUP_REFUSAL_FAILURE_MESSAGES.unavailable;
+}
+
 // -----------------------------------------------------------------------------
 // Checkout fulfillment plumbing (§A2): one `fulfillmentChoice` per seller
 // group, applied to every line of the group. The service splits one order

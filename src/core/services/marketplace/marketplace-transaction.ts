@@ -15,6 +15,8 @@ import {
 } from '@/libs/commerce/payment-methods';
 import {
   classifyMarketplacePickupRefusal,
+  PICKUP_REFUSAL_FAILURE_MESSAGES,
+  pickupRefusalFailureMessage,
   type MarketplaceHealth,
   marketplaceHealthSchema,
   type MarketplacePickupReveal,
@@ -457,10 +459,11 @@ export class MarketplaceTransactionService {
   }
 
   /**
-   * Maps an entitled-read failure body to a typed `Err.*`. Pickup details
-   * are never in scope here — refusal bodies carry only a code and a
-   * static message, so logging the message (the factories log) leaks
-   * nothing. Falls through (returns) when the body is not the service's
+   * Maps an entitled-read failure body to a typed `Err.*`. Classify the
+   * service's stable INVALID_STATE message locally, then throw a client-owned
+   * string from `PICKUP_REFUSAL_FAILURE_MESSAGES` — never copy `error.message`,
+   * which can echo request content or sealed pickup details into logs and the
+   * reporter. Falls through (returns) when the body is not the service's
    * refusal shape, letting the generic response parser report it.
    */
   private static async throwPickupRefusal(response: Response, operation: string): Promise<void> {
@@ -475,24 +478,25 @@ export class MarketplaceTransactionService {
     }
     if (!code || !message) return;
     if (code === 'NOT_FOUND') {
-      throw Err.client(ClientErrorCode.NOT_FOUND, message, {
+      throw Err.client(ClientErrorCode.NOT_FOUND, PICKUP_REFUSAL_FAILURE_MESSAGES.not_found, {
         service: ErrorService.Marketplace,
         operation,
         context: { statusCode: response.status },
       });
     }
     if (code === 'UNAUTHORIZED') {
-      throw Err.auth(AuthErrorCode.FORBIDDEN, message, {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, PICKUP_REFUSAL_FAILURE_MESSAGES.forbidden, {
         service: ErrorService.Marketplace,
         operation,
         context: { statusCode: response.status },
       });
     }
     if (code === 'INVALID_STATE') {
-      throw Err.client(ClientErrorCode.CONFLICT, message, {
+      const refusal = classifyMarketplacePickupRefusal(message);
+      throw Err.client(ClientErrorCode.CONFLICT, pickupRefusalFailureMessage(refusal), {
         service: ErrorService.Marketplace,
         operation,
-        context: { statusCode: response.status, refusal: classifyMarketplacePickupRefusal(message) },
+        context: { statusCode: response.status, refusal },
       });
     }
   }
