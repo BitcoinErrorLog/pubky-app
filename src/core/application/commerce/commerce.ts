@@ -663,6 +663,10 @@ export class CommerceApplication {
     return MarketplaceSessionService.beginSessionFlow();
   }
 
+  static currentHomeserverGrantIsFull(): boolean {
+    return HomeserverService.currentSessionHasFullGrant();
+  }
+
   /**
    * Restores the account-scoped marketplace session persisted in
    * `sessionStorage`, returning its public facts (never the token) or null

@@ -205,6 +205,10 @@ export class CommerceController {
     };
   }
 
+  static hasFullHomeserverGrant(): boolean {
+    return CommerceApplication.currentHomeserverGrantIsFull();
+  }
+
   /**
    * Drops the service bearer and the store's public session facts together.
    */

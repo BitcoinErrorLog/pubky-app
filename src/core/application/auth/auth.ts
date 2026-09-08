@@ -1,11 +1,14 @@
-import type { Session } from '@synonymdev/pubky';
+import type { AuthToken, Session } from '@synonymdev/pubky';
 import { userUriBuilder } from 'pubky-app-specs';
 import type {
   TKeypairParams,
   TRestoreSessionOutcome,
   TRestoreSessionParams,
   TRestoreSessionResult,
+  TSingleApprovalResult,
 } from '@/application/auth/auth.types';
+import { CAPABILITIES } from '@/config/app';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -29,11 +32,13 @@ import { VIBE_SESSION_LOAD_TIMEOUT_MS, VIBE_SESSION_REPLY_TIMEOUT_MS } from '@/l
 import type { Pubky } from '@/models/models.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type {
+  TGenerateAuthTokenFlowResult,
   TGenerateAuthUrlResult,
   THomeserverPublicKeyParams,
   THomeserverSessionResult,
   THomeserverSignUpParams,
 } from '@/services/homeserver/homeserver.types';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 
 export function isDefinitiveSessionAuthFailure(error: unknown): boolean {
   if (isWrongEnvironmentHomeserverError(error)) {
@@ -293,6 +298,25 @@ export class AuthApplication {
    */
   static async generateAuthUrl(): Promise<TGenerateAuthUrlResult> {
     return await HomeserverService.generateAuthUrl();
+  }
+
+  static startDirectSignInFlow(): TGenerateAuthTokenFlowResult {
+    return HomeserverService.generateAuthTokenFlow(CAPABILITIES);
+  }
+
+  /**
+   * Homeserver first, marketplace second. Token bytes live only for this call.
+   */
+  static async completeSingleApprovalCeremony(token: AuthToken): Promise<TSingleApprovalResult> {
+    const bytes = token.toBytes();
+    const pubky = token.publicKey.z32();
+    const tokenResolvedAtMs = Date.now();
+    const session = await HomeserverService.signInWithFullGrantAuthToken(bytes);
+    let marketplace = null;
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      marketplace = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(bytes, pubky, tokenResolvedAtMs);
+    }
+    return { session, marketplace };
   }
 
   /**

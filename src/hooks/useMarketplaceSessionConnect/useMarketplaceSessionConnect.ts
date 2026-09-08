@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SINGLE_APPROVAL_SIGN_IN } from '@/config/app';
+import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
@@ -11,7 +13,9 @@ import type {
   UseMarketplaceSessionConnectReturn,
 } from './useMarketplaceSessionConnect.types';
 
-type ActiveFlow = ReturnType<typeof CommerceController.beginMarketplaceSessionConnect>;
+type ActiveFlow =
+  | ReturnType<typeof CommerceController.beginMarketplaceSessionConnect>
+  | ReturnType<typeof AuthController.beginBridgedCommerceSessionFlow>;
 
 /**
  * Drives the interactive marketplace session-connect flow (durable modes
@@ -61,7 +65,10 @@ export function useMarketplaceSessionConnect(
 
     let flow: ActiveFlow;
     try {
-      flow = CommerceController.beginMarketplaceSessionConnect();
+      flow =
+        SINGLE_APPROVAL_SIGN_IN && !CommerceController.hasFullHomeserverGrant()
+          ? AuthController.beginBridgedCommerceSessionFlow()
+          : CommerceController.beginMarketplaceSessionConnect();
     } catch (error) {
       Logger.error('Failed to start the marketplace session flow', { error });
       setAuthorizationUrl('');

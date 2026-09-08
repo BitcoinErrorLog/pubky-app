@@ -6,6 +6,7 @@ import { MessagingApplication } from '@/application/messaging/messaging';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { TagApplication } from '@/application/tag/tag';
+import { SINGLE_APPROVAL_SIGN_IN } from '@/config/app';
 import type {
   TLoginWithEncryptedFileParams,
   TLoginWithMnemonicParams,
@@ -32,7 +33,12 @@ import { NotificationNormalizer } from '@/pipes/notification/notification.normal
 import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import { clearRouteGuardReturnTo } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
+import { createCanceledError } from '@/services/homeserver/error.utils';
 import type { TGenerateAuthUrlResult, THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
+import {
+  type MarketplaceSessionFlow,
+  MarketplaceSessionService,
+} from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
@@ -51,6 +57,12 @@ export class AuthController {
   private constructor() {} // Prevent instantiation
 
   private static activeAuthFlow: { token: symbol; cancel: (() => void) | null } | null = null;
+
+  /**
+   * Covers QR wait AND both POSTs. wrapAuthFlow is not this lifetime: it
+   * clears when awaitApproval/awaitToken settles, which is when the POSTs begin.
+   */
+  private static signInCeremony: { token: symbol; result: Promise<TGenerateAuthUrlResult> } | null = null;
 
   /**
    * Bumped synchronously at logout start, before any await. A restore that
@@ -80,6 +92,11 @@ export class AuthController {
     this.cleanupState = { promise: null, completed: false };
   }
 
+  /** Test-only: reset the single-approval ceremony join token. */
+  static resetSignInCeremonyGuard(): void {
+    this.signInCeremony = null;
+  }
+
   /** Local state is dirty again once a session is initialized into it. */
   private static markLocalStateDirty(): void {
     this.cleanupState.completed = false;
@@ -88,6 +105,7 @@ export class AuthController {
   static cancelActiveAuthFlow() {
     const cancel = this.activeAuthFlow?.cancel;
     this.activeAuthFlow = null;
+    this.signInCeremony = null;
     cancel?.();
   }
 
@@ -474,20 +492,112 @@ export class AuthController {
    * @returns Promise resolving to the generated authentication URL
    */
   static async getAuthUrl(): Promise<TGenerateAuthUrlResult> {
-    return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl());
+    if (!SINGLE_APPROVAL_SIGN_IN) {
+      return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl());
+    }
+    return this.wrapDirectSignInCeremony({ preserveLocalState: false });
+  }
+
+  static async getStepUpAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    if (!SINGLE_APPROVAL_SIGN_IN) {
+      return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl(), { preserveLocalState: true });
+    }
+    return this.wrapDirectSignInCeremony({ preserveLocalState: true });
   }
 
   /**
-   * The step-up re-approval URL for an ALREADY signed-in session
-   * (docs/ecommerce/step-up-approval.md, Option C): the same full-grant
-   * sign-in flow as {@link getAuthUrl} — `HomeserverService.generateAuthUrl`
-   * defaults to the full `CAPABILITIES` — but local state is preserved
-   * because the identity is unchanged; only the homeserver grant widens.
-   * Never called automatically: only the explicit re-auth affordances
-   * (watchlist sync, portable receipts) start this flow.
+   * Bridged first-commerce prompt: one CAPABILITIES approval, same dual POST.
+   * Never auto-started. Does not wipe local state.
    */
-  static async getStepUpAuthUrl(): Promise<TGenerateAuthUrlResult> {
-    return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl(), { preserveLocalState: true });
+  static beginBridgedCommerceSessionFlow(): MarketplaceSessionFlow {
+    const flow = AuthApplication.startDirectSignInFlow();
+    return {
+      authorizationUrl: flow.authorizationUrl,
+      awaitSession: async () => {
+        const authToken = await MarketplaceSessionService.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
+        const { session, marketplace } = await AuthApplication.completeSingleApprovalCeremony(authToken);
+        await this.completeStepUpReauth({ session });
+        if (!marketplace) {
+          throw Err.auth(
+            AuthErrorCode.INVALID_TOKEN,
+            'The marketplace service did not issue a session. Approve again to reconnect.',
+            { service: ErrorService.Marketplace, operation: 'beginBridgedCommerceSessionFlow' },
+          );
+        }
+        CommerceController.writeMarketplaceSessionStore(marketplace);
+        return marketplace;
+      },
+      cancel: flow.cancelAuthFlow,
+    };
+  }
+
+  private static wrapDirectSignInCeremony({
+    preserveLocalState,
+  }: {
+    preserveLocalState: boolean;
+  }): Promise<TGenerateAuthUrlResult> {
+    if (this.signInCeremony) {
+      return this.signInCeremony.result;
+    }
+    const token = Symbol('sign-in-ceremony');
+    const entry: { token: symbol; result: Promise<TGenerateAuthUrlResult> } = {
+      token,
+      result: undefined as unknown as Promise<TGenerateAuthUrlResult>,
+    };
+    this.signInCeremony = entry;
+    entry.result = this.runDirectSignInCeremony(token, preserveLocalState);
+    return entry.result;
+  }
+
+  private static async runDirectSignInCeremony(
+    token: symbol,
+    preserveLocalState: boolean,
+  ): Promise<TGenerateAuthUrlResult> {
+    try {
+      BootstrapApplication.cancelModerationFollow();
+      if (!preserveLocalState) {
+        await clearDatabase();
+        useMigrationStore.getState().reset();
+      }
+      if (!this.signInCeremony || this.signInCeremony.token !== token) {
+        throw createCanceledError();
+      }
+
+      this.activeAuthFlow = { token, cancel: null };
+      const flow = AuthApplication.startDirectSignInFlow();
+      if (!this.activeAuthFlow || this.activeAuthFlow.token !== token) {
+        flow.cancelAuthFlow();
+        throw createCanceledError();
+      }
+      this.activeAuthFlow.cancel = flow.cancelAuthFlow;
+
+      const awaitApproval = (async () => {
+        const authToken = await MarketplaceSessionService.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
+        const { session, marketplace } = await AuthApplication.completeSingleApprovalCeremony(authToken);
+        if (marketplace) {
+          CommerceController.writeMarketplaceSessionStore(marketplace);
+        }
+        return session;
+      })().finally(() => {
+        if (this.activeAuthFlow?.token === token) {
+          this.activeAuthFlow = null;
+        }
+        if (this.signInCeremony?.token === token) {
+          this.signInCeremony = null;
+        }
+        flow.cancelAuthFlow();
+      });
+
+      return { authorizationUrl: flow.authorizationUrl, awaitApproval, cancelAuthFlow: flow.cancelAuthFlow };
+    } catch (error) {
+      if (this.signInCeremony?.token === token) {
+        this.signInCeremony = null;
+      }
+      if (this.activeAuthFlow?.token === token) {
+        this.activeAuthFlow = null;
+      }
+      throw error;
+    }
   }
 
   /**

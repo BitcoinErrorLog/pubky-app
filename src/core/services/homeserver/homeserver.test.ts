@@ -1,5 +1,6 @@
 import type { Keypair, PublicKey, Session } from '@synonymdev/pubky';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CAPABILITIES } from '@/config/app';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
@@ -36,6 +37,7 @@ const mockState = vi.hoisted(() => ({
   restoreSession: vi.fn(),
   startAuthFlow: vi.fn(),
   authFlowKindSignin: vi.fn(),
+  authTokenFromBytes: vi.fn(),
   eventStreamForUser: vi.fn(),
   // Auth store session
   currentSession: null as Session | null,
@@ -117,6 +119,9 @@ vi.mock('@synonymdev/pubky', () => {
     },
     AuthFlowKind: {
       signin: () => mockState.authFlowKindSignin(),
+    },
+    AuthToken: {
+      fromBytes: (...args: unknown[]) => mockState.authTokenFromBytes(...args),
     },
     resolvePubky: vi.fn((url: string) => url.replace('pubky://', 'https://')),
   };
@@ -223,6 +228,7 @@ describe('HomeserverService', () => {
       tryPollOnce: vi.fn().mockResolvedValue(createMockSession()),
       free: vi.fn(),
     });
+    mockState.authTokenFromBytes.mockReset();
     mockState.authFlowKindSignin.mockReturnValue('signin-kind');
     mockState.eventStreamForUser.mockReturnValue({
       path: vi.fn().mockReturnThis(),
@@ -249,6 +255,8 @@ describe('HomeserverService', () => {
         'signIn',
         'logout',
         'generateAuthUrl',
+        'signInWithFullGrantAuthToken',
+        'currentSessionHasFullGrant',
         'request',
         'putBlob',
         'list',
@@ -782,6 +790,95 @@ describe('HomeserverService', () => {
           category: ErrorCategory.Server,
           code: ServerErrorCode.INTERNAL_ERROR,
         });
+      });
+    });
+
+    describe('signInWithFullGrantAuthToken', () => {
+      const z32 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const fullCaps = CAPABILITIES.split(',');
+      const bytes = new Uint8Array([9, 8, 7]);
+
+      beforeEach(() => {
+        mockState.authTokenFromBytes.mockReturnValue({
+          capabilities: fullCaps,
+          publicKey: { z32: () => z32 },
+        });
+        mockState.restoreSession.mockResolvedValue(createMockSession());
+      });
+
+      it('POSTs to the session endpoint after a full-grant capability check', async () => {
+        mockState.clientFetch.mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+
+        await HomeserverService.signInWithFullGrantAuthToken(bytes);
+
+        expect(mockState.authTokenFromBytes).toHaveBeenCalledWith(bytes);
+        expect(mockState.clientFetch).toHaveBeenCalledWith(
+          `https://_pubky.${z32}/session`,
+          expect.objectContaining({ method: 'POST', credentials: 'include', body: bytes }),
+        );
+        expect(mockState.restoreSession).toHaveBeenCalled();
+      });
+
+      it('accepts a reordered full grant (order-insensitive set equality)', async () => {
+        mockState.authTokenFromBytes.mockReturnValue({
+          capabilities: [...fullCaps].reverse(),
+          publicKey: { z32: () => z32 },
+        });
+        mockState.clientFetch.mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }));
+
+        await HomeserverService.signInWithFullGrantAuthToken(bytes);
+
+        expect(mockState.clientFetch).toHaveBeenCalled();
+      });
+
+      it('refuses empty-capability bytes before POSTing /session', async () => {
+        mockState.authTokenFromBytes.mockReturnValue({
+          capabilities: [],
+          publicKey: { z32: () => z32 },
+        });
+
+        await expect(HomeserverService.signInWithFullGrantAuthToken(bytes)).rejects.toMatchObject({
+          category: ErrorCategory.Validation,
+          code: ValidationErrorCode.INVALID_INPUT,
+        });
+        expect(mockState.clientFetch).not.toHaveBeenCalled();
+      });
+
+      it('refuses a missing capability before POSTing /session', async () => {
+        mockState.authTokenFromBytes.mockReturnValue({
+          capabilities: fullCaps.slice(0, 2),
+          publicKey: { z32: () => z32 },
+        });
+
+        await expect(HomeserverService.signInWithFullGrantAuthToken(bytes)).rejects.toMatchObject({
+          code: ValidationErrorCode.INVALID_INPUT,
+        });
+        expect(mockState.clientFetch).not.toHaveBeenCalled();
+      });
+
+      it('treats homeserver AlreadyUsed as GET /session hydrate, not failure', async () => {
+        mockState.clientFetch
+          .mockResolvedValueOnce(new Response('already used', { status: 400 }))
+          .mockResolvedValueOnce(new Response(new Uint8Array([4, 5, 6]), { status: 200 }));
+
+        await HomeserverService.signInWithFullGrantAuthToken(bytes);
+
+        expect(mockState.clientFetch).toHaveBeenNthCalledWith(
+          2,
+          `https://_pubky.${z32}/session`,
+          expect.objectContaining({ method: 'GET', credentials: 'include' }),
+        );
+        expect(mockState.restoreSession).toHaveBeenCalled();
+      });
+
+      it('does not POST to the marketplace path; restore failure after 2xx does not GET', async () => {
+        mockState.clientFetch.mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }));
+        mockState.restoreSession.mockRejectedValueOnce(new Error('restore failed'));
+
+        await expect(HomeserverService.signInWithFullGrantAuthToken(bytes)).rejects.toMatchObject({
+          message: 'Sign-in failed. Scan again.',
+        });
+        expect(mockState.clientFetch).toHaveBeenCalledTimes(1);
       });
     });
   });

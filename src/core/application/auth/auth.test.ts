@@ -1,4 +1,4 @@
-import type { Keypair, Session } from '@synonymdev/pubky';
+import type { AuthToken, Keypair, Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication, isDefinitiveSessionAuthFailure } from '@/application/auth/auth';
 import type { THomeserverAuthenticateParams } from '@/application/auth/auth.types';
@@ -854,6 +854,51 @@ describe('AuthApplication', () => {
       await expect(AuthApplication.userIsSignedUp({ pubky: testPubky })).rejects.toMatchObject({
         code: ServerErrorCode.INTERNAL_ERROR,
       });
+    });
+  });
+
+  describe('single-approval ceremony', () => {
+    it('starts the token flow with the full CAPABILITIES grant', () => {
+      const spy = vi.spyOn(HomeserverService, 'generateAuthTokenFlow').mockReturnValue({
+        authorizationUrl: 'https://example.com/auth',
+        awaitToken: async () => asOpaque({}),
+        cancelAuthFlow: vi.fn(),
+      });
+
+      AuthApplication.startDirectSignInFlow();
+
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('/priv/pubky.app/:rw'));
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('/pub/paykit/:rw'));
+    });
+
+    it('presents the same bytes to homeserver first, then marketplace', async () => {
+      const bytes = new Uint8Array([3, 2, 1]);
+      const token = asOpaque<AuthToken>({
+        toBytes: () => bytes,
+        publicKey: { z32: () => 'y'.repeat(52) },
+      });
+      const order: string[] = [];
+      vi.spyOn(HomeserverService, 'signInWithFullGrantAuthToken').mockImplementation(async (got) => {
+        order.push('hs');
+        expect(got).toBe(bytes);
+        return mockSession();
+      });
+      vi.spyOn(MarketplaceSessionService, 'redeemAuthTokenAfterHomeserver').mockImplementation(async (got) => {
+        order.push('mp');
+        expect(got).toBe(bytes);
+        return {
+          pubky: 'y'.repeat(52),
+          capabilities: '',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          issuedAt: '2026-09-08T00:00:00.000Z',
+        };
+      });
+      vi.spyOn(await import('@/config/commerce'), 'isDurableCommerceMode').mockReturnValue(true);
+      vi.spyOn(await import('@/config/commerce'), 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+
+      await AuthApplication.completeSingleApprovalCeremony(token);
+
+      expect(order).toEqual(['hs', 'mp']);
     });
   });
 });

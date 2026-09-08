@@ -4,9 +4,11 @@ import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
-import { safeFetch } from '@/libs/error/error.http';
+import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
+import { isAppError, isRetryable } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
+import { sleep } from '@/libs/utils/utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 
 /**
@@ -24,6 +26,9 @@ const SESSION_EXPIRY_MARGIN_MS = 30_000;
  * (AuthTokens are single-use), so retry always mints a fresh one.
  */
 export const SESSION_FLOW_TIMEOUT_MS = 120_000;
+
+/** Dual-POST marketplace retries stop this long after `awaitToken()` resolved. */
+export const MARKETPLACE_TOKEN_RETRY_DEADLINE_MS = 60_000;
 
 /** `localStorage` key for the persisted session (see the class docs for the storage contract). */
 export const MARKETPLACE_SESSION_STORAGE_KEY = 'pubky.marketplace.session.v1';
@@ -142,7 +147,7 @@ export class MarketplaceSessionService {
     };
   }
 
-  private static async withFlowTimeout<T>(pending: Promise<T>, cancelFlow: () => void): Promise<T> {
+  static async withFlowTimeout<T>(pending: Promise<T>, cancelFlow: () => void): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -192,10 +197,14 @@ export class MarketplaceSessionService {
       'establishWithAuthToken',
     );
     if (!response.ok) {
+      if (response.status >= 500) {
+        throw httpResponseToError(response, ErrorService.Marketplace, 'establishWithAuthToken', url);
+      }
+      const alreadyUsed = response.status === 401 ? await this.responseSaysAuthTokenAlreadyUsed(response) : false;
       throw Err.auth(AuthErrorCode.INVALID_TOKEN, 'The marketplace service rejected the auth token.', {
         service: ErrorService.Marketplace,
         operation: 'establishWithAuthToken',
-        context: { statusCode: response.status },
+        context: { statusCode: response.status, alreadyUsed },
       });
     }
     const raw = await this.parseSessionMintBody(response);
@@ -220,6 +229,58 @@ export class MarketplaceSessionService {
     this.writePersistedSession(parsed.data);
     Logger.info('Established marketplace transaction session', { pubky, expiresAt });
     return this.toPublicInfo(this.session);
+  }
+
+  /**
+   * Marketplace half of the single-approval ceremony: same bytes, retries until
+   * 60s after token resolution, 401 already-used is success when this client
+   * already holds a bearer for the same pubky.
+   */
+  static async redeemAuthTokenAfterHomeserver(
+    authTokenBytes: Uint8Array,
+    expectedPubky: string,
+    tokenResolvedAtMs: number,
+  ): Promise<MarketplaceSessionInfo> {
+    this.assertTransactionServiceMode('redeemAuthTokenAfterHomeserver');
+    const deadline = tokenResolvedAtMs + MARKETPLACE_TOKEN_RETRY_DEADLINE_MS;
+    for (;;) {
+      try {
+        return await this.establishWithAuthToken(authTokenBytes, expectedPubky);
+      } catch (error) {
+        if (this.isAuthTokenAlreadyUsedError(error)) {
+          const existing = this.bearerForPubky(expectedPubky);
+          if (existing) return this.toPublicInfo(existing);
+          throw error;
+        }
+        const retryable = isAppError(error) && isRetryable(error);
+        if (!retryable || Date.now() >= deadline) {
+          throw error;
+        }
+        await sleep(250);
+      }
+    }
+  }
+
+  private static bearerForPubky(expectedPubky: string): StoredMarketplaceSession | null {
+    const memory = this.getActiveSession();
+    if (memory?.pubky === expectedPubky) return memory;
+    this.restorePersistedSession(expectedPubky);
+    const restored = this.getActiveSession();
+    if (restored?.pubky === expectedPubky) return restored;
+    return null;
+  }
+
+  private static isAuthTokenAlreadyUsedError(error: unknown): boolean {
+    return isAppError(error) && error.context?.alreadyUsed === true && error.context?.statusCode === 401;
+  }
+
+  private static async responseSaysAuthTokenAlreadyUsed(response: Response): Promise<boolean> {
+    try {
+      const text = await response.text();
+      return /already been used/i.test(text);
+    } catch {
+      return false;
+    }
   }
 
   /**

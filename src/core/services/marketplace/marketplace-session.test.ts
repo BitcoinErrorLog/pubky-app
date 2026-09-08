@@ -250,6 +250,61 @@ describe('MarketplaceSessionService', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('marks 401 already-used without putting the body in error context', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('The auth token has already been used.', { status: 401 }),
+    );
+
+    const error = await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY).catch(
+      (caught) => caught,
+    );
+
+    expect(error).toMatchObject({ code: 'INVALID_TOKEN', context: { statusCode: 401, alreadyUsed: true } });
+    expect(JSON.stringify(error)).not.toContain('already been used');
+  });
+
+  it('treats 401 already-used as success when this client already holds a bearer for the same pubky', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('The auth token has already been used.', { status: 401 }),
+    );
+
+    const info = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(
+      new Uint8Array([2]),
+      PUBKY,
+      Date.now(),
+    );
+
+    expect(info.pubky).toBe(PUBKY);
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
+  });
+
+  it('retries a 5xx marketplace POST with the same bytes and succeeds', async () => {
+    const bytes = new Uint8Array([1]);
+    vi.spyOn(await import('@/libs/utils/utils'), 'sleep').mockResolvedValue(undefined);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+      .mockResolvedValueOnce(sessionResponse(inOneDay()));
+
+    const info = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(bytes, PUBKY, Date.now());
+
+    expect(info.pubky).toBe(PUBKY);
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(2);
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.body).toBe(bytes);
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]?.body).toBe(bytes);
+  });
+
+  it('stops retrying after the 60s token-resolution deadline', async () => {
+    vi.spyOn(await import('@/libs/utils/utils'), 'sleep').mockResolvedValue(undefined);
+    vi.mocked(fetch).mockResolvedValue(new Response('unavailable', { status: 503 }));
+
+    await expect(
+      MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([1]), PUBKY, Date.now() - 61_000),
+    ).rejects.toMatchObject({ category: 'server' });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
   it('notifies onSessionEnded with expired, rejected, and cleared reasons', async () => {
     const reasons: string[] = [];
     const unsubscribe = MarketplaceSessionService.onSessionEnded((event) => {

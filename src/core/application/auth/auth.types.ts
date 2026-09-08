@@ -1,4 +1,5 @@
 import { Keypair, type Session } from '@synonymdev/pubky';
+import type { MarketplaceSessionInfo } from '@/services/marketplace/marketplace-session';
 import type { AuthStore } from '@/stores/auth/auth.types';
 
 export type TKeypairParams = {
@@ -23,3 +24,8 @@ export type TRestoreSessionOutcome =
 export type TRestoreSessionResult = Promise<TRestoreSessionOutcome>;
 
 export type TRestorePersistedSessionResult = { status: TRestoreSessionOutcome['status'] };
+
+export type TSingleApprovalResult = {
+  session: Session;
+  marketplace: MarketplaceSessionInfo | null;
+};

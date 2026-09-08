@@ -73,6 +73,22 @@ exports[`SignInContent - Snapshots > matches snapshot for the QR sign-in layout 
             width="48"
           />
         </button>
+        <div
+          class="max-w-sm rounded-md border border-border bg-muted/40 p-3"
+        >
+          <code
+            class="block break-all font-mono text-xs"
+            data-cy="signin-requested-capabilities"
+          >
+            /pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw
+          </code>
+          <p
+            class="mt-1 text-xs text-muted-foreground"
+            data-testid="typography"
+          >
+            Pubky Ring will show this exact permission list — compare it before approving.
+          </p>
+        </div>
       </div>
       <div
         aria-hidden="true"

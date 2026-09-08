@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { copyToClipboard } from '@/libs/utils/utils';
 import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.types';
@@ -13,7 +14,11 @@ const SESSION: CommerceMarketplaceSession = {
 };
 
 vi.mock('@/controllers/commerce/commerce', () => ({
-  CommerceController: { beginMarketplaceSessionConnect: vi.fn() },
+  CommerceController: { beginMarketplaceSessionConnect: vi.fn(), hasFullHomeserverGrant: vi.fn(() => true) },
+}));
+
+vi.mock('@/controllers/auth/auth', () => ({
+  AuthController: { beginBridgedCommerceSessionFlow: vi.fn() },
 }));
 
 vi.mock('@/libs/utils/utils', async () => {
@@ -43,6 +48,7 @@ function createDeferredFlow(url: string) {
 describe('useMarketplaceSessionConnect', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(true);
   });
 
   it('starts idle with no URL and no error', () => {
@@ -52,6 +58,19 @@ describe('useMarketplaceSessionConnect', () => {
     expect(result.current.authorizationUrl).toBe('');
     expect(result.current.errorMessage).toBeNull();
     expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
+  });
+
+  it('starts the bridged single-approval flow when the homeserver grant is not full', () => {
+    const { flow } = createDeferredFlow('pubkyauth:///?caps=full');
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
+    vi.mocked(AuthController.beginBridgedCommerceSessionFlow).mockReturnValue(flow);
+    const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+    act(() => result.current.start());
+
+    expect(AuthController.beginBridgedCommerceSessionFlow).toHaveBeenCalledTimes(1);
+    expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
+    expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=full');
   });
 
   it('exposes the authorization URL while awaiting and reports connected once the signer approves', async () => {

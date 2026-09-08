@@ -24,7 +24,6 @@ import { NotificationType } from '@/models/notification/notification.types';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
 import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
-import { HomeserverService } from '@/services/homeserver/homeserver';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { AuthStore } from '@/stores/auth/auth.types';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -326,6 +325,7 @@ describe('AuthController', () => {
     vi.clearAllMocks();
     mockClearDatabase.mockReset();
     AuthController.resetCleanupLocalStateGuard();
+    AuthController.resetSignInCeremonyGuard();
     // Default: homeserver environment check passes (non-staging test config / allowed key)
     vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
     // Re-apply factory implementations: vi.restoreAllMocks() in afterEach can
@@ -863,14 +863,16 @@ describe('AuthController', () => {
       setupOnboardingStore();
     });
 
+    const tokenFlow = (authorizationUrl: string, cancelAuthFlow: () => void) => ({
+      authorizationUrl,
+      awaitToken: () => new Promise<never>(() => {}),
+      cancelAuthFlow,
+    });
+
     it('should generate auth URL successfully', async () => {
       const cancelAuthFlow = vi.fn();
-      const mockAuthUrl = {
-        authorizationUrl: 'https://example.com/auth?token=abc123',
-        awaitApproval: Promise.resolve(buildMockSession()),
-        cancelAuthFlow,
-      };
-      const generateAuthUrlSpy = vi.spyOn(AuthApplication, 'generateAuthUrl').mockResolvedValue(mockAuthUrl);
+      const mockFlow = tokenFlow('https://example.com/auth?token=abc123', cancelAuthFlow);
+      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue(mockFlow);
       const clearDatabaseSpy = mockClearDatabase.mockResolvedValue(undefined);
       const cancelModerationFollowSpy = vi.spyOn(BootstrapApplication, 'cancelModerationFollow');
 
@@ -880,61 +882,39 @@ describe('AuthController', () => {
       expect(cancelModerationFollowSpy.mock.invocationCallOrder[0]).toBeLessThan(
         clearDatabaseSpy.mock.invocationCallOrder[0]!,
       );
-      // Skip post-migration resync — full bootstrap below covers all data
       expect(storeMocks.resetMigrationStore).toHaveBeenCalled();
-      expect(result.authorizationUrl).toEqual(mockAuthUrl.authorizationUrl);
+      expect(result.authorizationUrl).toEqual(mockFlow.authorizationUrl);
       expect(result.awaitApproval).toBeInstanceOf(Promise);
       expect(result.cancelAuthFlow).toBe(cancelAuthFlow);
-      expect(generateAuthUrlSpy).toHaveBeenCalled();
+      expect(startSpy).toHaveBeenCalled();
     });
 
     it('should throw error when auth URL generation fails', async () => {
-      const generateAuthUrlSpy = vi
-        .spyOn(AuthApplication, 'generateAuthUrl')
-        .mockRejectedValue(new Error('Failed to generate auth URL'));
+      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockImplementation(() => {
+        throw new Error('Failed to generate auth URL');
+      });
       const clearDatabaseSpy = mockClearDatabase.mockResolvedValue(undefined);
 
       await expect(AuthController.getAuthUrl()).rejects.toThrow('Failed to generate auth URL');
       expect(clearDatabaseSpy).toHaveBeenCalled();
-      expect(generateAuthUrlSpy).toHaveBeenCalled();
+      expect(startSpy).toHaveBeenCalled();
     });
 
-    it('should free stale auth flows when multiple requests overlap (StrictMode)', async () => {
+    it('joins overlapping requests during the ceremony instead of wiping Dexie again', async () => {
       mockClearDatabase.mockResolvedValue(undefined);
-
-      const cancelAuthFlowA = vi.fn();
-      const cancelAuthFlowB = vi.fn();
-
-      type GenerateAuthUrlResult = Awaited<ReturnType<typeof AuthApplication.generateAuthUrl>>;
-
-      let resolveFirst!: (value: GenerateAuthUrlResult) => void;
-      const first = new Promise<GenerateAuthUrlResult>((resolve) => {
-        resolveFirst = resolve;
-      });
-
-      vi.spyOn(AuthApplication, 'generateAuthUrl')
-        .mockImplementationOnce(() => first)
-        .mockResolvedValueOnce({
-          authorizationUrl: 'https://example.com/auth?token=B',
-          awaitApproval: new Promise(() => {}),
-          cancelAuthFlow: cancelAuthFlowB,
-        });
+      const cancelAuthFlow = vi.fn();
+      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue(
+        tokenFlow('https://example.com/auth?token=A', cancelAuthFlow),
+      );
 
       const firstCall = AuthController.getAuthUrl();
       const secondCall = AuthController.getAuthUrl();
+      const [first, second] = await Promise.all([firstCall, secondCall]);
 
-      // Resolve the first call after the second call already started.
-      resolveFirst!({
-        authorizationUrl: 'https://example.com/auth?token=A',
-        awaitApproval: new Promise(() => {}),
-        cancelAuthFlow: cancelAuthFlowA,
-      });
-
-      await secondCall;
-      await firstCall;
-
-      expect(cancelAuthFlowA).toHaveBeenCalled();
-      expect(cancelAuthFlowB).not.toHaveBeenCalled();
+      expect(startSpy).toHaveBeenCalledTimes(1);
+      expect(mockClearDatabase).toHaveBeenCalledTimes(1);
+      expect(first.authorizationUrl).toBe(second.authorizationUrl);
+      expect(cancelAuthFlow).not.toHaveBeenCalled();
     });
   });
 
@@ -943,66 +923,39 @@ describe('AuthController', () => {
       setupOnboardingStore();
     });
 
-    it('requests the FULL grant (generateAuthUrl defaults to CAPABILITIES) without wiping local state', async () => {
+    it('requests the FULL grant without wiping local state', async () => {
       const cancelAuthFlow = vi.fn();
-      type GenerateAuthUrlResult = Awaited<ReturnType<typeof AuthApplication.generateAuthUrl>>;
-      const mockAuthUrl: GenerateAuthUrlResult = {
+      const mockFlow = {
         authorizationUrl: 'https://example.com/auth?token=stepup',
-        awaitApproval: new Promise(() => {}),
+        awaitToken: () => new Promise<never>(() => {}),
         cancelAuthFlow,
       };
-      // The real AuthApplication delegate runs so the assertion covers the
-      // exact capabilities argument the service is invoked with: none — the
-      // homeserver service then applies its full-grant CAPABILITIES default.
-      const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl').mockResolvedValue(mockAuthUrl);
+      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue(mockFlow);
       const clearDatabaseSpy = mockClearDatabase.mockResolvedValue(undefined);
-      const cancelModerationFollowSpy = vi.spyOn(BootstrapApplication, 'cancelModerationFollow');
 
       const result = await AuthController.getStepUpAuthUrl();
 
-      // Zero arguments: the full CAPABILITIES default, never a narrowed scope.
-      expect(generateAuthUrlSpy).toHaveBeenCalledExactlyOnceWith();
-      // A step-up widens the current identity's grant — local state must survive.
+      expect(startSpy).toHaveBeenCalledExactlyOnceWith();
       expect(clearDatabaseSpy).not.toHaveBeenCalled();
       expect(storeMocks.resetMigrationStore).not.toHaveBeenCalled();
-      expect(cancelModerationFollowSpy).toHaveBeenCalled();
-      expect(result.authorizationUrl).toEqual(mockAuthUrl.authorizationUrl);
+      expect(result.authorizationUrl).toEqual(mockFlow.authorizationUrl);
       expect(result.cancelAuthFlow).toBe(cancelAuthFlow);
     });
 
-    it('frees stale step-up flows when requests overlap (StrictMode)', async () => {
-      const cancelAuthFlowA = vi.fn();
-      const cancelAuthFlowB = vi.fn();
-
-      type GenerateAuthUrlResult = Awaited<ReturnType<typeof AuthApplication.generateAuthUrl>>;
-
-      let resolveFirst!: (value: GenerateAuthUrlResult) => void;
-      const first = new Promise<GenerateAuthUrlResult>((resolve) => {
-        resolveFirst = resolve;
+    it('joins overlapping step-up requests (StrictMode) without a second flow', async () => {
+      const cancelAuthFlow = vi.fn();
+      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue({
+        authorizationUrl: 'https://example.com/auth?token=A',
+        awaitToken: () => new Promise<never>(() => {}),
+        cancelAuthFlow,
       });
-
-      vi.spyOn(AuthApplication, 'generateAuthUrl')
-        .mockImplementationOnce(() => first)
-        .mockResolvedValueOnce({
-          authorizationUrl: 'https://example.com/auth?token=B',
-          awaitApproval: new Promise(() => {}),
-          cancelAuthFlow: cancelAuthFlowB,
-        });
 
       const firstCall = AuthController.getStepUpAuthUrl();
       const secondCall = AuthController.getStepUpAuthUrl();
+      await Promise.all([firstCall, secondCall]);
 
-      resolveFirst({
-        authorizationUrl: 'https://example.com/auth?token=A',
-        awaitApproval: new Promise(() => {}),
-        cancelAuthFlow: cancelAuthFlowA,
-      });
-
-      await secondCall;
-      await firstCall;
-
-      expect(cancelAuthFlowA).toHaveBeenCalled();
-      expect(cancelAuthFlowB).not.toHaveBeenCalled();
+      expect(startSpy).toHaveBeenCalledTimes(1);
+      expect(cancelAuthFlow).not.toHaveBeenCalled();
     });
   });
 
@@ -1558,9 +1511,9 @@ describe('AuthController', () => {
 
     it('should stop any active auth flow polling when a session is initialized', async () => {
       const cancelAuthFlow = vi.fn();
-      vi.spyOn(AuthApplication, 'generateAuthUrl').mockResolvedValue({
+      vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue({
         authorizationUrl: 'https://example.com/auth?token=abc123',
-        awaitApproval: new Promise(() => {}),
+        awaitToken: () => new Promise(() => {}),
         cancelAuthFlow,
       });
       mockClearDatabase.mockResolvedValue(undefined);

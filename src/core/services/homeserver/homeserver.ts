@@ -1,6 +1,7 @@
 import {
   Address,
   AuthFlowKind,
+  AuthToken,
   Capabilities,
   Client,
   Keypair,
@@ -11,7 +12,7 @@ import {
   Signer,
 } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, capabilitiesMatchFullGrant } from '@/config/app';
 import {
   getDefaultHttpRelay,
   getDeployEnv,
@@ -131,6 +132,102 @@ export class HomeserverService {
     const capabilities = session?.info?.capabilities;
     if (!capabilities) return false;
     return capabilitiesGrantWrite(capabilities, path);
+  }
+
+  static currentSessionHasFullGrant(): boolean {
+    const capabilities = useAuthStore.getState().selectSession()?.info?.capabilities;
+    if (!capabilities) return false;
+    return capabilitiesMatchFullGrant(capabilities);
+  }
+
+  /**
+   * Introspect AuthToken bytes, refuse anything other than Shop's full grant,
+   * POST them to `/session` via WASM `Client.fetch`, and hydrate a `Session`
+   * from the SessionInfo body. Homeserver `AlreadyUsed` (or a lost 2xx) is
+   * recovered with GET `/session` when a cookie already exists.
+   *
+   * Bytes are not logged, persisted, or placed in error context.
+   */
+  static async signInWithFullGrantAuthToken(authTokenBytes: Uint8Array): Promise<Session> {
+    let publicKeyZ32: string;
+    try {
+      const token = AuthToken.fromBytes(authTokenBytes);
+      if (!capabilitiesMatchFullGrant(token.capabilities)) {
+        throw Err.validation(
+          ValidationErrorCode.INVALID_INPUT,
+          'This approval does not include the full Shop permission list. Scan again from Shop.',
+          {
+            service: ErrorService.Homeserver,
+            operation: 'signInWithFullGrantAuthToken',
+          },
+        );
+      }
+      publicKeyZ32 = token.publicKey.z32();
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      return handleError({
+        error,
+        additionalContext: { operation: 'signInWithFullGrantAuthToken' },
+      });
+    }
+
+    const sessionUrl = `https://_pubky.${publicKeyZ32}/session`;
+    const client = this.getPubkySdk().client;
+    const fetchInit = { credentials: 'include' as const };
+
+    let postResponse: Response | undefined;
+    try {
+      postResponse = await client.fetch(sessionUrl, {
+        method: 'POST',
+        body: authTokenBytes as BodyInit,
+        ...fetchInit,
+      });
+    } catch {
+      postResponse = undefined;
+    }
+
+    if (postResponse?.ok) {
+      try {
+        const body = new Uint8Array(await postResponse.arrayBuffer());
+        return await this.restoreSession({ sessionExport: bytesToBase64(body) });
+      } catch {
+        throw Err.auth(
+          AuthErrorCode.UNAUTHORIZED,
+          'Sign-in failed. Scan again.',
+          {
+            service: ErrorService.Homeserver,
+            operation: 'signInWithFullGrantAuthToken',
+            context: { stage: 'restore-after-post' },
+          },
+        );
+      }
+    }
+
+    let getResponse: Response | undefined;
+    try {
+      getResponse = await client.fetch(sessionUrl, { method: 'GET', ...fetchInit });
+    } catch {
+      getResponse = undefined;
+    }
+
+    if (getResponse?.ok) {
+      try {
+        const body = new Uint8Array(await getResponse.arrayBuffer());
+        return await this.restoreSession({ sessionExport: bytesToBase64(body) });
+      } catch {
+        throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign-in failed. Scan again.', {
+          service: ErrorService.Homeserver,
+          operation: 'signInWithFullGrantAuthToken',
+          context: { stage: 'restore-after-get' },
+        });
+      }
+    }
+
+    throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign-in failed. Scan again.', {
+      service: ErrorService.Homeserver,
+      operation: 'signInWithFullGrantAuthToken',
+      context: { stage: 'no-session' },
+    });
   }
 
   /**

@@ -18,3 +18,21 @@ export const APP_VERSION = Env.NEXT_PUBLIC_APP_VERSION;
  * for comparison (docs/ecommerce/step-up-approval.md, QR/phish-swap row).
  */
 export const CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw';
+
+/**
+ * Interim dual-POST ceremony (docs/ecommerce/single-approval.md). Flag off
+ * restores `awaitApproval()` sign-in plus empty-capability marketplace connect.
+ * Do not roll back by POSTing empty capabilities to `/session`.
+ */
+export const SINGLE_APPROVAL_SIGN_IN = true;
+
+/** Order-insensitive set equality with {@link CAPABILITIES} split on commas. */
+export function capabilitiesMatchFullGrant(capabilities: readonly string[]): boolean {
+  const expected = CAPABILITIES.split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const incoming = [...new Set(capabilities.map((entry) => entry.trim()).filter((entry) => entry.length > 0))];
+  if (incoming.length !== expected.length) return false;
+  const incomingSet = new Set(incoming);
+  return expected.every((entry) => incomingSet.has(entry));
+}

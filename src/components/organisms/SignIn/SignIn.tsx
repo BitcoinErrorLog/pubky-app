@@ -10,6 +10,7 @@ import { Link } from '@/atoms/Link/Link';
 import { PageHeader } from '@/atoms/PageHeader/PageHeader';
 import { PageSubtitle } from '@/atoms/PageSubtitle/PageSubtitle';
 import { Typography } from '@/atoms/Typography/Typography';
+import { CAPABILITIES } from '@/config/app';
 import { useMobileAuth } from '@/hooks/useMobileAuth/useMobileAuth';
 import { Logger } from '@/libs/logger/logger';
 import { cn } from '@/libs/utils/utils';
@@ -177,6 +178,14 @@ export const SignInContent = () => {
               activeQrHasHoverEffect
             />
           </button>
+          <div className="max-w-sm rounded-md border border-border bg-muted/40 p-3">
+            <code className="block break-all font-mono text-xs" data-cy="signin-requested-capabilities">
+              {CAPABILITIES}
+            </code>
+            <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+              Pubky Ring will show this exact permission list — compare it before approving.
+            </Typography>
+          </div>
         </BalancedQrCard>
       </Container>
 
