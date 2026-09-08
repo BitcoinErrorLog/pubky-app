@@ -7,8 +7,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Col
 import { Link } from '@/atoms/Link/Link';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/atoms/Sheet/Sheet';
 import { Typography } from '@/atoms/Typography/Typography';
+import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
 import { QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
+import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -24,6 +26,11 @@ export type PubchiPanelProps = {
 export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const { form, submit, applyFeed, result, errorCode, loading, enabled, signingAvailable, signingUnavailableMessage } =
     usePubchiQuery();
+  const {
+    needsReapproval,
+    reapprove,
+    loading: reapprovalLoading,
+  } = usePubchiEnrollment();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
 
   if (!enabled || !isPubchiPanelEnabled()) {
@@ -43,6 +50,15 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </SheetTitle>
             <SheetDescription>Read-only questions. The service never receives your session or key.</SheetDescription>
           </SheetHeader>
+
+          {needsReapproval ? (
+            <div className="flex flex-col gap-3" data-testid="pubchi-degraded-session">
+              <Typography size="sm">{PUBCHI_DEGRADED_SESSION_MESSAGE}</Typography>
+              <Button type="button" disabled={reapprovalLoading} onClick={() => void reapprove()}>
+                Re-approve
+              </Button>
+            </div>
+          ) : null}
 
           {!signingAvailable ? (
             <Typography data-testid="pubchi-signing-unavailable" size="sm">

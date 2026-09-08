@@ -96,7 +96,10 @@ export class PubchiController {
    * Adopt a Ring-approved session for the already signed-in identity.
    * Does not run `initializeAuthenticatedSession` / bootstrap. A session whose
    * pubky does not match the signed-in user is signed out: its cookie has
-   * already replaced the legitimate one.
+   * already replaced the legitimate one. The capability guard intentionally
+   * pins Pubchi write coverage only; narrowing unrelated scopes is outside it.
+   * Same-identity approvals are always adopted because the SDK has already
+   * replaced the browser cookie before this method receives the session.
    */
   static async adoptCapabilityApproval(session: Session): Promise<void> {
     const authState = useAuthStore.getState();
@@ -116,17 +119,20 @@ export class PubchiController {
     const currentCoversPubchi = capabilitiesCoverPubchiWrite(authState.session?.info.capabilities ?? []);
     const approvedCoversPubchi = capabilitiesCoverPubchiWrite(session.info.capabilities ?? []);
     if (currentCoversPubchi && !approvedCoversPubchi) {
-      try {
-        await HomeserverService.logout({ session });
-      } catch (error) {
-        Logger.warn('Pubchi narrower capability-approval session sign-out failed', { error });
-      }
-      throw Err.auth(AuthErrorCode.FORBIDDEN, 'PUBCHI_SESSION_CAPABILITY_NARROWER', {
-        service: ErrorService.Pubchi,
-        operation: 'adoptCapabilityApproval',
-      });
+      authState.setSession(session);
+      return;
     }
     authState.setSession(session);
+    if (approvedCoversPubchi) {
+      try {
+        await PubchiApplication.unpublishKnownDelegations(approved, {
+          attemptRemote: true,
+          includeLocalKeys: false,
+        });
+      } catch (error) {
+        Logger.warn('Pubchi pending delegation drain after capability approval failed', { error });
+      }
+    }
   }
 
   static async revokeDevice(signer: string): Promise<void> {

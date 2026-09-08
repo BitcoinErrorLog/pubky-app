@@ -4,6 +4,10 @@ import { PubchiApplication } from '@/application/pubchi/pubchi';
 import { AuthController } from '@/controllers/auth/auth';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import * as deviceKey from '@/libs/pubchi/device-key';
+import {
+  PENDING_DELEGATION_DELETES_KEY,
+  readPendingDelegationDeletes,
+} from '@/libs/pubchi/pending-delegation-deletes';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import type { Pubky } from '@/models/models.types';
@@ -38,8 +42,11 @@ function sessionFor(pubky: string, capabilities: string[] = []) {
 
 describe('PubchiController', () => {
   beforeEach(() => {
-    authState.setSession.mockReset();
+    authState.setSession.mockReset().mockImplementation((session: Session | null) => {
+      authState.session = session ?? undefined;
+    });
     authState.session = sessionFor(OWNER);
+    vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockResolvedValue({ failed: [] });
     vi.spyOn(useAuthStore, 'getState').mockReturnValue(
       asOpaque<AuthStore>({
         selectCurrentUserPubky: () => OWNER,
@@ -52,6 +59,7 @@ describe('PubchiController', () => {
 
   afterEach(() => {
     setPubchiEnv();
+    localStorage.removeItem(PENDING_DELEGATION_DELETES_KEY);
     vi.restoreAllMocks();
   });
 
@@ -162,7 +170,7 @@ describe('PubchiController', () => {
     expect(bootstrapSpy).not.toHaveBeenCalled();
   });
 
-  it('refuses to replace root coverage with a non-covering approval', async () => {
+  it('keeps the auth store aligned with the narrower approved session already in the cookie jar', async () => {
     authState.session = sessionFor(OWNER, ['/:rw']);
     vi.mocked(useAuthStore.getState).mockReturnValue(
       asOpaque<AuthStore>({
@@ -173,14 +181,32 @@ describe('PubchiController', () => {
       }),
     );
     const session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
-    const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
+    const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockRejectedValue(new Error('logout failed'));
 
-    await expect(PubchiController.adoptCapabilityApproval(session)).rejects.toMatchObject({
-      code: AuthErrorCode.FORBIDDEN,
-      message: 'PUBCHI_SESSION_CAPABILITY_NARROWER',
-    });
-    expect(logoutSpy).toHaveBeenCalledWith({ session });
-    expect(authState.setSession).not.toHaveBeenCalled();
+    await PubchiController.adoptCapabilityApproval(session);
+
+    expect(logoutSpy).not.toHaveBeenCalled();
+    expect(authState.setSession).toHaveBeenCalledWith(session);
+    expect(authState.session).toBe(session);
+  });
+
+  it('preserves pending delegation deletes when adopting a narrower approved session', async () => {
+    const pending = [{ owner: OWNER, signer: OWNER }];
+    localStorage.setItem(PENDING_DELEGATION_DELETES_KEY, JSON.stringify(pending));
+    authState.session = sessionFor(OWNER, ['/:rw']);
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        session: authState.session,
+        setSession: authState.setSession,
+      }),
+    );
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
+
+    await PubchiController.adoptCapabilityApproval(session);
+
+    expect(readPendingDelegationDeletes()).toEqual(pending);
   });
 
   it('adopts equal root coverage', async () => {
@@ -198,6 +224,28 @@ describe('PubchiController', () => {
     await PubchiController.adoptCapabilityApproval(session);
 
     expect(authState.setSession).toHaveBeenCalledWith(session);
+    expect(PubchiApplication.unpublishKnownDelegations).toHaveBeenCalledWith(OWNER, {
+      attemptRemote: true,
+      includeLocalKeys: false,
+    });
+  });
+
+  it('keeps the covering approved session when the pending delegation drain rejects', async () => {
+    authState.session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        session: authState.session,
+        setSession: authState.setSession,
+      }),
+    );
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/pubchi.app/:rw']);
+    vi.mocked(PubchiApplication.unpublishKnownDelegations).mockRejectedValue(new Error('drain failed'));
+
+    await PubchiController.adoptCapabilityApproval(session);
+
+    expect(authState.session).toBe(session);
   });
 
   it('adopts equal non-covering coverage', async () => {

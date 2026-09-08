@@ -21,6 +21,10 @@ When the flag is on and a user enrolls, the isolated `pubchi` IndexedDB is creat
 - `Dexie.delete('pubchi')` can be blocked by another open tab holding the database. In that multi-tab case, a failed remote DELETE can leave a live device key and a live delegation in the sibling tab after this tab's logout. A pending DELETE record for that signer is retained across sign-in/reconcile while the key is still live locally, so the next drain after a genuine wipe can finish revocation. It is not discarded merely because the skip path ran.
 - `pubchi.pendingDelegationDeletes` is capped at 32 unique `owner:signer` rows (FIFO, newest-wins). That bound is a storage bound, not a security boundary: anyone who can write localStorage can already delete the pending list or the device key. Ordinary churn (~11 identities × 3 keys) can also evict a legitimate not-yet-attempted record. Do not treat eviction as an access-control failure.
 
+## Known gaps
+
+- `initializeAuthenticatedSession` can replace a covering session through a cross-tab approval without checking Pubchi capability coverage.
+
 ## Surfaces
 
 - Settings: `/settings/pubchi` (`PubchiSettings`, `data-surface="pubchi-settings"`). Paste bot pubky B; write/remove the U → B binding. On load the Dexie row is reconciled with the homeserver object; if it is absent the local row is marked revoked and the page shows "not enrolled".

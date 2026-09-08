@@ -5,6 +5,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { ENROLL_FORM_FIELDS } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment.types';
+import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { SettingsSectionCard } from '@/molecules/Settings/SettingsSectionCard/SettingsSectionCard';
@@ -40,10 +41,10 @@ export function PubchiSettings() {
         description="Public bot state. Paste a bot pubky to write the U → B binding on your homeserver."
       >
         {needsReapproval ? (
-          <div className="flex flex-col gap-3 px-6">
-            <Typography size="sm">Re-approve Pubky Ring to enable Pubchi.</Typography>
+          <div className="flex flex-col gap-3 px-6" data-testid="pubchi-degraded-session">
+            <Typography size="sm">{PUBCHI_DEGRADED_SESSION_MESSAGE}</Typography>
             <Button type="button" disabled={loading} onClick={() => void reapprove()}>
-              Re-approve Pubky Ring
+              Re-approve
             </Button>
           </div>
         ) : null}
@@ -56,7 +57,7 @@ export function PubchiSettings() {
               type="button"
               variant="destructive"
               data-testid="pubchi-remove-bot"
-              disabled={loading}
+              disabled={loading || needsReapproval}
               onClick={() => {
                 void remove();
               }}
@@ -82,7 +83,7 @@ export function PubchiSettings() {
               placeholder="52-character z-base-32 pubky"
               dataCy="pubchi-bot-input"
             />
-            <Button type="submit" data-testid="pubchi-enroll-bot" disabled={loading}>
+            <Button type="submit" data-testid="pubchi-enroll-bot" disabled={loading || needsReapproval}>
               Enroll bot
             </Button>
           </form>
@@ -100,12 +101,22 @@ export function PubchiSettings() {
                     {new Date(device.expires_at * 1000).toLocaleDateString()}
                   </span>
                 </Typography>
-                <Button type="button" variant="destructive" disabled={loading} onClick={() => void revokeDevice(device.signer)}>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={loading || needsReapproval}
+                  onClick={() => void revokeDevice(device.signer)}
+                >
                   Revoke
                 </Button>
               </div>
             ))}
-            <Button type="button" variant="secondary" disabled={loading} onClick={() => void revokeAllDevices()}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={loading || needsReapproval}
+              onClick={() => void revokeAllDevices()}
+            >
               Revoke all
             </Button>
           </div>

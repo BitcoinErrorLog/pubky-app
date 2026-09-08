@@ -16,6 +16,9 @@ export const PUBCHI_HOMESERVER_DIRECTORY = '/pub/pubchi.app/';
 /** Default Ring sign-in request: pubky.app first, Pubchi folder appended. */
 export const PUBCHI_SIGNIN_CAPABILITIES = `/pub/pubky.app/:rw,${PUBCHI_HOMESERVER_DIRECTORY}:rw`;
 
+export const PUBCHI_DEGRADED_SESSION_MESSAGE =
+  "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.";
+
 const ACTIONS = new Set(['r', 'w', 'rw', 'wr']);
 
 type ParsedCapability = {

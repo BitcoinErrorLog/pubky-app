@@ -1,8 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppError } from '@/libs/error/error';
-import { AuthErrorCode } from '@/libs/error/error.codes';
-import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import type { OwnerBindingV1 } from '@/libs/pubchi/schemas';
 import { usePubchiEnrollment } from './usePubchiEnrollment';
 import { ENROLL_FORM_FIELDS } from './usePubchiEnrollment.types';
@@ -171,7 +168,7 @@ describe('usePubchiEnrollment', () => {
     expect(cancel).toHaveBeenCalled();
   });
 
-  it('surfaces the narrower capability approval message', async () => {
+  it('adopts a narrower same-identity approval because it already replaced the browser cookie', async () => {
     const session = { info: { publicKey: { z32: () => OWNER } } };
     const cancel = vi.fn();
     mocks.reconcile.mockResolvedValue(undefined);
@@ -180,29 +177,17 @@ describe('usePubchiEnrollment', () => {
       awaitApproval: Promise.resolve(session),
       cancelAuthFlow: cancel,
     });
-    mocks.adopt.mockRejectedValue(
-      new AppError({
-        category: ErrorCategory.Auth,
-        code: AuthErrorCode.FORBIDDEN,
-        message: 'PUBCHI_SESSION_CAPABILITY_NARROWER',
-        service: ErrorService.Pubchi,
-        operation: 'adoptCapabilityApproval',
-      }),
-    );
+    mocks.adopt.mockResolvedValue(undefined);
     vi.spyOn(window, 'open').mockReturnValue(null);
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
 
     await act(async () => {
-      await expect(result.current.reapprove()).resolves.toBe(false);
+      await expect(result.current.reapprove()).resolves.toBe(true);
     });
 
-    expect(mocks.toast).toHaveBeenCalledWith({
-      variant: 'error',
-      title:
-        "That approval granted less access than this browser already has, so it wasn't applied. Approve the request that includes the Pubchi folder.",
-      dismissButton: true,
-    });
+    expect(mocks.adopt).toHaveBeenCalledWith(session);
+    expect(mocks.toast).not.toHaveBeenCalled();
   });
 
   it('calls cancel when the approval times out', async () => {
