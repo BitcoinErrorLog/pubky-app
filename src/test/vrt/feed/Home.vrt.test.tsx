@@ -3,7 +3,7 @@
 // @vitest/browser. Do not let `eslint --fix` reorder these imports.
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { parkVrtHover, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { formatStableRelative } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { createZustandLikeHook } from '@/test-utils/stores';
@@ -426,22 +426,43 @@ function HomeWithLayout() {
 }
 
 async function waitForComposerMotion() {
+  // Expand tween is 280ms + 100ms settle (`useComposerHeightAnimation`). The
+  // previous 350ms wait raced the last frames on Firefox/mobile (~252 px of
+  // in-between card height). CSS `transition: none` in vrt.setup does not stop
+  // Framer Motion, so wait past the tween and for two consecutive stable measures.
   await new Promise<void>((resolve) => {
-    setTimeout(resolve, 350);
+    setTimeout(resolve, 280 + 100 + 80);
   });
+  const heightEl = document.querySelector('[data-testid="quick-reply-state-height"]');
+  if (!heightEl) return;
+  await vi.waitFor(() => {
+    if (heightEl.getBoundingClientRect().height < 40) {
+      throw new Error('QuickReply height has not expanded yet.');
+    }
+  });
+  const first = heightEl.getBoundingClientRect().height;
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+  const second = heightEl.getBoundingClientRect().height;
+  if (Math.abs(second - first) > 0.5) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 120);
+    });
+  }
 }
 
 describe('Home (global feed) — visual regression', () => {
   it('renders the global feed at desktop viewport', async () => {
-    const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     // The VRT root is the viewport-clamped wrapper added by `renderForVRT`,
     // so the screenshot is exactly the viewport size. Without it, the body
     // locator captures the full scrollable document height.
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-desktop', VRT_DENSE_CHROME_SCREENSHOT);
   });
 
   it('renders the global feed at mobile viewport', async () => {
-    const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-mobile');
   });
 
@@ -451,8 +472,9 @@ describe('Home (global feed) — visual regression', () => {
     await screen.getByTestId('quick-reply-textarea').first().click();
     await expect(screen.getByTestId('quick-reply-expanded-content')).toBeVisible();
     await waitForComposerMotion();
+    await parkVrtHover();
 
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-desktop', VRT_DENSE_CHROME_SCREENSHOT);
   });
 
   it('renders an expanded QuickReply at mobile viewport', async () => {
@@ -461,7 +483,8 @@ describe('Home (global feed) — visual regression', () => {
     await screen.getByTestId('quick-reply-textarea').first().click();
     await expect(screen.getByTestId('quick-reply-expanded-content')).toBeVisible();
     await waitForComposerMotion();
+    await parkVrtHover();
 
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-mobile');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-mobile', VRT_DENSE_CHROME_SCREENSHOT);
   });
 });
