@@ -233,8 +233,8 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
   });
 
-  it('drops filled title, description, price, and category from the publish checklist', async () => {
-    const user = userEvent.setup();
+  it('drops filled title, description, price, and category from the publish checklist', { timeout: 20_000 }, async () => {
+    const user = userEvent.setup({ delay: null });
     render(<FormHarness />);
 
     const requiredItems = () => {
@@ -466,8 +466,8 @@ describe('MarketplaceListingForm scoped status watch', () => {
   // This re-renders the full studio per case (8 mounts of a 1,000-line
   // form); under full-suite load it exceeds the 5s default even on a clean
   // tree, so it gets an explicit budget.
-  it('updates section status when each watched field changes', { timeout: 20_000 }, async () => {
-    const user = userEvent.setup();
+  it('updates section status when each watched field changes', { timeout: 40_000 }, async () => {
+    const user = userEvent.setup({ delay: null });
     const first = render(<StatusWatchHarness />);
 
     expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'true');

@@ -16,6 +16,8 @@ import { MarketplaceCart } from './MarketplaceCart';
 
 const BUYER = 'b'.repeat(52);
 const EXPIRES_AT = '2099-01-01T00:00:00.000Z';
+/** Must match `SESSION_TOKEN_PATTERN` (43 URL-safe chars) or restore returns null. */
+const SESSION_TOKEN = 'A'.repeat(43);
 
 /** Captured 2026-09-06 from MarketplaceTransactionService.throwIfSessionRejected. */
 const SESSION_EXPIRED_MESSAGE =
@@ -119,7 +121,7 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     useAuthStore.setState({ currentUserPubky: BUYER });
     window.localStorage.setItem(
       MARKETPLACE_SESSION_STORAGE_KEY,
-      JSON.stringify({ token: 'opaque-test-token', pubky: BUYER, capabilities: '', expiresAt: EXPIRES_AT }),
+      JSON.stringify({ token: SESSION_TOKEN, pubky: BUYER, capabilities: '', expiresAt: EXPIRES_AT }),
     );
     const restored = MarketplaceSessionService.restorePersistedSession(BUYER);
     useCommerceStore.getState().setMarketplaceSession(restored);

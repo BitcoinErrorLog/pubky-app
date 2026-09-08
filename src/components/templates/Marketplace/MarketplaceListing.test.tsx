@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
+import { CAPABILITIES } from '@/config/app';
 import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel, toCommerceShopModel } from '@/test/fixtures/commerce/listing-models';
 import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
@@ -23,6 +24,7 @@ const view = vi.hoisted(() => ({
   projection: null as ReturnType<typeof createListingProjectionFixture> | null,
   projectionError: null as string | null,
   needsSession: false,
+  hasFullHomeserverGrant: false,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -43,7 +45,21 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getListing: () => view.listing,
     getShop: () => view.shop,
     getOrFetchListing: () => Promise.resolve(null),
+    hasFullHomeserverGrant: () => view.hasFullHomeserverGrant,
   },
+}));
+
+vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
+  useMarketplaceSessionConnect: () => ({
+    status: 'awaiting',
+    authorizationUrl: '',
+    errorMessage: null,
+    start: vi.fn(),
+    cancel: vi.fn(),
+    copyAuthUrl: vi.fn(async () => {}),
+    openInRing: vi.fn(),
+    isOpeningRing: false,
+  }),
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -123,6 +139,7 @@ describe('MarketplaceListing', () => {
     view.projection = createListingProjectionFixture();
     view.projectionError = null;
     view.needsSession = false;
+    view.hasFullHomeserverGrant = false;
     sellerReputation.value = { status: 'new_seller' };
     cartAdd.mockClear();
     projectionRefresh.mockClear();
@@ -244,7 +261,7 @@ describe('MarketplaceListing', () => {
     expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
   });
 
-  it('reveals the approval card when placing a bid without a marketplace session', async () => {
+  function renderAuctionListingNeedingSession() {
     view.listing = toCommerceListingModel(
       createCommerceListingFixture({
         listingId: 'rangefinder_camera',
@@ -264,12 +281,38 @@ describe('MarketplaceListing', () => {
     view.projection = null;
     view.projectionError = 'A marketplace session is required.';
     view.needsSession = true;
+    renderListing();
+  }
+
+  it('reveals the full-grant approval card when a bridged buyer with a narrow grant places a bid', async () => {
+    view.hasFullHomeserverGrant = false;
     const user = userEvent.setup();
 
-    renderListing();
+    renderAuctionListingNeedingSession();
     await user.click(screen.getByRole('button', { name: 'Place a bid' }));
 
     expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
+    expect(screen.getByText(CAPABILITIES)).toBeInTheDocument();
+    expect(
+      screen.getByText(/this is the first Shop-scoped approval; it was not covered by signing in on pubky.app/i),
+    ).toBeInTheDocument();
+  });
+
+  it('reveals the empty-caps reconnect card when a full-grant buyer places a bid without a marketplace session', async () => {
+    view.hasFullHomeserverGrant = true;
+    const user = userEvent.setup();
+
+    renderAuctionListingNeedingSession();
+    await user.click(screen.getByRole('button', { name: 'Place a bid' }));
+
+    expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
+    expect(screen.getByText(/Ring will show an empty permission list/i)).toBeInTheDocument();
+    expect(screen.queryByText(CAPABILITIES)).not.toBeInTheDocument();
   });
 });

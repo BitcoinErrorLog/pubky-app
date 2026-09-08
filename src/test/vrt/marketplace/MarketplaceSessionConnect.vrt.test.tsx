@@ -29,6 +29,14 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/orders',
 }));
 
+// Bridged / narrow-grant arrival: the dialog asks for CAPABILITIES. Direct
+// Shop sign-in never mounts this surface with a full grant already in hand.
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    hasFullHomeserverGrant: () => false,
+  },
+}));
+
 vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
   useMarketplaceSessionConnect: () => ({
     status: view.status,
