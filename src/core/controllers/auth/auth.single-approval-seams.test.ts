@@ -229,4 +229,113 @@ describe('single-approval ceremony at the transport seams', () => {
     // The wrong-identity session is signed back out, not left dangling.
     expect(signout).toHaveBeenCalledTimes(1);
   });
+
+  it('step-up approved by a different identity keeps the SIGNED-IN user\'s resting marketplace bearer', async () => {
+    // The device is signed in as A with A's own valid bearer at rest; the
+    // signer approves the step-up as B (PUBKY). The gate runs BEFORE the
+    // marketplace POST, so the only bearer at rest is A's — a mistaken scan
+    // must never destroy A's approval.
+    const signedInPubky = 'a'.repeat(52);
+    mockState.currentUserPubky = signedInPubky;
+    const signout = vi.fn();
+    const wrongIdentitySession = asOpaque<Session>({
+      info: { publicKey: { z32: () => PUBKY } },
+      signout,
+    });
+    mockState.restoreSession.mockResolvedValue(wrongIdentitySession);
+    mockState.clientFetch.mockResolvedValue(new Response(SESSION_INFO_BODY, { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          token: BEARER,
+          pubky: PUBKY,
+          capabilities: CAPABILITIES,
+          expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    // Seed A's bearer the way a restore leaves it: real service memory +
+    // localStorage mirror + commerce store.
+    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
+      '@/services/marketplace/marketplace-session'
+    );
+    window.localStorage.setItem(
+      MARKETPLACE_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        token: BEARER,
+        pubky: signedInPubky,
+        capabilities: CAPABILITIES,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      }),
+    );
+    const restored = MarketplaceSessionService.restorePersistedSession(signedInPubky);
+    expect(restored).not.toBeNull();
+    const { CommerceController } = await import('@/controllers/commerce/commerce');
+    CommerceController.writeMarketplaceSessionStore(restored as NonNullable<typeof restored>);
+    const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
+    expect(useCommerceStore.getState().marketplaceSession?.pubky).toBe(signedInPubky);
+
+    const { AuthController } = await import('./auth');
+    const { awaitApproval } = await AuthController.getStepUpAuthUrl();
+
+    await expect(awaitApproval).rejects.toMatchObject({ code: AuthErrorCode.UNAUTHORIZED });
+
+    // The marketplace POST never ran and B's session was signed back out…
+    expect(fetch).not.toHaveBeenCalled();
+    expect(signout).toHaveBeenCalledTimes(1);
+
+    // …but A's bearer survived everywhere: service memory, localStorage
+    // mirror, and the commerce store.
+    expect(MarketplaceSessionService.getActiveSession()?.pubky).toBe(signedInPubky);
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).not.toBeNull();
+    expect(useCommerceStore.getState().marketplaceSession?.pubky).toBe(signedInPubky);
+  });
+
+  it('completeStepUpReauth drops a resting bearer that belongs to a DIFFERENT identity than the signed-in user', async () => {
+    // Hook-driven completion runs AFTER the ceremony outcome (i.e. after any
+    // marketplace mint), so a wrong-identity bearer CAN be at rest there — a
+    // leftover minted for a stranger. The gate must still drop it.
+    const signedInPubky = 'a'.repeat(52);
+    const strangerPubky = 'c'.repeat(52);
+    mockState.currentUserPubky = signedInPubky;
+
+    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
+      '@/services/marketplace/marketplace-session'
+    );
+    window.localStorage.setItem(
+      MARKETPLACE_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        token: BEARER,
+        pubky: strangerPubky,
+        capabilities: CAPABILITIES,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      }),
+    );
+    const restored = MarketplaceSessionService.restorePersistedSession(strangerPubky);
+    expect(restored).not.toBeNull();
+    const { CommerceController } = await import('@/controllers/commerce/commerce');
+    CommerceController.writeMarketplaceSessionStore(restored as NonNullable<typeof restored>);
+    const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
+    expect(useCommerceStore.getState().marketplaceSession?.pubky).toBe(strangerPubky);
+
+    const signout = vi.fn();
+    const wrongIdentitySession = asOpaque<Session>({
+      info: { publicKey: { z32: () => PUBKY } },
+      signout,
+    });
+
+    const { AuthController } = await import('./auth');
+    await expect(AuthController.completeStepUpReauth({ session: wrongIdentitySession })).rejects.toMatchObject({
+      code: AuthErrorCode.UNAUTHORIZED,
+    });
+
+    // The stranger's bearer is gone from service memory, the localStorage
+    // mirror, and the commerce store.
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+    expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    expect(signout).toHaveBeenCalledTimes(1);
+  });
 });

@@ -813,21 +813,29 @@ export class AuthController {
   /**
    * Identity gate for an externally-approved session on the step-up path: the
    * approval must widen the SIGNED-IN identity, never silently switch
-   * accounts. On mismatch the marketplace bearer is dropped from memory,
-   * localStorage, and the commerce store (a bearer must never stay at rest
-   * for an identity this device is not signed in as), the wrong-identity
-   * session is signed back out, and the call rejects.
+   * accounts. On mismatch the wrong-identity session is signed back out and
+   * the call rejects.
    *
-   * Runs in two places: inside the step-up ceremony BEFORE the marketplace
-   * POST (mirroring the bridged ceremony's onHomeserverSession ordering, so a
-   * bearer for the wrong pubky is never even minted), and in
-   * completeStepUpReauth for the hook-driven completion.
+   * A resting marketplace bearer is dropped only when it belongs to an
+   * identity OTHER than the signed-in one — a bearer must never stay at rest
+   * for an identity this device is not signed in as. The signed-in user's own
+   * bearer is never touched: this gate runs inside the step-up ceremony
+   * BEFORE the marketplace POST (so no wrong-identity bearer can have been
+   * minted yet), where the only bearer at rest is the signed-in user's own
+   * still-valid approval, and a mistaken scan must not destroy it. The same
+   * guard is correct at the second call site — completeStepUpReauth for the
+   * hook-driven completion, which runs AFTER the ceremony outcome (i.e. after
+   * any marketplace mint): a bearer resting there for a different pubky than
+   * the current identity is still dropped.
    */
   private static async assertStepUpSessionMatchesSignedInUser({ session }: THomeserverSessionResult): Promise<void> {
     const authStore = useAuthStore.getState();
     const approvedPubky = Identity.z32FromSession({ session });
     if (authStore.currentUserPubky && approvedPubky === authStore.currentUserPubky) return;
-    CommerceController.clearMarketplaceSession();
+    const restingBearerPubky = useCommerceStore.getState().marketplaceSession?.pubky ?? null;
+    if (restingBearerPubky !== authStore.currentUserPubky) {
+      CommerceController.clearMarketplaceSession();
+    }
     await AuthApplication.logout({ session }).catch((logoutError) => {
       Logger.warn('Failed to sign out a step-up session approved for a different identity', { logoutError });
     });
