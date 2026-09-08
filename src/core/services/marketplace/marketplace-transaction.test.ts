@@ -1087,6 +1087,10 @@ describe('pickup entitled reads never leak the plaintext into error telemetry', 
       // The thrown error's context carries the status code only — no excerpt.
       expect(JSON.stringify(error.context)).not.toContain(SENTINEL);
       expect(error.context).not.toHaveProperty('responseText');
+      // No `cause` either: a V8 parse-error message can embed a window of the
+      // malformed body, and Sentry's linkedErrors would attach it. (AppError
+      // declares the own property unconditionally, so assert the value.)
+      expect(error.cause).toBeUndefined();
       // The Err.* factory logged the same context: no excerpt there either.
       expect(loggerError).toHaveBeenCalled();
       expect(JSON.stringify(loggerError.mock.calls)).not.toContain(SENTINEL);

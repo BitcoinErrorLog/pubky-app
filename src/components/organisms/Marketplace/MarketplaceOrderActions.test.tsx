@@ -313,6 +313,22 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     expect(screen.queryByRole('button', { name: 'Add tracking' })).not.toBeInTheDocument();
   });
 
+  it('hides the packing-slip print affordance on pickup orders (§A5)', () => {
+    renderPickupActions({ state: 'paid', isBuyer: false });
+    expect(screen.queryByRole('button', { name: 'Packing slip' })).not.toBeInTheDocument();
+
+    renderPickupActions({ state: 'delivered', isBuyer: false });
+    expect(screen.queryByRole('button', { name: 'Packing slip' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the packing-slip affordance on shipped orders', () => {
+    const order = createOrderFixture('paid', { fulfillment: 'shipping' });
+    render(
+      <MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={vi.fn(async () => true)} />,
+    );
+    expect(screen.getByRole('button', { name: 'Packing slip' })).toBeInTheDocument();
+  });
+
   it('marks ready through commitMarkReady and reloads the timeline', async () => {
     const user = userEvent.setup();
     const { order, onChanged } = renderPickupActions({ state: 'paid', isBuyer: false });
@@ -394,9 +410,11 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Cancel order' }));
     expect(screen.getByText('Cancel this pickup order')).toBeInTheDocument();
-    expect(screen.getByText(/Cancelling does not move any money/)).toBeInTheDocument();
-    // The projection flagged a terms change: the instant-exit copy (§A3).
-    expect(screen.getByText(/cancels the order instantly — no seller approval needed/)).toBeInTheDocument();
+    // Framed as a REQUEST that completes immediately only under the §A3
+    // conditions — the service can still degrade to cancel_requested.
+    expect(screen.getByText(/This requests a cancellation — cancelling moves no money/)).toBeInTheDocument();
+    // The projection flagged a terms change: the immediate-exit copy (§A3).
+    expect(screen.getByText(/this completes immediately, with no seller approval needed/)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Reason'), 'The new spot is unreachable for me');
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -406,6 +424,18 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
         expect.objectContaining({ kind: 'order.cancel_request' }),
       );
     });
+  });
+
+  it('asks for seller approval on the pickup cancel dialog while no unilateral exit is open', async () => {
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'paid', isBuyer: true });
+
+    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
+    expect(screen.getByText(/This requests a cancellation — cancelling moves no money/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/It completes immediately only if the seller changes the pickup terms after you paid/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/otherwise the seller is asked to approve/)).toBeInTheDocument();
   });
 
   it('renders the degraded cancel_requested outcome honestly (the lost race, §7.2)', async () => {

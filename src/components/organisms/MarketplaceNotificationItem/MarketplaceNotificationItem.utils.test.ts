@@ -15,8 +15,9 @@ describe('getMarketplaceNotificationActionText', () => {
   it('renders the local pickup copy (Wave 7, §A3/§A6)', () => {
     // pickup_details_updated / pickup_ready are their own types; a handover
     // confirm emits fulfillment.delivered (the order_delivered type, shared
-    // with shipped orders by contract) and the unilateral buyer-protection
-    // exits notify as order_cancelled — both truthful for either path.
+    // with shipped orders by contract); the unilateral buyer-protection exit
+    // notifies as order_cancelled_terms_change — distinct from the ordinary
+    // order_cancelled, with copy that names the buyer protection (§A3).
     expect(getMarketplaceNotificationActionText({ type: 'pickup_details_updated' })).toBe(
       'updated the pickup details',
     );
@@ -26,6 +27,9 @@ describe('getMarketplaceNotificationActionText', () => {
     expect(getMarketplaceNotificationActionText({ type: 'pickup_ready' })).toBe('marked your order ready for pickup');
     expect(getMarketplaceNotificationActionText({ type: 'order_delivered' })).toBe('confirmed delivery of an order');
     expect(getMarketplaceNotificationActionText({ type: 'order_cancelled' })).toBe('updated an order cancellation');
+    expect(getMarketplaceNotificationActionText({ type: 'order_cancelled_terms_change' })).toBe(
+      'cancelled because the seller changed the pickup terms',
+    );
   });
 
   it('appends the §8-permitted amount to auction and offer copy', () => {

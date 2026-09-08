@@ -78,9 +78,13 @@ export function MarketplaceCart() {
         ) : cart.items.length ? (
           <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
             <div className="flex flex-col gap-4">
-              <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-                Each seller ships separately; shipping is calculated at checkout.
-              </Typography>
+              {/* Nothing ships on a pickup-only checkout — the shipping note
+                  would be a lie there (§A2). */}
+              {checkout.requiresDeliveryAddress && (
+                <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+                  Each seller ships separately; shipping is calculated at checkout.
+                </Typography>
+              )}
               {cart.groups.map((group) => {
                 // Per-(seller, fulfillment) grouping (§A2): the choice is
                 // offered only among the methods every line in the group
@@ -394,7 +398,7 @@ export function MarketplaceCart() {
                       submit (§A2): one order per seller group. */}
                   {checkout.orderCount > 1 && (
                     <Typography as="p" className="text-xs text-muted-foreground">
-                      This places {checkout.orderCount} orders — one per seller.
+                      This places {checkout.orderCount} orders — one per seller and delivery method.
                     </Typography>
                   )}
                   <Button

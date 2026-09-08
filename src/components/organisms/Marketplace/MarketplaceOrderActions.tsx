@@ -208,7 +208,11 @@ export function MarketplaceOrderActions({
             <MarketplaceShippingLabelDialog order={order} actOnOrder={actOnOrder} />
           </>
         )}
-        {!isBuyer && ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state) && (
+        {/* The print affordance is HIDDEN on pickup orders, not
+            shown-with-note (§A5) — nothing about a pickup order needs paper.
+            The dialog's note-only branch stays as the fallback for any mixed
+            case that could still reach it. */}
+        {!isBuyer && !isPickup && ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state) && (
           <MarketplacePackingSlipDialog order={order} />
         )}
         {isBuyer && order.state === 'shipped' && (
@@ -278,11 +282,11 @@ export function MarketplaceOrderActions({
           </DialogHeader>
           {isPickup && actionType === 'cancel' && (
             <Typography as="p" className="text-sm text-muted-foreground">
-              Cancelling does not move any money. If you already paid, the refund is arranged with the seller and
-              recorded as external evidence.{' '}
+              This requests a cancellation — cancelling moves no money. If you already paid, the refund is arranged
+              with the seller and recorded as external evidence.{' '}
               {unilateralCancelOpen
-                ? 'Because the pickup terms changed after you paid (or you have seen the meeting point), this cancels the order instantly — no seller approval needed, and it does not count against the seller.'
-                : 'The seller is asked to approve the cancellation.'}
+                ? 'The seller changed the pickup terms after you paid, or you have seen the meeting point and the handover is not confirmed yet — so this completes immediately, with no seller approval needed, and it does not count against the seller.'
+                : 'It completes immediately only if the seller changes the pickup terms after you paid, or once you have seen the meeting point (before the handover is confirmed); otherwise the seller is asked to approve.'}
             </Typography>
           )}
           {['cancel', 'return'].includes(actionType) && (

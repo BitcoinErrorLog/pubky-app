@@ -63,6 +63,8 @@ function getBaseActionText(type: MarketplaceFeedNotification['type']): string {
       return 'paid for an order';
     case 'order_cancelled':
       return 'updated an order cancellation';
+    case 'order_cancelled_terms_change':
+      return 'cancelled because the seller changed the pickup terms';
     case 'order_shipped':
       return 'shipped your order';
     case 'order_delivery_assumed':

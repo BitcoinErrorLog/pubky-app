@@ -272,6 +272,8 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'Payment confirmed';
     case 'order_cancelled':
       return 'Order cancelled';
+    case 'order_cancelled_terms_change':
+      return 'Order cancelled — pickup terms changed';
     case 'order_shipped':
       return 'Order shipped';
     case 'order_delivery_assumed':

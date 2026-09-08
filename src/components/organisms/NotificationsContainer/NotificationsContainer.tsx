@@ -50,6 +50,7 @@ const MARKETPLACE_TAB_NOTIFICATION_TYPES = {
   order_created: true,
   payment_confirmed: true,
   order_cancelled: true,
+  order_cancelled_terms_change: true,
   order_shipped: true,
   order_delivery_assumed: true,
   order_delivered: true,

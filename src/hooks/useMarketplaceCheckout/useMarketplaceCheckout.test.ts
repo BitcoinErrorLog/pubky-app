@@ -414,3 +414,132 @@ describe('useMarketplaceCheckout', () => {
     expect(expired.result.current.hasMarketplaceSession).toBe(false);
   });
 });
+
+describe('useMarketplaceCheckout local pickup (§A2)', () => {
+  const OTHER_SELLER = 'z'.repeat(52);
+
+  function itemWithFulfillment(
+    methods: Array<'physical' | 'digital' | 'shipping' | 'pickup'>,
+    sellerPubky = listing.ownerPubky,
+  ): MarketplaceCartItem {
+    return {
+      ...item,
+      id: `cart-item-${sellerPubky.slice(0, 4)}-${methods.join('-')}`,
+      listing: {
+        ...item.listing,
+        id: `${sellerPubky}:${listing.listingId}`,
+        seller_id: sellerPubky,
+        record: { ...item.listing.record, ownerPubky: sellerPubky, fulfillmentMethods: methods },
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    config.mode = 'sandbox';
+    authMock.currentUserPubky = null;
+    useCommerceStore.setState({ marketplaceSession: null });
+    vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([]);
+    vi.mocked(CommerceController.fetchPickupAvailable).mockResolvedValue(true);
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue({
+      aggregateId: `listing:${listing.ownerPubky}_${listing.listingId}`,
+      sellerPubky: listing.ownerPubky,
+      listingId: listing.listingId,
+      serverRevision: 1,
+      state: 'available',
+      availableQuantity: 1,
+      reservedQuantity: 0,
+      unitPrice: price,
+      saleFormat: 'fixed_price',
+      fulfillmentMethods: ['shipping'],
+      auction: null,
+    });
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001100',
+      aggregateId: 'checkout:00000000-0000-4000-8000-000000001100',
+      revision: 1,
+      eventIds: ['00000000-0000-4000-8000-000000001101'],
+      result: { kind: 'checkout' },
+    });
+  });
+
+  it('omits the delivery address from the checkout command on a pickup-only cart', async () => {
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([itemWithFulfillment(['pickup'])], clear));
+
+    expect(result.current.requiresDeliveryAddress).toBe(false);
+    expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('pickup');
+    act(() => {
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(true);
+    const command = vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mock.calls[0][0];
+    expect(command).not.toHaveProperty('deliveryAddress');
+    expect(command.fulfillmentChoiceBySeller).toEqual({ [listing.ownerPubky]: 'pickup' });
+    expect(clear).toHaveBeenCalled();
+  });
+
+  it('sends the address on a mixed cart and keeps each group\u2019s fulfillment choice independent', async () => {
+    const shippingItem = itemWithFulfillment(['physical'], OTHER_SELLER);
+    const bothWaysItem = itemWithFulfillment(['physical', 'shipping', 'pickup']);
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([shippingItem, bothWaysItem], clear));
+
+    // The buyer collects from the both-ways seller; the other seller ships.
+    act(() => {
+      result.current.setFulfillmentChoice(listing.ownerPubky, 'pickup');
+    });
+    expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('pickup');
+    expect(result.current.fulfillmentForSeller(OTHER_SELLER)).toBe('shipping');
+    expect(result.current.requiresDeliveryAddress).toBe(true);
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(true);
+    const command = vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mock.calls[0][0];
+    expect(command.deliveryAddress).toEqual(expect.objectContaining({ line1: '1 Market Street' }));
+    expect(command.fulfillmentChoiceBySeller).toEqual({
+      [listing.ownerPubky]: 'pickup',
+      [OTHER_SELLER]: 'shipping',
+    });
+  });
+
+  it('removes pickup from the options when the deployment capability is off', async () => {
+    vi.mocked(CommerceController.fetchPickupAvailable).mockResolvedValue(false);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout([itemWithFulfillment(['physical', 'shipping', 'pickup'])], vi.fn(async () => {})),
+    );
+
+    await vi.waitFor(() => {
+      expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['shipping']);
+    });
+    // A pickup-only listing on such a deployment leaves the group with no
+    // common method — the honest conflict, never a silent shipping fallback.
+    const conflict = renderHook(() =>
+      useMarketplaceCheckout([itemWithFulfillment(['pickup'])], vi.fn(async () => {})),
+    );
+    await vi.waitFor(() => {
+      expect(conflict.result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual([]);
+    });
+    expect(conflict.result.current.hasFulfillmentConflict).toBe(true);
+  });
+});

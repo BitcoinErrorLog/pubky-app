@@ -46,10 +46,7 @@ import {
 export interface UseCreateMarketplaceListingResult {
   form: UseFormReturn<CreateMarketplaceListingData>;
   media: UseListingMediaManagerResult;
-  /**
-   * The draft's listing id — also the id the publish path reuses, so the
-   * pickup-details editor can address the listing aggregate before publish.
-   */
+  /** The draft's listing id — also the id the publish path reuses. */
   draftId: string;
   /** True when the form was hydrated from a locally autosaved draft. */
   restoredDraft: boolean;
@@ -163,10 +160,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
 
       // One listing id per draft, held across retries: a submit that fails
       // AFTER the homeserver PUT must overwrite the same record when
-      // retried, never publish a duplicate. The id is the draft id itself, so
-      // pickup details saved from the studio before publish attach to the
-      // listing this publish creates (local pickup design §A1 — details are a
-      // separate service aggregate keyed by the listing aggregate id).
+      // retried, never publish a duplicate. The id is the draft id itself.
       pendingListingIdRef.current ??= draftId;
 
       try {

@@ -1,8 +1,8 @@
 import { createRef } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
@@ -14,6 +14,25 @@ import type {
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
+
+// The form reads the deployment's `pickup_available` capability through the
+// controller seam (§A7). Tests default it to ON; the capability-off describe
+// flips it. The editor's owner read is stubbed too so edit-mode mounts do
+// not touch the network.
+const pickupCapability = vi.hoisted(() => ({ available: true }));
+
+vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/controllers/commerce/commerce')>();
+  return {
+    ...actual,
+    CommerceController: {
+      ...actual.CommerceController,
+      fetchPickupAvailable: () => Promise.resolve(pickupCapability.available),
+      fetchSellerPickupDetails: () =>
+        Promise.resolve({ listingAggregateId: 'listing:agg', current: null, lastVersion: 0 }),
+    },
+  };
+});
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -66,6 +85,7 @@ function FormHarness({
   media = buildMedia(),
   mode = 'create' as const,
   saleTermsLocked = false,
+  listingId,
 }: {
   fulfillment?: CreateMarketplaceListingData['fulfillment'];
   defaultValues?: Partial<CreateMarketplaceListingData>;
@@ -73,6 +93,7 @@ function FormHarness({
   media?: UseListingMediaManagerResult;
   mode?: 'create' | 'edit';
   saleTermsLocked?: boolean;
+  listingId?: string;
 }) {
   const form = useForm<CreateMarketplaceListingData>({
     defaultValues: { ...createMarketplaceListingDefaults, fulfillment, ...defaultValues },
@@ -85,6 +106,7 @@ function FormHarness({
       isPublishing={false}
       mode={mode}
       saleTermsLocked={saleTermsLocked}
+      listingId={listingId}
     />
   );
 }
@@ -111,6 +133,56 @@ describe('MarketplaceListingForm', () => {
 
     expect(screen.queryByText('Flat shipping (USD)')).not.toBeInTheDocument();
     expect(screen.queryByText('Weight (g)')).not.toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceListingForm pickup capability (§A7)', () => {
+  beforeEach(() => {
+    pickupCapability.available = true;
+  });
+
+  it('offers all three fulfillment choices when the deployment has pickup', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness />);
+
+    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
+    expect(await screen.findByRole('option', { name: 'Ship item' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Local pickup' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Pickup or shipping' })).toBeInTheDocument();
+  });
+
+  it('offers shipping only, coerces a pickup value, and says why when the deployment has no pickup', async () => {
+    pickupCapability.available = false;
+    render(<FormHarness fulfillment="pickup" />);
+
+    // The note renders once the capability read resolves…
+    expect(await screen.findByText('Local pickup is not available on this deployment.')).toBeInTheDocument();
+    // …and the stale pickup value is coerced to shipping the way the auction
+    // path does, so the shipping/package fields come back.
+    await waitFor(() => {
+      expect(screen.getByText('Weight (g)')).toBeInTheDocument();
+    });
+    const select = screen.getByRole('combobox', { name: 'Fulfillment' });
+    expect(select).toBeDisabled();
+    expect(select).toHaveTextContent('Ship item');
+  });
+
+  it('does not mount the pickup-details editor in create mode — it points at the edit page', async () => {
+    render(<FormHarness fulfillment="shipping_and_pickup" listingId="boots_01" />);
+
+    expect(
+      await screen.findByText("Publish first, then add your meeting point from the listing's edit page."),
+    ).toBeInTheDocument();
+    expect(document.querySelector('[data-surface="pickup-details-editor"]')).toBeNull();
+  });
+
+  it('mounts the pickup-details editor in edit mode when the listing offers pickup', async () => {
+    render(<FormHarness fulfillment="shipping_and_pickup" mode="edit" listingId="boots_01" />);
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-surface="pickup-details-editor"]')).not.toBeNull();
+    });
+    expect(screen.queryByText(/Publish first, then add your meeting point/)).not.toBeInTheDocument();
   });
 
   it('opens the photo picker and submits through the form owner', async () => {

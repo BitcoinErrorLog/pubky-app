@@ -151,7 +151,8 @@ const view = vi.hoisted(() => ({
 }));
 
 // The controller seam: the studio reads the capability + owner read; the
-// order card's reveal dialog reads the pinned snapshot. HTTP-shaped fixtures
+// order card's reveal dialog reads the pinned snapshot; the cart's checkout
+// hook reads the capability and the address book. HTTP-shaped fixtures
 // mirror the service's pickup_test.rs responses (owner read + reveal).
 vi.mock('@/controllers/commerce/commerce', async () => ({
   CommerceController: {
@@ -161,6 +162,11 @@ vi.mock('@/controllers/commerce/commerce', async () => ({
     // The badge-cards scene renders real listing cards: their favorite
     // toggle reads through the controller seam.
     isFavorite: vi.fn(async () => false),
+    // The cart scene runs the REAL useMarketplaceCheckout (no wholesale mock):
+    // the fulfillment derivation is exercised from the listing fixtures.
+    hasActiveMarketplaceSession: vi.fn(() => true),
+    clearMarketplaceSession: vi.fn(),
+    getDeliveryAddresses: vi.fn(async () => []),
   },
 }));
 
@@ -234,30 +240,6 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
   };
 });
 
-vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
-  const { useForm } = await import('react-hook-form');
-  const { marketplaceCheckoutDefaults } = await import('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types');
-  return {
-    useMarketplaceCheckout: () => ({
-      form: useForm({ defaultValues: { ...marketplaceCheckoutDefaults, requiresDeliveryAddress: false } }),
-      submit: vi.fn(async () => false),
-      needsSession: false,
-      sessionError: null,
-      hasMarketplaceSession: true,
-      addresses: [],
-      selectedAddressId: null,
-      selectAddress: vi.fn(),
-      // The group publishes both and the buyer chose pickup (§A2).
-      fulfillmentOptionsForSeller: () => ['shipping' as const, 'pickup' as const],
-      fulfillmentForSeller: () => 'pickup' as const,
-      setFulfillmentChoice: vi.fn(),
-      requiresDeliveryAddress: false,
-      hasFulfillmentConflict: false,
-      orderCount: 1,
-    }),
-  };
-});
-
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
@@ -327,7 +309,25 @@ describe('Marketplace local pickup — visual regression', () => {
     const { pickupCartItems } = await fixtures;
     view.cartItems = pickupCartItems;
 
-    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    // The REAL checkout hook derives the group's options from the listing
+    // fixture (publishes shipping AND pickup) — the capture chooses pickup
+    // through the rendered select, never a mocked derivation.
+    const sellerPubky = 'y'.repeat(52);
+    await vi.waitFor(() => {
+      const select = screen.container.querySelector(`[aria-label="Fulfillment for items from ${sellerPubky}"]`);
+      if (!select?.textContent?.includes('Ship it')) {
+        throw new Error('The fulfillment choice has not hydrated yet.');
+      }
+    });
+    const select = screen.container.querySelector<HTMLElement>(`[aria-label="Fulfillment for items from ${sellerPubky}"]`)!;
+    select.click();
+    await vi.waitFor(() => {
+      if (![...document.querySelectorAll('[role="option"]')].some((option) => option.textContent === 'Local pickup')) {
+        throw new Error('The Local pickup option has not opened yet.');
+      }
+    });
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Local pickup')!.click();
     await vi.waitFor(() => {
       if (!document.querySelector('[data-surface="cart-pickup-group"]')) {
         throw new Error('The pickup group has not rendered yet.');

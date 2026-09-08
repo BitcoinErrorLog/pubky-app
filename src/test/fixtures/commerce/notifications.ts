@@ -21,6 +21,7 @@ const NOTIFICATION_TYPE_UNREAD = {
   order_created: false,
   payment_confirmed: true,
   order_cancelled: false,
+  order_cancelled_terms_change: true,
   order_shipped: true,
   order_delivery_assumed: true,
   order_delivered: false,

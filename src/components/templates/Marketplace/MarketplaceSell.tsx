@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, History, Rocket, ShieldCheck } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingEditRoute, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -12,6 +12,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useCreateMarketplaceListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
+import { CREATE_MARKETPLACE_LISTING_FIELDS } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
 
@@ -26,7 +27,18 @@ export function MarketplaceSell() {
       const compositeId = await listing.submit();
       if (!compositeId) return;
       const separator = compositeId.indexOf(':');
-      router.push(getMarketplaceListingRoute(compositeId.slice(0, separator), compositeId.slice(separator + 1)));
+      const sellerPubky = compositeId.slice(0, separator);
+      const listingId = compositeId.slice(separator + 1);
+      // A listing published WITH pickup still needs its meeting point, and
+      // the pickup-details editor only exists post-publish (the service
+      // accepts pickup_details.set for a registered listing): land the
+      // seller on the edit page's pickup section instead of the public page.
+      const fulfillment = listing.form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT);
+      router.push(
+        fulfillment === 'shipping'
+          ? getMarketplaceListingRoute(sellerPubky, listingId)
+          : `${getMarketplaceListingEditRoute(sellerPubky, listingId)}#listing-section-shipping`,
+      );
     } finally {
       setIsPublishing(false);
     }
@@ -125,13 +137,7 @@ export function MarketplaceSell() {
           </div>
         )}
 
-        <MarketplaceListingForm
-          form={listing.form}
-          media={listing.media}
-          onSubmit={submit}
-          isPublishing={isPublishing}
-          listingId={listing.draftId}
-        />
+        <MarketplaceListingForm form={listing.form} media={listing.media} onSubmit={submit} isPublishing={isPublishing} />
       </Container>
     </ContentLayout>
   );

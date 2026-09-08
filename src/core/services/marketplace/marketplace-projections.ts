@@ -114,6 +114,10 @@ export const marketplaceNotificationSchema = z
       'pickup_details_updated',
       'pickup_details_cleared',
       'pickup_ready',
+      // The buyer-protection exit (§A3): the terminal cancel rode the
+      // distinct `order.cancelled_terms_change` event, never `order.cancelled`,
+      // so the reputation worker excludes it — the notification says why.
+      'order_cancelled_terms_change',
     ]),
     aggregateId: z.string(),
     // Optional monetary context (ADR-0019 §8: present only where the

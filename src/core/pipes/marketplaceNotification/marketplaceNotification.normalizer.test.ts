@@ -104,6 +104,7 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
     order_created: MARKETPLACE_ROUTES.ORDERS,
     payment_confirmed: MARKETPLACE_ROUTES.ORDERS,
     order_cancelled: MARKETPLACE_ROUTES.ORDERS,
+    order_cancelled_terms_change: MARKETPLACE_ROUTES.ORDERS,
     order_shipped: MARKETPLACE_ROUTES.ORDERS,
     order_delivery_assumed: MARKETPLACE_ROUTES.ORDERS,
     order_delivered: MARKETPLACE_ROUTES.ORDERS,

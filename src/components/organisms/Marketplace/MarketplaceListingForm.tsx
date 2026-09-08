@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Typography } from '@/atoms/Typography/Typography';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { commerceAttributeFieldsFor, resolveCommerceCategory } from '@/config/taxonomy/taxonomy';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   CREATE_MARKETPLACE_LISTING_FIELDS,
   CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS,
@@ -71,9 +72,10 @@ export interface MarketplaceListingFormProps {
   onSubmit: () => Promise<void>;
   isPublishing: boolean;
   /**
-   * The listing id the pickup-details editor addresses (the draft id in
-   * create — reused as the listing id at publish — the real id in edit).
-   * When omitted, the pickup-details editor is not rendered.
+   * The listing id the pickup-details editor addresses — edit mode only (the
+   * service accepts `pickup_details.set` for a registered listing, so create
+   * mode shows the publish-first note instead). When omitted, the
+   * pickup-details editor is not rendered.
    */
   listingId?: string;
   /** Edit mode locks the sale format (and auction terms) and relabels submit. */
@@ -146,6 +148,24 @@ export function MarketplaceListingForm({
     }
   };
   const isEdit = mode === 'edit';
+  // The deployment's `pickup_available` capability (§A7), the same source the
+  // pickup-details editor and the checkout read: off without the sealing key
+  // and on every sandbox deployment. When off (or unreadable), the form
+  // offers shipping only.
+  const [pickupAvailable, setPickupAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    CommerceController.fetchPickupAvailable()
+      .then((available) => {
+        if (active) setPickupAvailable(available);
+      })
+      .catch(() => {
+        if (active) setPickupAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   // Auctions are shipping-only (local pickup design §A2 — an auction order
   // has no checkout step to express a pickup choice), so switching the format
   // to auction coerces fulfillment back to shipping; the schema backstops it.
@@ -154,6 +174,14 @@ export function MarketplaceListingForm({
       form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, 'shipping', { shouldValidate: true });
     }
   }, [saleFormat, form]);
+  // A deployment without pickup cannot publish it either — coerce any pickup
+  // value to shipping the same way the auction path does, so a stale form
+  // value never slips past the hidden options.
+  useEffect(() => {
+    if (pickupAvailable === false && form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT) !== 'shipping') {
+      form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, 'shipping', { shouldValidate: true });
+    }
+  }, [pickupAvailable, form]);
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
   const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
   const isImperial = measurementSystem === 'imperial';
@@ -464,12 +492,16 @@ export function MarketplaceListingForm({
               form={form}
               name={CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT}
               label="Fulfillment"
-              disabled={isPublishing || saleFormat === 'auction'}
-              options={[
-                { value: 'shipping', label: 'Ship item' },
-                { value: 'pickup', label: 'Local pickup' },
-                { value: 'shipping_and_pickup', label: 'Pickup or shipping' },
-              ]}
+              disabled={isPublishing || saleFormat === 'auction' || pickupAvailable === false}
+              options={
+                pickupAvailable === false
+                  ? [{ value: 'shipping', label: 'Ship item' }]
+                  : [
+                      { value: 'shipping', label: 'Ship item' },
+                      { value: 'pickup', label: 'Local pickup' },
+                      { value: 'shipping_and_pickup', label: 'Pickup or shipping' },
+                    ]
+              }
             />
             <FormSelect
               form={form}
@@ -488,9 +520,23 @@ export function MarketplaceListingForm({
               Auctions ship only — local pickup is available on Buy now listings.
             </Typography>
           )}
+          {pickupAvailable === false && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Local pickup is not available on this deployment.
+            </Typography>
+          )}
 
-          {fulfillment !== 'shipping' && listingId && (
+          {/* The pickup-details editor only exists post-publish: the service
+              accepts `pickup_details.set` for a REGISTERED listing that
+              publishes pickup, so a create-mode mount could only ever fail
+              its owner read. Create mode points at the edit page instead. */}
+          {fulfillment !== 'shipping' && listingId && isEdit && (
             <MarketplacePickupDetailsEditor listingId={listingId} disabled={isPublishing} />
+          )}
+          {fulfillment !== 'shipping' && !isEdit && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Publish first, then add your meeting point from the listing&apos;s edit page.
+            </Typography>
           )}
 
           {fulfillment !== 'pickup' && (

@@ -398,12 +398,14 @@ export class MarketplaceTransactionService {
     const text = await response.text();
     try {
       return JSON.parse(text) as unknown;
-    } catch (error) {
+    } catch {
+      // No `cause`: a V8 parse-error message can embed a window of the source
+      // text — here the revealed pickup plaintext — and Sentry's linkedErrors
+      // would attach it. The status-code context is enough.
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an unreadable pickup-details response.', {
         service: ErrorService.Marketplace,
         operation,
         context: { statusCode: response.status },
-        cause: error,
       });
     }
   }

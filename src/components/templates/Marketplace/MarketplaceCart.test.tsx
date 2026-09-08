@@ -375,6 +375,18 @@ describe('MarketplaceCart local pickup (Wave 7, §A2)', () => {
     ).toBeInTheDocument();
   });
 
+  it('hides the per-seller shipping note on a pickup-only cart', () => {
+    seededCart();
+    view.fulfillmentEffective = { [listing.record.ownerPubky]: 'pickup' };
+    view.requiresDeliveryAddress = false;
+
+    render(<MarketplaceCart />);
+
+    expect(
+      screen.queryByText('Each seller ships separately; shipping is calculated at checkout.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('hides the delivery-address step on a pickup-only checkout and says why', () => {
     seededCart();
     view.fulfillmentEffective = { [listing.record.ownerPubky]: 'pickup' };
@@ -404,7 +416,7 @@ describe('MarketplaceCart local pickup (Wave 7, §A2)', () => {
 
     render(<MarketplaceCart />);
 
-    expect(screen.getByText('This places 2 orders — one per seller.')).toBeInTheDocument();
+    expect(screen.getByText('This places 2 orders — one per seller and delivery method.')).toBeInTheDocument();
   });
 
   it('blocks the order and explains when a group has no common fulfillment', () => {
