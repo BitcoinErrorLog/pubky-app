@@ -188,6 +188,7 @@ describe('PubchiController', () => {
     expect(logoutSpy).not.toHaveBeenCalled();
     expect(authState.setSession).toHaveBeenCalledWith(session);
     expect(authState.session).toBe(session);
+    expect(PubchiApplication.unpublishKnownDelegations).not.toHaveBeenCalled();
   });
 
   it('preserves pending delegation deletes when adopting a narrower approved session', async () => {
@@ -207,6 +208,7 @@ describe('PubchiController', () => {
     await PubchiController.adoptCapabilityApproval(session);
 
     expect(readPendingDelegationDeletes()).toEqual(pending);
+    expect(PubchiApplication.unpublishKnownDelegations).not.toHaveBeenCalled();
   });
 
   it('adopts equal root coverage', async () => {
@@ -246,6 +248,10 @@ describe('PubchiController', () => {
     await PubchiController.adoptCapabilityApproval(session);
 
     expect(authState.session).toBe(session);
+    expect(PubchiApplication.unpublishKnownDelegations).toHaveBeenCalledWith(OWNER, {
+      attemptRemote: true,
+      includeLocalKeys: false,
+    });
   });
 
   it('adopts equal non-covering coverage', async () => {

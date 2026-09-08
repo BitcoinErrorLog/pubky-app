@@ -378,8 +378,6 @@ export class PubchiApplication {
         operation: 'query',
       });
     }
-    assertPubchiCapability(params.owner);
-
     const question = params.question.trim();
     if (!question) {
       throw Err.validation(ValidationErrorCode.MISSING_FIELD, 'REQUEST_MALFORMED', {

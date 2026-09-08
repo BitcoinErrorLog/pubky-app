@@ -100,6 +100,9 @@ export class PubchiController {
    * pins Pubchi write coverage only; narrowing unrelated scopes is outside it.
    * Same-identity approvals are always adopted because the SDK has already
    * replaced the browser cookie before this method receives the session.
+   * Concurrent approvals in separate tabs can resolve out of order and
+   * temporarily desynchronize the store and cookie jar; the next approval or
+   * sign-in repairs the state.
    */
   static async adoptCapabilityApproval(session: Session): Promise<void> {
     const authState = useAuthStore.getState();

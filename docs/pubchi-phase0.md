@@ -24,6 +24,7 @@ When the flag is on and a user enrolls, the isolated `pubchi` IndexedDB is creat
 ## Known gaps
 
 - `initializeAuthenticatedSession` can replace a covering session through a cross-tab approval without checking Pubchi capability coverage.
+- Concurrent Pubky Ring approvals in separate tabs can resolve out of order, temporarily desynchronizing the auth store and browser cookie jar. The next approval or sign-in repairs the state; cross-tab locking is not implemented.
 
 ## Surfaces
 

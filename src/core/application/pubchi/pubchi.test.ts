@@ -161,6 +161,22 @@ describe('PubchiApplication', () => {
     expect(payload.body).toEqual({ question: 'who tagged me?' });
   });
 
+  it('allows read-only asks with a degraded session', async () => {
+    sessionIdentity.capabilities = ['/pub/pubky.app/:rw'];
+    const querySpy = vi.spyOn(PubchiService, 'query').mockResolvedValue(QUERY_RESULT);
+
+    await expect(
+      PubchiApplication.query({
+        owner: OWNER,
+        question: 'who tagged me?',
+        purpose: 'who-tagged-me',
+        nowSeconds: 100,
+      }),
+    ).resolves.toEqual({ kind: 'query', result: QUERY_RESULT });
+
+    expect(querySpy).toHaveBeenCalledOnce();
+  });
+
   it.each(ERROR_CODES)('surfaces error code %s and renders nothing else', async (code: ErrorCode) => {
     vi.spyOn(PubchiService, 'query').mockResolvedValue({ code });
     await expect(
