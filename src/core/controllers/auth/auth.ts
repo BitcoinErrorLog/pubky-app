@@ -135,16 +135,15 @@ export class AuthController {
    * wrapAuthFlow QR) before a new ceremony takes over the slot — a stale QR
    * approved mid-ceremony would otherwise run a concurrent session init on
    * freshly-cleared local state. Unlike cancelActiveAuthFlow this never
-   * touches the caller's just-created ceremony guard; a ceremony guard whose
-   * underlying flow IS the prior one is released with it.
+   * touches the caller's just-created ceremony guard. (Both call sites reach
+   * here only when no guard matches the prior flow: the bridged entry returns
+   * early on ANY existing guard, and the direct ceremony has already swapped
+   * in its new guard token before this runs.)
    */
   private static releasePriorAuthFlow(): void {
     const prior = this.activeAuthFlow;
     if (!prior) return;
     this.activeAuthFlow = null;
-    if (this.signInCeremony?.token === prior.token) {
-      this.signInCeremony = null;
-    }
     prior.cancel?.();
   }
 

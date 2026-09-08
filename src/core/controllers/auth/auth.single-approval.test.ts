@@ -130,7 +130,14 @@ describe('AuthController single-approval ceremony', () => {
     expect(completeSpy).toHaveBeenCalledWith(mockToken);
   });
 
-  it('resolves the session even when the marketplace half fails (user stays signed in to Shop)', async () => {
+  it('resolves awaitApproval with the session when the ceremony outcome carries a marketplace failure (controller mapping)', async () => {
+    // Pins ONLY the controller's outcome → awaitApproval mapping: an outcome
+    // with marketplace: null + marketplaceError must still resolve the
+    // session, never reject. The REAL marketplace-failure tolerance (the
+    // application catching the failed marketplace POST) is driven end-to-end
+    // at the transport seams in auth.single-approval-seams.test.ts —
+    // completeSingleApprovalCeremony is mocked here, so this test cannot and
+    // does not prove that half.
     mockDirectSignInFlow({});
     vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
       session: mockSession,
@@ -280,18 +287,36 @@ describe('AuthController single-approval ceremony', () => {
       marketplace: null,
       marketplaceError: null,
     });
-    const initSpy = vi.spyOn(AuthController, 'initializeAuthenticatedSession');
+    vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(false);
+    vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+    let initCalls = 0;
+    const authStoreModule = await import('@/stores/auth/auth.store');
+    vi.spyOn(authStoreModule.useAuthStore, 'getState').mockReturnValue(
+      asOpaque<ReturnType<typeof authStoreModule.useAuthStore.getState>>({
+        init: () => {
+          initCalls += 1;
+        },
+        setHasProfile: vi.fn(),
+        reset: vi.fn(),
+      }),
+    );
+    const signInStoreModule = await import('@/stores/signIn/signIn.store');
+    vi.spyOn(signInStoreModule.useSignInStore, 'getState').mockReturnValue(
+      asOpaque<ReturnType<typeof signInStoreModule.useSignInStore.getState>>({
+        reset: vi.fn(),
+        setAuthUrlResolved: vi.fn(),
+        setProfileChecked: vi.fn(),
+      }),
+    );
 
     const { awaitApproval } = await AuthController.getAuthUrl();
     // Two handlers attach to the SAME settled promise, as two mounted
-    // useAuthUrl instances would.
+    // useAuthUrl instances would. Both must converge on ONE real init run.
     const first = awaitApproval.then((session) => AuthController.initializeAuthenticatedSession({ session }));
     const second = awaitApproval.then((session) => AuthController.initializeAuthenticatedSession({ session }));
+    await Promise.all([first, second]);
 
-    // Both joiners must converge on ONE init run. The init itself is stubbed
-    // at the next layer down so this test asserts the dedupe, not bootstrap.
-    initSpy.mockResolvedValue(undefined);
-    await expect(Promise.all([first, second])).resolves.toBeDefined();
+    expect(initCalls).toBe(1);
   });
 
   it('runs the session-init body once for concurrent same-session calls', async () => {
