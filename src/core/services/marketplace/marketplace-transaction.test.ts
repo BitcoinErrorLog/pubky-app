@@ -11,6 +11,7 @@ import { MarketplaceTransactionService } from './marketplace-transaction';
 
 const ACTOR = 'y'.repeat(52);
 const OTHER_ACTOR = 'b'.repeat(52);
+const SESSION_BEARER = `Bearer ${'A'.repeat(43)}`;
 const AGGREGATE_ID = buildMarketplaceListingAggregateId(ACTOR, 'boots_01');
 const COMMAND_ID = '00000000-0000-4000-8000-000000000700';
 
@@ -52,13 +53,13 @@ function bidCommand() {
 async function establishSession(): Promise<void> {
   vi.mocked(fetch).mockResolvedValueOnce(
     jsonResponse(201, {
-      token: 'bearer-token',
+      token: 'A'.repeat(43),
       pubky: ACTOR,
       capabilities: '',
       expires_at: new Date(Date.now() + 86_400_000).toISOString(),
     }),
   );
-  await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+  await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), ACTOR);
   vi.mocked(fetch).mockClear();
 }
 
@@ -94,7 +95,7 @@ describe('MarketplaceTransactionService.execute', () => {
     expect(url).toBe('http://127.0.0.1:8080/v1/commands');
     expect(init.headers).toEqual({
       'content-type': 'application/json',
-      authorization: 'Bearer bearer-token',
+      authorization: SESSION_BEARER,
     });
     expect(JSON.parse(init.body as string)).toEqual({
       version: 1,
@@ -319,7 +320,7 @@ describe('MarketplaceTransactionService read projections', () => {
     });
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://127.0.0.1:8080/v1/listings/${encodeURIComponent(AGGREGATE_ID)}`);
-    expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
+    expect(init.headers).toEqual({ authorization: SESSION_BEARER });
   });
 
   it('returns null for an unregistered listing (service 404)', async () => {
@@ -581,7 +582,7 @@ describe('MarketplaceTransactionService read projections', () => {
       const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
       expect(body).not.toHaveProperty('stripe_restricted_key');
-      expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+      expect((init.headers as Record<string, string>).authorization).toBe(SESSION_BEARER);
     });
 
     it('sends the restricted key on the wire only when the seller supplies one', async () => {
@@ -625,8 +626,39 @@ describe('MarketplaceTransactionService read projections', () => {
       );
 
       await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'stripe')).rejects.toMatchObject({
-        message: 'A different payment method is already bound to this order.',
+        message: 'A payment method is already bound to this order.',
       });
+    });
+
+    it('maps payment-method reasons to static copy and never logs the server message', async () => {
+      await establishSession();
+      const echoed = 'rk_live_echoed_restricted_key_value';
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(400, {
+          ok: false,
+          error: {
+            code: 'INVALID_COMMAND',
+            message: `Stripe rejected ${echoed}`,
+            reason: 'stripe_key_invalid',
+          },
+        }),
+      );
+      const loggerError = vi.spyOn(Logger, 'error');
+
+      const error = (await MarketplaceTransactionService.putMyPaymentConfig(ACTOR, {
+        bitcoinEnabled: false,
+        stripePaymentLink: null,
+        stripeRestrictedKey: 'rk_test_12345678',
+        paypalMerchantEmail: null,
+      }).catch((caught: unknown) => caught)) as AppError;
+
+      expect(error).toMatchObject({
+        message: 'Stripe rejected the seller payment key. The seller must update their payment settings.',
+      });
+      expect(error.message).not.toContain(echoed);
+      expect(JSON.stringify(error.context)).not.toContain(echoed);
+      expect(JSON.stringify(loggerError.mock.calls)).not.toContain(echoed);
+      loggerError.mockRestore();
     });
 
     it('reports an honest not-found verification without touching the order', async () => {
@@ -690,7 +722,7 @@ describe('MarketplaceTransactionService read projections', () => {
       const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
       expect(body.shippo_api_key).toBe('shippo_test_1234567890');
-      expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+      expect((init.headers as Record<string, string>).authorization).toBe(SESSION_BEARER);
     });
 
     it('quotes rates for a parcel and parses them', async () => {
@@ -915,7 +947,7 @@ describe('MarketplaceTransactionService.getOrderPickupDetails (the buyer reveal,
 
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${PICKUP_ORDER_ID}/pickup-details`);
-    expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+    expect((init.headers as Record<string, string>).authorization).toBe(SESSION_BEARER);
     expect(reveal.orderId).toBe(PICKUP_ORDER_ID);
     expect(reveal.firstRevealedAt).toBe('2026-08-19T22:05:00.000Z');
     expect(reveal.lines).toHaveLength(1);

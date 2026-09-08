@@ -150,13 +150,7 @@ export class MarketplaceGatewayService {
       ErrorService.Marketplace,
       'execute',
     );
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'execute',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'execute', url);
     const parsed = marketplaceCommandResponseSchema.safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid command response.', {
@@ -272,13 +266,7 @@ export class MarketplaceGatewayService {
       ErrorService.Marketplace,
       'getConversations',
     );
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getConversations',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getConversations', url);
     const parsed = z.object({ conversations: z.array(conversationSchema) }).safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid conversations.', {
@@ -302,13 +290,7 @@ export class MarketplaceGatewayService {
       ErrorService.Marketplace,
       'getOffers',
     );
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getOffers',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getOffers', url);
     const parsed = z.object({ offers: z.array(marketplaceOfferSchema) }).safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid offers.', {
@@ -332,13 +314,7 @@ export class MarketplaceGatewayService {
       ErrorService.Marketplace,
       'getNotifications',
     );
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getNotifications',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getNotifications', url);
     const parsed = z.object({ notifications: z.array(marketplaceNotificationSchema) }).safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid notifications.', {
@@ -364,7 +340,6 @@ export class MarketplaceGatewayService {
       ErrorService.Marketplace,
       'getNotificationPreferences',
       url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
     );
     const parsed = notificationPreferencesSchema.safeParse(raw);
     if (!parsed.success) {
@@ -389,13 +364,7 @@ export class MarketplaceGatewayService {
       ErrorService.Marketplace,
       'getOrders',
     );
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getOrders',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getOrders', url);
     const parsed = z.object({ orders: z.array(marketplaceOrderSchema) }).safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid orders.', {
@@ -420,13 +389,7 @@ export class MarketplaceGatewayService {
       'getPayment',
     );
     if (response.status === 404) return null;
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getPayment',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getPayment', url);
     const parsed = marketplacePaymentSchema.safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid payment.', {
@@ -451,13 +414,7 @@ export class MarketplaceGatewayService {
       'getReceipt',
     );
     if (response.status === 404) return null;
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getReceipt',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getReceipt', url);
     const parsed = marketplaceReceiptSchema.safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid receipt.', {
@@ -605,13 +562,7 @@ export class MarketplaceGatewayService {
       ErrorService.Marketplace,
       'uploadAttachment',
     );
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'uploadAttachment',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'uploadAttachment', url);
     const parsed = attachmentMetadataSchema.safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid attachment metadata.', {

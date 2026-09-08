@@ -477,6 +477,18 @@ describe('HomeserverService', () => {
         expect(result).toBe('invalid');
       });
 
+      it('logs only the status when the verification body is not JSON', async () => {
+        const windowed = '{"status":"valid"';
+        mockState.clientFetch.mockResolvedValue(new Response(windowed, { status: 200 }));
+        const { Logger } = await import('@/libs/logger/logger');
+
+        const result = await HomeserverService.verifySignupToken('YVB2-YFRN-GDY0');
+
+        expect(result).toBe('invalid');
+        expect(JSON.stringify(vi.mocked(Logger.warn).mock.calls)).not.toContain(windowed);
+        expect(JSON.stringify(vi.mocked(Logger.warn).mock.calls)).not.toContain('Unexpected token');
+      });
+
       it('should rethrow when the homeserver cannot be reached', async () => {
         mockState.clientFetch.mockRejectedValue(new Error('network error'));
 

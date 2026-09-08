@@ -69,6 +69,37 @@ import {
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
 
+const PAYMENT_METHOD_FAILURE_MESSAGES: Record<string, string> = {
+  bitcoin_unavailable: 'Bitcoin payments are not available for this seller.',
+  currency_unsupported: 'This payment method does not support the order currency.',
+  hold_unavailable: 'The inventory hold for this order is no longer available.',
+  invalid_method: 'That payment method is not valid for this order.',
+  invalid_payment_link: 'The Stripe payment link is not valid.',
+  invalid_paypal_email: 'The PayPal merchant email is not valid.',
+  invalid_pubky: 'The seller identity on this payment configuration is not valid.',
+  invalid_restricted_key: 'The Stripe restricted key is not valid.',
+  invalid_transaction_ref: 'The payment reference is not valid.',
+  locks_managed: 'A Locks-correlated payment advances only by server-side verification.',
+  method_mismatch: 'The payment method does not match this order.',
+  method_unavailable: 'That payment method is not available.',
+  not_buyer: 'Only the buyer may bind the payment method.',
+  not_participant: 'Only a participant on this order can continue.',
+  not_seller: 'Only the seller can continue this payment step.',
+  order_not_found: 'The order was not found.',
+  order_not_pending: 'Only an order pending payment can bind a payment method.',
+  paykit_rejected: 'The Paykit server rejected the payment request.',
+  paykit_unavailable: 'The Paykit server is unavailable. Try again shortly.',
+  payment_method_already_bound: 'A payment method is already bound to this order.',
+  payment_not_awaiting: 'The payment is no longer awaiting a method.',
+  payments_disabled: 'Payments are disabled on this marketplace.',
+  seller_account_unclaimed: 'The seller has not claimed a Bitcoin account yet.',
+  sold_out: 'This listing no longer has enough inventory.',
+  stripe_key_invalid: 'Stripe rejected the seller payment key. The seller must update their payment settings.',
+  stripe_key_missing: 'This seller has not configured a Stripe key.',
+  stripe_unavailable: 'Stripe could not be reached. Try again shortly.',
+  unavailable: 'The payment method request was refused.',
+};
+
 /**
  * Command kinds the durable Rust service implements (its envelope contract
  * rejects everything else until it is ported with its tests). Kinds the
@@ -172,13 +203,7 @@ export class MarketplaceTransactionService {
       'execute',
     );
     this.throwIfSessionRejected(response.status, 'execute');
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'execute',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'execute', url);
     const parsed = marketplaceCommandResponseSchema.safeParse(toCamelCaseWire(raw));
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid command response.', {
@@ -887,40 +912,35 @@ export class MarketplaceTransactionService {
     );
     this.throwIfSessionRejected(response.status, operation);
     await this.throwPaymentMethodError(response, operation);
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      operation,
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
     return toCamelCaseWire(raw);
   }
 
   /**
    * The payment-methods surface answers failures with
-   * `{ok:false, error:{code, message, reason}}`. The server's `message` is
-   * already user-facing and the `reason` sub-code (`stripe_key_invalid`,
-   * `method_unavailable`, `payment_method_already_bound`, …) rides along in
-   * the error context for callers that branch on it.
+   * `{ok:false, error:{code, message, reason}}`. Map `reason` to a static
+   * client string — never copy `error.message`, which can echo a rejected
+   * Stripe restricted key or other private value into logs and the reporter.
    */
   private static async throwPaymentMethodError(response: Response, operation: string): Promise<void> {
     if (response.ok) return;
     let reason: string | undefined;
-    let message: string | undefined;
     try {
-      const body = (await response.clone().json()) as { error?: { message?: string; reason?: string } };
-      reason = body.error?.reason;
-      message = body.error?.message;
+      const body = (await response.clone().json()) as { error?: { reason?: string } };
+      reason = typeof body.error?.reason === 'string' ? body.error.reason : undefined;
     } catch {
       // A non-JSON failure body falls through to the generic parse error.
+      return;
     }
-    if (!message) return;
-    throw Err.client(ClientErrorCode.BAD_REQUEST, message, {
-      service: ErrorService.Marketplace,
-      operation,
-      context: { statusCode: response.status, reason },
-    });
+    throw Err.client(
+      ClientErrorCode.BAD_REQUEST,
+      PAYMENT_METHOD_FAILURE_MESSAGES[reason ?? ''] ?? PAYMENT_METHOD_FAILURE_MESSAGES.unavailable,
+      {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { statusCode: response.status, reason },
+      },
+    );
   }
 
   private static parseOrderEnvelope(operation: string, raw: unknown): MarketplaceOrder {
@@ -951,13 +971,7 @@ export class MarketplaceTransactionService {
     this.throwIfSessionRejected(response.status, operation);
     if (options.nullOnNotFound && response.status === HttpStatusCode.NOT_FOUND) return null;
     if (options.nullOnForbidden && response.status === HttpStatusCode.FORBIDDEN) return null;
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      operation,
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
     return toCamelCaseWire(raw);
   }
 
