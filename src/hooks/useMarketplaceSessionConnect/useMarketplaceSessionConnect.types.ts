@@ -6,13 +6,18 @@ import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.type
  * - `idle`      — no flow in progress (initial, after cancel).
  * - `awaiting`  — an authorization URL exists and the flow is waiting for the
  *                 user to approve on their signer.
+ * - `joined`    — the flow JOINED an approval ceremony another surface already
+ *                 owns (e.g. a sign-in in progress). That surface holds the
+ *                 only scannable URL, so there is no QR here — just the honest
+ *                 "already in progress" state while the join awaits the same
+ *                 settlement.
  * - `connected` — the signer approved and the AuthToken was exchanged for a
  *                 bearer session; the store now carries the session facts.
  * - `error`     — the flow failed (relay timeout, rejected token, service
  *                 unreachable). The URL is cleared because AuthToken flows are
  *                 single-use: retrying always starts a FRESH flow.
  */
-export type MarketplaceSessionConnectStatus = 'idle' | 'awaiting' | 'connected' | 'error';
+export type MarketplaceSessionConnectStatus = 'idle' | 'awaiting' | 'joined' | 'connected' | 'error';
 
 export interface UseMarketplaceSessionConnectOptions {
   /** Called once per successful connect, after the store has been updated. */

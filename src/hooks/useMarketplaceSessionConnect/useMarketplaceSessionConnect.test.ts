@@ -154,6 +154,36 @@ describe('useMarketplaceSessionConnect', () => {
     expect(result.current.authorizationUrl).toBe('');
   });
 
+  it('a joined flow exposes the honest joined state — never awaiting with an empty URL', async () => {
+    let resolveSession!: (session: CommerceMarketplaceSession) => void;
+    const pending = new Promise<CommerceMarketplaceSession>((resolve) => {
+      resolveSession = resolve;
+    });
+    // What AuthController.beginBridgedCommerceSessionFlow returns when a
+    // direct sign-in ceremony is already in flight: no URL of its own.
+    const joinedFlow = {
+      authorizationUrl: '',
+      joined: true,
+      awaitSession: vi.fn(() => pending),
+      cancel: vi.fn(),
+    };
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
+    vi.mocked(AuthController.beginBridgedCommerceSessionFlow).mockReturnValue(joinedFlow);
+    const onConnected = vi.fn();
+    const { result } = renderHook(() => useMarketplaceSessionConnect({ onConnected }));
+
+    act(() => result.current.start());
+
+    expect(result.current.status).toBe('joined');
+    expect(result.current.authorizationUrl).toBe('');
+
+    // The join still settles through the shared ceremony: one approval on the
+    // other surface connects this session too.
+    resolveSession(SESSION);
+    await waitFor(() => expect(result.current.status).toBe('connected'));
+    expect(onConnected).toHaveBeenCalledWith(SESSION);
+  });
+
   it('exposes the authorization URL while awaiting and reports connected once the signer approves', async () => {
     const { flow, resolveSession } = createDeferredFlow('pubkyauth:///?caps=first');
     vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockReturnValue(flow);

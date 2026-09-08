@@ -90,8 +90,18 @@ export function useMarketplaceSessionConnect(
     }
 
     activeFlowRef.current = flow;
-    setAuthorizationUrl(flow.authorizationUrl);
-    setStatus('awaiting');
+    // A JOINED flow's approval lives on another surface (e.g. a sign-in in
+    // progress): that surface holds the only scannable URL, so this hook
+    // exposes the honest `joined` state — never `awaiting` with an empty URL
+    // (a blank, un-scannable QR with Copy/Open dead). The join still settles
+    // through the same awaitSession below.
+    if ('joined' in flow && flow.joined) {
+      setAuthorizationUrl('');
+      setStatus('joined');
+    } else {
+      setAuthorizationUrl(flow.authorizationUrl);
+      setStatus('awaiting');
+    }
 
     flow
       .awaitSession()

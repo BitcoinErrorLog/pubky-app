@@ -13,6 +13,7 @@ import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-q
 import { TagApplication } from '@/application/tag/tag';
 import { isSingleApprovalSignInEnabled } from '@/config/app';
 import type {
+  TBridgedCommerceSessionFlow,
   TLoginWithEncryptedFileParams,
   TLoginWithMnemonicParams,
   TSignUpParams,
@@ -596,7 +597,7 @@ export class AuthController {
    * its POST window joins the sign-in view instead of running clearDatabase
    * mid-ceremony.
    */
-  static beginBridgedCommerceSessionFlow(): MarketplaceSessionFlow {
+  static beginBridgedCommerceSessionFlow(): TBridgedCommerceSessionFlow {
     const existing = this.signInCeremony;
     if (existing) {
       if (existing.bridgedFlow) {
@@ -605,10 +606,14 @@ export class AuthController {
       // A DIRECT sign-in ceremony is in flight: its dual POST already redeems
       // the marketplace session, so join that outcome instead of minting a
       // second flow. Closing this dialog must not cancel the user's sign-in,
-      // hence the no-op cancel.
+      // hence the no-op cancel. The ceremony's URL is not exposed here (the
+      // sign-in surface owns it), so the handle is marked `joined` and the
+      // hook shows an honest "approval already in progress" state instead of
+      // a blank, un-scannable QR.
       const entry = existing;
       return {
         authorizationUrl: '',
+        joined: true,
         awaitSession: async () => {
           const outcome = entry.outcome ?? (await entry.result.then(() => entry.outcome));
           if (!outcome) {

@@ -111,6 +111,14 @@ export function MarketplaceSessionConnectDialog({
               Try again
             </Button>
           </div>
+        ) : session.status === 'joined' ? (
+          // The approval lives on another surface (e.g. a sign-in in
+          // progress), which holds the only scannable URL. No QR, Copy, or
+          // Open here — approving there settles this session too.
+          <div role="status" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+            An approval is already in progress on another surface. Approve it there — it also connects this
+            marketplace session.
+          </div>
         ) : (
           <div className="grid justify-items-center gap-4">
             <button
