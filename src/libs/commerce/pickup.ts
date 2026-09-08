@@ -332,6 +332,11 @@ export function pickupRefusalFailureMessage(refusal: MarketplacePickupRefusal | 
   return PICKUP_REFUSAL_FAILURE_MESSAGES[refusal ?? ''] ?? PICKUP_REFUSAL_FAILURE_MESSAGES.unavailable;
 }
 
+/** Client-owned toast copy for a pickup command envelope: classify, never interpolate the server string. */
+export function pickupRefusalToastDescription(serverMessage: string): string {
+  return pickupRefusalFailureMessage(classifyMarketplacePickupRefusal(serverMessage));
+}
+
 // -----------------------------------------------------------------------------
 // Checkout fulfillment plumbing (§A2): one `fulfillmentChoice` per seller
 // group, applied to every line of the group. The service splits one order

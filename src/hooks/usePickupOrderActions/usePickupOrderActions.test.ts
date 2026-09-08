@@ -72,6 +72,31 @@ describe('usePickupOrderActions', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
+  it('toasts static pickup-refusal copy and never the server message when the envelope echoes a meeting address', async () => {
+    // Same fixture as marketplace-transaction.test.ts: the seller meeting
+    // address this feature seals at rest. A refusal that still carries it
+    // must not put it on screen.
+    const echoed = 'Meet at 14 Oak Lane after 6pm; ask for the red jacket.';
+    controllerState.markReadyResponse = {
+      ok: false,
+      error: { code: 'INVALID_STATE', message: echoed },
+    };
+    const { result } = renderActions();
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.markReady();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'The pickup request was refused.',
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('14 Oak Lane');
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(echoed);
+  });
+
   it('reloads and asks for a retry on a revision conflict', async () => {
     controllerState.confirmResponse = {
       ok: false,

@@ -10,6 +10,8 @@ import {
   MaskedPickupDetails,
   PICKUP_DETAILS_REDACTED,
   pickupDetailsSchema,
+  pickupRefusalFailureMessage,
+  pickupRefusalToastDescription,
   resolveCheckoutFulfillment,
 } from './pickup';
 
@@ -302,6 +304,15 @@ describe('classifyMarketplacePickupRefusal (the service INVALID_STATE vocabulary
   it('returns null for messages outside the pickup refusal vocabulary', () => {
     expect(classifyMarketplacePickupRefusal('The order is not awaiting pickup readiness.')).toBeNull();
     expect(classifyMarketplacePickupRefusal('The aggregate changed.')).toBeNull();
+  });
+
+  it('maps an unrecognized envelope message to static copy, never an echoed meeting address', () => {
+    const echoed = 'Meet at 14 Oak Lane after 6pm; ask for the red jacket.';
+    expect(pickupRefusalToastDescription(echoed)).toBe(pickupRefusalFailureMessage(null));
+    expect(pickupRefusalToastDescription(echoed)).not.toContain('14 Oak Lane');
+    expect(pickupRefusalToastDescription('The listing does not publish pickup.')).toBe(
+      pickupRefusalFailureMessage('pickup_not_published'),
+    );
   });
 });
 

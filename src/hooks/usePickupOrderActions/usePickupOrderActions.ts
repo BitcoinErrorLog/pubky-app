@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { classifyMarketplacePickupRefusal } from '@/libs/commerce/pickup';
+import { classifyMarketplacePickupRefusal, pickupRefusalToastDescription } from '@/libs/commerce/pickup';
 import { buildMarketplaceOrderAggregateId, isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -72,7 +72,7 @@ export function usePickupOrderActions(
           });
           return false;
         }
-        toast({ variant: 'error', description: response.error.message });
+        toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
         return false;
       }
       toast({ title: 'Ready for pickup', description: 'The buyer was notified that the order is ready to collect.' });
@@ -97,7 +97,7 @@ export function usePickupOrderActions(
         if (classifyMarketplacePickupRefusal(response.error.message) === 'terms_change_unresolved') {
           return 'terms_blocked';
         }
-        toast({ variant: 'error', description: response.error.message });
+        toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
         return false;
       }
       toast({ title: 'Handover confirmed', description: 'The pickup is complete — the order is delivered.' });
@@ -125,7 +125,7 @@ export function usePickupOrderActions(
           });
           return false;
         }
-        toast({ variant: 'error', description: response.error.message });
+        toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
         return false;
       }
       await onChanged();

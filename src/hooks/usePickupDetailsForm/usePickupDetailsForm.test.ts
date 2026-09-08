@@ -174,6 +174,31 @@ describe('usePickupDetailsForm', () => {
     });
   });
 
+  it('toasts static pickup-refusal copy and never a meeting address echoed in the envelope', async () => {
+    const echoed = 'Meet at 14 Oak Lane after 6pm; ask for the red jacket.';
+    const { result } = await renderReadyForm();
+    controllerState.setResponse = {
+      ok: false,
+      error: { code: 'INVALID_STATE', message: echoed },
+    };
+
+    act(() => {
+      result.current.form.setValue('instructions', 'Ask for the blue bag.', { shouldDirty: true });
+    });
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.save();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'The pickup request was refused.',
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('14 Oak Lane');
+  });
+
   it('toasts the session-required error instead of a generic save failure', async () => {
     mockedController.commitSetPickupDetails.mockRejectedValueOnce(sessionRequiredError());
     const { result } = await renderReadyForm();

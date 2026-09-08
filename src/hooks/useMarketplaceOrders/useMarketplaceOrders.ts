@@ -3,8 +3,13 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { getCommerceAdapterMode, getCommercePollIntervalMs, isTransactionalCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
 import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
-import { buildMarketplaceOrderAggregateId, isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
+import {
+  buildMarketplaceOrderAggregateId,
+  classifyMarketplacePickupCommandRefusal,
+  isMarketplaceRevisionConflict,
+} from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOrder, MarketplacePayment, MarketplaceReceipt } from '@/services/marketplace/marketplace';
@@ -128,7 +133,20 @@ export function useMarketplaceOrders() {
           });
           return false;
         }
-        toast({ variant: 'error', description: response.error.message });
+        const pickupRefusal = classifyMarketplacePickupCommandRefusal(response);
+        const isPickupCommand =
+          kind === 'fulfillment.mark_ready' ||
+          kind === 'fulfillment.confirm_pickup' ||
+          kind === 'pickup_details.set' ||
+          kind === 'pickup_details.clear' ||
+          (kind === 'order.cancel_request' && order.fulfillment === 'pickup');
+        toast({
+          variant: 'error',
+          description:
+            pickupRefusal || isPickupCommand
+              ? pickupRefusalFailureMessage(pickupRefusal)
+              : response.error.message,
+        });
         return false;
       }
       if (kind === 'review.create' || kind === 'review.update') {
