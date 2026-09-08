@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
@@ -26,6 +26,19 @@ export function usePubchiEnrollment() {
   const [devices, setDevices] = useState<Awaited<ReturnType<typeof PubchiController.listDeviceKeys>>>([]);
   const [currentSigner, setCurrentSigner] = useState<string>();
   const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info.capabilities ?? []);
+  const approvalCancelRef = useRef<(() => void) | null>(null);
+
+  const cancelReapproval = () => {
+    approvalCancelRef.current?.();
+    approvalCancelRef.current = null;
+  };
+
+  useEffect(() => {
+    return () => {
+      approvalCancelRef.current?.();
+      approvalCancelRef.current = null;
+    };
+  }, []);
 
   const form = useForm<EnrollPubchiFormData>({
     resolver: zodResolver(enrollPubchiFormSchema),
@@ -121,11 +134,23 @@ export function usePubchiEnrollment() {
   };
 
   const reapprove = async (): Promise<boolean> => {
+    cancelReapproval();
     try {
-      const url = await PubchiController.getCapabilityApprovalUrl();
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return true;
+      const { authorizationUrl, awaitApproval, cancelAuthFlow } = await PubchiController.getCapabilityApprovalUrl();
+      approvalCancelRef.current = cancelAuthFlow;
+      window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+      try {
+        const approved = await awaitApproval;
+        await PubchiController.adoptCapabilityApproval(approved);
+        return true;
+      } finally {
+        cancelAuthFlow();
+        if (approvalCancelRef.current === cancelAuthFlow) {
+          approvalCancelRef.current = null;
+        }
+      }
     } catch (error) {
+      cancelReapproval();
       const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
       toast({ variant: 'error', title: message, dismissButton: true });
       return false;
@@ -143,6 +168,7 @@ export function usePubchiEnrollment() {
     currentSigner,
     needsReapproval,
     reapprove,
+    cancelReapproval,
     loading,
     enabled: isPubchiEnabled(),
   };

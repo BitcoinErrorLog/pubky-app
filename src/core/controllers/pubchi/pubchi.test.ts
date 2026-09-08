@@ -1,5 +1,8 @@
+import type { Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PubchiApplication } from '@/application/pubchi/pubchi';
+import { AuthController } from '@/controllers/auth/auth';
+import { AuthErrorCode } from '@/libs/error/error.codes';
 import * as deviceKey from '@/libs/pubchi/device-key';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
@@ -7,10 +10,16 @@ import type { Pubky } from '@/models/models.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { AuthStore } from '@/stores/auth/auth.types';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { PubchiController } from './pubchi';
 
 const OWNER = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Pubky;
 const BOT = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+const OTHER = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Pubky;
+
+const authState = {
+  setSession: vi.fn(),
+};
 
 function setPubchiEnv(enabled?: string, apiUrl?: string) {
   if (enabled === undefined) delete process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled];
@@ -20,12 +29,22 @@ function setPubchiEnv(enabled?: string, apiUrl?: string) {
   resetRuntimeConfigForTests();
 }
 
+function sessionFor(pubky: string) {
+  return asOpaque<Session>({
+    info: { publicKey: { z32: () => pubky } },
+  });
+}
+
 describe('PubchiController', () => {
   beforeEach(() => {
-    vi.spyOn(useAuthStore, 'getState').mockReturnValue({
-      selectCurrentUserPubky: () => OWNER,
-      currentUserPubky: OWNER,
-    } as AuthStore);
+    authState.setSession.mockReset();
+    vi.spyOn(useAuthStore, 'getState').mockReturnValue(
+      asOpaque<AuthStore>({
+        selectCurrentUserPubky: () => OWNER,
+        currentUserPubky: OWNER,
+        setSession: authState.setSession,
+      }),
+    );
   });
 
   afterEach(() => {
@@ -106,5 +125,39 @@ describe('PubchiController', () => {
 
     expect(requestSpy).not.toHaveBeenCalled();
     expect(deleteSpy).toHaveBeenCalledWith(OWNER, planted);
+  });
+
+  it('returns the auth-url triple so the caller can cancel and await approval', async () => {
+    const cancel = vi.fn();
+    const awaitApproval = Promise.resolve(sessionFor(OWNER));
+    vi.spyOn(HomeserverService, 'generateAuthUrl').mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval,
+      cancelAuthFlow: cancel,
+    });
+    await expect(PubchiController.getCapabilityApprovalUrl()).resolves.toEqual({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval,
+      cancelAuthFlow: cancel,
+    });
+  });
+
+  it('adopts a matching capability approval via setSession and not the bootstrap path', async () => {
+    const session = sessionFor(OWNER);
+    const bootstrapSpy = vi.spyOn(AuthController, 'initializeAuthenticatedSession');
+    await PubchiController.adoptCapabilityApproval(session);
+    expect(authState.setSession).toHaveBeenCalledWith(session);
+    expect(bootstrapSpy).not.toHaveBeenCalled();
+  });
+
+  it('signs out a mismatched capability-approval session and does not adopt it', async () => {
+    const session = sessionFor(OTHER);
+    const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
+    await expect(PubchiController.adoptCapabilityApproval(session)).rejects.toMatchObject({
+      code: AuthErrorCode.FORBIDDEN,
+      message: 'PUBCHI_SESSION_IDENTITY_MISMATCH',
+    });
+    expect(logoutSpy).toHaveBeenCalledWith({ session });
+    expect(authState.setSession).not.toHaveBeenCalled();
   });
 });

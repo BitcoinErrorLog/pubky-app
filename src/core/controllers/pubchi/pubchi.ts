@@ -1,14 +1,18 @@
+import { Session } from '@synonymdev/pubky';
 import { PubchiApplication } from '@/application/pubchi/pubchi';
 import type { PubchiBindingRecordResult, PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
-import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
+import { Identity } from '@/libs/identity/identity';
+import { Logger } from '@/libs/logger/logger';
 import { deleteDeviceKey, getDeviceKeys } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { isPubkyId } from '@/libs/pubchi/schemas';
 import { delegationUri } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
+import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { TPubchiEnrollParams, TPubchiQueryParams } from './pubchi.types';
 
@@ -83,9 +87,31 @@ export class PubchiController {
     return await getDeviceKeys(useAuthStore.getState().selectCurrentUserPubky());
   }
 
-  static async getCapabilityApprovalUrl(): Promise<string> {
-    const { authorizationUrl } = await HomeserverService.generateAuthUrl('/pub/pubky.app/:rw,/pub/pubchi.app/:rw');
-    return authorizationUrl;
+  static async getCapabilityApprovalUrl(): Promise<TGenerateAuthUrlResult> {
+    return HomeserverService.generateAuthUrl('/pub/pubky.app/:rw,/pub/pubchi.app/:rw');
+  }
+
+  /**
+   * Adopt a Ring-approved session for the already signed-in identity.
+   * Does not run `initializeAuthenticatedSession` / bootstrap. A session whose
+   * pubky does not match the signed-in user is signed out: its cookie has
+   * already replaced the legitimate one.
+   */
+  static async adoptCapabilityApproval(session: Session): Promise<void> {
+    const expected = useAuthStore.getState().selectCurrentUserPubky();
+    const approved = Identity.z32FromSession({ session });
+    if (approved !== expected) {
+      try {
+        await HomeserverService.logout({ session });
+      } catch (error) {
+        Logger.warn('Pubchi foreign capability-approval session sign-out failed', { error });
+      }
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'PUBCHI_SESSION_IDENTITY_MISMATCH', {
+        service: ErrorService.Pubchi,
+        operation: 'adoptCapabilityApproval',
+      });
+    }
+    useAuthStore.getState().setSession(session);
   }
 
   static async revokeDevice(signer: string): Promise<void> {

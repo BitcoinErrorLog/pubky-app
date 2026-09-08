@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   devices: vi.fn(),
   toast: vi.fn(),
+  getUrl: vi.fn(),
+  adopt: vi.fn(),
   capabilities: [] as string[],
   owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
 }));
@@ -38,7 +40,8 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     listDeviceKeys: (...args: unknown[]) => mocks.devices(...args),
     revokeDevice: vi.fn(),
     revokeAllDevices: vi.fn(),
-    getCapabilityApprovalUrl: vi.fn(),
+    getCapabilityApprovalUrl: (...args: unknown[]) => mocks.getUrl(...args),
+    adoptCapabilityApproval: (...args: unknown[]) => mocks.adopt(...args),
   },
 }));
 
@@ -67,6 +70,8 @@ describe('usePubchiEnrollment', () => {
     mocks.remove.mockReset();
     mocks.devices.mockReset().mockResolvedValue([]);
     mocks.toast.mockReset();
+    mocks.getUrl.mockReset();
+    mocks.adopt.mockReset();
     mocks.capabilities = [];
   });
 
@@ -138,5 +143,74 @@ describe('usePubchiEnrollment', () => {
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
     expect(result.current.needsReapproval).toBe(true);
+  });
+
+  it('adopts a successful Ring approval via adoptCapabilityApproval', async () => {
+    const session = { info: { publicKey: { z32: () => OWNER } } };
+    const cancel = vi.fn();
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: Promise.resolve(session),
+      cancelAuthFlow: cancel,
+    });
+    mocks.adopt.mockResolvedValue(undefined);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    await act(async () => {
+      await expect(result.current.reapprove()).resolves.toBe(true);
+    });
+
+    expect(openSpy).toHaveBeenCalledWith('pubkyauth://cap', '_blank', 'noopener,noreferrer');
+    expect(mocks.adopt).toHaveBeenCalledWith(session);
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('calls cancel when the approval times out', async () => {
+    const cancel = vi.fn();
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockImplementation(async () => ({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: new Promise((_, reject) => {
+        queueMicrotask(() => reject(new Error('Auth flow timed out after maximum attempts')));
+      }),
+      cancelAuthFlow: cancel,
+    }));
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    await act(async () => {
+      await expect(result.current.reapprove()).resolves.toBe(false);
+    });
+
+    expect(cancel).toHaveBeenCalled();
+    expect(mocks.adopt).not.toHaveBeenCalled();
+  });
+
+  it('calls cancel when the in-flight approval is declined', async () => {
+    const cancel = vi.fn();
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: new Promise(() => {}),
+      cancelAuthFlow: cancel,
+    });
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    act(() => {
+      void result.current.reapprove();
+    });
+    await waitFor(() => expect(mocks.getUrl).toHaveBeenCalled());
+
+    act(() => {
+      result.current.cancelReapproval();
+    });
+    expect(cancel).toHaveBeenCalled();
+    expect(mocks.adopt).not.toHaveBeenCalled();
   });
 });
