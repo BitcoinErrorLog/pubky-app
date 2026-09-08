@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { pickupRefusalToastDescription } from '@/libs/commerce/pickup';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -142,7 +143,7 @@ export function usePickupDetailsForm(listingId: string): UsePickupDetailsFormRes
               });
               return;
             }
-            toast({ variant: 'error', description: response.error.message });
+            toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
             return;
           }
           toast({ title: 'Pickup details saved', description: 'Buyers see them only after their payment confirms.' });
@@ -176,7 +177,7 @@ export function usePickupDetailsForm(listingId: string): UsePickupDetailsFormRes
           });
           return false;
         }
-        toast({ variant: 'error', description: response.error.message });
+        toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
         return false;
       }
       toast({ title: 'Pickup details removed', description: 'Paid buyers keep the terms they were shown at payment.' });

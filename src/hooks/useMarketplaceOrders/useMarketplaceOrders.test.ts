@@ -225,6 +225,30 @@ describe('useMarketplaceOrders', () => {
     );
   });
 
+  it('toasts static pickup-refusal copy from actOnOrder and never an echoed meeting address', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const order = result.current.orders[0].order;
+    const echoed = 'Meet at 14 Oak Lane after 6pm; ask for the red jacket.';
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: echoed },
+    });
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.actOnOrder(order, 'fulfillment.confirm_pickup', {});
+    });
+
+    expect(succeeded).toBe(false);
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'The pickup request was refused.',
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('14 Oak Lane');
+  });
+
   it('flags needsSession on a session-required load failure and refetches once a session connects', async () => {
     config.mode = 'transaction-service';
     vi.mocked(CommerceController.getMarketplaceOrders).mockRejectedValue(sessionRequiredError());
