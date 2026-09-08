@@ -33,7 +33,9 @@ import {
   parseFeedProposalV1,
   parseOwnerBindingV1,
   parsePubchiAnswerV1,
+  parsePubchiConfigV1,
   parseQueryResultV1,
+  type PubchiConfigV1,
   REQUEST_TTL_SECONDS,
   signDeviceDelegationV1,
   signRequestObjectV1,
@@ -97,6 +99,49 @@ function randomNonce(): string {
 
 export class PubchiApplication {
   private constructor() {}
+
+  static async loadPubchiConfig(owner: string): Promise<PubchiConfigV1 | null> {
+    const url = pubchiConfigUri(owner);
+    try {
+      const raw = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
+      const parsed = parsePubchiConfigV1(raw);
+      if (!parsed.ok) throw pubchiValidationError(parsed.code, 'loadPubchiConfig');
+      return parsed.value;
+    } catch (error) {
+      if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
+      throw error;
+    }
+  }
+
+  static async savePubchiConfig(owner: string, partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1> {
+    assertPubchiCapability(owner);
+    const binding = await LocalPubchiBindingService.readActive(owner);
+    if (!binding) throw pubchiValidationError('BOT_MISMATCH', 'savePubchiConfig');
+    const url = pubchiConfigUri(owner);
+    let existing: PubchiConfigV1 | null;
+    try {
+      existing = await this.loadPubchiConfig(owner);
+    } catch (error) {
+      if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) throw error;
+      existing = null;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const candidate = {
+      ...(existing ?? defaultPubchiConfig(owner, binding.bot, now)),
+      ...partial,
+      owner,
+      bot: binding.bot,
+      updated_at: now,
+    };
+    const parsed = parsePubchiConfigV1(candidate);
+    if (!parsed.ok) throw pubchiValidationError(parsed.code, 'savePubchiConfig');
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: parsed.value });
+    const readBack = await this.loadPubchiConfig(owner);
+    if (!readBack || !deepEqual(readBack, parsed.value)) {
+      throw pubchiValidationError('SCHEMA_INVALID', 'savePubchiConfig');
+    }
+    return readBack;
+  }
 
   static async getActiveBinding(owner: string): Promise<PubchiBindingRecordResult | undefined> {
     if (!isPubchiEnabled()) {
@@ -511,6 +556,49 @@ async function loadTrustedDeviceKey(owner: string, now: number) {
 
 function assertPubchiCapability(owner: string): void {
   if (!sessionCanWritePubchi(owner)) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+}
+
+function pubchiConfigUri(owner: string): string {
+  return `pubky://${owner}/pub/pubchi.app/config.json`;
+}
+
+function defaultPubchiConfig(owner: string, bot: string, now: number): PubchiConfigV1 {
+  return {
+    schema: 'pubchi-config',
+    version: 1,
+    bot,
+    owner,
+    updated_at: now,
+    display_name: 'Pubchi',
+    tier: 'read-only',
+    language: 'en',
+    summary: { length: 'short', include_sources: true, include_disagreement: true },
+    interests: { topics: [], excluded_topics: [] },
+    proactive: { enabled: false, max_suggestions_per_day: 1, quiet_hours_utc: { start: 22, end: 7 } },
+    follower_history_opt_in: false,
+    brain: {
+      adapter: 'vercel-ai',
+      execution: 'synonym-hosted',
+      provider_id: 'moonshot',
+      model_id: 'kimi-k3',
+      endpoint: null,
+      send_public_graph_context: true,
+      send_public_web_context: false,
+    },
+  };
+}
+
+function deepEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null) return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => deepEqual(value, right[index]));
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+  return keys.length === Object.keys(rightRecord).length && keys.every((key) => key in rightRecord && deepEqual(leftRecord[key], rightRecord[key]));
 }
 
 function sessionCanWritePubchi(owner: string): boolean {

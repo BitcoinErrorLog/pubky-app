@@ -10,8 +10,7 @@ import { Logger } from '@/libs/logger/logger';
 import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { deleteDeviceKey, getDeviceKeys } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
-import { isPubkyId } from '@/libs/pubchi/schemas';
-import { delegationUri } from '@/libs/pubchi/schemas';
+import { delegationUri, isPubkyId, type PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -86,6 +85,14 @@ export class PubchiController {
   static async listDeviceKeys() {
     if (!isPubchiEnabled()) return [];
     return await getDeviceKeys(useAuthStore.getState().selectCurrentUserPubky());
+  }
+
+  static async loadPubchiConfig(): Promise<PubchiConfigV1 | null> {
+    return PubchiApplication.loadPubchiConfig(useAuthStore.getState().selectCurrentUserPubky());
+  }
+
+  static async savePubchiConfig(partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1> {
+    return PubchiApplication.savePubchiConfig(useAuthStore.getState().selectCurrentUserPubky(), partial);
   }
 
   static async getCapabilityApprovalUrl(): Promise<TGenerateAuthUrlResult> {

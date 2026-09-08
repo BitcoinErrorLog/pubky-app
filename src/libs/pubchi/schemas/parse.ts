@@ -5,6 +5,7 @@
  */
 
 import { err, type ParseResult } from './codes';
+import { parsePubchiConfigV1 } from './config';
 import { parseDeviceDelegationV1 } from './delegation';
 import { parseCommonEnvelopeV1 } from './envelope';
 import { parseFeedProposalV1 } from './feed';
@@ -36,6 +37,7 @@ export function parseBySchema(input: unknown): ParseResult<unknown> {
     case 'pubchi-manifest':
       return parseManifestV1(input);
     case 'pubchi-config':
+      return parsePubchiConfigV1(input);
     case 'pubchi-envelope':
       return parseCommonEnvelopeV1(input);
     default:

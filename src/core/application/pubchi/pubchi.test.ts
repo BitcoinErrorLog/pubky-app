@@ -924,4 +924,64 @@ describe('PubchiApplication', () => {
     });
     expect(readPendingDelegationDeletes()).toEqual([]);
   });
+
+  it('merges config fields and verifies the read-back', async () => {
+    const config = {
+      schema: 'pubchi-config',
+      version: 1,
+      bot: BOT,
+      owner: OWNER,
+      updated_at: 1,
+      display_name: 'Existing name',
+      tier: 'read-only',
+      language: 'en',
+      summary: { length: 'short', include_sources: true, include_disagreement: true },
+      interests: { topics: [], excluded_topics: [] },
+      proactive: { enabled: false, max_suggestions_per_day: 1, quiet_hours_utc: { start: 22, end: 7 } },
+      follower_history_opt_in: false,
+      brain: {
+        adapter: 'vercel-ai',
+        execution: 'synonym-hosted',
+        provider_id: 'moonshot',
+        model_id: 'kimi-k3',
+        endpoint: null,
+        send_public_graph_context: true,
+        send_public_web_context: false,
+      },
+    } as const;
+    const request = vi.mocked(HomeserverService.request);
+    request.mockReset();
+    request.mockResolvedValueOnce(config).mockResolvedValueOnce(undefined).mockResolvedValueOnce({
+      ...config,
+      summary: { ...config.summary, length: 'long' },
+      updated_at: Math.floor(Date.now() / 1000),
+    });
+
+    await expect(PubchiApplication.savePubchiConfig(OWNER, { summary: { ...config.summary, length: 'long' } })).resolves.toMatchObject({
+      display_name: 'Existing name',
+      summary: { length: 'long' },
+    });
+    expect(request.mock.calls[1]?.[0].method).toBe('PUT');
+  });
+
+  it('does not put when the initial config get fails', async () => {
+    const request = vi.mocked(HomeserverService.request);
+    request.mockReset();
+    request.mockRejectedValue(
+      Err.auth(AuthErrorCode.FORBIDDEN, 'forbidden', {
+        service: ErrorService.Homeserver,
+        operation: 'request',
+        context: { statusCode: HttpStatusCode.FORBIDDEN },
+      }),
+    );
+    await expect(PubchiApplication.savePubchiConfig(OWNER, {})).rejects.toBeInstanceOf(AppError);
+    expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'PUT' }));
+  });
+
+  it('throws when the read-back differs', async () => {
+    const request = vi.mocked(HomeserverService.request);
+    request.mockReset();
+    request.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
+    await expect(PubchiApplication.savePubchiConfig(OWNER, {})).rejects.toBeInstanceOf(AppError);
+  });
 });
