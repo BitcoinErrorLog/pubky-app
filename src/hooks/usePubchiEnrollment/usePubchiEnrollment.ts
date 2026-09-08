@@ -67,17 +67,17 @@ export function usePubchiEnrollment() {
       setBinding(undefined);
       return;
     }
-    const loadConfig =
-      typeof PubchiController.loadPubchiConfig === 'function'
-        ? PubchiController.loadPubchiConfig()
-        : Promise.resolve(null);
-    void Promise.all([
-      PubchiController.reconcileActiveBinding(),
-      typeof PubchiController.loadPubchi === 'function' ? PubchiController.loadPubchi() : Promise.resolve(undefined),
-      typeof PubchiController.listDeviceKeys === 'function' ? PubchiController.listDeviceKeys() : Promise.resolve([]),
-      loadConfig,
-    ]).then(
-      ([nextBinding, nextPubchi, nextDevices, nextConfig]) => {
+    void (async () => {
+      try {
+        const nextPubchi =
+          typeof PubchiController.loadPubchi === 'function' ? await PubchiController.loadPubchi() : undefined;
+        const nextBinding = await PubchiController.reconcileActiveBinding();
+        const [nextDevices, nextConfig] = await Promise.all([
+          typeof PubchiController.listDeviceKeys === 'function' ? PubchiController.listDeviceKeys() : Promise.resolve([]),
+          typeof PubchiController.loadPubchiConfig === 'function'
+            ? PubchiController.loadPubchiConfig()
+            : Promise.resolve(null),
+        ]);
         setBinding(nextBinding);
         setPubchi(nextPubchi);
         setDevices(nextDevices);
@@ -85,15 +85,14 @@ export function usePubchiEnrollment() {
         if (owner) {
           void getCurrentDeviceKey(owner).then((key) => setCurrentSigner(key?.signer));
         }
-      },
-      () => {
+      } catch {
         setBinding(undefined);
         setPubchi(undefined);
         setDevices([]);
         setConfig(null);
         toast({ variant: 'error', title: 'Pubchi could not be loaded', dismissButton: true });
-      },
-    );
+      }
+    })();
   }, [owner]);
 
   const saveConfig = async (partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1 | undefined> => {
@@ -134,13 +133,21 @@ export function usePubchiEnrollment() {
           ok = true;
         } catch (error) {
           if (error instanceof AppError && error.message === 'PUBCHI_ALREADY_EXISTS') {
-            setPubchi(await PubchiController.loadPubchi());
-            setBinding(await PubchiController.reconcileActiveBinding());
-            toast({
-              variant: 'info',
-              title: 'You already have a Pubchi on this account. It is shown below.',
-              dismissButton: true,
-            });
+            try {
+              setPubchi(await PubchiController.loadPubchi());
+              setBinding(await PubchiController.reconcileActiveBinding());
+              toast({
+                variant: 'info',
+                title: 'You already have a Pubchi on this account. It is shown below.',
+                dismissButton: true,
+              });
+            } catch {
+              toast({
+                variant: 'error',
+                title: 'Pubchi could not be loaded',
+                dismissButton: true,
+              });
+            }
           } else {
             toast({
               variant: 'error',
@@ -215,9 +222,11 @@ export function usePubchiEnrollment() {
         closeBackup();
         toast({ variant: 'default', title: 'Pubchi key backup confirmed', dismissButton: true });
         ok = true;
-      } catch {
+      } catch (error) {
         backupForm.reset(backupConfirmationDefaults);
-        const locked = backupController.recordMismatch();
+        const isMismatch =
+          error instanceof AppError && (error.message === 'SIGNATURE_INVALID' || error.message === 'BOT_MISMATCH');
+        const locked = isMismatch && backupController.recordMismatch();
         if (locked) {
           if (phraseTimerRef.current) clearTimeout(phraseTimerRef.current);
           setBackupOpen(false);
@@ -226,8 +235,10 @@ export function usePubchiEnrollment() {
             title: 'Too many mismatches. The recovery phrase has been cleared.',
             dismissButton: true,
           });
-        } else {
+        } else if (isMismatch) {
           toast({ variant: 'error', title: 'Those words did not match', dismissButton: true });
+        } else {
+          toast({ variant: 'error', title: 'Could not verify the recovery phrase. Try again.', dismissButton: true });
         }
       } finally {
         setLoading(false);

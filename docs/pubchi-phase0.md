@@ -36,6 +36,11 @@ When the flag is on and a user enrolls, the isolated `pubchi` IndexedDB is creat
 
 Vendored from `@pubky/pubchi-schemas` commit `bbf8a73` into `src/libs/pubchi/schemas/` (not a `file:` dependency — `npm run build` must not require a second checkout). Browser-safe SHA-256 / Ed25519 via Web Crypto. `signEd25519` zeroizes its PKCS8 DER buffer and seed copy in `finally` (allowed adaptation; signatures stay byte-identical).
 
+The v1 public documents use closed, strict schemas on both the App and the
+`pubky-ai-bot` service. Adding a field is therefore a versioned schema change
+that must be made on both sides; v1 does not promise forward-compatible reads
+of unknown fields.
+
 - `OwnerBindingV1` at `pubky://U/pub/pubchi.app/bots/B.json`
 - `RequestObjectV1` (asker = U, 600s TTL, sha256 of canonical ask body, Ed25519 by U)
 - `QueryResultV1` evidence cards

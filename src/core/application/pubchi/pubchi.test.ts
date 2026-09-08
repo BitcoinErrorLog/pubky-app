@@ -93,6 +93,14 @@ const ACTIVE_BINDING = {
   id: `${OWNER}:${BOT}`,
 };
 
+function notFoundError(): Error {
+  return Err.client(ClientErrorCode.NOT_FOUND, 'NOT_FOUND', {
+    service: ErrorService.Pubchi,
+    operation: 'test',
+    context: { statusCode: 404 },
+  });
+}
+
 const QUERY_RESULT = {
   schema: 'pubchi-query-result',
   version: 1,
@@ -220,11 +228,13 @@ describe('PubchiApplication', () => {
 
   it('writes a validated owner binding to Dexie then the homeserver', async () => {
     const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
-    const requestSpy = vi.spyOn(HomeserverService, 'request');
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockRejectedValueOnce(notFoundError());
     await PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT });
     expect(upsertSpy).toHaveBeenCalled();
     expect(requestSpy).toHaveBeenCalled();
-    expect(upsertSpy.mock.invocationCallOrder[0]).toBeLessThan(requestSpy.mock.invocationCallOrder[0]);
+    const firstPutIndex = requestSpy.mock.calls.findIndex(([request]) => request.method === HttpMethod.PUT);
+    expect(firstPutIndex).toBeGreaterThanOrEqual(0);
+    expect(upsertSpy.mock.invocationCallOrder[0]).toBeLessThan(requestSpy.mock.invocationCallOrder[firstPutIndex]);
   });
 
   it('accepts a feed proposal so the panel can show Apply', async () => {
@@ -327,7 +337,9 @@ describe('PubchiApplication', () => {
     vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(undefined);
     const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
     const deleteSpy = vi.spyOn(LocalPubchiBindingService, 'delete');
-    vi.spyOn(HomeserverService, 'request').mockRejectedValue(new Error('homeserver down'));
+    vi.spyOn(HomeserverService, 'request')
+      .mockRejectedValueOnce(notFoundError())
+      .mockRejectedValue(new Error('homeserver down'));
 
     await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('homeserver down');
     expect(upsertSpy).toHaveBeenCalledOnce();
@@ -385,7 +397,9 @@ describe('PubchiApplication', () => {
 
   it('allows enrollment when the session has root /:rw', async () => {
     sessionIdentity.capabilities = ['/:rw'];
-    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    const requestSpy = vi.spyOn(HomeserverService, 'request')
+      .mockRejectedValueOnce(notFoundError())
+      .mockResolvedValue(undefined);
     await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).resolves.toMatchObject({
       owner: OWNER,
       bot: BOT,
@@ -396,6 +410,7 @@ describe('PubchiApplication', () => {
 
   it('allows enrollment when the session has /pub/:rw', async () => {
     sessionIdentity.capabilities = ['/pub/:rw'];
+    vi.spyOn(HomeserverService, 'request').mockRejectedValueOnce(notFoundError()).mockResolvedValue(undefined);
     await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).resolves.toMatchObject({
       owner: OWNER,
       bot: BOT,
@@ -431,7 +446,9 @@ describe('PubchiApplication', () => {
       created_at: Math.floor(Date.now() / 1000) - 24 * 60 * 60,
       expires_at: 2_000_000_000,
     }));
-    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    const requestSpy = vi.spyOn(HomeserverService, 'request')
+      .mockRejectedValueOnce(notFoundError())
+      .mockResolvedValue(undefined);
 
     await PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT });
 

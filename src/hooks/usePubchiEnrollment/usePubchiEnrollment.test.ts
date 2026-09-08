@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import type { OwnerBindingV1 } from '@/libs/pubchi/schemas';
@@ -97,6 +97,21 @@ describe('usePubchiEnrollment', () => {
     expect(mocks.reconcile).toHaveBeenCalledOnce();
   });
 
+  it('loads the pointer before reconciling the local binding', async () => {
+    const calls: string[] = [];
+    mocks.load.mockImplementation(async () => {
+      calls.push('load');
+      return undefined;
+    });
+    mocks.reconcile.mockImplementation(async () => {
+      calls.push('reconcile');
+      return undefined;
+    });
+    renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalledOnce());
+    expect(calls).toEqual(['load', 'reconcile']);
+  });
+
   it('shows not enrolled when reconcile finds no homeserver object', async () => {
     mocks.reconcile.mockResolvedValue(undefined);
     const { result } = renderHook(() => usePubchiEnrollment());
@@ -168,6 +183,32 @@ describe('usePubchiEnrollment', () => {
     );
   });
 
+  it('handles a failed PUBCHI_ALREADY_EXISTS recovery without an unhandled rejection', async () => {
+    mocks.reconcile.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('unavailable'));
+    mocks.create.mockRejectedValue(
+      Err.client(ClientErrorCode.CONFLICT, 'PUBCHI_ALREADY_EXISTS', {
+        service: ErrorService.Pubchi,
+        operation: 'test',
+      }),
+    );
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const { result } = renderHook(() => usePubchiEnrollment());
+      await waitFor(() => expect(mocks.reconcile).toHaveBeenCalledOnce());
+      await act(async () => {
+        await result.current.submit();
+      });
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Pubchi could not be loaded', variant: 'error' }),
+      );
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.removeListener('unhandledRejection', unhandled);
+    }
+  });
+
   it('drops the phrase after three typed-word mismatches', async () => {
     mocks.reconcile.mockResolvedValueOnce(undefined).mockResolvedValueOnce(ACTIVE);
     mocks.create.mockResolvedValue({
@@ -178,7 +219,12 @@ describe('usePubchiEnrollment', () => {
       verified: true,
       phrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
     });
-    mocks.confirm.mockRejectedValue(new Error('mismatch'));
+    mocks.confirm.mockRejectedValue(
+      Err.validation(ValidationErrorCode.INVALID_INPUT, 'SIGNATURE_INVALID', {
+        service: ErrorService.Pubchi,
+        operation: 'test',
+      }),
+    );
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
     await act(async () => {
@@ -199,6 +245,40 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.backupController.phraseForConfirmation()).toBeUndefined();
     expect(mocks.toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Too many mismatches. The recovery phrase has been cleared.' }),
+    );
+  });
+
+  it('does not count transport errors toward the phrase lockout', async () => {
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.create.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Pubchi',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+    });
+    mocks.confirm.mockRejectedValue(new Error('homeserver unavailable'));
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+    await act(async () => {
+      await result.current.submit();
+      result.current.openBackup();
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await act(async () => {
+        result.current.backupForm.setValue('wordOne', 'wrong');
+        result.current.backupForm.setValue('wordTwo', 'wrong');
+        result.current.backupForm.setValue('wordThree', 'wrong');
+        await result.current.confirmBackup();
+      });
+    }
+
+    expect(result.current.backupOpen).toBe(true);
+    expect(result.current.backupController.phraseForConfirmation()).toBeDefined();
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Could not verify the recovery phrase. Try again.' }),
     );
   });
 

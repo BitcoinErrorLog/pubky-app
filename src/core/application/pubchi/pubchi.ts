@@ -193,6 +193,7 @@ export class PubchiApplication {
       existingBinding.status === 'active'
     ) {
       await replaceLocalActiveBinding(existingBinding);
+      await refreshPublishedDelegation(params.owner);
       throw Err.client(ClientErrorCode.CONFLICT, 'PUBCHI_ALREADY_EXISTS', {
         service: ErrorService.Pubchi,
         operation: 'createPubchi',
@@ -294,6 +295,7 @@ export class PubchiApplication {
       binding.status === 'active';
     if (verified && binding) {
       await replaceLocalActiveBinding(binding);
+      await refreshPublishedDelegation(owner);
     }
 
     return {
@@ -339,6 +341,21 @@ export class PubchiApplication {
     }
 
     assertPubchiCapability(params.owner);
+    const pointer = await readBotIfPresent(params.owner);
+    if (pointer && pointer.bot !== params.bot) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'PUBCHI_ALREADY_EXISTS', {
+        service: ErrorService.Pubchi,
+        operation: 'commitCreateBinding',
+      });
+    }
+    const active = await LocalPubchiBindingService.readActive(params.owner);
+    if (active && active.bot !== params.bot) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'PUBCHI_ALREADY_EXISTS', {
+        service: ErrorService.Pubchi,
+        operation: 'commitCreateBinding',
+      });
+    }
+
     const now = Math.floor(Date.now() / 1000);
     const device = await loadTrustedDeviceKey(params.owner, now);
     const existing = await LocalPubchiBindingService.read(params.owner, params.bot);
@@ -367,7 +384,7 @@ export class PubchiApplication {
         owner: params.owner,
         signer: device.signer,
         bot: params.bot,
-        purposes: ['ask', 'who-tagged-me', 'build-feed'],
+        purposes: [...SERVED_DELEGATION_PURPOSES],
         created_at: device.created_at,
         expires_at: device.expires_at,
       };

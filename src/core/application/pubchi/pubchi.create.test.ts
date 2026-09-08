@@ -5,9 +5,11 @@ import { ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
-import { botUri, ownerBindingsUri, ownerBindingUri } from '@/libs/pubchi/schemas';
+import * as deviceKey from '@/libs/pubchi/device-key';
+import { botUri, delegationUri, ownerBindingsUri, ownerBindingUri, signDeviceDelegationV1 } from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
+import type { PubchiBindingRecord } from '@/models/pubchi/binding.schema';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiApplication } from './pubchi';
@@ -33,6 +35,7 @@ vi.mock('@/libs/pubchi/device-key', () => {
     .generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
     .then((pair) => (pair as CryptoKeyPair).privateKey);
   return {
+    DEVICE_DELEGATION_REFRESH_SECONDS: 3 * 24 * 60 * 60,
     loadOrGenerateDeviceKey: async () => ({
       key: await key,
       signer,
@@ -165,6 +168,111 @@ describe('PubchiApplication create protocol', () => {
       expect.objectContaining({ owner: OWNER, bot: OLD_BOT, status: 'active' }),
     );
     expect(operations.every((operation) => !operation.startsWith('PUT '))).toBe(true);
+  });
+
+  it('repairs a missing current-device delegation when create resumes an existing bot', async () => {
+    const pointer = botDocument(OLD_BOT, 4);
+    const binding = bindingDocument(OLD_BOT, 'active', 4);
+    documents.set(botUri(OWNER), pointer);
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), binding);
+    vi.mocked(HomeserverService.listAll).mockResolvedValue([ownerBindingUri(OWNER, OLD_BOT)]);
+    vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue({
+      ...binding,
+      id: `${OWNER}:${OLD_BOT}`,
+    } as PubchiBindingRecord);
+    const now = Math.floor(Date.now() / 1000);
+    const device = {
+      ...(await deviceKey.loadOrGenerateDeviceKey(OWNER, 1)),
+      created_at: now - 1,
+      expires_at: now + 30 * 24 * 60 * 60 - 1,
+    };
+    vi.mocked(deviceKey.getCurrentDeviceKey).mockResolvedValue(device);
+
+    await expect(
+      PubchiApplication.createPubchi({ owner: OWNER, displayName: 'Ignored', capabilities: ['/:rw'] }),
+    ).rejects.toThrow('PUBCHI_ALREADY_EXISTS');
+
+    const delegationPuts = operations.filter(
+      (operation) => operation === `PUT ${delegationUri(OWNER, device.signer)}`,
+    );
+    expect(delegationPuts).toHaveLength(1);
+    expect(documents.get(delegationUri(OWNER, device.signer))).toMatchObject({ bot: OLD_BOT });
+  });
+
+  it('does not rewrite an already current device delegation when create resumes', async () => {
+    const pointer = botDocument(OLD_BOT, 4);
+    const binding = bindingDocument(OLD_BOT, 'active', 4);
+    documents.set(botUri(OWNER), pointer);
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), binding);
+    vi.mocked(HomeserverService.listAll).mockResolvedValue([ownerBindingUri(OWNER, OLD_BOT)]);
+    vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue({
+      ...binding,
+      id: `${OWNER}:${OLD_BOT}`,
+    } as PubchiBindingRecord);
+    const now = Math.floor(Date.now() / 1000);
+    const device = {
+      ...(await deviceKey.loadOrGenerateDeviceKey(OWNER, 1)),
+      created_at: now - 1,
+      expires_at: now + 30 * 24 * 60 * 60 - 1,
+    };
+    vi.mocked(deviceKey.getCurrentDeviceKey).mockResolvedValue(device);
+    const delegation = await signDeviceDelegationV1(
+      {
+        schema: 'pubchi-device-delegation',
+        version: 1,
+        owner: OWNER,
+        signer: device.signer,
+        bot: OLD_BOT,
+        purposes: ['ask', 'who-tagged-me', 'build-feed'],
+        created_at: device.created_at,
+        expires_at: device.expires_at,
+      },
+      device.key,
+    );
+    documents.set(delegationUri(OWNER, device.signer), delegation);
+
+    await expect(
+      PubchiApplication.createPubchi({ owner: OWNER, displayName: 'Ignored', capabilities: ['/:rw'] }),
+    ).rejects.toThrow('PUBCHI_ALREADY_EXISTS');
+
+    expect(operations).not.toContain(`PUT ${delegationUri(OWNER, device.signer)}`);
+  });
+
+  it('repairs a missing current-device delegation while loading a verified bot', async () => {
+    const pointer = botDocument(OLD_BOT, 4);
+    const binding = bindingDocument(OLD_BOT, 'active', 4);
+    documents.set(botUri(OWNER), pointer);
+    documents.set(ownerBindingUri(OWNER, OLD_BOT), binding);
+    vi.mocked(HomeserverService.listAll).mockResolvedValue([ownerBindingUri(OWNER, OLD_BOT)]);
+    vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue({
+      ...binding,
+      id: `${OWNER}:${OLD_BOT}`,
+    } as PubchiBindingRecord);
+    const now = Math.floor(Date.now() / 1000);
+    const device = {
+      ...(await deviceKey.loadOrGenerateDeviceKey(OWNER, 1)),
+      created_at: now - 1,
+      expires_at: now + 30 * 24 * 60 * 60 - 1,
+    };
+    vi.mocked(deviceKey.getCurrentDeviceKey).mockResolvedValue(device);
+
+    await expect(PubchiApplication.loadPubchi(OWNER)).resolves.toMatchObject({ bot: OLD_BOT, verified: true });
+
+    expect(
+      operations.filter((operation) => operation === `PUT ${delegationUri(OWNER, device.signer)}`),
+    ).toHaveLength(1);
+    expect(documents.get(delegationUri(OWNER, device.signer))).toMatchObject({ bot: OLD_BOT });
+  });
+
+  it('gates legacy binding creation to the canonical bot', async () => {
+    documents.set(botUri(OWNER), botDocument(OLD_BOT, 4));
+    const loadDeviceSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey');
+
+    await expect(
+      PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT }),
+    ).rejects.toThrow('PUBCHI_ALREADY_EXISTS');
+
+    expect(loadDeviceSpy).not.toHaveBeenCalled();
   });
 
   it('re-mints with a higher generation and preserves identity metadata', async () => {
