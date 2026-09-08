@@ -13,6 +13,7 @@ export const PUBCHI_APP = 'pubchi.app' as const;
 export const PUBKY_APP = 'pubky.app' as const;
 
 export const PATHS = {
+  bot: '/pub/pubchi.app/bot.json',
   manifest: '/pub/pubchi.app/manifest.json',
   config: '/pub/pubchi.app/config.json',
   interests: '/pub/pubchi.app/interests.json',
@@ -46,8 +47,16 @@ export function ownerBindingPath(bot: string): string {
   return `/pub/pubchi.app/bots/${bot}.json`;
 }
 
+export function ownerBindingsUri(owner: string): string {
+  return `pubky://${owner}/pub/pubchi.app/bots/`;
+}
+
 export function ownerBindingUri(owner: string, bot: string): string {
   return `pubky://${owner}${ownerBindingPath(bot)}`;
+}
+
+export function botUri(owner: string): string {
+  return `pubky://${owner}${PATHS.bot}`;
 }
 
 /**
@@ -73,6 +82,7 @@ export function isAllowlistedPath(path: string): boolean {
   }
   if (path.includes('//') || path.includes('\\')) return false;
   switch (path) {
+    case PATHS.bot:
     case PATHS.manifest:
     case PATHS.config:
     case PATHS.interests:
@@ -98,6 +108,7 @@ export function isAllowlistedPath(path: string): boolean {
 }
 
 export const ALLOWLISTED_PATH_PATTERNS = [
+  PATHS.bot,
   PATHS.manifest,
   PATHS.config,
   PATHS.interests,

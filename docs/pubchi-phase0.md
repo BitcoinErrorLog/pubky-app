@@ -17,6 +17,7 @@ When the flag is on and a user enrolls, the isolated `pubchi` IndexedDB is creat
 
 ## Accepted limitations
 
+- Known gaps: bot-key derivation still runs on the main thread rather than in a short-lived worker.
 - A previous identity's homeserver delegation cannot be revoked without that identity's live session. The 30-day delegation expiry is the only backstop.
 - `Dexie.delete('pubchi')` can be blocked by another open tab holding the database. In that multi-tab case, a failed remote DELETE can leave a live device key and a live delegation in the sibling tab after this tab's logout. A pending DELETE record for that signer is retained across sign-in/reconcile while the key is still live locally, so the next drain after a genuine wipe can finish revocation. It is not discarded merely because the skip path ran.
 - `pubchi.pendingDelegationDeletes` is capped at 32 unique `owner:signer` rows (FIFO, newest-wins). That bound is a storage bound, not a security boundary: anyone who can write localStorage can already delete the pending list or the device key. Ordinary churn (~11 identities × 3 keys) can also evict a legitimate not-yet-attempted record. Do not treat eviction as an access-control failure.

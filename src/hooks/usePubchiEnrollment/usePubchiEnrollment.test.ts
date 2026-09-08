@@ -1,5 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import type { OwnerBindingV1 } from '@/libs/pubchi/schemas';
 import { usePubchiEnrollment } from './usePubchiEnrollment';
 import { ENROLL_FORM_FIELDS } from './usePubchiEnrollment.types';
@@ -18,7 +21,9 @@ const ACTIVE: OwnerBindingV1 = {
 
 const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
+  load: vi.fn(),
   create: vi.fn(),
+  confirm: vi.fn(),
   remove: vi.fn(),
   devices: vi.fn(),
   toast: vi.fn(),
@@ -35,7 +40,9 @@ vi.mock('@/libs/pubchi/flags', () => ({
 vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
     reconcileActiveBinding: (...args: unknown[]) => mocks.reconcile(...args),
-    commitCreateBinding: (...args: unknown[]) => mocks.create(...args),
+    loadPubchi: (...args: unknown[]) => mocks.load(...args),
+    createPubchi: (...args: unknown[]) => mocks.create(...args),
+    confirmBackup: (...args: unknown[]) => mocks.confirm(...args),
     commitDeleteBinding: (...args: unknown[]) => mocks.remove(...args),
     listDeviceKeys: (...args: unknown[]) => mocks.devices(...args),
     revokeDevice: vi.fn(),
@@ -66,7 +73,9 @@ vi.mock('@/stores/auth/auth.store', () => ({
 describe('usePubchiEnrollment', () => {
   beforeEach(() => {
     mocks.reconcile.mockReset();
+    mocks.load.mockReset().mockResolvedValue(undefined);
     mocks.create.mockReset();
+    mocks.confirm.mockReset();
     mocks.remove.mockReset();
     mocks.devices.mockReset().mockResolvedValue([]);
     mocks.toast.mockReset();
@@ -97,36 +106,116 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.enabled).toBe(true);
   });
 
+  it('handles initial load rejection without an unhandled promise', async () => {
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.load.mockRejectedValue(new Error('unavailable'));
+    renderHook(() => usePubchiEnrollment());
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Pubchi could not be loaded', variant: 'error' }),
+      ),
+    );
+  });
+
   it('updates the binding after enroll', async () => {
     mocks.reconcile.mockResolvedValue(undefined);
-    mocks.create.mockResolvedValue(ACTIVE);
+    mocks.create.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Pubchi',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase: 'test phrase held only by this mock',
+    });
+    mocks.reconcile.mockResolvedValueOnce(undefined).mockResolvedValueOnce(ACTIVE);
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
 
     await act(async () => {
-      result.current.form.setValue(ENROLL_FORM_FIELDS.BOT, OWNER);
+      result.current.form.setValue(ENROLL_FORM_FIELDS.DISPLAY_NAME, 'Pubchi');
       await result.current.submit();
     });
 
     expect(result.current.binding).toEqual(ACTIVE);
   });
 
-  it('surfaces the schema message when enroll is submitted with an invalid bot', async () => {
+  it('reconciles an existing remote Pubchi when create returns PUBCHI_ALREADY_EXISTS', async () => {
+    mocks.reconcile.mockResolvedValueOnce(undefined).mockResolvedValueOnce(ACTIVE);
+    mocks.create.mockRejectedValue(
+      Err.client(ClientErrorCode.CONFLICT, 'PUBCHI_ALREADY_EXISTS', {
+        service: ErrorService.Pubchi,
+        operation: 'test',
+      }),
+    );
+    mocks.load.mockResolvedValueOnce(undefined).mockResolvedValueOnce({
+      bot: OWNER,
+      displayName: 'Remote Pubchi',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+    });
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.pubchi).toMatchObject({ bot: OWNER, displayName: 'Remote Pubchi' });
+    expect(result.current.binding).toEqual(ACTIVE);
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'You already have a Pubchi on this account. It is shown below.' }),
+    );
+  });
+
+  it('drops the phrase after three typed-word mismatches', async () => {
+    mocks.reconcile.mockResolvedValueOnce(undefined).mockResolvedValueOnce(ACTIVE);
+    mocks.create.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Pubchi',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+    });
+    mocks.confirm.mockRejectedValue(new Error('mismatch'));
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+    await act(async () => {
+      await result.current.submit();
+      result.current.openBackup();
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await act(async () => {
+        result.current.backupForm.setValue('wordOne', 'wrong');
+        result.current.backupForm.setValue('wordTwo', 'wrong');
+        result.current.backupForm.setValue('wordThree', 'wrong');
+        await result.current.confirmBackup();
+      });
+    }
+
+    expect(result.current.backupOpen).toBe(false);
+    expect(result.current.backupController.phraseForConfirmation()).toBeUndefined();
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Too many mismatches. The recovery phrase has been cleared.' }),
+    );
+  });
+
+  it('surfaces the schema message when create is submitted with an empty name', async () => {
     mocks.reconcile.mockResolvedValue(undefined);
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
 
     void result.current.form.formState.errors;
     await act(async () => {
-      result.current.form.setValue(ENROLL_FORM_FIELDS.BOT, 'not-a-pubky');
+      result.current.form.setValue(ENROLL_FORM_FIELDS.DISPLAY_NAME, '');
       await expect(result.current.submit()).resolves.toBe(false);
     });
 
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
-    expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.BOT]?.message).toBe(
-      'Enter a 52-character z-base-32 bot pubky.',
-    );
+    expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.DISPLAY_NAME]?.message).toBe('Enter a name.');
   });
 
   it('does not ask a root /:rw session to re-approve Ring', async () => {

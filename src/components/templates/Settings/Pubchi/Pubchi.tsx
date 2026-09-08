@@ -4,7 +4,10 @@ import { Bot } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
-import { ENROLL_FORM_FIELDS } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment.types';
+import {
+  BACKUP_FORM_FIELDS,
+  ENROLL_FORM_FIELDS,
+} from '@/hooks/usePubchiEnrollment/usePubchiEnrollment.types';
 import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
@@ -15,13 +18,22 @@ export const PUBCHI_SETTINGS_SURFACE = 'pubchi-settings';
 export function PubchiSettings() {
   const {
     form,
+    backupForm,
     submit,
+    confirmBackup,
+    openBackup,
+    closeBackup,
     remove,
     revokeDevice,
     revokeAllDevices,
     reapprove,
     needsReapproval,
     binding,
+    pubchi,
+    creating,
+    backupOpen,
+    backupPositions,
+    backupController,
     devices = [],
     currentSigner,
     loading,
@@ -38,7 +50,7 @@ export function PubchiSettings() {
       <SettingsSectionCard
         icon={Bot}
         title="Pubchi"
-        description="Public bot state. Paste a bot pubky to write the U → B binding on your homeserver."
+        description="Create a personal bot identity bound to your Pubky account."
       >
         {needsReapproval ? (
           <div className="flex flex-col gap-3 px-6" data-testid="pubchi-degraded-session">
@@ -48,11 +60,35 @@ export function PubchiSettings() {
             </Button>
           </div>
         ) : null}
-        {binding ? (
+        {creating ? (
+          <div className="flex flex-col gap-3 px-6" role="status" data-testid="pubchi-create-progress">
+            <Typography size="sm">Creating your Pubchi…</Typography>
+            <Typography size="xs">Minting the key, verifying the binding, and authorizing this browser.</Typography>
+          </div>
+        ) : null}
+        {pubchi || binding ? (
           <div className="flex flex-col gap-4 px-6">
             <Typography size="sm">
-              Active bot: <span className="font-mono break-all">{binding.bot}</span>
+              {pubchi?.displayName ?? 'Active bot'}:{' '}
+              <span className="font-mono break-all">{pubchi?.bot ?? binding?.bot}</span>
             </Typography>
+            {pubchi ? (
+              <>
+                <Typography size="sm">
+                  Created {new Date(pubchi.createdAt * 1000).toLocaleDateString()} ·{' '}
+                  {pubchi.verified ? 'Verified' : 'Not verified'} ·{' '}
+                  {pubchi.backupConfirmedAt ? 'Backed up' : 'Not backed up'}
+                </Typography>
+                {!pubchi.verified ? (
+                  <Typography size="sm">Ownership unverified — re-create or remove</Typography>
+                ) : null}
+                {pubchi.verified && !pubchi.backupConfirmedAt ? (
+                  <Button type="button" variant="secondary" disabled={loading} onClick={openBackup}>
+                    Back up your Pubchi&apos;s key
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
             <Button
               type="button"
               variant="destructive"
@@ -62,10 +98,10 @@ export function PubchiSettings() {
                 void remove();
               }}
             >
-              Remove bot
+              Remove Pubchi
             </Button>
           </div>
-        ) : (
+        ) : !creating ? (
           <form
             className="flex flex-col gap-4 px-6"
             onSubmit={(event) => {
@@ -74,20 +110,61 @@ export function PubchiSettings() {
             }}
           >
             <Typography data-testid="pubchi-not-enrolled" size="sm">
-              not enrolled
+              Create a Pubchi for this account.
             </Typography>
             <ControlledInputField
-              name={ENROLL_FORM_FIELDS.BOT}
+              name={ENROLL_FORM_FIELDS.DISPLAY_NAME}
               control={form.control}
-              label="Bot pubky"
-              placeholder="52-character z-base-32 pubky"
-              dataCy="pubchi-bot-input"
+              label="Name"
+              placeholder="Pubchi"
+              dataCy="pubchi-name-input"
             />
-            <Button type="submit" data-testid="pubchi-enroll-bot" disabled={loading || needsReapproval}>
-              Enroll bot
+            <Button type="submit" data-testid="pubchi-create" disabled={loading || needsReapproval}>
+              Create
             </Button>
           </form>
-        )}
+        ) : null}
+        {backupOpen ? (
+          <div className="flex select-none flex-col gap-4 px-6" data-testid="pubchi-backup-reveal">
+            <Typography size="sm">Write these words down. They cannot be copied or shown again after you leave.</Typography>
+            <div className="grid grid-cols-2 gap-2 select-none" aria-label="Pubchi recovery words">
+              {backupController.words().map((word, index) => (
+                <span className="rounded-md border p-2 text-sm" key={index}>
+                  {index + 1}. {word}
+                </span>
+              ))}
+            </div>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void confirmBackup();
+              }}
+            >
+              {backupPositions.map((position, index) => (
+                <ControlledInputField
+                  key={position}
+                  name={[
+                    BACKUP_FORM_FIELDS.WORD_ONE,
+                    BACKUP_FORM_FIELDS.WORD_TWO,
+                    BACKUP_FORM_FIELDS.WORD_THREE,
+                  ][index]!}
+                  control={backupForm.control}
+                  label={`Word ${position + 1}`}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+              ))}
+              <Button type="submit" disabled={loading}>
+                Confirm backup
+              </Button>
+              <Button type="button" variant="secondary" disabled={loading} onClick={closeBackup}>
+                Not now
+              </Button>
+            </form>
+          </div>
+        ) : null}
         {devices.length ? (
           <div className="flex flex-col gap-3 px-6 pb-6" data-testid="pubchi-device-signers">
             <Typography size="sm">Device signers</Typography>

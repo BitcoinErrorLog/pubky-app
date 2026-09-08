@@ -1,10 +1,11 @@
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, TimeoutErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, TimeoutErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
+import { mintBotKey, phraseToBot } from '@/libs/pubchi/bot-key-custody';
 import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
 import {
   deleteDeviceKey,
@@ -28,15 +29,21 @@ import {
 } from '@/libs/pubchi/pending-delegation-deletes';
 import {
   bodySha256,
+  botUri,
   delegationUri,
+  type DeviceDelegationV1,
   isPubkyId,
+  ownerBindingsUri,
   ownerBindingUri,
+  type OwnerBindingV1,
   parseDeviceDelegationV1,
   parseFeedProposalV1,
   parseOwnerBindingV1,
   parsePubchiAnswerV1,
+  parsePubchiBotV1,
   parsePubchiConfigV1,
   parseQueryResultV1,
+  type PubchiBotV1,
   type PubchiConfigV1,
   REQUEST_TTL_SECONDS,
   scanForbiddenPublicState,
@@ -52,6 +59,10 @@ import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type {
+  ConfirmPubchiBackupParams,
+  CreatedPubchi,
+  CreatePubchiParams,
+  LoadedPubchi,
   PubchiAskBody,
   PubchiBindingRecordResult,
   PubchiBindingWriteParams,
@@ -159,6 +170,166 @@ export class PubchiApplication {
     return LocalPubchiBindingService.readActive(owner);
   }
 
+  static async createPubchi(params: CreatePubchiParams): Promise<CreatedPubchi> {
+    if (!isPubchiEnabled()) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
+        service: ErrorService.Pubchi,
+        operation: 'createPubchi',
+      });
+    }
+    if (!capabilitiesCoverPubchiWrite(params.capabilities)) {
+      throw pubchiValidationError('PATH_FORBIDDEN', 'createPubchi');
+    }
+
+    const existingPointer = await readBotIfPresent(params.owner);
+    const existingBinding = existingPointer
+      ? await readOwnerBindingIfPresent(params.owner, existingPointer.bot)
+      : undefined;
+
+    if (
+      existingPointer &&
+      existingBinding?.owner === params.owner &&
+      existingBinding.bot === existingPointer.bot &&
+      existingBinding.status === 'active'
+    ) {
+      await replaceLocalActiveBinding(existingBinding);
+      throw Err.client(ClientErrorCode.CONFLICT, 'PUBCHI_ALREADY_EXISTS', {
+        service: ErrorService.Pubchi,
+        operation: 'createPubchi',
+      });
+    }
+    await tombstoneUnreferencedRemoteBindings(params.owner, existingPointer?.bot, true);
+    if (existingPointer?.homeserver_account !== null && existingPointer?.homeserver_account !== undefined) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'PUBCHI_ALREADY_EXISTS', {
+        service: ErrorService.Pubchi,
+        operation: 'createPubchi',
+      });
+    }
+
+    const { bot, phrase } = mintBotKey();
+    const now = Math.floor(Date.now() / 1000);
+    const keyGeneration = existingPointer ? existingPointer.key_generation + 1 : 1;
+    const createdAt = existingPointer?.created_at ?? now;
+    const displayName = existingPointer?.display_name ?? params.displayName.trim();
+    const bindingCandidate = {
+      schema: 'pubchi-owner-binding' as const,
+      version: 1 as const,
+      owner: params.owner,
+      bot,
+      status: 'active' as const,
+      key_generation: keyGeneration,
+      created_at: createdAt,
+      updated_at: now,
+    };
+    const parsedBinding = parseOwnerBindingV1(bindingCandidate);
+    if (!parsedBinding.ok) throw pubchiValidationError(parsedBinding.code, 'createPubchi');
+
+    const pointerCandidate = {
+      schema: 'pubchi-bot' as const,
+      version: 1 as const,
+      bot,
+      owner: params.owner,
+      display_name: displayName,
+      created_at: createdAt,
+      backup_confirmed_at: null,
+      homeserver_account: null,
+      key_generation: keyGeneration,
+    };
+    const parsedPointer = parsePubchiBotV1(pointerCandidate);
+    if (!parsedPointer.ok) throw pubchiValidationError(parsedPointer.code, 'createPubchi');
+
+    await putAndVerifyOwnerBinding(params.owner, parsedBinding.value);
+    await putAndVerifyBot(params.owner, parsedPointer.value, existingPointer);
+    await readAndVerifyOwnerBinding(params.owner, parsedBinding.value);
+    if (existingPointer) {
+      await tombstoneBindingIfActive(params.owner, existingPointer.bot, now);
+    }
+    await replaceLocalActiveBinding(parsedBinding.value);
+
+    const device = await loadTrustedDeviceKey(params.owner, now);
+    const delegation: UnsignedDeviceDelegationV1 = {
+      schema: 'pubchi-device-delegation',
+      version: 1,
+      owner: params.owner,
+      signer: device.signer,
+      bot,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'],
+      created_at: device.created_at,
+      expires_at: device.expires_at,
+    };
+    const signedDelegation = await signDeviceDelegationV1(delegation, device.key);
+    await HomeserverService.request({
+      method: HttpMethod.PUT,
+      url: delegationUri(params.owner, device.signer),
+      bodyJson: signedDelegation,
+    });
+    const delegationReadback = parseDeviceDelegationV1(
+      await HomeserverService.request({
+        method: HttpMethod.GET,
+        url: delegationUri(params.owner, device.signer),
+      }),
+    );
+    if (!delegationReadback.ok || !sameDelegation(delegationReadback.value, signedDelegation)) {
+      throw pubchiValidationError('DELEGATION_INVALID', 'createPubchi');
+    }
+
+    return {
+      bot,
+      displayName: parsedPointer.value.display_name,
+      createdAt: createdAt,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase,
+    };
+  }
+
+  static async loadPubchi(owner: string): Promise<LoadedPubchi | undefined> {
+    const pointer = await readBotIfPresent(owner);
+    if (!pointer) return undefined;
+    const binding = await readOwnerBindingIfPresent(owner, pointer.bot);
+    await tombstoneUnreferencedRemoteBindings(owner, pointer.bot, false);
+    const verified =
+      binding?.bot === pointer.bot &&
+      binding.owner === pointer.owner &&
+      binding.status === 'active';
+    if (verified && binding) {
+      await replaceLocalActiveBinding(binding);
+    }
+
+    return {
+      bot: pointer.bot,
+      displayName: pointer.display_name,
+      createdAt: pointer.created_at,
+      backupConfirmedAt: pointer.backup_confirmed_at,
+      verified,
+    };
+  }
+
+  static async confirmBackup(params: ConfirmPubchiBackupParams): Promise<LoadedPubchi> {
+    if (params.confirmations.length !== 3 || new Set(params.confirmations.map((item) => item.position)).size !== 3) {
+      throw pubchiValidationError('SCHEMA_INVALID', 'confirmBackup');
+    }
+    const words = params.phrase.split(' ');
+    const matches = params.confirmations.every(
+      ({ position, word }) => position >= 0 && position < 12 && words[position] === word.trim().toLowerCase(),
+    );
+    if (!matches) throw pubchiValidationError('SIGNATURE_INVALID', 'confirmBackup');
+
+    const bot = phraseToBot(params.phrase);
+    const currentRaw = await HomeserverService.request({ method: HttpMethod.GET, url: botUri(params.owner) });
+    const current = parsePubchiBotV1(currentRaw);
+    if (!current.ok || current.value.owner !== params.owner || current.value.bot !== bot) {
+      throw pubchiValidationError(current.ok ? 'BOT_MISMATCH' : current.code, 'confirmBackup');
+    }
+    const updated = { ...current.value, backup_confirmed_at: Math.floor(Date.now() / 1000) };
+    await putAndVerifyBot(params.owner, updated, current.value);
+    const loaded = await PubchiApplication.loadPubchi(params.owner);
+    if (!loaded || loaded.backupConfirmedAt === null) {
+      throw pubchiValidationError('SCHEMA_INVALID', 'confirmBackup');
+    }
+    return loaded;
+  }
+
   static async commitCreateBinding(params: PubchiBindingWriteParams): Promise<PubchiBindingRecordResult> {
     if (!isPubchiEnabled()) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
@@ -231,31 +402,13 @@ export class PubchiApplication {
       });
     }
 
-    const existing = await LocalPubchiBindingService.read(params.owner, params.bot);
-    const now = Math.floor(Date.now() / 1000);
-    const revoked = {
-      schema: 'pubchi-owner-binding' as const,
-      version: 1 as const,
-      owner: params.owner,
-      bot: params.bot,
-      status: 'revoked' as const,
-      created_at: existing?.created_at ?? now,
-      updated_at: now,
-    };
-    const parsed = parseOwnerBindingV1(revoked);
-    if (!parsed.ok) throw pubchiValidationError(parsed.code, 'commitDeleteBinding');
-
-    await LocalPubchiBindingService.upsert({ ...parsed.value, id: bindingRecordId(params.owner, params.bot) });
-    try {
-      await HomeserverService.request({
-        method: HttpMethod.DELETE,
-        url: ownerBindingUri(params.owner, params.bot),
-      });
-      await LocalPubchiBindingService.delete(params.owner, params.bot);
-    } catch (error) {
-      await rollbackBindingWrite(params, existing);
-      throw error;
+    const pointer = await readBotIfPresent(params.owner);
+    const bot = pointer?.bot ?? params.bot;
+    await deleteAndVerifyMissing(ownerBindingUri(params.owner, bot), 'commitDeleteBinding');
+    if (pointer?.bot === bot) {
+      await deleteAndVerifyMissing(botUri(params.owner), 'commitDeleteBinding');
     }
+    await LocalPubchiBindingService.delete(params.owner, bot);
   }
 
   /**
@@ -473,6 +626,220 @@ export class PubchiApplication {
     const response = await PubchiService.query({ request, body });
     return interpretQueryResponse(response);
   }
+}
+
+async function putAndVerifyOwnerBinding(owner: string, candidate: OwnerBindingV1) {
+  const url = ownerBindingUri(owner, candidate.bot);
+  try {
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: candidate });
+  } catch {
+    const landed = await tryReadOwnerBinding(url, candidate);
+    if (!landed) {
+      await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: candidate });
+    }
+  }
+  await readAndVerifyOwnerBinding(owner, candidate);
+}
+
+async function readAndVerifyOwnerBinding(
+  owner: string,
+  candidate: OwnerBindingV1,
+): Promise<void> {
+  const parsed = parseOwnerBindingV1(
+    await HomeserverService.request({
+      method: HttpMethod.GET,
+      url: ownerBindingUri(owner, candidate.bot),
+    }),
+  );
+  if (!parsed.ok || !sameOwnerBinding(parsed.value, candidate)) {
+    throw pubchiValidationError(parsed.ok ? 'SCHEMA_INVALID' : parsed.code, 'createPubchi');
+  }
+}
+
+async function tryReadOwnerBinding(
+  url: string,
+  candidate: OwnerBindingV1,
+): Promise<boolean> {
+  try {
+    const parsed = parseOwnerBindingV1(await HomeserverService.request({ method: HttpMethod.GET, url }));
+    return parsed.ok && sameOwnerBinding(parsed.value, candidate);
+  } catch {
+    return false;
+  }
+}
+
+async function putAndVerifyBot(
+  owner: string,
+  candidate: PubchiBotV1,
+  expectedCurrent: PubchiBotV1 | undefined,
+): Promise<void> {
+  const url = botUri(owner);
+  const current = await readBotIfPresent(owner);
+  if (
+    (expectedCurrent === undefined && current !== undefined) ||
+    (expectedCurrent !== undefined && (!current || !sameBot(current, expectedCurrent)))
+  ) {
+    throw pubchiValidationError('SCHEMA_INVALID', 'putAndVerifyBot');
+  }
+  const preservedCandidate = current ? { ...current, ...candidate } : candidate;
+  try {
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: preservedCandidate });
+  } catch {
+    const landed = await tryReadBot(url, preservedCandidate);
+    if (!landed) {
+      await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: preservedCandidate });
+    }
+  }
+  const parsed = parsePubchiBotV1(await HomeserverService.request({ method: HttpMethod.GET, url }));
+  if (!parsed.ok || !sameBot(parsed.value, preservedCandidate)) {
+    throw pubchiValidationError(parsed.ok ? 'SCHEMA_INVALID' : parsed.code, 'createPubchi');
+  }
+}
+
+async function tryReadBot(url: string, candidate: PubchiBotV1): Promise<boolean> {
+  try {
+    const parsed = parsePubchiBotV1(await HomeserverService.request({ method: HttpMethod.GET, url }));
+    return parsed.ok && sameBot(parsed.value, candidate);
+  } catch {
+    return false;
+  }
+}
+
+async function readBotIfPresent(owner: string): Promise<PubchiBotV1 | undefined> {
+  try {
+    const parsed = parsePubchiBotV1(await HomeserverService.request({ method: HttpMethod.GET, url: botUri(owner) }));
+    if (!parsed.ok || parsed.value.owner !== owner) {
+      throw pubchiValidationError(parsed.ok ? 'SCHEMA_INVALID' : parsed.code, 'readBotIfPresent');
+    }
+    return parsed.value;
+  } catch (error) {
+    if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return undefined;
+    throw error;
+  }
+}
+
+async function readOwnerBindingIfPresent(owner: string, bot: string): Promise<OwnerBindingV1 | undefined> {
+  try {
+    const parsed = parseOwnerBindingV1(
+      await HomeserverService.request({ method: HttpMethod.GET, url: ownerBindingUri(owner, bot) }),
+    );
+    if (!parsed.ok || parsed.value.owner !== owner || parsed.value.bot !== bot) {
+      throw pubchiValidationError(parsed.ok ? 'SCHEMA_INVALID' : parsed.code, 'readOwnerBindingIfPresent');
+    }
+    return parsed.value;
+  } catch (error) {
+    if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return undefined;
+    throw error;
+  }
+}
+
+async function tombstoneUnreferencedRemoteBindings(
+  owner: string,
+  referencedBot: string | undefined,
+  failClosed: boolean,
+): Promise<void> {
+  try {
+    const files = await HomeserverService.listAll({ baseDirectory: ownerBindingsUri(owner) });
+    for (const file of files) {
+      const match = file.match(/\/bots\/([^/]+)\.json$/);
+      const bot = match?.[1];
+      if (!bot || !isPubkyId(bot) || bot === referencedBot) continue;
+      await tombstoneBindingIfActive(owner, bot, Math.floor(Date.now() / 1000));
+    }
+  } catch (error) {
+    if (failClosed) throw error;
+  }
+}
+
+async function tombstoneBindingIfActive(owner: string, bot: string, now: number): Promise<void> {
+  const remote = await readOwnerBindingIfPresent(owner, bot);
+  if (!remote || remote.status !== 'active') return;
+  const url = ownerBindingUri(owner, bot);
+  const tombstone = {
+    ...remote,
+    status: 'revoked' as const,
+    updated_at: now,
+  };
+  await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: tombstone });
+  const verified = parseOwnerBindingV1(await HomeserverService.request({ method: HttpMethod.GET, url }));
+  if (!verified.ok || !sameOwnerBinding(verified.value, tombstone)) {
+    throw pubchiValidationError(verified.ok ? 'SCHEMA_INVALID' : verified.code, 'createPubchi');
+  }
+  await LocalPubchiBindingService.upsert({
+    ...tombstone,
+    id: bindingRecordId(owner, bot),
+  });
+}
+
+async function replaceLocalActiveBinding(binding: OwnerBindingV1): Promise<void> {
+  await LocalPubchiBindingService.replaceActive({
+    ...binding,
+    id: bindingRecordId(binding.owner, binding.bot),
+  });
+}
+
+async function deleteAndVerifyMissing(url: string, operation: string): Promise<void> {
+  try {
+    await HomeserverService.request({ method: HttpMethod.DELETE, url });
+  } catch (error) {
+    if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) throw error;
+  }
+  try {
+    await HomeserverService.request({ method: HttpMethod.GET, url });
+  } catch (error) {
+    if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return;
+    throw error;
+  }
+  throw pubchiValidationError('SCHEMA_INVALID', operation);
+}
+
+function sameOwnerBinding(
+  left: OwnerBindingV1,
+  right: OwnerBindingV1,
+): boolean {
+  return (
+    left.schema === right.schema &&
+    left.version === right.version &&
+    left.owner === right.owner &&
+    left.bot === right.bot &&
+    left.status === right.status &&
+    left.key_generation === right.key_generation &&
+    left.created_at === right.created_at &&
+    left.updated_at === right.updated_at
+  );
+}
+
+function sameBot(
+  left: PubchiBotV1,
+  right: PubchiBotV1,
+): boolean {
+  return (
+    left.schema === right.schema &&
+    left.version === right.version &&
+    left.owner === right.owner &&
+    left.bot === right.bot &&
+    left.display_name === right.display_name &&
+    left.created_at === right.created_at &&
+    left.backup_confirmed_at === right.backup_confirmed_at &&
+    left.homeserver_account === right.homeserver_account &&
+    left.key_generation === right.key_generation
+  );
+}
+
+function sameDelegation(
+  left: DeviceDelegationV1,
+  right: DeviceDelegationV1,
+): boolean {
+  return (
+    left.owner === right.owner &&
+    left.signer === right.signer &&
+    left.bot === right.bot &&
+    left.created_at === right.created_at &&
+    left.expires_at === right.expires_at &&
+    left.signature === right.signature &&
+    left.purposes.length === right.purposes.length &&
+    left.purposes.every((purpose, index) => purpose === right.purposes[index])
+  );
 }
 
 async function rollbackBindingWrite(

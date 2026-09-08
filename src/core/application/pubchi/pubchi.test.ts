@@ -128,6 +128,7 @@ describe('PubchiApplication', () => {
     vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue(ACTIVE_BINDING);
     vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(ACTIVE_BINDING);
     vi.spyOn(LocalPubchiBindingService, 'upsert').mockResolvedValue(ACTIVE_BINDING);
+    vi.spyOn(LocalPubchiBindingService, 'replaceActive').mockResolvedValue(ACTIVE_BINDING);
     vi.spyOn(LocalPubchiBindingService, 'delete').mockResolvedValue(undefined);
     vi.spyOn(LocalPubchiBindingService, 'deleteNotOwnedBy').mockResolvedValue(0);
     vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
@@ -333,15 +334,12 @@ describe('PubchiApplication', () => {
     expect(deleteSpy).toHaveBeenCalledWith(OWNER, BOT);
   });
 
-  it('restores the previous Dexie row when homeserver DELETE fails', async () => {
-    const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
+  it('does not delete the local row when homeserver removal fails', async () => {
     const deleteSpy = vi.spyOn(LocalPubchiBindingService, 'delete');
     vi.spyOn(HomeserverService, 'request').mockRejectedValue(new Error('homeserver down'));
 
     await expect(PubchiApplication.commitDeleteBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('homeserver down');
     expect(deleteSpy).not.toHaveBeenCalled();
-    expect(upsertSpy).toHaveBeenCalledTimes(2);
-    expect(upsertSpy.mock.calls[1][0]).toMatchObject({ owner: OWNER, bot: BOT, status: 'active' });
   });
 
   it('marks the local row revoked when the homeserver binding is absent', async () => {

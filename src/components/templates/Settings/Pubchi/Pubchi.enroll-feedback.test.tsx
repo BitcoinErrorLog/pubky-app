@@ -17,7 +17,8 @@ vi.mock('@/libs/pubchi/flags', () => ({
 vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
     reconcileActiveBinding: (...args: unknown[]) => mocks.reconcile(...args),
-    commitCreateBinding: (...args: unknown[]) => mocks.create(...args),
+    loadPubchi: vi.fn().mockResolvedValue(undefined),
+    createPubchi: (...args: unknown[]) => mocks.create(...args),
     commitDeleteBinding: vi.fn(),
     listDeviceKeys: (...args: unknown[]) => mocks.devices(...args),
     revokeDevice: vi.fn(),
@@ -48,16 +49,16 @@ describe('PubchiSettings enroll validation', () => {
     mocks.toast.mockReset();
   });
 
-  it('shows the field error when Enroll bot is clicked with an invalid pubky', async () => {
+  it('shows the field error when Create is clicked with an empty name', async () => {
     const user = userEvent.setup();
     render(<PubchiSettings />);
-    await waitFor(() => expect(screen.getByTestId('pubchi-enroll-bot')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('pubchi-create')).toBeInTheDocument());
 
-    await user.type(screen.getByLabelText('Bot pubky'), 'not-a-pubky');
-    await user.click(screen.getByTestId('pubchi-enroll-bot'));
+    await user.clear(screen.getByLabelText('Name'));
+    await user.click(screen.getByTestId('pubchi-create'));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a 52-character z-base-32 bot pubky.');
-    expect(screen.getByLabelText('Bot pubky')).toHaveFocus();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a name.');
+    expect(screen.getByLabelText('Name')).toHaveFocus();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
   });

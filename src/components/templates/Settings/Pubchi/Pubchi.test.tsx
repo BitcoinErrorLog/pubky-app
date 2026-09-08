@@ -4,13 +4,22 @@ import { PUBCHI_SETTINGS_SURFACE, PubchiSettings } from './Pubchi';
 
 const hookState = vi.hoisted(() => ({
   form: { control: {} },
+  backupForm: { control: {} },
   submit: vi.fn(),
+  confirmBackup: vi.fn(),
+  openBackup: vi.fn(),
+  closeBackup: vi.fn(),
   remove: vi.fn(),
   revokeDevice: vi.fn(),
   revokeAllDevices: vi.fn(),
   reapprove: vi.fn(),
   needsReapproval: false,
   binding: undefined,
+  pubchi: undefined,
+  creating: false,
+  backupOpen: false,
+  backupPositions: [],
+  backupController: { words: () => [] },
   devices: [],
   currentSigner: undefined,
   loading: false,
@@ -26,7 +35,9 @@ vi.mock('@/libs/pubchi/flags', () => ({
 }));
 
 vi.mock('@/molecules/ControlledInputField/ControlledInputField', () => ({
-  ControlledInputField: () => <input data-testid="pubchi-bot-field" />,
+  ControlledInputField: ({ label, placeholder }: { label: string; placeholder?: string }) => (
+    <input aria-label={label} placeholder={placeholder} />
+  ),
 }));
 
 describe('PubchiSettings', () => {
@@ -39,8 +50,9 @@ describe('PubchiSettings', () => {
     render(<PubchiSettings />);
     expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toHaveAttribute('data-surface', PUBCHI_SETTINGS_SURFACE);
     expect(screen.getByText('Pubchi')).toBeInTheDocument();
-    expect(screen.getByTestId('pubchi-enroll-bot')).toBeInTheDocument();
-    expect(screen.getByTestId('pubchi-not-enrolled')).toHaveTextContent('not enrolled');
+    expect(screen.getByTestId('pubchi-create')).toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-not-enrolled')).toHaveTextContent('Create a Pubchi');
+    expect(screen.queryByPlaceholderText(/52-character|pubky/i)).not.toBeInTheDocument();
   });
 
   it('shows the persistent degraded state and disables enrollment until reapproval', () => {
