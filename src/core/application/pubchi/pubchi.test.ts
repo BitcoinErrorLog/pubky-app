@@ -355,6 +355,33 @@ describe('PubchiApplication', () => {
     expect(upsertSpy).not.toHaveBeenCalled();
   });
 
+  it('allows enrollment when the session has root /:rw', async () => {
+    sessionCapabilities.current = ['/:rw'];
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).resolves.toMatchObject({
+      owner: OWNER,
+      bot: BOT,
+      status: 'active',
+    });
+    expect(requestSpy).toHaveBeenCalled();
+  });
+
+  it('allows enrollment when the session has /pub/:rw', async () => {
+    sessionCapabilities.current = ['/pub/:rw'];
+    await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).resolves.toMatchObject({
+      owner: OWNER,
+      bot: BOT,
+      status: 'active',
+    });
+  });
+
+  it('refuses enrollment for near-miss and read-only covering scopes', async () => {
+    for (const capability of ['/pub/pubchi.app.evil/:rw', '/pub/pubchi.appfoo/:rw', '/:r', '/pub/pubchi.app/:r']) {
+      sessionCapabilities.current = [capability];
+      await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('PATH_FORBIDDEN');
+    }
+  });
+
   it('rejects a request whose signer is not the stored device key', () => {
     expect(() => assertRequestSignerIsStoredDevice('b'.repeat(52), 'a'.repeat(52))).toThrow('DELEGATION_INVALID');
   });
@@ -384,6 +411,22 @@ describe('PubchiApplication', () => {
     const urls = requestSpy.mock.calls.map((call) => String(call[0].url));
     expect(urls.every((url) => !url.includes('..'))).toBe(true);
     expect(urls.some((url) => url.includes('/pub/pubchi.app/devices/'))).toBe(true);
+  });
+
+  it('DELETEs known delegations for a root /:rw session instead of skipping remote drain', async () => {
+    sessionCapabilities.current = ['/:rw'];
+    const signer = Keypair.random().publicKey.z32();
+    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
+      { id: `${OWNER}:${signer}`, owner: OWNER, signer, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
+    ]);
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+
+    const result = await PubchiApplication.unpublishKnownDelegations(OWNER, { attemptRemote: true });
+    expect(requestSpy).toHaveBeenCalledWith({
+      method: 'DELETE',
+      url: delegationUri(OWNER, signer),
+    });
+    expect(result).toEqual({ failed: [] });
   });
 
   it('DELETEs known delegation URIs and does not touch the owner binding', async () => {

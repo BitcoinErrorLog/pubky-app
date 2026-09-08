@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   devices: vi.fn(),
   toast: vi.fn(),
+  capabilities: [] as string[],
+  owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -44,6 +46,20 @@ vi.mock('@/molecules/Toaster/toast', () => ({
   toast: (...args: unknown[]) => mocks.toast(...args),
 }));
 
+vi.mock('@/libs/pubchi/device-key', () => ({
+  getCurrentDeviceKey: async () => undefined,
+}));
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (
+    selector: (state: { currentUserPubky: string; session: { info: { capabilities: string[] } } }) => unknown,
+  ) =>
+    selector({
+      currentUserPubky: mocks.owner,
+      session: { info: { capabilities: mocks.capabilities } },
+    }),
+}));
+
 describe('usePubchiEnrollment', () => {
   beforeEach(() => {
     mocks.reconcile.mockReset();
@@ -51,6 +67,7 @@ describe('usePubchiEnrollment', () => {
     mocks.remove.mockReset();
     mocks.devices.mockReset().mockResolvedValue([]);
     mocks.toast.mockReset();
+    mocks.capabilities = [];
   });
 
   afterEach(() => {
@@ -105,5 +122,21 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.BOT]?.message).toBe(
       'Enter a 52-character z-base-32 bot pubky.',
     );
+  });
+
+  it('does not ask a root /:rw session to re-approve Ring', async () => {
+    mocks.capabilities = ['/:rw'];
+    mocks.reconcile.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+    expect(result.current.needsReapproval).toBe(false);
+  });
+
+  it('asks a Ring-default /pub/pubky.app/:rw session to re-approve', async () => {
+    mocks.capabilities = ['/pub/pubky.app/:rw'];
+    mocks.reconcile.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+    expect(result.current.needsReapproval).toBe(true);
   });
 });

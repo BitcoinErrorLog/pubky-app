@@ -5,6 +5,7 @@ import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
+import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
 import {
   deleteDeviceKey,
   getCurrentDeviceKey,
@@ -203,7 +204,7 @@ export class PubchiApplication {
 
   /**
    * Record known device delegations and, when `attemptRemote` is true, DELETE
-   * each `delegationUri` while the session still has `/pub/pubchi.app/:rw`.
+   * each `delegationUri` while the session still covers write on `/pub/pubchi.app/`.
    *
    * Does NOT delete the owner binding at `/pub/pubchi.app/bots/<bot>.json`.
    * That object is the account-level U→B enrollment; logout revokes this
@@ -506,9 +507,7 @@ function assertPubchiCapability(): void {
 function sessionCanWritePubchi(): boolean {
   const session = useAuthStore.getState().selectSession();
   if (!session) return false;
-  return session.info.capabilities.some(
-    (capability) => capability === '/pub/pubchi.app/:rw' || capability === '/pub/:rw',
-  );
+  return capabilitiesCoverPubchiWrite(session.info.capabilities);
 }
 
 function ownerPending(owner: string): PendingDelegationDelete[] {

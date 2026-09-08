@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
+import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
 import { getCurrentDeviceKey } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import type { OwnerBindingV1 } from '@/libs/pubchi/schemas';
@@ -24,9 +25,7 @@ export function usePubchiEnrollment() {
   const [loading, setLoading] = useState(false);
   const [devices, setDevices] = useState<Awaited<ReturnType<typeof PubchiController.listDeviceKeys>>>([]);
   const [currentSigner, setCurrentSigner] = useState<string>();
-  const needsReapproval = !(session?.info.capabilities ?? []).some(
-    (capability) => capability === '/pub/pubchi.app/:rw' || capability === '/pub/:rw',
-  );
+  const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info.capabilities ?? []);
 
   const form = useForm<EnrollPubchiFormData>({
     resolver: zodResolver(enrollPubchiFormSchema),
