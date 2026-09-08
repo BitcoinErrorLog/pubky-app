@@ -3,6 +3,7 @@ import type {
   OwnerBindingV1,
   Phase0Purpose,
   PubchiAnswerV1,
+  PubchiBotV1,
   QueryResultV1,
 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
@@ -30,3 +31,31 @@ export type PubchiBindingWriteParams = {
 };
 
 export type PubchiBindingRecordResult = OwnerBindingV1;
+
+export type CreatePubchiParams = {
+  owner: Pubky;
+  displayName: string;
+  capabilities: string[];
+};
+
+export type CreatedPubchi = {
+  bot: Pubky;
+  displayName: string;
+  createdAt: number;
+  backupConfirmedAt: number | null;
+  verified: boolean;
+  phrase: string;
+};
+
+export type LoadedPubchi = Omit<CreatedPubchi, 'phrase'>;
+
+export type ConfirmPubchiBackupParams = {
+  owner: Pubky;
+  phrase: string;
+  confirmations: ReadonlyArray<{ position: number; word: string }>;
+};
+
+export type PubchiRemoteState = {
+  pointer: PubchiBotV1;
+  binding: OwnerBindingV1;
+};

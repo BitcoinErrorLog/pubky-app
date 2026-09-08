@@ -35,7 +35,9 @@ vi.mock('@/libs/pubchi/flags', () => ({
 vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
     reconcileActiveBinding: (...args: unknown[]) => mocks.reconcile(...args),
-    commitCreateBinding: (...args: unknown[]) => mocks.create(...args),
+    loadPubchi: vi.fn().mockResolvedValue(undefined),
+    createPubchi: (...args: unknown[]) => mocks.create(...args),
+    confirmBackup: vi.fn(),
     commitDeleteBinding: (...args: unknown[]) => mocks.remove(...args),
     listDeviceKeys: (...args: unknown[]) => mocks.devices(...args),
     revokeDevice: vi.fn(),
@@ -99,34 +101,40 @@ describe('usePubchiEnrollment', () => {
 
   it('updates the binding after enroll', async () => {
     mocks.reconcile.mockResolvedValue(undefined);
-    mocks.create.mockResolvedValue(ACTIVE);
+    mocks.create.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Pubchi',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase: 'test phrase held only by this mock',
+    });
+    mocks.reconcile.mockResolvedValueOnce(undefined).mockResolvedValueOnce(ACTIVE);
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
 
     await act(async () => {
-      result.current.form.setValue(ENROLL_FORM_FIELDS.BOT, OWNER);
+      result.current.form.setValue(ENROLL_FORM_FIELDS.DISPLAY_NAME, 'Pubchi');
       await result.current.submit();
     });
 
     expect(result.current.binding).toEqual(ACTIVE);
   });
 
-  it('surfaces the schema message when enroll is submitted with an invalid bot', async () => {
+  it('surfaces the schema message when create is submitted with an empty name', async () => {
     mocks.reconcile.mockResolvedValue(undefined);
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
 
     void result.current.form.formState.errors;
     await act(async () => {
-      result.current.form.setValue(ENROLL_FORM_FIELDS.BOT, 'not-a-pubky');
+      result.current.form.setValue(ENROLL_FORM_FIELDS.DISPLAY_NAME, '');
       await expect(result.current.submit()).resolves.toBe(false);
     });
 
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
-    expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.BOT]?.message).toBe(
-      'Enter a 52-character z-base-32 bot pubky.',
-    );
+    expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.DISPLAY_NAME]?.message).toBe('Enter a name.');
   });
 
   it('does not ask a root /:rw session to re-approve Ring', async () => {

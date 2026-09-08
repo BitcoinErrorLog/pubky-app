@@ -86,6 +86,7 @@ export const OwnerBindingV1Schema = z
     owner: zPubky,
     bot: zPubky,
     status: z.enum(['active', 'revoked']),
+    key_generation: z.number().int().min(1).optional(),
     created_at: zUnix,
     updated_at: zUnix,
   })

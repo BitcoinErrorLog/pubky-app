@@ -12,6 +12,11 @@ export {
   type PubchiEvidenceV1,
   PubchiEvidenceV1Schema,
 } from './answer';
+export {
+  parsePubchiBotV1,
+  type PubchiBotV1,
+  PubchiBotV1Schema,
+} from './bot';
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
 export { err, ERROR_CODES, type ErrorCode, ok, type ParseErr, type ParseOk, type ParseResult } from './codes';
 export {
@@ -52,6 +57,7 @@ export {
   ALLOWLISTED_PATH_PATTERNS,
   botObjectUri,
   botProfileUri,
+  botUri,
   feedDefinitionPath,
   followerSnapshotPath,
   isAllowlistedPath,

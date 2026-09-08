@@ -1,6 +1,11 @@
 import { Session } from '@synonymdev/pubky';
 import { PubchiApplication } from '@/application/pubchi/pubchi';
-import type { PubchiBindingRecordResult, PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
+import type {
+  CreatedPubchi,
+  LoadedPubchi,
+  PubchiBindingRecordResult,
+  PubchiQuerySuccess,
+} from '@/application/pubchi/pubchi.types';
 import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -15,7 +20,7 @@ import { delegationUri } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import type { TPubchiEnrollParams, TPubchiQueryParams } from './pubchi.types';
+import type { TConfirmPubchiBackupParams, TCreatePubchiParams, TPubchiQueryParams } from './pubchi.types';
 
 export class PubchiController {
   private constructor() {}
@@ -26,7 +31,20 @@ export class PubchiController {
     return PubchiApplication.getActiveBinding(owner);
   }
 
-  static async commitCreateBinding(params: TPubchiEnrollParams): Promise<PubchiBindingRecordResult> {
+  static async createPubchi(params: TCreatePubchiParams): Promise<CreatedPubchi> {
+    if (!isPubchiEnabled()) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
+        service: ErrorService.Pubchi,
+        operation: 'createPubchi',
+      });
+    }
+    const auth = useAuthStore.getState();
+    const owner = auth.selectCurrentUserPubky();
+    const capabilities = auth.selectSession()?.info.capabilities ?? [];
+    return PubchiApplication.createPubchi({ owner, displayName: params.displayName, capabilities });
+  }
+
+  static async commitCreateBinding(params: { bot: string }): Promise<PubchiBindingRecordResult> {
     if (!isPubchiEnabled()) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
         service: ErrorService.Pubchi,
@@ -40,8 +58,20 @@ export class PubchiController {
         operation: 'commitCreateBinding',
       });
     }
+    return PubchiApplication.commitCreateBinding({
+      owner: useAuthStore.getState().selectCurrentUserPubky(),
+      bot,
+    });
+  }
+
+  static async loadPubchi(): Promise<LoadedPubchi | undefined> {
+    if (!isPubchiEnabled()) return undefined;
+    return PubchiApplication.loadPubchi(useAuthStore.getState().selectCurrentUserPubky());
+  }
+
+  static async confirmBackup(params: TConfirmPubchiBackupParams): Promise<LoadedPubchi> {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
-    return PubchiApplication.commitCreateBinding({ owner, bot });
+    return PubchiApplication.confirmBackup({ owner, ...params });
   }
 
   static async commitDeleteBinding(): Promise<void> {
