@@ -1,5 +1,10 @@
+import type { Session } from '@synonymdev/pubky';
 import { AuthApplication } from '@/application/auth/auth';
-import type { TKeypairParams, TRestorePersistedSessionResult } from '@/application/auth/auth.types';
+import type {
+  TKeypairParams,
+  TRestorePersistedSessionResult,
+  TSingleApprovalResult,
+} from '@/application/auth/auth.types';
 import { BootstrapApplication, type BootstrapProgressCallback } from '@/application/bootstrap/bootstrap';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { MessagingApplication } from '@/application/messaging/messaging';
@@ -35,10 +40,7 @@ import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import { clearRouteGuardReturnTo } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
 import { createCanceledError } from '@/services/homeserver/error.utils';
 import type { TGenerateAuthUrlResult, THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
-import {
-  type MarketplaceSessionFlow,
-  MarketplaceSessionService,
-} from '@/services/marketplace/marketplace-session';
+import type { MarketplaceSessionFlow } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
@@ -61,8 +63,22 @@ export class AuthController {
   /**
    * Covers QR wait AND both POSTs. wrapAuthFlow is not this lifetime: it
    * clears when awaitApproval/awaitToken settles, which is when the POSTs begin.
+   *
+   * ONE guard covers both ceremony kinds (direct sign-in / step-up and the
+   * bridged first-commerce prompt): a getAuthUrl() arriving while a bridged
+   * ceremony holds the POST window JOINS it instead of taking the default
+   * clearDatabase entry path, and a second bridged dialog joins the in-flight
+   * bridged flow instead of minting a second Ring prompt.
    */
-  private static signInCeremony: { token: symbol; result: Promise<TGenerateAuthUrlResult> } | null = null;
+  private static signInCeremony: {
+    token: symbol;
+    /** Sign-in view of the ceremony (what getAuthUrl / getStepUpAuthUrl join). */
+    result: Promise<TGenerateAuthUrlResult>;
+    /** Marketplace view — non-null only while a BRIDGED commerce ceremony holds the guard. */
+    bridgedFlow: MarketplaceSessionFlow | null;
+    /** Dual-POST outcome once the underlying flow has started (both kinds). */
+    outcome: Promise<TSingleApprovalResult> | null;
+  } | null = null;
 
   /**
    * Bumped synchronously at logout start, before any await. A restore that
@@ -92,9 +108,43 @@ export class AuthController {
     this.cleanupState = { promise: null, completed: false };
   }
 
-  /** Test-only: reset the single-approval ceremony join token. */
+  /** Test-only: reset the single-approval ceremony join token (both ceremony kinds). */
   static resetSignInCeremonyGuard(): void {
     this.signInCeremony = null;
+  }
+
+  /**
+   * Releases a hook-held auth flow. When the flow is still the
+   * controller-tracked active flow, the whole active flow AND ceremony guard
+   * are torn down, so a retry mints a FRESH single-use URL instead of joining
+   * the cancelled ceremony and re-showing its dead QR. When the flow was
+   * already superseded (another start won the slot), only the hook's own
+   * stale handle is freed — the live superseding flow is left untouched.
+   */
+  static releaseAuthFlow(cancelAuthFlow: () => void): void {
+    if (this.activeAuthFlow && this.activeAuthFlow.cancel === cancelAuthFlow) {
+      this.cancelActiveAuthFlow();
+      return;
+    }
+    cancelAuthFlow();
+  }
+
+  /**
+   * Frees a LIVE flow from an earlier entry point (e.g. a signup page's
+   * wrapAuthFlow QR) before a new ceremony takes over the slot — a stale QR
+   * approved mid-ceremony would otherwise run a concurrent session init on
+   * freshly-cleared local state. Unlike cancelActiveAuthFlow this never
+   * touches the caller's just-created ceremony guard; a ceremony guard whose
+   * underlying flow IS the prior one is released with it.
+   */
+  private static releasePriorAuthFlow(): void {
+    const prior = this.activeAuthFlow;
+    if (!prior) return;
+    this.activeAuthFlow = null;
+    if (this.signInCeremony?.token === prior.token) {
+      this.signInCeremony = null;
+    }
+    prior.cancel?.();
   }
 
   /** Local state is dirty again once a session is initialized into it. */
@@ -269,6 +319,14 @@ export class AuthController {
   }
 
   /**
+   * In-flight session init, keyed by Session object identity. Every joiner of
+   * one ceremony (a StrictMode double-effect, a remount) receives the same
+   * awaitApproval settlement and must not run the store reset + bootstrap
+   * twice: a second call for the SAME Session joins the first instead.
+   */
+  private static sessionInitInFlight: { session: Session; promise: Promise<void> } | null = null;
+
+  /**
    * Initializes the authenticated session and checks if the user is signed up (profile.json in homeserver).
    *
    * Runs the staging environment guard first: the session was approved externally
@@ -280,9 +338,32 @@ export class AuthController {
    * @param params.session - The user session data
    */
   static async initializeAuthenticatedSession({ session }: THomeserverSessionResult) {
+    const inFlight = this.sessionInitInFlight;
+    if (inFlight && inFlight.session === session) {
+      return await inFlight.promise;
+    }
+    const promise = this.runInitializeAuthenticatedSession({ session });
+    this.sessionInitInFlight = { session, promise };
+    // Joiners observe the real rejection through their own await; the stored
+    // branch must never surface as an unhandled rejection.
+    promise.catch(() => {});
+    try {
+      await promise;
+    } finally {
+      if (this.sessionInitInFlight?.promise === promise) {
+        this.sessionInitInFlight = null;
+      }
+    }
+  }
+
+  private static async runInitializeAuthenticatedSession({ session }: THomeserverSessionResult) {
     try {
       await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
     } catch (error) {
+      // The marketplace half of the ceremony may already have minted (and
+      // persisted) a bearer for this approval; a REFUSED sign-in must not
+      // leave that bearer at rest.
+      CommerceController.clearMarketplaceSession();
       // The just-approved session lives on the user's actual homeserver — sign it
       // out instead of leaving it dangling, whether the key was rejected or the
       // lookup failed. Best-effort: the failure must surface regardless.
@@ -508,27 +589,103 @@ export class AuthController {
   /**
    * Bridged first-commerce prompt: one CAPABILITIES approval, same dual POST.
    * Never auto-started. Does not wipe local state.
+   *
+   * Holds the SAME single-flight guard as the sign-in ceremony: a second call
+   * while one is in flight (two mounted dialogs, a remount) JOINS it — same
+   * authorization URL, one Ring prompt — and a getAuthUrl() arriving during
+   * its POST window joins the sign-in view instead of running clearDatabase
+   * mid-ceremony.
    */
   static beginBridgedCommerceSessionFlow(): MarketplaceSessionFlow {
+    const existing = this.signInCeremony;
+    if (existing) {
+      if (existing.bridgedFlow) {
+        return existing.bridgedFlow;
+      }
+      // A DIRECT sign-in ceremony is in flight: its dual POST already redeems
+      // the marketplace session, so join that outcome instead of minting a
+      // second flow. Closing this dialog must not cancel the user's sign-in,
+      // hence the no-op cancel.
+      const entry = existing;
+      return {
+        authorizationUrl: '',
+        awaitSession: async () => {
+          const outcome = entry.outcome ?? (await entry.result.then(() => entry.outcome));
+          if (!outcome) {
+            throw createCanceledError();
+          }
+          const { marketplace } = await outcome;
+          if (!marketplace) {
+            throw Err.auth(
+              AuthErrorCode.INVALID_TOKEN,
+              'The marketplace service did not issue a session. Approve again to reconnect.',
+              { service: ErrorService.Marketplace, operation: 'beginBridgedCommerceSessionFlow' },
+            );
+          }
+          return marketplace;
+        },
+        cancel: () => {},
+      };
+    }
+
+    const token = Symbol('bridged-commerce-ceremony');
+    this.releasePriorAuthFlow();
     const flow = AuthApplication.startDirectSignInFlow();
-    return {
+    this.activeAuthFlow = { token, cancel: flow.cancelAuthFlow };
+
+    const outcome: Promise<TSingleApprovalResult> = (async () => {
+      const authToken = await AuthApplication.withAuthFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
+      return await AuthApplication.completeSingleApprovalCeremony(authToken, {
+        // Swap the store session for the widened one BEFORE the marketplace
+        // POST: if the marketplace half (or anything after it) fails, the
+        // wide cookie and the store session never drift apart, so the next
+        // click does not re-prompt for a grant the user already holds. The
+        // ceremony's own settled-finally releases the flow.
+        onHomeserverSession: async (session) => {
+          await this.completeStepUpReauth({ session }, { releaseAuthFlow: false });
+        },
+      });
+    })();
+    // The stored outcome rejects for cancelled/failed ceremonies; joining
+    // callers get the real rejection through their view — never as unhandled.
+    outcome.catch(() => {});
+
+    const settled = outcome.finally(() => {
+      if (this.activeAuthFlow?.token === token) {
+        this.activeAuthFlow = null;
+      }
+      if (this.signInCeremony?.token === token) {
+        this.signInCeremony = null;
+      }
+      flow.cancelAuthFlow();
+    });
+    settled.catch(() => {});
+
+    const marketplaceSession = settled.then(({ marketplace }) => {
+      if (!marketplace) {
+        throw Err.auth(
+          AuthErrorCode.INVALID_TOKEN,
+          'The marketplace service did not issue a session. Approve again to reconnect.',
+          { service: ErrorService.Marketplace, operation: 'beginBridgedCommerceSessionFlow' },
+        );
+      }
+      CommerceController.writeMarketplaceSessionStore(marketplace);
+      return marketplace;
+    });
+    marketplaceSession.catch(() => {});
+
+    const sessionView: TGenerateAuthUrlResult = {
       authorizationUrl: flow.authorizationUrl,
-      awaitSession: async () => {
-        const authToken = await MarketplaceSessionService.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
-        const { session, marketplace } = await AuthApplication.completeSingleApprovalCeremony(authToken);
-        await this.completeStepUpReauth({ session });
-        if (!marketplace) {
-          throw Err.auth(
-            AuthErrorCode.INVALID_TOKEN,
-            'The marketplace service did not issue a session. Approve again to reconnect.',
-            { service: ErrorService.Marketplace, operation: 'beginBridgedCommerceSessionFlow' },
-          );
-        }
-        CommerceController.writeMarketplaceSessionStore(marketplace);
-        return marketplace;
-      },
+      awaitApproval: settled.then(({ session }) => session),
+      cancelAuthFlow: flow.cancelAuthFlow,
+    };
+    const bridgedFlow: MarketplaceSessionFlow = {
+      authorizationUrl: flow.authorizationUrl,
+      awaitSession: () => marketplaceSession,
       cancel: flow.cancelAuthFlow,
     };
+    this.signInCeremony = { token, result: Promise.resolve(sessionView), bridgedFlow, outcome: settled };
+    return bridgedFlow;
   }
 
   private static wrapDirectSignInCeremony({
@@ -537,12 +694,17 @@ export class AuthController {
     preserveLocalState: boolean;
   }): Promise<TGenerateAuthUrlResult> {
     if (this.signInCeremony) {
+      // Joins a direct sign-in ceremony — or the sign-in view of an in-flight
+      // BRIDGED commerce ceremony, whose POST window must never see the
+      // default clearDatabase entry path.
       return this.signInCeremony.result;
     }
     const token = Symbol('sign-in-ceremony');
-    const entry: { token: symbol; result: Promise<TGenerateAuthUrlResult> } = {
+    const entry: NonNullable<(typeof AuthController)['signInCeremony']> = {
       token,
       result: undefined as unknown as Promise<TGenerateAuthUrlResult>,
+      bridgedFlow: null,
+      outcome: null,
     };
     this.signInCeremony = entry;
     entry.result = this.runDirectSignInCeremony(token, preserveLocalState);
@@ -555,6 +717,11 @@ export class AuthController {
   ): Promise<TGenerateAuthUrlResult> {
     try {
       BootstrapApplication.cancelModerationFollow();
+      // Free a live QR from an earlier entry point (e.g. signup's wrapAuthFlow)
+      // before this ceremony takes over the slot — a stale QR approved
+      // mid-ceremony would otherwise run a concurrent session init on
+      // freshly-cleared local state.
+      this.releasePriorAuthFlow();
       if (!preserveLocalState) {
         await clearDatabase();
         useMigrationStore.getState().reset();
@@ -571,22 +738,36 @@ export class AuthController {
       }
       this.activeAuthFlow.cancel = flow.cancelAuthFlow;
 
-      const awaitApproval = (async () => {
-        const authToken = await MarketplaceSessionService.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
-        const { session, marketplace } = await AuthApplication.completeSingleApprovalCeremony(authToken);
-        if (marketplace) {
-          CommerceController.writeMarketplaceSessionStore(marketplace);
+      const outcome: Promise<TSingleApprovalResult> = (async () => {
+        const authToken = await AuthApplication.withAuthFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
+        const result = await AuthApplication.completeSingleApprovalCeremony(authToken);
+        if (result.marketplace) {
+          CommerceController.writeMarketplaceSessionStore(result.marketplace);
         }
-        return session;
-      })().finally(() => {
-        if (this.activeAuthFlow?.token === token) {
-          this.activeAuthFlow = null;
-        }
-        if (this.signInCeremony?.token === token) {
-          this.signInCeremony = null;
-        }
-        flow.cancelAuthFlow();
-      });
+        return result;
+      })();
+      // The stored outcome rejects for cancelled/failed ceremonies; joining
+      // callers get the real rejection through awaitApproval — never as
+      // unhandled.
+      outcome.catch(() => {});
+      if (this.signInCeremony?.token === token) {
+        this.signInCeremony.outcome = outcome;
+      }
+
+      const awaitApproval = outcome
+        .then(({ session }) => session)
+        .finally(() => {
+          if (this.activeAuthFlow?.token === token) {
+            this.activeAuthFlow = null;
+          }
+          if (this.signInCeremony?.token === token) {
+            this.signInCeremony = null;
+          }
+          flow.cancelAuthFlow();
+        });
+      // awaitApproval is created eagerly, before any caller can attach; an
+      // abandoned ceremony must not leave an unhandled rejection behind.
+      awaitApproval.catch(() => {});
 
       return { authorizationUrl: flow.authorizationUrl, awaitApproval, cancelAuthFlow: flow.cancelAuthFlow };
     } catch (error) {
@@ -609,8 +790,16 @@ export class AuthController {
    *
    * A session approved for a DIFFERENT identity is refused and signed back
    * out — a step-up must never silently switch accounts.
+   *
+   * `releaseAuthFlow: false` is for the bridged commerce ceremony, which
+   * calls this mid-ceremony (between the homeserver and marketplace POSTs):
+   * the ceremony's own settled-finally owns the guard and flow release, and
+   * cancelling here would drop the single-flight guard during the POST window.
    */
-  static async completeStepUpReauth({ session }: THomeserverSessionResult): Promise<void> {
+  static async completeStepUpReauth(
+    { session }: THomeserverSessionResult,
+    { releaseAuthFlow = true }: { releaseAuthFlow?: boolean } = {},
+  ): Promise<void> {
     const authStore = useAuthStore.getState();
     const approvedPubky = Identity.z32FromSession({ session });
     if (!authStore.currentUserPubky || approvedPubky !== authStore.currentUserPubky) {
@@ -636,7 +825,9 @@ export class AuthController {
       });
       throw error;
     }
-    this.cancelActiveAuthFlow();
+    if (releaseAuthFlow) {
+      this.cancelActiveAuthFlow();
+    }
     authStore.setSession(session);
   }
 

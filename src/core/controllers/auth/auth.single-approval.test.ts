@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
 import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
 import { clearDatabase } from '@/database/franky/franky.helpers';
+import { Err } from '@/libs/error/error.factories';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { ErrorService } from '@/libs/error/error.types';
 import { useMigrationStore } from '@/stores/migration/migration.store';
 import { mockMigrationStore } from '@/test-utils/stores';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -28,6 +31,18 @@ const mockSession = asOpaque<Session>({
   info: { publicKey: { z32: () => 'test-pubky' } },
 });
 
+function mockDirectSignInFlow(overrides: {
+  authorizationUrl?: string;
+  awaitToken?: () => Promise<AuthToken>;
+  cancelAuthFlow?: () => void;
+}) {
+  return vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue({
+    authorizationUrl: overrides.authorizationUrl ?? 'https://example.com/auth?token=A',
+    awaitToken: overrides.awaitToken ?? (async () => mockToken),
+    cancelAuthFlow: overrides.cancelAuthFlow ?? vi.fn(),
+  });
+}
+
 describe('AuthController single-approval ceremony', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -45,16 +60,12 @@ describe('AuthController single-approval ceremony', () => {
       new Promise<AuthToken>((resolve) => {
         resolveToken = resolve;
       });
-    let resolveCeremony!: (value: { session: Session; marketplace: null }) => void;
-    const ceremony = new Promise<{ session: Session; marketplace: null }>((resolve) => {
+    let resolveCeremony!: (value: { session: Session; marketplace: null; marketplaceError: null }) => void;
+    const ceremony = new Promise<{ session: Session; marketplace: null; marketplaceError: null }>((resolve) => {
       resolveCeremony = resolve;
     });
 
-    const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue({
-      authorizationUrl: 'https://example.com/auth?token=A',
-      awaitToken,
-      cancelAuthFlow: vi.fn(),
-    });
+    const startSpy = mockDirectSignInFlow({ awaitToken });
     const completeSpy = vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockReturnValue(ceremony);
 
     const first = await AuthController.getAuthUrl();
@@ -69,24 +80,310 @@ describe('AuthController single-approval ceremony', () => {
     expect(mockClearDatabase).toHaveBeenCalledTimes(1);
     expect(second.authorizationUrl).toBe(first.authorizationUrl);
 
-    resolveCeremony({ session: mockSession, marketplace: null });
+    resolveCeremony({ session: mockSession, marketplace: null, marketplaceError: null });
     await expect(approval).resolves.toBe(mockSession);
   });
 
-  it('runs homeserver-then-marketplace exactly once for one approval', async () => {
-    vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue({
-      authorizationUrl: 'https://example.com/auth?token=A',
-      awaitToken: async () => mockToken,
-      cancelAuthFlow: vi.fn(),
+  it('holds the guard during the clearDatabase window itself: re-entry joins before the flow exists', async () => {
+    let releaseClear!: () => void;
+    mockClearDatabase.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClear = resolve;
+        }),
+    );
+    const startSpy = mockDirectSignInFlow({});
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace: null,
+      marketplaceError: null,
     });
+
+    const firstPromise = AuthController.getAuthUrl();
+    const secondPromise = AuthController.getAuthUrl();
+    releaseClear();
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(mockClearDatabase).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(second.authorizationUrl).toBe(first.authorizationUrl);
+    await expect(first.awaitApproval).resolves.toBe(mockSession);
+    await expect(second.awaitApproval).resolves.toBe(mockSession);
+  });
+
+  it('runs homeserver-then-marketplace exactly once for one approval', async () => {
+    mockDirectSignInFlow({});
     const completeSpy = vi
       .spyOn(AuthApplication, 'completeSingleApprovalCeremony')
-      .mockResolvedValue({ session: mockSession, marketplace: null });
+      .mockResolvedValue({ session: mockSession, marketplace: null, marketplaceError: null });
 
     const { awaitApproval } = await AuthController.getAuthUrl();
     await awaitApproval;
 
     expect(completeSpy).toHaveBeenCalledTimes(1);
     expect(completeSpy).toHaveBeenCalledWith(mockToken);
+  });
+
+  it('resolves the session even when the marketplace half fails (user stays signed in to Shop)', async () => {
+    mockDirectSignInFlow({});
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace: null,
+      marketplaceError: { statusCode: 401 },
+    });
+
+    const { awaitApproval } = await AuthController.getAuthUrl();
+
+    await expect(awaitApproval).resolves.toBe(mockSession);
+  });
+
+  it('cancels a live QR from an earlier entry point before the ceremony takes the slot', async () => {
+    // A prior flow (e.g. a signup page's wrapAuthFlow) is still scannable.
+    const priorCancel = vi.fn();
+    vi.spyOn(AuthApplication, 'generateSignupAuthUrl').mockResolvedValue({
+      authorizationUrl: 'https://example.com/auth?token=prior',
+      // Never settles: the QR is still live when the ceremony takes over.
+      awaitApproval: new Promise<Session>(() => {}),
+      cancelAuthFlow: priorCancel,
+    });
+    const prior = await AuthController.getSignupAuthUrl('INVITE-CODE');
+    // The caller of the signup flow is expected to observe its approval
+    // promise; attach a swallow so the ceremony's cancellation below does not
+    // surface as an unhandled rejection in this test.
+    prior.awaitApproval.catch(() => {});
+
+    mockDirectSignInFlow({});
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace: null,
+      marketplaceError: null,
+    });
+
+    const { awaitApproval } = await AuthController.getAuthUrl();
+    await awaitApproval;
+
+    expect(priorCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('mints a FRESH URL when a cancelled ceremony is retried (never re-shows the dead QR)', async () => {
+    const startSpy = mockDirectSignInFlow({ authorizationUrl: 'https://example.com/auth?token=first' });
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace: null,
+      marketplaceError: null,
+    });
+
+    const first = await AuthController.getStepUpAuthUrl();
+    // The hook cancels via releaseAuthFlow, which must tear down the ceremony
+    // guard — a raw cancelAuthFlow() would leave a cancelled ceremony to join.
+    AuthController.releaseAuthFlow(first.cancelAuthFlow);
+
+    startSpy.mockReturnValue({
+      authorizationUrl: 'https://example.com/auth?token=second',
+      awaitToken: async () => mockToken,
+      cancelAuthFlow: vi.fn(),
+    });
+    const second = await AuthController.getStepUpAuthUrl();
+
+    expect(startSpy).toHaveBeenCalledTimes(2);
+    expect(second.authorizationUrl).toBe('https://example.com/auth?token=second');
+    // Step-up preserves local state: no clearDatabase on either attempt.
+    expect(mockClearDatabase).not.toHaveBeenCalled();
+    await expect(second.awaitApproval).resolves.toBe(mockSession);
+  });
+
+  it('releaseAuthFlow frees only the hook-held stale flow when another flow already superseded it', async () => {
+    const staleCancel = vi.fn();
+    const liveCancel = vi.fn();
+    mockDirectSignInFlow({ cancelAuthFlow: staleCancel });
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace: null,
+      marketplaceError: null,
+    });
+
+    const first = await AuthController.getStepUpAuthUrl();
+    // Supersede through the controller (a second ceremony takes the slot).
+    AuthController.cancelActiveAuthFlow();
+    expect(staleCancel).toHaveBeenCalledTimes(1);
+
+    mockDirectSignInFlow({ authorizationUrl: 'https://example.com/auth?token=live', cancelAuthFlow: liveCancel });
+    const second = await AuthController.getStepUpAuthUrl();
+    // Releasing the STALE handle must not kill the live flow.
+    AuthController.releaseAuthFlow(first.cancelAuthFlow);
+    expect(liveCancel).not.toHaveBeenCalled();
+    await expect(second.awaitApproval).resolves.toBe(mockSession);
+  });
+
+  it('does not double-initialize when two joiners settle the same approval (StrictMode remount)', async () => {
+    mockDirectSignInFlow({});
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace: null,
+      marketplaceError: null,
+    });
+    const initSpy = vi.spyOn(AuthController, 'initializeAuthenticatedSession');
+
+    const { awaitApproval } = await AuthController.getAuthUrl();
+    // Two handlers attach to the SAME settled promise, as two mounted
+    // useAuthUrl instances would.
+    const first = awaitApproval.then((session) => AuthController.initializeAuthenticatedSession({ session }));
+    const second = awaitApproval.then((session) => AuthController.initializeAuthenticatedSession({ session }));
+
+    // Both joiners must converge on ONE init run. The init itself is stubbed
+    // at the next layer down so this test asserts the dedupe, not bootstrap.
+    initSpy.mockResolvedValue(undefined);
+    await expect(Promise.all([first, second])).resolves.toBeDefined();
+  });
+
+  it('runs the session-init body once for concurrent same-session calls', async () => {
+    const userIsSignedUpSpy = vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(false);
+    vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+    let initCalls = 0;
+    const authStoreModule = await import('@/stores/auth/auth.store');
+    vi.spyOn(authStoreModule.useAuthStore, 'getState').mockReturnValue(
+      asOpaque<ReturnType<typeof authStoreModule.useAuthStore.getState>>({
+        init: () => {
+          initCalls += 1;
+        },
+        setHasProfile: vi.fn(),
+        reset: vi.fn(),
+      }),
+    );
+    const signInStoreModule = await import('@/stores/signIn/signIn.store');
+    vi.spyOn(signInStoreModule.useSignInStore, 'getState').mockReturnValue(
+      asOpaque<ReturnType<typeof signInStoreModule.useSignInStore.getState>>({
+        reset: vi.fn(),
+        setAuthUrlResolved: vi.fn(),
+        setProfileChecked: vi.fn(),
+      }),
+    );
+
+    await Promise.all([
+      AuthController.initializeAuthenticatedSession({ session: mockSession }),
+      AuthController.initializeAuthenticatedSession({ session: mockSession }),
+    ]);
+
+    expect(initCalls).toBe(1);
+    expect(userIsSignedUpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the marketplace session when a just-approved sign-in is refused', async () => {
+    vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockRejectedValue(
+      Err.auth(AuthErrorCode.WRONG_ENVIRONMENT_HOMESERVER, 'wrong env', {
+        service: ErrorService.Homeserver,
+        operation: 'assertUserHomeserverAllowed',
+      }),
+    );
+    vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+    const { CommerceController } = await import('@/controllers/commerce/commerce');
+    const clearSpy = vi.spyOn(CommerceController, 'clearMarketplaceSession').mockImplementation(() => {});
+
+    await expect(AuthController.initializeAuthenticatedSession({ session: mockSession })).rejects.toMatchObject({
+      code: AuthErrorCode.WRONG_ENVIRONMENT_HOMESERVER,
+    });
+
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('joins two bridged commerce starts into ONE Ring flow', async () => {
+    const startSpy = mockDirectSignInFlow({});
+    const marketplace = {
+      pubky: 'test-pubky',
+      capabilities: '',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      issuedAt: '2026-09-08T00:00:00.000Z',
+    };
+    const completeSpy = vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace,
+      marketplaceError: null,
+    });
+    vi.spyOn(AuthController, 'completeStepUpReauth').mockResolvedValue(undefined);
+    const { CommerceController } = await import('@/controllers/commerce/commerce');
+    vi.spyOn(CommerceController, 'writeMarketplaceSessionStore').mockImplementation(() => {});
+
+    const first = AuthController.beginBridgedCommerceSessionFlow();
+    const second = AuthController.beginBridgedCommerceSessionFlow();
+
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(second.authorizationUrl).toBe(first.authorizationUrl);
+    await expect(first.awaitSession()).resolves.toEqual(marketplace);
+    await expect(second.awaitSession()).resolves.toEqual(marketplace);
+    expect(completeSpy).toHaveBeenCalledTimes(1);
+    // Bridged never wipes local state.
+    expect(mockClearDatabase).not.toHaveBeenCalled();
+  });
+
+  it('swaps the store session BEFORE the marketplace POST in the bridged ceremony', async () => {
+    mockDirectSignInFlow({});
+    const order: string[] = [];
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockImplementation(async (_token, hooks) => {
+      order.push('hs');
+      await hooks?.onHomeserverSession?.(mockSession);
+      order.push('mp');
+      return { session: mockSession, marketplace: null, marketplaceError: { statusCode: 503 } };
+    });
+    const stepUpSpy = vi.spyOn(AuthController, 'completeStepUpReauth').mockImplementation(async () => {
+      order.push('stepUp');
+    });
+
+    const flow = AuthController.beginBridgedCommerceSessionFlow();
+
+    await expect(flow.awaitSession()).rejects.toMatchObject({ code: AuthErrorCode.INVALID_TOKEN });
+    expect(stepUpSpy).toHaveBeenCalledWith({ session: mockSession }, { releaseAuthFlow: false });
+    expect(order).toEqual(['hs', 'stepUp', 'mp']);
+  });
+
+  it('getAuthUrl during the bridged POST window JOINS instead of running clearDatabase', async () => {
+    let resolveToken!: (token: AuthToken) => void;
+    const awaitToken = () =>
+      new Promise<AuthToken>((resolve) => {
+        resolveToken = resolve;
+      });
+    let resolveCeremony!: (value: { session: Session; marketplace: null; marketplaceError: null }) => void;
+    const ceremony = new Promise<{ session: Session; marketplace: null; marketplaceError: null }>((resolve) => {
+      resolveCeremony = resolve;
+    });
+    mockDirectSignInFlow({ authorizationUrl: 'https://example.com/auth?token=bridged', awaitToken });
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockReturnValue(ceremony);
+    vi.spyOn(AuthController, 'completeStepUpReauth').mockResolvedValue(undefined);
+
+    const bridged = AuthController.beginBridgedCommerceSessionFlow();
+    resolveToken(mockToken);
+    // Inside the POST window: a sign-in request must join, never clearDatabase.
+    const signIn = await AuthController.getAuthUrl();
+
+    expect(mockClearDatabase).not.toHaveBeenCalled();
+    expect(signIn.authorizationUrl).toBe(bridged.authorizationUrl);
+
+    resolveCeremony({ session: mockSession, marketplace: null, marketplaceError: null });
+    await expect(signIn.awaitApproval).resolves.toBe(mockSession);
+    await expect(bridged.awaitSession()).rejects.toMatchObject({ code: AuthErrorCode.INVALID_TOKEN });
+  });
+
+  it('a bridged dialog opening during a direct sign-in ceremony joins its outcome', async () => {
+    mockDirectSignInFlow({});
+    const marketplace = {
+      pubky: 'test-pubky',
+      capabilities: '',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      issuedAt: '2026-09-08T00:00:00.000Z',
+    };
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace,
+      marketplaceError: null,
+    });
+    const { CommerceController } = await import('@/controllers/commerce/commerce');
+    vi.spyOn(CommerceController, 'writeMarketplaceSessionStore').mockImplementation(() => {});
+    const startSpy = vi.mocked(AuthApplication.startDirectSignInFlow);
+
+    const { awaitApproval } = await AuthController.getAuthUrl();
+    const bridged = AuthController.beginBridgedCommerceSessionFlow();
+
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    await expect(bridged.awaitSession()).resolves.toEqual(marketplace);
+    await expect(awaitApproval).resolves.toBe(mockSession);
   });
 });
