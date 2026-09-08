@@ -7,6 +7,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
+import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { deleteDeviceKey, getDeviceKeys } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { isPubkyId } from '@/libs/pubchi/schemas';
@@ -88,7 +89,7 @@ export class PubchiController {
   }
 
   static async getCapabilityApprovalUrl(): Promise<TGenerateAuthUrlResult> {
-    return HomeserverService.generateAuthUrl('/pub/pubky.app/:rw,/pub/pubchi.app/:rw');
+    return HomeserverService.generateAuthUrl(PUBCHI_SIGNIN_CAPABILITIES);
   }
 
   /**

@@ -5,6 +5,7 @@ import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } 
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
+import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { asOpaque } from '@/test-utils/type-assertions';
 
 // =============================================================================
@@ -639,9 +640,39 @@ describe('HomeserverService', () => {
         await HomeserverService.generateAuthUrl();
 
         expect(mockState.startAuthFlow).toHaveBeenCalledWith(
-          '/pub/pubky.app/:rw', // Default capabilities
+          PUBCHI_SIGNIN_CAPABILITIES,
           'signin-kind', // AuthFlowKind.signin()
           expect.stringContaining('/inbox'), // HTTP relay (Pubky 0.7+ inbox endpoint)
+        );
+      });
+
+      it('starts the auth flow with capabilities that cover Pubchi write', async () => {
+        await HomeserverService.generateAuthUrl();
+
+        const requested = mockState.startAuthFlow.mock.calls[0][0] as string;
+        expect(requested).toBe('/pub/pubky.app/:rw,/pub/pubchi.app/:rw');
+        expect(capabilitiesCoverPubchiWrite(requested.split(','))).toBe(true);
+      });
+
+      it('keeps /pub/pubky.app/:rw as the first default capability entry', async () => {
+        await HomeserverService.generateAuthUrl();
+
+        const requested = mockState.startAuthFlow.mock.calls[0][0] as string;
+        expect(requested.startsWith('/pub/pubky.app/:rw,')).toBe(true);
+      });
+
+      it('getCapabilityApprovalUrl requests the same capabilities as default sign-in', async () => {
+        await HomeserverService.generateAuthUrl();
+        const defaultCaps = mockState.startAuthFlow.mock.calls[0][0];
+        mockState.startAuthFlow.mockClear();
+
+        const { PubchiController } = await import('@/controllers/pubchi/pubchi');
+        await PubchiController.getCapabilityApprovalUrl();
+
+        expect(mockState.startAuthFlow).toHaveBeenCalledWith(
+          defaultCaps,
+          'signin-kind',
+          expect.stringContaining('/inbox'),
         );
       });
 

@@ -71,7 +71,7 @@ The seed is cleared in `cleanupLocalState` (logout and failed session restore). 
 ## Out of scope
 
 - Hosted bot session, assisted/autonomous tiers, approval queue, bot profile automation rendering
-- Changing default Ring capabilities (`/pub/pubky.app/:rw` only). Recovery-phrase `signer.signin()` sessions are root-capable and can write `/pub/pubchi.app/`
+- Re-approve remains only for sessions minted with the narrow `/pub/pubky.app/:rw` set (for example upstream pubky.app SSO). Fresh Ring sign-in on this fork requests `/pub/pubky.app/:rw,/pub/pubchi.app/:rw`. Recovery-phrase `signer.signin()` sessions are root-capable and can write `/pub/pubchi.app/`
 - Prompt injection, Scout, or service-side proof gates
 - Main franky Dexie version bump (bindings live in a separate `pubchi` IndexedDB)
 

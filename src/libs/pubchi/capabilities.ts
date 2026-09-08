@@ -13,6 +13,9 @@
 
 export const PUBCHI_HOMESERVER_DIRECTORY = '/pub/pubchi.app/';
 
+/** Default Ring sign-in request: pubky.app first, Pubchi folder appended. */
+export const PUBCHI_SIGNIN_CAPABILITIES = `/pub/pubky.app/:rw,${PUBCHI_HOMESERVER_DIRECTORY}:rw`;
+
 const ACTIONS = new Set(['r', 'w', 'rw', 'wr']);
 
 type ParsedCapability = {
