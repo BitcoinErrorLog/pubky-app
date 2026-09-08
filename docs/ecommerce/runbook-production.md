@@ -62,14 +62,24 @@ Moving `shop.pubky.app` between Vercel projects is **not** a reassignment. The `
 the domain to a project, it mints a new `_vercel` TXT verification token. Detaching the domain from the current project
 invalidates the token currently published in DNS.
 
-Before detaching `shop.pubky.app`, attach it to the destination project, obtain the newly minted `_vercel` TXT token,
-and have the DNS owner publish that exact token. Verify the new record has propagated, then detach the domain from the
-current project and complete the attach. If the new token cannot be published and verified first, accept that detaching
-will take the hostname offline until DNS is updated; it is not a safe preparatory step.
+There is no way to obtain the destination token in advance. Attaching the domain to a second project while the first
+still holds it fails with `domain_already_in_use`, so the token only exists after the detach. **The move therefore
+always takes the hostname offline**, from the moment of detach until the new TXT record propagates. Plan for that
+window rather than trying to eliminate it:
 
-If the move fails after detachment, roll back by reattaching `shop.pubky.app` to the prior project, obtain its newly
-minted `_vercel` token, publish and verify that replacement token, then complete the reattach. Do not reuse a prior
-token for either direction.
+1. Lower the TTL on `_vercel.pubky.app` well in advance (the observed TTL is 1800s).
+2. Have the DNS owner at the keyboard before you start; the outage lasts exactly as long as they take to publish.
+3. Detach from the current project, immediately attach to the destination, and read the minted token from the attach
+   response (`verification[].value`).
+4. Publish that exact token, confirm with `dig +short TXT _vercel.pubky.app` against both a public resolver and the
+   authoritative nameservers, then call the verify endpoint and pin the alias.
+
+Do not re-run the attach while waiting. Every attach and detach mints a fresh token and invalidates the record the DNS
+owner just published. On 2026-09-08 that mistake turned a planned move into a two-hour outage.
+
+Rolling back has the same cost as going forward: reattaching to the prior project mints its own new token and needs its
+own DNS publish. Once you have detached, the fastest route back to a working hostname is usually to finish the move,
+not to reverse it. Meanwhile the project's own `*.vercel.app` alias keeps serving, so Shop stays reachable there.
 
 ## Vercel Rollback Or Promote
 
