@@ -1,0 +1,200 @@
+'use client';
+
+import { useState } from 'react';
+import { RotateCcw } from 'lucide-react';
+import { Badge } from '@/atoms/Badge/Badge';
+import { Button } from '@/atoms/Button/Button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
+import { Input } from '@/atoms/Input/Input';
+import { Label } from '@/atoms/Label/Label';
+import { RadioGroup, RadioGroupItem } from '@/atoms/RadioGroup/RadioGroup';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/atoms/Select/Select';
+import { Typography } from '@/atoms/Typography/Typography';
+
+export const PUBCHI_BRAIN_PANEL_SURFACE = 'pubchi-brain-panel';
+export const PUBCHI_HOSTED_BRAIN: PubchiBrainChoice = {
+  execution: 'synonym-hosted',
+  provider_id: 'moonshot',
+  model_id: 'kimi-k3',
+  endpoint: null,
+};
+
+export type PubchiBrainChoice =
+  | { execution: 'synonym-hosted'; provider_id: 'moonshot'; model_id: 'kimi-k3'; endpoint: null }
+  | { execution: 'self-hosted'; provider_id: 'openai-compatible' | 'ollama'; model_id: string; endpoint: string };
+
+export type PubchiBrainPanelProps = {
+  value: PubchiBrainChoice;
+  previous?: PubchiBrainChoice;
+  onChange: (next: PubchiBrainChoice) => void | Promise<void>;
+  onRollback?: () => void | Promise<void>;
+  saving?: boolean;
+};
+
+const API_KEY_QUERY_PATTERN = /^(?:api[-_]?key|access[-_]?key|token|secret|password|authorization|key)$/i;
+
+function isSafeEndpoint(endpoint: string) {
+  try {
+    const parsed = new URL(endpoint);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return false;
+    return ![...parsed.searchParams.keys()].some((key) => API_KEY_QUERY_PATTERN.test(key));
+  } catch {
+    return false;
+  }
+}
+
+export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving = false }: PubchiBrainPanelProps) {
+  const [endpointError, setEndpointError] = useState(false);
+  const isSelfHosted = value.execution === 'self-hosted';
+
+  function selectExecution(execution: string) {
+    if (saving) return;
+    if (execution === 'synonym-hosted') {
+      void onChange(PUBCHI_HOSTED_BRAIN);
+      setEndpointError(false);
+      return;
+    }
+    void onChange({
+      execution: 'self-hosted',
+      provider_id: 'openai-compatible',
+      model_id: '',
+      endpoint: '',
+    });
+  }
+
+  function changeEndpoint(endpoint: string) {
+    const valid = endpoint.length === 0 || isSafeEndpoint(endpoint);
+    setEndpointError(!valid);
+    if (valid) {
+      void onChange({
+        execution: 'self-hosted',
+        provider_id: value.execution === 'self-hosted' ? value.provider_id : 'openai-compatible',
+        model_id: value.execution === 'self-hosted' ? value.model_id : '',
+        endpoint,
+      });
+    }
+  }
+
+  function changeProvider(provider_id: 'openai-compatible' | 'ollama') {
+    void onChange({
+      execution: 'self-hosted',
+      provider_id,
+      model_id: value.execution === 'self-hosted' ? value.model_id : '',
+      endpoint: value.execution === 'self-hosted' ? value.endpoint : '',
+    });
+  }
+
+  function changeModel(model_id: string) {
+    void onChange({
+      execution: 'self-hosted',
+      provider_id: value.execution === 'self-hosted' ? value.provider_id : 'openai-compatible',
+      model_id,
+      endpoint: value.execution === 'self-hosted' ? value.endpoint : '',
+    });
+  }
+
+  return (
+    <Card data-surface={PUBCHI_BRAIN_PANEL_SURFACE} data-testid={PUBCHI_BRAIN_PANEL_SURFACE}>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle>Brain</CardTitle>
+            <Typography size="sm" className="mt-1 text-muted-foreground">
+              Choose how your Pubchi thinks.
+            </Typography>
+          </div>
+          <Badge variant="secondary">{isSelfHosted ? 'Self-hosted' : 'Kimi K3'}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        <RadioGroup value={value.execution} onValueChange={selectExecution} aria-label="Pubchi brain">
+          <div className="flex gap-3 rounded-lg border border-border p-4 has-[[data-state=checked]]:border-brand">
+            <RadioGroupItem value="synonym-hosted" id="pubchi-brain-hosted" disabled={saving} />
+            <div>
+              <label htmlFor="pubchi-brain-hosted" className="cursor-pointer font-medium">
+                Kimi K3, hosted by Synonym (default)
+              </label>
+              <Typography size="sm" className="mt-1 text-muted-foreground">
+                The recommended default.
+              </Typography>
+            </div>
+          </div>
+          <div className="flex gap-3 rounded-lg border border-border p-4 has-[[data-state=checked]]:border-brand">
+            <RadioGroupItem value="self-hosted" id="pubchi-brain-self-hosted" disabled={saving} />
+            <div>
+              <label htmlFor="pubchi-brain-self-hosted" className="cursor-pointer font-medium">
+                My own endpoint
+              </label>
+              <Typography size="sm" className="mt-1 text-muted-foreground">
+                Use an OpenAI-compatible or Ollama server you control.
+              </Typography>
+            </div>
+          </div>
+        </RadioGroup>
+
+        {isSelfHosted ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="pubchi-brain-provider">Provider</Label>
+              <Select
+                value={value.provider_id}
+                onValueChange={(provider) => changeProvider(provider as 'openai-compatible' | 'ollama')}
+                disabled={saving}
+              >
+                <SelectTrigger id="pubchi-brain-provider" className="w-full">
+                  <SelectValue placeholder="Choose a provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai-compatible">OpenAI-compatible</SelectItem>
+                  <SelectItem value="ollama">Ollama</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="pubchi-brain-endpoint">Endpoint URL</Label>
+              <Input
+                id="pubchi-brain-endpoint"
+                type="url"
+                value={value.endpoint}
+                onChange={(event) => changeEndpoint(event.target.value)}
+                placeholder="https://your-machine.example/v1"
+                aria-invalid={endpointError}
+                disabled={saving}
+              />
+              <Typography size="sm" className={endpointError ? 'text-destructive' : 'text-muted-foreground'}>
+                Never put an API key in this URL. Keys stay on your own machine.
+              </Typography>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="pubchi-brain-model">Model ID</Label>
+              <Input
+                id="pubchi-brain-model"
+                value={value.model_id}
+                onChange={(event) => changeModel(event.target.value)}
+                placeholder="Model ID"
+                disabled={saving}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <Typography className="rounded-lg bg-muted/30 p-3 text-sm">
+          Your Pubchi&apos;s identity, settings, and history live on your homeserver. Changing the brain changes how it thinks, not who it is.
+        </Typography>
+
+        {previous && onRollback ? (
+          <Button type="button" variant="outline" disabled={saving} onClick={() => void onRollback()}>
+            <RotateCcw aria-hidden="true" />
+            Roll back to previous brain
+          </Button>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
