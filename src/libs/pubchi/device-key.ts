@@ -55,7 +55,10 @@ export async function getCurrentDeviceKey(owner: string, now = Math.floor(Date.n
   return keys.find((key) => key.expires_at > now && key.signer === signer);
 }
 
-export async function loadOrGenerateDeviceKey(owner: string, now = Math.floor(Date.now() / 1000)): Promise<StoredDeviceKey> {
+export async function loadOrGenerateDeviceKey(
+  owner: string,
+  now = Math.floor(Date.now() / 1000),
+): Promise<StoredDeviceKey> {
   const current = await getCurrentDeviceKey(owner, now);
   if (current && current.expires_at - now > DEVICE_DELEGATION_REFRESH_SECONDS) return current;
   if (current) await getPubchiDatabase().deviceKeys.delete(current.id);
@@ -102,8 +105,12 @@ export async function deleteDeviceKey(owner: string, signer: string): Promise<vo
  * Does not touch homeserver objects: a previous identity's published
  * delegation can only be DELETEd with that identity's live session.
  */
+export async function listDeviceKeysNotOwnedBy(owner: string): Promise<StoredDeviceKey[]> {
+  return (await getPubchiDatabase().deviceKeys.toArray()).filter((row) => row.owner !== owner);
+}
+
 export async function wipeDeviceKeysNotOwnedBy(owner: string): Promise<number> {
-  const foreign = (await getPubchiDatabase().deviceKeys.toArray()).filter((row) => row.owner !== owner);
+  const foreign = await listDeviceKeysNotOwnedBy(owner);
   await Promise.all(foreign.map((row) => getPubchiDatabase().deviceKeys.delete(row.id)));
   return foreign.length;
 }

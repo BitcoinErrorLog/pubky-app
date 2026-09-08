@@ -9,6 +9,7 @@ import { Logger } from '@/libs/logger/logger';
 import * as deviceKey from '@/libs/pubchi/device-key';
 import {
   PENDING_DELEGATION_DELETES_KEY,
+  PENDING_DELEGATION_DELETES_MAX,
   readPendingDelegationDeletes,
   rememberPendingDelegationDeletes,
 } from '@/libs/pubchi/pending-delegation-deletes';
@@ -46,6 +47,7 @@ vi.mock('@/libs/pubchi/device-key', () => {
     getCurrentDeviceKey: get,
     loadOrGenerateDeviceKey: get,
     getDeviceKeys: async () => [],
+    listDeviceKeysNotOwnedBy: async () => [],
     wipeDeviceKeysNotOwnedBy: async () => 0,
     deleteDeviceKey: async () => undefined,
     signWithDeviceKey: async (key: CryptoKey, message: Uint8Array) =>
@@ -55,12 +57,20 @@ vi.mock('@/libs/pubchi/device-key', () => {
   };
 });
 
-const sessionCapabilities = { current: ['/pub/pubchi.app/:rw'] as string[] };
+const sessionIdentity = {
+  pubky: '',
+  capabilities: ['/pub/pubchi.app/:rw'] as string[],
+};
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: {
     getState: () => ({
-      selectSession: () => ({ info: { capabilities: sessionCapabilities.current } }),
+      selectSession: () => ({
+        info: {
+          capabilities: sessionIdentity.capabilities,
+          publicKey: { z32: () => sessionIdentity.pubky },
+        },
+      }),
     }),
   },
 }));
@@ -109,7 +119,8 @@ function setPubchiEnv(enabled = 'true', apiUrl = 'https://pubchi.example.com') {
 
 describe('PubchiApplication', () => {
   beforeEach(() => {
-    sessionCapabilities.current = ['/pub/pubchi.app/:rw'];
+    sessionIdentity.pubky = OWNER;
+    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw'];
     setPubchiEnv();
     vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue(ACTIVE_BINDING);
     vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(ACTIVE_BINDING);
@@ -347,7 +358,7 @@ describe('PubchiApplication', () => {
   });
 
   it('refuses enrollment when the session lacks the Pubchi capability', async () => {
-    sessionCapabilities.current = ['/pub/pubky.app/:rw'];
+    sessionIdentity.capabilities = ['/pub/pubky.app/:rw'];
     const requestSpy = vi.spyOn(HomeserverService, 'request');
     const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
     await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('PATH_FORBIDDEN');
@@ -356,7 +367,7 @@ describe('PubchiApplication', () => {
   });
 
   it('allows enrollment when the session has root /:rw', async () => {
-    sessionCapabilities.current = ['/:rw'];
+    sessionIdentity.capabilities = ['/:rw'];
     const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
     await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).resolves.toMatchObject({
       owner: OWNER,
@@ -367,7 +378,7 @@ describe('PubchiApplication', () => {
   });
 
   it('allows enrollment when the session has /pub/:rw', async () => {
-    sessionCapabilities.current = ['/pub/:rw'];
+    sessionIdentity.capabilities = ['/pub/:rw'];
     await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).resolves.toMatchObject({
       owner: OWNER,
       bot: BOT,
@@ -377,7 +388,7 @@ describe('PubchiApplication', () => {
 
   it('refuses enrollment for near-miss and read-only covering scopes', async () => {
     for (const capability of ['/pub/pubchi.app.evil/:rw', '/pub/pubchi.appfoo/:rw', '/:r', '/pub/pubchi.app/:r']) {
-      sessionCapabilities.current = [capability];
+      sessionIdentity.capabilities = [capability];
       await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('PATH_FORBIDDEN');
     }
   });
@@ -414,7 +425,7 @@ describe('PubchiApplication', () => {
   });
 
   it('DELETEs known delegations for a root /:rw session instead of skipping remote drain', async () => {
-    sessionCapabilities.current = ['/:rw'];
+    sessionIdentity.capabilities = ['/:rw'];
     const signer = Keypair.random().publicKey.z32();
     vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
       { id: `${OWNER}:${signer}`, owner: OWNER, signer, key: {} as CryptoKey, created_at: 1, expires_at: 2 },
@@ -531,6 +542,75 @@ describe('PubchiApplication', () => {
       false,
     );
     expect(readPendingDelegationDeletes()).toEqual([{ owner: previousOwner, signer }]);
+  });
+
+  it('records a foreign device signer into that owner pending list before wipe without evicting current-owner records', async () => {
+    const previousOwner = Keypair.random().publicKey.z32();
+    const foreignSigner = Keypair.random().publicKey.z32();
+    const currentSigners = Array.from({ length: 5 }, () => Keypair.random().publicKey.z32());
+    rememberPendingDelegationDeletes(currentSigners.map((signer) => ({ owner: OWNER, signer })));
+
+    const order: string[] = [];
+    vi.spyOn(deviceKey, 'listDeviceKeysNotOwnedBy').mockImplementation(async () => {
+      order.push('list');
+      return [
+        {
+          id: `${previousOwner}:${foreignSigner}`,
+          owner: previousOwner,
+          signer: foreignSigner,
+          key: {} as CryptoKey,
+          created_at: 1,
+          expires_at: 2,
+        },
+      ];
+    });
+    vi.spyOn(deviceKey, 'wipeDeviceKeysNotOwnedBy').mockImplementation(async () => {
+      order.push('wipe');
+      return 1;
+    });
+    vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockResolvedValue({ failed: [] });
+    vi.spyOn(HomeserverService, 'exists').mockResolvedValue(true);
+
+    await PubchiApplication.reconcileActiveBinding(OWNER);
+
+    expect(order).toEqual(['list', 'wipe']);
+    const pending = readPendingDelegationDeletes();
+    expect(pending).toEqual(
+      expect.arrayContaining([
+        { owner: previousOwner, signer: foreignSigner },
+        ...currentSigners.map((signer) => ({ owner: OWNER, signer })),
+      ]),
+    );
+    expect(pending.filter((item) => item.owner === OWNER)).toHaveLength(5);
+  });
+
+  it('does not evict a full current-owner pending list when a foreign signer cannot fit the cap', async () => {
+    const previousOwner = Keypair.random().publicKey.z32();
+    const foreignSigner = Keypair.random().publicKey.z32();
+    const currentSigners = Array.from({ length: PENDING_DELEGATION_DELETES_MAX }, () =>
+      Keypair.random().publicKey.z32(),
+    );
+    rememberPendingDelegationDeletes(currentSigners.map((signer) => ({ owner: OWNER, signer })));
+    vi.spyOn(deviceKey, 'listDeviceKeysNotOwnedBy').mockResolvedValue([
+      {
+        id: `${previousOwner}:${foreignSigner}`,
+        owner: previousOwner,
+        signer: foreignSigner,
+        key: {} as CryptoKey,
+        created_at: 1,
+        expires_at: 2,
+      },
+    ]);
+    vi.spyOn(deviceKey, 'wipeDeviceKeysNotOwnedBy').mockResolvedValue(1);
+    vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockResolvedValue({ failed: [] });
+    vi.spyOn(HomeserverService, 'exists').mockResolvedValue(true);
+
+    await PubchiApplication.reconcileActiveBinding(OWNER);
+
+    const pending = readPendingDelegationDeletes();
+    expect(pending).toHaveLength(PENDING_DELEGATION_DELETES_MAX);
+    expect(pending.every((item) => item.owner === OWNER)).toBe(true);
+    expect(pending.some((item) => item.signer === foreignSigner)).toBe(false);
   });
 
   it('does not DELETE or record the live device signer during reconcile', async () => {

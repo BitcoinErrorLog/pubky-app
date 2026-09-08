@@ -10,6 +10,7 @@ import {
   deleteDeviceKey,
   getCurrentDeviceKey,
   getDeviceKeys,
+  listDeviceKeysNotOwnedBy,
   loadOrGenerateDeviceKey,
   wipeDeviceKeysNotOwnedBy,
 } from '@/libs/pubchi/device-key';
@@ -21,6 +22,7 @@ import {
   type PendingDelegationDelete,
   readPendingDelegationDeletes,
   rememberPendingDelegationDeletes,
+  rememberPendingDelegationDeletesPreservingOwner,
   replacePendingDelegationDeletesForOwner,
 } from '@/libs/pubchi/pending-delegation-deletes';
 import {
@@ -588,6 +590,14 @@ export async function listKnownDelegations(
  */
 async function wipeLocalStateFromOtherIdentities(owner: string): Promise<void> {
   try {
+    const foreign = await listDeviceKeysNotOwnedBy(owner);
+    rememberPendingDelegationDeletesPreservingOwner(
+      owner,
+      foreign.flatMap((row) => {
+        const entry = parsePendingEntry({ owner: row.owner, signer: row.signer });
+        return entry ? [entry] : [];
+      }),
+    );
     await wipeDeviceKeysNotOwnedBy(owner);
     await LocalPubchiBindingService.deleteNotOwnedBy(owner);
   } catch (error) {

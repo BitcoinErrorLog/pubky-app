@@ -6,6 +6,7 @@ import {
   PENDING_DELEGATION_DELETES_MAX,
   readPendingDelegationDeletes,
   rememberPendingDelegationDeletes,
+  rememberPendingDelegationDeletesPreservingOwner,
   replacePendingDelegationDeletesForOwner,
   writePendingDelegationDeletes,
 } from './pending-delegation-deletes';
@@ -28,7 +29,10 @@ describe('pending delegation deletes', () => {
     const owner = z32();
     localStorage.setItem(
       PENDING_DELEGATION_DELETES_KEY,
-      JSON.stringify([{ owner, signer: '../../foo' }, { owner, signer: z32() }]),
+      JSON.stringify([
+        { owner, signer: '../../foo' },
+        { owner, signer: z32() },
+      ]),
     );
 
     const read = readPendingDelegationDeletes();
@@ -100,5 +104,31 @@ describe('pending delegation deletes', () => {
       ]),
     );
     expect(read).toHaveLength(2);
+  });
+
+  it('preserving-owner remember keeps current-owner records and keys foreign rows to their owner', () => {
+    const current = z32();
+    const foreign = z32();
+    const currentSigner = z32();
+    const foreignSigner = z32();
+    writePendingDelegationDeletes([{ owner: current, signer: currentSigner }]);
+    rememberPendingDelegationDeletesPreservingOwner(current, [{ owner: foreign, signer: foreignSigner }]);
+    expect(readPendingDelegationDeletes()).toEqual(
+      expect.arrayContaining([
+        { owner: current, signer: currentSigner },
+        { owner: foreign, signer: foreignSigner },
+      ]),
+    );
+  });
+
+  it('preserving-owner remember does not evict a full current-owner list', () => {
+    const current = z32();
+    const foreign = z32();
+    const currentSigners = Array.from({ length: PENDING_DELEGATION_DELETES_MAX }, () => z32());
+    writePendingDelegationDeletes(currentSigners.map((signer) => ({ owner: current, signer })));
+    rememberPendingDelegationDeletesPreservingOwner(current, [{ owner: foreign, signer: z32() }]);
+    const read = readPendingDelegationDeletes();
+    expect(read).toHaveLength(PENDING_DELEGATION_DELETES_MAX);
+    expect(read.every((item) => item.owner === current)).toBe(true);
   });
 });

@@ -72,6 +72,44 @@ export function rememberPendingDelegationDeletes(items: PendingDelegationDelete[
   writePendingDelegationDeletes([...readPendingDelegationDeletes(), ...items]);
 }
 
+/**
+ * Append pending DELETEs for other identities without evicting `protectOwner`'s
+ * existing records. The FIFO-32 cap still applies to everyone else: if
+ * `protectOwner` already occupies all 32 slots, foreign rows cannot be stored
+ * and are dropped (logged). That case is lossy by construction of the cap.
+ */
+export function rememberPendingDelegationDeletesPreservingOwner(
+  protectOwner: string,
+  items: PendingDelegationDelete[],
+): void {
+  const incoming = items.flatMap((item) => {
+    const entry = parsePendingEntry(item);
+    return entry && entry.owner !== protectOwner ? [entry] : [];
+  });
+  if (incoming.length === 0) return;
+
+  const existing = readPendingDelegationDeletes();
+  const protectedItems = existing.filter((item) => item.owner === protectOwner);
+  const remaining = Math.max(0, PENDING_DELEGATION_DELETES_MAX - protectedItems.length);
+  if (remaining === 0) {
+    Logger.warn('Pubchi pending delegation deletes cap full for signed-in owner; foreign records not stored', {
+      protectOwner,
+      dropped: incoming.length,
+    });
+    return;
+  }
+
+  const others = [...existing.filter((item) => item.owner !== protectOwner), ...incoming];
+  const uniqueOthers = capFifo(others);
+  const cappedOthers = uniqueOthers.slice(Math.max(0, uniqueOthers.length - remaining));
+  const keptKeys = new Set(cappedOthers.map((item) => `${item.owner}:${item.signer}`));
+  const dropped = incoming.filter((item) => !keptKeys.has(`${item.owner}:${item.signer}`)).length;
+  if (dropped > 0) {
+    Logger.warn('Pubchi pending delegation deletes cap dropped foreign records', { protectOwner, dropped });
+  }
+  writePendingDelegationDeletes([...cappedOthers, ...protectedItems]);
+}
+
 export function replacePendingDelegationDeletesForOwner(owner: string, failed: PendingDelegationDelete[]): void {
   writePendingDelegationDeletes([...readPendingDelegationDeletes().filter((item) => item.owner !== owner), ...failed]);
 }
