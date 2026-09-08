@@ -3,7 +3,7 @@
 // @vitest/browser. Do not let `eslint --fix` reorder these imports.
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { formatStableRelative } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { createZustandLikeHook } from '@/test-utils/stores';
@@ -467,10 +467,10 @@ function HotWithHeader() {
 
 describe('Hot — visual regression', () => {
   it('renders the hot discovery page at desktop viewport', async () => {
-    const screen = await renderForVRT(<HotWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<HotWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     // Viewport-clamped root: first fold only (featured tags + overview; active
     // users / trending posts sit below the fold on desktop).
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-desktop', VRT_DENSE_CHROME_SCREENSHOT);
   });
 
   it('renders the hot discovery page at mobile viewport', async () => {

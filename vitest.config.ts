@@ -141,15 +141,20 @@ export default defineConfig({
             provider: playwright(),
             headless: true,
             // Shared by comparison (`npm run test:vrt`) and regeneration
-            // (`--update`). A capture within this ratio of the committed
-            // baseline is treated as unchanged, so `--update` only rewrites
-            // baselines that changed beyond sub-pixel/anti-aliasing noise.
-            // Trade-off: visual diffs under this ratio won't be flagged.
+            // (`--update`). 0.001 (0.1%) hid a user-visible marketplace
+            // badge rewrite ("Local pickup" → "Shipping") on 1440×900
+            // desktop captures (~1.3M px → 1,296 allowed mismatches).
+            // The more restrictive of pixels and ratio wins. 80 px is
+            // enough for residual AA/font raster noise; a one-word label
+            // change is hundreds of pixels and must fail. Scenes that
+            // genuinely need more slack pass `comparatorOptions` on that
+            // `toMatchScreenshot` call only.
             expect: {
               toMatchScreenshot: {
                 comparatorName: 'pixelmatch',
                 comparatorOptions: {
-                  allowedMismatchedPixelRatio: 0.001,
+                  allowedMismatchedPixels: 80,
+                  allowedMismatchedPixelRatio: 0.00005,
                 },
                 // Image-heavy suites (Home, Collections) on WebKit/Linux need
                 // extra headroom for layout to settle after fonts/images decode.

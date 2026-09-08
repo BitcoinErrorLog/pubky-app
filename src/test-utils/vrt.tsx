@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-react';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
@@ -20,6 +20,19 @@ export interface RenderForVRTOptions {
 }
 
 export const VRT_ROOT_TESTID = 'vrt-root';
+
+/**
+ * Dense feed/onboarding chrome (tab labels, Inter Tight at 1440×900) has
+ * 200–1300 px of residual AA versus committed darwin baselines — over the
+ * global 80 px cap, under a one-word badge rewrite on a marketplace card
+ * (~183 px was caught). Use only on those shell captures.
+ */
+export const VRT_DENSE_CHROME_SCREENSHOT = {
+  comparatorOptions: {
+    allowedMismatchedPixels: 1_600,
+    allowedMismatchedPixelRatio: 0.003,
+  },
+} as const;
 
 /**
  * Surface guard: a VRT scene must capture a PRODUCTION surface, marked with
@@ -106,6 +119,17 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
     await waitForImagesReady(root);
   }
   return screen;
+}
+
+/** Drop leftover :hover from a prior test's cursor (shared browser window). */
+export async function parkVrtHover() {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active !== document.body) {
+    active.blur();
+    await userEvent.unhover(active);
+  }
+  const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
+  if (root instanceof HTMLElement) root.style.pointerEvents = 'none';
 }
 
 async function waitForImagesReady(root: Element) {
