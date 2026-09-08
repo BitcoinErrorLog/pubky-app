@@ -31,6 +31,14 @@ function taggedResource(id: string, uri: string): NexusResource {
   };
 }
 
+function resourceWithLabels(id: string, uri: string, labels: string[]): NexusResource {
+  return {
+    details: { id, uri, scheme: uri.split(':')[0] ?? '', indexed_at: 1 },
+    tags: labels.map((label) => ({ label, taggers: [], taggers_count: 1, relationship: false })),
+    taggers_count: labels.length,
+  };
+}
+
 describe('ResourceDiscovery', () => {
   beforeEach(() => {
     vi.mocked(ResourceController.fetchByTag).mockReset();
@@ -59,6 +67,17 @@ describe('ResourceDiscovery', () => {
       'https://example.com/one',
       'https://example.com/two',
     ]);
+  });
+
+  it('renders all ten labels on a resource card', async () => {
+    const labels = Array.from({ length: 10 }, (_, index) => `label-${index + 1}`);
+    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([
+      resourceWithLabels('resource-10-labels', 'https://example.com/labels', labels),
+    ]);
+
+    render(<ResourceDiscovery tag="docs" />);
+
+    await waitFor(() => expect(screen.getByText(labels.join(', '))).toBeInTheDocument());
   });
 
   it('renders the empty stream state', async () => {
@@ -103,7 +122,9 @@ describe('ResourceDiscovery', () => {
   });
 
   it('does not render a javascript: href from a tagged resource', async () => {
-    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([taggedResource('resource-js', 'javascript:alert(1)')]);
+    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([
+      taggedResource('resource-js', 'javascript:alert(1)'),
+    ]);
 
     const { container } = render(<ResourceDiscovery tag="docs" />);
 
@@ -112,7 +133,9 @@ describe('ResourceDiscovery', () => {
   });
 
   it('does not render a data: href from a tagged resource', async () => {
-    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([taggedResource('resource-data', 'data:text/html,hi')]);
+    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([
+      taggedResource('resource-data', 'data:text/html,hi'),
+    ]);
 
     const { container } = render(<ResourceDiscovery tag="docs" />);
 

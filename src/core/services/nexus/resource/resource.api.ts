@@ -1,4 +1,4 @@
-import { buildNexusUrl, buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.utils';
+import { buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.utils';
 import type { TResourceByIdParams, TResourceByUriParams, TResourcesByTagParams } from './resource.types';
 
 const PREFIX = 'v0/resource';
@@ -10,7 +10,11 @@ export const resourceApi = {
       baseRoute: STREAM_PREFIX,
       params: { tags: tag, ...params },
     }),
-  byId: ({ id }: TResourceByIdParams) => buildNexusUrl(`${PREFIX}/${encodePathSegment(id)}/tags`),
+  byId: ({ id, ...params }: TResourceByIdParams) =>
+    buildUrlWithQuery({
+      baseRoute: `${PREFIX}/${encodePathSegment(id)}/tags`,
+      params,
+    }),
   byUri: ({ uri, ...params }: TResourceByUriParams) =>
     buildUrlWithQuery({
       baseRoute: `${PREFIX}/by-uri`,

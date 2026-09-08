@@ -32,6 +32,8 @@ export type TResourcesByTagParams = {
 
 export type TResourceByIdParams = {
   id: string;
+  limit_tags?: number;
+  skip_tags?: number;
 };
 
 export type TResourceByUriParams = {

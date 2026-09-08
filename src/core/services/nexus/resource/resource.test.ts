@@ -19,12 +19,14 @@ describe('NexusResourceService', () => {
   });
 
   it('fetches tag-filtered resources from the stream endpoint', async () => {
-    const resource = { details: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 }, tags: [], taggers_count: 0 };
+    const resource = {
+      details: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 },
+      tags: [],
+      taggers_count: 0,
+    };
     vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([resource]), { status: 200 }));
 
-    await expect(NexusResourceService.fetchByTag({ tag: 'docs', limit: 20 })).resolves.toEqual([
-      resource,
-    ]);
+    await expect(NexusResourceService.fetchByTag({ tag: 'docs', limit: 20 })).resolves.toEqual([resource]);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -34,14 +36,20 @@ describe('NexusResourceService', () => {
 
     await expect(NexusResourceService.fetchById({ id: '1' })).resolves.toEqual(response);
     expect(fetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('limit_tags=20');
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('skip_tags=0');
   });
 
   it('looks up a resource by its raw URI without hashing it', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ resource: { id: '1' }, tags: [] }), { status: 200 }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ resource: { id: '1' }, tags: [] }), { status: 200 }),
+    );
 
     await NexusResourceService.fetchByUri({ uri: 'https://Example.com/path' });
 
     expect(fetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('limit_tags=20');
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('skip_tags=0');
   });
 
   it('fails once without retrying when Nexus is unreachable', async () => {
