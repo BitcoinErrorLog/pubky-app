@@ -57,6 +57,36 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Owner:
 - Blocking evidence:
 
+## Week Ending 2026-09-08
+
+**Live URLs**
+
+- Client `383b6d3e` is deployed to `https://shop.pubky.app` and the production alias. marketplace-service `462ed54` on `main` is deployed to staging and production; production `/health` reports `pickup_available:true`, while staging reports false because it is sandbox.
+
+**What users did (server-side facts only)**
+
+- Local pickup Part A is deployed. A seller may publish shipping, pickup, or both. Public listings contain the fulfillment choice only; seller meeting-point details are sealed at rest in the transaction service with XChaCha20-Poly1305, are key-gated, and are disabled without the key and in sandbox deployments.
+- After payment confirmation, the buyer may read the meeting-point snapshot pinned at confirmation. It is held only in app memory and masked from telemetry. Either party may confirm handover; seller-only confirmation does not earn reputation until buyer confirmation or the confirmation window passes. Buyers may cancel if pickup terms change and may withdraw from first reveal until handover. Sellers may clear details, retaining versions for paid unfinished orders.
+
+**What broke**
+
+- Wave 7.1 required one fix round: key rotation could stall past 100 rows; a reveal without a pinned snapshot stamped the withdrawal window; and the confirm path could panic.
+- Wave 7.2a required one fix round because a malformed-response excerpt could reach logs/Sentry. Wave 7.2b required two: fixtures and seed data marked auctions as pickup, a defect the VRT tolerance hid; the listing form was not capability-gated; and the create-mode editor was unreachable.
+
+**What it taught**
+
+- Trust/security boundary: meeting points are not public listing data. The buyer receives only the payment-pinned snapshot; the app does not persist it or emit it to telemetry.
+- Product boundary: Shop remains peer-to-peer with no dispute or report mechanism. Recourse is review plus the handover reputation asymmetry.
+
+**Recommended Next State Per Experiment**
+
+- Selling/listings and checkout/orders: harden. Fix pickup-only detail copy, the initial-null capability-gate exposure, and meeting-point setup for pre-Wave-7 pickup listings.
+- Local pickup Part B: defer scheduling, pickup returns/return-address reveal, and `location_key` grouping to Wave 7b.
+
+**Open Decisions**
+
+- No new operator mechanism: disputes and reports remain out of scope by design.
+
 ## Week Ending 2026-09-07
 
 **Live URLs**

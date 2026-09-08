@@ -2,6 +2,16 @@
 
 Public changelog for Shop, the Pubky marketplace vibe. Newest changes first.
 
+## 2026-09-08
+
+- [implemented] Wave 7 local pickup safe subset (Part A) shipped and deployed. Sellers can publish shipping, local pickup, or both. The public listing contains only fulfillment choice; seller meeting-point details are sealed at rest in the transaction service with XChaCha20-Poly1305 under a key-gated configuration, and pickup is off without that key and on sandbox deployments.
+- [implemented] The paying buyer sees a meeting-point snapshot only after payment confirmation. The snapshot is pinned at confirmation, held only in app memory, and masked from telemetry. Either party may confirm handover; seller-attested handovers do not count toward reputation until buyer confirmation or the confirmation window passes. Seller changes to pickup terms permit unilateral buyer cancellation; a bounded buyer withdrawal runs from first reveal to handover. Sellers may clear details, while versions tied to paid unfinished orders remain.
+- [implemented] marketplace-service `462ed54` on `main` (migrations 0020 and 0021) deployed to staging and production. Production `/health` reports `pickup_available:true`; staging reports false because it is sandbox. Client data-layer commits `691b810f`, `5a6454f2` and UI commits `2aea0170`..`383b6d3e` (all Part A) deployed to `shop.pubky.app` and the production alias.
+- [proven] Every slice passed an Opus adversarial review and Kimi security/privacy audit. Wave 7.1 received one fix round for the key-rotation job's 100-row stall, an unpinned reveal stamping the withdrawal window, and a confirm-path panic; Wave 7.2a received one for malformed response excerpts reaching logs/Sentry; Wave 7.2b received two for pickup-marked auction fixtures hidden by VRT tolerance, a missing listing-form capability gate, and an unreachable create-mode editor.
+- [known gap] VRT pixel tolerance `0.001` can hide small label changes; pickup-only listing detail still shows shipping copy; the capability gate is open during its initial null read (the service still refuses); and pre-Wave-7 listings marked pickup need a meeting point before pickup orders can complete.
+- [deferred] Wave 7b (Part B): scheduling time slots, pickup returns and return-address reveal, and `location_key` grouping.
+- [implemented] Igor's PR #22 (`BitcoinErrorLog/pubky-app`) is credited in code; its silent-shipping-fallback item is fixed.
+
 ## 2026-09-07
 
 - [implemented] Wave 6 backlog batch merged and deployed at `9483446f` on `marketplace/pr25-ux`. SSR catalog seeds shop names; the catalog URL lives as a libs-only constant; messaging VRT on firefox is deterministic; Duplicate asks before replacing an unsaved draft and seeds before deleting; SSR shop fetch is capped at 6 concurrent.
