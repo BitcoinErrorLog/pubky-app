@@ -7,7 +7,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
-import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { deleteDeviceKey, getDeviceKeys } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { delegationUri, isPubkyId, type PubchiConfigV1 } from '@/libs/pubchi/schemas';
@@ -103,10 +103,17 @@ export class PubchiController {
    * Adopt a Ring-approved session for the already signed-in identity.
    * Does not run `initializeAuthenticatedSession` / bootstrap. A session whose
    * pubky does not match the signed-in user is signed out: its cookie has
-   * already replaced the legitimate one.
+   * already replaced the legitimate one. The capability guard intentionally
+   * pins Pubchi write coverage only; narrowing unrelated scopes is outside it.
+   * Same-identity approvals are always adopted because the SDK has already
+   * replaced the browser cookie before this method receives the session.
+   * Concurrent approvals in separate tabs can resolve out of order and
+   * temporarily desynchronize the store and cookie jar; the next approval or
+   * sign-in repairs the state.
    */
   static async adoptCapabilityApproval(session: Session): Promise<void> {
-    const expected = useAuthStore.getState().selectCurrentUserPubky();
+    const authState = useAuthStore.getState();
+    const expected = authState.selectCurrentUserPubky();
     const approved = Identity.z32FromSession({ session });
     if (approved !== expected) {
       try {
@@ -119,7 +126,23 @@ export class PubchiController {
         operation: 'adoptCapabilityApproval',
       });
     }
-    useAuthStore.getState().setSession(session);
+    const currentCoversPubchi = capabilitiesCoverPubchiWrite(authState.session?.info.capabilities ?? []);
+    const approvedCoversPubchi = capabilitiesCoverPubchiWrite(session.info.capabilities ?? []);
+    if (currentCoversPubchi && !approvedCoversPubchi) {
+      authState.setSession(session);
+      return;
+    }
+    authState.setSession(session);
+    if (approvedCoversPubchi) {
+      try {
+        await PubchiApplication.unpublishKnownDelegations(approved, {
+          attemptRemote: true,
+          includeLocalKeys: false,
+        });
+      } catch (error) {
+        Logger.warn('Pubchi pending delegation drain after capability approval failed', { error });
+      }
+    }
   }
 
   static async revokeDevice(signer: string): Promise<void> {

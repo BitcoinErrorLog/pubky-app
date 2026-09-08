@@ -168,6 +168,54 @@ describe('usePubchiEnrollment', () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+  it('adopts a narrower same-identity approval because it already replaced the browser cookie', async () => {
+    const session = { info: { publicKey: { z32: () => OWNER } } };
+    const cancel = vi.fn();
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: Promise.resolve(session),
+      cancelAuthFlow: cancel,
+    });
+    mocks.adopt.mockResolvedValue(undefined);
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    await act(async () => {
+      await expect(result.current.reapprove()).resolves.toBe(true);
+    });
+
+    expect(mocks.adopt).toHaveBeenCalledWith(session);
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it('clears degraded state after re-approving with Pubchi coverage', async () => {
+    const session = { info: { publicKey: { z32: () => OWNER } } };
+    const cancel = vi.fn();
+    mocks.capabilities = ['/pub/pubky.app/:rw'];
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: Promise.resolve(session),
+      cancelAuthFlow: cancel,
+    });
+    mocks.adopt.mockImplementation(async () => {
+      mocks.capabilities = ['/pub/pubky.app/:rw', '/pub/pubchi.app/:rw'];
+    });
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result, rerender } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(result.current.needsReapproval).toBe(true));
+
+    await act(async () => {
+      await expect(result.current.reapprove()).resolves.toBe(true);
+      rerender();
+    });
+
+    expect(result.current.needsReapproval).toBe(false);
+    expect(cancel).toHaveBeenCalled();
+  });
+
   it('calls cancel when the approval times out', async () => {
     const cancel = vi.fn();
     mocks.reconcile.mockResolvedValue(undefined);

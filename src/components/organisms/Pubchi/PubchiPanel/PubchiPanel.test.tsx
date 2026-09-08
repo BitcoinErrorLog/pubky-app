@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PUBCHI_PANEL_SURFACE, PubchiPanel } from './PubchiPanel';
 
 const submit = vi.fn();
 const applyFeed = vi.fn();
+const reapprove = vi.fn();
 const hookState = {
   form: {
     control: {},
@@ -20,9 +21,18 @@ const hookState = {
   signingAvailable: true,
     signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
 };
+const enrollmentState = {
+  needsReapproval: false,
+  reapprove,
+  loading: false,
+};
 
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
   usePubchiQuery: () => hookState,
+}));
+
+vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
+  usePubchiEnrollment: () => enrollmentState,
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -40,6 +50,11 @@ vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
 }));
 
 describe('PubchiPanel', () => {
+  beforeEach(() => {
+    enrollmentState.needsReapproval = false;
+    reapprove.mockReset();
+  });
+
   it('mounts the production panel surface', () => {
     hookState.signingAvailable = true;
     render(<PubchiPanel open onOpenChange={() => {}} />);
@@ -59,5 +74,18 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-ask')).toBeDisabled();
     expect(screen.getByTestId('pubchi-build-feed')).toBeDisabled();
     hookState.signingAvailable = true;
+  });
+
+  it('shows degraded session recovery without disabling read-only asks', () => {
+    enrollmentState.needsReapproval = true;
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-degraded-session')).toHaveTextContent(
+      "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.",
+    );
+    expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
+    expect(reapprove).toHaveBeenCalledOnce();
   });
 });
