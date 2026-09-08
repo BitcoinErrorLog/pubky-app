@@ -601,7 +601,14 @@ export class AuthController {
     const existing = this.signInCeremony;
     if (existing) {
       if (existing.bridgedFlow) {
-        return existing.bridgedFlow;
+        // Join with a DISTINCT handle: its cancel is a no-op so the joining
+        // dialog's close can never tear down the ceremony the owning dialog
+        // still waits on (releaseAuthFlow matches only the owner's handle).
+        return {
+          authorizationUrl: existing.bridgedFlow.authorizationUrl,
+          awaitSession: existing.bridgedFlow.awaitSession,
+          cancel: () => {},
+        };
       }
       // A DIRECT sign-in ceremony is in flight: its dual POST already redeems
       // the marketplace session, so join that outcome instead of minting a
@@ -701,8 +708,12 @@ export class AuthController {
     if (this.signInCeremony) {
       // Joins a direct sign-in ceremony — or the sign-in view of an in-flight
       // BRIDGED commerce ceremony, whose POST window must never see the
-      // default clearDatabase entry path.
-      return this.signInCeremony.result;
+      // default clearDatabase entry path. The joined handle gets a no-op
+      // cancel: the surface that STARTED the ceremony owns its teardown, so a
+      // joiner releasing its handle (dialog close, unmount) must not cancel
+      // the flow out from under the owner (releaseAuthFlow matches only the
+      // owner's tracked cancel).
+      return this.signInCeremony.result.then((view) => ({ ...view, cancelAuthFlow: () => {} }));
     }
     const token = Symbol('sign-in-ceremony');
     const entry: NonNullable<(typeof AuthController)['signInCeremony']> = {

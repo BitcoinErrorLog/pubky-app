@@ -221,6 +221,58 @@ describe('AuthController single-approval ceremony', () => {
     await expect(second.awaitApproval).resolves.toBe(mockSession);
   });
 
+  it('a joined sign-in handle released by the joiner does NOT tear down the ceremony the owner still waits on', async () => {
+    const ownerCancel = vi.fn();
+    mockDirectSignInFlow({ cancelAuthFlow: ownerCancel });
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace: null,
+      marketplaceError: null,
+    });
+
+    const owner = await AuthController.getStepUpAuthUrl();
+    // A second surface (e.g. another step-up affordance) joins the ceremony.
+    const joined = await AuthController.getStepUpAuthUrl();
+    expect(joined.authorizationUrl).toBe(owner.authorizationUrl);
+
+    // The joiner's surface closes: releasing ITS handle must leave the
+    // owner's ceremony fully alive.
+    AuthController.releaseAuthFlow(joined.cancelAuthFlow);
+
+    expect(ownerCancel).not.toHaveBeenCalled();
+    await expect(owner.awaitApproval).resolves.toBe(mockSession);
+    await expect(joined.awaitApproval).resolves.toBe(mockSession);
+  });
+
+  it('closing a joined bridged dialog does not cancel the bridged ceremony the owning dialog waits on', async () => {
+    const ownerCancel = vi.fn();
+    mockDirectSignInFlow({ cancelAuthFlow: ownerCancel });
+    const marketplace = {
+      pubky: 'test-pubky',
+      capabilities: '',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      issuedAt: '2026-09-08T00:00:00.000Z',
+    };
+    vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
+      session: mockSession,
+      marketplace,
+      marketplaceError: null,
+    });
+    vi.spyOn(AuthController, 'completeStepUpReauth').mockResolvedValue(undefined);
+    const { CommerceController } = await import('@/controllers/commerce/commerce');
+    vi.spyOn(CommerceController, 'writeMarketplaceSessionStore').mockImplementation(() => {});
+
+    const owner = AuthController.beginBridgedCommerceSessionFlow();
+    const joined = AuthController.beginBridgedCommerceSessionFlow();
+    expect(joined.authorizationUrl).toBe(owner.authorizationUrl);
+
+    AuthController.releaseAuthFlow(joined.cancel);
+
+    expect(ownerCancel).not.toHaveBeenCalled();
+    await expect(owner.awaitSession()).resolves.toEqual(marketplace);
+    await expect(joined.awaitSession()).resolves.toEqual(marketplace);
+  });
+
   it('does not double-initialize when two joiners settle the same approval (StrictMode remount)', async () => {
     mockDirectSignInFlow({});
     vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockResolvedValue({
