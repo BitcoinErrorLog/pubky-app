@@ -112,7 +112,12 @@ describe('AuthController single-approval ceremony', () => {
     await expect(second.awaitApproval).resolves.toBe(mockSession);
   });
 
-  it('runs homeserver-then-marketplace exactly once for one approval', async () => {
+  it('delegates the dual POST to the application exactly once for one approval', async () => {
+    // NOTE: this asserts the single-flight of the delegation only. The
+    // homeserver-then-marketplace ORDER and the identical body bytes are
+    // asserted at the transport seams in auth.single-approval-seams.test.ts —
+    // mocking completeSingleApprovalCeremony (as done here) cannot prove
+    // either, which is why the old order test moved there.
     mockDirectSignInFlow({});
     const completeSpy = vi
       .spyOn(AuthApplication, 'completeSingleApprovalCeremony')

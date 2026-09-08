@@ -7,6 +7,7 @@ import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { asOpaque } from '@/test-utils/type-assertions';
+import { bytesToBase64 } from './homeserver.utils';
 
 // =============================================================================
 // HOISTED MOCKS - Must be hoisted to run before module imports
@@ -819,6 +820,23 @@ describe('HomeserverService', () => {
         expect(mockState.restoreSession).toHaveBeenCalled();
       });
 
+      it('hydrates with the same standard padded base64 alphabet session.export() uses', async () => {
+        // 0xfb 0xff 0xfe encodes to '+//+' ONLY under the standard base64
+        // alphabet (base64url would be '-__-'); a trailing 0xfb forces '='
+        // padding ('+w=='). Both are what the d.ts means by "base64" — the
+        // alphabet restore accepted on staging (single-approval.md §9 step 0,
+        // recorded as empirical) is pinned here in the helper path.
+        mockState.clientFetch
+          .mockResolvedValueOnce(new Response(new Uint8Array([0xfb, 0xff, 0xfe]), { status: 200 }))
+          .mockResolvedValueOnce(new Response(new Uint8Array([0xfb]), { status: 200 }));
+
+        await HomeserverService.signInWithFullGrantAuthToken(bytes);
+        await HomeserverService.signInWithFullGrantAuthToken(bytes);
+
+        expect(mockState.restoreSession).toHaveBeenNthCalledWith(1, '+//+');
+        expect(mockState.restoreSession).toHaveBeenNthCalledWith(2, '+w==');
+      });
+
       it('accepts a reordered full grant (order-insensitive set equality)', async () => {
         mockState.authTokenFromBytes.mockReturnValue({
           capabilities: [...fullCaps].reverse(),
@@ -857,6 +875,11 @@ describe('HomeserverService', () => {
       });
 
       it('treats homeserver AlreadyUsed as GET /session hydrate, not failure', async () => {
+        // STATUS PIN NOTE: 400 is what the Node-side run recorded for a
+        // homeserver replay; the WASM-path status is recorded as UNPROVEN in
+        // single-approval.md §9. The helper must not depend on the exact
+        // number — it probes GET /session after ANY non-ok POST (see the
+        // next test), so this 400 is illustrative, not load-bearing.
         mockState.clientFetch
           .mockResolvedValueOnce(new Response('already used', { status: 400 }))
           .mockResolvedValueOnce(new Response(new Uint8Array([4, 5, 6]), { status: 200 }));
@@ -871,14 +894,61 @@ describe('HomeserverService', () => {
         expect(mockState.restoreSession).toHaveBeenCalled();
       });
 
-      it('does not POST to the marketplace path; restore failure after 2xx does not GET', async () => {
+      it('probes GET /session after any non-ok POST status, not just the recorded 400', async () => {
+        for (const status of [401, 409, 500]) {
+          mockState.clientFetch.mockReset();
+          mockState.restoreSession.mockClear();
+          mockState.clientFetch
+            .mockResolvedValueOnce(new Response('nope', { status }))
+            .mockResolvedValueOnce(new Response(new Uint8Array([4, 5, 6]), { status: 200 }));
+
+          await HomeserverService.signInWithFullGrantAuthToken(bytes);
+
+          expect(mockState.clientFetch).toHaveBeenNthCalledWith(
+            2,
+            `https://_pubky.${z32}/session`,
+            expect.objectContaining({ method: 'GET', credentials: 'include' }),
+          );
+          expect(mockState.restoreSession).toHaveBeenCalled();
+        }
+      });
+
+      it('fails sign-in when restore fails after a 2xx POST, without a fallback GET', async () => {
         mockState.clientFetch.mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }));
         mockState.restoreSession.mockRejectedValueOnce(new Error('restore failed'));
 
         await expect(HomeserverService.signInWithFullGrantAuthToken(bytes)).rejects.toMatchObject({
           message: 'Sign-in failed. Scan again.',
         });
+        // Exactly one call: the POST. No GET probe follows a restore failure
+        // (the cookie may be missing; a probe would mask that).
         expect(mockState.clientFetch).toHaveBeenCalledTimes(1);
+      });
+
+      it('never puts the AuthToken bytes into error context or logger arguments', async () => {
+        // Distinctive, recognizable bytes: their base64 form and their
+        // comma-joined decimal form must appear nowhere observable.
+        const sensitive = new Uint8Array([170, 187, 204, 221, 238]);
+        const asBase64 = bytesToBase64(sensitive);
+        const asDecimal = sensitive.join(',');
+        mockState.clientFetch
+          .mockResolvedValueOnce(new Response('already used', { status: 400 }))
+          .mockResolvedValueOnce(new Response('no session', { status: 404 }));
+
+        const error = await HomeserverService.signInWithFullGrantAuthToken(sensitive).catch((caught) => caught);
+
+        expect(error).toMatchObject({ code: AuthErrorCode.UNAUTHORIZED, context: { stage: 'no-session' } });
+        const observable = JSON.stringify({
+          context: (error as AppError).context,
+          loggerCalls: [
+            ...vi.mocked(Logger.error).mock.calls,
+            ...vi.mocked(Logger.warn).mock.calls,
+            ...vi.mocked(Logger.info).mock.calls,
+            ...vi.mocked(Logger.debug).mock.calls,
+          ],
+        });
+        expect(observable).not.toContain(asBase64);
+        expect(observable).not.toContain(asDecimal);
       });
     });
   });

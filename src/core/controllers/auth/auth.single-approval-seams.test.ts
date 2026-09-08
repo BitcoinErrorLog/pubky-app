@@ -1,0 +1,182 @@
+import type { AuthToken, Session } from '@synonymdev/pubky';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CAPABILITIES } from '@/config/app';
+import { asOpaque } from '@/test-utils/type-assertions';
+
+/**
+ * Seam-level ceremony test: everything above Client.fetch (homeserver) and
+ * global fetch (marketplace) is REAL — controller, application, both
+ * services — so the homeserver-then-marketplace ORDER and the identical
+ * body bytes across both POSTs are asserted at the transport boundary, not
+ * at a mocked application method.
+ */
+
+const PUBKY = 'y'.repeat(52);
+const TOKEN_BYTES = new Uint8Array([7, 7, 7, 7]);
+const SESSION_INFO_BODY = new Uint8Array([1, 2, 3]);
+const BEARER = 'A'.repeat(43);
+
+const mockState = vi.hoisted(() => ({
+  clientFetch: vi.fn(),
+  restoreSession: vi.fn(),
+  startAuthFlow: vi.fn(),
+  authTokenFromBytes: vi.fn(),
+}));
+
+vi.mock('@synonymdev/pubky', () => {
+  const createMockPubkyInstance = () => ({
+    getHomeserverOf: vi.fn(),
+    restoreSession: (...args: unknown[]) => mockState.restoreSession(...args),
+    startAuthFlow: (...args: unknown[]) => mockState.startAuthFlow(...args),
+    eventStreamForUser: vi.fn(),
+    client: {
+      fetch: (...args: unknown[]) => mockState.clientFetch(...args),
+    },
+    publicStorage: {
+      get: vi.fn(),
+      exists: vi.fn(),
+      list: vi.fn(),
+    },
+    signer: vi.fn(),
+  });
+
+  const MockPubky = vi.fn().mockImplementation(createMockPubkyInstance);
+  // @ts-expect-error - Adding static testnet method
+  MockPubky.testnet = vi.fn().mockImplementation(createMockPubkyInstance);
+  // @ts-expect-error - Adding static withClient method
+  MockPubky.withClient = vi.fn().mockImplementation(createMockPubkyInstance);
+
+  class MockClient {}
+  class MockAddress {}
+
+  return {
+    Pubky: MockPubky,
+    Client: MockClient,
+    Address: MockAddress,
+    PublicKey: {
+      from: vi.fn().mockReturnValue({
+        z32: () => 'homeserver-public-key-z32',
+      }),
+    },
+    Keypair: {
+      random: vi.fn(),
+      fromSecret: vi.fn(),
+    },
+    AuthFlowKind: {
+      signin: () => 'signin-kind',
+    },
+    AuthToken: {
+      fromBytes: (...args: unknown[]) => mockState.authTokenFromBytes(...args),
+    },
+    resolvePubky: vi.fn((url: string) => url.replace('pubky://', 'https://')),
+  };
+});
+
+// Mock pubky-app-specs to avoid WebAssembly issues
+vi.mock('pubky-app-specs', () => ({
+  default: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('@/database/franky/franky.helpers', () => ({
+  clearDatabase: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: {
+    getState: () => ({
+      selectSession: () => null,
+    }),
+  },
+}));
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return {
+    ...actual,
+    getCommerceAdapterMode: () => 'transaction-service',
+    getMarketplaceUrl: () => 'http://127.0.0.1:8080',
+  };
+});
+
+const mockSession = asOpaque<Session>({
+  info: { publicKey: { z32: () => PUBKY } },
+});
+
+describe('single-approval ceremony at the transport seams', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { AuthController } = await import('./auth');
+    AuthController.resetSignInCeremonyGuard();
+
+    mockState.authTokenFromBytes.mockReturnValue({
+      capabilities: CAPABILITIES.split(','),
+      publicKey: { z32: () => PUBKY },
+    });
+    mockState.restoreSession.mockResolvedValue(mockSession);
+    mockState.startAuthFlow.mockReturnValue({
+      authorizationUrl: 'pubkyauth:///?relay=https%3A%2F%2Frelay.example.com%2Finbox&secret=s',
+      awaitToken: async () =>
+        asOpaque<AuthToken>({
+          toBytes: () => TOKEN_BYTES,
+          publicKey: { z32: () => PUBKY },
+          capabilities: CAPABILITIES.split(','),
+        }),
+      free: vi.fn(),
+    });
+  });
+
+  it('runs homeserver-then-marketplace exactly once, with identical body bytes on both POSTs', async () => {
+    const order: string[] = [];
+    mockState.clientFetch.mockImplementation(async () => {
+      order.push('homeserver');
+      return new Response(SESSION_INFO_BODY, { status: 200 });
+    });
+    vi.mocked(fetch).mockImplementation(async () => {
+      order.push('marketplace');
+      return new Response(
+        JSON.stringify({
+          token: BEARER,
+          pubky: PUBKY,
+          capabilities: CAPABILITIES,
+          expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    const { AuthController } = await import('./auth');
+    const { awaitApproval } = await AuthController.getAuthUrl();
+    await expect(awaitApproval).resolves.toBe(mockSession);
+
+    // Order is asserted at the transport boundary: homeserver first.
+    expect(order).toEqual(['homeserver', 'marketplace']);
+
+    // ONE auth flow for the whole ceremony, with the full grant — no
+    // empty-capability second flow on the direct sign-in path.
+    expect(mockState.startAuthFlow).toHaveBeenCalledTimes(1);
+    expect(mockState.startAuthFlow).toHaveBeenCalledWith(CAPABILITIES, 'signin-kind', expect.any(String));
+
+    // Identical bytes (same reference) on both POSTs.
+    expect(mockState.clientFetch).toHaveBeenCalledTimes(1);
+    expect(mockState.clientFetch).toHaveBeenCalledWith(
+      `https://_pubky.${PUBKY}/session`,
+      expect.objectContaining({ method: 'POST', credentials: 'include', body: TOKEN_BYTES }),
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8080/v1/auth/sessions',
+      expect.objectContaining({ method: 'POST', body: TOKEN_BYTES }),
+    );
+  });
+
+  it('keeps the sign-in when the marketplace POST fails terminally after a homeserver 2xx', async () => {
+    mockState.clientFetch.mockResolvedValue(new Response(SESSION_INFO_BODY, { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(new Response('The auth token is invalid.', { status: 401 }));
+
+    const { AuthController } = await import('./auth');
+    const { awaitApproval } = await AuthController.getAuthUrl();
+
+    // The marketplace rejection must NOT discard the restored session.
+    await expect(awaitApproval).resolves.toBe(mockSession);
+  });
+});

@@ -280,6 +280,33 @@ describe('MarketplaceSessionService', () => {
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
   });
 
+  it('rejects a 401 already-used when this client holds NO bearer — never a silent success', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('The auth token has already been used.', { status: 401 }),
+    );
+
+    // Lost-201 self-race without a bearer (or a third party spent the bytes):
+    // the redemption must fail so the caller surfaces a marketplace reconnect
+    // approval instead of believing the session exists.
+    await expect(
+      MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([2]), PUBKY, Date.now()),
+    ).rejects.toMatchObject({ code: 'INVALID_TOKEN', context: { statusCode: 401, alreadyUsed: true } });
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('rejects a 401 already-used when the held bearer belongs to a DIFFERENT pubky', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('The auth token has already been used.', { status: 401 }),
+    );
+
+    const other = 'z'.repeat(52);
+    await expect(
+      MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([2]), other, Date.now()),
+    ).rejects.toMatchObject({ code: 'INVALID_TOKEN', context: { statusCode: 401, alreadyUsed: true } });
+  });
+
   it('retries a 5xx marketplace POST with the same bytes and succeeds', async () => {
     const bytes = new Uint8Array([1]);
     vi.spyOn(await import('@/libs/utils/utils'), 'sleep').mockResolvedValue(undefined);
@@ -352,8 +379,9 @@ describe('MarketplaceSessionService', () => {
 
     expect(error).toMatchObject({ name: 'AppError', category: 'server', code: 'INVALID_RESPONSE' });
     expect(error.message).not.toContain(TOKEN);
-    expect(JSON.stringify(error.context)).not.toContain(TOKEN);
-    expect(error.context).not.toHaveProperty('responseText');
+    // The context is the statusCode ONLY — the pickup-parser precedent
+    // (single-approval.md §7.8): no body excerpt, no extras.
+    expect(error.context).toEqual({ statusCode: 201 });
     expect(error.cause).toBeUndefined();
     expect(JSON.stringify(loggerError.mock.calls)).not.toContain(TOKEN);
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
