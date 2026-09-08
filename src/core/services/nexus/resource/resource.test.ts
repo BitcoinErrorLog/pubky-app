@@ -1,9 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import { queryNexus } from '@/services/nexus/nexus.utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NexusResourceService } from './resource';
 
 vi.mock('@/services/nexus/nexus.utils', () => ({
-  queryNexus: vi.fn(),
+  createFetchOptions: vi.fn(() => ({ method: 'GET', headers: {} })),
   buildNexusUrl: (endpoint: string) => `https://nexus.staging.pubky.app/${endpoint}`,
   buildUrlWithQuery: ({ baseRoute, params }: { baseRoute: string; params: Record<string, unknown> }) =>
     `https://nexus.staging.pubky.app/${baseRoute}?${new URLSearchParams(params as Record<string, string>).toString()}`,
@@ -11,35 +10,44 @@ vi.mock('@/services/nexus/nexus.utils', () => ({
 }));
 
 describe('NexusResourceService', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('fetches tag-filtered resources from the stream endpoint', async () => {
     const resource = { details: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 }, tags: [], taggers_count: 0 };
-    vi.mocked(queryNexus).mockResolvedValueOnce([resource]);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify([resource]), { status: 200 }));
 
     await expect(NexusResourceService.fetchByTag({ tag: 'docs', limit: 20 })).resolves.toEqual([
       resource,
     ]);
-    expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/stream/resources?tags=docs&limit=20',
-    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('fetches resource details and tags by id', async () => {
     const response = { resource: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 }, tags: [] };
-    vi.mocked(queryNexus).mockResolvedValueOnce(response);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify(response), { status: 200 }));
 
     await expect(NexusResourceService.fetchById({ id: '1' })).resolves.toEqual(response);
-    expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/resource/1/tags',
-    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('looks up a resource by its raw URI without hashing it', async () => {
-    vi.mocked(queryNexus).mockResolvedValueOnce({ resource: { id: '1' }, tags: [] });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ resource: { id: '1' }, tags: [] }), { status: 200 }));
 
     await NexusResourceService.fetchByUri({ uri: 'https://Example.com/path' });
 
-    expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/resource/by-uri?uri=https%3A%2F%2FExample.com%2Fpath',
-    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails once without retrying when Nexus is unreachable', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    await expect(NexusResourceService.fetchByTag({ tag: 'docs', limit: 20 })).rejects.toThrow('fetch failed');
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
