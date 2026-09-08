@@ -37,6 +37,7 @@ import {
   type MarketplacePickupDetails,
   type MarketplacePickupReveal,
   type MarketplaceSellerPickupDetails,
+  pickupRefusalFailureMessage,
   resolveCheckoutFulfillment,
 } from '@/libs/commerce/pickup';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
@@ -399,7 +400,7 @@ export class CommerceApplication {
     if (response.ok) return;
     const refusal = classifyMarketplacePickupCommandRefusal(response);
     if (!refusal) return;
-    throw Err.client(ClientErrorCode.CONFLICT, response.error.message, {
+    throw Err.client(ClientErrorCode.CONFLICT, pickupRefusalFailureMessage(refusal), {
       service: ErrorService.Marketplace,
       operation,
       context: { refusal },
