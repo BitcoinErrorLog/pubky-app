@@ -55,6 +55,22 @@ cd /Users/johncarvalho/work/mp-prod-deploy
 /Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel deploy --prod --yes --scope synonymdev
 ```
 
+## Move The Shop Domain Between Vercel Projects
+
+Moving `shop.pubky.app` between Vercel projects is **not** a reassignment. The `pubky.app` DNS zone is external
+(Namecheap), and its apex belongs to a different Vercel account; Shop is held by TXT proof. Each time Vercel attaches
+the domain to a project, it mints a new `_vercel` TXT verification token. Detaching the domain from the current project
+invalidates the token currently published in DNS.
+
+Before detaching `shop.pubky.app`, attach it to the destination project, obtain the newly minted `_vercel` TXT token,
+and have the DNS owner publish that exact token. Verify the new record has propagated, then detach the domain from the
+current project and complete the attach. If the new token cannot be published and verified first, accept that detaching
+will take the hostname offline until DNS is updated; it is not a safe preparatory step.
+
+If the move fails after detachment, roll back by reattaching `shop.pubky.app` to the prior project, obtain its newly
+minted `_vercel` token, publish and verify that replacement token, then complete the reattach. Do not reuse a prior
+token for either direction.
+
 ## Vercel Rollback Or Promote
 
 Use `promote` when the target known-good deployment id or URL is known. Use `rollback` when reverting away from a known
