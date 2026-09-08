@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getResourceRoute } from '@/app/routes';
 import { ResourceController } from '@/controllers/resource/resource';
 import { ClientErrorCode, NetworkErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -67,6 +68,14 @@ describe('ResourceDiscovery', () => {
       'https://example.com/one',
       'https://example.com/two',
     ]);
+    expect(screen.getByRole('link', { name: 'https://example.com/one' })).toHaveAttribute(
+      'href',
+      getResourceRoute('resource-1'),
+    );
+    expect(screen.getByRole('link', { name: 'https://example.com/two' })).toHaveAttribute(
+      'href',
+      getResourceRoute('resource-2'),
+    );
   });
 
   it('renders all ten labels on a resource card', async () => {

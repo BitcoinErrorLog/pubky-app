@@ -77,7 +77,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
       ) : (
         <Container className="gap-4">
           {resources.map((item) => (
-            <ResourceCard key={item.details.id} resource={item} />
+            <ResourceCard key={item.details.id} resource={item} showDetailsLink />
           ))}
         </Container>
       )}

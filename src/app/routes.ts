@@ -43,6 +43,10 @@ export function getContentSearchUrl(query: string): string {
   return `${APP_ROUTES.SEARCH}?${params.toString()}`;
 }
 
+export function getResourceRoute(resourceId: string): string {
+  return `${APP_ROUTES.RESOURCES}/${encodeURIComponent(resourceId)}`;
+}
+
 export enum COLLECTION_ROUTES {
   BOOKMARKS = '/collections/bookmarks',
 }

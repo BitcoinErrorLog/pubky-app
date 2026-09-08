@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { getResourceRoute } from '@/app/routes';
 import type { NexusResource } from '@/services/nexus/resource/resource.types';
 import { ResourceCard } from './ResourceCard';
 
@@ -11,7 +12,7 @@ vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
   }),
 }));
 
-function resourceWithUri(uri: string): NexusResource {
+function resourceWithUri(uri: string, labels = ['docs']): NexusResource {
   return {
     details: {
       id: 'resource-1',
@@ -19,8 +20,8 @@ function resourceWithUri(uri: string): NexusResource {
       scheme: uri.split(':')[0] ?? '',
       indexed_at: 1,
     },
-    tags: [{ label: 'docs', taggers: [], taggers_count: 1, relationship: false }],
-    taggers_count: 1,
+    tags: labels.map((label) => ({ label, taggers: [], taggers_count: 1, relationship: false })),
+    taggers_count: labels.length,
   };
 }
 
@@ -44,6 +45,30 @@ describe('ResourceCard', () => {
     expect(link).toHaveAttribute('href', 'https://example.com/resource');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('links stream cards to resource details and hints at more tags', () => {
+    const resource = resourceWithUri('https://example.com/resource', ['one', 'two', 'three', 'four', 'five']);
+
+    render(<ResourceCard resource={resource} showDetailsLink />);
+
+    expect(screen.getByRole('link', { name: resource.details.uri })).toHaveAttribute(
+      'href',
+      getResourceRoute(resource.details.id),
+    );
+    expect(screen.getByRole('link', { name: /open resource/i })).toHaveAttribute('href', resource.details.uri);
+    expect(screen.getByText('More tags')).toBeInTheDocument();
+  });
+
+  it('does not hint at more tags below the stream preview limit', () => {
+    render(
+      <ResourceCard
+        resource={resourceWithUri('https://example.com/resource', ['one', 'two', 'three', 'four'])}
+        showDetailsLink
+      />,
+    );
+
+    expect(screen.queryByText('More tags')).not.toBeInTheDocument();
   });
 
   it.each(['javascript:alert(1)', 'data:text/html,hi', 'vbscript:msgbox(1)'])(
