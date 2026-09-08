@@ -6,7 +6,6 @@ import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode } fro
 import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
 import { Logger } from '@/libs/logger/logger';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 
@@ -29,8 +28,15 @@ export const SESSION_FLOW_TIMEOUT_MS = 120_000;
 /** `localStorage` key for the persisted session (see the class docs for the storage contract). */
 export const MARKETPLACE_SESSION_STORAGE_KEY = 'pubky.marketplace.session.v1';
 
+/**
+ * Opaque session bearer as issued by `POST /v1/auth/sessions`: 32 random
+ * bytes, URL-safe base64 without padding (43 characters). See
+ * marketplace-service `auth.rs` (`URL_SAFE_NO_PAD.encode([u8; 32])`).
+ */
+const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
 const sessionResponseSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().regex(SESSION_TOKEN_PATTERN),
   pubky: commercePubkySchema,
   capabilities: z.string(),
   expiresAt: z.iso.datetime({ offset: true }),
@@ -130,7 +136,7 @@ export class MarketplaceSessionService {
       authorizationUrl: flow.authorizationUrl,
       awaitSession: async () => {
         const authToken = await this.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
-        return await this.establishWithAuthToken(authToken.toBytes());
+        return await this.establishWithAuthToken(authToken.toBytes(), authToken.publicKey.z32());
       },
       cancel: flow.cancelAuthFlow,
     };
@@ -165,9 +171,14 @@ export class MarketplaceSessionService {
 
   /**
    * Exchanges signed AuthToken bytes for a transaction-service session and
-   * stores it in memory, replacing any previous session.
+   * stores it in memory, replacing any previous session. `expectedPubky` is
+   * the requesting account (the AuthToken signer); a response for any other
+   * pubky is rejected.
    */
-  static async establishWithAuthToken(authTokenBytes: Uint8Array): Promise<MarketplaceSessionInfo> {
+  static async establishWithAuthToken(
+    authTokenBytes: Uint8Array,
+    expectedPubky: string,
+  ): Promise<MarketplaceSessionInfo> {
     this.assertTransactionServiceMode('establishWithAuthToken');
     const url = `${getMarketplaceUrl()}/v1/auth/sessions`;
     const response = await safeFetch(
@@ -187,10 +198,17 @@ export class MarketplaceSessionService {
         context: { statusCode: response.status },
       });
     }
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'establishWithAuthToken', url);
+    const raw = await this.parseSessionMintBody(response);
     const parsed = sessionResponseSchema.safeParse(toCamelCaseWire(raw));
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid session response.', {
+        service: ErrorService.Marketplace,
+        operation: 'establishWithAuthToken',
+        context: { statusCode: response.status },
+      });
+    }
+    if (parsed.data.pubky !== expectedPubky) {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'Marketplace returned a session for a different account.', {
         service: ErrorService.Marketplace,
         operation: 'establishWithAuthToken',
         context: { statusCode: response.status },
@@ -300,6 +318,36 @@ export class MarketplaceSessionService {
       return window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Reads the `/v1/auth/sessions` body WITHOUT the generic
+   * `parseResponseOrThrow`: that helper used to embed a body excerpt in error
+   * context (`responseText`), which the factories log to the console — and this
+   * body BEGINS with the freshly minted bearer token.
+   *
+   * Strict `JSON.parse` of the entire body only. A previous "lenient salvage"
+   * that sliced from the first `{` to the last `}` accepted a prepended
+   * attacker object (session fixation). Prefix salvage of a balanced object
+   * starting at byte 0 would still accept a concatenated attacker object
+   * followed by the truncated genuine body. The cost of failing closed is a
+   * rare second Ring approval when a proxy mangles the bytes.
+   *
+   * Mid-token truncation fails closed because `JSON.parse` requires the whole
+   * text to be one complete value — including if a future nested field adds
+   * extra braces. Do not restore brace-slicing salvage.
+   */
+  private static async parseSessionMintBody(response: Response): Promise<unknown> {
+    const text = await response.text();
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an unreadable session response.', {
+        service: ErrorService.Marketplace,
+        operation: 'establishWithAuthToken',
+        context: { statusCode: response.status },
+      });
     }
   }
 

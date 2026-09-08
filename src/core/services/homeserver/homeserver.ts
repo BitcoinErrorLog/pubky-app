@@ -392,7 +392,14 @@ export class HomeserverService {
         throw new Error(`Signup token verification failed with status ${response.status}`);
       }
 
-      const data = (await response.json()) as { status?: string };
+      const text = await response.text();
+      let data: { status?: string };
+      try {
+        data = JSON.parse(text) as { status?: string };
+      } catch {
+        Logger.warn('Signup token verification returned a non-JSON body', { status: response.status });
+        return 'invalid';
+      }
       if (data.status === 'valid') {
         return 'valid';
       }
@@ -403,7 +410,7 @@ export class HomeserverService {
       Logger.warn('Unexpected signup token verification payload', { status: data.status });
       return 'invalid';
     } catch (error) {
-      Logger.warn('Signup token verification could not reach the homeserver', { error });
+      Logger.warn('Signup token verification could not reach the homeserver');
       throw error;
     }
   }

@@ -181,6 +181,7 @@ export class LocksGatewayService {
       'issueAccessCredential',
     );
     if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'issueAccessCredential', url);
+    // Access credentials are bearer material — no body excerpt on parse failure.
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Locks, 'issueAccessCredential', url);
     const parsed = accessCredentialSchema.safeParse(raw);
     if (!parsed.success) {
@@ -230,6 +231,7 @@ export class LocksGatewayService {
       'createFrontendSession',
     );
     if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'createFrontendSession', url);
+    // Frontend session_token is creator bearer material — no body excerpt.
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Locks, 'createFrontendSession', url);
     const parsed = frontendSessionSchema.safeParse(raw);
     if (!parsed.success) {

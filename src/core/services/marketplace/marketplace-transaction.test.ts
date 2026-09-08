@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import type { AppError } from '@/libs/error/error';
 import { ErrorService } from '@/libs/error/error.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { Logger } from '@/libs/logger/logger';
 import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -11,6 +11,7 @@ import { MarketplaceTransactionService } from './marketplace-transaction';
 
 const ACTOR = 'y'.repeat(52);
 const OTHER_ACTOR = 'b'.repeat(52);
+const SESSION_BEARER = `Bearer ${'A'.repeat(43)}`;
 const AGGREGATE_ID = buildMarketplaceListingAggregateId(ACTOR, 'boots_01');
 const COMMAND_ID = '00000000-0000-4000-8000-000000000700';
 
@@ -52,13 +53,13 @@ function bidCommand() {
 async function establishSession(): Promise<void> {
   vi.mocked(fetch).mockResolvedValueOnce(
     jsonResponse(201, {
-      token: 'bearer-token',
+      token: 'A'.repeat(43),
       pubky: ACTOR,
       capabilities: '',
       expires_at: new Date(Date.now() + 86_400_000).toISOString(),
     }),
   );
-  await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+  await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), ACTOR);
   vi.mocked(fetch).mockClear();
 }
 
@@ -94,7 +95,7 @@ describe('MarketplaceTransactionService.execute', () => {
     expect(url).toBe('http://127.0.0.1:8080/v1/commands');
     expect(init.headers).toEqual({
       'content-type': 'application/json',
-      authorization: 'Bearer bearer-token',
+      authorization: SESSION_BEARER,
     });
     expect(JSON.parse(init.body as string)).toEqual({
       version: 1,
@@ -212,7 +213,6 @@ describe('MarketplaceTransactionService.execute', () => {
   });
 });
 
-
 describe('MarketplaceTransactionService read projections', () => {
   beforeEach(() => {
     config.mode = 'transaction-service';
@@ -320,7 +320,7 @@ describe('MarketplaceTransactionService read projections', () => {
     });
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://127.0.0.1:8080/v1/listings/${encodeURIComponent(AGGREGATE_ID)}`);
-    expect(init.headers).toEqual({ authorization: 'Bearer bearer-token' });
+    expect(init.headers).toEqual({ authorization: SESSION_BEARER });
   });
 
   it('returns null for an unregistered listing (service 404)', async () => {
@@ -529,7 +529,6 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
   });
 
-
   describe('seller payment methods', () => {
     beforeEach(() => {
       config.mode = 'transaction-service';
@@ -583,7 +582,7 @@ describe('MarketplaceTransactionService read projections', () => {
       const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
       expect(body).not.toHaveProperty('stripe_restricted_key');
-      expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+      expect((init.headers as Record<string, string>).authorization).toBe(SESSION_BEARER);
     });
 
     it('sends the restricted key on the wire only when the seller supplies one', async () => {
@@ -627,8 +626,39 @@ describe('MarketplaceTransactionService read projections', () => {
       );
 
       await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'stripe')).rejects.toMatchObject({
-        message: 'A different payment method is already bound to this order.',
+        message: 'A payment method is already bound to this order.',
       });
+    });
+
+    it('maps payment-method reasons to static copy and never logs the server message', async () => {
+      await establishSession();
+      const echoed = 'rk_live_echoed_restricted_key_value';
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(400, {
+          ok: false,
+          error: {
+            code: 'INVALID_COMMAND',
+            message: `Stripe rejected ${echoed}`,
+            reason: 'stripe_key_invalid',
+          },
+        }),
+      );
+      const loggerError = vi.spyOn(Logger, 'error');
+
+      const error = (await MarketplaceTransactionService.putMyPaymentConfig(ACTOR, {
+        bitcoinEnabled: false,
+        stripePaymentLink: null,
+        stripeRestrictedKey: 'rk_test_12345678',
+        paypalMerchantEmail: null,
+      }).catch((caught: unknown) => caught)) as AppError;
+
+      expect(error).toMatchObject({
+        message: 'Stripe rejected the seller payment key. The seller must update their payment settings.',
+      });
+      expect(error.message).not.toContain(echoed);
+      expect(JSON.stringify(error.context)).not.toContain(echoed);
+      expect(JSON.stringify(loggerError.mock.calls)).not.toContain(echoed);
+      loggerError.mockRestore();
     });
 
     it('reports an honest not-found verification without touching the order', async () => {
@@ -692,7 +722,7 @@ describe('MarketplaceTransactionService read projections', () => {
       const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
       expect(body.shippo_api_key).toBe('shippo_test_1234567890');
-      expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+      expect((init.headers as Record<string, string>).authorization).toBe(SESSION_BEARER);
     });
 
     it('quotes rates for a parcel and parses them', async () => {
@@ -830,7 +860,12 @@ describe('MarketplaceTransactionService pickup commands', () => {
         aggregate_id: AGGREGATE_ID,
         revision: 1,
         event_ids: ['00000000-0000-4000-8000-000000000701'],
-        result: { kind: 'pickup_details', listing_aggregate_id: AGGREGATE_ID, version: 1, updated_at: '2026-08-19T22:00:00.000Z' },
+        result: {
+          kind: 'pickup_details',
+          listing_aggregate_id: AGGREGATE_ID,
+          version: 1,
+          updated_at: '2026-08-19T22:00:00.000Z',
+        },
       }),
     );
 
@@ -912,7 +947,7 @@ describe('MarketplaceTransactionService.getOrderPickupDetails (the buyer reveal,
 
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${PICKUP_ORDER_ID}/pickup-details`);
-    expect((init.headers as Record<string, string>).authorization).toBe('Bearer bearer-token');
+    expect((init.headers as Record<string, string>).authorization).toBe(SESSION_BEARER);
     expect(reveal.orderId).toBe(PICKUP_ORDER_ID);
     expect(reveal.firstRevealedAt).toBe('2026-08-19T22:05:00.000Z');
     expect(reveal.lines).toHaveLength(1);
@@ -959,7 +994,10 @@ describe('MarketplaceTransactionService.getOrderPickupDetails (the buyer reveal,
   it('maps the non-buyer 403 to an auth FORBIDDEN error', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(403, { ok: false, error: { code: 'UNAUTHORIZED', message: 'Only the buyer may reveal the pickup details.' } }),
+      jsonResponse(403, {
+        ok: false,
+        error: { code: 'UNAUTHORIZED', message: 'Only the buyer may reveal the pickup details.' },
+      }),
     );
 
     await expect(MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)).rejects.toMatchObject({
@@ -1066,7 +1104,6 @@ describe('pickup entitled reads never leak the plaintext into error telemetry', 
   // mid-payload, as a proxy/server fault would produce it).
   const MALFORMED_BODY = `{"order_id":"${PICKUP_ORDER_ID}","lines":[{"details":{"spot":"${SENTINEL}","instructions":"Ask for the blue backpack.`;
 
-
   const pickupReads = [
     ['buyer reveal', () => MarketplaceTransactionService.getOrderPickupDetails(ACTOR, PICKUP_ORDER_ID)],
     ['seller owner read', () => MarketplaceTransactionService.getListingPickupDetails(ACTOR, AGGREGATE_ID)],
@@ -1109,9 +1146,13 @@ describe('pickup entitled reads never leak the plaintext into error telemetry', 
   it('negative control: the generic parseResponseOrThrow WOULD embed the excerpt — and the scrubber denylist now redacts it', async () => {
     const response = new Response(MALFORMED_BODY, { status: 200, headers: { 'content-type': 'application/json' } });
 
-    const error = (await parseResponseOrThrow(response, ErrorService.Marketplace, 'negativeControl').catch(
-      (caught: unknown) => caught,
-    )) as AppError;
+    const error = (await parseResponseOrThrow(
+      response,
+      ErrorService.Marketplace,
+      'negativeControl',
+      undefined,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    ).catch((caught: unknown) => caught)) as AppError;
 
     // Proves the fixture is sensitive and the pickup-specific parser above is
     // load-bearing: the generic path puts the body excerpt into the context.

@@ -25,7 +25,7 @@ import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/er
 import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
   type MarketplaceBidHistory,
   type MarketplaceListingProjection,
@@ -181,7 +181,13 @@ export class MarketplaceGatewayService {
     const url = `${getMarketplaceUrl()}/v1/listings?aggregateId=${encodeURIComponent(aggregateId)}`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getListing');
     if (response.status === 404) return null;
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getListing', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getListing',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     const parsed = marketplaceListingProjectionSchema.safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid listing projection.', {
@@ -460,7 +466,6 @@ export class MarketplaceGatewayService {
     return health.pickupAvailable;
   }
 
-
   /**
    * Seller-configurable payment methods — durable service only (the sandbox
    * has no payment rails). See `MarketplaceTransactionService` for the
@@ -606,10 +611,14 @@ export class MarketplaceGatewayService {
 
   private static assertDurableServiceOnly(operation: string): void {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) {
-      throw Err.client(ClientErrorCode.BAD_REQUEST, 'This marketplace read exists only on the durable transaction service.', {
-        service: ErrorService.Marketplace,
-        operation,
-      });
+      throw Err.client(
+        ClientErrorCode.BAD_REQUEST,
+        'This marketplace read exists only on the durable transaction service.',
+        {
+          service: ErrorService.Marketplace,
+          operation,
+        },
+      );
     }
   }
 

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppError } from '@/libs/error/error';
+import { Logger } from '@/libs/logger/logger';
 import { LocksGatewayService } from './locks';
 
 const CREATOR = 'y'.repeat(52);
@@ -168,6 +170,50 @@ describe('LocksGatewayService', () => {
     await expect(LocksGatewayService.createFrontendSession('one-time-code', 'opaque-state')).rejects.toMatchObject({
       name: 'AppError',
     });
+  });
+
+  it('does not put a truncated access-credential body into error context', async () => {
+    const sentinel = 'locks-access-credential-sentinel';
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(`{"credential":"${sentinel}","expires_at":"`, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const error = (await LocksGatewayService.issueAccessCredential(CREATOR, BUNDLE_ID).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(JSON.stringify(error.context)).not.toContain(sentinel);
+    expect(error.context).not.toHaveProperty('responseText');
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(sentinel);
+    loggerError.mockRestore();
+  });
+
+  it('does not put a truncated frontend-session body into error context', async () => {
+    const sentinel = 'locks-frontend-session-sentinel';
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(`{"session_token":"${sentinel}","creator":"pubky`, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const error = (await LocksGatewayService.createFrontendSession('one-time-code', 'opaque-state').catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(JSON.stringify(error.context)).not.toContain(sentinel);
+    expect(error.context).not.toHaveProperty('responseText');
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(sentinel);
+    loggerError.mockRestore();
   });
 
   it('builds exact-origin Paykit setup callbacks', () => {

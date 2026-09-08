@@ -4,7 +4,7 @@ import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { exchangerateQueryClient } from './exchangerate.query-client';
 import { BlockTankResponse, BtcRate } from './exchangerate.types';
 
@@ -43,6 +43,7 @@ export class ExchangerateService {
       ErrorService.Exchangerate,
       'getBtcUsdRate',
       exchangeRateApi,
+      PARSE_JSON_WITH_BODY_EXCERPT,
     );
 
     if (!data.tickers || !Array.isArray(data.tickers)) {

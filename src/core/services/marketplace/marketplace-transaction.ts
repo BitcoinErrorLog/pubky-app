@@ -44,7 +44,7 @@ import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import {
   type MarketplaceBidHistory,
   marketplaceBidHistorySchema,
@@ -68,6 +68,37 @@ import {
   marketplaceSellerDropSchema,
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
+
+const PAYMENT_METHOD_FAILURE_MESSAGES: Record<string, string> = {
+  bitcoin_unavailable: 'Bitcoin payments are not available for this seller.',
+  currency_unsupported: 'This payment method does not support the order currency.',
+  hold_unavailable: 'The inventory hold for this order is no longer available.',
+  invalid_method: 'That payment method is not valid for this order.',
+  invalid_payment_link: 'The Stripe payment link is not valid.',
+  invalid_paypal_email: 'The PayPal merchant email is not valid.',
+  invalid_pubky: 'The seller identity on this payment configuration is not valid.',
+  invalid_restricted_key: 'The Stripe restricted key is not valid.',
+  invalid_transaction_ref: 'The payment reference is not valid.',
+  locks_managed: 'A Locks-correlated payment advances only by server-side verification.',
+  method_mismatch: 'The payment method does not match this order.',
+  method_unavailable: 'That payment method is not available.',
+  not_buyer: 'Only the buyer may bind the payment method.',
+  not_participant: 'Only a participant on this order can continue.',
+  not_seller: 'Only the seller can continue this payment step.',
+  order_not_found: 'The order was not found.',
+  order_not_pending: 'Only an order pending payment can bind a payment method.',
+  paykit_rejected: 'The Paykit server rejected the payment request.',
+  paykit_unavailable: 'The Paykit server is unavailable. Try again shortly.',
+  payment_method_already_bound: 'A payment method is already bound to this order.',
+  payment_not_awaiting: 'The payment is no longer awaiting a method.',
+  payments_disabled: 'Payments are disabled on this marketplace.',
+  seller_account_unclaimed: 'The seller has not claimed a Bitcoin account yet.',
+  sold_out: 'This listing no longer has enough inventory.',
+  stripe_key_invalid: 'Stripe rejected the seller payment key. The seller must update their payment settings.',
+  stripe_key_missing: 'This seller has not configured a Stripe key.',
+  stripe_unavailable: 'Stripe could not be reached. Try again shortly.',
+  unavailable: 'The payment method request was refused.',
+};
 
 /**
  * Command kinds the durable Rust service implements (its envelope contract
@@ -309,7 +340,11 @@ export class MarketplaceTransactionService {
    * absent/foreign order to `Err.client(NOT_FOUND)`.
    */
   static async getOrderPickupDetails(actor: string, orderId: string): Promise<MarketplacePickupReveal> {
-    const raw = await this.readPickupEntitled('getOrderPickupDetails', actor, `/v1/orders/${encodeURIComponent(orderId)}/pickup-details`);
+    const raw = await this.readPickupEntitled(
+      'getOrderPickupDetails',
+      actor,
+      `/v1/orders/${encodeURIComponent(orderId)}/pickup-details`,
+    );
     return this.parseProjection(
       'getOrderPickupDetails',
       marketplacePickupRevealSchema,
@@ -326,10 +361,7 @@ export class MarketplaceTransactionService {
    * still answers. Seller only; a foreign or absent listing maps to
    * `Err.client(NOT_FOUND)`.
    */
-  static async getListingPickupDetails(
-    actor: string,
-    aggregateId: string,
-  ): Promise<MarketplaceSellerPickupDetails> {
+  static async getListingPickupDetails(actor: string, aggregateId: string): Promise<MarketplaceSellerPickupDetails> {
     const raw = await this.readPickupEntitled(
       'getListingPickupDetails',
       actor,
@@ -353,8 +385,19 @@ export class MarketplaceTransactionService {
     this.assertTransactionServiceMode('getHealth');
     const url = `${getMarketplaceUrl()}/health`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getHealth');
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getHealth', url);
-    return this.parseProjection('getHealth', marketplaceHealthSchema, toCamelCaseWire(raw), 'Marketplace returned an invalid health read.');
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getHealth',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
+    return this.parseProjection(
+      'getHealth',
+      marketplaceHealthSchema,
+      toCamelCaseWire(raw),
+      'Marketplace returned an invalid health read.',
+    );
   }
 
   /**
@@ -387,10 +430,9 @@ export class MarketplaceTransactionService {
 
   /**
    * Reads and parses an entitled-details body WITHOUT the generic
-   * `parseResponseOrThrow`: that utility embeds a body excerpt in the error
-   * context (`responseText`), which the factories log and ship to Sentry —
-   * on a malformed 200 that excerpt would be the revealed pickup plaintext.
-   * Here the body is read locally and any parse failure throws
+   * `parseResponseOrThrow`: even with excerpts opt-in off, a `cause` on the
+   * generic path used to carry V8 parse-error text. Pickup plaintext must
+   * never appear in logs. The body is read locally and any parse failure throws
    * INVALID_RESPONSE with NO excerpt: the context carries the status code
    * only.
    */
@@ -402,11 +444,15 @@ export class MarketplaceTransactionService {
       // No `cause`: a V8 parse-error message can embed a window of the source
       // text — here the revealed pickup plaintext — and Sentry's linkedErrors
       // would attach it. The status-code context is enough.
-      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an unreadable pickup-details response.', {
-        service: ErrorService.Marketplace,
-        operation,
-        context: { statusCode: response.status },
-      });
+      throw Err.server(
+        ServerErrorCode.INVALID_RESPONSE,
+        'Marketplace returned an unreadable pickup-details response.',
+        {
+          service: ErrorService.Marketplace,
+          operation,
+          context: { statusCode: response.status },
+        },
+      );
     }
   }
 
@@ -450,7 +496,6 @@ export class MarketplaceTransactionService {
       });
     }
   }
-
 
   /**
    * `GET /v1/sellers/{pubky}/band-consent`: the seller's standing
@@ -531,7 +576,13 @@ export class MarketplaceTransactionService {
     const url = `${getMarketplaceUrl()}/v0/drops/${encodeURIComponent(sellerPubky)}/${encodeURIComponent(dropId)}`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getPublicDrop');
     if (response.status === 404) return null;
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getPublicDrop', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getPublicDrop',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     return this.parseProjection(
       'getPublicDrop',
       z.object({ drop: marketplacePublicDropSchema }),
@@ -627,7 +678,13 @@ export class MarketplaceTransactionService {
     const url = `${getMarketplaceUrl()}/v0/sellers/${encodeURIComponent(sellerPubky)}/payment-config`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getSellerPaymentConfig');
     await this.throwPaymentMethodError(response, 'getSellerPaymentConfig');
-    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getSellerPaymentConfig', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Marketplace,
+      'getSellerPaymentConfig',
+      url,
+      PARSE_JSON_WITH_BODY_EXCERPT,
+    );
     return this.parseProjection(
       'getSellerPaymentConfig',
       sellerPaymentConfigSchema,
@@ -861,28 +918,29 @@ export class MarketplaceTransactionService {
 
   /**
    * The payment-methods surface answers failures with
-   * `{ok:false, error:{code, message, reason}}`. The server's `message` is
-   * already user-facing and the `reason` sub-code (`stripe_key_invalid`,
-   * `method_unavailable`, `payment_method_already_bound`, …) rides along in
-   * the error context for callers that branch on it.
+   * `{ok:false, error:{code, message, reason}}`. Map `reason` to a static
+   * client string — never copy `error.message`, which can echo a rejected
+   * Stripe restricted key or other private value into logs and the reporter.
    */
   private static async throwPaymentMethodError(response: Response, operation: string): Promise<void> {
     if (response.ok) return;
     let reason: string | undefined;
-    let message: string | undefined;
     try {
-      const body = (await response.clone().json()) as { error?: { message?: string; reason?: string } };
-      reason = body.error?.reason;
-      message = body.error?.message;
+      const body = (await response.clone().json()) as { error?: { reason?: string } };
+      reason = typeof body.error?.reason === 'string' ? body.error.reason : undefined;
     } catch {
       // A non-JSON failure body falls through to the generic parse error.
+      return;
     }
-    if (!message) return;
-    throw Err.client(ClientErrorCode.BAD_REQUEST, message, {
-      service: ErrorService.Marketplace,
-      operation,
-      context: { statusCode: response.status, reason },
-    });
+    throw Err.client(
+      ClientErrorCode.BAD_REQUEST,
+      PAYMENT_METHOD_FAILURE_MESSAGES[reason ?? ''] ?? PAYMENT_METHOD_FAILURE_MESSAGES.unavailable,
+      {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { statusCode: response.status, reason },
+      },
+    );
   }
 
   private static parseOrderEnvelope(operation: string, raw: unknown): MarketplaceOrder {

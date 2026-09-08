@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppError } from '@/libs/error/error';
+import { Logger } from '@/libs/logger/logger';
 import {
   MARKETPLACE_SESSION_STORAGE_KEY,
   MarketplaceSessionService,
@@ -6,7 +8,9 @@ import {
 } from './marketplace-session';
 
 const PUBKY = 'y'.repeat(52);
-const TOKEN = 'opaque-session-token-base64url';
+const TOKEN = 'A'.repeat(43);
+const TOKEN_B = 'B'.repeat(43);
+const TOKEN_C = 'C'.repeat(43);
 
 const config = vi.hoisted(() => ({
   mode: 'transaction-service' as string,
@@ -70,7 +74,7 @@ describe('MarketplaceSessionService', () => {
     const bytes = new Uint8Array([1, 2, 3, 4]);
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
 
-    const info = await MarketplaceSessionService.establishWithAuthToken(bytes);
+    const info = await MarketplaceSessionService.establishWithAuthToken(bytes, PUBKY);
 
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8080/v1/auth/sessions',
@@ -91,7 +95,7 @@ describe('MarketplaceSessionService', () => {
 
   it('never hands the bearer token to callers of the session flow', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    authTokenFlow.awaitToken.mockResolvedValueOnce({ toBytes: () => new Uint8Array([9, 9, 9]) });
+    authTokenFlow.awaitToken.mockResolvedValueOnce({ toBytes: () => new Uint8Array([9, 9, 9]), publicKey: { z32: () => PUBKY } });
 
     const flow = MarketplaceSessionService.beginSessionFlow();
     const info = await flow.awaitSession();
@@ -105,7 +109,7 @@ describe('MarketplaceSessionService', () => {
     const indexedDbOpenSpy = vi.spyOn(indexedDB, 'open');
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
 
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
 
     const persisted = window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
     expect(persisted).not.toBeNull();
@@ -118,7 +122,7 @@ describe('MarketplaceSessionService', () => {
 
   it('restores a persisted session for the matching account across a simulated reload', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
 
     dropMemoryOnly();
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
@@ -132,7 +136,7 @@ describe('MarketplaceSessionService', () => {
 
   it('drops a persisted session that belongs to another account', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
     dropMemoryOnly();
 
     expect(MarketplaceSessionService.restorePersistedSession('z'.repeat(52))).toBeNull();
@@ -144,7 +148,7 @@ describe('MarketplaceSessionService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'));
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
     dropMemoryOnly();
 
     vi.setSystemTime(new Date('2026-08-20T12:59:31.000Z'));
@@ -158,7 +162,7 @@ describe('MarketplaceSessionService', () => {
 
   it('refuses to restore outside durable modes even when a blob is persisted', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
     dropMemoryOnly();
     config.mode = 'sandbox';
 
@@ -169,22 +173,22 @@ describe('MarketplaceSessionService', () => {
   it('treats a session as absent once it reaches the expiry margin, and re-establishes', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'));
-    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z', 'first-token'));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
-    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: 'first-token' });
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z', TOKEN));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN });
 
     // 30s before the server-side expiry the client already refuses to use it.
     vi.setSystemTime(new Date('2026-08-20T12:59:31.000Z'));
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
 
-    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T14:00:00.000Z', 'second-token'));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([2]));
-    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: 'second-token' });
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T14:00:00.000Z', TOKEN_B));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([2]), PUBKY);
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN_B });
   });
 
   it('clears the session from memory AND localStorage on demand', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
     expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).not.toBeNull();
 
     MarketplaceSessionService.clearSession();
@@ -214,7 +218,7 @@ describe('MarketplaceSessionService', () => {
   it('does not fire the timeout once the exchange already succeeded', async () => {
     vi.useFakeTimers();
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    authTokenFlow.awaitToken.mockResolvedValueOnce({ toBytes: () => new Uint8Array([7]) });
+    authTokenFlow.awaitToken.mockResolvedValueOnce({ toBytes: () => new Uint8Array([7]), publicKey: { z32: () => PUBKY } });
 
     const flow = MarketplaceSessionService.beginSessionFlow();
     const info = await flow.awaitSession();
@@ -229,7 +233,7 @@ describe('MarketplaceSessionService', () => {
       new Response(JSON.stringify({ error: { message: 'The auth token is invalid.' } }), { status: 401 }),
     );
 
-    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]))).rejects.toMatchObject({
+    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY)).rejects.toMatchObject({
       name: 'AppError',
       code: 'INVALID_TOKEN',
     });
@@ -240,7 +244,7 @@ describe('MarketplaceSessionService', () => {
     config.mode = 'sandbox';
 
     expect(() => MarketplaceSessionService.beginSessionFlow()).toThrowError();
-    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]))).rejects.toMatchObject({
+    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
     expect(fetch).not.toHaveBeenCalled();
@@ -255,7 +259,7 @@ describe('MarketplaceSessionService', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'));
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
     vi.setSystemTime(new Date('2026-08-20T12:59:31.000Z'));
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
     await Promise.resolve();
@@ -263,13 +267,13 @@ describe('MarketplaceSessionService', () => {
 
     vi.setSystemTime(new Date('2026-08-20T12:00:00.000Z'));
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([2]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([2]), PUBKY);
     MarketplaceSessionService.clearSession('rejected');
     await Promise.resolve();
     expect(reasons).toEqual(['expired', 'rejected']);
 
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse('2026-08-20T13:00:00.000Z'));
-    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([3]));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([3]), PUBKY);
     MarketplaceSessionService.clearSession();
     await Promise.resolve();
     expect(reasons).toEqual(['expired', 'rejected', 'cleared']);
@@ -278,5 +282,142 @@ describe('MarketplaceSessionService', () => {
     await Promise.resolve();
     expect(reasons).toEqual(['expired', 'rejected', 'cleared']);
     unsubscribe();
+  });
+
+  it('does not put a truncated session-mint body into error context, logs, or cause', async () => {
+    const truncated = `{"token":"${TOKEN}","pubky":"${PUBKY}","capabilities":"","expires_at":"`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(truncated, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const error = (await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ name: 'AppError', category: 'server', code: 'INVALID_RESPONSE' });
+    expect(error.message).not.toContain(TOKEN);
+    expect(JSON.stringify(error.context)).not.toContain(TOKEN);
+    expect(error.context).not.toHaveProperty('responseText');
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(TOKEN);
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    loggerError.mockRestore();
+  });
+
+  it('rejects trailing garbage even when a well-formed session object is a prefix', async () => {
+    const expiresAt = inOneDay();
+    const body = `${JSON.stringify({ token: TOKEN, pubky: PUBKY, capabilities: '', expires_at: expiresAt })}<!DOCTYPE html>`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(body, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+
+    const error = (await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+    expect(error).toMatchObject({ name: 'AppError', code: 'INVALID_RESPONSE' });
+    expect(error.message).not.toContain('<!DOCTYPE');
+    expect(JSON.stringify(error.context)).not.toContain(TOKEN);
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('rejects concatenated session objects (attacker prefix + truncated genuine)', async () => {
+    const expiresAt = inOneDay();
+    const attacker = JSON.stringify({
+      token: TOKEN_C,
+      pubky: PUBKY,
+      capabilities: '',
+      expires_at: expiresAt,
+    });
+    const truncatedGenuine = `{"token":"${TOKEN}","pubky":"${PUBKY}","capabilities":"","expires_at":"`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(`${attacker}${truncatedGenuine}`, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+
+    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('rejects trailing HTML/CSS whose braces would have fooled a last-brace salvage', async () => {
+    const expiresAt = inOneDay();
+    const genuine = JSON.stringify({ token: TOKEN, pubky: PUBKY, capabilities: '', expires_at: expiresAt });
+    const body = `${genuine}<style>.x{color:red}</style><script>if(true){void 0}</script>`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(body, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+
+    const error = (await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+    expect(error).toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(error.message).not.toContain('color:red');
+    expect(error.message).not.toContain(TOKEN);
+    expect(JSON.stringify(error.context)).not.toContain(TOKEN);
+    expect(error.cause).toBeUndefined();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('rejects a truncated nested field structurally, not because the wire format is flat', async () => {
+    // A future nested capabilities object must still fail closed mid-token:
+    // JSON.parse of the whole body is what makes truncation structural.
+    const truncatedNested = `{"token":"${TOKEN}","pubky":"${PUBKY}","capabilities":{"scope":"rw","extra":"`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(truncatedNested, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+    const error = (await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+    expect(error).toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(error.message).not.toContain(TOKEN);
+    expect(JSON.stringify(error.context)).not.toContain(TOKEN);
+    expect(error.cause).toBeUndefined();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('rejects a session minted for a different pubky than the requesting account', async () => {
+    const other = 'z'.repeat(52);
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), other)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('rejects a session token that is not the 32-byte url-safe-base64 wire form', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ token: 'ATTACKER', pubky: PUBKY, capabilities: '', expires_at: inOneDay() }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('rejects a leading-garbage session-fixation body (attacker object after junk)', async () => {
+    const expiresAt = inOneDay();
+    const attackerToken = 'C'.repeat(43);
+    const attacker = JSON.stringify({
+      token: attackerToken,
+      pubky: PUBKY,
+      capabilities: '',
+      expires_at: expiresAt,
+    });
+    const truncatedGenuine = `{"token":"${TOKEN}","pubky":"${PUBKY}","capabilities":"","expires_at":"`;
+    const body = `junk${attacker}${truncatedGenuine}`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(body, { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+
+    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY)).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'INVALID_RESPONSE',
+    });
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { getCdnUrl, getNexusUrl } from '@/config/nexus';
 import { ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
-import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { mockResponse } from '@/test-utils/dom';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { buildCdnUrl, buildNexusUrl, buildUrlWithQuery, createFetchOptions, queryNexus } from './nexus.utils';
@@ -104,6 +104,28 @@ describe('nexus.utils', () => {
         category: ErrorCategory.Server,
         code: ServerErrorCode.INVALID_RESPONSE,
       });
+    });
+
+    it('does not put body text in error context unless includeBodyExcerpt is set', async () => {
+      const sentinel = 'credential-looking-body-fragment';
+      const leaked = createMockResponse({ text: vi.fn().mockResolvedValue(`{"token":"${sentinel}`) });
+      const excerpted = createMockResponse({ text: vi.fn().mockResolvedValue(`{"token":"${sentinel}`) });
+
+      const defaultError = await parseResponseOrThrow(leaked, ErrorService.Nexus, 'testOp').catch(
+        (caught: unknown) => caught,
+      );
+      const excerptError = await parseResponseOrThrow(
+        excerpted,
+        ErrorService.Nexus,
+        'testOp',
+        undefined,
+        PARSE_JSON_WITH_BODY_EXCERPT,
+      ).catch((caught: unknown) => caught);
+
+      expect(JSON.stringify((defaultError as { context?: unknown }).context)).not.toContain(sentinel);
+      expect((defaultError as { context?: object }).context).not.toHaveProperty('responseText');
+      expect((defaultError as { cause?: unknown }).cause).toBeUndefined();
+      expect(JSON.stringify((excerptError as { context?: unknown }).context)).toContain(sentinel);
     });
   });
 
