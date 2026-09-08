@@ -61,7 +61,7 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 
 **Live URLs**
 
-- Client `383b6d3e` is deployed to `https://shop.pubky.app` and the production alias. marketplace-service `462ed54` on `main` is deployed to staging and production; production `/health` reports `pickup_available:true`, while staging reports false because it is sandbox.
+- Client `383b6d3e` (Wave 7) is on `https://shop.pubky.app` via Vercel project `pubky-marketplace-production`. Staging Shop is `https://pubky-marketplace-staging.vercel.app`. marketplace-service `462ed54` on `main` is deployed to staging and production; production `/health` reports `pickup_available:true`, while staging reports false because it is sandbox.
 
 **What users did (server-side facts only)**
 
@@ -70,8 +70,9 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 
 **What broke**
 
+- Wave 4 cutover took `shop.pubky.app` offline for about two hours: Vercel minted a new TXT verification token after detach, and a second attach invalidated the published record (`790ca03e`).
 - Wave 7.1 required one fix round: key rotation could stall past 100 rows; a reveal without a pinned snapshot stamped the withdrawal window; and the confirm path could panic.
-- Wave 7.2a required one fix round because a malformed-response excerpt could reach logs/Sentry. Wave 7.2b required two: fixtures and seed data marked auctions as pickup, a defect the VRT tolerance hid; the listing form was not capability-gated; and the create-mode editor was unreachable.
+- Wave 7.2a required one fix round because a malformed-response excerpt could reach logs/Sentry. A later pass (`9e18155c`) made body excerpts opt-in for all `parseResponseOrThrow` callers and closed a session-mint salvage hole before it shipped. Wave 7.2b required two: fixtures and seed data marked auctions as pickup, a defect the old VRT tolerance hid; the listing form was not capability-gated; and the create-mode editor was unreachable. Pickup refusal toasts were later mapped to static copy (`7561200b`) so a refusal cannot render the address.
 
 **What it taught**
 
