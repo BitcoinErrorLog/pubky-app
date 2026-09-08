@@ -84,13 +84,13 @@ vi.mock('@/hooks/usePublicRoute/usePublicRoute', () => ({
 describe('OnboardingScanPage (onboarding) — visual regression', () => {
   it('renders the scan/QR page at desktop viewport', async () => {
     await preloadImages(SCAN_PAGE_IMAGE_URLS);
-    const screen = await renderForVRT(<ScanWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<ScanWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('onboarding-scan-desktop');
   });
 
   it('renders the scan/QR page at mobile viewport', async () => {
     await preloadImages(SCAN_PAGE_IMAGE_URLS);
-    const screen = await renderForVRT(<ScanWithHeader />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<ScanWithHeader />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('onboarding-scan-mobile');
   });
 });

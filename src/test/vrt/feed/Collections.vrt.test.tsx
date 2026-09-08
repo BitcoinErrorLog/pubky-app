@@ -3,7 +3,7 @@
 // @vitest/browser. Do not let `eslint --fix` reorder these imports.
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
-import { preloadImages, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { preloadImages, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { formatStableRelative } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { createZustandLikeHook } from '@/test-utils/stores';
@@ -644,7 +644,7 @@ async function renderCollectionsOverview(viewport: { width: number; height: numb
   routeState.params = {};
   await preloadImages(Object.values(f.collectionCoverUrls));
 
-  const screen = await renderForVRT(<CollectionsWithHeader />, { viewport });
+  const screen = await renderForVRT(<CollectionsWithHeader />, { viewport, disableHover: true });
   await expectCollectionsOverviewReady(screen);
   return screen;
 }
@@ -661,7 +661,7 @@ async function renderSingleCollection(
   // Preload so readiness is explicit instead of relying on toMatchScreenshot retries.
   await preloadImages(Object.values(f.collectionCoverUrls));
 
-  const screen = await renderForVRT(<CollectionWithHeader postId={collection.compositeId} />, { viewport });
+  const screen = await renderForVRT(<CollectionWithHeader postId={collection.compositeId} />, { viewport, disableHover: true });
   await expect.element(screen.getByRole('heading', { name: 'Signals from the field' })).toBeVisible();
   if (layout === 'visual' && viewport.width >= 768) {
     await expect.element(screen.getByRole('button', { name: `Open post ${f.collectionItemIds[0]}` })).toBeVisible();
@@ -675,7 +675,7 @@ async function renderBookmarks(viewport: { width: number; height: number }) {
   routeState.pathname = '/collections/bookmarks';
   routeState.params = {};
 
-  const screen = await renderForVRT(<BookmarksWithHeader />, { viewport });
+  const screen = await renderForVRT(<BookmarksWithHeader />, { viewport, disableHover: true });
   await expect.element(screen.getByRole('heading', { name: 'Bookmarks' })).toBeVisible();
   await expect.element(screen.getByRole('feed')).toBeVisible();
   return screen;
@@ -688,6 +688,7 @@ describe('Collections overview — visual regression', () => {
     // This is a particularly heavy surface in the VRT suite — increase timeout to give this one more headroom.
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('collections-overview-desktop', {
       timeout: 25_000,
+      ...VRT_DENSE_CHROME_SCREENSHOT,
     });
   }, 40_000);
 
@@ -726,7 +727,7 @@ describe('Single collection — visual layout — visual regression', () => {
 describe('Bookmarks collection — visual regression', () => {
   it('renders bookmarks at desktop viewport', async () => {
     const screen = await renderBookmarks(VRT_VIEWPORT_DESKTOP);
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('bookmarks-collection-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('bookmarks-collection-desktop', VRT_DENSE_CHROME_SCREENSHOT);
   });
 
   it('renders bookmarks at mobile viewport', async () => {

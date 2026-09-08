@@ -45,15 +45,21 @@ data dependency (store/hook/fetch/router) so the pixels are deterministic.
 ## Determinism
 
 Renders should be as close to identical as possible every run, on every OS.
-`vitest.config.ts` sets a small `toMatchScreenshot` tolerance
-(`comparatorOptions.allowedMismatchedPixelRatio: 0.001`, i.e. 0.1%) so residual
-sub-pixel anti-aliasing noise between runs/environments is not treated as a
-regression. This tolerance is shared by comparison (`npm run test:vrt`) and
-regeneration (`--update`): `--update` only rewrites a baseline when a capture
-differs by more than the ratio, which is what keeps regeneration diffs limited
-to genuinely-changed surfaces. The trade-off is that a visual change under 0.1%
-of pixels won't be flagged — still pin every deterministic source below so real
-diffs stand out:
+`vitest.config.ts` sets a tight `toMatchScreenshot` tolerance
+(`allowedMismatchedPixels: 80` and `allowedMismatchedPixelRatio: 0.00005`;
+the matcher uses the more restrictive of the two). That is enough for residual
+sub-pixel anti-aliasing between runs, and small enough that a one-word label
+change fails. A looser 0.1% ratio previously hid a marketplace badge rewrite
+on desktop captures. This tolerance is shared by comparison (`npm run test:vrt`)
+and regeneration (`--update`): `--update` only rewrites a baseline when a
+capture differs by more than the allowance. Prefer a per-scene
+`comparatorOptions` override over raising the global values. Feed and
+onboarding desktop shells that include dense tab chrome use
+`VRT_DENSE_CHROME_SCREENSHOT` from `src/test-utils/vrt.tsx` (cap 1600 px /
+0.3%) because Inter Tight AA and leftover `:hover` on those glyphs is hundreds
+of pixels on 1440×900 — still well below rewriting a marketplace badge under
+the global 80 px cap.
+Pin every deterministic source below so real diffs stand out:
 
 - **Async data** — mock the hook/controller to a fixed value. An unmocked fetch
   resolves differently per run/region. This is the #1 cause of flakiness.

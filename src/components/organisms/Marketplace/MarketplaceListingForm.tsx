@@ -807,7 +807,13 @@ function ListingFormSection({
   children: ReactNode;
 }) {
   return (
-    <section id={id} tabIndex={-1} aria-labelledby={`${id}-title`} data-section-complete={complete}>
+    <section
+      id={id}
+      tabIndex={-1}
+      aria-labelledby={`${id}-title`}
+      data-section-complete={complete}
+      data-surface={id}
+    >
       <Card className="border">
         <CardContent className="grid gap-5 px-6">
           <div className="flex items-start justify-between gap-4">
