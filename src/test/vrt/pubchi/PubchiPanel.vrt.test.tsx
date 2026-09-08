@@ -12,6 +12,7 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
     form: {
       control: {},
       getValues: () => ({ question: '' }),
+      watch: () => '',
       trigger: async () => true,
     },
     submit: vi.fn(),
@@ -21,7 +22,7 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
     loading: false,
     enabled: true,
     signingAvailable: mockQuery.signingAvailable,
-    signingUnavailableMessage: 'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
+    signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
   }),
 }));
 

@@ -58,6 +58,7 @@ describe('pubchiEndpointFor', () => {
   it('covers every PHASE0_PURPOSE', () => {
     const mapped = PHASE0_PURPOSES.map((purpose) => [purpose, pubchiEndpointFor(purpose)] as const);
     expect(mapped).toEqual([
+      ['ask', '/v1/query'],
       ['who-tagged-me', '/v1/query'],
       ['build-feed', '/v1/feed'],
       ['what-i-missed', undefined],

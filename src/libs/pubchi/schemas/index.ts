@@ -5,6 +5,13 @@
  * `npm run build` does not need a second checkout of pubky-ai-bot-pubchi.
  */
 
+export {
+  parsePubchiAnswerV1,
+  type PubchiAnswerV1,
+  PubchiAnswerV1Schema,
+  type PubchiEvidenceV1,
+  PubchiEvidenceV1Schema,
+} from './answer';
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
 export { err, ERROR_CODES, type ErrorCode, ok, type ParseErr, type ParseOk, type ParseResult } from './codes';
 export {

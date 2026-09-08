@@ -13,6 +13,7 @@ import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { PubchiAnswerCard } from '../PubchiAnswerCard/PubchiAnswerCard';
 
 export const PUBCHI_PANEL_SURFACE = 'pubchi-panel';
 
@@ -22,9 +23,10 @@ export type PubchiPanelProps = {
 };
 
 export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
-  const { form, submit, applyFeed, result, errorCode, loading, enabled, signingAvailable, signingUnavailableMessage } =
+  const { form, submit, applyFeed, result, errorCode, loading, elapsedMs, enabled, signingAvailable, signingUnavailableMessage } =
     usePubchiQuery();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;
@@ -54,18 +56,32 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             className="flex flex-col gap-3"
             onSubmit={(event) => {
               event.preventDefault();
-              void submit('who-tagged-me');
+              void submit('ask');
             }}
           >
             <ControlledTextareaField
               name={QUERY_FORM_FIELDS.QUESTION}
               control={form.control}
               label="Question"
-              placeholder="Who tagged me?"
+              placeholder="Ask about your graph…"
             />
+            <Typography size="xs" className="text-muted-foreground">
+              {question.length}/500
+            </Typography>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="submit" data-testid="pubchi-ask" disabled={actionsDisabled}>
-                Ask
+                Ask {loading ? <span data-testid="pubchi-ask-timer">({elapsedMs} ms)</span> : null}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                data-testid="pubchi-who-tagged-me"
+                disabled={actionsDisabled}
+                onClick={() => {
+                  void submit('who-tagged-me');
+                }}
+              >
+                Who tagged me?
               </Button>
               <Button
                 type="button"
@@ -87,30 +103,22 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </Typography>
           ) : null}
 
+          {result?.kind === 'answer' ? <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} /> : null}
+
           {result?.kind === 'query' ? (
             <div className="flex flex-col gap-3" data-testid="pubchi-evidence">
-              {result.result.items.map((item) => {
+              {result.result.items.length > 0 ? result.result.items.map((item) => {
                 const href = pubkyUriToAppHref(item.source_uri, currentUserPubky);
                 return (
                   <Card key={`${item.source_uri}-${item.label}`}>
-                    <CardHeader>
+                    <CardContent className="flex flex-col gap-1 pt-4">
                       <CardTitle>{item.label}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex flex-col gap-1">
                       <Typography size="sm">Claimants: {item.claimant_count}</Typography>
-                      {href ? (
-                        <Link href={href} className="text-sm break-all underline">
-                          {item.source_uri}
-                        </Link>
-                      ) : (
-                        <Typography size="sm" className="break-all">
-                          {item.source_uri}
-                        </Typography>
-                      )}
+                      {href ? <Link href={href} className="text-sm break-all underline">Tagger</Link> : null}
                     </CardContent>
                   </Card>
                 );
-              })}
+              }) : <Typography data-testid="pubchi-empty-query" size="sm">Nobody has tagged you yet.</Typography>}
               <Collapsible>
                 <CollapsibleTrigger asChild>
                   <Button type="button" variant="ghost" data-testid="pubchi-tool-trace">

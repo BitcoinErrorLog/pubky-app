@@ -1,4 +1,10 @@
-import type { FeedProposalV1, OwnerBindingV1, Phase0Purpose, QueryResultV1 } from '@/libs/pubchi/schemas';
+import type {
+  FeedProposalV1,
+  OwnerBindingV1,
+  Phase0Purpose,
+  PubchiAnswerV1,
+  QueryResultV1,
+} from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
 export type PubchiAskBody = {
@@ -14,6 +20,7 @@ export type PubchiQueryApplicationParams = {
 
 export type PubchiQuerySuccess =
   | { kind: 'query'; result: QueryResultV1 }
+  | { kind: 'answer'; result: PubchiAnswerV1 }
   | { kind: 'feed'; result: FeedProposalV1; applyAllowed: true }
   | { kind: 'feed-unsupported'; code: 'FEED_UNSUPPORTED_LIKES' | 'FEED_UNSUPPORTED_REACH' | 'FEED_SPECS_INVALID' };
 

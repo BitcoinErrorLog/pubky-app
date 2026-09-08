@@ -32,6 +32,7 @@ import {
   ownerBindingUri,
   parseFeedProposalV1,
   parseOwnerBindingV1,
+  parsePubchiAnswerV1,
   parseQueryResultV1,
   REQUEST_TTL_SECONDS,
   signDeviceDelegationV1,
@@ -142,7 +143,7 @@ export class PubchiApplication {
         owner: params.owner,
         signer: device.signer,
         bot: params.bot,
-        purposes: ['who-tagged-me', 'build-feed', 'what-i-missed', 'summarize'],
+        purposes: ['ask', 'who-tagged-me', 'build-feed'],
         created_at: device.created_at,
         expires_at: device.expires_at,
       };
@@ -453,6 +454,11 @@ async function markBindingRevoked(
 
 function interpretQueryResponse(response: unknown): PubchiQuerySuccess {
   const schema = responseSchema(response);
+  if (schema === 'pubchi-answer') {
+    const answer = parsePubchiAnswerV1(response);
+    if (answer.ok) return { kind: 'answer', result: answer.value };
+    throw pubchiValidationError(answer.code, 'query');
+  }
   if (schema === 'pubchi-query-result') {
     const query = parseQueryResultV1(response);
     if (query.ok) return { kind: 'query', result: query.value };

@@ -8,6 +8,7 @@ const hookState = {
   form: {
     control: {},
     getValues: () => ({ question: '' }),
+    watch: () => '',
     trigger: async () => true,
   },
   submit,
@@ -17,7 +18,7 @@ const hookState = {
   loading: false,
   enabled: true,
   signingAvailable: true,
-  signingUnavailableMessage: 'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
+    signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
 };
 
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
@@ -53,7 +54,7 @@ describe('PubchiPanel', () => {
     hookState.signingAvailable = false;
     render(<PubchiPanel open onOpenChange={() => {}} />);
     expect(screen.getByTestId('pubchi-signing-unavailable')).toHaveTextContent(
-      'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
+      "This browser isn't set up for Pubchi yet. Set it up to start asking.",
     );
     expect(screen.getByTestId('pubchi-ask')).toBeDisabled();
     expect(screen.getByTestId('pubchi-build-feed')).toBeDisabled();

@@ -24,6 +24,7 @@ export function isPubchiPanelEnabled(): boolean {
  */
 export function pubchiEndpointFor(purpose: Phase0Purpose): PubchiPhase0Endpoint | undefined {
   switch (purpose) {
+    case 'ask':
     case 'who-tagged-me':
       return '/v1/query';
     case 'build-feed':

@@ -129,9 +129,9 @@ describe('usePubchiQuery', () => {
     expect(mocks.toast).not.toHaveBeenCalled();
     expect(result.current.signingAvailable).toBe(false);
     expect(result.current.signingUnavailableMessage).toBe(
-      'This browser is not enrolled. Enroll a bot in Settings → Pubchi.',
+      "This browser isn't set up for Pubchi yet. Set it up to start asking.",
     );
-    expect(result.current.errorCode).toBe('This browser is not enrolled. Enroll a bot in Settings → Pubchi.');
+    expect(result.current.errorCode).toBe("This browser isn't set up for Pubchi yet. Set it up to start asking.");
   });
 
   it('surfaces the schema message when a question is missing', async () => {

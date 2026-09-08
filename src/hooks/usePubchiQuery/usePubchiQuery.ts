@@ -20,7 +20,15 @@ import {
   QUERY_FORM_FIELDS,
 } from './usePubchiQuery.types';
 
-const SIGNING_UNAVAILABLE = 'This browser is not enrolled. Enroll a bot in Settings → Pubchi.';
+const SIGNING_UNAVAILABLE = "This browser isn't set up for Pubchi yet. Set it up to start asking.";
+
+function pubchiErrorMessage(code: string): string {
+  if (code === 'UPSTREAM_UNAVAILABLE') {
+    return "I couldn't reach the graph service just now. Nothing is wrong with your account — try again in a minute.";
+  }
+  if (code === 'BUDGET_EXCEEDED') return "You've used today's Pubchi allowance. It resets at 00:00 UTC.";
+  return code;
+}
 
 export function usePubchiQuery() {
   const owner = useAuthStore((state) => state.currentUserPubky);
@@ -28,6 +36,7 @@ export function usePubchiQuery() {
   const [result, setResult] = useState<PubchiQuerySuccess | undefined>(undefined);
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   const form = useForm<PubchiQueryFormData>({
     resolver: zodResolver(pubchiQueryFormSchema),
@@ -38,6 +47,16 @@ export function usePubchiQuery() {
     if (!owner) return;
     void getCurrentDeviceKey(owner).then((key) => setSigningAvailable(Boolean(key)));
   }, [owner]);
+
+  useEffect(() => {
+    if (!loading) {
+      setElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 50);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   const submit = async (purpose: Phase0Purpose): Promise<boolean> => {
     if (!isPubchiPanelEnabled()) {
@@ -62,7 +81,8 @@ export function usePubchiQuery() {
           setResult(next);
           ok = true;
         } catch (error) {
-          const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
+          const code = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
+          const message = pubchiErrorMessage(code);
           setErrorCode(message);
           setResult(undefined);
           toast({ variant: 'error', title: message, dismissButton: true });
@@ -97,6 +117,7 @@ export function usePubchiQuery() {
     result,
     errorCode,
     loading,
+    elapsedMs,
     enabled: isPubchiPanelEnabled(),
     signingAvailable,
     signingUnavailableMessage: SIGNING_UNAVAILABLE,
