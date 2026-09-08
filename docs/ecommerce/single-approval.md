@@ -109,6 +109,14 @@ This is **not** a reimplementation of AuthToken verification in JS. It is the pu
 
 Record those as the **upstream ask**. This dual-POST of one wide token is a deliberate **interim**, not the end state.
 
+**Owner decision 2026-09-08 — a Ring fork is available if it is genuinely required.** The owner has offered to carry Ring changes in a BitcoinErrorLog fork, so design 1 is not blocked on another team's roadmap. It is nonetheless **not** the recommendation for this wave, for reasons of blast radius rather than effort:
+
+- Design 1 is not confined to Ring. The approval payload would have to carry two signed tokens, so `pubky-core` must parse them on the client side and Shop must request two audiences. Three components change together, and the relay payload format is part of the contract.
+- Every tester and user would need the forked Ring build to sign in at all. Testers are currently using the production Ring app from the stores; a forked signer turns a one-tap sign-in into an install step, and a user on production Ring would be unable to complete the new ceremony.
+- What it buys is the removal of a ≤120 s in-flight window on a token an attacker can only obtain with script execution on the Shop origin — which already yields the homeserver cookie once the user is signed in.
+
+So: build the interim, file design 1 upstream, and reach for the fork if upstream declines or if the interim's staging proof (§9 step 0) fails. If the marketplace ever rejects a token the homeserver has already accepted, the interim is dead and the fork becomes the path rather than an improvement.
+
 **Free reduction, this wave (marketplace-service, one line):** the service copies the capability string into `auth_sessions` and never reads it (`auth.rs:101,186–195,217,244–266`). Persist `""` (or omit the column write) instead of the presented string. That removes the disclosure entirely without waiting on Ring. Do it in the same service deploy as client ship if practical; it is optional for _acceptance_ of the token, and it is the way to keep the operator DB from holding Shop's grant string.
 
 ### 4.3 Order and partial failure
