@@ -9,7 +9,7 @@ import { BotPhraseRevealController } from '@/libs/pubchi/bot-phrase-reveal';
 import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
 import { getCurrentDeviceKey } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
-import type { OwnerBindingV1 } from '@/libs/pubchi/schemas';
+import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {
@@ -27,6 +27,7 @@ export function usePubchiEnrollment() {
   const session = useAuthStore((state) => state.session);
   const [binding, setBinding] = useState<OwnerBindingV1 | undefined>(undefined);
   const [pubchi, setPubchi] = useState<Awaited<ReturnType<typeof PubchiController.loadPubchi>>>(undefined);
+  const [config, setConfig] = useState<PubchiConfigV1 | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
@@ -66,15 +67,21 @@ export function usePubchiEnrollment() {
       setBinding(undefined);
       return;
     }
+    const loadConfig =
+      typeof PubchiController.loadPubchiConfig === 'function'
+        ? PubchiController.loadPubchiConfig()
+        : Promise.resolve(null);
     void Promise.all([
       PubchiController.reconcileActiveBinding(),
-      PubchiController.loadPubchi(),
-      PubchiController.listDeviceKeys(),
+      typeof PubchiController.loadPubchi === 'function' ? PubchiController.loadPubchi() : Promise.resolve(undefined),
+      typeof PubchiController.listDeviceKeys === 'function' ? PubchiController.listDeviceKeys() : Promise.resolve([]),
+      loadConfig,
     ]).then(
-      ([nextBinding, nextPubchi, nextDevices]) => {
+      ([nextBinding, nextPubchi, nextDevices, nextConfig]) => {
         setBinding(nextBinding);
         setPubchi(nextPubchi);
         setDevices(nextDevices);
+        setConfig(nextConfig);
         if (owner) {
           void getCurrentDeviceKey(owner).then((key) => setCurrentSigner(key?.signer));
         }
@@ -83,10 +90,18 @@ export function usePubchiEnrollment() {
         setBinding(undefined);
         setPubchi(undefined);
         setDevices([]);
+        setConfig(null);
         toast({ variant: 'error', title: 'Pubchi could not be loaded', dismissButton: true });
       },
     );
   }, [owner]);
+
+  const saveConfig = async (partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1 | undefined> => {
+    if (typeof PubchiController.savePubchiConfig !== 'function') return undefined;
+    const next = await PubchiController.savePubchiConfig(partial);
+    setConfig(next);
+    return next;
+  };
 
   const submit = async (): Promise<boolean> => {
     let ok = false;
@@ -287,6 +302,8 @@ export function usePubchiEnrollment() {
     revokeAllDevices,
     binding,
     pubchi,
+    config,
+    saveConfig,
     creating,
     backupOpen,
     backupPositions,

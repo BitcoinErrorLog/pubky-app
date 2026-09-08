@@ -63,7 +63,7 @@ describe('PubchiSettings', () => {
     expect(screen.getByTestId('pubchi-degraded-session')).toHaveTextContent(
       "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.",
     );
-    expect(screen.getByTestId('pubchi-enroll-bot')).toBeDisabled();
+    expect(screen.getByTestId('pubchi-create')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
     expect(hookState.reapprove).toHaveBeenCalledOnce();
   });

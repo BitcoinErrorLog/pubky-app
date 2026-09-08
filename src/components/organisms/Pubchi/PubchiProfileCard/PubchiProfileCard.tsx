@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback } from '@/atoms/Avatar/Avatar';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/atoms/Card/Card';
-import { Tooltip, TooltipContent, TooltipPortal, TooltipTrigger } from '@/atoms/Tooltip/Tooltip';
+import { Tooltip, TooltipContent, TooltipPortal, TooltipProvider, TooltipTrigger } from '@/atoms/Tooltip/Tooltip';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard/useCopyToClipboard';
 import { formatPublicKey, formatUSDate } from '@/libs/utils/utils';
@@ -72,28 +72,30 @@ export function PubchiProfileCard({
 
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="max-w-full truncate px-2 font-mono text-xs"
-                aria-label={`Copy bot public key ${bot}`}
-                title={bot}
-                onClick={() => {
-                  void copyToClipboard(bot);
-                }}
-              >
-                <KeyRound aria-hidden="true" />
-                <span className="truncate">{displayBot}</span>
-                <Clipboard aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipPortal>
-              <TooltipContent>{bot}</TooltipContent>
-            </TooltipPortal>
-          </Tooltip>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="max-w-full truncate px-2 font-mono text-xs"
+                  aria-label={`Copy bot public key ${bot}`}
+                  title={bot}
+                  onClick={() => {
+                    void copyToClipboard(bot);
+                  }}
+                >
+                  <KeyRound aria-hidden="true" />
+                  <span className="truncate">{displayBot}</span>
+                  <Clipboard aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipPortal>
+                <TooltipContent>{bot}</TooltipContent>
+              </TooltipPortal>
+            </Tooltip>
+          </TooltipProvider>
           <Badge variant="outline">{tierLabels[tier]}</Badge>
           <Badge variant="secondary">{brainLabel}</Badge>
         </div>

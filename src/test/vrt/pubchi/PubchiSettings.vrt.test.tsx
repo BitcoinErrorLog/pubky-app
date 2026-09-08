@@ -28,6 +28,30 @@ const enrollment = {
         updated_at: number;
       }
     | undefined,
+  pubchi: undefined as
+    | {
+        bot: string;
+        displayName: string;
+        createdAt: number;
+        backupConfirmedAt: number | null;
+        verified: boolean;
+      }
+    | undefined,
+  config: undefined as
+    | {
+        tier: 'read-only' | 'assisted' | 'autonomous';
+        brain: {
+          execution: 'synonym-hosted';
+          provider_id: 'moonshot';
+          model_id: string;
+          endpoint: null;
+          adapter: 'vercel-ai';
+          send_public_graph_context: boolean;
+          send_public_web_context: boolean;
+        };
+      }
+    | undefined,
+  saveConfig: vi.fn(),
   devices: [] as Array<{
     id: string;
     owner: string;
@@ -46,6 +70,13 @@ vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
 
 vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiEnabled: () => true,
+}));
+
+vi.mock('@/controllers/pubchi/pubchi', () => ({
+  PubchiController: {
+    loadPubchiConfig: vi.fn().mockResolvedValue(null),
+    savePubchiConfig: vi.fn().mockResolvedValue(null),
+  },
 }));
 
 vi.mock('@/molecules/ControlledInputField/ControlledInputField', () => ({
@@ -82,6 +113,30 @@ function bindWithDevices() {
   enrollment.currentSigner = THIS_SIGNER;
 }
 
+function botWithPanels() {
+  enrollment.binding = undefined;
+  enrollment.pubchi = {
+    bot: BOT,
+    displayName: 'Pubchi',
+    createdAt: Math.floor(VRT_FROZEN_NOW_MS / 1000) - 86_400,
+    backupConfirmedAt: Math.floor(VRT_FROZEN_NOW_MS / 1000),
+    verified: true,
+  };
+  enrollment.config = {
+    tier: 'assisted',
+    brain: {
+      adapter: 'vercel-ai',
+      execution: 'synonym-hosted',
+      provider_id: 'moonshot',
+      model_id: 'kimi-k3',
+      endpoint: null,
+      send_public_graph_context: true,
+      send_public_web_context: true,
+    },
+  };
+  enrollment.devices = [];
+}
+
 describe('PubchiSettings — visual regression', () => {
   it('guards the production surface marker', async () => {
     bindWithDevices();
@@ -95,6 +150,22 @@ describe('PubchiSettings — visual regression', () => {
     bindWithDevices();
     const screen = await renderForVRT(<PubchiSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toMatchScreenshot('pubchi-settings-desktop');
+  });
+
+  it('captures the no-bot production settings surface', async () => {
+    enrollment.binding = undefined;
+    enrollment.pubchi = undefined;
+    enrollment.config = undefined;
+    enrollment.devices = [];
+    enrollment.currentSigner = undefined;
+    const screen = await renderForVRT(<PubchiSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toMatchScreenshot('pubchi-settings-no-bot-desktop');
+  });
+
+  it('captures the bot production settings surface with panels', async () => {
+    botWithPanels();
+    const screen = await renderForVRT(<PubchiSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toMatchScreenshot('pubchi-settings-bot-panels-desktop');
   });
 
   it('captures Ring re-approval on the production settings surface', async () => {
