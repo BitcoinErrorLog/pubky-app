@@ -1,10 +1,11 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
+import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplacePickupDetailsEditor } from '@/organisms/Marketplace/MarketplacePickupDetailsEditor';
 
 // Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
@@ -100,9 +101,36 @@ const fixtures = vi.hoisted(async () => {
     }),
   );
 
+  // The fulfillment-badge vocabulary on catalog cards (§A1): the shared
+  // fixtures default to shipping (what production emits), so both pickup
+  // labels are pinned by EXPLICIT overrides — a pickup-only listing and a
+  // both-ways one — next to the default shipped control.
+  const { catalogItemFromCatalogEntry } = await import('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils');
+  const { createCommerceCatalogEntryFixture } = await import('@/test/fixtures/commerce/commerce');
+  const badgeCards = [
+    catalogItemFromCatalogEntry(
+      createCommerceCatalogEntryFixture({
+        id: `${'y'.repeat(52)}:pickup_only_boots`,
+        listing_id: 'pickup_only_boots',
+        title: 'Pickup-only vintage boots',
+        fulfillment_methods: ['pickup'],
+      }),
+    ),
+    catalogItemFromCatalogEntry(
+      createCommerceCatalogEntryFixture({
+        id: `${'y'.repeat(52)}:both_ways_boots`,
+        listing_id: 'both_ways_boots',
+        title: 'Boots you can collect or have shipped',
+        fulfillment_methods: ['shipping', 'pickup'],
+      }),
+    ),
+    catalogItemFromCatalogEntry(createCommerceCatalogEntryFixture()),
+  ];
+
   return {
     ownerRead,
     reveal,
+    badgeCards,
     buyer: ORDER_FIXTURE_BUYER,
     pickupOrderView: [
       {
@@ -130,6 +158,9 @@ vi.mock('@/controllers/commerce/commerce', async () => ({
     fetchPickupAvailable: vi.fn(async () => true),
     fetchSellerPickupDetails: vi.fn(async () => (await fixtures).ownerRead),
     fetchPickupReveal: vi.fn(async () => (await fixtures).reveal),
+    // The badge-cards scene renders real listing cards: their favorite
+    // toggle reads through the controller seam.
+    isFavorite: vi.fn(async () => false),
   },
 }));
 
@@ -303,6 +334,19 @@ describe('Marketplace local pickup — visual regression', () => {
       }
     });
     await expect(expectVrtSurface('cart-pickup-group')).toMatchScreenshot('cart-pickup-group-desktop');
+  });
+
+  it('renders the fulfillment badge vocabulary on cards: Local pickup, Pickup or shipping, Shipping', async () => {
+    const { badgeCards } = await fixtures;
+    const screen = await renderForVRT(
+      <div className="grid grid-cols-3 gap-5 p-6">
+        {badgeCards.map((listing) => (
+          <MarketplaceListingCard key={listing.id} listing={listing} shopName="Satoshi Vintage" />
+        ))}
+      </div>,
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-fulfillment-badges-desktop');
   });
 
   it('rejects a scene without a production data-surface root', async () => {

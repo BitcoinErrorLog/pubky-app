@@ -31,12 +31,32 @@ const fixtures = vi.hoisted(async () => {
     height: 1_600,
     altText,
   });
+  // A complete shipped listing's delivery facts: hydration fills the
+  // shipping/package fields from these, so the publish checklist renders
+  // complete (a shipping record without them would leave "Shipping details"
+  // outstanding — and the auction coercion to shipping would surface it).
+  const shipping = {
+    fulfillmentMethods: ['physical' as const],
+    shippingOptions: [
+      {
+        id: 'ship_01',
+        pricing: 'flat' as const,
+        label: 'Standard shipping',
+        price: { amountMinor: 1_200, currency: 'USD', exponent: 2 },
+        estimatedMinDays: 3,
+        estimatedMaxDays: 7,
+      },
+    ],
+    package: { weightGrams: 800, lengthMillimeters: 320, widthMillimeters: 220, heightMillimeters: 120 },
+  };
   return {
     seller,
     record: createCommerceListingFixture({
+      ...shipping,
       media: [image('image_01', 'Front view'), image('image_02', 'Sole view')],
     }),
     auctionRecord: createCommerceListingFixture({
+      ...shipping,
       listingId: 'rangefinder_camera',
       title: '35mm rangefinder camera',
       sale: {

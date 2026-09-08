@@ -100,8 +100,9 @@ describe('CommerceRecordNormalizer', () => {
           sale_format: 'fixed_price',
           price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
           auction: null,
-          // The record's fulfillment vocabulary, echoed for the card badge.
-          fulfillment_methods: ['pickup'],
+          // The service-facing fulfillment vocabulary, echoed for the card
+          // badge: the default fixture's shipped listing reads `['shipping']`.
+          fulfillment_methods: ['shipping'],
           revision: 1,
           updated_at: Date.parse('2026-08-19T21:00:00.000Z'),
           // No reputation snippets in the projection: absence normalizes to

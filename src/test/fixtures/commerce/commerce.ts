@@ -74,8 +74,23 @@ export function createCommerceListingFixture(overrides: Partial<CommerceListingR
       unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
       acceptsOffers: true,
     },
-    fulfillmentMethods: ['pickup'],
-    shippingOptions: [],
+    // The production shipping default (§A2): a shipped listing publishes the
+    // record's `physical` vocabulary, which the service reads as
+    // shipping-only — and the record schema couples `physical` to package
+    // facts and a shipping option, so the default carries both. Pickup
+    // scenes must override this explicitly.
+    fulfillmentMethods: ['physical'],
+    package: { weightGrams: 800, lengthMillimeters: 320, widthMillimeters: 220, heightMillimeters: 120 },
+    shippingOptions: [
+      {
+        id: 'ship_01',
+        pricing: 'flat',
+        label: 'Standard shipping',
+        price: { amountMinor: 1_200, currency: 'USD', exponent: 2 },
+        estimatedMinDays: 3,
+        estimatedMaxDays: 7,
+      },
+    ],
     returnPolicy: {
       acceptsReturns: true,
       returnWindowDays: 30,
@@ -111,7 +126,9 @@ export function createNexusListingDetailsFixture(overrides: Partial<NexusListing
     auction_reserve_price_minor: null,
     auction_buy_now_price_minor: null,
     auction_minimum_increment_minor: null,
-    fulfillment_methods: ['pickup'],
+    // What the wire carries for the default shipped listing above: the
+    // service derives `['shipping']` from the record's `physical`.
+    fulfillment_methods: ['shipping'],
     adult_only: false,
     created_at: COMMERCE_FIXTURE_CREATED_AT,
     updated_at: COMMERCE_FIXTURE_UPDATED_AT,
@@ -164,7 +181,9 @@ export function createCommerceCatalogEntryFixture(
     sale_format: 'fixed_price',
     price: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
     auction: null,
-    fulfillment_methods: ['pickup'],
+    // The normalized copy of the index row above: `['shipping']` for the
+    // default shipped listing (the service-facing vocabulary, §A2).
+    fulfillment_methods: ['shipping'],
     reputation: null,
     listing_reputation: null,
     revision: 1,
