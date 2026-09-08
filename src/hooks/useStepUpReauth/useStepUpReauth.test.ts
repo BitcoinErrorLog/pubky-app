@@ -9,7 +9,13 @@ import { asOpaque } from '@/test-utils/type-assertions';
 import { useStepUpReauth } from './useStepUpReauth';
 
 vi.mock('@/controllers/auth/auth', () => ({
-  AuthController: { getStepUpAuthUrl: vi.fn(), completeStepUpReauth: vi.fn() },
+  AuthController: {
+    getStepUpAuthUrl: vi.fn(),
+    completeStepUpReauth: vi.fn(),
+    // The hook routes cancellation through the controller; the mock applies
+    // the same net effect (the flow is freed) so cancel assertions hold.
+    releaseAuthFlow: vi.fn((cancelAuthFlow: () => void) => cancelAuthFlow()),
+  },
 }));
 
 vi.mock('@/libs/utils/utils', async () => {
@@ -121,6 +127,20 @@ describe('useStepUpReauth', () => {
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current.errorMessage).toBe('The approval was for a different identity.');
     expect(onReauthenticated).not.toHaveBeenCalled();
+  });
+
+  it('cancel frees the flow THROUGH the controller so a retry never joins the cancelled ceremony', async () => {
+    const { flow } = createDeferredFlow('pubkyauth:///?caps=first');
+    vi.mocked(AuthController.getStepUpAuthUrl).mockResolvedValue(flow);
+    const { result } = renderHook(() => useStepUpReauth());
+
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.status).toBe('awaiting'));
+    act(() => result.current.cancel());
+
+    // releaseAuthFlow — not a raw cancelAuthFlow — is what tears down the
+    // controller's ceremony guard so the retry mints a fresh URL.
+    expect(AuthController.releaseAuthFlow).toHaveBeenCalledWith(flow.cancelAuthFlow);
   });
 
   it('cancel frees the flow, returns to idle, and drops the detached rejection silently', async () => {

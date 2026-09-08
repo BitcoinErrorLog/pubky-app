@@ -5,8 +5,7 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
-import { CAPABILITIES, SINGLE_APPROVAL_SIGN_IN } from '@/config/app';
-import { CommerceController } from '@/controllers/commerce/commerce';
+import { CAPABILITIES } from '@/config/app';
 import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect';
 import { Logger } from '@/libs/logger/logger';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
@@ -63,7 +62,10 @@ export function MarketplaceSessionConnectDialog({
     }
   };
 
-  const requestsFullGrant = SINGLE_APPROVAL_SIGN_IN && !CommerceController.hasFullHomeserverGrant();
+  // Which consent is being requested is decided ONCE by the hook (it also
+  // picks the flow `start()` begins) — never re-evaluate it here, or the
+  // copy could describe a different approval than the QR requests.
+  const requestsFullGrant = session.requestsFullGrant;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

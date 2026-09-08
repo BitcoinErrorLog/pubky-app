@@ -7,6 +7,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
+import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import type {
   MarketplaceSessionConnectStatus,
   UseMarketplaceSessionConnectOptions,
@@ -54,8 +55,20 @@ export function useMarketplaceSessionConnect(
   const detachActiveFlow = useCallback(() => {
     const flow = activeFlowRef.current;
     activeFlowRef.current = null;
-    if (flow) flow.cancel();
+    // Route through the controller: when this flow is still the tracked
+    // active flow, the ceremony guard is torn down with it, so a retry mints
+    // a FRESH single-use URL instead of joining the cancelled ceremony and
+    // re-showing its dead QR. Untracked (empty-capability) flows degrade to
+    // the plain cancel.
+    if (flow) AuthController.releaseAuthFlow(flow.cancel);
   }, []);
+
+  /**
+   * The ONE decision of which consent this dialog asks for, computed here so
+   * the rendered copy and the flow `start()` actually begins can never
+   * diverge (the dialog renders this value; it must not re-evaluate it).
+   */
+  const requestsFullGrant = SINGLE_APPROVAL_SIGN_IN && !CommerceController.hasFullHomeserverGrant();
 
   const start = useCallback(() => {
     detachActiveFlow();
@@ -65,10 +78,9 @@ export function useMarketplaceSessionConnect(
 
     let flow: ActiveFlow;
     try {
-      flow =
-        SINGLE_APPROVAL_SIGN_IN && !CommerceController.hasFullHomeserverGrant()
-          ? AuthController.beginBridgedCommerceSessionFlow()
-          : CommerceController.beginMarketplaceSessionConnect();
+      flow = requestsFullGrant
+        ? AuthController.beginBridgedCommerceSessionFlow()
+        : CommerceController.beginMarketplaceSessionConnect();
     } catch (error) {
       Logger.error('Failed to start the marketplace session flow', { error });
       setAuthorizationUrl('');
@@ -95,12 +107,27 @@ export function useMarketplaceSessionConnect(
         // of being freed — that is control flow, not a failure to report.
         if (activeFlowRef.current !== flow) return;
         activeFlowRef.current = null;
+        // The CONTROLLER can also free this flow out from under the hook: a
+        // sign-in ceremony or a second start() anywhere supersedes it via
+        // `AuthController.cancelActiveAuthFlow`. The SDK canceled error that
+        // rejection carries is control flow too — the superseded flow ends
+        // idle, never error, and surfaces no toast.
+        if (
+          typeof error === 'object' &&
+          error !== null &&
+          'name' in error &&
+          (error as { name?: unknown }).name === AUTH_FLOW_CANCELED_ERROR_NAME
+        ) {
+          setAuthorizationUrl('');
+          setStatus('idle');
+          return;
+        }
         Logger.error('Marketplace session flow failed', { error });
         setAuthorizationUrl('');
         setErrorMessage(getErrorMessage(error));
         setStatus('error');
       });
-  }, [detachActiveFlow, removeVisibilityHandler]);
+  }, [detachActiveFlow, removeVisibilityHandler, requestsFullGrant]);
 
   const cancel = useCallback(() => {
     detachActiveFlow();
@@ -141,5 +168,5 @@ export function useMarketplaceSessionConnect(
     };
   }, [detachActiveFlow, removeVisibilityHandler]);
 
-  return { status, authorizationUrl, errorMessage, start, cancel, copyAuthUrl, openInRing, isOpeningRing };
+  return { status, authorizationUrl, errorMessage, requestsFullGrant, start, cancel, copyAuthUrl, openInRing, isOpeningRing };
 }

@@ -53,7 +53,12 @@ export function useStepUpReauth(options: UseStepUpReauthOptions = {}): UseStepUp
   const detachActiveFlow = useCallback(() => {
     const flow = activeFlowRef.current;
     activeFlowRef.current = null;
-    if (flow) flow.cancelAuthFlow();
+    // Route through the controller: when this flow is still the tracked
+    // active flow, the ceremony guard is torn down with it, so a retry mints
+    // a FRESH single-use URL instead of joining the cancelled ceremony and
+    // re-showing its dead QR. When another flow already superseded this one,
+    // only this stale handle is freed.
+    if (flow) AuthController.releaseAuthFlow(flow.cancelAuthFlow);
   }, []);
 
   const start = useCallback(() => {

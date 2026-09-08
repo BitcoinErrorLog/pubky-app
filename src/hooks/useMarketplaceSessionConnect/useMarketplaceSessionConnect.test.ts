@@ -18,7 +18,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 vi.mock('@/controllers/auth/auth', () => ({
-  AuthController: { beginBridgedCommerceSessionFlow: vi.fn() },
+  AuthController: {
+    beginBridgedCommerceSessionFlow: vi.fn(),
+    // The hook routes cancellation through the controller; the mock applies
+    // the same net effect (the flow is freed) so cancel assertions hold.
+    releaseAuthFlow: vi.fn((cancel: () => void) => cancel()),
+  },
 }));
 
 vi.mock('@/libs/utils/utils', async () => {
@@ -71,6 +76,60 @@ describe('useMarketplaceSessionConnect', () => {
     expect(AuthController.beginBridgedCommerceSessionFlow).toHaveBeenCalledTimes(1);
     expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
     expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=full');
+  });
+
+  it('exposes requestsFullGrant so rendered copy and the started flow share one decision', () => {
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
+    const { result, rerender } = renderHook(() => useMarketplaceSessionConnect());
+
+    expect(result.current.requestsFullGrant).toBe(true);
+
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(true);
+    rerender();
+    expect(result.current.requestsFullGrant).toBe(false);
+  });
+
+  it('never auto-starts the bridged flow: mounting with a narrow grant requests no URL', () => {
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
+    const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+    expect(result.current.status).toBe('idle');
+    expect(result.current.authorizationUrl).toBe('');
+    expect(AuthController.beginBridgedCommerceSessionFlow).not.toHaveBeenCalled();
+  });
+
+  it('frees a cancelled bridged flow THROUGH the controller so retry mints a fresh URL', () => {
+    const { flow } = createDeferredFlow('pubkyauth:///?caps=full');
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
+    vi.mocked(AuthController.beginBridgedCommerceSessionFlow).mockReturnValue(flow);
+    const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+    act(() => result.current.start());
+    act(() => result.current.cancel());
+
+    expect(AuthController.releaseAuthFlow).toHaveBeenCalledWith(flow.cancel);
+    expect(result.current.status).toBe('idle');
+  });
+
+  it('treats a controller-cancelled (superseded) flow as control flow: idle, not error', async () => {
+    const { flow, rejectSession } = createDeferredFlow('pubkyauth:///?caps=full');
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(false);
+    vi.mocked(AuthController.beginBridgedCommerceSessionFlow).mockReturnValue(flow);
+    const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+    act(() => result.current.start());
+    expect(result.current.status).toBe('awaiting');
+
+    // A sign-in ceremony (or another start elsewhere) frees THIS flow through
+    // the controller while the hook still points at it — that rejection is
+    // control flow, not a failure.
+    const canceledError = new Error('Auth flow canceled');
+    canceledError.name = 'AuthFlowCanceled';
+    rejectSession(canceledError);
+
+    await waitFor(() => expect(result.current.status).toBe('idle'));
+    expect(result.current.errorMessage).toBeNull();
+    expect(result.current.authorizationUrl).toBe('');
   });
 
   it('exposes the authorization URL while awaiting and reports connected once the signer approves', async () => {

@@ -25,6 +25,13 @@ export interface UseMarketplaceSessionConnectReturn {
   authorizationUrl: string;
   /** The real failure message when `status === 'error'`, never a placeholder. */
   errorMessage: string | null;
+  /**
+   * Which consent `start()` will request: `true` = the full Shop grant
+   * (bridged first-commerce prompt), `false` = the empty-capability
+   * marketplace-only approval. Computed here ONCE so rendered copy and the
+   * flow that actually starts can never diverge.
+   */
+  requestsFullGrant: boolean;
   /** Begins a fresh flow, cancelling any in-flight one. */
   start: () => void;
   /** Cancels the in-flight flow (frees it) and returns to `idle`. */

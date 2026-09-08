@@ -42,6 +42,9 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
     status: view.status,
     authorizationUrl: view.authorizationUrl,
     errorMessage: view.errorMessage,
+    // Bridged / narrow-grant arrival: the full-grant copy (mirrors the
+    // CommerceController.hasFullHomeserverGrant mock above).
+    requestsFullGrant: true,
     start: vi.fn(),
     cancel: vi.fn(),
     copyAuthUrl: vi.fn(async () => {}),
