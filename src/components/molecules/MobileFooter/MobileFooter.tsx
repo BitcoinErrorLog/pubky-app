@@ -1,8 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Flame, Home, Library, Search, Settings, UserRoundPlus } from 'lucide-react';
+import { Bot, Flame, Home, Library, Search, Settings, UserRoundPlus } from 'lucide-react';
 import { APP_ROUTES, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -13,9 +14,11 @@ import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/u
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
+import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
+import { PubchiPanel } from '@/organisms/Pubchi/PubchiPanel/PubchiPanel';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
@@ -31,6 +34,7 @@ export interface MobileFooterProps {
  * following pubky-app pattern.
  */
 export function MobileFooter({ className }: MobileFooterProps) {
+  const [pubchiOpen, setPubchiOpen] = useState(false);
   const pathname = usePathname();
   const isAuthenticated = useAuthStore((state) => Boolean(state.currentUserPubky));
   const setShowSignInDialog = useAuthStore((state) => state.setShowSignInDialog);
@@ -149,6 +153,25 @@ export function MobileFooter({ className }: MobileFooterProps) {
             </Link>
           );
         })}
+        {isAuthenticated && isPubchiPanelEnabled() ? (
+          <>
+            <Button
+              type="button"
+              aria-label="Pubchi"
+              data-testid="mobile-pubchi-btn"
+              variant="secondary"
+              size="icon"
+              className={cn(
+                'size-12 rounded-full',
+                pubchiOpen ? 'bg-secondary' : 'border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10',
+              )}
+              onClick={() => setPubchiOpen(true)}
+            >
+              <Bot className="size-6" />
+            </Button>
+            {pubchiOpen ? <PubchiPanel open={pubchiOpen} onOpenChange={setPubchiOpen} /> : null}
+          </>
+        ) : null}
         {isAuthenticated ? (
           <Link
             data-cy="footer-nav-profile-btn"
