@@ -319,6 +319,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     <section
       aria-labelledby="listing-section-photos-title"
       data-section-complete="false"
+      data-surface="listing-section-photos"
       id="listing-section-photos"
       tabindex="-1"
     >
@@ -411,6 +412,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     <section
       aria-labelledby="listing-section-item-title"
       data-section-complete="false"
+      data-surface="listing-section-item"
       id="listing-section-item"
       tabindex="-1"
     >
@@ -774,6 +776,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     <section
       aria-labelledby="listing-section-price-title"
       data-section-complete="false"
+      data-surface="listing-section-price"
       id="listing-section-price"
       tabindex="-1"
     >
@@ -1199,6 +1202,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     <section
       aria-labelledby="listing-section-shipping-title"
       data-section-complete="false"
+      data-surface="listing-section-shipping"
       id="listing-section-shipping"
       tabindex="-1"
     >
@@ -1672,6 +1676,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     <section
       aria-labelledby="listing-section-review-title"
       data-section-complete="false"
+      data-surface="listing-section-review"
       id="listing-section-review"
       tabindex="-1"
     >
