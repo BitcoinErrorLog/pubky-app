@@ -18,8 +18,6 @@ export type PaymentMethodKind = 'bitcoin' | 'stripe' | 'paypal';
  * restricted key is write-only on the service and never appears here.
  */
 export const sellerPaymentConfigSchema = z.object({
-  /** Whether the seller enabled Bitcoin in their own payment settings. */
-  bitcoinEnabled: z.boolean().optional(),
   bitcoinAvailable: z.boolean(),
   bitcoinOfferAvailable: z.boolean().optional().default(true),
   stripePaymentLink: z.url().nullable(),

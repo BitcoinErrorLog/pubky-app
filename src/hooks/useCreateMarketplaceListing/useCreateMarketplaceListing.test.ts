@@ -154,14 +154,8 @@ describe('useCreateMarketplaceListing', () => {
     expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
   });
 
-  it('blocks publishing when Bitcoin is enabled but the seller account is unverified', async () => {
-    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
-      bitcoinEnabled: true,
-      bitcoinAvailable: false,
-      bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
-    });
+  it('blocks publishing when the public payment-config request is rejected', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockRejectedValueOnce(new Error('offline'));
     const { result } = renderHook(() => useCreateMarketplaceListing());
 
     await act(async () => {
@@ -335,7 +329,6 @@ describe('useCreateMarketplaceListing', () => {
   it('autosaves a draft even when publishing has no payment method', async () => {
     vi.useFakeTimers();
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
-      bitcoinEnabled: false,
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
       stripePaymentLink: null,
