@@ -429,6 +429,27 @@ export class CommerceController {
   }
 
   /**
+   * The Ring-approved authenticated status read ("Verify with Ring") —
+   * proves the seller's claim for THIS session and identity.
+   */
+  static beginPaykitClaimStatusFlow() {
+    return CommerceApplication.beginPaykitClaimStatusFlow(this.getCurrentUserPubky());
+  }
+
+  /** The seller's device-local verified claim (the `bitcoinEnabled` gate state). */
+  static async getMyVerifiedPaykitClaim() {
+    return await CommerceApplication.getMyVerifiedPaykitClaim(this.getCurrentUserPubky());
+  }
+
+  /** Persists a verified claim; called only from the two verification paths. */
+  static async commitSaveVerifiedPaykitClaim(input: unknown): Promise<void> {
+    await CommerceApplication.commitSaveVerifiedPaykitClaim(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.verifiedPaykitClaim(input),
+    );
+  }
+
+  /**
    * A seller's public reputation overview (`rated` / `new_seller` /
    * `unavailable`) for rating headers. Network-only: reputation is index
    * data, never cached as a record.

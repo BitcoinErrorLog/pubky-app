@@ -25,6 +25,8 @@ import {
   commerceListingTableSchema,
   type CommerceLocksCorrelationModelSchema,
   commerceLocksCorrelationTableSchema,
+  type CommercePaymentClaimModelSchema,
+  commercePaymentClaimTableSchema,
   type CommerceReviewModelSchema,
   type CommerceReviewResponseModelSchema,
   commerceReviewResponseTableSchema,
@@ -207,6 +209,9 @@ export class AppDatabase extends Dexie {
   // only, never on the homeserver (see commerce.schema.ts headers).
   commerce_delivery_addresses!: Dexie.Table<CommerceDeliveryAddressModelSchema>;
   commerce_shipping_presets!: Dexie.Table<CommerceShippingPresetModelSchema>;
+  // The seller's verified watch-only claim — device-local gate state behind
+  // `bitcoinEnabled`, never synced (see commerce.schema.ts header).
+  commerce_payment_claims!: Dexie.Table<CommercePaymentClaimModelSchema>;
   // Encrypted messaging (Paykit Encrypted Links) — rows carry key material
   // and device-local plaintext history; see messaging.schema.ts header.
   commerce_messaging_receivers!: Dexie.Table<CommerceMessagingReceiverModelSchema>;
@@ -288,6 +293,10 @@ export class AppDatabase extends Dexie {
         // has never shipped, so there is no upgrade path to preserve.
         commerce_delivery_addresses: commerceDeliveryAddressTableSchema,
         commerce_shipping_presets: commerceShippingPresetTableSchema,
+        // Verified watch-only claim gate state — folded into the current
+        // (unreleased) DB version rather than bumping it: there is no
+        // upgrade path to preserve.
+        commerce_payment_claims: commercePaymentClaimTableSchema,
         // Encrypted messaging — folded into the current (unreleased) DB
         // version rather than bumping it: version 3 has never shipped, so
         // there is no upgrade path to preserve.

@@ -10,6 +10,7 @@ import {
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
+  CommercePaymentClaimModel,
   CommerceSavedSearchModel,
   CommerceShippingPresetModel,
   CommerceShopFollowModel,
@@ -52,7 +53,53 @@ describe('LocalCommerceService', () => {
       CommerceDeliveryAddressModel.table.clear(),
       CommerceShippingPresetModel.table.clear(),
       CommerceActivityCheckpointModel.table.clear(),
+      CommercePaymentClaimModel.table.clear(),
     ]);
+  });
+
+  it('stores the verified payment claim per owner and replaces it on re-verification', async () => {
+    await expect(LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_SELLER)).resolves.toBeNull();
+
+    await LocalCommerceService.savePaymentClaim(COMMERCE_FIXTURE_SELLER, {
+      xpub: 'xpub6DNfJehqF1LUs9kwaqDu12Ajpz9psYVtbGhTykQo1CYdkkqV2vAyR4DiWXSTTDujWHzVy1AtV6ENGKWgwbLWqa4wXMZR4ZmdpRjQBG5EgTV',
+      keyFingerprintHex: '5f9600ba5b1bf3f0',
+      accountIndex: 0,
+      firstDerivedAddress: 'bc1qgkju4yvvtuz0s8vqn837q396jezu2h8ex7gk98',
+      verifiedAt: 1_756_000_000_000,
+      source: 'session_claim',
+    });
+
+    const stored = await LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_SELLER);
+    expect(stored).toMatchObject({
+      id: COMMERCE_FIXTURE_SELLER,
+      owner_id: COMMERCE_FIXTURE_SELLER,
+      key_fingerprint_hex: '5f9600ba5b1bf3f0',
+      account_index: 0,
+      source: 'session_claim',
+    });
+
+    // A Ring status verification with no local key replaces the row: one
+    // claim per seller, the newest verification is the authority.
+    await LocalCommerceService.savePaymentClaim(COMMERCE_FIXTURE_SELLER, {
+      xpub: null,
+      keyFingerprintHex: '0011223344556677',
+      accountIndex: null,
+      firstDerivedAddress: 'bc1qexample',
+      verifiedAt: 1_756_000_100_000,
+      source: 'authenticated_status',
+    });
+
+    const replaced = await LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_SELLER);
+    expect(replaced).toMatchObject({
+      xpub: null,
+      key_fingerprint_hex: '0011223344556677',
+      account_index: null,
+      source: 'authenticated_status',
+    });
+    expect(await CommercePaymentClaimModel.table.count()).toBe(1);
+
+    // Another owner's row is untouched.
+    await expect(LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_BUYER)).resolves.toBeNull();
   });
 
   it('seeds the deterministic sandbox catalog once', async () => {

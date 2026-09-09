@@ -27,6 +27,7 @@ import {
   commerceWatchlistRecordSchema,
   locksPublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
+import { type VerifiedPaykitClaim, verifiedPaykitClaimSchema } from '@/libs/commerce/payment-methods';
 import { type MarketplacePickupDetails, pickupDetailsSchema } from '@/libs/commerce/pickup';
 import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
@@ -333,6 +334,11 @@ export class CommerceRecordNormalizer {
 
   static deliveryAddressInput(input: unknown): CommerceDeliveryAddressInput {
     return this.parse(commerceDeliveryAddressInputSchema, input, 'deliveryAddressInput');
+  }
+
+  /** The verified-claim gate state one of the two verification paths records. */
+  static verifiedPaykitClaim(input: unknown): VerifiedPaykitClaim {
+    return this.parse(verifiedPaykitClaimSchema, input, 'verifiedPaykitClaim');
   }
 
   static shippingPresetInput(input: unknown): CommerceShippingPresetInput {

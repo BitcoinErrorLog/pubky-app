@@ -14,6 +14,7 @@ import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
+  CommercePaymentClaimModelSchema,
   CommerceReviewModelSchema,
   CommerceReviewResponseModelSchema,
   CommerceSavedSearchModelSchema,
@@ -874,5 +875,31 @@ export class CommerceShippingPresetModel
         cause: error,
       });
     }
+  }
+}
+
+export class CommercePaymentClaimModel
+  extends RecordModelBase<string, CommercePaymentClaimModelSchema>
+  implements CommercePaymentClaimModelSchema
+{
+  static table: Table<CommercePaymentClaimModelSchema> = db.table('commerce_payment_claims');
+
+  owner_id: string;
+  xpub: string | null;
+  key_fingerprint_hex: string;
+  account_index: number | null;
+  first_derived_address: string;
+  source: string;
+  verified_at: number;
+
+  constructor(claim: CommercePaymentClaimModelSchema) {
+    super(claim);
+    this.owner_id = claim.owner_id;
+    this.xpub = claim.xpub;
+    this.key_fingerprint_hex = claim.key_fingerprint_hex;
+    this.account_index = claim.account_index;
+    this.first_derived_address = claim.first_derived_address;
+    this.source = claim.source;
+    this.verified_at = claim.verified_at;
   }
 }

@@ -30,7 +30,7 @@ import {
   type CommerceShopRecord,
   type CommerceWatchlistRecord,
 } from '@/libs/commerce/marketplace-records';
-import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
+import type { PaymentMethodKind, VerifiedPaykitClaim } from '@/libs/commerce/payment-methods';
 import {
   type MarketplaceCheckoutFulfillmentLine,
   type MarketplaceFulfillmentMethod,
@@ -808,8 +808,31 @@ export class CommerceApplication {
     return MarketplacePaykitClaimService.beginClaimFlow(accountXpub, accountIndex);
   }
 
+  /**
+   * The Ring-approved authenticated status read (design §B.8.6): proves the
+   * claim belongs to THIS session and identity — one of the two paths
+   * allowed to record a verified claim.
+   */
+  static beginPaykitClaimStatusFlow(actorPubky: string) {
+    return MarketplacePaykitClaimService.beginClaimStatusFlow(actorPubky);
+  }
+
   static async isPaykitAccountClaimed(pubky: string) {
     return await MarketplacePaykitClaimService.isAccountClaimed(pubky);
+  }
+
+  /** The seller's device-local verified claim — the `bitcoinEnabled` gate state. */
+  static async getMyVerifiedPaykitClaim(actorPubky: string) {
+    return await LocalCommerceService.getPaymentClaim(actorPubky);
+  }
+
+  /**
+   * Persists a verified claim. ONLY the two verification paths (session
+   * claim, authenticated status read) may call this — a config save or a
+   * load never writes the gate state.
+   */
+  static async commitSaveVerifiedPaykitClaim(actorPubky: string, claim: VerifiedPaykitClaim): Promise<void> {
+    await LocalCommerceService.savePaymentClaim(actorPubky, claim);
   }
 
   static async getMarketplaceReceipt(actorPubky: string, receiptId: string) {

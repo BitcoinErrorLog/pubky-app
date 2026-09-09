@@ -629,3 +629,29 @@ export interface CommerceShippingPresetModelSchema {
 }
 
 export const commerceShippingPresetTableSchema = '&id, owner_id, updated_at, [owner_id+updated_at]';
+
+/**
+ * The seller's verified watch-only claim — the `bitcoinEnabled` gate state
+ * (btc-mainnet design §B.6/§B.8). One row per seller (`id` IS the owner):
+ * written only by the session-claim verification and the authenticated
+ * status read, and never synced anywhere — it is device-local proof that a
+ * claim verification completed on this device. The stored payment-config
+ * `bitcoinEnabled` flag is a hint; this record is the authority the
+ * settings hook fails closed against.
+ */
+export interface CommercePaymentClaimModelSchema {
+  /** The seller's pubky (one verified claim per seller). */
+  id: string;
+  owner_id: string;
+  /** Normalized canonical account xpub; null for a Ring-verified status read with no local key. */
+  xpub: string | null;
+  key_fingerprint_hex: string;
+  /** The key-declared hardened account index; null when no local key exists. */
+  account_index: number | null;
+  first_derived_address: string;
+  /** 'session_claim' | 'authenticated_status' */
+  source: string;
+  verified_at: number;
+}
+
+export const commercePaymentClaimTableSchema = '&id, owner_id';

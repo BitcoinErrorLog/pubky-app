@@ -70,6 +70,32 @@ export const sellerPaymentConfigOwnViewSchema = z.object({
 export type SellerPaymentConfigOwnView = z.infer<typeof sellerPaymentConfigOwnViewSchema>;
 
 /**
+ * The verified watch-only claim that gates `bitcoinEnabled` (btc-mainnet
+ * design §B.6/§B.8): written ONLY by the two verification paths — a session
+ * claim whose response verified against the exact normalized bytes POSTed
+ * (`session_claim`), or the authenticated `GET /v0/accounts/{creator}/status`
+ * read approved in Ring (`authenticated_status`). The stored
+ * `bitcoinEnabled` flag is a hint, never authority; this record is the gate.
+ *
+ * `xpub` is the normalized canonical account xpub the claim verified against
+ * — `null` for a Ring-verified status read when the client holds no local key
+ * (a Bitkit-set-up seller): the server's `keyFingerprintHex` +
+ * `firstDerivedAddress` are the identity the seller enabled, and the gate
+ * re-opens only by re-verifying. `accountIndex` is the key-declared hardened
+ * index when a local key exists, `null` otherwise.
+ */
+export const verifiedPaykitClaimSchema = z.object({
+  xpub: z.string().nullable(),
+  keyFingerprintHex: z.string(),
+  accountIndex: z.number().int().nullable(),
+  firstDerivedAddress: z.string(),
+  verifiedAt: z.number(),
+  source: z.enum(['session_claim', 'authenticated_status']),
+});
+
+export type VerifiedPaykitClaim = z.infer<typeof verifiedPaykitClaimSchema>;
+
+/**
  * Seller-supplied Stripe restricted keys start with `rk_`; secret `sk_`
  * keys are refused by the service, and this mirror check keeps a pasted
  * secret key from ever leaving the browser.

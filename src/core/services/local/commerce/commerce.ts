@@ -1,5 +1,6 @@
 import { db } from '@/database/franky/franky';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import type { VerifiedPaykitClaim } from '@/libs/commerce/payment-methods';
 import { DatabaseErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -14,6 +15,7 @@ import {
   CommerceListingModel,
   CommerceListingProjectionModel,
   CommerceLocksCorrelationModel,
+  CommercePaymentClaimModel,
   CommerceReviewModel,
   CommerceReviewResponseModel,
   CommerceSavedSearchModel,
@@ -34,6 +36,7 @@ import type {
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
   CommerceLocksCorrelationModelSchema,
+  CommercePaymentClaimModelSchema,
   CommerceReviewModelSchema,
   CommerceReviewResponseModelSchema,
   CommerceSavedSearchModelSchema,
@@ -819,6 +822,34 @@ export class LocalCommerceService {
       registered: true,
       window_expires_at: windowExpiresAt,
       updated_at: now,
+    });
+  }
+
+  /**
+   * The seller's verified watch-only claim — the device-local gate state
+   * behind `bitcoinEnabled` (design §B.6/§B.8). One row per seller; null
+   * when no verification has completed on this device.
+   */
+  static async getPaymentClaim(ownerId: string): Promise<CommercePaymentClaimModelSchema | null> {
+    return (await CommercePaymentClaimModel.findById(ownerId)) ?? null;
+  }
+
+  /**
+   * Records a verified claim. Written ONLY by the two verification paths
+   * (session-claim verification, authenticated status read) — never by a
+   * config save or a load. The row replaces any earlier claim: a newer
+   * verification is the authority.
+   */
+  static async savePaymentClaim(ownerId: string, claim: VerifiedPaykitClaim): Promise<void> {
+    await CommercePaymentClaimModel.upsert({
+      id: ownerId,
+      owner_id: ownerId,
+      xpub: claim.xpub,
+      key_fingerprint_hex: claim.keyFingerprintHex,
+      account_index: claim.accountIndex,
+      first_derived_address: claim.firstDerivedAddress,
+      source: claim.source,
+      verified_at: claim.verifiedAt,
     });
   }
 
