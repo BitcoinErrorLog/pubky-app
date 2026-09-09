@@ -1,4 +1,4 @@
-# Bitcoin Mainnet Switch And Payment-Journey Proof — Design (r12)
+# Bitcoin Mainnet Switch And Payment-Journey Proof — Design (r13)
 
 ## Review history
 
@@ -419,7 +419,9 @@
 
 - **r11 — this commit (RESHAPE).** The r10 condition-7 predicate was correct, but its sole commercial exit was not: migration `0018_remove_operator_authority.sql:1-14` says “there is no master of the marketplace” and removes master adjudication, while r10 still assigned paid/refunded/abandoned authority to service personnel. The step-back sweep classified 113 uses of that term: **58 infra** (deployment, alerting, acknowledgement and rollback) and **55 order-authority**, which are removed or reassigned here. `manual_review` now exits only through the listing seller's Bearer-session `POST /v0/orders/{id}/bitcoin/resolve` action or the seven-day inactivity reaper. The handler authorises `actor.pubky == listing.seller_pubky` before its UUID `Idempotency-Key` lookup, takes no actor/seller/txid/amount in its body, and atomically writes the outcome, audit, inventory effect and pinned `paykit.resolve` row. Seller `paid` → payment `confirmed` plus existing confirmation effects; `refunded` → payment `confirmed` plus `resolution_outcome='refunded'`, external-refund reference and `refunded_external`; `abandoned` → payment `expired`, `resolution_outcome='abandoned'` and cancel/release. The reaper uses the latter branch with `resolution_basis='seller_unresponsive'`; later resolve calls return 409 and later shipment/refund is off-ledger. The two-business-day seller-response SLA remains an alert. **Coordinator decision; owner may override before Wave 9.3 cutover:** after seven days, release the hold and record abandoned because the marketplace cannot move the seller's BTC; continuing the hold cannot obtain shipment or refund, locks seller stock, and destroys condition-7 liveness.
 
-- **r12 — this commit.** Sol r11 P2-1 → §B.9/W1.15 scopes seller resolve and reaper to Paykit Bitcoin with pins and negative cross-rail cases; P2-2 → §B.9/W1.15 adds the entry×outcome/inventory matrix and late-stock reacquisition; P2-3 → §B.9/W1.15 adds `UNIQUE(order_id)`, shared locks, CAS and race tests; P2-4/P2-5 → §B.9 adds migration 0021, outcome semantics and `manual_review_entered_at`; P2-6 → §C.16/W1.15 adds repeatable-read 7→6→7 drain calibration; P3 → §B.8.8/W1.16 adds terminal buyer copy and typo cleanup. Kimi r11 terminated without a verdict because of a tooling permission failure; Kimi re-verifies r12.
+- **r12 — this commit.** Sol r11 P2-1 → §B.9/W1.15 scopes seller resolve and reaper to Paykit Bitcoin with pins and negative cross-rail cases; P2-2 → §B.9/W1.15 adds the entry×outcome/inventory matrix and late-stock reacquisition; P2-3 → §B.9/W1.15 adds `UNIQUE(order_id)`, shared locks, CAS and race tests; P2-4/P2-5 → §B.9 adds migration 0021, outcome semantics and `manual_review_entered_at`; P2-6 → §C.16/W1.15 adds a 7→6→7 drain calibration; P3 → §B.8.8/W1.16 adds terminal buyer copy and typo cleanup. Kimi r11 terminated without a verdict because of a tooling permission failure; Kimi re-verifies r12.
+
+- **r13 — frozen.** Sol r12 + Kimi r12 folded mechanically; no further prose review rounds; remaining findings become wave acceptance tests and are closed by code review + Kimi code audit.
 
 ## Owner decisions required
 
@@ -836,6 +838,16 @@ address that spends **any** baseline input is a replacement of a baseline
 transaction, and its outputs to that address **inherit baseline status** and are
 permanently ineligible. Confirmed baseline transactions contribute no inputs —
 they cannot be replaced.
+
+**Coordinator amendment to the r5 observer invariant.** The invariant forbids
+history-driven fan-out in the tick, not transaction fetches. W1.1 permits two
+bounded, bucket-charged, byte-capped one-shot fetches under
+`electrum.max_transaction_bytes` (default `400_000`): at creation, inputs of at
+most `electrum.max_creation_history_entries` (50) unconfirmed baseline
+transactions, with any failure producing `void_baseline_failed`; and at first
+bind, at most one fetch of the exact-amount candidate, oldest-first, one per
+tick per invoice and none after bind, with failure retried on the next tick and
+never globally. Each candidate costs the attacker the exact invoice amount.
 
 This over-rejects in one narrow case: a payer who deliberately spends a UTXO
 that a pre-existing baseline transaction was also spending. That resolves to
@@ -1569,7 +1581,7 @@ unit:
   `observed_sats > required` reports confirmed with `amount_matched: false` and
   routes to `manual_review` (`workers.rs:827-859`) — the same path underpayment
   already takes. No funds are lost in that case; the money is at the seller's own
-  address and a human resolves the order. This **deliberately reverses** the
+  address and the seller resolves it or the seven-day reaper does. This **deliberately reverses** the
   overpayment behaviour recorded in correction #3 and in §E, and §E is updated.
 - **Nonce.** Each invoice draws `nonce ∈ [1, 999]` satoshis from a CSPRNG —
   never derived from the order id, the price, or a counter, because a predictable
@@ -2625,8 +2637,8 @@ which is what makes the transient half bounded and the totality claim true.
   > on the Bitcoin network. Your order is confirmed once the seller checks it.
   > You'll be notified when that happens.
 - Buyer, if the 24-hour window elapses:
-  > **This order needs a human.** Your payment is with the seller and our support
-  > team is looking at your order.
+  > **This order needs the seller.** Your payment is with the seller. The seller
+  > has up to seven days to resolve the order.
 
   With a 24-hour window the buyer sees this on **day 2**, which is what makes
   "usually within a day" above an honest sentence rather than one contradicted
@@ -2937,12 +2949,18 @@ Migration `0021_bitcoin_manual_review_resolution.sql` adds to `payments`:
 `resolution_outcome TEXT CHECK (resolution_outcome IN ('paid','refunded','abandoned'))`,
 `resolution_basis TEXT CHECK (resolution_basis IN ('seller_attestation','seller_unresponsive'))`,
 `resolved_at TIMESTAMPTZ`, `resolved_by_pubky TEXT NULL`, and `refund_reference TEXT`.
-It adds `UNIQUE(order_id)` and `UNIQUE(order_id, resolution_id)` on the immutable
-resolution record, an append-only audit row `{order_id, payment_id, outcome,
-basis, resolved_at, resolved_by_pubky, observed_payment_snapshot, reason,
-refund_reference}`, and CHECKs: resolution fields are all NULL before resolution;
-they are all non-NULL after it except `resolved_by_pubky` only for
-`seller_unresponsive`; `refund_reference` is non-NULL only for `refunded`.
+The payment row is the sole resolution record: `payments.order_id` is already
+`UNIQUE`, and all `resolution_*` columns live on `payments`. It adds an
+append-only audit row `{order_id, payment_id, outcome, basis, resolved_at,
+resolved_by_pubky, observed_payment_snapshot, reason, refund_reference}`, and
+CHECKs: `(state='manual_review') = (manual_review_entered_at IS NOT NULL)`;
+resolution fields are all NULL before resolution; they are all non-NULL after it
+except `resolved_by_pubky` only for `seller_unresponsive`; and
+`refund_reference` is non-NULL if and only if the outcome is `refunded`.
+Pre-existing `manual_review` rows are backfilled with `NOW()` at migration,
+documented as an approximate entered-at instant. Every writer of
+`manual_review` stamps it, including the Bitcoin paths, Locks
+(`workers.rs:484-520`), and fiat (`payment_methods.rs:822-850,950-988`).
 The refund reference is a validated external transaction identifier; the full
 refund amount is derived from the immutable observed-payment snapshot, never the
 body. The payment machine gains `manual_review -> confirmed` and
@@ -2950,33 +2968,37 @@ body. The payment machine gains `manual_review -> confirmed` and
 Readers distinguish a natural confirmed/expired payment from a resolved one by
 `resolution_outcome IS NOT NULL`: health/drain use the unresolved predicate,
 Paykit outbox uses the immutable outcome, receipts exist only for resolved paid,
-and order/UI projections render the outcome and basis.
+order/UI projections render the outcome and basis, and confirmed-path consumers
+filter on `resolution_outcome`.
 
 Every transition into `manual_review` atomically sets
-`manual_review_entered_at = NOW()` in the same UPDATE: exact-amount underpay and
-overpay, late settlement after hold expiry, confirmation fallback, the
+`manual_review_entered_at = NOW()` in the same UPDATE: amount-mismatch underpay
+and overpay, late settlement after hold expiry, confirmation fallback, the
 `shared_manual` 24-hour reaper, and late-first observation. The inactivity reaper
 selects only eligible scoped rows where `manual_review_entered_at <= NOW() -
 INTERVAL '7 days'`.
 
 | Entry class | Order/inventory at entry | `paid` | `refunded` | `abandoned` |
 | --- | --- | --- | --- | --- |
-| Under/over mismatch or confirmation fallback | `pending_payment`, hold reserved | `manual_review -> confirmed`; consume existing hold and receipt | transition `pending_payment -> cancelled -> refunded_external`, release hold; valid refund reference required | `manual_review -> expired`; `pending_payment -> cancelled`, release hold |
-| Shared-manual 24-hour reaper / late first observation | `pending_payment`, hold reserved | same held paid branch | same held refund branch | same held abandonment branch |
-| Late settlement after hold expiry | `cancelled`, stock already released (`workers.rs:1040-1188`) | atomically reacquire the same SKU quantity from currently available inventory in lock order; if unavailable return `409 stock_unavailable`; then `cancelled -> paid` and receipt | `cancelled -> refunded_external`, valid reference required | retain cancelled/released order; payment becomes expired |
+| Under/over mismatch or confirmation fallback | `pending_payment`, hold normally reserved | `manual_review -> confirmed`; verify hold presence, then consume the existing hold and receipt; if absent, atomically reacquire the same SKU quantity or return `409 stock_unavailable` | transition `pending_payment -> cancelled -> refunded_external`, release hold; valid refund reference required | `manual_review -> expired`; `pending_payment -> cancelled`, release hold |
+| Shared-manual 24-hour reaper | `pending_payment`, hold reserved | same held paid branch | same held refund branch | same held abandonment branch |
+| Late settlement after hold expiry / late first observation | `cancelled`, stock already released (`workers.rs:1040-1188`) | atomically reacquire the same SKU quantity from currently available inventory in lock order; if unavailable return `409 stock_unavailable`; then `cancelled -> paid` and receipt | `cancelled -> refunded_external`, valid reference required | retain cancelled/released order; payment becomes expired |
+| Confirmation fallback with lapsed AUCTION reservation | `pending_payment`, auction reservation lapsed and inventory released | atomically reacquire the auction reservation or return `409 stock_unavailable`; then `manual_review -> confirmed` and receipt | same held refund branch | same held abandonment branch |
 
 The marketplace never invents inventory. The paid late branch must lock and
 reacquire each listing/reservation/drop allocation in the normal inventory order;
 auction/drop/sold-out failure is `stock_unavailable`, after which the seller may
-choose refunded or abandoned. The migration adds the necessary explicit order
-edges `pending_payment -> cancelled -> refunded_external` and `cancelled -> paid`
-only for this Paykit resolution transaction; no generic command may use them.
+choose refunded or abandoned. The migration adds one new edge
+`cancelled -> paid`, restricted to this Paykit resolution transaction, and
+reuses the two existing edges `pending_payment -> cancelled` and
+`cancelled -> refunded_external`.
 
-Resolve and reaper share lock order `order -> payment -> listing/inventory`, lock
-the resolution record, and decide through `UPDATE payments ... WHERE state =
-'manual_review' AND resolution_outcome IS NULL RETURNING`. The unique `order_id`
-constraint is the backstop. The winner commits outcome/audit/inventory/outbox;
-the loser returns `409 already_resolved` with the immutable winning outcome.
+Resolve and reaper share lock order `payment -> order -> listing/inventory` and
+decide through `UPDATE payments ... WHERE state = 'manual_review' AND
+resolution_outcome IS NULL RETURNING`. The winner commits
+outcome/audit/inventory/outbox. Same key with the same body returns the winner's
+result; the same key with a different body returns `409 conflict`; a different
+key after resolution returns `409 already_resolved`.
 
 **How seller and inactivity resolutions get here (r11).**
 `POST /v0/orders/{id}/bitcoin/resolve` is the only peer action for a
@@ -2985,8 +3007,10 @@ loads order → listing and requires `actor.pubky == listing.seller_pubky`. It
 authorises before its idempotency lookup. The body is `{outcome, reason,
 external_refund_reference?}` and carries no actor, seller, txid or amount.
 `Idempotency-Key` is a UUID stored as `resolution_id`, unique on
-`(order_id, resolution_id)`. A duplicate by that seller returns the immutable
-resolution; a different key after resolution returns 409.
+`(order_id, resolution_id)`. A duplicate by that seller with the same body
+returns the immutable winner's result; the same key with a different body
+returns `409 conflict`; a different key after resolution returns
+`409 already_resolved`.
 
 Every seller outcome is one local transaction: `paid` changes
 `manual_review → confirmed`, applies the existing confirmation effects, and
@@ -2996,11 +3020,12 @@ the order to `refunded_external`, and releases its hold; `abandoned` changes
 payment to `expired`, writes `resolution_outcome='abandoned'`, and cancels and
 releases the held order. Each writes an immutable audit/event with
 `resolution_basis='seller_attestation'` and one **`paykit.resolve`** outbox row
-pinned to the issuing `stack_id` and endpoint. The seven-day reaper performs the
-same abandoned branch with `resolution_basis='seller_unresponsive'`; it is not a
-peer decision and later resolve calls return 409. Every branch uses the same
-1-hour delivery deadline and twelve-row mapping. There is no inline call and no
-second delivery path.
+pinned to the issuing `stack_id` and endpoint. Refunded and abandoned branches
+emit `payment.resolved`, not `payment.confirmed`. The seven-day reaper performs
+the same abandoned branch with `resolution_basis='seller_unresponsive'`; it is
+not a peer decision and later resolve calls return 409. Every branch uses the
+same 1-hour delivery deadline and twelve-row mapping. There is no inline call
+and no second delivery path.
 
 **`paid_manually` from every reachable state, as a table (r6, Sol P1).** r5
 defined `resolve` for `expired_tail`, `expired_final`, the invalid states and
@@ -3543,7 +3568,7 @@ payability.
 | A1 | **Claim-time scan cannot reach Electrum** | none — no creator row is written | The claim is **refused** (§B.5, unchanged), so no `allocation_mode` is assigned and no seller is silently admitted to `exclusive` on an unscanned account | An unscanned claim is exactly the P1-A condition; refusing is the r4 behaviour and r5 does not weaken it |
 | A2 | **Sentinel observation cannot reach Electrum** | mode unchanged | Detection is unavailable for that tick. **No downgrade.** The §B.7 backlog-age alert and §B.7.1 auto-hide cover a sustained outage | An Electrum blip must never become a fleet-wide downgrade; `exclusive`'s safety rests on §B.8.6's claim-time checks, not on detection (§B.8.7) |
 | A3 | **Downgrade lands while an invoice is `observing`** | `allocation_mode='shared_manual'` committed; invoice still `observing` | Automatic `paid` stops for **that** invoice too, because the transition reads the creator's current mode rather than `allocation_mode_at_creation`; the order moves to `awaiting_seller_confirmation` on the next matching observation | Protecting already-live invoices is the fail-safe direction and is the reason the extra read exists |
-| A4 | **Confirm called by anyone but the order's seller** | none | `403 not_order_seller`, logged, **no state change**, no audit row | An a seller resolving a stuck order uses the `manual_review` path so the audit trail never conflates the two (§B.8.8) |
+| A4 | **Confirm called by anyone but the order's seller** | none | `403 not_order_seller`, logged, **no state change**, no audit row | A seller resolving a stuck order uses the `manual_review` path so the audit trail never conflates the two (§B.8.8) |
 | A5 | **Confirm called on an order not in `awaiting_seller_confirmation`** | none | Named error, no state change | A seller cannot confirm an order with no observed payment; the precondition is server-side, never the buyer-supplied txid |
 | A6 | **Confirm delivered twice** (client retry) | the first confirmation record | Idempotent on order id: the same record is returned, no second fulfilment event, no second audit row | Same "effect and mark commit together" discipline as §B.11.8's outbox arm |
 | A7 | **Seller never confirms** | `awaiting_seller_confirmation` for **24 hours** (D6) | Routes to `manual_review` (`workers.rs:787-820`), never to `paid` and never to a silent cancellation. The buyer's inventory hold was extended on entry, so they do not lose the order to a 3600 s timeout while waiting for a human, and **the hold is not released at routing — it persists until a seller resolves the order as paid, refunded or abandoned**, under a 2-business-day seller-response SLA that alerts on breach (§B.8.8) | The buyer has demonstrably paid on chain; expiring their order, or releasing their item to another buyer one day later, would be the worst available outcomes |
@@ -3971,11 +3996,10 @@ marketplace's outbox.
 
 
 **r12 drain-gate snapshot.** Infrastructure evaluates condition 7, then condition
-6, then condition 7 again in one `REPEATABLE READ` transaction. A resolution that
-commits between the old two checks must make the calibrated gate FAIL: the second
-condition-7 read observes neither an ungoverned writer nor a stale clearance; a
-new snapshot is required before teardown. The runbook never records a PASS from
-condition 6 followed only by condition 7.
+6, then condition 7 again under `READ COMMITTED`, so each check is a fresh read.
+A resolution that commits between the old two checks must make the calibrated gate
+FAIL. PASS is recorded only from the final fresh condition-7 read; the runbook
+never records a PASS from condition 6 followed only by condition 7.
 
 **Bounded and computable.** `prepare_ttl` (15 min) bounds condition 1, and it
 runs *inside* the hold window rather than after it, so it adds nothing to the
@@ -4637,7 +4661,7 @@ least once, and not before Q9 is answered.
 | Seller pastes a valid but **wrong** xpub | An old wallet's key, a colleague's key, a blog example | **Funds are lost, irreversibly.** Base58check catches typos; it cannot catch a well-formed key the seller does not control. The claim is immutable per creator (`bitkit_claim.rs:69-74`). | §C.10 is load-bearing: preview derived from the exact normalized bytes POSTed, fingerprint compared against the server's, address confirmed in the seller's own wallet before `bitcoinEnabled`. Copy says irreversible and unrecoverable in those words. |
 | The test-vector xpub reaches a real listing | Harness leaks, or a seller copies it from this document | **Catastrophic and irreversible** — the mnemonic is public. | Canonical 78-byte deny-list in `validate_xpub`, enforced on every non-proof stack; harness refuses to run unless the target origin is the staging Shop; fresh identities per run; derived-first-address check as belt-and-braces (§B.6). |
 | Key or secret exposure on this path | Operator DB read, log capture, compromised server | **No Bitcoin private key exists anywhere on this path.** Addresses, outpoints and amounts are redacted in every `Debug` impl (`bitcoin.rs:33-40`, `:64-71`, `:87-99`, `:126-135`) and sealed at rest under `PAYKIT_MASTER_KEY` (`invoices.rs:660-671`). Full compromise buys the ability to lie about payments and to read seller xpubs — a privacy loss, since an xpub reveals a seller's whole receive history. | §C.11 records watch-only as a repo invariant. Seller copy must state the xpub-privacy consequence plainly. |
-| Overpayment | Buyer sends more than the required amount | **Changed in r3.** r2 recorded that overpayment confirms as matched under `observed_sats >= required` (`invoices.rs:694`). §B.8.2 makes the predicate exact, so overpayment now reports `amount_matched: false` and routes to `manual_review` (`workers.rs:827-859`). Nothing is lost — the funds are at the seller's own address — but a human resolves the order. | This is a tightening required by §B.8: under `>=` the amount nonce provides no defence at all. Both wallets already refuse to pay a mismatched amount, so honest Bitkit buyers are unaffected. Buyer copy must say the total is exact and that overpayment delays the order rather than completing it. Proven by F5. |
+| Overpayment | Buyer sends more than the required amount | **Changed in r3.** r2 recorded that overpayment confirms as matched under `observed_sats >= required` (`invoices.rs:694`). §B.8.2 makes the predicate exact, so overpayment now reports `amount_matched: false` and routes to `manual_review` (`workers.rs:827-859`). Nothing is lost — the funds are at the seller's own address — but the seller resolves it or the seven-day reaper does. | This is a tightening required by §B.8: under `>=` the amount nonce provides no defence at all. Both wallets already refuse to pay a mismatched amount, so honest Bitkit buyers are unaffected. Buyer copy must say the total is exact and that overpayment delays the order rather than completing it. Proven by F5. |
 | Harness or design assumes three proofs compose when they ran on different binaries (Sol NEW-4) | Regtest left on an old image while proof-mainnet runs the new one | Each proof passes, the conjunction proves nothing, and the gap is invisible in every individual report. | One image digest `D` built once and deployed to all three stacks, printed in every boot line, and **asserted equal to `D` by each proof before it runs** (§D.0, §C.8). W2.4 asserts the regtest redeploy explicitly. |
 | Partial payment across two transactions | Price split into two outputs | **Never confirms** (`bitcoin.rs:176-195` replaces, does not sum). Silent stall for the buyer. | Buyer copy: "pay the full amount in one transaction". Proven by F4. |
 | Buyer drives an order to paid with the sandbox command | Staging `SANDBOX_PAYMENTS_ENABLED=true` | **Refused** once Bitcoin is bound (`handlers/payment.rs:60-65`); possible only before any rail is bound. | Every harness asserts `adapter == 'paykit'` immediately after the bind. Production has the flag `false`. |
@@ -4691,13 +4715,18 @@ for the marketplace two-phase work, **implementation tier** for client surfaces,
 | W1.15 | **marketplace-service: `shared_manual` checkout, seller-confirm, and seller-resolution paths (§B.8.8, D2)** — `awaiting_seller_confirmation` with status-only polling, extended inventory hold, a 24-hour window whose reaper changes `orders.paykit_request_state` to `confirmed` and `payments.state` to `manual_review`, seller authorisation, observation-derived audit fields, and a stack-pinned `paykit.resolve` outbox | `marketplace-service` worktree, serialized after W1.11 | **Kimi** (money path) | W1.11, W1.13, W1.4b, W1.1c, W1.3, and this slice's resolution outbox | `cargo test -p marketplace-service` → verify seller confirmation is authorised **before the idempotency lookup**, idempotent, atomic with audit/fulfilment/outbox writes, observation-derived, records `confirmation_basis = 'seller_attestation'`, and never automatically advances a `shared_manual` order; verify late settlement and the confirm/reaper race. Assert the 3600-second hold is extended on entry, not expired, and that an SLA-breach alert fires two business days after the reaper writes `payments.state = 'manual_review'`. Drive every §B.8.8 response-class row: permanent rejections terminate; transient rows retry under the 1-hour deadline; 401/403 alerts; the infrastructure termination acknowledgement and acknowledgement gate work; a pin mismatch sends no request; and no case un-pays the order. For `429`/`503`, schedule valid `Retry-After` as `min(resolve_delivery_deadline, max(backoff_due_at, retry_after_due_at))`; `0`, near-zero and past-date values preserve `backoff_due_at`, malformed falls back to backoff, and the deadline clamp remains. **FAIL calibration:** remove the floor, return `Retry-After: 0`, and demonstrate repeated claims before normal backoff is due. Bind against A, repoint to B, and assert both seller confirmation and seller `payments.state = 'manual_review'` resolution route only to A; force delivery through current-default B to show `stack_pin_mismatch` outside the acknowledgement gate, then restore pinned-A routing. A seller `paid` resolution writes `paid_manually` with `resolution_basis = 'seller_attestation'`. Finally assert condition 7 is exactly `NOT EXISTS (SELECT 1 FROM orders o LEFT JOIN payments p ON p.order_id = o.id WHERE o.paykit_stack_id = :old_stack_id AND (o.paykit_request_state = 'awaiting_seller_confirmation' OR p.state = 'manual_review'))`: it blocks before and after a seller window elapses (because the reaper changes the payment row to `manual_review`) and returns empty only after every matching order is resolved. Add three seller-resolution positive cases (`paid`, `refunded`, `abandoned`) and three duplicate-`Idempotency-Key` cases: each asserts one immutable resolution/audit/event/outbox row, its exact payment/order/hold result, and that condition 7 remains false until condition 6 governs the row. Buyer and unrelated-seller calls to `/bitcoin/resolve` return 403 before idempotency lookup. Drive the inactivity reaper at seven days: it records `seller_unresponsive`, takes the abandoned/release branch, writes one pinned outbox row, and a later resolve returns 409. **FAIL calibration:** omit the payment-state update and assert condition 7 rejects the otherwise-resolved order. **r12 matrix and concurrency:** test every matrix cell above, including
 sold-out/drop/auction `stock_unavailable`; negative cross-rail Locks, Stripe and
 PayPal rows; missing-pin and already-terminal rows; deadline−1s and deadline for
-each manual-review entry; seller/seller different keys; same key/different body;
-seller/reaper at T+7d; and resolution racing late-observer commit, all as overlapping
-real database transactions. Assert `UNIQUE(order_id)`, shared lock order, CAS
-winner and `409 already_resolved`. Calibrate by removing the CAS and observing two
+each manual-review entry; a sold-out late-first-observation case; a lapsed
+AUCTION-reservation reacquire-or-`409 stock_unavailable` case; seller/seller
+different keys; same key/same body returning the winner's result; same
+key/different body returning `409 conflict`; different key after resolution
+returning `409 already_resolved`; seller/reaper at T+7d; and resolution racing
+late-observer commit, all as overlapping real database transactions. Assert the
+`manual_review_entered_at` schema CHECK and a schema-level enumeration of every
+writer, including Bitcoin, Locks, and fiat writers; payment→order→listing/inventory
+lock order; and CAS winner. Calibrate by removing the CAS and observing two
 outcomes/outbox rows. Run the drain interleaving: commit a resolution between the
 old condition-6 and condition-7 checks and assert the gate fails.** **In the minimum cutover set** (D8) |
-| W1.16 | **Client: two-path seller onboarding and the `shared_manual` buyer/seller surfaces (§C.10, §B.8.8, §B.7.2)** — the side-by-side path chooser, `bitcoin_confirmation_mode` consumption, the buyer's pre-pay and awaiting-confirmation copy, the seller's confirm surface, and the post-downgrade arrival path | `mp-oneauth` worktree, serialized after W1.8b | implementation tier | W1.8b, W1.15 | Component tests: both paths render side by side and neither is styled as broken or provisional; the manual path still renders the §C.10 one-sentence disclosure (the W1.8b assertion, unchanged); `bitcoin_confirmation_mode: "seller"` renders the buyer's pre-pay copy and does **not** hide Bitcoin; the awaiting-confirmation copy renders on the order; **every string is asserted against a snapshot and interpolates no server-supplied value** — no address, amount, txid, tip height or seller name (the house rule, asserted so a later copy pass cannot start interpolating); the seller confirm surface renders the check-your-wallet imperative; arriving at the chooser from a downgrade alert reads sensibly rather than as onboarding; **the downgrade alert and each of the five named downgrade reasons render §B.8.8's fixed copy, asserted against a snapshot** (r6, Sol P2); **the 24-hour window's day-2 human-review copy renders and is consistent with "usually within a day"**. Add a terminal buyer projection at day seven: **Seller did not respond.** Your held order was closed; Shop cannot move Bitcoin held by the seller. Any later shipment or refund is between you and the seller. Assert this static copy and `seller_unresponsive` outcome in W1.16. **In the minimum cutover set** (D8) |
+| W1.16 | **Client: two-path seller onboarding and the `shared_manual` buyer/seller surfaces (§C.10, §B.8.8, §B.7.2)** — the side-by-side path chooser, `bitcoin_confirmation_mode` consumption, the buyer's pre-pay and awaiting-confirmation copy, the seller's confirm surface, and the post-downgrade arrival path | `mp-oneauth` worktree, serialized after W1.8b | implementation tier | W1.8b, W1.15 | Component tests: both paths render side by side and neither is styled as broken or provisional; the manual path still renders the §C.10 one-sentence disclosure (the W1.8b assertion, unchanged); `bitcoin_confirmation_mode: "seller"` renders the buyer's pre-pay copy and does **not** hide Bitcoin; the awaiting-confirmation copy renders on the order; **every string is asserted against a snapshot and interpolates no server-supplied value** — no address, amount, txid, tip height or seller name (the house rule, asserted so a later copy pass cannot start interpolating); the seller confirm surface renders the check-your-wallet imperative; arriving at the chooser from a downgrade alert reads sensibly rather than as onboarding; **the downgrade alert and each of the five named downgrade reasons render §B.8.8's fixed copy, asserted against a snapshot** (r6, Sol P2); **the day-2 copy renders: "This order needs the seller. Your payment is with the seller. The seller has up to seven days to resolve the order."** Add a terminal buyer projection at day seven: **Seller did not respond.** Your held order was closed; Shop cannot move Bitcoin held by the seller. Any later shipment or refund is between you and the seller. Assert this static copy and `seller_unresponsive` outcome in W1.16. **In the minimum cutover set** (D8) |
 | W1.17 | **Bitkit: Shop-exclusive naming and status, post-restore warning, re-claim surface (§C row 19, D1)** — lifecycle and recovery UI over the allocation primitive that already exists | `bitkit-android` and `bitkit-ios`, one agent per tree | implementation tier per app; **deep reasoning** for the post-restore warning's wording, because it is the surface that tells a seller their allocation state did not come back | W1.13 | Per app: the reserved account is labelled and shows status; a restore that recovered allocation state names the watched account, and a restore that did **not** raises the warning (both directions, driven against the real backup/restore path — `BackupRepo.kt:711-729`, `BackupService.swift:210-219` — not a mocked one); **both restore strings are the fixed copy in §B.8.8 and are asserted against a snapshot** (r6, Sol P2), interpolating no wallet- or server-supplied value; the re-claim surface produces a claim byte-identical to the first-claim path for a fresh reserved account; **size S–M per app**, and none of the three gates the W5 canary — they gate **general availability** (D8) |
 | W10 | **Wave 10 — Option 2 signed reservation pools (§B.8.9)** | Bitkit ×2 (**L** each), `paykit-server-fork` (**L**) | **Kimi** throughout — it is account-key signing, encrypted publication and a money path | r5 shipped and measured | **Not this wave.** Recorded so the sequencing is explicit: exclusive Bitkit now, signed pools next, third-party plugins later, detection throughout. Its proof strategy and its full negative-test list are in §B.8.9 and must be planned from there rather than re-derived |
 | W1.9 | Docs pass (§C.17) | umbrella + `mp-oneauth` | **deep reasoning** — this is money-affecting operator text, not a mechanical edit | W1.5 | `git diff --stat` shows exactly the listed files; the parent reads the replacement policy line and the §C.16 rollback order end to end |
