@@ -16,7 +16,6 @@ import type { BitcoinNetwork } from '@/libs/commerce/payment-methods';
 const HARDENED_OFFSET = 0x80000000;
 
 /** Byte offsets inside the 78-byte extended-key serialization. */
-const PARENT_FINGERPRINT_OFFSET = 5;
 const CHILD_NUMBER_OFFSET = 9;
 const CHAIN_CODE_OFFSET = 13;
 const PUBLIC_KEY_OFFSET = 45;
@@ -225,9 +224,4 @@ export function verifyClaimedAccount(
   const expected = deriveBip84P2wpkhAddress(normalizedBytes, network, claim.nextChildIndex);
   if (claim.firstDerivedAddress !== expected) return { ok: false, reason: 'server_address_mismatch' };
   return { ok: true };
-}
-
-/** The BIP32 parent-fingerprint bytes the key itself declares (origin info). */
-export function parentFingerprintFromBytes(normalizedBytes: Uint8Array): Uint8Array {
-  return normalizedBytes.subarray(PARENT_FINGERPRINT_OFFSET, PARENT_FINGERPRINT_OFFSET + 4);
 }
