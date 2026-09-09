@@ -444,6 +444,23 @@ describe('MarketplacePaymentSettings', () => {
     expect(mockedController.putMyPaymentConfig).not.toHaveBeenCalled();
   });
 
+  it('refuses with server_account_index_mismatch when the server echoes a different index than the key declares', async () => {
+    // An account-0 key; the server echoes account_index 1 (W1.8 F2).
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, accountIndex: 1 }),
+      cancel: vi.fn(),
+    });
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+
+    await screen.findAllByText(CLAIM_VERIFICATION_COPY.server_account_index_mismatch);
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin', hidden: true })).not.toBeChecked();
+    expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+  });
+
   it('fails closed with server_fingerprint_missing when the server predates W1.3', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
       authorizationUrl: 'https://auth.example/claim',

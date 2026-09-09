@@ -88,6 +88,8 @@ export const CLAIM_VERIFICATION_COPY: Record<ClaimVerificationRejectionReason, s
     'The Paykit server did not return the key details Shop needs to verify the claim. The server must be updated before claiming works here — nothing was enabled.',
   server_fingerprint_mismatch:
     'The Paykit server reported a different key than the one you submitted, so bitcoin payments were not enabled. Do not use this account for Shop; contact the operator.',
+  server_account_index_mismatch:
+    'The Paykit server reported a different account index than your key declares, so bitcoin payments were not enabled. Contact the operator.',
   server_address_mismatch:
     'The Paykit server derived a different first address than this app computed from your key, so bitcoin payments were not enabled. Contact the operator.',
 };
@@ -439,7 +441,9 @@ export function useMarketplaceSellerPaymentConfig() {
         const verified: VerifiedPaykitClaim = {
           xpub: normalized.xpub,
           keyFingerprintHex: result.keyFingerprint!,
-          accountIndex: result.accountIndex,
+          // The client-derived index from the POSTed bytes, never the server
+          // echo (W1.8 F2 — verifyClaimedAccount already refused a mismatch).
+          accountIndex: accountIndexFromBytes(normalized.bytes),
           firstDerivedAddress: result.firstDerivedAddress!,
           verifiedAt: Date.now(),
           source: 'session_claim',

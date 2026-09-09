@@ -180,6 +180,7 @@ export interface ClaimedAccountDetails {
 export type ClaimVerificationRejectionReason =
   | 'server_fingerprint_missing'
   | 'server_fingerprint_mismatch'
+  | 'server_account_index_mismatch'
   | 'server_address_mismatch';
 
 export type ClaimVerification = { ok: true } | { ok: false; reason: ClaimVerificationRejectionReason };
@@ -202,6 +203,12 @@ export function verifyClaimedAccount(
   if (!claim.keyFingerprint || !claim.stackId) return { ok: false, reason: 'server_fingerprint_missing' };
   if (claim.keyFingerprint !== accountKeyFingerprint(normalizedBytes)) {
     return { ok: false, reason: 'server_fingerprint_mismatch' };
+  }
+  // The server must echo the account index the POSTed key itself declares
+  // (W1.8 F2): a different echo means it persisted an index that does not
+  // match the bytes, so the claim cannot be trusted.
+  if (claim.accountIndex !== accountIndexFromBytes(normalizedBytes)) {
+    return { ok: false, reason: 'server_account_index_mismatch' };
   }
   if (
     claim.nextChildIndex === null ||

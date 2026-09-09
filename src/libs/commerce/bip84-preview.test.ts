@@ -152,6 +152,25 @@ describe('bip84-preview', () => {
       });
     });
 
+    it('refuses with server_account_index_mismatch when the server echoes a different index than the key declares', () => {
+      // An account-0 key; the server echoes index 1 (W1.8 F2). The echo must
+      // match the hardened child number at offset 9..13 of the POSTed bytes.
+      const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
+      const claim = validClaim(account.payload, 'mainnet');
+      expect(accountIndexFromBytes(account.payload)).toBe(0);
+      expect(verifyClaimedAccount(account.payload, 'mainnet', { ...claim, accountIndex: 1 })).toEqual({
+        ok: false,
+        reason: 'server_account_index_mismatch',
+      });
+      // An equal echo verifies.
+      expect(verifyClaimedAccount(account.payload, 'mainnet', claim)).toEqual({ ok: true });
+      // And an account-1 key verifies against an echoed 1.
+      const account1 = deriveBip84Account(OTHER_MNEMONIC, 0, 1);
+      expect(verifyClaimedAccount(account1.payload, 'mainnet', validClaim(account1.payload, 'mainnet'))).toEqual({
+        ok: true,
+      });
+    });
+
     it('refuses with server_address_mismatch when first_derived_address disagrees', () => {
       const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
       const other = deriveBip84Account(OTHER_MNEMONIC, 0, 1);

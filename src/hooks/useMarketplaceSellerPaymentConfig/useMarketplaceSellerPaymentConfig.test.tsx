@@ -8,6 +8,7 @@ import { BIP84_VERSION_BYTES, deriveBip84Account } from '@/test-utils/bip84';
 import {
   BITCOIN_ENABLE_BLOCKED_COPY,
   CLAIM_REJECTION_COPY,
+  CLAIM_VERIFICATION_COPY,
   useMarketplaceSellerPaymentConfig,
 } from './useMarketplaceSellerPaymentConfig';
 
@@ -215,7 +216,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
     // The verified claim was recorded (session_claim source) and the gate opened.
     expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
-      expect.objectContaining({ xpub: NORMALIZED_XPUB, source: 'session_claim' }),
+      expect.objectContaining({ xpub: NORMALIZED_XPUB, source: 'session_claim', accountIndex: 0 }),
     );
     expect(result.current.canEnableBitcoin).toBe(true);
     act(() => result.current.setBitcoinEnabled(true));
@@ -345,6 +346,24 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(
       expect.objectContaining({ bitcoinEnabled: false }),
     );
+  });
+
+  it('W1.8 F2: a server echoing account index 1 for an account-0 key is refused, and nothing is persisted', async () => {
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, accountIndex: 1 }),
+      cancel: vi.fn(),
+    });
+    const { result } = await renderPaymentConfig();
+
+    act(() => result.current.setXpubInput(PASTED_ZPUB));
+    act(() => result.current.startClaim(PASTED_ZPUB));
+    await waitFor(() => expect(result.current.claimStatus).toBe('error'));
+
+    expect(result.current.claimError).toBe(CLAIM_VERIFICATION_COPY.server_account_index_mismatch);
+    expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+    expect(result.current.canEnableBitcoin).toBe(false);
+    expect(result.current.bitcoinEnabled).toBe(false);
   });
 
   describe('account-index regression gate (P2)', () => {
