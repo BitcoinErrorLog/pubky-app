@@ -4,7 +4,10 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { CLAIM_VERIFICATION_COPY } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
+import {
+  CLAIM_DISCLOSURE_SENTENCE,
+  CLAIM_VERIFICATION_COPY,
+} from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
 import { ACCOUNT_KEY_FILE_MAX_BYTES, ACCOUNT_KEY_FILE_REJECTION_COPY } from '@/libs/commerce/account-key-file';
 import { accountKeyFingerprint, deriveBip84P2wpkhAddress } from '@/libs/commerce/bip84-preview';
 import { encodeBase58Check, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
@@ -337,6 +340,17 @@ describe('MarketplacePaymentSettings', () => {
     );
   });
 
+  it('renders the §C.10 disclosure sentence verbatim before the irreversible submit', async () => {
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+
+    // Exact sentence, static copy, no interpolation (asserted so a later copy
+    // pass cannot drop or reword it).
+    expect(screen.getByText(CLAIM_DISCLOSURE_SENTENCE)).toBeInTheDocument();
+  });
+
   it('enables the claim only after the server fingerprint and first address verify', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
       authorizationUrl: 'https://auth.example/claim',
@@ -349,6 +363,12 @@ describe('MarketplacePaymentSettings', () => {
     await openClaimDialog(user);
 
     await screen.findByText(/Watch-only account claimed/);
+    // Post-claim status: the watched account index and the server's first
+    // address, the address in a <code> element, nothing else interpolated.
+    const status = screen.getByTestId('watched-account-status');
+    expect(status).toHaveTextContent('Shop is watching account 0 of this wallet — do not use it for anything else.');
+    const address = within(status).getByText(VERIFIED_CLAIM_RESULT.firstDerivedAddress);
+    expect(address.tagName).toBe('CODE');
   });
 
   it('negative (ii): a fingerprint off by one hex digit keeps bitcoinEnabled off', async () => {

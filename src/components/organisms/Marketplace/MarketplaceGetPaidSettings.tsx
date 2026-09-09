@@ -27,6 +27,7 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getBitcoinNetwork, getLocksUrl } from '@/config/commerce';
 import {
+  CLAIM_DISCLOSURE_SENTENCE,
   CLAIM_REJECTION_COPY,
   useMarketplaceSellerPaymentConfig,
 } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
@@ -419,6 +420,21 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
                 Watch-only account claimed — payment requests derive fresh addresses from it.
               </Typography>
             )}
+            {payments.watchedAccount && (
+              <div
+                className="mt-2 grid gap-1 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+                data-testid="watched-account-status"
+              >
+                <Typography as="p">
+                  Shop is watching account {payments.watchedAccount.accountIndex} of this wallet — do not use it for
+                  anything else.
+                </Typography>
+                <Typography as="p" className="text-muted-foreground">
+                  Next receiving address (index {payments.watchedAccount.nextChildIndex}):{' '}
+                  <code className="break-all font-mono text-xs">{payments.watchedAccount.firstDerivedAddress}</code>
+                </Typography>
+              </div>
+            )}
           </div>
           <Button variant={step1NeedsPrimary ? 'secondary' : 'default'} className="rounded-full" onClick={onOpenPaykit}>
             Open Bitkit setup
@@ -536,6 +552,16 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
             Approving on your signer registers the pasted account xpub with the Paykit server — exactly what
             Bitkit&rsquo;s setup does. The approval is scoped to the Paykit receiver path and grants nothing else.
           </Typography>
+          <div className="grid gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <Typography as="p" className="text-sm font-medium text-amber-200">
+              {CLAIM_DISCLOSURE_SENTENCE}
+            </Typography>
+            <Typography as="p" className="text-sm text-muted-foreground">
+              The claim is irreversible: once registered, the account cannot be replaced from here. The xpub is
+              watch-only — it derives receiving addresses and cannot spend — but it reveals this account&rsquo;s
+              payment history to Shop and its Paykit server.
+            </Typography>
+          </div>
           {payments.claimPreviewAddress && (
             <div className="grid gap-1 rounded-xl border p-3 text-sm">
               <Typography as="p" className="text-muted-foreground">
