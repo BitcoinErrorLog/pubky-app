@@ -147,4 +147,44 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-answer')).toBeInTheDocument();
     expect(screen.queryByTestId('pubchi-answer-loading')).not.toBeInTheDocument();
   });
+
+  it('labels who-tagged-me evidence as Tagged by N accounts', () => {
+    hookState.result = {
+      kind: 'query',
+      result: {
+        schema: 'pubchi-query-result',
+        version: 1,
+        bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        generated_at: 1,
+        run_id: 'query',
+        purpose: 'who-tagged-me',
+        scope_owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        items: [
+          {
+            label: 'builder',
+            source_uri: 'pubky://o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo/pub/pubky.app/tags/builder',
+            subject_uri: 'pubky://o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo/pub/pubky.app/profile.json',
+            claimant_count: 1,
+          },
+          {
+            label: 'rust',
+            source_uri: 'pubky://o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo/pub/pubky.app/tags/rust',
+            subject_uri: 'pubky://o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo/pub/pubky.app/profile.json',
+            claimant_count: 3,
+          },
+        ],
+        tool_trace_summary: { tools: ['get_tag_landscape'], call_count: 1, truncated: false },
+        policy_version: 1,
+      },
+    } as PubchiQuerySuccess;
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-evidence')).toBeInTheDocument();
+    expect(screen.getByText('Tagged by 1 account')).toBeInTheDocument();
+    expect(screen.getByText('Tagged by 3 accounts')).toBeInTheDocument();
+    expect(screen.getAllByText('Tagger')).toHaveLength(2);
+    expect(screen.queryByText(/Claimants/)).not.toBeInTheDocument();
+  });
 });

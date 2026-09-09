@@ -147,7 +147,9 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                   <Card key={`${item.source_uri}-${item.label}`}>
                     <CardContent className="flex flex-col gap-1 pt-4">
                       <CardTitle>{item.label}</CardTitle>
-                      <Typography size="sm">Claimants: {item.claimant_count}</Typography>
+                      <Typography size="sm">
+                        Tagged by {item.claimant_count} {item.claimant_count === 1 ? 'account' : 'accounts'}
+                      </Typography>
                       {href ? <Link href={href} className="text-sm break-all underline">Tagger</Link> : null}
                     </CardContent>
                   </Card>
