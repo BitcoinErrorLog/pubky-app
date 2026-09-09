@@ -13,7 +13,7 @@ import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
-import { isPubkyId, type PubchiConfigV1 } from '@/libs/pubchi/schemas';
+import { isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -141,10 +141,12 @@ export class PubchiController {
       });
     }
     const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const context = usePubchiStore.getState().ownerPubky === owner ? usePubchiStore.getState().context : null;
     return PubchiApplication.query({
       owner,
       question: params.question,
       purpose: params.purpose,
+      ...(context ? { context } : {}),
     });
   }
 
@@ -178,6 +180,26 @@ export class PubchiController {
       usePubchiStore.getState().setConfig(config, ownerAtStart);
     }
     return config;
+  }
+
+  static async loadPubchiContext(): Promise<PubchiOwnerContextV1 | null> {
+    const ownerAtStart = useAuthStore.getState().selectCurrentUserPubky();
+    const context = await PubchiApplication.loadPubchiContext(ownerAtStart);
+    if (useAuthStore.getState().currentUserPubky === ownerAtStart) {
+      usePubchiStore.getState().setContext(context, ownerAtStart);
+    }
+    return context;
+  }
+
+  static async savePubchiContext(
+    partial: Pick<PubchiOwnerContextV1, 'about' | 'instructions'>,
+  ): Promise<PubchiOwnerContextV1> {
+    const ownerAtStart = useAuthStore.getState().selectCurrentUserPubky();
+    const context = await PubchiApplication.savePubchiContext(ownerAtStart, partial);
+    if (useAuthStore.getState().currentUserPubky === ownerAtStart) {
+      usePubchiStore.getState().setContext(context, ownerAtStart);
+    }
+    return context;
   }
 
   static async savePubchiConfig(partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1> {

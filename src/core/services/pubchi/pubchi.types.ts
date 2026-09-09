@@ -1,10 +1,10 @@
-import type { RequestObjectV1 } from '@/libs/pubchi/schemas';
+import type { RequestObjectV2 } from '@/libs/pubchi/schemas';
 
 export type PubchiQueryBody = {
   question: string;
 };
 
 export type PubchiQueryRequest = {
-  request: RequestObjectV1;
+  request: RequestObjectV2;
   body: PubchiQueryBody;
 };

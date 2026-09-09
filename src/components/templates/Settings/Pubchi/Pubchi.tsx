@@ -36,6 +36,9 @@ export function PubchiSettings() {
     revokeDevice,
     revokeAllDevices,
     reapprove,
+    context,
+    contextEditable,
+    saveContext,
     needsReapproval,
     binding,
     pubchi,
@@ -130,6 +133,10 @@ export function PubchiSettings() {
                   value={toBrainChoice(config?.brain)}
                   previous={previousBrain}
                   saving={loading || needsReapproval}
+                  context={context}
+                  contextEditable={contextEditable}
+                  onSaveContext={saveContext}
+                  onReapprove={reapprove}
                   onChange={(brain) => {
                     setPreviousBrain(toBrainChoice(config?.brain));
                     void saveBrain(brain, config, saveConfig);

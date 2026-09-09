@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RequestObjectV1 } from '@/libs/pubchi/schemas';
+import type { Phase0Purpose, RequestObjectV2 } from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import { mockResponse } from '@/test-utils/dom';
@@ -35,13 +35,15 @@ function setPubchiEnv(enabled = 'true', apiUrl = 'https://pubchi.example.com') {
   resetRuntimeConfigForTests();
 }
 
-function request(purpose: RequestObjectV1['purpose']): RequestObjectV1 {
+function request(purpose: Phase0Purpose): RequestObjectV2 {
   return {
-    schema: 'pubchi-request-object',
-    version: 1,
+    schema: 'pubchi-request-object-v2',
+    version: 2,
+    audience: 'https://pubchi.example.com',
     asker: OWNER,
     bot: BOT,
-    purpose,
+    key_generation: 1,
+    purpose: purpose as RequestObjectV2['purpose'],
     body_sha256: 'a'.repeat(64),
     issued_at: 1,
     expires_at: 601,

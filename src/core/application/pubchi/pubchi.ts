@@ -12,8 +12,9 @@ import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
+import { getPubchiAudience } from '@/libs/pubchi/audience';
 import { mintBotKey, phraseToBot } from '@/libs/pubchi/bot-key-custody';
-import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
+import { capabilitiesCoverPubchiWrite, PUBCHI_PRIVATE_DIRECTORY, sessionCovers } from '@/libs/pubchi/capabilities';
 import {
   deleteDeviceKey,
   DEVICE_DELEGATION_MAX_SECONDS,
@@ -39,6 +40,7 @@ import {
 import {
   bodySha256,
   botUri,
+  contextForRequest,
   DEFAULT_SEND_PUBLIC_WEB_CONTEXT,
   delegationUri,
   type DeviceDelegationV1,
@@ -52,15 +54,17 @@ import {
   parsePubchiAnswerV1,
   parsePubchiBotV1,
   parsePubchiConfigV1,
+  parsePubchiOwnerContextV1,
   parseQueryResultV1,
   type PubchiBotV1,
   type PubchiConfigV1,
+  type PubchiOwnerContextV1,
   REQUEST_TTL_SECONDS,
   scanForbiddenPublicState,
   signDeviceDelegationV1,
-  signRequestObjectV1,
+  signRequestObjectV2,
   type UnsignedDeviceDelegationV1,
-  type UnsignedRequestObjectV1,
+  type UnsignedRequestObjectV2,
 } from '@/libs/pubchi/schemas';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
 import { toast } from '@/molecules/Toaster/toast';
@@ -214,6 +218,48 @@ export class PubchiApplication {
     const readBack = await this.loadPubchiConfig(owner);
     if (!readBack || !deepEqual(readBack, parsed.value)) {
       throw pubchiValidationError('SCHEMA_INVALID', 'savePubchiConfig');
+    }
+    return readBack;
+  }
+
+  static async loadPubchiContext(owner: string): Promise<PubchiOwnerContextV1 | null> {
+    const session = useAuthStore.getState().selectSession();
+    if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) return null;
+    try {
+      const parsed = parsePubchiOwnerContextV1(
+        await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: pubchiContextUri(owner) }),
+      );
+      if (!parsed.ok) throw pubchiValidationError(parsed.code, 'loadPubchiContext');
+      return parsed.value;
+    } catch (error) {
+      if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
+      throw error;
+    }
+  }
+
+  static async savePubchiContext(
+    owner: string,
+    partial: Pick<PubchiOwnerContextV1, 'about' | 'instructions'>,
+  ): Promise<PubchiOwnerContextV1> {
+    const session = useAuthStore.getState().selectSession();
+    if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) {
+      throw pubchiValidationError('PATH_FORBIDDEN', 'savePubchiContext');
+    }
+    const existing = await this.loadPubchiContext(owner);
+    const candidate = {
+      schema: 'pubchi-owner-context' as const,
+      version: 1 as const,
+      ...(existing ?? {}),
+      ...partial,
+      updated_at: Math.floor(Date.now() / 1000),
+    };
+    const parsed = parsePubchiOwnerContextV1(candidate);
+    if (!parsed.ok) throw pubchiValidationError(parsed.code, 'savePubchiContext');
+    const url = pubchiContextUri(owner);
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: parsed.value });
+    const readBack = await this.loadPubchiContext(owner);
+    if (!readBack || !deepEqual(readBack, parsed.value)) {
+      throw pubchiValidationError('SCHEMA_INVALID', 'savePubchiContext');
     }
     return readBack;
   }
@@ -786,26 +832,30 @@ export class PubchiApplication {
     }
 
     const purpose = params.purpose;
-    if (!pubchiEndpointFor(purpose)) {
+    if (!pubchiEndpointFor(purpose) || !['ask', 'who-tagged-me', 'build-feed'].includes(purpose)) {
       throw pubchiValidationError('PURPOSE_UNSUPPORTED', 'query');
     }
+    const servedPurpose = purpose as 'ask' | 'who-tagged-me' | 'build-feed';
 
     const body: PubchiAskBody = { question };
     const issuedAt = params.nowSeconds ?? Math.floor(Date.now() / 1000);
-    const unsigned: UnsignedRequestObjectV1 = {
-      schema: 'pubchi-request-object',
-      version: 1,
+    const unsigned: UnsignedRequestObjectV2 = {
+      schema: 'pubchi-request-object-v2',
+      version: 2,
+      audience: getPubchiAudience(),
       asker: params.owner,
       bot: binding.bot,
-      purpose,
+      key_generation: binding.key_generation ?? 1,
+      purpose: servedPurpose,
       body_sha256: await bodySha256(body),
       issued_at: issuedAt,
       expires_at: issuedAt + REQUEST_TTL_SECONDS,
       nonce: randomNonce(),
+      ...(servedPurpose === 'who-tagged-me' || !params.context ? {} : { context: contextForRequest(params.context) }),
     };
     const device = await getCurrentDeviceKey(params.owner, issuedAt);
     if (!device) throw pubchiValidationError('SIGNATURE_INVALID', 'query');
-    const request = await signRequestObjectV1({ ...unsigned, signer: device.signer }, device.key);
+    const request = await signRequestObjectV2({ ...unsigned, signer: device.signer }, device.key);
     assertRequestSignerIsStoredDevice(request.signer, device.signer);
 
     const response = await PubchiService.query({ request, body });
@@ -1120,6 +1170,10 @@ function assertPubchiCapability(owner: string): void {
 
 function pubchiConfigUri(owner: string): string {
   return `pubky://${owner}/pub/pubchi.app/config.json`;
+}
+
+function pubchiContextUri(owner: string): string {
+  return `pubky://${owner}/priv/pubchi.app/context.json`;
 }
 
 function devicesUri(owner: string): string {

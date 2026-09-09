@@ -4,6 +4,7 @@ import type {
   Phase0Purpose,
   PubchiAnswerV1,
   PubchiBotV1,
+  PubchiOwnerContextV1,
   QueryResultV1,
 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
@@ -17,6 +18,7 @@ export type PubchiQueryApplicationParams = {
   question: string;
   purpose: Phase0Purpose;
   nowSeconds?: number;
+  context?: PubchiOwnerContextV1 | null;
 };
 
 export type PubchiQuerySuccess =

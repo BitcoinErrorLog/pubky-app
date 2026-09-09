@@ -11,11 +11,11 @@ import {
 } from '@/controllers/pubchi/pubchi-sync';
 import { AppError } from '@/libs/error/error';
 import { BotPhraseRevealController } from '@/libs/pubchi/bot-phrase-reveal';
-import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
+import { capabilitiesCoverPubchiWrite, PUBCHI_PRIVATE_DIRECTORY, sessionCovers } from '@/libs/pubchi/capabilities';
 import { getCurrentDeviceKey } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { readPendingDelegationDeletes } from '@/libs/pubchi/pending-delegation-deletes';
-import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
+import type { OwnerBindingV1, PubchiConfigV1, PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 import { toast } from '@/molecules/Toaster/toast';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
@@ -37,6 +37,7 @@ export function usePubchiEnrollment() {
   const [binding, setBinding] = useState<OwnerBindingV1 | undefined>(undefined);
   const storedPubchi = usePubchiStore((state) => state.pubchi);
   const storedConfig = usePubchiStore((state) => state.config);
+  const storedContext = usePubchiStore((state) => state.context);
   const storedOwner = usePubchiStore((state) => state.ownerPubky);
   const lastUpdatedAt = usePubchiStore((state) => state.lastUpdatedAt);
   const pubchi = owner && storedOwner === owner ? storedPubchi : undefined;
@@ -52,6 +53,7 @@ export function usePubchiEnrollment() {
   const [deviceListingHadFailures, setDeviceListingHadFailures] = useState(false);
   const [currentSigner, setCurrentSigner] = useState<string | undefined>(undefined);
   const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info.capabilities ?? []);
+  const contextEditable = sessionCovers(session?.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY);
   const approvalCancelRef = useRef<(() => void) | null>(null);
   const approvalFlowRef = useRef<Promise<boolean> | null>(null);
   const approvalGenerationRef = useRef(0);
@@ -109,12 +111,15 @@ export function usePubchiEnrollment() {
         }
         const nextBinding = await PubchiController.reconcileActiveBinding();
         if (!isCurrentOwner()) return;
-        const [nextDevices, nextConfig] = await Promise.all([
+        const [nextDevices, nextConfig, nextContext] = await Promise.all([
           typeof PubchiController.listDeviceKeys === 'function'
             ? PubchiController.listDeviceKeys()
             : Promise.resolve([]),
           typeof PubchiController.loadPubchiConfig === 'function'
             ? PubchiController.loadPubchiConfig()
+            : Promise.resolve(null),
+          typeof PubchiController.loadPubchiContext === 'function'
+            ? PubchiController.loadPubchiContext()
             : Promise.resolve(null),
         ]);
         if (!isCurrentOwner()) return;
@@ -127,6 +132,7 @@ export function usePubchiEnrollment() {
             PubchiController.hadDeviceListingFailures(),
         );
         usePubchiStore.getState().setConfig(nextConfig, ownerAtStart);
+        usePubchiStore.getState().setContext(nextContext, ownerAtStart);
         if (owner) {
           void getCurrentDeviceKey(owner).then((key) => {
             if (isCurrentOwner()) setCurrentSigner(key?.signer);
@@ -151,16 +157,20 @@ export function usePubchiEnrollment() {
       if (reloadInFlight || readCurrentOwner(owner) !== owner) return;
       reloadInFlight = true;
       try {
-        const [nextPubchi, nextConfig] = await Promise.all([
+        const [nextPubchi, nextConfig, nextContext] = await Promise.all([
           PubchiController.loadPubchi(),
           typeof PubchiController.loadPubchiConfig === 'function'
             ? PubchiController.loadPubchiConfig()
             : Promise.resolve(usePubchiStore.getState().config),
+          typeof PubchiController.loadPubchiContext === 'function'
+            ? PubchiController.loadPubchiContext()
+            : Promise.resolve(usePubchiStore.getState().context),
         ]);
         if (readCurrentOwner(owner) !== owner) return;
         const store = usePubchiStore.getState();
         store.setPubchi(nextPubchi, owner);
         store.setConfig(nextConfig, owner);
+        store.setContext(nextContext, owner);
         if (nextConfig && store.pubchi) {
           store.setPubchi({ ...store.pubchi, displayName: nextConfig.display_name }, owner);
         }
@@ -210,6 +220,23 @@ export function usePubchiEnrollment() {
         .setPubchi({ ...usePubchiStore.getState().pubchi!, displayName: next.display_name }, ownerAtStart);
     }
     return next;
+  };
+
+  const saveContext = async (
+    partial: Pick<PubchiOwnerContextV1, 'about' | 'instructions'>,
+  ): Promise<PubchiOwnerContextV1> => {
+    const ownerAtStart = readCurrentOwner(owner);
+    setLoading(true);
+    try {
+      const next = await PubchiController.savePubchiContext(partial);
+      if (ownerAtStart && readCurrentOwner(ownerAtStart) === ownerAtStart) {
+        usePubchiStore.getState().setContext(next, ownerAtStart);
+      }
+      toast({ variant: 'default', title: 'Private context saved', dismissButton: true });
+      return next;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const acceptSavedConfig = (next: PubchiConfigV1): void => {
@@ -498,6 +525,9 @@ export function usePubchiEnrollment() {
     binding,
     pubchi,
     config,
+    context: owner && storedOwner === owner ? storedContext : null,
+    contextEditable,
+    saveContext,
     saveConfig,
     acceptSavedConfig,
     creating,

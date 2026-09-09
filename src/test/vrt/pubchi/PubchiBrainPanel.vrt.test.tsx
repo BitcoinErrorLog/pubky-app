@@ -44,4 +44,40 @@ describe('PubchiBrainPanel — visual regression', () => {
 
     await expect(screen.getByTestId('pubchi-brain-panel')).toMatchScreenshot('pubchi-brain-panel-self-hosted-desktop');
   });
+
+  it('captures enrolled private context', async () => {
+    const screen = await renderForVRT(
+      <PubchiBrainPanel
+        value={hosted}
+        context={{
+          schema: 'pubchi-owner-context',
+          version: 1,
+          about: 'Bitcoin',
+          instructions: 'Answer briefly',
+          updated_at: 1_700_000_000,
+        }}
+        contextEditable
+        onChange={() => {}}
+        onSaveContext={() => {}}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+
+    await expect(screen.getByTestId('pubchi-brain-panel')).toMatchScreenshot('pubchi-brain-panel-context-desktop');
+  });
+
+  it('captures read-only private context without the private capability', async () => {
+    const screen = await renderForVRT(
+      <PubchiBrainPanel
+        value={hosted}
+        context={{ schema: 'pubchi-owner-context', version: 1, about: 'Bitcoin', updated_at: 1_700_000_000 }}
+        contextEditable={false}
+        onChange={() => {}}
+        onReapprove={() => {}}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+
+    await expect(screen.getByTestId('pubchi-brain-panel')).toMatchScreenshot('pubchi-brain-panel-readonly-desktop');
+  });
 });

@@ -183,10 +183,46 @@ describe('PubchiApplication', () => {
     expect(querySpy).toHaveBeenCalledOnce();
     const payload = querySpy.mock.calls[0][0];
     expect(payload.request.asker).toBe(OWNER);
+    expect(payload.request.schema).toBe('pubchi-request-object-v2');
+    expect(payload.request.version).toBe(2);
+    expect(payload.request.audience).toBe('https://pubchi.example.com');
+    expect(payload.request.context).toBeUndefined();
     expect(payload.request.signer).toMatch(/^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/);
     expect(payload.request.bot).toBe(BOT);
     expect(payload.request.purpose).toBe('who-tagged-me');
     expect(payload.body).toEqual({ question: 'who tagged me?' });
+  });
+
+  it('signs ask context but keeps who-tagged-me minimal', async () => {
+    const querySpy = vi.spyOn(PubchiService, 'query').mockResolvedValue(QUERY_RESULT);
+    const context = {
+      schema: 'pubchi-owner-context' as const,
+      version: 1 as const,
+      about: 'Bitcoin',
+      instructions: 'Answer briefly',
+      updated_at: 100,
+    };
+
+    await PubchiApplication.query({
+      owner: OWNER,
+      question: 'what matters?',
+      purpose: 'ask',
+      context,
+      nowSeconds: 100,
+    });
+    expect(querySpy.mock.calls[0][0].request.context).toEqual({
+      about: 'Bitcoin',
+      instructions: 'Answer briefly',
+    });
+
+    await PubchiApplication.query({
+      owner: OWNER,
+      question: 'who tagged me?',
+      purpose: 'who-tagged-me',
+      context,
+      nowSeconds: 100,
+    });
+    expect(querySpy.mock.calls[1][0].request.context).toBeUndefined();
   });
 
   it('allows read-only asks with a degraded session', async () => {

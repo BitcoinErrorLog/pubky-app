@@ -25,6 +25,7 @@ export {
   type PubchiConfigV1,
   PubchiConfigV1Schema,
 } from './config';
+export { contextForRequest, parsePubchiOwnerContextV1, type PubchiOwnerContextV1,PubchiOwnerContextV1Schema } from './context';
 export {
   delegationPath,
   delegationUri,
@@ -81,8 +82,10 @@ export { isPubkyId, parsePubkyId, PUBKY_ID_RE, pubkyPublicBytes } from './pubky'
 export { parseQueryResultV1, type QueryResultV1, QueryResultV1Schema } from './query';
 export {
   CLOCK_SKEW_SECONDS,
+  type OwnerContextV2,
   parseRequestBindingV1,
   parseRequestObjectV1,
+  parseRequestObjectV2,
   PHASE0_PURPOSES,
   type Phase0Purpose,
   REQUEST_TTL_SECONDS,
@@ -90,9 +93,14 @@ export {
   RequestBindingV1Schema,
   type RequestObjectV1,
   RequestObjectV1Schema,
+  type RequestObjectV2,
+  RequestObjectV2Schema,
   signRequestObjectV1,
+  signRequestObjectV2,
   unsignedBytes,
+  unsignedBytesV2,
   type UnsignedRequestObjectV1,
+  type UnsignedRequestObjectV2,
   type VerifiedRequest,
   type VerifyRequestInput,
   verifyRequestObjectV1,

@@ -14,7 +14,7 @@ import { err, ok, type ParseResult } from './codes';
 import { verifyPubkySignature } from './ed25519';
 import type { NonceStore } from './nonce';
 import type { TenantV1 } from './tenant';
-import { fromZod, zPubky, zSha256, zUnix, zVersion1 } from './zod';
+import { fromZod, zPubky, zSha256, zUnix, zVersion1, zVersion2 } from './zod';
 
 export const REQUEST_TTL_SECONDS = 600;
 export const CLOCK_SKEW_SECONDS = 60;
@@ -48,6 +48,43 @@ export function parseRequestObjectV1(input: unknown): ParseResult<RequestObjectV
   return fromZod(RequestObjectV1Schema, input);
 }
 
+const OwnerContextV2Schema = z
+  .object({
+    about: z.string().optional(),
+    instructions: z.string().optional(),
+  })
+  .strict();
+
+const UnsignedRequestObjectV2Schema = z
+  .object({
+    schema: z.literal('pubchi-request-object-v2'),
+    version: zVersion2,
+    audience: z.string().min(1),
+    asker: zPubky,
+    signer: zPubky.optional(),
+    bot: zPubky,
+    key_generation: z.number().int().min(1),
+    purpose: z.enum(['ask', 'who-tagged-me', 'build-feed']),
+    body_sha256: zSha256,
+    issued_at: zUnix,
+    expires_at: zUnix,
+    nonce: z.string().regex(/^[0-9a-f]{64}$/),
+    context: OwnerContextV2Schema.optional(),
+  })
+  .strict();
+
+export const RequestObjectV2Schema = UnsignedRequestObjectV2Schema.extend({
+  signature: z.string().regex(/^[0-9a-f]{128}$/),
+}).strict();
+
+export type OwnerContextV2 = z.infer<typeof OwnerContextV2Schema>;
+export type UnsignedRequestObjectV2 = z.infer<typeof UnsignedRequestObjectV2Schema>;
+export type RequestObjectV2 = z.infer<typeof RequestObjectV2Schema>;
+
+export function parseRequestObjectV2(input: unknown): ParseResult<RequestObjectV2> {
+  return fromZod(RequestObjectV2Schema, input);
+}
+
 export const RequestBindingV1Schema = z
   .object({
     schema: z.literal('pubchi-request'),
@@ -77,6 +114,18 @@ export async function signRequestObjectV1(
   key: CryptoKey,
 ): Promise<RequestObjectV1> {
   const signature = await signWithDeviceKey(key, unsignedBytes(unsigned));
+  return { ...unsigned, signature };
+}
+
+export function unsignedBytesV2(unsigned: UnsignedRequestObjectV2): Uint8Array {
+  return new TextEncoder().encode(canonicalJson(unsigned));
+}
+
+export async function signRequestObjectV2(
+  unsigned: UnsignedRequestObjectV2,
+  key: CryptoKey,
+): Promise<RequestObjectV2> {
+  const signature = await signWithDeviceKey(key, unsignedBytesV2(unsigned));
   return { ...unsigned, signature };
 }
 
