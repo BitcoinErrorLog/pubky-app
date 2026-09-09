@@ -12,11 +12,14 @@ import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnroll
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
 import { QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
 import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
+import { effectiveTier } from '@/libs/pubchi/effective-tier';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { PubchiAnswerCard } from '../PubchiAnswerCard/PubchiAnswerCard';
+import { PubchiCapabilities } from '../PubchiCapabilities/PubchiCapabilities';
+import { PubchiFlyoutHeader } from '../PubchiFlyoutHeader/PubchiFlyoutHeader';
 
 export const PUBCHI_PANEL_SURFACE = 'pubchi-panel';
 
@@ -34,6 +37,8 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     needsReapproval,
     reapprove,
     loading: reapprovalLoading,
+    pubchi,
+    config,
   } = usePubchiEnrollment();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
@@ -43,6 +48,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   }
 
   const actionsDisabled = loading || setupLoading || !signingAvailable;
+  const tier = effectiveTier({
+    desired: config?.tier ?? 'read-only',
+    ceiling: 'assisted',
+    sessionCoversPubchi: !needsReapproval,
+  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -55,6 +65,12 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </SheetTitle>
             <SheetDescription>Read-only questions. The service never receives your session or key.</SheetDescription>
           </SheetHeader>
+
+          <PubchiFlyoutHeader
+            pubchi={pubchi}
+            tier={config?.tier}
+            brainLabel={config?.brain.execution === 'self-hosted' ? 'Own endpoint' : 'Hosted Kimi'}
+          />
 
           {needsReapproval ? (
             <div className="flex flex-col gap-3" data-testid="pubchi-degraded-session">
@@ -101,31 +117,21 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             <Typography size="xs" className="text-muted-foreground">
               {question.length}/500
             </Typography>
+            <PubchiCapabilities
+              compact
+            tier={tier}
+              disabled={actionsDisabled}
+              onSelect={(nextQuestion, purpose) => {
+                form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
+                void submit(purpose);
+              }}
+              onBuildFeed={() => {
+                void submit('build-feed');
+              }}
+            />
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="submit" data-testid="pubchi-ask" disabled={actionsDisabled}>
                 Ask {loading ? <span data-testid="pubchi-ask-timer">({elapsedMs} ms)</span> : null}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                data-testid="pubchi-who-tagged-me"
-                disabled={actionsDisabled}
-                onClick={() => {
-                  void submit('who-tagged-me');
-                }}
-              >
-                Who tagged me?
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                data-testid="pubchi-build-feed"
-                disabled={actionsDisabled}
-                onClick={() => {
-                  void submit('build-feed');
-                }}
-              >
-                Build feed
               </Button>
             </div>
           </form>

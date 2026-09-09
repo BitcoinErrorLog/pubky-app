@@ -58,12 +58,28 @@ vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiEnabled: () => true,
 }));
 
+const enrollment = {
+  needsReapproval: false,
+  reapprove: vi.fn(),
+  loading: false,
+  pubchi: undefined as
+    | {
+        bot: string;
+        displayName: string;
+        verified: boolean;
+        backupConfirmedAt?: number | null;
+      }
+    | undefined,
+  config: undefined as
+    | {
+        tier: 'read-only' | 'assisted' | 'autonomous';
+        brain: { execution: 'synonym-hosted' | 'self-hosted' };
+      }
+    | undefined,
+};
+
 vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
-  usePubchiEnrollment: () => ({
-    needsReapproval: false,
-    reapprove: vi.fn(),
-    loading: false,
-  }),
+  usePubchiEnrollment: () => enrollment,
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -81,6 +97,8 @@ describe('PubchiPanel — visual regression', () => {
     mockQuery.loading = false;
     mockQuery.elapsedMs = 0;
     mockQuery.answer = false;
+    enrollment.pubchi = undefined;
+    enrollment.config = undefined;
   });
 
   it('guards the production surface marker', async () => {
@@ -98,6 +116,33 @@ describe('PubchiPanel — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toMatchScreenshot('pubchi-panel-desktop');
+  });
+
+  it('captures the enrolled bot header and compact capabilities', async () => {
+    enrollment.pubchi = {
+      bot: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      displayName: 'Research Pubchi',
+      verified: true,
+      backupConfirmedAt: 1,
+    };
+    enrollment.config = {
+      tier: 'assisted',
+      brain: { execution: 'synonym-hosted' },
+    };
+    const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId('pubchi-flyout-header')).toBeVisible();
+    await expect(screen.getByTestId('pubchi-capabilities-compact')).toBeVisible();
+    await expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toMatchScreenshot('pubchi-panel-enrolled-desktop');
+  });
+
+  it('captures the no-bot create CTA', async () => {
+    const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId('pubchi-create-header')).toBeVisible();
+    await expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toMatchScreenshot('pubchi-panel-no-bot-desktop');
   });
 
   it('captures the answer surface only', async () => {

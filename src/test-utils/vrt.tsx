@@ -67,6 +67,7 @@ async function moveCursorToTopLeftCorner() {
 export async function matchVrtFrameScreenshot(name: string, options?: ScreenshotMatcherOptions) {
   await moveCursorToTopLeftCorner();
   await waitForImagesReady(document.documentElement);
+  await waitForStableLayout(document.documentElement);
   await expect(page.elementLocator(document.documentElement)).toMatchScreenshot(name, options);
 }
 
@@ -101,6 +102,7 @@ function VRTProviders({ children, viewport, queryClient }: VRTProvidersProps) {
 export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) {
   await page.viewport(options.viewport.width, options.viewport.height);
   await moveCursorToTopLeftCorner();
+  await waitForVrtFonts();
   freezeNow();
   mockMathRandom(0xdeadbeef);
   // Fresh QueryClient per test keeps cache state isolated; instantiating here
@@ -116,10 +118,7 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
       {ui}
     </VRTProviders>,
   );
-  // Wait for Inter Tight (loaded in vrt.setup.ts via Google Fonts) to be
-  // ready so the screenshot is never taken while the browser is still
-  // showing the fallback face.
-  await document.fonts.ready;
+  await waitForVrtFonts();
   // Images (mocked next/image → plain <img>, including SVGs like the header
   // logo) load asynchronously. `decode()` alone is not enough: it can reject
   // before the request finishes (we used to ignore that), or resolve before
@@ -131,8 +130,14 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
   if (root) {
     await waitForImagesReady(root);
     await waitForDynamicIconsReady(root);
+    await waitForStableLayout(root);
   }
   return screen;
+}
+
+async function waitForVrtFonts() {
+  await document.fonts.load("400 16px 'Inter Tight'");
+  await document.fonts.ready;
 }
 
 /** Per-capture budget for lazily-loaded Lucide icon chunks. */
@@ -175,6 +180,31 @@ async function waitForImagesReady(root: Element) {
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
+}
+
+async function waitForStableLayout(root: Element) {
+  let previous = getLayoutMetrics(root);
+  let stableFrames = 0;
+
+  await new Promise<void>((resolve) => {
+    const check = () => {
+      const current = getLayoutMetrics(root);
+      const isStable = current.every((value, index) => value === previous[index]);
+      stableFrames = isStable ? stableFrames + 1 : 0;
+      previous = current;
+      if (stableFrames >= 2) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  });
+}
+
+function getLayoutMetrics(root: Element): readonly number[] {
+  const rect = root.getBoundingClientRect();
+  return [rect.x, rect.y, rect.width, rect.height, root.scrollWidth, root.scrollHeight];
 }
 
 /** Per-image budget so a hung load/decode fails with the offending URL instead
