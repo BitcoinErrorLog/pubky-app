@@ -141,7 +141,7 @@ export class CommerceMessagingMessageModel
   counterparty_pubky: string;
   direction: CommerceMessagingMessageModelSchema['direction'];
   body: string;
-  sent_at: string;
+  sent_at: number;
   recorded_at: number;
 
   constructor(message: CommerceMessagingMessageModelSchema) {

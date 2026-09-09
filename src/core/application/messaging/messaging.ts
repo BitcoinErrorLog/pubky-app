@@ -254,7 +254,7 @@ export class MessagingApplication {
   /**
    * Validates a message against the live-send byte ceiling and persists it
    * as an outbox row. The queue-time UUID doubles as the flush-time envelope
-   * `event_id`, and the envelope's fixed-width fields (UUID, ISO timestamp)
+   * `event_id`, and the envelope's fixed-width fields (UUID, Unix-ms timestamp)
    * make this validation byte-exact for the eventual send — an oversized
    * body is rejected HERE with the same typed error a live send throws.
    */
@@ -271,7 +271,7 @@ export class MessagingApplication {
         },
   ): Promise<CommerceMessagingOutboxModelSchema> {
     const id = crypto.randomUUID();
-    const sentAtProbe = new Date().toISOString();
+    const sentAtProbe = Date.now();
     const { message } =
       input.kind === 'chat'
         ? buildChatMessage({

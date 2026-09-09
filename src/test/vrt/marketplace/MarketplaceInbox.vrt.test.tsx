@@ -52,7 +52,7 @@ function encryptedConversationFixture(buyer: string) {
       counterparty_pubky: ENCRYPTED_SELLER,
       direction: 'received',
       body: 'Yes — happy to answer questions about the record player.',
-      sent_at: '2026-08-20T12:00:00.000Z',
+      sent_at: 1_755_691_200_000,
       recorded_at: 1_755_691_200_000,
     },
   };

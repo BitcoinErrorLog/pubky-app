@@ -87,7 +87,7 @@ describe('live DM to a real user on the deployed staging network', () => {
 
     const dm = buildDmMessage({
       eventId: crypto.randomUUID(),
-      sentAt: new Date().toISOString(),
+      sentAt: Date.now(),
       body: 'Encrypted DM received in the real app UI — Noise XX end to end. — Fable',
     });
     await link!.sendPrivateApplicationMessageJson(dm.json);

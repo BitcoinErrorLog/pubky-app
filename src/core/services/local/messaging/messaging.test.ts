@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  dropCachedWrappingKeyForTests,
-  resetMessagingKeyringForTests,
-} from '@/libs/crypto/messaging-keyring';
+import { dropCachedWrappingKeyForTests, resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
 import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
 import { isAppError } from '@/libs/error/error';
 import {
@@ -27,7 +24,7 @@ function messageRow(eventSuffix: string, recordedAt: number) {
     counterparty_pubky: COUNTERPARTY,
     direction: 'received' as const,
     body: `message ${eventSuffix}`,
-    sent_at: '2026-08-21T10:00:00.000Z',
+    sent_at: 1_755_766_800_000,
     recorded_at: recordedAt,
   };
 }
@@ -374,9 +371,7 @@ describe('LocalMessagingService', () => {
       const { subtle: _subtle, ...rest } = globalThis.crypto;
       vi.stubGlobal('crypto', rest);
 
-      await expect(LocalMessagingService.upsertReceiver(receiverRow())).rejects.toSatisfy((error) =>
-        isAppError(error),
-      );
+      await expect(LocalMessagingService.upsertReceiver(receiverRow())).rejects.toSatisfy((error) => isAppError(error));
       await expect(CommerceMessagingReceiverModel.findById(OWNER)).resolves.toBeNull();
     });
 
