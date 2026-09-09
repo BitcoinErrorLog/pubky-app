@@ -57,6 +57,18 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - Owner:
 - Blocking evidence:
 
+## Week Ending 2026-09-09
+
+**Review history**
+
+- Static toast copy rule shipped in production 2026-09-09 as part of merge `4607a692c` on `marketplace/pr25-ux`. Opus round 1 was FIX-FIRST because three tests still asserted the old raw-message behavior; drop refusals were not classified. Round 2 was SHIP. The non-gating cleanup batch centralized the static fallback in `src/libs/commerce/failure-messages.ts`, removed dead `generic`, added real AppError sentinels, and added preservation tests (`148db15ed`, `91e041c9c`, deployed after the `4607a692c` build); parent proof recorded TSC 0, ESLint 0, and 806 unit tests. Deploys: `pubky-marketplace-production-ccat1hufk` / `shop.pubky.app`; staging `pubky-marketplace-staging-k7uzbc06f`.
+- DM `sent_at` wire format shipped 2026-09-09 as `c694b192` on `pr25-ux`. The Kimi audit was SHIP with four non-gating findings, all fixed in `c694b192`: VRT fixture drift, a tightened emit-schema maximum, legacy ISO rows normalized on read, and a Paykit test asserting the normalized value. Production deploy was `pubky-marketplace-production-371i2l41j`, staging `gm8z9ndvp`; it was then superseded by the `4607a692c` deploy above.
+
+**Known gaps**
+
+- The buyer copy at `src/core/application/commerce/commerce.ts:644` still renders a seller-declared origin string; this is a backlog item and was not part of the toast copy shipment.
+- `error.factories` and Sentry still carry the raw error message in error context; the message is scrubbed by a denylist, not removed. This remains a backlog item.
+
 ## Week Ending 2026-09-08
 
 **Live URLs**
