@@ -535,6 +535,40 @@ describe('PostNormalizer', () => {
     });
   });
 
+  describe('toCollection with the real pubky-app-specs builder', () => {
+    beforeEach(setupIntegrationTestMocks);
+    afterEach(restoreMocks);
+
+    it('produces a collection post containing a marketplace entity-id listing URI', async () => {
+      const listingUri = buildPubkyUri(TEST_PUBKY.USER_2, 'marketplace/v1/listings/1061cf08aaad4c8f99d996f3c2c092ba');
+
+      const result = await PostNormalizer.toCollection(
+        {
+          name: 'Saved listings',
+          items: [listingUri],
+        },
+        TEST_PUBKY.USER_1,
+      );
+
+      expect(result.post.toJson().content).toContain(listingUri);
+      expect(result.meta.url).toContain('/pub/pubky.app/posts/');
+    });
+
+    it('rejects a marketplace listing URI containing a slash', async () => {
+      const listingUri = buildPubkyUri(TEST_PUBKY.USER_2, 'marketplace/v1/listings/listing/id');
+
+      await expect(
+        PostNormalizer.toCollection(
+          {
+            name: 'Invalid listing',
+            items: [listingUri],
+          },
+          TEST_PUBKY.USER_1,
+        ),
+      ).rejects.toThrow();
+    });
+  });
+
   /**
    * Tests for `toEdit` method - Edits existing post content
    */

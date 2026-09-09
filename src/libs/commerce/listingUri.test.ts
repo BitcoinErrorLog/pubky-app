@@ -1,3 +1,4 @@
+import { PubkySpecsBuilder } from 'pubky-app-specs';
 import { describe, expect, it } from 'vitest';
 import { isListingUri, parseListingUri } from './listingUri';
 
@@ -37,5 +38,33 @@ describe('isListingUri', () => {
   it('accepts the canonical form and rejects everything else', () => {
     expect(isListingUri(CANONICAL)).toBe(true);
     expect(isListingUri(`pubky://${SELLER}/pub/pubky.app/posts/${LISTING_ID}`)).toBe(false);
+  });
+});
+
+describe('listing URI agreement with pubky-app-specs', () => {
+  const builder = new PubkySpecsBuilder(SELLER);
+
+  it.each([
+    ['32-hex entity id', '1061cf08aaad4c8f99d996f3c2c092ba'],
+    ['Crockford timestamp id', '0034A0X7NJ52A'],
+    ['one-character entity id', 'a'],
+    ['128-character entity id', 'a'.repeat(128)],
+  ])('accepts %s in both validators', (_, listingId) => {
+    const uri = `pubky://${SELLER}/pub/pubky.app/marketplace/v1/listings/${listingId}`;
+
+    expect(parseListingUri(uri)).toEqual({ sellerPubky: SELLER, listingId });
+    expect(() => builder.createCollectionPost('Saved', '', [uri])).not.toThrow();
+  });
+
+  it.each([
+    ['slash', 'listing/id'],
+    ['dot', 'listing.id'],
+    ['empty', ''],
+    ['129-character entity id', 'a'.repeat(129)],
+  ])('rejects %s in both validators', (_, listingId) => {
+    const uri = `pubky://${SELLER}/pub/pubky.app/marketplace/v1/listings/${listingId}`;
+
+    expect(parseListingUri(uri)).toBeNull();
+    expect(() => builder.createCollectionPost('Saved', '', [uri])).toThrow();
   });
 });
