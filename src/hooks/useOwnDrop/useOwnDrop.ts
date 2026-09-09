@@ -146,13 +146,17 @@ export function useOwnDrop(dropId: string): UseOwnDropResult {
       return {
         ok: false,
         conflict: false,
-        message: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.drop),
+        message: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.dropRefusal),
       };
     } catch (commandError) {
       return {
         ok: false,
         conflict: false,
-        message: marketplaceFailureMessage(marketplaceErrorCode(commandError), MARKETPLACE_FAILURE_MESSAGES.drop),
+        message: marketplaceFailureMessage(
+          marketplaceErrorCode(commandError),
+          MARKETPLACE_FAILURE_MESSAGES.drop,
+          commandError,
+        ),
       };
     } finally {
       setIsActing(false);

@@ -104,16 +104,19 @@ describe('useMarketplaceDropClaim', () => {
   });
 
   it('maps service refusal messages to static client copy', async () => {
-    for (const pinned of [
-      'The drop has not started.',
-      'The drop has ended.',
-      'The drop is sold out.',
-      "You have reached this drop's per-buyer limit.",
-      'A drop order is one unit of one listing per checkout.',
+    for (const [code, message, expected] of [
+      ['INVALID_STATE', 'The drop has not started.', "This drop hasn't started yet."],
+      ['INVALID_STATE', 'The drop has ended.', 'This drop has ended.'],
+      ['INSUFFICIENT_INVENTORY', 'The drop is sold out.', 'This drop is sold out.'],
+      [
+        'INVALID_STATE',
+        "You have reached this drop's per-buyer limit.",
+        "You've reached the per-buyer limit for this drop.",
+      ],
     ]) {
       vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
         ok: false,
-        error: { code: 'DROP_RULE', message: `${pinned} SENTINEL-14-Oak-Lane` },
+        error: { code, message },
       } as never);
       const { result } = renderHook(() => useMarketplaceDropClaim());
       await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
@@ -121,9 +124,23 @@ describe('useMarketplaceDropClaim', () => {
       await act(async () => {
         await result.current.claim(SELLER, 'listing1');
       });
-      expect(result.current.failure).toBe('The drop claim could not be completed.');
-      expect(result.current.failure).not.toContain('SENTINEL-14-Oak-Lane');
+      expect(result.current.failure).toBe(expected);
     }
+  });
+
+  it('uses refusal fallback for an unknown service refusal', async () => {
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'UNKNOWN_CODE', message: 'SENTINEL_SERVER_TEXT_drop' },
+    } as never);
+    const { result } = renderHook(() => useMarketplaceDropClaim());
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    await act(async () => {
+      await result.current.claim(SELLER, 'listing1');
+    });
+    expect(result.current.failure).toBe('The claim could not be completed.');
+    expect(result.current.failure).not.toContain('SENTINEL_SERVER_TEXT_drop');
   });
 
   it('heals an unregistered listing with one sync before giving up', async () => {

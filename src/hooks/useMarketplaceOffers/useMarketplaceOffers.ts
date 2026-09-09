@@ -172,9 +172,15 @@ async function loadOffers(
     setNeedsSession(false);
   } catch (loadError) {
     // A missing/expired marketplace session is not a dead end: flag it so the
-    // surface renders the session-connect affordance with the real guidance.
+    // surface renders the session-connect affordance with static guidance.
     setNeedsSession(isMarketplaceSessionRequiredError(loadError));
-    setError(marketplaceFailureMessage(marketplaceErrorCode(loadError), 'Marketplace offers are unavailable.'));
+    setError(
+      marketplaceFailureMessage(
+        marketplaceErrorCode(loadError),
+        MARKETPLACE_FAILURE_MESSAGES.offersUnavailable,
+        loadError,
+      ),
+    );
   } finally {
     setIsLoading(false);
   }

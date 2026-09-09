@@ -201,7 +201,7 @@ describe('useMarketplaceSessionConnect', () => {
     expect(result.current.authorizationUrl).toBe('');
   });
 
-  it('surfaces the real failure message and retries with a FRESH flow', async () => {
+  it('surfaces static failure copy and retries with a FRESH flow', async () => {
     const first = createDeferredFlow('pubkyauth:///?caps=first');
     const second = createDeferredFlow('pubkyauth:///?caps=second');
     vi.mocked(CommerceController.beginMarketplaceSessionConnect)
@@ -212,7 +212,8 @@ describe('useMarketplaceSessionConnect', () => {
     act(() => result.current.start());
     first.rejectSession(new Error('Relay timed out'));
     await waitFor(() => expect(result.current.status).toBe('error'));
-    expect(result.current.errorMessage).toBe('Relay timed out');
+    expect(result.current.errorMessage).toBe('The approval expired before it was completed. Try again.');
+    expect(result.current.errorMessage).not.toContain('Relay timed out');
     expect(result.current.authorizationUrl).toBe('');
 
     act(() => result.current.start());
@@ -236,7 +237,8 @@ describe('useMarketplaceSessionConnect', () => {
       new Error('The connect request expired before it was approved. Start again to get a fresh QR code.'),
     );
     await waitFor(() => expect(result.current.status).toBe('error'));
-    expect(result.current.errorMessage).toContain('expired before it was approved');
+    expect(result.current.errorMessage).toBe('The approval expired before it was completed. Try again.');
+    expect(result.current.errorMessage).not.toContain('expired before it was approved');
 
     act(() => result.current.start());
     expect(result.current.status).toBe('awaiting');
@@ -252,7 +254,8 @@ describe('useMarketplaceSessionConnect', () => {
     act(() => result.current.start());
 
     expect(result.current.status).toBe('error');
-    expect(result.current.errorMessage).toBe('The marketplace transaction service is not enabled in this deployment.');
+    expect(result.current.errorMessage).toBe('Could not start the marketplace session.');
+    expect(result.current.errorMessage).not.toContain('transaction service is not enabled');
   });
 
   it('cancel frees the flow, returns to idle, and drops the detached rejection silently', async () => {

@@ -401,11 +401,12 @@ export function useMarketplaceCheckout(
             description: marketplaceFailureMessage(
               marketplaceErrorCode(checkoutError),
               MARKETPLACE_FAILURE_MESSAGES.checkout,
+              checkoutError,
             ),
           });
           return;
         }
-        toast({ variant: 'error', description: 'Checkout could not be completed.' });
+        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.checkout });
       }
     })();
     return succeeded;

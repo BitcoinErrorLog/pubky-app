@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import {
   availablePaymentMethods,
   type PaymentMethodKind,
@@ -44,9 +48,11 @@ export function useMarketplaceOrderPayment({
         const config = await CommerceController.getSellerPaymentConfig(order.sellerPubky);
         if (active) setSellerConfig(config);
       } catch (error) {
-        Logger.error('Failed to load the seller payment configuration');
+        Logger.error('Failed to load the seller payment configuration', { error });
         if (active)
-          setConfigError(marketplaceFailureMessage(marketplaceErrorCode(error), 'Payment settings are unavailable.'));
+          setConfigError(
+            marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.paymentSettings, error),
+          );
       }
     };
     void load();
@@ -62,12 +68,13 @@ export function useMarketplaceOrderPayment({
         await run();
         await onPaymentChanged();
       } catch (error) {
-        Logger.error(`Marketplace payment action '${action}' failed`);
+        Logger.error(`Marketplace payment action '${action}' failed`, { error });
         toast({
           title: 'Payment action failed',
           description: marketplaceFailureMessage(
             marketplaceErrorCode(error),
             'The payment action could not be completed.',
+            error,
           ),
         });
       } finally {

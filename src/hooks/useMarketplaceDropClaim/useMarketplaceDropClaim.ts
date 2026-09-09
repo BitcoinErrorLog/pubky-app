@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { MARKETPLACE_FAILURE_MESSAGES, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import { MARKETPLACE_FAILURE_MESSAGES, marketplaceDropRefusalMessage } from '@/libs/commerce/failure-messages';
 import {
   buildMarketplaceCheckoutAggregateId,
   isMarketplaceRevisionConflict,
@@ -38,8 +38,8 @@ export interface UseMarketplaceDropClaimResult {
  * projection read (with the one-sync listing heal), `checkout.create` with
  * quantity 1, the buyer's saved delivery address, optimistic `submitting`
  * state, then the authoritative result. No queue UI of any kind exists:
- * the service answers reserved or refused, and a refusal renders the
- * service's pinned copy verbatim.
+ * the service answers reserved or refused, and a refusal renders static
+ * client-owned copy.
  */
 export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>): UseMarketplaceDropClaimResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
@@ -115,13 +115,13 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         },
       });
       if (!response.ok) {
-        // The service's refusal IS the answer — pinned drop copy ("The drop
-        // is sold out.", "You have reached this drop's per-buyer limit.",
-        // "The drop has ended.") or a revision conflict, rendered verbatim.
+        // The service's refusal is classified by stable code and message;
+        // arbitrary wire text never reaches rendered state.
         setFailure(
           isMarketplaceRevisionConflict(response)
             ? 'The listing changed while you were claiming. Refresh and try again.'
-            : marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.claim),
+            : (marketplaceDropRefusalMessage(response.error.code, response.error.message) ??
+                MARKETPLACE_FAILURE_MESSAGES.claimRefusal),
         );
         return false;
       }
@@ -138,7 +138,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         setSessionError(MARKETPLACE_FAILURE_MESSAGES.session);
         return false;
       }
-      setFailure('The claim could not be submitted. Check your connection and try again.');
+      setFailure(MARKETPLACE_FAILURE_MESSAGES.claim);
       return false;
     } finally {
       setSubmittingListingId(null);

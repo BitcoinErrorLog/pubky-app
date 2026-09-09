@@ -11,7 +11,11 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import type { ShippingLabel, ShippoRate } from '@/libs/commerce/shipping';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -73,10 +77,14 @@ export function MarketplaceShippingLabelDialog({
     try {
       setRates(await CommerceController.quoteShippingRates(order.id, body));
     } catch (error) {
-      Logger.error('Failed to quote shipping rates');
+      Logger.error('Failed to quote shipping rates', { error });
       toast({
         title: 'Could not quote rates',
-        description: marketplaceFailureMessage(marketplaceErrorCode(error), 'Shipping rates are unavailable.'),
+        description: marketplaceFailureMessage(
+          marketplaceErrorCode(error),
+          MARKETPLACE_FAILURE_MESSAGES.shippingRates,
+          error,
+        ),
       });
     } finally {
       setPending(null);
@@ -91,13 +99,10 @@ export function MarketplaceShippingLabelDialog({
       setRates(null);
       toast({ description: `Label purchased: ${purchased.carrier} ${purchased.servicelevel}.` });
     } catch (error) {
-      Logger.error('Failed to purchase the shipping label');
+      Logger.error('Failed to purchase the shipping label', { error });
       toast({
         title: 'Label purchase failed',
-        description: marketplaceFailureMessage(
-          marketplaceErrorCode(error),
-          'The shipping label could not be purchased.',
-        ),
+        description: marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.shippingLabel),
       });
     } finally {
       setPending(null);

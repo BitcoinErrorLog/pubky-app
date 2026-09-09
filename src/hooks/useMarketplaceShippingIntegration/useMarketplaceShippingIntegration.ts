@@ -53,7 +53,7 @@ export function useMarketplaceShippingIntegration() {
       toast({ description: 'Shipping integration settings saved.' });
       return true;
     } catch (error) {
-      Logger.error('Failed to save the shipping integration configuration');
+      Logger.error('Failed to save the shipping integration configuration', { error });
       toast({
         title: 'Could not save shipping settings',
         description: marketplaceFailureMessage(

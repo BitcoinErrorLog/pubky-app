@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isSingleApprovalSignInEnabled } from '@/config/app';
 import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
@@ -82,7 +86,7 @@ export function useMarketplaceSessionConnect(
         ? AuthController.beginBridgedCommerceSessionFlow()
         : CommerceController.beginMarketplaceSessionConnect();
     } catch (error) {
-      Logger.error('Failed to start the marketplace session flow');
+      Logger.error('Failed to start the marketplace session flow', { error });
       setAuthorizationUrl('');
       setErrorMessage(
         marketplaceFailureMessage(marketplaceErrorCode(error), 'Could not start the marketplace session.'),
@@ -134,10 +138,10 @@ export function useMarketplaceSessionConnect(
           setStatus('idle');
           return;
         }
-        Logger.error('Marketplace session flow failed');
+        Logger.error('Marketplace session flow failed', { error });
         setAuthorizationUrl('');
         setErrorMessage(
-          marketplaceFailureMessage(marketplaceErrorCode(error), 'The marketplace session could not be connected.'),
+          marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.sessionTimeout, error),
         );
         setStatus('error');
       });

@@ -101,7 +101,7 @@ export function useMarketplaceOrders() {
         }
         toast({
           variant: 'error',
-          description: marketplaceFailureMessage(response.error.code, 'Could not advance the sandbox payment.'),
+          description: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.sandboxPayment),
         });
         return false;
       }
@@ -116,7 +116,7 @@ export function useMarketplaceOrders() {
         toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
         return false;
       }
-      toast({ variant: 'error', description: 'Could not advance the sandbox payment.' });
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.sandboxPayment });
       return false;
     }
   };
@@ -235,9 +235,15 @@ async function loadOrders(
     void CommerceController.publishOrderReceipts(orders).catch(() => undefined);
   } catch (loadError) {
     // A missing/expired marketplace session is not a dead end: flag it so the
-    // surface renders the session-connect affordance with the real guidance.
+    // surface renders the session-connect affordance with static guidance.
     setNeedsSession(isMarketplaceSessionRequiredError(loadError));
-    setError(marketplaceFailureMessage(marketplaceErrorCode(loadError), 'Marketplace orders are unavailable.'));
+    setError(
+      marketplaceFailureMessage(
+        marketplaceErrorCode(loadError),
+        MARKETPLACE_FAILURE_MESSAGES.ordersUnavailable,
+        loadError,
+      ),
+    );
   } finally {
     setIsLoading(false);
   }

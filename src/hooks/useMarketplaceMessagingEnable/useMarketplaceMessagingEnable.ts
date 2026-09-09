@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessagingController } from '@/controllers/messaging/messaging';
-import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
@@ -96,7 +100,7 @@ export function useMarketplaceMessagingEnable(
         // of being freed — that is control flow, not a failure to report.
         if (activeFlowRef.current !== flow) return;
         activeFlowRef.current = null;
-        Logger.error('Messaging enable flow failed');
+        Logger.error('Messaging enable flow failed', { error });
         setAuthorizationUrl('');
         setErrorMessage(
           marketplaceFailureMessage(marketplaceErrorCode(error), 'Marketplace messaging could not be enabled.'),
@@ -106,9 +110,11 @@ export function useMarketplaceMessagingEnable(
     };
 
     begin().catch((error: unknown) => {
-      Logger.error('Failed to start the messaging enable flow');
+      Logger.error('Failed to start the messaging enable flow', { error });
       setAuthorizationUrl('');
-      setErrorMessage(marketplaceFailureMessage(marketplaceErrorCode(error), 'Could not start marketplace messaging.'));
+      setErrorMessage(
+        marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.messagingStart, error),
+      );
       setStatus('error');
     });
 
