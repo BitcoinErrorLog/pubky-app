@@ -3,6 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { AppError } from '@/libs/error/error';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { createOrderFixture } from '@/test/fixtures/commerce/orders';
 import { MarketplaceShippingLabelDialog } from './MarketplaceShippingLabelDialog';
 
@@ -13,6 +17,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     purchaseShippingLabel: vi.fn(async () => null),
   },
 }));
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({ toast: vi.fn() }));
 
 const mockedController = vi.mocked(CommerceController);
 
@@ -95,6 +101,32 @@ describe('MarketplaceShippingLabelDialog', () => {
         trackingNumber: 'TRACK123',
       }),
     );
+  });
+
+  it('does not expose quote or purchase sentinel errors in toast copy', async () => {
+    const sentinel = (operation: string) =>
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.CONFLICT,
+        message: `SENTINEL_SHIPPING_LABEL_${operation}`,
+        service: ErrorService.Marketplace,
+        operation,
+      });
+    mockedController.quoteShippingRates.mockRejectedValueOnce(sentinel('quote'));
+    const { order } = renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: /Shipping label/ }));
+    await fillParcelAndQuote();
+    await waitFor(() => expect(vi.mocked(toast)).toHaveBeenCalled());
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('SENTINEL_SHIPPING_LABEL_quote');
+
+    mockedController.quoteShippingRates.mockResolvedValueOnce([RATE]);
+    await fillParcelAndQuote();
+    await screen.findByText('USPS Ground');
+    mockedController.purchaseShippingLabel.mockRejectedValueOnce(sentinel('purchase'));
+    await userEvent.click(screen.getByRole('button', { name: 'Buy for 7.85 USD' }));
+    await waitFor(() => expect(vi.mocked(toast).mock.calls.length).toBeGreaterThan(1));
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('SENTINEL_SHIPPING_LABEL_purchase');
+    expect(order.id).toBeTruthy();
   });
 
   it('renders nothing outside the durable modes', () => {
