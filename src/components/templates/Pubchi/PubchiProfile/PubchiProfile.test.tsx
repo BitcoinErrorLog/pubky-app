@@ -81,5 +81,7 @@ describe('PubchiProfile', () => {
     expect(screen.queryByText('user')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open/i })).toHaveAttribute('href', '/feed/pubchi-feed');
     expect(mocks.listPubchiFeedProvenance).toHaveBeenCalledWith('owner-pubky');
+    expect(mocks.getList).toHaveBeenCalledTimes(1);
+    expect(mocks.listPubchiFeedProvenance).toHaveBeenCalledTimes(1);
   });
 });

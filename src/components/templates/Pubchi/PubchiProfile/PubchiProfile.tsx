@@ -19,12 +19,13 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function PubchiProfile() {
   const { pubchi, config, devices, needsReapproval } = usePubchiEnrollment();
   const owner = useAuthStore((state) => state.currentUserPubky);
+  const pubchiBot = pubchi?.bot;
   const [builtFeeds, setBuiltFeeds] = useState<Array<{ feed: FeedModelSchema; createdAt: number }>>([]);
   const [builtFeedsError, setBuiltFeedsError] = useState(false);
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    if (!owner || !pubchi) {
+    if (!owner || !pubchiBot) {
       setBuiltFeeds([]);
       setBuiltFeedsError(false);
       return;
@@ -49,7 +50,7 @@ export function PubchiProfile() {
     return () => {
       cancelled = true;
     };
-  }, [owner, pubchi, reload]);
+  }, [owner, pubchiBot, reload]);
 
   if (!pubchi) {
     return (
