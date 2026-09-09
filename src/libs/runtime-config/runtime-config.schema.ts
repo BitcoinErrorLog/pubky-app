@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isSecurePaykitOrigin } from '@/services/marketplace/paykit-origin';
 
 /**
  * Shared, zod-only schema for the environment-specific values that must be configurable at
@@ -151,6 +152,20 @@ const optionalTrimmedString = z
   .optional();
 
 const optionalUrlFromString = optionalTrimmedString.pipe(urlValue.optional());
+
+/**
+ * W1.8b N2: the paykit setup URL must satisfy the SAME https-or-loopback
+ * predicate the token choke point and the setup-navigation builder enforce
+ * (imported from `services/marketplace/paykit-origin` — a dependency-free
+ * module, so this schema stays a zod-only leaf — never re-implemented). A
+ * non-HTTPS non-loopback value fails config parsing at BOOT instead of being
+ * refused only when a claim runs.
+ */
+const paykitSetupUrlValue = urlValue.refine((val) => isSecurePaykitOrigin(new URL(val)), {
+  message:
+    'PUBKY_RUNTIME_PAYKIT_SETUP_URL must be an https:// URL; http: is allowed only for loopback hosts (localhost, 127.0.0.1, [::1])',
+});
+const optionalPaykitSetupUrlFromString = optionalTrimmedString.pipe(paykitSetupUrlValue.optional());
 
 /** Rates validate eagerly (bad number/range throws here); the default applies in the value schema. */
 const sampleRateFromString = z
@@ -319,7 +334,7 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
    */
   marketplaceNexusUrl: urlValue.optional(),
   locksUrl: urlValue.default(APP_RUNTIME_DEFAULTS.locksUrl),
-  paykitSetupUrl: urlValue.default(APP_RUNTIME_DEFAULTS.paykitSetupUrl),
+  paykitSetupUrl: paykitSetupUrlValue.default(APP_RUNTIME_DEFAULTS.paykitSetupUrl),
   commerceAdapterMode: commerceAdapterModeValue.default(APP_RUNTIME_DEFAULTS.commerceAdapterMode),
   commercePollIntervalMs: positiveIntValue.default(APP_RUNTIME_DEFAULTS.commercePollIntervalMs),
   /**
@@ -414,7 +429,7 @@ export const runtimeEnvInputSchema = z
     marketplaceUrl: optionalUrlFromString,
     marketplaceNexusUrl: optionalUrlFromString,
     locksUrl: optionalUrlFromString,
-    paykitSetupUrl: optionalUrlFromString,
+    paykitSetupUrl: optionalPaykitSetupUrlFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
     bitcoinNetwork: optionalTrimmedString,
@@ -501,7 +516,7 @@ export const runtimeEnvInputSchemaWithDefaults = z
     marketplaceUrl: optionalUrlFromString,
     marketplaceNexusUrl: optionalUrlFromString,
     locksUrl: optionalUrlFromString,
-    paykitSetupUrl: optionalUrlFromString,
+    paykitSetupUrl: optionalPaykitSetupUrlFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
     bitcoinNetwork: optionalTrimmedString,

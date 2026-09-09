@@ -241,6 +241,37 @@ describe('runtimeEnvInputSchema', () => {
     ).toBe('transaction-service');
   });
 
+  it('rejects a non-HTTPS non-loopback PUBKY_RUNTIME_PAYKIT_SETUP_URL at boot (W1.8b N2)', () => {
+    // Strict deployed parse.
+    expect(() =>
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, paykitSetupUrl: 'http://paykit.example.com/setup' }),
+    ).toThrow(/PUBKY_RUNTIME_PAYKIT_SETUP_URL must be an https:\/\/ URL/);
+    // Lenient dev parse fails the same way — the rule is one shared predicate.
+    expect(() =>
+      runtimeEnvInputSchemaWithDefaults.parse({ paykitSetupUrl: 'http://paykit.example.com/setup' }),
+    ).toThrow(/PUBKY_RUNTIME_PAYKIT_SETUP_URL must be an https:\/\/ URL/);
+  });
+
+  it('accepts loopback http and any https PUBKY_RUNTIME_PAYKIT_SETUP_URL', () => {
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, paykitSetupUrl: 'http://localhost:3102/setup' })
+        .paykitSetupUrl,
+    ).toBe('http://localhost:3102/setup');
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, paykitSetupUrl: 'http://127.0.0.1:3102/setup' })
+        .paykitSetupUrl,
+    ).toBe('http://127.0.0.1:3102/setup');
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, paykitSetupUrl: 'https://paykit.example.com/setup' })
+        .paykitSetupUrl,
+    ).toBe('https://paykit.example.com/setup');
+  });
+
+  it('keeps the loopback paykitSetupUrl default parsing when the var is unset', () => {
+    expect(runtimeEnvInputSchema.parse(VALID_ENV_INPUT).paykitSetupUrl).toBe(APP_RUNTIME_DEFAULTS.paykitSetupUrl);
+    expect(runtimeEnvInputSchemaWithDefaults.parse({}).paykitSetupUrl).toBe(APP_RUNTIME_DEFAULTS.paykitSetupUrl);
+  });
+
   it('rejects an invalid configured moderation Pubky', () => {
     expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, moderationId: 'moderation-key' })).toThrow(
       'Expected a 52-character z-base-32 Pubky',
