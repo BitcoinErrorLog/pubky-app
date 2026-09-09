@@ -131,6 +131,50 @@ describe('useEditMarketplaceListing', () => {
     });
   });
 
+  it('hydrates a free-shipping listing and re-emits the free variant (no price) on save', async () => {
+    const freeShippingRecord = {
+      ...structuredClone(publishedRecord),
+      fulfillmentMethods: ['shipping' as const],
+      package: { weightGrams: 500, lengthMillimeters: 300, widthMillimeters: 200, heightMillimeters: 100 },
+      shippingOptions: [
+        {
+          id: 'seller_flat_rate',
+          pricing: 'free' as const,
+          label: 'Free shipping',
+          estimatedMinDays: 2,
+          estimatedMaxDays: 5,
+        },
+      ],
+    };
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(freeShippingRecord);
+
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    expect(result.current.form.getValues()).toMatchObject({
+      fulfillment: 'shipping',
+      freeShipping: true,
+      shippingLabel: 'Free shipping',
+      shippingPrice: '',
+      shippingMinDays: '2',
+      shippingMaxDays: '5',
+    });
+
+    let savedId: string | null = null;
+    await act(async () => {
+      savedId = await result.current.submit();
+    });
+
+    expect(savedId).toBe(`${OWNER}:${LISTING_ID}`);
+    const updated = commerceListingRecordSchema.parse(
+      vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0],
+    );
+    expect(updated.shippingOptions).toEqual([
+      expect.objectContaining({ pricing: 'free', label: 'Free shipping', estimatedMinDays: 2, estimatedMaxDays: 5 }),
+    ]);
+    expect(updated.shippingOptions[0]).not.toHaveProperty('price');
+  });
+
   it('round-trips unknown record members through an edit (open-world records)', async () => {
     // A member added by a newer writer that this client knows nothing about
     // must survive a read-modify-write untouched (social/v1 alignment).

@@ -17,6 +17,7 @@ import { Controller, useFieldArray, type UseFormReturn, useWatch } from 'react-h
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
+import { Checkbox } from '@/atoms/Checkbox/Checkbox';
 import { Container } from '@/atoms/Container/Container';
 import { Input } from '@/atoms/Input/Input';
 import { Label } from '@/atoms/Label/Label';
@@ -107,6 +108,7 @@ export function MarketplaceListingForm({
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
   const currency = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.CURRENCY });
+  const freeShipping = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FREE_SHIPPING });
   const watchedListingFields = useWatch({
     control: form.control,
     name: CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS,
@@ -122,6 +124,17 @@ export function MarketplaceListingForm({
   // convert any values already entered — via the exact mm/g round-trip the
   // publish path uses, so nothing drifts.
   const setMeasurementSystem = useMarketplaceDisplayStore((state) => state.setMeasurementSystem);
+  // Free shipping toggle: check/uncheck keeps the typed price in the form
+  // state (toggling back restores it) but clears its validation error while
+  // it is unused — the record emits a `pricing: 'free'` option either way.
+  const setFreeShipping = (next: boolean) => {
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FREE_SHIPPING, next);
+    if (next) {
+      form.clearErrors(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE);
+    } else {
+      void form.trigger(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE);
+    }
+  };
   const switchMeasurementSystem = (next: 'metric' | 'imperial') => {
     const current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.MEASUREMENT_SYSTEM) as 'metric' | 'imperial';
     if (next === current) return;
@@ -550,13 +563,26 @@ export function MarketplaceListingForm({
                   placeholder="Standard shipping"
                   disabled={isPublishing}
                 />
-                <ControlledInputField
-                  name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE}
-                  control={form.control}
-                  label={`Flat shipping (${priceUnit})`}
-                  placeholder={currency === 'BTC' ? '15000' : '12.00'}
-                  disabled={isPublishing}
-                />
+                <div className="grid gap-2">
+                  <ControlledInputField
+                    name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE}
+                    control={form.control}
+                    label={`Flat shipping (${priceUnit})`}
+                    placeholder={currency === 'BTC' ? '15000' : '12.00'}
+                    disabled={isPublishing || freeShipping}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="listing-free-shipping"
+                      checked={freeShipping}
+                      disabled={isPublishing}
+                      onCheckedChange={(checked) => setFreeShipping(checked === true)}
+                    />
+                    <Label htmlFor="listing-free-shipping" className="cursor-pointer text-sm">
+                      Free shipping
+                    </Label>
+                  </div>
+                </div>
                 <ControlledInputField
                   name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MIN_DAYS}
                   control={form.control}
@@ -909,7 +935,8 @@ function getListingSectionStatuses(
   const shippingComplete =
     values.fulfillment === 'pickup' ||
     (values.shippingLabel.trim().length > 0 &&
-      amountInputSchemaForAsset(assetForListingCurrency(values.currency)).safeParse(values.shippingPrice).success &&
+      (values.freeShipping ||
+        amountInputSchemaForAsset(assetForListingCurrency(values.currency)).safeParse(values.shippingPrice).success) &&
       /^\d+$/.test(values.shippingMinDays) &&
       /^\d+$/.test(values.shippingMaxDays) &&
       values.packageWeight.trim().length > 0 &&
@@ -978,6 +1005,9 @@ function ListingShippingPresetRow({
     const preset = presets.find(({ id }) => id === presetId);
     if (!preset) return;
     const fields = presetToShippingFields(preset);
+    // Presets carry a concrete flat price, so applying one is a priced
+    // choice: untoggle free shipping if it was on.
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FREE_SHIPPING, false);
     form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_LABEL, fields.shippingLabel, { shouldValidate: true });
     form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE, fields.shippingPrice, { shouldValidate: true });
     form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MIN_DAYS, fields.shippingMinDays, {

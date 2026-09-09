@@ -219,6 +219,8 @@ function formDataFromRecord(
   const fulfillment =
     record.sale.format === 'auction' ? 'shipping' : fulfillmentFormValueFromRecord(record.fulfillmentMethods);
   const flatShipping = record.shippingOptions.find((option) => option.pricing === 'flat');
+  const freeShipping = record.shippingOptions.find((option) => option.pricing === 'free');
+  const shippingOption = flatShipping ?? freeShipping;
   const returnDays =
     record.returnPolicy.acceptsReturns && record.returnPolicy.returnWindowDays !== undefined
       ? record.returnPolicy.returnWindowDays <= 14
@@ -247,13 +249,14 @@ function formDataFromRecord(
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
     fulfillment,
-    shippingLabel: flatShipping ? flatShipping.label : createMarketplaceListingDefaults.shippingLabel,
+    shippingLabel: shippingOption ? shippingOption.label : createMarketplaceListingDefaults.shippingLabel,
+    freeShipping: freeShipping !== undefined,
     shippingPrice: flatShipping ? amountInputFromMoney(flatShipping.price) : '',
-    shippingMinDays: flatShipping
-      ? String(flatShipping.estimatedMinDays)
+    shippingMinDays: shippingOption
+      ? String(shippingOption.estimatedMinDays)
       : createMarketplaceListingDefaults.shippingMinDays,
-    shippingMaxDays: flatShipping
-      ? String(flatShipping.estimatedMaxDays)
+    shippingMaxDays: shippingOption
+      ? String(shippingOption.estimatedMaxDays)
       : createMarketplaceListingDefaults.shippingMaxDays,
     measurementSystem,
     packageWeight: record.package ? weightInputFromGrams(record.package.weightGrams, measurementSystem) : '',
@@ -315,14 +318,22 @@ function buildUpdatedRecord(
     package: requiresShipping ? buildPackageRecord(data) : undefined,
     shippingOptions: requiresShipping
       ? [
-          {
-            id: 'seller_flat_rate',
-            pricing: 'flat',
-            label: data.shippingLabel,
-            price: amountInputToMoney(data.shippingPrice, asset),
-            estimatedMinDays: Number(data.shippingMinDays),
-            estimatedMaxDays: Number(data.shippingMaxDays),
-          },
+          data.freeShipping
+            ? {
+                id: 'seller_flat_rate',
+                pricing: 'free' as const,
+                label: data.shippingLabel,
+                estimatedMinDays: Number(data.shippingMinDays),
+                estimatedMaxDays: Number(data.shippingMaxDays),
+              }
+            : {
+                id: 'seller_flat_rate',
+                pricing: 'flat' as const,
+                label: data.shippingLabel,
+                price: amountInputToMoney(data.shippingPrice, asset),
+                estimatedMinDays: Number(data.shippingMinDays),
+                estimatedMaxDays: Number(data.shippingMaxDays),
+              },
         ]
       : [],
     returnPolicy: {
