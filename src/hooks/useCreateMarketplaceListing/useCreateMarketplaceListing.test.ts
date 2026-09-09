@@ -191,6 +191,39 @@ describe('useCreateMarketplaceListing', () => {
     expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalled();
   });
 
+  it('emits a free shipping option (no price) when free shipping is on', async () => {
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Vintage leather boots');
+      result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
+      result.current.form.setValue('price', '125.00');
+      result.current.form.setValue('fulfillment', 'shipping');
+      result.current.form.setValue('freeShipping', true);
+      result.current.form.setValue('countryCode', 'US');
+      result.current.form.setValue('packageWeight', '1200');
+      result.current.form.setValue('packageLength', '350');
+      result.current.form.setValue('packageWidth', '250');
+      result.current.form.setValue('packageHeight', '150');
+    });
+
+    let createdId: string | null = null;
+    await act(async () => {
+      createdId = await result.current.submit();
+    });
+
+    expect(createdId).not.toBeNull();
+    expect(CommerceController.commitUpsertListing).toHaveBeenCalledOnce();
+    const listing = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
+    const parsed = commerceListingRecordSchema.parse(listing);
+    // The free option carries no price at all — never a zero-priced flat one.
+    expect(parsed.shippingOptions).toEqual([
+      expect.objectContaining({ id: 'seller_flat_rate', pricing: 'free', label: 'Seller shipping' }),
+    ]);
+    expect(parsed.shippingOptions[0]).not.toHaveProperty('price');
+  });
+
   it('reuses the same listing id when a failed submit is retried — never a duplicate record', async () => {
     let uuidCounter = 0;
     vi.mocked(globalThis.crypto.randomUUID).mockImplementation(

@@ -121,6 +121,32 @@ describe('createMarketplaceListingSchema', () => {
     ).toBe(true);
   });
 
+  it('allows free shipping without a shipping price, but never a zero price', () => {
+    const base = {
+      ...formDefaults,
+      title: 'Vintage leather boots',
+      description: 'Well cared for boots with light wear.',
+      price: '125',
+      fulfillment: 'shipping' as const,
+      packageWeight: '1200',
+      packageLength: '350',
+      packageWidth: '250',
+      packageHeight: '150',
+    };
+    // Free shipping: no price needed at all.
+    expect(createMarketplaceListingSchema.safeParse({ ...base, freeShipping: true, shippingPrice: '' }).success).toBe(
+      true,
+    );
+    // Still rejected when priced: zero is not a price, and the record's flat
+    // option must never carry one (the free variant exists for that).
+    expect(createMarketplaceListingSchema.safeParse({ ...base, freeShipping: false, shippingPrice: '0' }).success).toBe(
+      false,
+    );
+    expect(
+      createMarketplaceListingSchema.safeParse({ ...base, freeShipping: false, shippingPrice: '0.00' }).success,
+    ).toBe(false);
+  });
+
   it('supports multiple fixed-price variants but only one auction variant', () => {
     const variants = [
       { sku: 'BOOTS-42', size: '42', color: 'Brown', style: '', quantity: '1', priceOverride: '' },
@@ -298,9 +324,7 @@ describe('isCreateMarketplaceListingPublishReady', () => {
   });
 
   it('rebuilds full form values from a scoped useWatch tuple', () => {
-    const tuple = CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS.map(
-      (key) => pickupReady[key],
-    ) as unknown[];
+    const tuple = CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS.map((key) => pickupReady[key]) as unknown[];
     expect(createMarketplaceListingPublishChecklist(tuple as never, 1)).toEqual([
       'Invalid input: expected object, received array',
     ]);

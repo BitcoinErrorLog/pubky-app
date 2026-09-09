@@ -41,6 +41,7 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
   SHIPPING_LABEL: 'shippingLabel',
+  FREE_SHIPPING: 'freeShipping',
   SHIPPING_PRICE: 'shippingPrice',
   SHIPPING_MIN_DAYS: 'shippingMinDays',
   SHIPPING_MAX_DAYS: 'shippingMaxDays',
@@ -257,6 +258,8 @@ export const createMarketplaceListingSchema = z
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['shipping', 'pickup', 'shipping_and_pickup']),
     shippingLabel: z.string().trim().max(100, 'Keep the shipping label under 100 characters.'),
+    /** When true the listing ships free: the price field is skipped and the record emits a `pricing: 'free'` option. */
+    freeShipping: z.boolean(),
     shippingPrice: z.string().trim(),
     shippingMinDays: z.string().trim(),
     shippingMaxDays: z.string().trim(),
@@ -276,12 +279,16 @@ export const createMarketplaceListingSchema = z
       }
     });
     if (data.fulfillment !== 'pickup') {
-      validateMoneyField(
-        data.shippingPrice,
-        data.currency,
-        [CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE],
-        context,
-      );
+      // Free shipping emits the record's `pricing: 'free'` option — there is
+      // no price to validate. The label is still required either way.
+      if (!data.freeShipping) {
+        validateMoneyField(
+          data.shippingPrice,
+          data.currency,
+          [CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE],
+          context,
+        );
+      }
       if (!data.shippingLabel) {
         context.addIssue({
           code: 'custom',
@@ -385,6 +392,7 @@ export const createMarketplaceListingDraftSchema = z
     /** Legacy drafts stored the shipping choice as 'physical'; accepted here and migrated to 'shipping' on restore. */
     fulfillment: z.enum(['pickup', 'physical', 'shipping', 'shipping_and_pickup']),
     shippingLabel: z.string(),
+    freeShipping: z.boolean(),
     shippingPrice: z.string(),
     shippingMinDays: z.string(),
     shippingMaxDays: z.string(),
@@ -457,9 +465,9 @@ export function fulfillmentRequiresShipping(fulfillment: CreateMarketplaceListin
 }
 
 /** Schema field names for a scoped `useWatch` — keep this derived, never hand-typed. */
-export const CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS = Object.keys(
-  createMarketplaceListingSchema.shape,
-) as Array<keyof CreateMarketplaceListingData>;
+export const CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS = Object.keys(createMarketplaceListingSchema.shape) as Array<
+  keyof CreateMarketplaceListingData
+>;
 
 /**
  * `useWatch({ name: keys })` returns a tuple, not a form object. Passing that
@@ -509,6 +517,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
   fulfillment: 'shipping',
   shippingLabel: 'Seller shipping',
+  freeShipping: false,
   shippingPrice: '',
   shippingMinDays: '3',
   shippingMaxDays: '7',

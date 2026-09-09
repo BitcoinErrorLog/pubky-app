@@ -21,6 +21,32 @@ import { MarketplaceListingForm } from './MarketplaceListingForm';
 // not touch the network.
 const pickupCapability = vi.hoisted(() => ({ available: true }));
 
+// Presets are device-local (Dexie) and not under test here; the row's own
+// behavior (apply fills fields and untoggles free shipping) IS — so the hook
+// is mocked with one preset for that single test.
+const shippingPresetsMock = vi.hoisted(() => ({
+  presets: [] as Array<{
+    id: string;
+    owner_id: string;
+    label: string;
+    price_minor: number;
+    currency: string;
+    estimated_min_days: number;
+    estimated_max_days: number;
+    created_at: number;
+    updated_at: number;
+  }>,
+}));
+
+vi.mock('@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets', () => ({
+  useMarketplaceShippingPresets: () => ({
+    presets: shippingPresetsMock.presets,
+    isLoading: false,
+    saveFromFields: vi.fn(async () => true),
+    remove: vi.fn(),
+  }),
+}));
+
 vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/controllers/commerce/commerce')>();
   return {
@@ -39,6 +65,12 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = vi.fn();
   Element.prototype.releasePointerCapture = vi.fn();
   Element.prototype.setPointerCapture = vi.fn();
+});
+
+beforeEach(() => {
+  // The shipping-preset picker renders only when presets exist; keep the
+  // shared mock empty unless a test opts in (the snapshot stays picker-free).
+  shippingPresetsMock.presets = [];
 });
 
 function buildMedia(items: ListingMediaItem[] = []): UseListingMediaManagerResult {
@@ -233,29 +265,33 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
   });
 
-  it('drops filled title, description, price, and category from the publish checklist', { timeout: 20_000 }, async () => {
-    const user = userEvent.setup({ delay: null });
-    render(<FormHarness />);
+  it(
+    'drops filled title, description, price, and category from the publish checklist',
+    { timeout: 20_000 },
+    async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<FormHarness />);
 
-    const requiredItems = () => {
-      const heading = screen.getByText('Required to publish');
-      return Array.from(heading.parentElement?.querySelectorAll('ul li') ?? []).map((item) => item.textContent);
-    };
-    expect(requiredItems()).toEqual(expect.arrayContaining(['Title', 'Description', 'Category', 'Price']));
-    const remainingBefore = requiredItems().length;
+      const requiredItems = () => {
+        const heading = screen.getByText('Required to publish');
+        return Array.from(heading.parentElement?.querySelectorAll('ul li') ?? []).map((item) => item.textContent);
+      };
+      expect(requiredItems()).toEqual(expect.arrayContaining(['Title', 'Description', 'Category', 'Price']));
+      const remainingBefore = requiredItems().length;
 
-    await user.type(screen.getByLabelText('Title'), 'Vintage leather boots');
-    await user.type(screen.getByLabelText('Description'), 'Well cared for boots with light wear.');
-    await user.type(screen.getByLabelText('Price (USD)'), '125.00');
-    await user.click(screen.getByRole('combobox', { name: 'Category' }));
-    await user.click(await screen.findByRole('option', { name: 'Fashion' }));
+      await user.type(screen.getByLabelText('Title'), 'Vintage leather boots');
+      await user.type(screen.getByLabelText('Description'), 'Well cared for boots with light wear.');
+      await user.type(screen.getByLabelText('Price (USD)'), '125.00');
+      await user.click(screen.getByRole('combobox', { name: 'Category' }));
+      await user.click(await screen.findByRole('option', { name: 'Fashion' }));
 
-    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Title']));
-    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Description']));
-    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Category']));
-    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Price']));
-    expect(requiredItems().length).toBeLessThan(remainingBefore);
-  });
+      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Title']));
+      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Description']));
+      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Category']));
+      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Price']));
+      expect(requiredItems().length).toBeLessThan(remainingBefore);
+    },
+  );
 
   it('keeps publish disabled when description is empty even if other minimums are filled', () => {
     render(
@@ -518,6 +554,70 @@ describe('MarketplaceListingForm scoped status watch', () => {
     await user.click(screen.getByRole('button', { name: 'set-returns' }));
     expect(screen.queryByText('Returns policy')).not.toBeInTheDocument();
     returnsCase.unmount();
+  });
+});
+
+describe('MarketplaceListingForm free shipping', () => {
+  it('disables the flat price while free shipping is on and keeps it for toggling back', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness defaultValues={{ shippingPrice: '12.00' }} />);
+
+    const price = screen.getByLabelText(/Flat shipping/);
+    expect(price).toBeEnabled();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Free shipping' }));
+    expect(price).toBeDisabled();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Free shipping' }));
+    expect(price).toBeEnabled();
+    expect(price).toHaveValue('12.00');
+  });
+
+  it('treats a free-shipping listing as shipping-section complete without a price', () => {
+    render(
+      <FormHarness
+        defaultValues={{
+          freeShipping: true,
+          shippingPrice: '',
+          packageWeight: '1200',
+          packageLength: '35.0',
+          packageWidth: '25.0',
+          packageHeight: '15.0',
+        }}
+      />,
+    );
+
+    expect(
+      document.querySelector('[data-surface="listing-section-shipping"]')?.getAttribute('data-section-complete'),
+    ).toBe('true');
+  });
+
+  it('untoggles free shipping and fills the price when a preset is applied', async () => {
+    shippingPresetsMock.presets = [
+      {
+        id: 'preset_1',
+        owner_id: 'y'.repeat(52),
+        label: 'Standard shipping',
+        price_minor: 1200,
+        currency: 'USD',
+        estimated_min_days: 3,
+        estimated_max_days: 7,
+        created_at: 1,
+        updated_at: 1,
+      },
+    ];
+    const user = userEvent.setup();
+    render(<FormHarness defaultValues={{ freeShipping: true, shippingPrice: '' }} />);
+
+    const price = screen.getByLabelText(/Flat shipping/);
+    expect(price).toBeDisabled();
+
+    await user.click(screen.getByRole('combobox', { name: /shipping preset/i }));
+    await user.click(await screen.findByRole('option', { name: /Standard shipping/ }));
+
+    await waitFor(() => expect(price).toBeEnabled());
+    expect(price).toHaveValue('12.00');
+    expect(screen.getByRole('checkbox', { name: 'Free shipping' })).not.toBeChecked();
   });
 });
 

@@ -1438,30 +1438,61 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
               </div>
             </div>
             <div
-              class="mx-auto w-full flex-col flex gap-2"
-              data-testid="container"
+              class="grid gap-2"
             >
-              <label
-                class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
-                data-slot="label"
-                for="shippingPrice"
-              >
-                Flat shipping (USD)
-              </label>
               <div
-                class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
+                class="mx-auto w-full flex-col flex gap-2"
                 data-testid="container"
               >
-                <input
-                  aria-invalid="false"
-                  class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
-                  data-testid="input"
-                  id="shippingPrice"
-                  name="shippingPrice"
-                  placeholder="12.00"
-                  type="text"
-                  value=""
+                <label
+                  class="flex items-center gap-2 select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+                  data-slot="label"
+                  for="shippingPrice"
+                >
+                  Flat shipping (USD)
+                </label>
+                <div
+                  class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"
+                  data-testid="container"
+                >
+                  <input
+                    aria-invalid="false"
+                    class="flex h-9 min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 w-full border-none !bg-transparent"
+                    data-testid="input"
+                    id="shippingPrice"
+                    name="shippingPrice"
+                    placeholder="12.00"
+                    type="text"
+                    value=""
+                  />
+                </div>
+              </div>
+              <div
+                class="flex items-center gap-2"
+              >
+                <button
+                  aria-checked="false"
+                  class="peer h-4 w-4 shrink-0 rounded border border-input bg-white/5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-brand data-[state=checked]:bg-brand"
+                  data-state="unchecked"
+                  id="listing-free-shipping"
+                  role="checkbox"
+                  type="button"
+                  value="on"
                 />
+                <input
+                  aria-hidden="true"
+                  style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%); width: 0px; height: 0px;"
+                  tabindex="-1"
+                  type="checkbox"
+                  value="on"
+                />
+                <label
+                  class="flex items-center gap-2 font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 cursor-pointer text-sm"
+                  data-slot="label"
+                  for="listing-free-shipping"
+                >
+                  Free shipping
+                </label>
               </div>
             </div>
             <div

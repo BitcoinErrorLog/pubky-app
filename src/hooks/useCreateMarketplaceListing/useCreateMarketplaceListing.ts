@@ -476,14 +476,22 @@ function buildListingRecord(
     package: requiresShipping ? buildPackageRecord(data) : undefined,
     shippingOptions: requiresShipping
       ? [
-          {
-            id: 'seller_flat_rate',
-            pricing: 'flat',
-            label: data.shippingLabel,
-            price: amountInputToMoney(data.shippingPrice, asset),
-            estimatedMinDays: Number(data.shippingMinDays),
-            estimatedMaxDays: Number(data.shippingMaxDays),
-          },
+          data.freeShipping
+            ? {
+                id: 'seller_flat_rate',
+                pricing: 'free' as const,
+                label: data.shippingLabel,
+                estimatedMinDays: Number(data.shippingMinDays),
+                estimatedMaxDays: Number(data.shippingMaxDays),
+              }
+            : {
+                id: 'seller_flat_rate',
+                pricing: 'flat' as const,
+                label: data.shippingLabel,
+                price: amountInputToMoney(data.shippingPrice, asset),
+                estimatedMinDays: Number(data.shippingMinDays),
+                estimatedMaxDays: Number(data.shippingMaxDays),
+              },
         ]
       : [],
     returnPolicy: {
