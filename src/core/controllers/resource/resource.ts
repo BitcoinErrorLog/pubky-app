@@ -1,9 +1,11 @@
 import { ResourceApplication } from '@/application/resource/resource';
 import type {
   NexusResource,
+  NexusResourceKeyStream,
   NexusResourceTagsResponse,
   TResourceByIdParams,
   TResourceByUriParams,
+  TResourceStreamParams,
   TResourcesByTagParams,
 } from '@/services/nexus/resource/resource.types';
 
@@ -20,5 +22,17 @@ export class ResourceController {
 
   static async fetchByUri(params: TResourceByUriParams): Promise<NexusResourceTagsResponse> {
     return await ResourceApplication.fetchByUri(params);
+  }
+
+  static async fetchStream(params: TResourceStreamParams): Promise<NexusResource[]> {
+    return await ResourceApplication.fetchStream(params);
+  }
+
+  static async fetchStreamIds(params: TResourceStreamParams): Promise<NexusResourceKeyStream> {
+    return await ResourceApplication.fetchStreamIds(params);
+  }
+
+  static async fetchStreamPage(params: TResourceStreamParams) {
+    return await ResourceApplication.fetchStreamPage(params);
   }
 }

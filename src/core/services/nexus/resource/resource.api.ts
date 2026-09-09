@@ -1,5 +1,10 @@
 import { buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.utils';
-import type { TResourceByIdParams, TResourceByUriParams, TResourcesByTagParams } from './resource.types';
+import type {
+  TResourceByIdParams,
+  TResourceByUriParams,
+  TResourceStreamParams,
+  TResourcesByTagParams,
+} from './resource.types';
 
 const PREFIX = 'v0/resource';
 const STREAM_PREFIX = 'v0/stream/resources';
@@ -19,5 +24,15 @@ export const resourceApi = {
     buildUrlWithQuery({
       baseRoute: `${PREFIX}/by-uri`,
       params: { uri, ...params },
+    }),
+  stream: (params: TResourceStreamParams) =>
+    buildUrlWithQuery({
+      baseRoute: STREAM_PREFIX,
+      params,
+    }),
+  streamIds: (params: TResourceStreamParams) =>
+    buildUrlWithQuery({
+      baseRoute: `${STREAM_PREFIX}/ids`,
+      params,
     }),
 };

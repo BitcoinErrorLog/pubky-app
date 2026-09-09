@@ -23,6 +23,26 @@ export type NexusResourceTagsResponse = {
   tags: NexusTagDetails[];
 };
 
+export type NexusResourceKeyStream = {
+  resource_ids: string[];
+  last_score: number | null;
+};
+
+export type NexusResourcePage = {
+  resources: NexusResource[];
+  lastScore: number | null;
+};
+
+export type TResourceStreamParams = {
+  app?: string;
+  tags?: string;
+  limit?: number;
+  skip?: number;
+  sorting?: 'timeline' | 'taggers_count';
+  start?: number;
+  end?: number;
+};
+
 export type TResourcesByTagParams = {
   tag: string;
   limit?: number;
