@@ -86,6 +86,15 @@ describe('bip84-preview', () => {
   });
 
   describe('accountKeyFingerprint', () => {
+    it('pins the published BIP84 account-0 mainnet vector fingerprint (server contract §B.6)', () => {
+      // The canonical 78 bytes (xpub version) of the published BIP84 account-0
+      // key — the same bytes the claim endpoint stores after zpub→xpub
+      // normalization. This hex must match paykit-server's key_fingerprint
+      // test vector; a change on either side fails one of the two suites.
+      const account = deriveBip84Account(BIP84_TEST_MNEMONIC, 0, 0);
+      expect(accountKeyFingerprint(account.payload)).toBe('cd39879b3b166485');
+    });
+
     it('is the hex of the first 8 bytes of SHA-256 over the canonical 78 bytes', () => {
       const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
       const fingerprint = accountKeyFingerprint(account.payload);
