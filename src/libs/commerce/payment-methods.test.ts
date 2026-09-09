@@ -4,6 +4,7 @@ import {
   isPlausibleAccountXpub,
   isStripePaymentLink,
   isStripeRestrictedKey,
+  sellerPaymentConfigSchema,
 } from './payment-methods';
 
 const TPUB =
@@ -15,20 +16,60 @@ describe('payment-methods', () => {
       expect(
         availablePaymentMethods({
           bitcoinAvailable: true,
+          bitcoinOfferAvailable: true,
           stripePaymentLink: 'https://buy.stripe.com/test_abc',
           paypalMerchantEmail: 'seller@example.com',
         }),
       ).toEqual(['bitcoin', 'stripe', 'paypal']);
       expect(
-        availablePaymentMethods({ bitcoinAvailable: false, stripePaymentLink: null, paypalMerchantEmail: null }),
+        availablePaymentMethods({
+          bitcoinAvailable: false,
+          bitcoinOfferAvailable: true,
+          stripePaymentLink: null,
+          paypalMerchantEmail: null,
+        }),
       ).toEqual([]);
       expect(
         availablePaymentMethods({
           bitcoinAvailable: false,
+          bitcoinOfferAvailable: true,
           stripePaymentLink: null,
           paypalMerchantEmail: 'seller@example.com',
         }),
       ).toEqual(['paypal']);
+    });
+
+    it('defaults an absent Bitcoin offer gate to available for older services', () => {
+      const config = sellerPaymentConfigSchema.parse({
+        bitcoinAvailable: true,
+        stripePaymentLink: null,
+        paypalMerchantEmail: null,
+      });
+
+      expect(config.bitcoinOfferAvailable).toBe(true);
+      expect(availablePaymentMethods(config)).toEqual(['bitcoin']);
+    });
+
+    it('omits Bitcoin when the rail-wide offer gate is off', () => {
+      const config = sellerPaymentConfigSchema.parse({
+        bitcoinAvailable: true,
+        bitcoinOfferAvailable: false,
+        stripePaymentLink: null,
+        paypalMerchantEmail: null,
+      });
+
+      expect(availablePaymentMethods(config)).toEqual([]);
+    });
+
+    it('keeps Bitcoin when the rail-wide offer gate is on', () => {
+      const config = sellerPaymentConfigSchema.parse({
+        bitcoinAvailable: true,
+        bitcoinOfferAvailable: true,
+        stripePaymentLink: null,
+        paypalMerchantEmail: null,
+      });
+
+      expect(availablePaymentMethods(config)).toEqual(['bitcoin']);
     });
   });
 

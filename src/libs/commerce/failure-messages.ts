@@ -32,6 +32,7 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   shippingRates: 'Shipping rates are unavailable.',
   shippingLabel: 'The shipping label could not be purchased.',
   paymentSettings: 'Payment settings are unavailable.',
+  bitcoinOfferUnavailable: 'Bitcoin is temporarily unavailable. Other payment methods are unaffected.',
   stripeKeyRemoval: 'The Stripe key could not be removed.',
   messagingStart: 'Could not start marketplace messaging.',
   messagingStorage: 'Messaging paused: storage protection unavailable',

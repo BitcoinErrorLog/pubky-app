@@ -19,6 +19,7 @@ export type PaymentMethodKind = 'bitcoin' | 'stripe' | 'paypal';
  */
 export const sellerPaymentConfigSchema = z.object({
   bitcoinAvailable: z.boolean(),
+  bitcoinOfferAvailable: z.boolean().optional().default(true),
   stripePaymentLink: z.url().nullable(),
   paypalMerchantEmail: z.email().nullable(),
 });
@@ -28,7 +29,7 @@ export type SellerPaymentConfig = z.infer<typeof sellerPaymentConfigSchema>;
 /** Methods the buyer can actually choose, in the order the UI renders them. */
 export function availablePaymentMethods(config: SellerPaymentConfig): PaymentMethodKind[] {
   const methods: PaymentMethodKind[] = [];
-  if (config.bitcoinAvailable) methods.push('bitcoin');
+  if (config.bitcoinAvailable && config.bitcoinOfferAvailable) methods.push('bitcoin');
   if (config.stripePaymentLink) methods.push('stripe');
   if (config.paypalMerchantEmail) methods.push('paypal');
   return methods;

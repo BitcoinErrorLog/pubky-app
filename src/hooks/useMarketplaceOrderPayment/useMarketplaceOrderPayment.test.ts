@@ -47,6 +47,7 @@ describe('useMarketplaceOrderPayment', () => {
   it('uses static copy when a payment action fails', async () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
       bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
       stripePaymentLink: null,
       paypalMerchantEmail: null,
     });

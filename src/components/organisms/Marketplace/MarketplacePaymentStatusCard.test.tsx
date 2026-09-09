@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
 import { createOrderFixture, createPaymentFixture } from '@/test/fixtures/commerce/orders';
 import { MarketplacePaymentStatusCard } from './MarketplacePaymentStatusCard';
 
@@ -19,15 +20,16 @@ vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => (
 }));
 
 vi.mock('@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment', () => ({
-  useMarketplaceOrderPayment: () => ({
+  useMarketplaceOrderPayment: vi.fn(() => ({
     availableMethods: null,
+    bitcoinOfferUnavailable: false,
     configError: null,
     pendingAction: null,
     bind: vi.fn(),
     verifyStripe: vi.fn(),
     markPaid: vi.fn(),
     confirmReceived: vi.fn(),
-  }),
+  })),
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
@@ -60,5 +62,34 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(screen.getByText(/Use this only if automatic confirmation fails/i)).toBeInTheDocument();
     expect(screen.getByText(/seller must verify your PayPal transaction ID before shipping/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /I.ve paid/ })).toBeInTheDocument();
+  });
+
+  it('explains when Bitcoin is temporarily unavailable while other methods remain available', () => {
+    vi.mocked(useMarketplaceOrderPayment).mockReturnValueOnce({
+      availableMethods: ['stripe'],
+      bitcoinOfferUnavailable: true,
+      configError: null,
+      pendingAction: null,
+      bind: vi.fn(),
+      verifyStripe: vi.fn(),
+      markPaid: vi.fn(),
+      confirmReceived: vi.fn(),
+    });
+
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment')}
+        payment={createPaymentFixture('awaiting_entitlement')}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByText('Bitcoin is temporarily unavailable. Other payment methods are unaffected.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Card \(Stripe\)/ })).toBeInTheDocument();
   });
 });

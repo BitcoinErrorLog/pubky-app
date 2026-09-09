@@ -19,6 +19,7 @@ import { type CommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceM
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksPayment } from '@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment';
 import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { type BuyerVisiblePaymentStatus, buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
@@ -221,6 +222,11 @@ export function MarketplacePaymentStatusCard({
             </Typography>
           ) : (
             <>
+              {methodPayment.bitcoinOfferUnavailable && (
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  {MARKETPLACE_FAILURE_MESSAGES.bitcoinOfferUnavailable}
+                </Typography>
+              )}
               <Typography as="p" className="text-sm text-muted-foreground">
                 Choose how to pay. Every method pays the seller directly — this marketplace never holds funds. The item
                 is reserved for you only once a payment starts, and the reservation lapses if the payment isn&rsquo;t

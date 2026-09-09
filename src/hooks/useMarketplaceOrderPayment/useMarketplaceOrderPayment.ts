@@ -123,6 +123,7 @@ export function useMarketplaceOrderPayment({
 
   return {
     availableMethods: sellerConfig ? availablePaymentMethods(sellerConfig) : null,
+    bitcoinOfferUnavailable: sellerConfig?.bitcoinAvailable === true && sellerConfig.bitcoinOfferAvailable === false,
     configError,
     pendingAction,
     bind,
