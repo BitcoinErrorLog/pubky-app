@@ -5,7 +5,9 @@
  * a collection item since 0.6.2-marketplace.2.
  */
 
-const LISTING_URI_PATTERN = /^pubky:\/\/([a-z0-9]{52})\/pub\/pubky\.app\/marketplace\/v1\/listings\/([0-9A-Z]{13})$/;
+import { commerceEntityIdSchema, commercePubkySchema } from './transaction-contracts';
+
+const LISTING_URI_PATTERN = /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/marketplace\/v1\/listings\/([^/]+)$/;
 
 export interface ListingUriRef {
   sellerPubky: string;
@@ -20,10 +22,13 @@ export interface ListingUriRef {
 export function parseListingUri(uri: string): ListingUriRef | null {
   const match = LISTING_URI_PATTERN.exec(uri);
   if (!match) return null;
+  if (!commercePubkySchema.safeParse(match[1]).success || !commerceEntityIdSchema.safeParse(match[2]).success) {
+    return null;
+  }
   return { sellerPubky: match[1], listingId: match[2] };
 }
 
 /** True when the URI is a canonical marketplace listing URI. */
 export function isListingUri(uri: string): boolean {
-  return LISTING_URI_PATTERN.test(uri);
+  return parseListingUri(uri) !== null;
 }
