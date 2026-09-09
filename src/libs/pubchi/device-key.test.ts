@@ -1,10 +1,17 @@
+import { Keypair } from '@synonymdev/pubky';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deletePubchiDatabase, getPubchiDatabase, resetPubchiDatabaseForTests } from '@/database/pubchi/pubchi';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
-import { getCurrentDeviceKey, loadOrGenerateDeviceKey, signWithDeviceKey, wipeDeviceKeysNotOwnedBy } from './device-key';
+import {
+  getCurrentDeviceKey,
+  loadOrGenerateDeviceKey,
+  signWithDeviceKey,
+  wipeDeviceKeysNotOwnedBy,
+} from './device-key';
+import { readPendingDelegationDeletes } from './pending-delegation-deletes';
 
-const OWNER = 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u';
+const OWNER = Keypair.random().publicKey.z32();
 
 describe('Pubchi device signer persistence', () => {
   afterEach(async () => {
@@ -36,6 +43,60 @@ describe('Pubchi device signer persistence', () => {
     process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
     resetRuntimeConfigForTests();
     expect(await getCurrentDeviceKey(OWNER, 1_800_000_000)).toBeUndefined();
+  });
+
+  it('queues an expiring key before deleting its Dexie row', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const created = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+    await getPubchiDatabase().deviceKeys.update(created.id, {
+      expires_at: 1_800_000_100,
+    });
+
+    await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+
+    expect(readPendingDelegationDeletes()).toEqual([{ owner: OWNER, signer: created.signer }]);
+    expect(await getPubchiDatabase().deviceKeys.get(created.id)).toBeUndefined();
+  });
+
+  it('keeps an expiring key when its pending-delete record cannot be persisted', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const created = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+    await getPubchiDatabase().deviceKeys.update(created.id, {
+      expires_at: 1_800_000_100,
+    });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+
+    try {
+      await expect(loadOrGenerateDeviceKey(OWNER, 1_800_000_000)).rejects.toThrow(
+        'Could not persist expiring Pubchi device deletion',
+      );
+      expect(await getPubchiDatabase().deviceKeys.get(created.id)).toBeDefined();
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it('keeps signer pointers distinct per owner and migrates the legacy pointer once', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const otherOwner = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+    const first = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+    const second = await loadOrGenerateDeviceKey(otherOwner, 1_800_000_000);
+
+    expect(localStorage.getItem(`pubchi.deviceSigner:${OWNER}`)).toBe(first.signer);
+    expect(localStorage.getItem(`pubchi.deviceSigner:${otherOwner}`)).toBe(second.signer);
+    expect(first.signer).not.toBe(second.signer);
+
+    localStorage.removeItem(`pubchi.deviceSigner:${OWNER}`);
+    localStorage.setItem('pubchi.deviceSigner', first.signer);
+    expect(await getCurrentDeviceKey(OWNER, 1_800_000_001)).toMatchObject({ signer: first.signer });
+    expect(localStorage.getItem(`pubchi.deviceSigner:${OWNER}`)).toBe(first.signer);
+    expect(localStorage.getItem('pubchi.deviceSigner')).toBeNull();
+    expect(await getCurrentDeviceKey(otherOwner, 1_800_000_001)).toMatchObject({ signer: second.signer });
   });
 
   it('rejects a fourth live device signer', async () => {

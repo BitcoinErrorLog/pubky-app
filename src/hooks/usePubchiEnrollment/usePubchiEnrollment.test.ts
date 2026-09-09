@@ -664,12 +664,15 @@ describe('usePubchiEnrollment', () => {
     expect(mocks.adopt).not.toHaveBeenCalled();
   });
 
-  it('calls cancel when the in-flight approval is declined', async () => {
+  it('ignores a late approval after cancellation', async () => {
     const cancel = vi.fn();
+    let resolveApproval!: (value: unknown) => void;
     mocks.reconcile.mockResolvedValue(undefined);
     mocks.getUrl.mockResolvedValue({
       authorizationUrl: 'pubkyauth://cap',
-      awaitApproval: new Promise(() => {}),
+      awaitApproval: new Promise((resolve) => {
+        resolveApproval = resolve;
+      }),
       cancelAuthFlow: cancel,
     });
     vi.spyOn(window, 'open').mockReturnValue(null);
@@ -685,6 +688,43 @@ describe('usePubchiEnrollment', () => {
       result.current.cancelReapproval();
     });
     expect(cancel).toHaveBeenCalled();
+
+    resolveApproval({ info: { publicKey: { z32: () => OWNER } } });
+    await act(async () => {
+      await expect(result.current.reapprove()).resolves.toBe(false);
+    });
     expect(mocks.adopt).not.toHaveBeenCalled();
+  });
+
+  it('does not toast when the approval flow is canceled on unmount', async () => {
+    let rejectApproval!: (error: Error) => void;
+    const cancel = vi.fn(() => {
+      const error = new Error('Auth flow canceled');
+      error.name = 'AuthFlowCanceled';
+      rejectApproval(error);
+    });
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: new Promise((_, reject) => {
+        rejectApproval = reject;
+      }),
+      cancelAuthFlow: cancel,
+    });
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result, unmount } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    let approval!: Promise<boolean>;
+    act(() => {
+      approval = result.current.reapprove();
+    });
+    await waitFor(() => expect(mocks.getUrl).toHaveBeenCalled());
+    unmount();
+
+    await act(async () => {
+      await expect(approval).resolves.toBe(false);
+    });
+    expect(mocks.toast).not.toHaveBeenCalled();
   });
 });

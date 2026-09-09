@@ -9,7 +9,7 @@ const SPKI_PREFIX_LENGTH = 12;
 const Z32_ALPHABET = 'ybndrfg8ejkmcpqxot1uwisza345h769';
 export const DEVICE_DELEGATION_MAX_SECONDS = 30 * 24 * 60 * 60;
 export const DEVICE_DELEGATION_REFRESH_SECONDS = 3 * 24 * 60 * 60;
-const CURRENT_DEVICE_SIGNER_KEY = 'pubchi.deviceSigner';
+const LEGACY_CURRENT_DEVICE_SIGNER_KEY = 'pubchi.deviceSigner';
 const DEVICE_MINT_LOCK = 'pubchi-device-mint';
 const deviceMintLocks = new Map<string, Promise<StoredDeviceKey>>();
 
@@ -54,7 +54,15 @@ export async function getDeviceKeys(owner: string): Promise<StoredDeviceKey[]> {
 
 export async function getCurrentDeviceKey(owner: string, now = Math.floor(Date.now() / 1000)) {
   const keys = await getDeviceKeys(owner);
-  const signer = typeof localStorage === 'undefined' ? undefined : localStorage.getItem(CURRENT_DEVICE_SIGNER_KEY);
+  if (typeof localStorage === 'undefined') return undefined;
+  const ownerKey = `pubchi.deviceSigner:${owner}`;
+  let signer = localStorage.getItem(ownerKey);
+  const legacySigner = localStorage.getItem(LEGACY_CURRENT_DEVICE_SIGNER_KEY);
+  if (!signer && legacySigner && keys.some((key) => key.signer === legacySigner)) {
+    localStorage.setItem(ownerKey, legacySigner);
+    localStorage.removeItem(LEGACY_CURRENT_DEVICE_SIGNER_KEY);
+    signer = legacySigner;
+  }
   return keys.find((key) => key.expires_at > now && key.signer === signer);
 }
 
@@ -112,7 +120,10 @@ async function mintDeviceKeyWithoutLock(owner: string, now: number): Promise<Sto
     expires_at: now + DEVICE_DELEGATION_MAX_SECONDS,
   };
   await getPubchiDatabase().deviceKeys.put(record);
-  if (typeof localStorage !== 'undefined') localStorage.setItem(CURRENT_DEVICE_SIGNER_KEY, record.signer);
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(`pubchi.deviceSigner:${owner}`, record.signer);
+    localStorage.removeItem(LEGACY_CURRENT_DEVICE_SIGNER_KEY);
+  }
   return record;
 }
 

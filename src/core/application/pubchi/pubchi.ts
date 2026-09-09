@@ -539,7 +539,9 @@ export class PubchiApplication {
       await HomeserverService.request({
         method: HttpMethod.DELETE,
         url: delegationUri(params.owner, device.signer),
-      }).catch(() => undefined);
+      }).catch(() => {
+        rememberPendingDelegationDeletes([{ owner: params.owner, signer: device.signer }]);
+      });
       await deleteDeviceKey(params.owner, device.signer).catch(() => undefined);
       throw Err.server(ServerErrorCode.INTERNAL_ERROR, error instanceof Error ? error.message : 'PUBCHI_BINDING_WRITE_FAILED', {
         service: ErrorService.Pubchi,

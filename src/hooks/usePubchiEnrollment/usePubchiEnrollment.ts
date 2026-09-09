@@ -11,6 +11,7 @@ import { getCurrentDeviceKey } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
+import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {
   type BackupConfirmationData,
@@ -349,7 +350,12 @@ export function usePubchiEnrollment() {
         }
       }
     } catch (error) {
-      if (approvalGenerationRef.current !== generation) return false;
+      if (
+        approvalGenerationRef.current !== generation ||
+        (error instanceof Error && error.name === AUTH_FLOW_CANCELED_ERROR_NAME)
+      ) {
+        return false;
+      }
       const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
       toast({ variant: 'error', title: message, dismissButton: true });
       return false;

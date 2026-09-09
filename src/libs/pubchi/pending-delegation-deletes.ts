@@ -1,5 +1,8 @@
 /**
  * Durable record of device delegations that still need a homeserver DELETE.
+ * Cross-tab read-modify-write is last-writer-wins on this single key by design:
+ * the bounded loss is one retry record, which can be re-derived from the
+ * homeserver delegation listing.
  * Survives `deletePubchiDatabase()` / sign-out so the next session of the
  * same owner can finish the job. Not a background queue — drained by
  * `PubchiApplication.unpublishKnownDelegations` while that owner has write

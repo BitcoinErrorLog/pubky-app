@@ -374,6 +374,33 @@ describe('PubchiApplication', () => {
     expect(error.context.rollbackError).toMatchObject({ message: 'rollback failed' });
   });
 
+  it('records the delegation before deleting its local key when rollback DELETE fails', async () => {
+    vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(undefined);
+    const signer = Keypair.random().publicKey.z32();
+    const keyPair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])) as CryptoKeyPair;
+    vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey').mockResolvedValue({
+      id: `${OWNER}:${signer}`,
+      owner: OWNER,
+      signer,
+      key: keyPair.privateKey,
+      created_at: 1,
+      expires_at: 2_000_000_000,
+    });
+    const deleteKeySpy = vi.spyOn(deviceKey, 'deleteDeviceKey').mockResolvedValue(undefined);
+    vi.spyOn(HomeserverService, 'request')
+      .mockRejectedValueOnce(notFoundError())
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('binding write failed'))
+      .mockRejectedValueOnce(new Error('delegation rollback failed'));
+
+    await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow(
+      'binding write failed',
+    );
+
+    expect(readPendingDelegationDeletes()).toEqual([{ owner: OWNER, signer }]);
+    expect(deleteKeySpy).toHaveBeenCalledWith(OWNER, signer);
+  });
+
   it('does not delete the local row when homeserver removal fails', async () => {
     const deleteSpy = vi.spyOn(LocalPubchiBindingService, 'delete');
     vi.spyOn(HomeserverService, 'request').mockRejectedValue(new Error('homeserver down'));
