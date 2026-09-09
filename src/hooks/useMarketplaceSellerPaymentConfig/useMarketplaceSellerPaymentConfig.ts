@@ -1,11 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getBitcoinNetwork } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
-  isPlausibleAccountXpub,
+  type AccountXpubRejectionReason,
   isStripePaymentLink,
   isStripeRestrictedKey,
+  normalizeAccountXpub,
+  parseBitcoinNetwork,
   type SellerPaymentConfigOwnView,
 } from '@/libs/commerce/payment-methods';
 import { getErrorMessage } from '@/libs/error/error.utils';
@@ -15,6 +18,26 @@ import { toast } from '@/molecules/Toaster/use-toast';
 type ClaimStatus = 'idle' | 'awaiting' | 'claimed' | 'error';
 
 type ClaimFlow = ReturnType<typeof CommerceController.beginPaykitClaimFlow>;
+
+/**
+ * Static seller-facing copy for each named xpub rejection. Never interpolate
+ * the pasted key into these strings (or anywhere else in the claim UI).
+ */
+const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason, string> = {
+  bitcoin_network_unconfigured:
+    'This deployment has no Bitcoin network configured, so a watch-only account cannot be claimed. Contact the operator.',
+  not_base58check: 'That does not look like an account xpub. Export the BIP84 account key from your wallet.',
+  unexpected_length: 'That does not look like an account xpub. Export the BIP84 account key from your wallet.',
+  invalid_checksum: 'That key fails its checksum — a character is mistyped. Export the BIP84 account key again.',
+  unrecognized_version_bytes:
+    'That is not a BIP84 native-segwit account key. Export the account xpub (xpub/zpub, or tpub/vpub on a test network).',
+  test_network_key_on_mainnet:
+    'That is a test-network key, but this deployment settles on Bitcoin mainnet. Export the mainnet account key.',
+  mainnet_key_on_test_network:
+    'That is a mainnet key, but this deployment settles on a test network. Export the test-network account key.',
+  deny_listed_key:
+    'That key is a publicly known test key — anyone can spend from it. Export your own account key from your wallet.',
+};
 
 /**
  * The seller's "Get paid" configuration: stored rails (loaded from the
@@ -142,9 +165,12 @@ export function useMarketplaceSellerPaymentConfig() {
   }, []);
 
   const startClaim = useCallback((accountXpub: string) => {
-    const trimmed = accountXpub.trim();
-    if (!isPlausibleAccountXpub(trimmed)) {
-      setClaimError('That does not look like an account xpub. Export the BIP84 account key from your wallet.');
+    // Validate against the configured network and normalize (zpub→xpub /
+    // vpub→tpub) BEFORE anything is sent: the claim submits the normalized
+    // xpub, never the raw paste. Unset/unrecognised network refuses the claim.
+    const normalized = normalizeAccountXpub(accountXpub, parseBitcoinNetwork(getBitcoinNetwork()));
+    if (!normalized.ok) {
+      setClaimError(CLAIM_REJECTION_COPY[normalized.reason]);
       setClaimStatus('error');
       return;
     }
@@ -155,7 +181,7 @@ export function useMarketplaceSellerPaymentConfig() {
 
     let flow: ClaimFlow;
     try {
-      flow = CommerceController.beginPaykitClaimFlow(trimmed);
+      flow = CommerceController.beginPaykitClaimFlow(normalized.xpub);
     } catch (error) {
       Logger.error('Failed to start the watch-only claim flow', { error });
       setClaimError(getErrorMessage(error));

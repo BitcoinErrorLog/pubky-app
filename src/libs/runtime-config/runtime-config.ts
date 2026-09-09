@@ -207,6 +207,13 @@ export const getLocksUrl = (): string => getRuntimeConfig().locksUrl;
 export const getPaykitSetupUrl = (): string => getRuntimeConfig().paykitSetupUrl;
 export const getCommerceAdapterMode = (): CommerceAdapterMode => getRuntimeConfig().commerceAdapterMode;
 export const getCommercePollIntervalMs = (): number => getRuntimeConfig().commercePollIntervalMs;
+/**
+ * Raw `PUBKY_RUNTIME_BITCOIN_NETWORK` value. May be undefined or unrecognised —
+ * parse it with `parseBitcoinNetwork` (`@/libs/commerce/payment-methods`) at the
+ * point of use, which treats anything but `mainnet`/`testnet`/`regtest` as
+ * unconfigured so the claim flow refuses with a named reason.
+ */
+export const getBitcoinNetwork = (): string | undefined => getRuntimeConfig().bitcoinNetwork;
 export const getSingleApprovalSignIn = (): boolean => getRuntimeConfig().singleApprovalSignIn;
 export const getPreludeSdkKey = (): string | undefined => getRuntimeConfig().preludeSdkKey;
 export const getPreludeSdkTimeoutMs = (): number => getRuntimeConfig().preludeSdkTimeoutMs;

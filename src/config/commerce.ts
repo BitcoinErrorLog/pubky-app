@@ -1,4 +1,5 @@
 import {
+  getBitcoinNetwork,
   getCommerceAdapterMode,
   getCommercePollIntervalMs,
   getLocksUrl,
@@ -9,6 +10,7 @@ import type { CommerceAdapterMode } from '@/libs/runtime-config/runtime-config.s
 
 export {
   type CommerceAdapterMode,
+  getBitcoinNetwork,
   getCommerceAdapterMode,
   getCommercePollIntervalMs,
   getLocksUrl,

@@ -21,11 +21,3 @@ exports[`MarketplacePaymentSettings > saves the Stripe and PayPal rails with the
   ],
 ]
 `;
-
-exports[`MarketplacePaymentSettings > starts the watch-only claim with the pasted xpub, payload unchanged 1`] = `
-[
-  [
-    "zpubrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
-  ],
-]
-`;

@@ -323,6 +323,16 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
   commerceAdapterMode: commerceAdapterModeValue.default(APP_RUNTIME_DEFAULTS.commerceAdapterMode),
   commercePollIntervalMs: positiveIntValue.default(APP_RUNTIME_DEFAULTS.commercePollIntervalMs),
   /**
+   * The Bitcoin network the payment rails settle on (`PUBKY_RUNTIME_BITCOIN_NETWORK`:
+   * `mainnet` | `testnet` | `regtest`). Deliberately NOT an enum and NOT defaulted:
+   * an unset or unrecognised value must stay visible in the resolved config so the
+   * xpub claim flow can refuse with the named reason `bitcoin_network_unconfigured`
+   * instead of failing the whole config parse — the client never guesses a network
+   * (and never derives one from `PUBKY_RUNTIME_ENV` or `testnet`). Membership is
+   * checked at claim time by `parseBitcoinNetwork` in `@/libs/commerce/payment-methods`.
+   */
+  bitcoinNetwork: nonEmptyStringValue.optional(),
+  /**
    * Interim dual-POST ceremony (docs/ecommerce/single-approval.md). `false`
    * restores the previous two-prompt path: `awaitApproval()` sign-in plus the
    * empty-capability marketplace connect on first commerce. Runtime-rollback,
@@ -407,6 +417,7 @@ export const runtimeEnvInputSchema = z
     paykitSetupUrl: optionalUrlFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
+    bitcoinNetwork: optionalTrimmedString,
     singleApprovalSignIn: optionalBooleanFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
@@ -493,6 +504,7 @@ export const runtimeEnvInputSchemaWithDefaults = z
     paykitSetupUrl: optionalUrlFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
+    bitcoinNetwork: optionalTrimmedString,
     singleApprovalSignIn: optionalBooleanFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
@@ -571,6 +583,7 @@ export const PUBKY_RUNTIME_ENV_NAMES: Record<keyof RuntimeConfig, string> = {
   paykitSetupUrl: 'PUBKY_RUNTIME_PAYKIT_SETUP_URL',
   commerceAdapterMode: 'PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE',
   commercePollIntervalMs: 'PUBKY_RUNTIME_COMMERCE_POLL_INTERVAL_MS',
+  bitcoinNetwork: 'PUBKY_RUNTIME_BITCOIN_NETWORK',
   singleApprovalSignIn: 'PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN',
   preludeSdkKey: 'PUBKY_RUNTIME_PRELUDE_SDK_KEY',
   preludeSdkTimeoutMs: 'PUBKY_RUNTIME_PRELUDE_SDK_TIMEOUT_MS',

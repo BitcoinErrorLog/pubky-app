@@ -1,9 +1,11 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import type { SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
+import { encodeBase58Check, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
+import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import { BIP84_VERSION_BYTES, deriveBip84Account } from '@/test-utils/bip84';
 import { MarketplacePaymentSettings } from './MarketplacePaymentSettings';
 
 const view = vi.hoisted(() => ({
@@ -47,9 +49,29 @@ const EMPTY_CONFIG: SellerPaymentConfigOwnView = {
   updatedAt: '2026-08-22T12:00:00.000Z',
 };
 
-const PLAUSIBLE_XPUB = `zpub${'r'.repeat(107)}`;
+/**
+ * A real, valid, non-deny-listed BIP84 account key (derived from a public
+ * BIP39 vector mnemonic that is NOT the deny-listed `abandon … about` one):
+ * the wallet-export zpub form is pasted, the canonical xpub form is claimed.
+ */
+const NON_DENY_LISTED_MNEMONIC = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+const DERIVED_ACCOUNT = deriveBip84Account(NON_DENY_LISTED_MNEMONIC, 0, 0);
+const PASTED_ZPUB = encodeBase58Check(
+  (() => {
+    const payload = new Uint8Array(DERIVED_ACCOUNT.payload);
+    new DataView(payload.buffer).setUint32(0, BIP84_VERSION_BYTES.zpub, false);
+    return payload;
+  })(),
+);
+const NORMALIZED_XPUB = encodeBase58Check(DERIVED_ACCOUNT.payload);
+
+const BITCOIN_NETWORK_ENV = 'PUBKY_RUNTIME_BITCOIN_NETWORK';
 
 beforeEach(() => {
+  // The claim flow reads the network from runtime config: default this file to
+  // a mainnet deployment (tests that exercise the unconfigured path clear it).
+  process.env[BITCOIN_NETWORK_ENV] = 'mainnet';
+  resetRuntimeConfigForTests();
   view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
   mockedController.getMyPaymentConfig.mockReset().mockResolvedValue(EMPTY_CONFIG);
   mockedController.isOwnPaykitAccountClaimed.mockReset().mockResolvedValue(false);
@@ -75,6 +97,11 @@ beforeEach(() => {
       expiresAt: '2026-09-21T12:00:00.000Z',
     },
   });
+});
+
+afterEach(() => {
+  delete process.env[BITCOIN_NETWORK_ENV];
+  resetRuntimeConfigForTests();
 });
 
 async function renderSettings() {
@@ -227,15 +254,47 @@ describe('MarketplacePaymentSettings', () => {
     uuidSpy.mockRestore();
   });
 
-  it('starts the watch-only claim with the pasted xpub, payload unchanged', async () => {
+  it('starts the watch-only claim with the normalized xpub, never the raw paste', async () => {
     const user = userEvent.setup();
     await renderSettings();
 
     await user.click(screen.getByRole('button', { name: 'Technical details' }));
-    await user.type(screen.getByLabelText('Account xpub'), PLAUSIBLE_XPUB);
+    await user.type(screen.getByLabelText('Account xpub'), PASTED_ZPUB);
     await user.click(screen.getByRole('button', { name: 'Claim with signer' }));
 
+    // The pasted zpub is normalized to the canonical xpub before anything is sent.
     expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
-    expect(mockedController.beginPaykitClaimFlow.mock.calls).toMatchSnapshot();
+    expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledWith(NORMALIZED_XPUB);
+  });
+
+  it('refuses the claim with a named reason when no Bitcoin network is configured', async () => {
+    delete process.env[BITCOIN_NETWORK_ENV];
+    resetRuntimeConfigForTests();
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Technical details' }));
+    await user.type(screen.getByLabelText('Account xpub'), PASTED_ZPUB);
+    await user.click(screen.getByRole('button', { name: 'Claim with signer' }));
+
+    // bitcoin_network_unconfigured: nothing is submitted, and the copy is static.
+    expect(mockedController.beginPaykitClaimFlow).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/no Bitcoin network configured/).length).toBeGreaterThan(0);
+  });
+
+  it('rejects a deny-listed test-vector key before anything is sent', async () => {
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Technical details' }));
+    // The published BIP84 account-0 zpub — publicly known key material.
+    await user.type(
+      screen.getByLabelText('Account xpub'),
+      'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs',
+    );
+    await user.click(screen.getByRole('button', { name: 'Claim with signer' }));
+
+    expect(mockedController.beginPaykitClaimFlow).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/publicly known test key/).length).toBeGreaterThan(0);
   });
 });
