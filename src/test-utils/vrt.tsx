@@ -11,6 +11,7 @@ import type { VrtViewport } from './vrt.viewports';
 
 export interface RenderForVRTOptions {
   viewport: VrtViewport;
+  freezeMotion?: boolean;
 }
 
 export const VRT_ROOT_TESTID = 'vrt-root';
@@ -68,7 +69,11 @@ export async function matchVrtFrameScreenshot(name: string, options?: Screenshot
   await moveCursorToTopLeftCorner();
   await waitForImagesReady(document.documentElement);
   await waitForStableLayout(document.documentElement);
-  await expect(page.elementLocator(document.documentElement)).toMatchScreenshot(name, options);
+  try {
+    await expect(page.elementLocator(document.documentElement)).toMatchScreenshot(name, options);
+  } finally {
+    document.querySelectorAll('style[data-vrt-motion-freeze]').forEach((style) => style.remove());
+  }
 }
 
 interface VRTProvidersProps {
@@ -131,8 +136,35 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
     await waitForImagesReady(root);
     await waitForDynamicIconsReady(root);
     await waitForStableLayout(root);
+    if (options.freezeMotion) {
+      await freezeVrtMotion(root);
+    }
   }
   return screen;
+}
+
+async function freezeVrtMotion(root: Element) {
+  const style = document.createElement('style');
+  style.dataset.vrtMotionFreeze = 'true';
+  style.textContent = `
+    [data-testid="${VRT_ROOT_TESTID}"],
+    [data-testid="${VRT_ROOT_TESTID}"] * {
+      animation: none !important;
+      animation-delay: 0s !important;
+      animation-duration: 0s !important;
+      animation-iteration-count: 1 !important;
+      animation-play-state: paused !important;
+      transition: none !important;
+      transition-delay: 0s !important;
+      transition-duration: 0s !important;
+    }
+  `;
+  root.ownerDocument.head.appendChild(style);
+  void root.getBoundingClientRect();
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
 }
 
 async function waitForVrtFonts() {
