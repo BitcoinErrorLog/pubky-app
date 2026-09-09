@@ -335,7 +335,7 @@ export function MarketplaceOrderActions({
             <ControlledInputField
               name="transactionId"
               control={action.form.control}
-              label="External Bitcoin transaction evidence"
+              label={externalRefundReferenceLabel(order.paymentMethod)}
             />
           )}
           {['review', 'review_edit'].includes(actionType) && (
@@ -457,7 +457,7 @@ function MarketplaceStarRatingInput({ value, onChange }: { value: string; onChan
  */
 function reviewRecordStatus(record: CommerceReviewModelSchema | null): string {
   if (record === null) {
-    return 'Your review is saved with the marketplace service. No public record was published (this deployment issued no purchase attestation).';
+    return 'Your review is saved with the marketplace service. The public publication status will appear when its durable record is available.';
   }
   if (record.sync_status === 'pending') {
     return 'Your review is saved; publishing the public record to your homeserver is still pending and will retry.';
@@ -466,6 +466,19 @@ function reviewRecordStatus(record: CommerceReviewModelSchema | null): string {
     return `Verified purchase — your published review embeds a purchase attestation signed by attestor ${record.attestation_iss.slice(0, 8)}….`;
   }
   return 'Your review record is published, but its embedded attestation did not verify.';
+}
+
+function externalRefundReferenceLabel(paymentMethod: MarketplaceOrder['paymentMethod']): string {
+  switch (paymentMethod) {
+    case 'bitcoin':
+      return 'External Bitcoin transaction reference';
+    case 'paypal':
+      return 'PayPal transaction reference';
+    case 'stripe':
+      return 'Stripe payment reference';
+    default:
+      return 'External payment reference';
+  }
 }
 
 function actionTitle(action: MarketplaceOrderActionData['action'], isPickup = false): string {

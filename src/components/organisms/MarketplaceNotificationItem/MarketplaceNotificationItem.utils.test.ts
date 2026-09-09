@@ -6,10 +6,22 @@ describe('getMarketplaceNotificationActionText', () => {
     expect(getMarketplaceNotificationActionText({ type: 'auction_ended' })).toBe('ended an auction');
     expect(getMarketplaceNotificationActionText({ type: 'outbid' })).toBe('outbid you in an auction');
     expect(getMarketplaceNotificationActionText({ type: 'offer_received' })).toBe('sent you an offer');
+    expect(getMarketplaceNotificationActionText({ type: 'payment_confirmed' })).toBe(
+      'confirmed payment for an order',
+    );
     expect(getMarketplaceNotificationActionText({ type: 'order_delivery_assumed' })).toBe(
       'marked an order delivered automatically',
     );
     expect(getMarketplaceNotificationActionText({ type: 'order_completed' })).toBe('completed an order');
+  });
+
+  it('uses role-neutral payment copy for buyer and seller actors', () => {
+    const actionText = getMarketplaceNotificationActionText({ type: 'payment_confirmed' });
+
+    expect(`Buyer ${actionText}`).toBe('Buyer confirmed payment for an order');
+    expect(`Seller ${actionText}`).toBe('Seller confirmed payment for an order');
+    expect(actionText).not.toContain('receipt');
+    expect(actionText).not.toContain('paid for');
   });
 
   it('renders the local pickup copy (Wave 7, §A3/§A6)', () => {

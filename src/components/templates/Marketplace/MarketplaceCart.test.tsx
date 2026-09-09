@@ -299,7 +299,7 @@ describe('MarketplaceCart', () => {
     expect(screen.getByText('Film Camera Supply')).toBeInTheDocument();
     expect(screen.getAllByText('Seller subtotal')).toHaveLength(2);
     expect(screen.getAllByText('$12.00')).not.toHaveLength(0);
-    expect(screen.getAllByText('₿30,000')).toHaveLength(2);
+    expect(screen.getAllByText('₿30,000')).toHaveLength(3);
   });
 
   it('does not render a seller header for a single-seller cart', () => {

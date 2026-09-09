@@ -6,6 +6,7 @@ import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { ToastAction } from '@/atoms/Toast/Toast';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { commerceListingShippingMinor } from '@/libs/commerce/marketplace-records';
 import { sumMoneyByAsset } from '@/libs/commerce/pricing';
 import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -23,6 +24,36 @@ export interface MarketplaceCartGroup {
   sellerPubky: string;
   items: MarketplaceCartItem[];
   subtotals: ReturnType<typeof sumMoneyByAsset>;
+}
+
+export function marketplaceCartShippingTotals(
+  groups: MarketplaceCartGroup[],
+  fulfillmentForSeller: (sellerPubky: string) => 'shipping' | 'pickup' | undefined,
+): { totals: ReturnType<typeof sumMoneyByAsset>; hasCalculatedShipping: boolean } {
+  const shippingLines: Array<{ money: { amountMinor: number; currency: string; exponent: number }; quantity: number }> = [];
+  let hasCalculatedShipping = false;
+  for (const group of groups) {
+    if (fulfillmentForSeller(group.sellerPubky) !== 'shipping') continue;
+    for (const item of group.items) {
+      const options = item.listing.record.shippingOptions ?? [];
+      if (options.length === 0) continue;
+      const shippingMinor = commerceListingShippingMinor(options);
+      const option = options.find(
+        (candidate) =>
+          (candidate.pricing === 'flat' && candidate.price.amountMinor === shippingMinor) ||
+          (candidate.pricing === 'free' && shippingMinor === 0),
+      );
+      if (!option) {
+        hasCalculatedShipping = true;
+        continue;
+      }
+      const price = priceForCartItem(item);
+      if (price) {
+        shippingLines.push({ money: { ...price, amountMinor: shippingMinor }, quantity: 1 });
+      }
+    }
+  }
+  return { totals: sumMoneyByAsset(shippingLines), hasCalculatedShipping };
 }
 
 function priceForCartItem(item: MarketplaceCartItem) {
