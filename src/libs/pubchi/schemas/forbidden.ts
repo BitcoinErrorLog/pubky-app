@@ -107,8 +107,10 @@ function normalizeKey(key: string): string {
     .toLowerCase();
 }
 
+export const MAX_JSON_DEPTH = 64;
+
 export function scanForbidden(value: unknown): ParseResult<void> {
-  const code = walk(value);
+  const code = walk(value, 0);
   return code ? err(code) : ok(undefined);
 }
 
@@ -122,21 +124,23 @@ const SECRET_VALUE_PATTERNS = [
 export function scanForbiddenPublicState(value: unknown): ParseResult<void> {
   const forbidden = scanForbidden(value);
   if (!forbidden.ok) return forbidden;
-  return hasSecretLookingValue(value) ? err('FORBIDDEN_SECRET') : ok(undefined);
+  return hasSecretLookingValue(value, 0) ? err('FORBIDDEN_SECRET') : ok(undefined);
 }
 
-function hasSecretLookingValue(value: unknown): boolean {
+function hasSecretLookingValue(value: unknown, depth: number): boolean {
+  if (depth > MAX_JSON_DEPTH) return true;
   if (typeof value === 'string') return SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(value.trim()));
   if (value === null || typeof value !== 'object') return false;
-  if (Array.isArray(value)) return value.some(hasSecretLookingValue);
-  return Object.values(value as Record<string, unknown>).some(hasSecretLookingValue);
+  if (Array.isArray(value)) return value.some((item) => hasSecretLookingValue(item, depth + 1));
+  return Object.values(value as Record<string, unknown>).some((child) => hasSecretLookingValue(child, depth + 1));
 }
 
-function walk(value: unknown): ErrorCode | undefined {
+function walk(value: unknown, depth: number): ErrorCode | undefined {
+  if (depth > MAX_JSON_DEPTH) return 'SCHEMA_INVALID';
   if (value === null || typeof value !== 'object') return undefined;
   if (Array.isArray(value)) {
     for (const item of value) {
-      const hit = walk(item);
+      const hit = walk(item, depth + 1);
       if (hit) return hit;
     }
     return undefined;
@@ -144,7 +148,7 @@ function walk(value: unknown): ErrorCode | undefined {
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     const mapped = KEY_TO_CODE.get(normalizeKey(key));
     if (mapped) return mapped;
-    const nested = walk(child);
+    const nested = walk(child, depth + 1);
     if (nested) return nested;
   }
   return undefined;

@@ -298,6 +298,23 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.DISPLAY_NAME]?.message).toBe('Enter a name.');
   });
 
+  it('rejects secret-shaped names with the public-state message', async () => {
+    mocks.reconcile.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    void result.current.form.formState.errors;
+    await act(async () => {
+      result.current.form.setValue(ENROLL_FORM_FIELDS.DISPLAY_NAME, 'sk-abcdefghijklmnop');
+      await expect(result.current.submit()).resolves.toBe(false);
+    });
+
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(result.current.form.formState.errors[ENROLL_FORM_FIELDS.DISPLAY_NAME]?.message).toBe(
+      'That looks like a secret or recovery phrase. Bot state is public — choose something else.',
+    );
+  });
+
   it('does not ask a root /:rw session to re-approve Ring', async () => {
     mocks.capabilities = ['/:rw'];
     mocks.reconcile.mockResolvedValue(undefined);

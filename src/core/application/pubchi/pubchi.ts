@@ -30,6 +30,7 @@ import {
 import {
   bodySha256,
   botUri,
+  DEFAULT_SEND_PUBLIC_WEB_CONTEXT,
   delegationUri,
   type DeviceDelegationV1,
   isPubkyId,
@@ -974,7 +975,7 @@ function defaultPubchiConfig(owner: string, bot: string, now: number): PubchiCon
       model_id: 'kimi-k3',
       endpoint: null,
       send_public_graph_context: true,
-      send_public_web_context: false,
+      send_public_web_context: DEFAULT_SEND_PUBLIC_WEB_CONTEXT,
     },
   };
 }

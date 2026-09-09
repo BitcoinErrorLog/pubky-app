@@ -3,6 +3,8 @@ import { err, ok, type ParseResult } from './codes';
 import { scanForbiddenPublicState } from './forbidden';
 import { fromZod, zPubky, zUnix, zVersion1 } from './zod';
 
+export const DEFAULT_SEND_PUBLIC_WEB_CONTEXT = false;
+
 const topicLabel = z
   .string()
   .trim()
@@ -24,6 +26,12 @@ const brainSchema = z
   })
   .strict()
   .superRefine((brain, context) => {
+    if (brain.endpoint !== null) {
+      const endpoint = new URL(brain.endpoint);
+      if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['endpoint'], message: 'SCHEMA_INVALID' });
+      }
+    }
     if (brain.execution === 'synonym-hosted' && brain.endpoint !== null) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['endpoint'], message: 'SCHEMA_INVALID' });
     }

@@ -1,11 +1,19 @@
 import { z } from 'zod';
+import { scanForbiddenPublicState } from '@/libs/pubchi/schemas';
 
 export const ENROLL_FORM_FIELDS = {
   DISPLAY_NAME: 'displayName',
 } as const;
 
 export const enrollPubchiFormSchema = z.object({
-  [ENROLL_FORM_FIELDS.DISPLAY_NAME]: z.string().trim().min(1, 'Enter a name.').max(40, 'Use 40 characters or fewer.'),
+  [ENROLL_FORM_FIELDS.DISPLAY_NAME]: z
+    .string()
+    .trim()
+    .min(1, 'Enter a name.')
+    .max(40, 'Use 40 characters or fewer.')
+    .refine((value) => scanForbiddenPublicState(value).ok, {
+      message: 'That looks like a secret or recovery phrase. Bot state is public — choose something else.',
+    }),
 });
 
 export type EnrollPubchiFormData = z.infer<typeof enrollPubchiFormSchema>;

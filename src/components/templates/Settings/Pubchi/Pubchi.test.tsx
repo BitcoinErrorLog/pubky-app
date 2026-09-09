@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PUBCHI_SETTINGS_SURFACE, PubchiSettings } from './Pubchi';
+import { PUBCHI_SETTINGS_SURFACE, PubchiSettings, saveBrain } from './Pubchi';
 
 const hookState = vi.hoisted(() => ({
   form: { control: {} },
@@ -66,5 +66,24 @@ describe('PubchiSettings', () => {
     expect(screen.getByTestId('pubchi-create')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
     expect(hookState.reapprove).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the default public web context disabled on the first brain save', async () => {
+    const saveConfig = vi.fn().mockResolvedValue(undefined);
+
+    await saveBrain(
+      {
+        execution: 'synonym-hosted',
+        provider_id: 'moonshot',
+        model_id: 'kimi-k3',
+        endpoint: null,
+      },
+      null,
+      saveConfig,
+    );
+
+    expect(saveConfig).toHaveBeenCalledWith({
+      brain: expect.objectContaining({ send_public_web_context: false }),
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { err, ok, type ParseResult } from './codes';
-import { scanForbidden } from './forbidden';
+import { scanForbiddenPublicState } from './forbidden';
 import { fromZod, zPubky, zUnix, zVersion1 } from './zod';
 
 export const PubchiBotV1Schema = z
@@ -20,7 +20,7 @@ export const PubchiBotV1Schema = z
 export type PubchiBotV1 = z.infer<typeof PubchiBotV1Schema>;
 
 export function parsePubchiBotV1(input: unknown): ParseResult<PubchiBotV1> {
-  const forbidden = scanForbidden(input);
+  const forbidden = scanForbiddenPublicState(input);
   if (!forbidden.ok) return err(forbidden.code);
   const parsed = fromZod(PubchiBotV1Schema, input);
   return parsed.ok ? ok(parsed.value) : parsed;

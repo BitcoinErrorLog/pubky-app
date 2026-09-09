@@ -16,7 +16,7 @@ import {
 import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
 import { effectiveTier, effectiveTierReason } from '@/libs/pubchi/effective-tier';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
-import type { PubchiConfigV1 } from '@/libs/pubchi/schemas';
+import { DEFAULT_SEND_PUBLIC_WEB_CONTEXT, type PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { SettingsSectionCard } from '@/molecules/Settings/SettingsSectionCard/SettingsSectionCard';
 import { toast } from '@/molecules/Toaster/toast';
@@ -278,7 +278,7 @@ async function saveTier(
   }
 }
 
-async function saveBrain(
+export async function saveBrain(
   brain: PubchiBrainChoice,
   config: PubchiConfigV1 | null | undefined,
   saveConfig: (partial: Partial<PubchiConfigV1>) => Promise<PubchiConfigV1 | undefined>,
@@ -292,7 +292,7 @@ async function saveBrain(
         model_id: brain.execution === 'synonym-hosted' ? 'kimi-k3' : brain.model_id,
         endpoint: brain.execution === 'synonym-hosted' ? null : brain.endpoint,
         send_public_graph_context: config?.brain.send_public_graph_context ?? true,
-        send_public_web_context: config?.brain.send_public_web_context ?? true,
+        send_public_web_context: config?.brain.send_public_web_context ?? DEFAULT_SEND_PUBLIC_WEB_CONTEXT,
       },
     });
     toast({ variant: 'default', title: 'Brain saved', dismissButton: true });

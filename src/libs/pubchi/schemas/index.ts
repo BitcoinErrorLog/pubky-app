@@ -19,7 +19,12 @@ export {
 } from './bot';
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
 export { err, ERROR_CODES, type ErrorCode, ok, type ParseErr, type ParseOk, type ParseResult } from './codes';
-export { parsePubchiConfigV1, type PubchiConfigV1,PubchiConfigV1Schema } from './config';
+export {
+  DEFAULT_SEND_PUBLIC_WEB_CONTEXT,
+  parsePubchiConfigV1,
+  type PubchiConfigV1,
+  PubchiConfigV1Schema,
+} from './config';
 export {
   delegationPath,
   delegationUri,
