@@ -1,7 +1,8 @@
 import { getPubchiDatabase } from '@/database/pubchi/pubchi';
-import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { DatabaseErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { rememberPendingDelegationDeletes } from './pending-delegation-deletes';
 import { bytesToHex } from './schemas/canonical';
 
 const SPKI_PREFIX_LENGTH = 12;
@@ -83,7 +84,15 @@ async function mintDeviceKey(owner: string, now: number): Promise<StoredDeviceKe
 async function mintDeviceKeyWithoutLock(owner: string, now: number): Promise<StoredDeviceKey> {
   const current = await getCurrentDeviceKey(owner, now);
   if (current && current.expires_at - now > DEVICE_DELEGATION_REFRESH_SECONDS) return current;
-  if (current) await getPubchiDatabase().deviceKeys.delete(current.id);
+  if (current) {
+    if (!rememberPendingDelegationDeletes([{ owner, signer: current.signer }])) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Could not persist expiring Pubchi device deletion', {
+        service: ErrorService.Pubchi,
+        operation: 'loadOrGenerateDeviceKey',
+      });
+    }
+    await getPubchiDatabase().deviceKeys.delete(current.id);
+  }
 
   const live = (await getDeviceKeys(owner)).filter((key) => key.expires_at > now);
   if (live.length >= 3) {

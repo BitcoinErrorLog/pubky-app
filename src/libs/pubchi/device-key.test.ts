@@ -60,7 +60,6 @@ describe('Pubchi device signer persistence', () => {
     resetRuntimeConfigForTests();
     const request = vi.fn(async (_name: string, callback: () => Promise<unknown>) => callback());
     Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } });
-
     try {
       await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
       expect(request).toHaveBeenCalledWith('pubchi-device-mint', expect.any(Function));

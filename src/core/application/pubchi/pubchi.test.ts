@@ -360,6 +360,20 @@ describe('PubchiApplication', () => {
     expect(deleteSpy).toHaveBeenCalledWith(OWNER, BOT);
   });
 
+  it('keeps the original write failure when local rollback also fails', async () => {
+    vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(undefined);
+    vi.spyOn(LocalPubchiBindingService, 'delete').mockRejectedValue(new Error('rollback failed'));
+    const original = new Error('homeserver down');
+    vi.spyOn(HomeserverService, 'request')
+      .mockRejectedValueOnce(notFoundError())
+      .mockRejectedValue(original);
+
+    const error = await PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT }).catch((value) => value);
+
+    expect(error).toMatchObject({ message: 'homeserver down', cause: original });
+    expect(error.context.rollbackError).toMatchObject({ message: 'rollback failed' });
+  });
+
   it('does not delete the local row when homeserver removal fails', async () => {
     const deleteSpy = vi.spyOn(LocalPubchiBindingService, 'delete');
     vi.spyOn(HomeserverService, 'request').mockRejectedValue(new Error('homeserver down'));

@@ -37,39 +37,63 @@ function capFifo(items: PendingDelegationDelete[]): PendingDelegationDelete[] {
   return uniqueItems.slice(uniqueItems.length - PENDING_DELEGATION_DELETES_MAX);
 }
 
-export function readPendingDelegationDeletes(): PendingDelegationDelete[] {
+function readStore(): Map<string, PendingDelegationDelete[]> {
+  const raw = localStorage.getItem(PENDING_DELEGATION_DELETES_KEY);
+  if (!raw) return new Map();
+  const parsed: unknown = JSON.parse(raw);
+  const store = new Map<string, PendingDelegationDelete[]>();
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      const entry = parsePendingEntry(item);
+      if (entry) store.set(entry.owner, [...(store.get(entry.owner) ?? []), entry]);
+    }
+    return store;
+  }
+  if (parsed === null || typeof parsed !== 'object') return store;
+  for (const [owner, items] of Object.entries(parsed)) {
+    if (!Array.isArray(items)) continue;
+    const valid = items.flatMap((item) => {
+      const entry = parsePendingEntry(item);
+      return entry?.owner === owner ? [entry] : [];
+    });
+    if (valid.length) store.set(owner, capFifo(valid));
+  }
+  return store;
+}
+
+export function readPendingDelegationDeletes(owner?: string): PendingDelegationDelete[] {
   if (!canUseLocalStorage()) return [];
   try {
     const raw = localStorage.getItem(PENDING_DELEGATION_DELETES_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item) => {
-      const entry = parsePendingEntry(item);
-      return entry ? [entry] : [];
-    });
+    const store = readStore();
+    if (raw?.trimStart().startsWith('[')) {
+      localStorage.setItem(PENDING_DELEGATION_DELETES_KEY, JSON.stringify(Object.fromEntries(store)));
+    }
+    return owner ? [...(store.get(owner) ?? [])] : [...store.values()].flat();
   } catch {
     return [];
   }
 }
 
-export function writePendingDelegationDeletes(items: PendingDelegationDelete[]): void {
-  if (!canUseLocalStorage()) return;
-  const next = capFifo(
-    items.flatMap((item) => {
-      const entry = parsePendingEntry(item);
-      return entry ? [entry] : [];
-    }),
-  );
+export function writePendingDelegationDeletes(items: PendingDelegationDelete[]): boolean {
+  if (!canUseLocalStorage()) return false;
   try {
+    const byOwner = new Map<string, PendingDelegationDelete[]>();
+    for (const item of items) {
+      const entry = parsePendingEntry(item);
+      if (entry) byOwner.set(entry.owner, [...(byOwner.get(entry.owner) ?? []), entry]);
+    }
+    const next = Object.fromEntries([...byOwner].map(([owner, ownerItems]) => [owner, capFifo(ownerItems)]));
     localStorage.setItem(PENDING_DELEGATION_DELETES_KEY, JSON.stringify(next));
+    return true;
   } catch (error) {
     Logger.warn('Pubchi pending delegation deletes persist failed', { error });
+    return false;
   }
 }
 
-export function rememberPendingDelegationDeletes(items: PendingDelegationDelete[]): void {
-  writePendingDelegationDeletes([...readPendingDelegationDeletes(), ...items]);
+export function rememberPendingDelegationDeletes(items: PendingDelegationDelete[]): boolean {
+  return writePendingDelegationDeletes([...readPendingDelegationDeletes(), ...items]);
 }
 
 /**
@@ -111,5 +135,13 @@ export function rememberPendingDelegationDeletesPreservingOwner(
 }
 
 export function replacePendingDelegationDeletesForOwner(owner: string, failed: PendingDelegationDelete[]): void {
-  writePendingDelegationDeletes([...readPendingDelegationDeletes().filter((item) => item.owner !== owner), ...failed]);
+  if (!canUseLocalStorage()) return;
+  try {
+    const store = readStore();
+    const next = Object.fromEntries(store);
+    next[owner] = capFifo(failed.filter((item) => item.owner === owner));
+    localStorage.setItem(PENDING_DELEGATION_DELETES_KEY, JSON.stringify(next));
+  } catch (error) {
+    Logger.warn('Pubchi pending delegation deletes persist failed', { error });
+  }
 }

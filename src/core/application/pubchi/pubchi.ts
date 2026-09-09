@@ -1,5 +1,5 @@
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, ClientErrorCode, TimeoutErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { hasHttpStatus } from '@/libs/error/error.utils';
@@ -530,13 +530,23 @@ export class PubchiApplication {
         bodyJson: parsed.value,
       });
     } catch (error) {
-      await rollbackBindingWrite(params, existing);
+      let rollbackError: unknown;
+      try {
+        await rollbackBindingWrite(params, existing);
+      } catch (rollbackFailure) {
+        rollbackError = rollbackFailure;
+      }
       await HomeserverService.request({
         method: HttpMethod.DELETE,
         url: delegationUri(params.owner, device.signer),
       }).catch(() => undefined);
       await deleteDeviceKey(params.owner, device.signer).catch(() => undefined);
-      throw error;
+      throw Err.server(ServerErrorCode.INTERNAL_ERROR, error instanceof Error ? error.message : 'PUBCHI_BINDING_WRITE_FAILED', {
+        service: ErrorService.Pubchi,
+        operation: 'commitCreateBinding',
+        cause: error,
+        context: { rollbackError },
+      });
     }
 
     return parsed.value;
@@ -1201,7 +1211,7 @@ function sessionCanWritePubchi(owner: string): boolean {
 }
 
 function ownerPending(owner: string): PendingDelegationDelete[] {
-  return readPendingDelegationDeletes().filter((item) => item.owner === owner);
+  return readPendingDelegationDeletes(owner);
 }
 
 function dedupePending(items: PendingDelegationDelete[]): PendingDelegationDelete[] {

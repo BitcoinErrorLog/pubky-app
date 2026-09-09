@@ -608,6 +608,36 @@ describe('HomeserverService', () => {
         }
       });
 
+      it('should not adopt approval that resolves after cancellation', async () => {
+        vi.useFakeTimers();
+        try {
+          let resolvePoll!: (value: ReturnType<typeof createMockSession>) => void;
+          const tryPollOnce = vi.fn(
+            () =>
+              new Promise((resolve) => {
+                resolvePoll = resolve;
+              }),
+          );
+          const free = vi.fn();
+          mockState.startAuthFlow.mockReturnValue({
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce,
+            free,
+          });
+
+          const result = await HomeserverService.generateAuthUrl();
+          const approvalPromise = result.awaitApproval;
+          await vi.advanceTimersByTimeAsync(0);
+          result.cancelAuthFlow();
+          resolvePoll(createMockSession());
+
+          await expect(approvalPromise).rejects.toMatchObject({ name: 'AuthFlowCanceled' });
+          expect(free).toHaveBeenCalledOnce();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it('should reject with SESSION_EXPIRED when tryPollOnce throws (SDK exhausted its retry budget)', async () => {
         vi.useFakeTimers();
         try {

@@ -39,8 +39,11 @@ export function usePubchiEnrollment() {
   const [currentSigner, setCurrentSigner] = useState<string | undefined>(undefined);
   const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info.capabilities ?? []);
   const approvalCancelRef = useRef<(() => void) | null>(null);
+  const approvalFlowRef = useRef<Promise<boolean> | null>(null);
+  const approvalGenerationRef = useRef(0);
 
   const cancelReapproval = () => {
+    approvalGenerationRef.current += 1;
     approvalCancelRef.current?.();
     approvalCancelRef.current = null;
   };
@@ -316,13 +319,17 @@ export function usePubchiEnrollment() {
   };
 
   const reapprove = async (): Promise<boolean> => {
-    cancelReapproval();
-    try {
+    if (approvalFlowRef.current) return approvalFlowRef.current;
+    const generation = approvalGenerationRef.current;
+    let flow!: Promise<boolean>;
+    flow = (async (): Promise<boolean> => {
+      try {
       const { authorizationUrl, awaitApproval, cancelAuthFlow } = await PubchiController.getCapabilityApprovalUrl();
       approvalCancelRef.current = cancelAuthFlow;
       window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
       try {
         const approved = await awaitApproval;
+        if (approvalGenerationRef.current !== generation || approvalFlowRef.current !== flow) return false;
         await PubchiController.adoptCapabilityApproval(approved);
         await PubchiController.ensureDeviceReady();
         setDevices(await PubchiController.listDeviceKeys());
@@ -342,11 +349,16 @@ export function usePubchiEnrollment() {
         }
       }
     } catch (error) {
-      cancelReapproval();
+      if (approvalGenerationRef.current !== generation) return false;
       const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
       toast({ variant: 'error', title: message, dismissButton: true });
       return false;
-    }
+      } finally {
+        if (approvalFlowRef.current === flow) approvalFlowRef.current = null;
+      }
+    })();
+    approvalFlowRef.current = flow;
+    return flow;
   };
 
   return {

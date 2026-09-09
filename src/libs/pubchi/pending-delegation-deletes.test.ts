@@ -17,11 +17,11 @@ function z32(): string {
 
 describe('pending delegation deletes', () => {
   beforeEach(() => {
-    localStorage.removeItem(PENDING_DELEGATION_DELETES_KEY);
+    localStorage.clear();
   });
 
   afterEach(() => {
-    localStorage.removeItem(PENDING_DELEGATION_DELETES_KEY);
+    localStorage.clear();
     vi.restoreAllMocks();
   });
 
@@ -39,7 +39,7 @@ describe('pending delegation deletes', () => {
     expect(read.every((item) => item.signer !== '../../foo')).toBe(true);
     expect(read).toHaveLength(1);
     expect(read[0]?.owner).toBe(owner);
-    expect(localStorage.getItem(PENDING_DELEGATION_DELETES_KEY)).toContain('../../foo');
+    expect(localStorage.getItem(PENDING_DELEGATION_DELETES_KEY)).not.toContain('../../foo');
   });
 
   it('evicts the oldest entries once the list exceeds the cap and keeps the newest', () => {
@@ -51,6 +51,21 @@ describe('pending delegation deletes', () => {
     expect(read).toHaveLength(PENDING_DELEGATION_DELETES_MAX);
     expect(read.some((item) => item.signer === signers[0])).toBe(false);
     expect(read.some((item) => item.signer === signers[signers.length - 1])).toBe(true);
+  });
+
+  it('evicts entries per identity without evicting another identity', () => {
+    const ownerA = z32();
+    const ownerB = z32();
+    const ownerASigners = Array.from({ length: PENDING_DELEGATION_DELETES_MAX + 1 }, () => z32());
+    const ownerBSigner = z32();
+    writePendingDelegationDeletes([
+      ...ownerASigners.map((signer) => ({ owner: ownerA, signer })),
+      { owner: ownerB, signer: ownerBSigner },
+    ]);
+
+    expect(readPendingDelegationDeletes(ownerA)).toHaveLength(PENDING_DELEGATION_DELETES_MAX);
+    expect(readPendingDelegationDeletes(ownerA).some((item) => item.signer === ownerASigners[0])).toBe(false);
+    expect(readPendingDelegationDeletes(ownerB)).toEqual([{ owner: ownerB, signer: ownerBSigner }]);
   });
 
   it('treats malformed JSON as an empty list', () => {

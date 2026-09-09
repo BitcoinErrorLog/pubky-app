@@ -563,6 +563,37 @@ describe('usePubchiEnrollment', () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+  it('shares one in-flight approval when reapprove is called twice', async () => {
+    const session = { info: { publicKey: { z32: () => OWNER } } };
+    const cancel = vi.fn();
+    let resolveApproval!: (value: typeof session) => void;
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: new Promise((resolve) => {
+        resolveApproval = resolve;
+      }),
+      cancelAuthFlow: cancel,
+    });
+    mocks.adopt.mockResolvedValue(undefined);
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = result.current.reapprove();
+      second = result.current.reapprove();
+    });
+    await waitFor(() => expect(mocks.getUrl).toHaveBeenCalledOnce());
+    resolveApproval(session);
+
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
+    expect(mocks.adopt).toHaveBeenCalledOnce();
+  });
+
   it('adopts a narrower same-identity approval because it already replaced the browser cookie', async () => {
     const session = { info: { publicKey: { z32: () => OWNER } } };
     const cancel = vi.fn();

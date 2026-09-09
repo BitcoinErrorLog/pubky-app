@@ -189,6 +189,7 @@ export const createCancelableAuthApproval = (
 
       try {
         const maybeSession = await flow.tryPollOnce();
+        if (canceled) throw createCanceledError();
         if (maybeSession) return maybeSession;
       } catch (error) {
         if (canceled) throw createCanceledError();
