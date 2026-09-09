@@ -2,6 +2,7 @@ import { getPubchiDatabase } from '@/database/pubchi/pubchi';
 import { DatabaseErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { Logger } from '@/libs/logger/logger';
 import { rememberPendingDelegationDeletes } from './pending-delegation-deletes';
 import { bytesToHex } from './schemas/canonical';
 
@@ -59,8 +60,12 @@ export async function getCurrentDeviceKey(owner: string, now = Math.floor(Date.n
   let signer = localStorage.getItem(ownerKey);
   const legacySigner = localStorage.getItem(LEGACY_CURRENT_DEVICE_SIGNER_KEY);
   if (!signer && legacySigner && keys.some((key) => key.signer === legacySigner)) {
-    localStorage.setItem(ownerKey, legacySigner);
-    localStorage.removeItem(LEGACY_CURRENT_DEVICE_SIGNER_KEY);
+    try {
+      localStorage.setItem(ownerKey, legacySigner);
+      localStorage.removeItem(LEGACY_CURRENT_DEVICE_SIGNER_KEY);
+    } catch (error) {
+      Logger.warn('Pubchi device signer migration persist failed', { owner, error });
+    }
     signer = legacySigner;
   }
   return keys.find((key) => key.expires_at > now && key.signer === signer);
