@@ -19,13 +19,24 @@ const CLAIMED_BODY = {
   stack_id: 'proof:3f6f4b2a-0000-4000-8000-000000000000',
 };
 
+/** Mutable paykit setup URL the config mock serves (reset per test). */
+const runtimeMock = vi.hoisted(() => ({ paykitSetupUrl: 'http://localhost:3102/setup' }));
+vi.mock('@/config/commerce', () => ({
+  getPaykitSetupUrl: () => runtimeMock.paykitSetupUrl,
+}));
+
+/** Counts auth-token flows built, so refusal paths can prove none was. */
+const tokenFlowCalls = vi.hoisted(() => ({ count: 0 }));
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
-    generateAuthTokenFlow: () => ({
-      authorizationUrl: 'pubkyauth:///?relay=http%3A%2F%2Flocalhost%2Finbox&secret=s',
-      awaitToken: async () => ({ toBytes: () => new Uint8Array([1, 2, 3, 4]) }),
-      cancelAuthFlow: vi.fn(),
-    }),
+    generateAuthTokenFlow: () => {
+      tokenFlowCalls.count += 1;
+      return {
+        authorizationUrl: 'pubkyauth:///?relay=http%3A%2F%2Flocalhost%2Finbox&secret=s',
+        awaitToken: async () => ({ toBytes: () => new Uint8Array([1, 2, 3, 4]) }),
+        cancelAuthFlow: vi.fn(),
+      };
+    },
   },
 }));
 
@@ -58,6 +69,8 @@ async function claimAndReadRequestBody(accountXpub: string, accountIndex: number
 describe('MarketplacePaykitClaimService', () => {
   beforeEach(() => {
     vi.mocked(fetch).mockReset();
+    runtimeMock.paykitSetupUrl = 'http://localhost:3102/setup';
+    tokenFlowCalls.count = 0;
     // Err factories log; keep expected refusal logs out of the test output.
     vi.spyOn(Logger, 'error').mockImplementation(() => {});
   });
@@ -102,6 +115,69 @@ describe('MarketplacePaykitClaimService', () => {
     const flow = MarketplacePaykitClaimService.beginClaimFlow(tpub, 1);
     await expect(flow.awaitClaim()).rejects.toMatchObject({
       message: 'This key is already claimed by another seller on this stack.',
+    });
+  });
+
+  describe('insecure paykit origin (W1.8 F1: fail closed before any token or fetch)', () => {
+    const PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+
+    it('refuses an http:// non-loopback origin before any token is built or fetch is sent', () => {
+      runtimeMock.paykitSetupUrl = 'http://paykit.example/setup';
+
+      expect(() => MarketplacePaykitClaimService.beginClaimFlow(tpub, 1)).toThrow(
+        expect.objectContaining({
+          message:
+            'The Paykit server address is not a secure HTTPS origin, so Shop refused to send your approval to it. Contact the operator.',
+          context: { reason: 'paykit_origin_insecure' },
+        }),
+      );
+      // No claim token was ever built, and nothing was sent.
+      expect(tokenFlowCalls.count).toBe(0);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('refuses the Ring status flow the same way — no token built, no fetch sent', async () => {
+      runtimeMock.paykitSetupUrl = 'http://paykit.example/setup';
+
+      expect(() => MarketplacePaykitClaimService.beginClaimStatusFlow(PUBKY)).toThrow(
+        expect.objectContaining({ context: { reason: 'paykit_origin_insecure' } }),
+      );
+      expect(tokenFlowCalls.count).toBe(0);
+
+      // The authenticated status probe fails closed as `refused` too.
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it.each(['http://localhost:3102/setup', 'http://127.0.0.1:3102/setup', 'http://[::1]:3102/setup'])(
+      'allows the loopback dev origin %s',
+      async (setupUrl) => {
+        runtimeMock.paykitSetupUrl = setupUrl;
+        vi.mocked(fetch).mockResolvedValueOnce(claimedResponse(1));
+
+        const flow = MarketplacePaykitClaimService.beginClaimFlow(tpub, 1);
+        await flow.awaitClaim();
+
+        expect(tokenFlowCalls.count).toBe(1);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+        expect(url).toBe(`${new URL(setupUrl).origin}/v0/accounts/claim`);
+      },
+    );
+
+    it('allows an https:// origin', async () => {
+      runtimeMock.paykitSetupUrl = 'https://paykit.example/setup';
+      vi.mocked(fetch).mockResolvedValueOnce(claimedResponse(1));
+
+      const flow = MarketplacePaykitClaimService.beginClaimFlow(tpub, 1);
+      await flow.awaitClaim();
+
+      expect(tokenFlowCalls.count).toBe(1);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://paykit.example/v0/accounts/claim');
     });
   });
 

@@ -26,6 +26,7 @@ export type PaykitClaimErrorReason =
   | 'invalid_capabilities'
   | 'rate_limited'
   | 'session_unavailable'
+  | 'paykit_origin_insecure'
   | 'unavailable';
 
 /**
@@ -95,10 +96,6 @@ export interface PaykitClaimStatusFlow {
   cancel: () => void;
 }
 
-function paykitServerOrigin(): string {
-  return new URL(getPaykitSetupUrl()).origin;
-}
-
 function toBase64UrlNoPad(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -115,8 +112,37 @@ const CLAIM_FAILURE_MESSAGES: Record<PaykitClaimErrorReason, string> = {
   invalid_capabilities: 'The signer approval carried the wrong permissions. Start the claim again.',
   rate_limited: 'Too many claim attempts. Wait a moment and try again.',
   session_unavailable: 'The Paykit server could not reach your homeserver to verify the approval. Try again shortly.',
+  paykit_origin_insecure:
+    'The Paykit server address is not a secure HTTPS origin, so Shop refused to send your approval to it. Contact the operator.',
   unavailable: 'The Paykit server is unavailable. Try again shortly.',
 };
+
+/**
+ * Loopback hosts a dev deployment may reach over plain `http:` (the schema
+ * default is `http://localhost:3102/setup`). Every other paykit origin must
+ * be HTTPS: the claim POST sends `auth_token` in the body and the status GET
+ * sends `Authorization: Bearer <AuthToken>` — a claim credential must never
+ * travel to a cleartext origin (W1.8 F1).
+ */
+const PAYKIT_INSECURE_ALLOWED_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * The single choke point every paykit call builds its URL from. Fails
+ * closed — before any token is built or byte is sent — on a non-HTTPS origin
+ * that is not loopback, with the static `paykit_origin_insecure` copy (the
+ * same fail-closed shape as `bitcoin_network_unconfigured`).
+ */
+function paykitServerOrigin(): string {
+  const url = new URL(getPaykitSetupUrl());
+  if (url.protocol !== 'https:' && !PAYKIT_INSECURE_ALLOWED_HOSTNAMES.has(url.hostname)) {
+    throw Err.client(ClientErrorCode.BAD_REQUEST, CLAIM_FAILURE_MESSAGES.paykit_origin_insecure, {
+      service: ErrorService.Paykit,
+      operation: 'paykitServerOrigin',
+      context: { reason: 'paykit_origin_insecure' },
+    });
+  }
+  return url.origin;
+}
 
 /**
  * Manual watch-only account claim — the same registration Bitkit's setup
@@ -137,6 +163,9 @@ export class MarketplacePaykitClaimService {
    * client-side default.
    */
   static beginClaimFlow(accountXpub: string, accountIndex: number): PaykitClaimFlow {
+    // Fail closed BEFORE a claim token is built: an insecure paykit origin
+    // must never receive one (W1.8 F1).
+    paykitServerOrigin();
     const flow = HomeserverService.generateAuthTokenFlow(PAYKIT_CLAIM_CAPABILITIES);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const awaitClaim = async () => {
@@ -195,7 +224,15 @@ export class MarketplacePaykitClaimService {
    * body that fails the schema (missing required fields, wrong types).
    */
   static async fetchOwnClaimStatus(pubky: string, authTokenBytes: Uint8Array): Promise<FetchOwnClaimStatusResult> {
-    const url = `${paykitServerOrigin()}/v0/accounts/${encodeURIComponent(`pubky${pubky}`)}/status`;
+    let origin: string;
+    try {
+      origin = paykitServerOrigin();
+    } catch {
+      // The insecure-origin refusal already logged via the Err factory; the
+      // probe fails closed like every other refusal, with no fetch sent.
+      return { ok: false, reason: 'refused' };
+    }
+    const url = `${origin}/v0/accounts/${encodeURIComponent(`pubky${pubky}`)}/status`;
     let response: Response;
     try {
       response = await safeFetch(
@@ -233,6 +270,9 @@ export class MarketplacePaykitClaimService {
    * set offline and answers 403 for any identity but the addressed seller.
    */
   static beginClaimStatusFlow(pubky: string): PaykitClaimStatusFlow {
+    // Fail closed BEFORE a claim token is built (W1.8 F1); the status read
+    // re-checks the origin before the fetch.
+    paykitServerOrigin();
     const flow = HomeserverService.generateAuthTokenFlow(PAYKIT_CLAIM_CAPABILITIES);
     const awaitStatus = async () => {
       const authToken = await flow.awaitToken();
