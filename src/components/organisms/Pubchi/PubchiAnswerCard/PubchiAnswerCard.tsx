@@ -150,6 +150,8 @@ function EvidenceItem({
 const DETERMINISTIC_TOOLS = new Set([
   'nexus_influencer',
   'rank_users',
+  'rank_tags_recv',
+  'rank_tags_apply',
   'nexus_user_tags',
   'get_tag_landscape',
   'tag_landscape',
@@ -166,6 +168,8 @@ function hasDeterministicRoute(tools: string[]): boolean {
 function countLabel(tools: string[]): string {
   if (tools.some((tool) => tool === 'nexus_user_tags' || tool === 'get_tag_landscape' || tool === 'tag_landscape')) return 'Tagged by';
   if (tools.some((tool) => tool === 'nexus_influencer' || tool === 'rank_users')) return 'Followers';
+  if (tools.some((tool) => tool === 'rank_tags_recv')) return 'Tags received';
+  if (tools.some((tool) => tool === 'rank_tags_apply')) return 'Tags applied';
   if (tools.includes('top_posts')) return 'Replies';
   if (tools.some((tool) => tool === 'recommend_follows' || tool === 'recommend' || tool === 'stale_follows')) return 'Count';
   return 'Claimants';

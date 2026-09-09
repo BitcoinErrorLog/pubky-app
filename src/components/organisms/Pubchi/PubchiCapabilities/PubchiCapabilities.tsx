@@ -18,6 +18,8 @@ export type PubchiCapabilitiesProps = {
 const quickQuestions: Array<{ label: string; question: string; purpose: Phase0Purpose; icon: typeof Search }> = [
   { label: 'Who tagged me?', question: 'Who tagged me?', purpose: 'who-tagged-me', icon: Users },
   { label: 'Most followed users', question: 'Who are the most followed users on Pubky?', purpose: 'ask', icon: Search },
+  { label: 'Most tagged users', question: 'Who has the most tags?', purpose: 'ask', icon: Search },
+  { label: 'Top taggers', question: 'Who are the top taggers?', purpose: 'ask', icon: Users },
   { label: 'Active threads', question: 'What are the most active threads right now?', purpose: 'ask', icon: Sparkles },
   { label: 'Trending tags', question: 'What tags are trending this week?', purpose: 'ask', icon: Search },
   { label: 'Who should I follow?', question: 'Who should I follow?', purpose: 'ask', icon: Users },

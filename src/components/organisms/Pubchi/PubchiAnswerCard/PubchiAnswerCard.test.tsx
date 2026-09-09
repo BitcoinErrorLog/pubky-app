@@ -47,6 +47,8 @@ describe('PubchiAnswerCard', () => {
   it.each([
     [['nexus_influencer'], 'Followers'],
     [['rank_users'], 'Followers'],
+    [['rank_tags_recv'], 'Tags received'],
+    [['rank_tags_apply'], 'Tags applied'],
     [['nexus_user_tags'], 'Tagged by'],
     [['get_tag_landscape'], 'Tagged by'],
     [['tag_landscape'], 'Tagged by'],

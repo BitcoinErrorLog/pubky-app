@@ -12,11 +12,31 @@ describe('PubchiCapabilities', () => {
     expect(onSelect).toHaveBeenCalledWith('Who are the most followed users on Pubky?', 'ask');
   });
 
+  it('submits the canonical question for most tagged users', () => {
+    const onSelect = vi.fn();
+    render(<PubchiCapabilities tier="read-only" onSelect={onSelect} onBuildFeed={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Most tagged users' }));
+
+    expect(onSelect).toHaveBeenCalledWith('Who has the most tags?', 'ask');
+  });
+
+  it('submits the canonical question for top taggers', () => {
+    const onSelect = vi.fn();
+    render(<PubchiCapabilities tier="read-only" onSelect={onSelect} onBuildFeed={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Top taggers' }));
+
+    expect(onSelect).toHaveBeenCalledWith('Who are the top taggers?', 'ask');
+  });
+
   it('wraps every compact quick question without a horizontal scroll container', () => {
     render(<PubchiCapabilities compact tier="read-only" onSelect={() => {}} onBuildFeed={() => {}} />);
 
     expect(screen.getByRole('button', { name: 'Who tagged me?' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Most followed users' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Most tagged users' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Top taggers' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Active threads' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Trending tags' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Who should I follow?' })).toBeInTheDocument();
