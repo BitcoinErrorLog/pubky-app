@@ -1,4 +1,4 @@
-# Bitcoin Mainnet Switch And Payment-Journey Proof — Design (r6)
+# Bitcoin Mainnet Switch And Payment-Journey Proof — Design (r7)
 
 ## Review history
 
@@ -163,7 +163,7 @@
   named, the confirm-vs-reaper race is undefined, `late_settlement` ×
   `awaiting_seller_confirmation` is an undefined pair) and four P3s. Nothing it
   verified clean is weakened here.
-- **r6 — this commit** (Claude Opus). Folds both r5 reviews. No mechanism is
+- **r6 — `1a8756b98`** (Claude Opus). Folds both r5 reviews. No mechanism is
   removed except `pasted_auto`'s enabling flag, and D1–D5 are not reopened. One
   line per finding:
   - **Sol P1-1 → §B.8.6, §B.8.4, §D.3, §F W1.13, §G Q14.** `pasted_auto` is no
@@ -216,6 +216,77 @@
   - **Kimi P3-3 → §B.8.8, §B.11.4 A7.** The inventory hold persists through
     operator resolution.
   - **Kimi P3-4 → §B.8.7.** The seller alert fires on the mode transition only.
+- **r6 re-verification — GPT-5.6 Sol: FIX-FIRST**
+  (`/tmp/btc-design-r6-sol-review.md`, 2026-09-09). Confirmed D1–D8 intact and
+  19 of the 21 r5 items CLOSED, leaving **P1-3 NOT CLOSED** (§B.11.1 omits
+  `resolved_paid_manually` while claiming exhaustiveness) and **P1-4 PARTIAL**
+  (stack pinning asserted without a routing or identity mechanism). Two new P2s
+  — resolution rejection classes unmapped with drain condition 6 unbounded, and
+  `paid_manually` lacking a stated proof gate — and two P3s (confirm idempotency
+  ordering, F11 not requiring the real allocation lock).
+- **r6 Kimi design audit — FIX-FIRST.** Independently reached the same three
+  defects, with the resolve-outbox one raised to **P1**: the delivery arm's
+  "not retried forever" and §C.16's "condition 6 adds nothing to the worst case"
+  are both falsified by the four unmapped permanent rejections, which deadlock
+  the rollback checklist. Plus **P2-1** (§B.11.1 vs §B.9) and **P2-2** (the
+  `stack_id` pin has no provenance and no comparison anchor), and six P3s. It
+  re-attacked and held: the status-only poll path, the 12-row `paid_manually`
+  table's totality, the no-un-pay invariant, the 24 h window's honestly stated
+  unbounded hold, `confirmation_observation_mismatch`'s silence, and the
+  stub-resistance of every r6 test except F11's twin.
+- **r7 — this commit** (Claude Opus). Folds both r6 reviews. No decision is
+  reopened: D1–D8, the 24-hour window, the unconditional `pasted_auto` rejection
+  and the minimum cutover set are unchanged. Where the two reviewers framed a
+  finding differently, the stricter reading is taken. One line per finding:
+  - **Kimi P1-1 + Sol P2 (resolve termination) → §B.8.8, §B.9, §B.11.4 A9,
+    §C.16, §C row 17, §F W1.15, §D.3 F15.** A complete response-class → outcome
+    mapping table (every §B.9 rejection, the two stack-pin rejections, transport,
+    401/403, and unrecognised codes), a **1-hour `resolve_delivery_deadline`**
+    that terminates any retrying row regardless of class, and an **operator
+    escape** that terminates a named row on demand and explicitly does not
+    un-pay the order. §C.16's "adds nothing to the worst case" is replaced by the
+    arithmetic: just over **26 hours** fully automatic, just over 25 with the
+    escape. Condition 6 now requires an operator acknowledgement on every
+    terminal row.
+  - **Sol P1-3 + Kimi P2-1 (state machine) → §B.11.1, §B.9.** `baseline_state`
+    gains `resolved_paid_manually` and `resolved_closed` — resolution is a state
+    value, with `resolution` and `resolved_at` recording which — plus four
+    resolve edges with triggers and guards (`observing` and `expired_tail`, each
+    to both resolved states), the `expired_final` metadata-only non-transition,
+    and the explicit statement that no other state has a resolve edge. §B.9's
+    12-row table is re-checked against the amended state list and the two tables
+    are now total against each other.
+  - **Sol P1-4 + Kimi P2-2 (stack pin) → §B.8.8, §B.11.3, §B.8.9, §B.11.4 A10,
+    §C rows 1c/3/4d/4e, §F W1.1c/W1.3/W1.4c/W1.10/W1.15, §D.3 F14.** `stack_id`
+    is `{PAYKIT_STACK_ROLE}:{instance_uuid}`, minted once into a `stack_identity`
+    row on first migration — **not** the role, because a rebuilt production stack
+    shares the role. It is returned by phase 1, the claim response and
+    `/health/ready`, persisted as `paykit_stack_id` at bind, copied onto the
+    outbox row, and echoed on `activate` / `void` / `resolve` with the named
+    `stack_identity_mismatch` 409. The arm compares locally before sending and
+    the server compares remotely; both mismatches terminate the row with an
+    alert. What the pin does not claim is stated too.
+  - **Sol P2 (`paid_manually` proof gate) → §B.8.8, §C row 4e, §F W1.4b.**
+    Decided as **attestation-only** and said in those words: no confirmation
+    floor, no re-verification, the depth disclosed and never enforced, and
+    `confirmation_basis = 'seller_attestation'` on the audit row (against
+    `operator_resolution`). The cost is R5, restated rather than softened.
+    W1.4b's resolve suite becomes table-driven over all twelve §B.9 rows with
+    `observation_targets()` membership asserted before and after each.
+  - **Sol P3 (confirm ordering) → §B.8.8, §F W1.15.** Authorise → idempotency
+    lookup → conditional UPDATE, with every side effect inside that transaction.
+  - **Sol P3 + Kimi P3-2 (F11) → §D.3 F11, §F W1.14.** An interleaving over two
+    overlapping real transactions with the assignment attempted while the scan
+    holds the creator row, so the test proves the lock and not only the re-check.
+  - **Kimi P3-1 → §E.** The §C.16 boundary row said five conditions; it is six.
+  - **Kimi P3-3 → §B.8.8.** "None of the five interpolates" had no antecedent;
+    the block fixes eight strings and now says so.
+  - **Kimi P3-4 → §D.3.** "All six required" was a stale count; the F1–F8 block
+    is ten calibrations, enumerated.
+  - **Kimi P3-5 → §B.8.8.** The transition table gains the row for a second
+    distinct eligible observation after a `disappeared` mark.
+  - **Kimi P3-6 → §B.8.0 D5, §C.10.** `pasted_auto` is described as rejected
+    unconditionally everywhere, never as "disabled".
 
 ## Owner decisions required
 
@@ -246,7 +317,8 @@ by the same claim path (§B.0, §B.8.6). What changed is that a pasted xpub no
 longer enables **automatic** order confirmation: it enables onboarding and
 observation, and the seller confirms payment themselves (§B.8.8). So the 6%
 figure above is no longer a number anyone is carrying in production this week —
-it is the price of a design (`pasted_auto`) that is **priced and disabled**, and
+it is the price of a design (`pasted_auto`) that is **priced and rejected
+unconditionally**, and
 that r6 makes **unreachable by configuration** (§B.8.6). Enabling it requires a
 separately approved design revision, not an operator toggle, and the owner
 decision is taken against that same table. The full reasoning is the r5 decision
@@ -1183,8 +1255,10 @@ predicate and nonce (§B.8.2), the expiry, tail and drain boundary (§B.9,
 switch are not reopened by r5 and are not restated here. Read §B.8.1–§B.8.5 as
 r4 wrote them, with three corrections of scope that r5 makes explicit where they
 occur: §B.8.3's "(b) load-bearing, (a) recommended" now describes the
-`pasted_auto` mode that is disabled (§B.8.6); §B.8.4's bound applies to that
-mode alone; and §B.8.1's "recommended, not required" becomes **required for
+`pasted_auto` mode that is **rejected unconditionally** (§B.8.6 — r7 states it
+the same way everywhere, since r6's "disabled" reads as a setting that could be
+re-enabled and no such setting exists); §B.8.4's bound applies to that mode
+alone; and §B.8.1's "recommended, not required" becomes **required for
 automatic checkout** and remains not required for onboarding.
 
 **D6 — The seller-confirmation window is 24 hours, and inventory is held
@@ -1961,7 +2035,9 @@ this order to `paid`.
 
 **paykit-server.** Phase 1's response and the transaction-status response each
 gain `allocation_mode`, so the marketplace never has to ask a second endpoint on
-the money path. Nothing else in §B.11's message set changes.
+the money path. Phase 1 also returns **`stack_id`** (r7 — the stack-identity
+contract below), and `activate` and `resolve` echo it. Nothing else in §B.11's
+message set changes.
 
 **marketplace-service — order state.** One new payment state on the existing
 `paykit_request_state` machine:
@@ -2038,6 +2114,7 @@ table is not a transition.
 | --- | --- | --- | --- |
 | **Confirmation progression** (1 → 2 → *n* confirmations) | unchanged — `awaiting_seller_confirmation` | held | Status-only polling updates the displayed count for buyer and seller (§B.11.2). Confirmations are the seller's input, never an automatic trigger |
 | **Disappearance / reorg** — the observed output is no longer in the chain or the mempool | unchanged, with the observation marked `disappeared` and **shown to the seller** | held | The order does not silently revert, and it does not advance either. The seller is the decider and now has the one fact that should change their decision. Q10 already discloses that no automatic reorg edge exists; this state does not invent one |
+| **A second distinct eligible observation arrives after a `disappeared` mark** (r7, Kimi P3) | unchanged — `awaiting_seller_confirmation`, with the refreshed observation shown to the seller | held | The status-only path writes the newer observation as the live display value (§B.11.2); the seller sees that a payment is visible again and decides on that. It does **not** re-enter the state (it is already in it), does not advance anything, and does not overwrite `paykit_observation_state_at_confirmation`, which is written once and only at confirmation. Listed because "anything not in this table is not a transition" makes the omission read as a defect rather than a no-op |
 | **Invoice reaches `expired_tail`** | unchanged | held | The marketplace order deliberately outlives the invoice's observation window. The frozen observation already recorded at entry is what the confirm endpoint reads |
 | **Invoice reaches `expired_final`** | unchanged | held | Same reason. A confirm after `expired_final` still succeeds and `resolve` records it for audit without resuming observation (§B.9) |
 | **Late first detection** — the first eligible observation arrives only in the tail, carrying `late_settlement` | **never enters this state**; `manual_review` | per the existing late path | The precedence rule above. Stated in the table too, because "the state it never reaches" is exactly the pairing an implementer fills in wrongly |
@@ -2099,10 +2176,26 @@ longer carries `txid` or `confirmed_amount_sats`; see the audit fields below.
 - **It is idempotent on order id**: the second call returns the same
   confirmation record, emits no second fulfilment event, writes no second
   audit row, and enqueues no second outbox row.
+- **The ordering of those two rules is specified, because they read as though
+  they contradict each other (r7, Sol P3).** The endpoint refuses every order
+  that is not `awaiting_seller_confirmation`, and a second call arrives after the
+  first has moved the order to `paid` — so a naive reading has idempotency
+  returning `order_not_awaiting_confirmation`. The order of operations is
+  therefore fixed: **(1)** authorise (session → order → listing → seller pubky);
+  **(2)** look up an existing seller-confirmation record for that order id and,
+  if one exists, return it unchanged, writing nothing — the idempotency lookup
+  runs *before* the state check and is only reachable by the authorised seller;
+  **(3)** otherwise execute the conditional UPDATE, and its affected-row count is
+  the decision. Zero rows means `order_not_awaiting_confirmation`, whether the
+  order was never in the state or the reaper won. The audit row, the fulfilment
+  intent and the outbox row are written **inside** the same transaction as that
+  UPDATE and never before it, so an unauthorised or losing call cannot leave an
+  audit row behind and a second call cannot produce a second one.
 - **Audit fields**, written in the same transaction as the state change:
   `confirmed_by_pubky`, `confirmed_at`, `confirmed_txid`,
   `confirmed_amount_sats`, `confirmed_reason`, `confirmation_source`
-  (`seller`), and `paykit_observation_state_at_confirmation` — the exact
+  (`seller`), `confirmation_basis` (`seller_attestation` — the paragraph below),
+  and `paykit_observation_state_at_confirmation` — the exact
   `{state, observed_sats, confirmations, amount_matched}` paykit reported at
   that instant, frozen, so a later dispute can be read without re-querying a
   chain that has moved.
@@ -2135,6 +2228,41 @@ longer carries `txid` or `confirmed_amount_sats`; see the audit fields below.
   is **never** an input to any automatic transition or to the endpoint's
   preconditions.
 
+**What gates a `paid_manually` resolution: nothing beyond the seller's
+attestation, said in those words (r7, Sol P2).** Sol asks what evidence gates the
+seller's click. The answer is a decision rather than a mechanism, and it is
+recorded here so no later reader mistakes the audit trail for proof: **the
+endpoint is attestation-only.** There is no confirmation-depth floor, no
+second-factor, and no chain re-verification at confirm time — deliberately,
+because a server rule about confirmations is the thing D2 moved out of the
+server's hands, and because the server's view is strictly worse than the
+seller's own wallet's. What the design does instead, and what it therefore
+buys:
+
+- **A server-side precondition, not a proof.** The order can only be in
+  `awaiting_seller_confirmation` because paykit recorded an eligible observation
+  for that invoice (§B.8.8's entry rule). So a confirm always sits on top of *an*
+  observed payment; what the seller attests is that it is *this buyer's* payment,
+  which no server on this rail can establish (§B.3).
+- **The confirmation depth is disclosed, never enforced.** The status-only poll
+  path (§B.11.2) keeps `confirmations` live on the seller's surface, and the
+  seller copy says in the imperative to check address, amount and confirmations
+  in their own wallet. A seller confirming at 0 confirmations is doing something
+  the design permits and shows them the cost of (§B.8.8's 0-conf paragraph).
+- **The attestation is named in the audit row.** Alongside the fields below, the
+  record carries **`confirmation_basis = 'seller_attestation'`** — a constant, not
+  a computation — so a dispute reads "the seller asserted this" rather than
+  inferring evidentiary weight from the presence of a frozen observation. An
+  operator resolution from `manual_review` writes
+  `confirmation_basis = 'operator_resolution'` for the same reason
+  `confirmation_source` already distinguishes the two.
+- **The cost, stated:** a seller who clicks without looking produces a `paid`
+  order with a complete, attributable audit trail and no payment. That is
+  **residual R5** (§B.10) exactly, it is not closable by a marketplace, and the
+  attestation field is what keeps it attributable rather than anonymous. This
+  design adds no payment-proof mechanism here; the only thing that would is
+  §B.8.9's account-key signature, which is Wave 10 (D4, D7).
+
 **What commits, and what is delivered afterwards (Sol P1).** r5 wrote the audit
 fields, the state change and a remote `resolve` call as though they were one
 atomic act, and separately claimed a confirmation survives repointing
@@ -2155,22 +2283,115 @@ for activation. The confirm endpoint uses the same shape:
   any other stack. Without the pin, a row queued before a repoint would be
   delivered to the *new* stack, where the invoice id is either unknown or —
   worse — belongs to a different invoice.
-- **Delivery is retried until it succeeds or terminates**, exactly like
-  `paykit.activate` (§B.11.8): `resolve` is already idempotent on
-  `(invoice_id, resolution)` (§B.9), so redelivery cannot apply twice, and
-  delivery stamps `delivered_at` with the row's state change in one transaction.
-- **If the invoice is unknown on the pinned stack** — the stack was torn down,
-  or its database was dropped after a drain — `resolve` returns the named
-  unknown-invoice error, the row is marked **`terminal_unresolved`** with that
-  reason, and an **alert fires**. It is **not** silently dropped and it is **not**
-  retried forever. The order stays `paid`: the marketplace's record is
-  authoritative for the money outcome (§B.9 says exactly this for
-  `expired_final`), and what is lost is only paykit's audit copy of it. The
-  alert exists so that loss is visible rather than inferred later from a
-  reconciliation gap.
-- **Unresolved rows are part of the drain boundary** (§C.16, condition 6). An
-  operator who repoints while `paykit.resolve` rows are undelivered strands
-  exactly the audit trail this endpoint exists to produce.
+
+**The `stack_id` contract, because r6 asserted the pin without making it
+enforceable (r7, Sol P1-4, Kimi P2-2).** r6 named the field and the refusal and
+specified neither the value's provenance — the phase-1 response carried no
+`stack_id` — nor what the delivery arm compares against. A pin with no minting
+rule and no comparison anchor is a sentence, not a mechanism, and F14/W1.15 were
+testing a contract that did not exist on paper. The contract in full:
+
+- **paykit-server mints it, once per stack instance, into its own database.**
+  `stack_id` is `{PAYKIT_STACK_ROLE}:{instance_uuid}`, where `instance_uuid` is a
+  v4 UUID written to a single-row `stack_identity` table the first time that
+  database is migrated and **never rewritten**; a boot that finds the row uses
+  it, a boot that finds none creates it inside the migration transaction. The
+  **role alone is deliberately not the identity**: a replacement production
+  stack carries the same role and would pass a role comparison, which is exactly
+  the same-role/wrong-instance mixup the pin exists to catch (Sol). Two stacks
+  can therefore never share a `stack_id` without sharing a database, which §A
+  already refuses at boot.
+- **It is carried on every message on this path.** Phase 1's response gains
+  `stack_id` (§B.11.3); `/health/ready` reports it (§B.7.2 hop 1); the
+  account-claim response returns it, which is how a seller's wallet learns the
+  identity it must sign a §B.8.9 reservation pool for; and `activate`, `void` and
+  `resolve` requests **echo** it. The marketplace **persists the value phase 1
+  returned** as `paykit_stack_id` on the order row, in the same transaction as
+  the bind (§C row 4d), and copies it onto the `paykit.resolve` outbox row at
+  confirm time. The persisted value is the issuing stack's identity; nothing
+  later re-derives it from configuration, which is the whole point — after a
+  repoint, configuration is precisely the thing that has changed.
+- **The arm compares two things, not one.** Before sending, the delivery arm
+  compares the row's `stack_id` against the `stack_id` the configured endpoint
+  reports on `/health/ready` (cached under the same 15 s TTL as
+  `bitcoin_offer_available`, §B.7.2). A mismatch means configuration now points
+  at a different stack, so the row is **never sent**: it terminates
+  `terminal_unresolved` with reason `stack_pin_mismatch`, and alerts. The request
+  body also carries `stack_id`, and paykit refuses a body naming another stack
+  with **`stack_identity_mismatch`** (409). The second check is not redundant:
+  the endpoint can be repointed between the readiness read and the send, and a
+  remote refusal is the only half of the check that cannot be raced.
+- **What the pin does not claim.** The readiness read is authenticated by TLS to
+  the configured host and by nothing else, so a stack that lies about its own
+  `stack_id` defeats the local half. The remote half is what still holds, and it
+  holds for a mechanical reason rather than a trust one: a stack that never
+  issued this invoice cannot produce it, so it answers `unknown_invoice`, which
+  is a mapped terminal outcome in the table below. The pin's job is to turn a
+  silent misdelivery into a named, alerting termination — not to authenticate a
+  remote service.
+
+**Delivery is retried, and every response class has exactly one outcome (r7,
+Kimi P1-1, Sol P2).** r6 wrote "retried until it succeeds or terminates" and then
+instantiated termination for a single rejection, while §B.9's table defines four
+more permanent ones and the transport layer several more. An unmapped permanent
+rejection retries forever, which falsifies "not retried forever" in the same
+paragraph and **deadlocks §C.16 drain condition 6** — the checklist an operator
+must clear before repointing. "Exactly like `paykit.activate`" did not transfer,
+because §B.11.8 enumerates its terminal errors and bounds its retry and the r6
+resolve arm did neither. This is the complete mapping. It is stated once here and
+referenced from §B.9 and §C.16; `resolve` is idempotent on
+`(invoice_id, resolution)` (§B.9), so redelivery cannot apply twice, and delivery
+stamps `delivered_at` with the row's state change in one transaction.
+
+| Response from `resolve` | Row outcome | Alert | Why this outcome |
+| --- | --- | --- | --- |
+| **2xx**, resolution recorded | `delivered` | no | The normal path |
+| **2xx**, already resolved with `paid_manually` (§B.9's idempotent row) | `delivered` — **terminal-ok, a no-op** | no | Redelivery of a row whose effect already landed. It is a success, not a rejection, and must not be counted as one |
+| **`unknown_invoice`** | `terminal_unresolved`, reason `unknown_invoice` | **yes** | The stack was torn down, or its database dropped after a drain. paykit's audit copy is unrecoverable; retrying cannot recreate an invoice |
+| **`invoice_not_activated`** (invoice is `prepared`) | `terminal_unresolved` | **yes** | Nothing was ever published, so no buyer could have paid it (§B.11.5). A confirm against it means the marketplace holds the wrong invoice id — an engineering defect, not a transient |
+| **`invoice_already_resolved`** (existing `refunded` or `abandoned`) | `terminal_unresolved` | **yes** | Two disagreeing money outcomes for one invoice. Retrying cannot resolve a conflict; §B.9 already refuses last-writer-wins, so a human is the only exit |
+| **Named void error** (`void_baseline_failed`, `void_prepare_expired`, `void_cancelled`) | `terminal_unresolved` | **yes** | A void invoice was never payable — the same defect class as the row above, and permanent for the same reason |
+| **`awaiting_baseline`** named error | **retry**, bounded by the deadline below | on the deadline only | The one genuinely transient invoice state: a snapshot in flight clears within a tick or fails to `void_baseline_failed`, which is the row above |
+| **`stack_identity_mismatch`** (remote) or `stack_pin_mismatch` (local, never sent) | `terminal_unresolved` | **yes** | The pin fired. A stack that cannot own this invoice id cannot ever accept the row |
+| **Transport failure** — connection refused, timeout, 5xx, unroutable host | **retry** on the existing lease-and-backoff schedule, bounded by the deadline | on the deadline | The blip case the outbox exists for. Sustained failure is not distinguishable from a torn-down stack, which is why the deadline and not the class is what terminates it |
+| **401 / 403** — body-signature or trusted-key mismatch | **retry**, bounded by the deadline, **and alert on the first occurrence** | **yes, immediately** | A key rotation or a misconfigured trusted key is fixable by an operator inside the deadline, and alerting on the first occurrence is what makes that possible. It is a configuration defect either way |
+| **Any unrecognised code** | `terminal_unresolved`, reason `unmapped_resolve_error` with the code recorded | **yes** | Fail-visible rather than fail-forever. An unknown code retried indefinitely is exactly the deadlock this table exists to remove, and the recorded code is what tells the next round which row to add |
+
+- **The delivery deadline, so that no class can retry without a bound.**
+  `resolve_delivery_deadline` = **1 hour** from the row's creation. At the
+  deadline a row still in retry becomes `terminal_unresolved` with reason
+  `delivery_deadline_exceeded` **regardless of class**, and alerts. One hour sits
+  between the two things it has to separate: it is far longer than the
+  marketplace's outbox cycle, a pod restart, or an operator fixing a trusted key,
+  and short enough that it does not dominate §C.16's boundary — it adds **at most
+  one hour** to the ~25 h drain, which §C.16 now states as arithmetic instead of
+  r6's claim that condition 6 was free.
+- **The operator escape, because a stuck row must never block a rollback.** The
+  runbook (§C row 17) carries one action: an operator may terminate a **named**
+  undelivered row, which writes `terminal_unresolved` with reason
+  `operator_terminated`, the operator's identity and their reason text, and
+  alerts. **It does not un-pay the order, and it cannot** — there is no un-pay
+  edge anywhere in this design (`workers.rs:862-918`, and the transition table
+  above). The order stays `paid`, the audit record and the fulfilment intent
+  stand, and what is discarded is paykit's copy of an outcome the marketplace
+  already owns and is authoritative for. The escape exists so condition 6 is a
+  condition an operator can **clear** rather than one they can only wait on.
+- **Every outcome in the table leaves the order `paid`.** The marketplace's
+  record is authoritative for the money outcome (§B.9 says exactly this for
+  `expired_final`), and what a terminal row loses is only paykit's audit copy of
+  it. Every alert exists so that loss is visible at the moment it happens rather
+  than inferred later from a reconciliation gap. This is a liveness and
+  audit-trail mechanism, not a money-safety one — no row in the table can move
+  money or reverse a confirmation.
+- **Unresolved rows gate the drain, and terminal rows are acknowledged rather
+  than merely counted** (§C.16, condition 6). An operator who repoints while
+  `paykit.resolve` rows are undelivered strands exactly the audit trail this
+  endpoint exists to produce, so condition 6 requires every row to be
+  `delivered` **or** `terminal_unresolved` **with an operator acknowledgement
+  recorded against it**. Acknowledgement is a deliberate step and not a
+  formality: a `terminal_unresolved` row is a real money outcome paykit does not
+  know about, and the acknowledgement is where an operator writes down what they
+  did about it before the rollback proceeds.
 
 **Copy — static, no server text interpolated into UI (house rule).**
 
@@ -2240,8 +2461,11 @@ the Shop surfaces, W1.17 for Bitkit's).
   > address Shop is watching, which can mark an order paid when nobody paid it.
   > Connect a new Shop account before selling.
 
-None of the five interpolates a server-supplied or wallet-supplied value. The
-account itself is named by the surrounding UI, which already owns it.
+None of the **eight** strings fixed in this block — the downgrade alert, the five
+named downgrade reasons, and the two post-restore warnings — interpolates a
+server-supplied or wallet-supplied value (r7, Kimi P3: r6 wrote "none of the
+five", which had no antecedent). The account itself is named by the surrounding
+UI, which already owns it.
 
 #### B.8.9 Wave 10 — the target architecture: wallet-issued signed reservation pools (D4)
 
@@ -2274,7 +2498,7 @@ while hashing):
 
 ```json
 {"version":1,"domain":"paykit-address-pool","network":"mainnet",
- "stack_id":"paykit-production",
+ "stack_id":"production:6f1d0c2a-9b47-4e35-8a10-73c5e2d84b19",
  "seller_pubky":"…","receiver_path":"bitkit/server",
  "xpub_fingerprint":"16 hex","account_index":7,
  "pool_id":"uuid","sequence":12,"created_at":"RFC3339","expires_at":"RFC3339",
@@ -2299,8 +2523,11 @@ after that local commit. A failed publish leaves harmless burned indices.
 
 **Server validation, on import.** Pubky seller/path binding; the account-key
 signature; network, account index and fingerprint; **`stack_id` equal to this
-server's own configured `PAYKIT_STACK_ROLE` identity — a pool signed for another
-stack is refused with a named error, never imported**; strict sequence (no
+server's own `stack_id` — `{PAYKIT_STACK_ROLE}:{instance_uuid}`, the same
+stack-identity value §B.8.8 defines and the claim response returns (r7: r6 said
+"the configured `PAYKIT_STACK_ROLE` identity", which is a role and therefore
+shared by a rebuilt stack) — a pool signed for another stack is refused with a
+named error, never imported**; strict sequence (no
 rollback, no rewritten generation); expiry; unique reservation ids and indices;
 `address == derive(xpub, 0/index)`; the index never accepted, issued or revoked
 before; and **no confirmed or mempool history** — a failed history query rejects
@@ -2312,7 +2539,9 @@ seller Pubky, receiver path, **stack identifier**, xpub fingerprint and
 sequence", but the schema it showed had no such field — so the stated protection
 did not exist in the thing being signed, and a pool signed for the proof stack
 would have verified on production. It is a signed field, it is validated on
-import, and the wallet sets it from the stack it claimed against.
+import, and the wallet sets it from the stack it claimed against — specifically
+from the `stack_id` the claim response returns (r7), which is what makes "the
+stack it claimed against" a value the wallet actually holds rather than a phrase.
 
 **Consumption.** Phase 1 (§B.11) atomically consumes one unused pool row with
 invoice creation, repeating the history and baseline checks; a dirty entry is
@@ -2444,9 +2673,13 @@ shape.
 
 **The one contract that is still needed** is for the marketplace to *shorten*
 the tail and to record the money outcome: `POST /v0/invoices/{id}/resolve` with
-`{resolution: paid_manually | refunded | abandoned, resolved_at}`, signed with
-the same marketplace key as `POST /v0/payment-requests` and idempotent on
-`(invoice_id, resolution)`.
+`{resolution: paid_manually | refunded | abandoned, resolved_at, stack_id}`,
+signed with the same marketplace key as `POST /v0/payment-requests` and
+idempotent on `(invoice_id, resolution)`. `stack_id` is echoed from the value
+phase 1 returned and is refused with `stack_identity_mismatch` if it names
+another stack (r7, §B.8.8) — the remote half of the pin that stops a resolution
+queued before a repoint from being applied to whatever invoice happens to share
+that id on the new stack.
 
 **The state when the marketplace resolves `manual_review` after expiry** —
 stated explicitly because it is the case that has no obvious answer:
@@ -2489,6 +2722,29 @@ accepting row, so a redelivered outbox row (§B.8.8) is always safe.
 | already resolved with `refunded` or `abandoned` | **no** — `invoice_already_resolved` naming the existing resolution | none | unchanged | One-way, and the conflict is surfaced rather than overwritten. Two disagreeing resolutions are an operations question, not something to resolve by last-writer-wins |
 | unknown invoice id | **no** — `unknown_invoice` | none | n/a | Unchanged from r5, and it is the error §B.8.8's stack-pinned outbox row terminates on after a repoint |
 
+**Where an accepted row lands, and what a rejected row does to the caller's
+outbox (r7, Sol P1-3, Kimi P1-1/P2-1).** Two things r6 left implicit, both of
+which an implementer has to know before writing either side:
+
+- **The accepting rows finalize into named states, and those states are in
+  §B.11.1.** `paid_manually` finalizes to **`resolved_paid_manually`**;
+  `refunded` and `abandoned` finalize to **`resolved_closed`**, with the
+  `resolution` and `resolved_at` columns recording which and when. Both are
+  `baseline_state` values, both are final, and both are outside
+  `observation_targets()` — §B.11.1 carries them as states with their edges, so
+  this table and that state machine are one specification rather than two. The
+  two "already resolved" rows below are exactly those two states, which is what
+  makes this table total over §B.11.1's state list.
+- **Every rejecting row is permanent, and §B.8.8's mapping is where that is
+  written down.** `invoice_not_activated`, `invoice_already_resolved`, the three
+  void errors and `unknown_invoice` cannot become acceptable by being retried, so
+  the marketplace's resolution outbox terminates on each of them with an alert;
+  the `awaiting_baseline` rejection is the single transient one and is retried
+  under a bounded deadline. The complete response-class → outcome mapping,
+  including transport and authentication failures and the delivery deadline, is
+  in §B.8.8 and is referenced by §C.16's condition 6. It lives there rather than
+  here because it is a property of the caller's outbox, not of this endpoint.
+
 **A `paid_manually` resolution never creates or promotes an observation.** It
 records a decision made off-rail; it does not assert that the chain showed
 anything. This is why no row above turns a `late_settlement` observation into a
@@ -2507,8 +2763,9 @@ statement; the existing `manual_review` path is unchanged.
 Payment Request is expired or final"**: no invoice in `observing` or
 `expired_tail`, and `observation_targets()` empty. Because expiry is now carried
 in the request and enforced by the wallet, that boundary is bounded and
-computable — hold window (3600 s) plus tail (24 h). §C.16 is updated to match,
-and the rollback is correspondingly slower and honest about it.
+computable — hold window (3600 s) plus tail (24 h), on top of which §C.16's
+condition 6 adds at most the 1-hour resolution-delivery deadline (r7). §C.16 is
+updated to match, and the rollback is correspondingly slower and honest about it.
 
 ### B.10 Residuals that are named and gated rather than closed
 
@@ -2649,10 +2906,26 @@ States on `invoices` (the `baseline_state` column from §B.4.5, extended):
 | `void_baseline_failed` | no | no | final; snapshot failed (§B.4.1 step 5) |
 | `void_prepare_expired` | no | no | final; reaped after `prepare_ttl` without activation |
 | `void_cancelled` | no | no | final; marketplace voided the prepare |
+| `resolved_paid_manually` | no | — | final; the marketplace resolved it `paid_manually` (§B.9) |
+| `resolved_closed` | no | — | final; the marketplace resolved it `refunded` or `abandoned` (§B.9) |
 
-Transitions, each with its trigger, and no others:
+**The two resolved states are new in r7 (Sol P1-3, Kimi P2-1), and they answer a
+question r6 left an implementer to guess.** §B.9 finalizes an `observing` invoice
+to `resolved_paid_manually` on the common seller-confirm path, while r6's version
+of this table had neither that state nor any resolve edge out of `observing` —
+and it claimed its transition set was exhaustive, so an implementer following it
+could not build the normal path without violating the table. The name occurred
+exactly once in the document. Both halves are fixed here: **resolution is a
+`baseline_state` value, not a separate column**, and the `resolution`
+(`paid_manually` | `refunded` | `abandoned`) and `resolved_at` columns record
+*which* resolution produced the state. `resolved_closed` covers the two
+resolutions that record no payment, because they behave identically here — final,
+unobserved, and one-way — and separating them would add a state with no distinct
+transition.
 
-| From | To | Trigger |
+Transitions, each with its trigger and its guard, and no others:
+
+| From | To | Trigger and guard |
 | --- | --- | --- |
 | — | `awaiting_baseline` | `create_atomic` commits (phase 1 interior) |
 | `awaiting_baseline` | `prepared` | baseline snapshot persisted (§B.4.1 step 4) |
@@ -2661,7 +2934,31 @@ Transitions, each with its trigger, and no others:
 | `prepared` | `void_prepare_expired` | reaper: `now > prepare_expires_at` |
 | `prepared` | `void_cancelled` | **`void`** |
 | `observing` | `expired_tail` | `now > expires_at` (§B.9) |
-| `expired_tail` | `expired_final` | 24 h tail elapsed, or `resolve` (§B.9) |
+| `expired_tail` | `expired_final` | 24 h tail elapsed |
+| `observing` | `resolved_paid_manually` | **`resolve(paid_manually)`** (§B.9). Guard: state is `observing`; **no observation is required** — the resolution is accepted with no eligible observation, with `detected`, with `confirmed`, and with `confirmed` + `amount_matched: false`, which are §B.9's four `observing` rows. Any stored observation is retained on the record and a mismatch is retained **and flagged**. Leaves `observation_targets()` in the same transaction |
+| `observing` | `resolved_closed` | **`resolve(refunded \| abandoned)`** (§B.9). Same guard and the same target-set exit; the resolution column records which |
+| `expired_tail` | `resolved_paid_manually` | **`resolve(paid_manually)`** (§B.9). Guard: state is `expired_tail`. The tail ends early and the invoice leaves `observation_targets()` — this is the late case the endpoint originally existed for |
+| `expired_tail` | `resolved_closed` | **`resolve(refunded \| abandoned)`** (§B.9), same guard |
+
+**Three things that are deliberately *not* edges, stated because a total
+transition table has to say so explicitly:**
+
+- **`expired_final` + `resolve` is metadata-only.** The resolution and
+  `resolved_at` are recorded on the invoice for audit and **the state does not
+  change** — there is no un-final edge in this design and observation does not
+  resume (§B.9). An implementer must not add an `expired_final → resolved_*`
+  edge; the resolution columns can be populated on a final invoice, and the state
+  column is what `observation_targets()` reads.
+- **`resolve` on an already-resolved invoice is not a transition.** A repeated
+  `paid_manually` returns the existing record and writes nothing (idempotency on
+  `(invoice_id, resolution)`), which is what makes §B.8.8's outbox redelivery
+  safe. A *different* resolution is refused with `invoice_already_resolved`.
+- **`prepared`, `awaiting_baseline` and the three void states have no resolve
+  edge at all.** Each is refused with the named error §B.9's table gives, and
+  §B.8.8 maps each refusal to a terminal outbox outcome. So every state in the
+  table above appears in §B.9's table exactly once, in one of three roles —
+  accepts and transitions, accepts and records only, or refuses with a named
+  error — and the two tables are total against each other.
 
 **`prepare_ttl` = 15 minutes**, so `prepare_expires_at = created_at + 15 min`.
 Chosen to be far longer than any plausible marketplace commit-plus-outbox
@@ -2785,6 +3082,8 @@ Response `200 OK`:
 {
   "invoice_id": "9f2b1c4e-7a56-4d18-b0e3-2c81f5a9d740",
   "state": "prepared",
+  "stack_id": "production:6f1d0c2a-9b47-4e35-8a10-73c5e2d84b19",
+  "allocation_mode": "shared_manual",
   "nonce_sats": 437,
   "total_sats": 250437,
   "expires_at": "2026-09-09T09:39:00Z",
@@ -2792,6 +3091,14 @@ Response `200 OK`:
   "derived_address_fingerprint": "3f7a1c9e5b204d86"
 }
 ```
+
+`stack_id` is the issuing stack's identity, `{PAYKIT_STACK_ROLE}:{instance_uuid}`
+with the UUID minted once into that stack's own database (§B.8.8). **It is
+returned here because the marketplace has to persist it at bind time**: it is the
+anchor every later message on this invoice is checked against, and after a
+repoint the marketplace's configuration is exactly the thing that can no longer
+tell it which stack issued the invoice. `allocation_mode` is §B.8.8's field, on
+the same response for the same reason — one money-path round trip, not two.
 
 `total_sats` is authoritative: it is `amount_sats + nonce_sats` and it is the
 figure the marketplace must charge, display and record. `derived_address_fingerprint`
@@ -2810,6 +3117,7 @@ Request:
 ```json
 {
   "invoice_id": "9f2b1c4e-7a56-4d18-b0e3-2c81f5a9d740",
+  "stack_id": "production:6f1d0c2a-9b47-4e35-8a10-73c5e2d84b19",
   "total_sats": 250437,
   "activation_attempt": 3
 }
@@ -2817,7 +3125,11 @@ Request:
 
 `invoice_id` is repeated in the body because the signature covers the body, not
 the path — signing only the body while trusting the path would let a valid
-signature be replayed against a different invoice id. `total_sats` is echoed as
+signature be replayed against a different invoice id. `stack_id` is echoed for
+the same class of reason and is refused with `stack_identity_mismatch` if it
+names another stack: it turns "the marketplace is talking to the wrong stack"
+into a named 409 at the first message instead of an unknown-invoice mystery at
+the last one (r7). `total_sats` is echoed as
 a **guard, not an instruction**: a mismatch against the stored total returns
 `activation_total_mismatch` and does **not** activate, which catches a
 marketplace that persisted the pre-nonce amount (the exact R3-3 bug) instead of
@@ -2863,6 +3175,7 @@ codes so the marketplace can branch without string-matching prose:
 | `invoice_finalized` | 409 | `activate` on `void_baseline_failed` / `void_cancelled` | void the bind; buyer retries |
 | `activation_total_mismatch` | 409 | echoed `total_sats` ≠ stored | **alert**; do not retry; do not bind |
 | `unknown_invoice` | 404 | no such invoice on this stack | void the bind; alert (indicates a stack mixup) |
+| `stack_identity_mismatch` | 409 | the echoed `stack_id` is not this stack's identity (`activate`, `void` or `resolve` — r7) | **alert**; do not retry. On `resolve` the row terminates `terminal_unresolved` per §B.8.8's mapping |
 | `bitcoin_creation_disabled` | 503 | kill switch, phase 1 only (§C.16) | bind refused cleanly, as today |
 
 #### B.11.4 Failure matrix
@@ -2905,7 +3218,8 @@ payability.
 | A6 | **Confirm delivered twice** (client retry) | the first confirmation record | Idempotent on order id: the same record is returned, no second fulfilment event, no second audit row | Same "effect and mark commit together" discipline as §B.11.8's outbox arm |
 | A7 | **Seller never confirms** | `awaiting_seller_confirmation` for **24 hours** (D6) | Routes to `manual_review` (`workers.rs:787-820`), never to `paid` and never to a silent cancellation. The buyer's inventory hold was extended on entry, so they do not lose the order to a 3600 s timeout while waiting for a human, and **the hold is not released at routing — it persists until an operator resolves the order as paid, refunded or abandoned**, under a 2-business-day operator SLA that alerts on breach (§B.8.8) | The buyer has demonstrably paid on chain; expiring their order, or releasing their item to another buyer one day later, would be the worst available outcomes |
 | A8 | **Seller confirm races the 24-hour reaper** | whichever of the two committed first; the other changed nothing | Both are a **single conditional UPDATE on `state = 'awaiting_seller_confirmation'`** with every side effect in the same transaction, so **first committer wins**: the loser affects zero rows, writes no audit row and no outbox row, and a losing confirm returns `order_not_awaiting_confirmation`. Raced in both orderings by §D.3's **F16** | Without a stated winner an implementation that landed both would produce an order that is simultaneously `manual_review` and `paid` — a state no reader of either path would expect (Kimi P2) |
-| A9 | **`paykit.resolve` outbox row cannot be delivered** (stack torn down, or the invoice is unknown after a repoint) | order `paid`, audit record written, outbox row `terminal_unresolved` with the reason | The confirmation stands — the marketplace's record is authoritative for the money outcome — and an **alert** fires. The row is neither dropped silently nor retried forever, and undelivered rows gate the drain (§C.16 condition 6) | The seller's decision and the buyer's fulfilment must not depend on a remote service being reachable; what is lost is paykit's audit copy, and losing it visibly is the whole point of the row (§B.8.8) |
+| A9 | **`paykit.resolve` outbox row cannot be delivered** (stack torn down, the invoice unknown after a repoint, a permanent rejection from §B.9's table, a sustained transport or auth failure, or an unrecognised code) | order `paid`, audit record written, outbox row `terminal_unresolved` with the mapped reason | The confirmation stands — the marketplace's record is authoritative for the money outcome — and an **alert** fires. **Every response class has exactly one outcome and none retries without a bound (r7):** permanent rejections terminate immediately, transient ones retry until the 1-hour `resolve_delivery_deadline` and then terminate, and an operator can terminate a named row at any time. Terminal rows gate the drain until acknowledged (§C.16 condition 6) | The seller's decision and the buyer's fulfilment must not depend on a remote service being reachable; what is lost is paykit's audit copy, and losing it visibly is the whole point of the row (§B.8.8). r6's single mapped rejection left the other classes retrying forever, which deadlocked the rollback checklist — a liveness defect in the procedure that gates real money |
+| A10 | **The configured endpoint is a different stack than the one that issued the invoice** (a repoint, or a rebuilt production stack with the same `PAYKIT_STACK_ROLE`) | order `paid`; the row is **never sent** | Local check: the row's `stack_id` ≠ the `stack_id` on `/health/ready` → `terminal_unresolved` with reason `stack_pin_mismatch` + alert. If configuration changed after that read, the remote check refuses the body with `stack_identity_mismatch` (409) → same terminal outcome. `stack_id` is `{role}:{instance_uuid}`, so a same-role replacement instance is a **different** identity and is caught (r7) | A role comparison would pass for a rebuilt production stack and deliver a resolution to whatever invoice happens to share that id there. The pin's value is turning a silent misdelivery into a named, alerting termination — it is not an authentication mechanism (§B.8.8) |
 
 #### B.11.5 Verifying that a `prepared` invoice is unreachable by a buyer
 
@@ -3083,14 +3397,14 @@ production.
 | --- | --- | --- | --- | --- |
 | 1 | Fork: creation baseline and post-invoice eligibility | §B.4 in full: `awaiting_baseline` state excluded from `observation_targets()`, the post-commit/pre-publication baseline snapshot of confirmed history **and** mempool with the tip from the same round, baseline outpoint and replaced-input sets, `void_baseline_failed` on any snapshot failure, V2 payment record with `creation_chain_height` and the baseline digest, `confirmed_height` on `ObservedOutput`, migration `0002`. | Revert; the mainnet databases do not exist yet. | **Critical.** Without it a legitimate seller's old receipts confirm unpaid orders (P1-A), and a pre-invoice mempool transaction mined before the first tick does the same (NEW-1). This is the gate on real money, not a hardening item. |
 | 1b | Fork: exact amount predicate and invoice amount nonce | §B.8.2: `invoices.rs:694` `>=` → `==`; overpayment reports `amount_matched: false` and routes to `manual_review`; CSPRNG nonce `[1,999]` added to the required amount and carried as the order total. | Revert to `>=`; the nonce is inert without it, so revert both together. | **Critical.** This is the bound on NEW-2's residual and on R1, and after the 08:39 owner decision it is the *primary* defence for pasted xpubs rather than a backstop (§B.8.3). Reverting only one half silently removes the defence while leaving the code looking defended. |
-| 1c | **Fork: two-phase prepare/activate (R3-1)** | §B.11 in full: `prepared` / `void_prepare_expired` / `void_cancelled` states; both outbox rows inserted `status='prepared'` instead of `'queued'` (`invoices.rs:1030`); `POST /v0/payment-requests` returns **200 with a body** instead of 204 (`http/payment_requests.rs:42-51`) carrying `{invoice_id, nonce_sats, total_sats, expires_at, prepare_expires_at, derived_address_fingerprint}` (closes R3-3); new signed idempotent `POST /v0/payment-requests/{id}/activate` and `…/void`; the 15-minute `prepare_ttl` reaper; the §B.4.6 tick-1 snapshot inside activation; state-inspecting replay (closes R3-5). | Revert **together with step 4d** — a reverted paykit side with an activating marketplace bricks every Bitcoin bind. Because production is created empty, there is no data migration to reverse. | **Highest.** Without it, a marketplace crash or a failed commit leaves a published, payable mainnet Payment Request that nothing polls, and the buyer's funds are silently orphaned (R3-1). This is the gating change for real money, ahead of every other item in this table. |
+| 1c | **Fork: two-phase prepare/activate (R3-1)** | §B.11 in full: `prepared` / `void_prepare_expired` / `void_cancelled` states; both outbox rows inserted `status='prepared'` instead of `'queued'` (`invoices.rs:1030`); `POST /v0/payment-requests` returns **200 with a body** instead of 204 (`http/payment_requests.rs:42-51`) carrying `{invoice_id, state, stack_id, allocation_mode, nonce_sats, total_sats, expires_at, prepare_expires_at, derived_address_fingerprint}` (closes R3-3); **the `stack_identity` single-row table minting `stack_id` as `{PAYKIT_STACK_ROLE}:{instance_uuid}` on first migration and never rewriting it, `stack_id` on `/health/ready`, and `stack_id` echoed and verified on `activate` / `void` / `resolve` with the named `stack_identity_mismatch` 409** (r7, §B.8.8); new signed idempotent `POST /v0/payment-requests/{id}/activate` and `…/void`; the 15-minute `prepare_ttl` reaper; the §B.4.6 tick-1 snapshot inside activation; state-inspecting replay (closes R3-5). | Revert **together with step 4d** — a reverted paykit side with an activating marketplace bricks every Bitcoin bind. Because production is created empty, there is no data migration to reverse. | **Highest.** Without it, a marketplace crash or a failed commit leaves a published, payable mainnet Payment Request that nothing polls, and the buyer's funds are silently orphaned (R3-1). This is the gating change for real money, ahead of every other item in this table. |
 | 1d | **Fork: creator `allocation_mode`, claim-channel checks, sentinel detection (§B.8.6, §B.8.7)** | The `allocation_mode` column and its check constraint defaulting to `shared_manual`; `claim_channel` on the claim request and the four corroborating checks (**corroborated provenance, never proof** — D7), downgrading with a named reason rather than refusing; `allocation_mode_not_enabled` for `pasted_auto`, refused **unconditionally with no enabling flag** (r6); creator-level sentinel targets (20 indices, re-scanned at most every 10 min **inside the §B.7 30 s tick — there is no second cadence**, drawn from a global sentinel token budget subordinate to live targets, admitted only while `exclusive`, covered inside a 1 h `sentinel_max_age` with its own age alert), durable evidence rows, the **single downgrade predicate** (`confirmed && value >= sentinel_min_value_sats && distinct_hits >= sentinel_hit_count`), the unassigned re-check **under the creator allocation lock** before evidence is inserted, atomic one-way downgrade, **one** seller alert on the transition only; and the automatic-`paid` gate reading the creator's **current** mode. | Revert. Note the default is the safe direction — reverting the column reverts every creator to r4's behaviour, which is `pasted_auto` for everyone, so **1d must not be reverted without also reverting 4e**, or pasted sellers silently regain automatic confirmation. | **Critical, and asymmetric.** Absent, every seller is on r4's probabilistic path (§B.8.4's table). Present but mis-defaulted, a pasted seller gets automatic confirmation without anyone deciding to give it to them — which is why the default is `shared_manual` at the schema level and not in application code. |
 | 2 | Fork: claim-time index scan | §B.5: `ChainHistoryPort`, gap-limit windows, `next_child_index` initialised above the last used index, refuse on Electrum failure or >1,000 scanned. | Revert. | High. Without it the server derives onto used addresses. Also sets `G = 21`, the gap start offset the §B.8.4 model depends on. |
-| 3 | Fork: deny-list, bounded account range, fingerprint in the claim response, **fingerprint↔seller binding**, `stack_role` invariant | §B.6 and §B.8.5: mainnet accepts `0 <= account_index <= 99` — **account 0 is accepted, reversing r3** (owner decision 08:39); the deny-list covers accounts 0–99 of every known-public mnemonic and stays unconditional off `proof`; `key_fingerprint` / `first_derived_address` / `next_child_index` in the claim response; new `claimed_key_fingerprints` table refusing a key ever claimed by a different seller pubky. | Revert. Reverting the binding re-opens the cross-seller half of R3-4. | High — the public test key reaching a real listing is unrecoverable, and paste being allowed makes that path reachable from a tutorial or from §D.1 of this document. |
+| 3 | Fork: deny-list, bounded account range, fingerprint in the claim response, **fingerprint↔seller binding**, `stack_role` invariant | §B.6 and §B.8.5: mainnet accepts `0 <= account_index <= 99` — **account 0 is accepted, reversing r3** (owner decision 08:39); the deny-list covers accounts 0–99 of every known-public mnemonic and stays unconditional off `proof`; `key_fingerprint` / `first_derived_address` / `next_child_index` / **`stack_id`** in the claim response (r7 — the last is the stack identity a wallet signs a §B.8.9 pool for); new `claimed_key_fingerprints` table refusing a key ever claimed by a different seller pubky. | Revert. Reverting the binding re-opens the cross-seller half of R3-4. | High — the public test key reaching a real listing is unrecoverable, and paste being allowed makes that path reachable from a tutorial or from §D.1 of this document. |
 | 4 | Fork: Electrum budget, batching, jitter, backoff, backlog alert, active genesis/tip probe, **availability auto-hide** | §B.7 and §B.7.1, including the 3-probe auto-hide with 3-probe recovery hysteresis. | Revert to the unbounded path only on the proof stack, never production. | High: a ban stops all confirmation silently and `/health/ready` currently reports Electrum without hysteresis. Without auto-hide, one Electrum outage fails every Bitcoin checkout at the bind (NEW-5). |
 | 4c | **Fork: `bitcoin_offer_available` on `/health/ready` (R3-6)** | §B.7.2 hop 1: `ReadyResponse` (`http/health.rs:19-25`) gains `bitcoin_offer_available`, `electrum_tip_height`, `electrum_tip_age_seconds`; the field folds the 3-probe hysteresis **and** the `PAYKIT_BITCOIN_CREATION_ENABLED` kill switch into one boolean so no consumer has to combine two. | Revert; the marketplace then treats a missing field as `true` and behaviour returns to fail-at-bind. | Medium. Its absence is a conversion and trust cost, never a correctness one — the bind stays fail-closed regardless (§B.7.2). |
-| 4d | **marketplace-service: two-phase client, activation outbox, availability consumer** | §B.11.2/§B.11.8 and §B.7.2 hop 2: persist `{paykit_invoice_id, paykit_total_sats, paykit_expires_at, paykit_activation_state}` and commit the bind with a `paykit.activate` outbox row in **one** transaction; add the `paykit.activate` dispatch arm to `deliver_claimed`, which today `bail!`s on any non-`notification.*` kind (`workers.rs:292-294`); add `'preparing'` to the `paykit_request_state` check (`0009_payment_methods.sql:39-40`); consume `bitcoin_offer_available` with a 15 s TTL and a 60 s stale-out, and **stop returning 503** from `get_payment_config` (`payment_methods.rs:310-325`). | Revert together with step 1c. | **Highest**, jointly with 1c — this is the half that makes activation durable. A marketplace that calls `activate` inline instead of from its outbox reintroduces R3-1's window in a narrower form. |
-| 4e | **marketplace-service + client: `shared_manual` checkout and seller confirmation (§B.8.8, §C.10)** | `awaiting_seller_confirmation` on `paykit_request_state` **plus its status-only poll path** (§B.11.2); the extended inventory hold and the **24-hour** window ending in `manual_review` **with the hold persisting through operator resolution**; `POST /v0/orders/{id}/confirm-bitcoin-payment` authorised to **the marketplace session whose pubky equals the order's listing's seller pubky, taken from the session and never the body**, idempotent, a **single conditional UPDATE** on the state so it cannot race the reaper, with `confirmed_txid` / `confirmed_amount_sats` **derived from the stored Paykit observation** (a disagreeing supplied value is rejected) and every audit field written in the same local transaction as the state change, the fulfilment intent, and a **stack-pinned `paykit.resolve` outbox row** delivering `paid_manually` to paykit (§B.9); `bitcoin_confirmation_mode` on the payment-config endpoint; the two-path onboarding chooser and the buyer/seller static copy. | Revert **together with 1d** — a reverted marketplace with `allocation_mode` still enforced leaves `shared_manual` sellers' orders with no path to paid at all, which is worse than either end state. | **Highest among the r5 items.** This is the only path in the design that marks an order paid without chain evidence, so its authorisation and audit are the whole of its safety (§B.10, R5). An unauthorised or unaudited confirm endpoint is a strictly worse defect than the residual it replaces. |
+| 4d | **marketplace-service: two-phase client, activation outbox, availability consumer** | §B.11.2/§B.11.8 and §B.7.2 hop 2: persist `{paykit_invoice_id, paykit_stack_id, paykit_total_sats, paykit_expires_at, paykit_activation_state}` — **`paykit_stack_id` is the issuing stack's identity from phase 1 and is the anchor every later message and the resolution outbox row is checked against (r7)** — and commit the bind with a `paykit.activate` outbox row in **one** transaction; add the `paykit.activate` dispatch arm to `deliver_claimed`, which today `bail!`s on any non-`notification.*` kind (`workers.rs:292-294`); add `'preparing'` to the `paykit_request_state` check (`0009_payment_methods.sql:39-40`); consume `bitcoin_offer_available` with a 15 s TTL and a 60 s stale-out, and **stop returning 503** from `get_payment_config` (`payment_methods.rs:310-325`). | Revert together with step 1c. | **Highest**, jointly with 1c — this is the half that makes activation durable. A marketplace that calls `activate` inline instead of from its outbox reintroduces R3-1's window in a narrower form. |
+| 4e | **marketplace-service + client: `shared_manual` checkout and seller confirmation (§B.8.8, §C.10)** | `awaiting_seller_confirmation` on `paykit_request_state` **plus its status-only poll path** (§B.11.2); the extended inventory hold and the **24-hour** window ending in `manual_review` **with the hold persisting through operator resolution**; `POST /v0/orders/{id}/confirm-bitcoin-payment` authorised to **the marketplace session whose pubky equals the order's listing's seller pubky, taken from the session and never the body**, idempotent, a **single conditional UPDATE** on the state so it cannot race the reaper, with `confirmed_txid` / `confirmed_amount_sats` **derived from the stored Paykit observation** (a disagreeing supplied value is rejected) and every audit field written in the same local transaction as the state change, the fulfilment intent, and a **stack-pinned `paykit.resolve` outbox row** delivering `paid_manually` to paykit (§B.9) — **with r7's complete response-class → outcome mapping, the 1-hour `resolve_delivery_deadline`, the `{role}:{instance_uuid}` stack-identity comparison on both ends, the operator escape, and the terminal-row acknowledgement condition 6 requires**; the endpoint's fixed operation order (authorise → idempotency lookup → conditional UPDATE, r7); `confirmation_basis = 'seller_attestation'` recorded on every seller confirmation, because the endpoint is attestation-only by decision (r7); `bitcoin_confirmation_mode` on the payment-config endpoint; the two-path onboarding chooser and the buyer/seller static copy. | Revert **together with 1d** — a reverted marketplace with `allocation_mode` still enforced leaves `shared_manual` sellers' orders with no path to paid at all, which is worse than either end state. | **Highest among the r5 items.** This is the only path in the design that marks an order paid without chain evidence, so its authorisation and audit are the whole of its safety (§B.10, R5). An unauthorised or unaudited confirm endpoint is a strictly worse defect than the residual it replaces. |
 | 4b | Fork: Payment Request expiry, tail observation, resolve endpoint | §B.9: `expires_at` required on `POST /v0/payment-requests` and set into `proposal_expires_at` (`create_payment_request.rs:230`); `expired_tail` → `expired_final` with a 24 h tail; `late_settlement` observations; `POST /v0/invoices/{id}/resolve`. | Revert; but note the §C.16 drain boundary reverts with it and becomes unsafe again. | **Critical.** Without it a delivered Payment Request is payable forever and the rollback drain strands buyers (NEW-3). |
 | 5 | Fork: Bitcoin creation kill switch | §C.16. | Revert. | High if absent — see P1-D and §C.16. |
 | 6 | Rails repo: configurable network and cadence | `entrypoint.sh:150` → `network = "${PAYKIT_BITCOIN_NETWORK:-regtest}"`, validated against `mainnet\|testnet\|signet\|regtest` and failing closed; `:154` → `poll_interval = "${PAYKIT_ELECTRUM_POLL_INTERVAL:-1s}"`; add `PAYKIT_STACK_ROLE` and `PAYKIT_BITCOIN_CREATION_ENABLED`. Defaults leave the existing service unchanged. Update the header comment at `:14-16`. | `git revert`; defaults unchanged. | Low while the defaults hold. A typo'd network reaches `BitcoinNetwork::parse` and the server refuses to boot (`config.rs:61`) — fails closed. |
@@ -3105,7 +3419,7 @@ production.
 | 15 | Hold window and confirmation floor | Leave `FIAT_PAYMENT_WINDOW_SECONDS` unset (3600 s). `LOCKS_PAYKIT_MIN_CONFIRMATIONS` does nothing here (correction #2). If Q3 is answered "2 confirmations", that is a fork change at `invoices.rs:702-707` plus a status-contract note, landed with step 1. | n/a | Low if left alone; the danger is believing a variable did something it did not. |
 | 16 | Bitcoin creation kill switch and drain-safe rollback (P1-D, NEW-3, restated in r4 for two-phase) | `PAYKIT_BITCOIN_CREATION_ENABLED` (default `true`). When `false`, **phase 1** (`POST /v0/payment-requests`) refuses with `bitcoin_creation_disabled` and the marketplace bind fails cleanly; `bitcoin_offer_available` goes `false` in the same field the checkout already reads (§B.7.2), so Shop hides Bitcoin rather than failing at the bind. **`activate` and `void` keep working** — refusing them would strand exactly the `prepared` invoices this switch is trying to drain. The observer keeps polling every existing mainnet invoice. Rollback order, exactly: (1) set it `false` on the mainnet service and redeploy; (2) confirm Shop no longer offers Bitcoin at checkout (`bitcoin_offer_available: false` on the payment-config endpoint, not by eyeballing the page); (3) **drain to the restated boundary — see below**; (4) only then repoint `PAYKIT_SERVER_URL` and redeploy; (5) announce. | The kill switch is itself the rollback. | **Highest.** This is the difference between a reversible cutover and lost buyer money. |
 
-| 17 | Docs | `pubky-payment-rails/README.md` (env sections `:121`, `:134`, pinned revisions); `pubky-payment-rails/docs/wallet-leg.md:37-40` (not an `mp-oneauth` path) becomes network-specific; `mp-oneauth/docs/ecommerce/status.md:7` and `:150` ("Could this take real money today?" now answers **yes**, with the review waiver stated in the owner's words); `runbook-production.md` gains a Bitcoin-rail section carrying §C.16 verbatim plus the failover endpoint, **the §B.7.1 auto-hide behaviour and its alerts** (so an operator paged at 3 a.m. knows Bitcoin hiding itself is the designed response, not the incident), and **the §B.9 drain boundary with its ~25 h worst case** stated in hours rather than implied; `HANDOFF.md` loses "Money rails remain test networks". | Revert. | Low mechanically. High if skipped: the runbook is what an operator reads at 3 a.m., and r2's runbook would have told them to drain in an hour. |
+| 17 | Docs | `pubky-payment-rails/README.md` (env sections `:121`, `:134`, pinned revisions); `pubky-payment-rails/docs/wallet-leg.md:37-40` (not an `mp-oneauth` path) becomes network-specific; `mp-oneauth/docs/ecommerce/status.md:7` and `:150` ("Could this take real money today?" now answers **yes**, with the review waiver stated in the owner's words); `runbook-production.md` gains a Bitcoin-rail section carrying §C.16 verbatim plus the failover endpoint, **the §B.7.1 auto-hide behaviour and its alerts** (so an operator paged at 3 a.m. knows Bitcoin hiding itself is the designed response, not the incident), and **the §B.9 drain boundary with its ~26 h worst case** stated in hours rather than implied (~25 h if the operator uses the condition-6 escape — §C.16), **plus the two condition-6 operator actions (r7): acknowledging a `terminal_unresolved` row, and terminating a named undelivered `paykit.resolve` row, with the sentence that neither un-pays the order** (§B.8.8); `HANDOFF.md` loses "Money rails remain test networks". | Revert. | Low mechanically. High if skipped: the runbook is what an operator reads at 3 a.m., and r2's runbook would have told them to drain in an hour. |
 | 18 | **Production cutover — owner sign-off gate** | Only after §D's proofs (MAINNET-NEG, D.2-S, D.2-B, REGTEST-POS), W3 Kimi SHIP, W3b and W3c SHIP, and Q3, Q4, Q8, Q9 and Q10 answered. Add the production Shop origin to `PAYKIT_SETUP_ALLOWED_ORIGINS`; set `PAYKIT_SERVER_URL` on production `marketplace-service` and redeploy; set `PUBKY_RUNTIME_PAYKIT_SETUP_URL` on Vercel and redeploy. | §C.16, then both variables back to the regtest service. Independently, `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=unavailable` remains the whole-rail kill switch (`runbook-production.md`). | **Highest.** Real funds from here. Every production seller must re-claim; a seller who does not re-claim sees Bitcoin unavailable rather than losing money (`payment_methods.rs:570-585` refuses the bind). |
 | 19 | Bitkit | **Revised in r5: no change is needed to *take a payment*, but three are needed to make `exclusive` honest. Size: S–M per app.** Unchanged and still true: users already hold mainnet Bitkit, it already uses `ssl://bitkit.to:9999`, it already accepts `btc-bitcoin-p2wpkh`, and the whole allocation primitive already exists — durable `highest + 1` reservation, account-xpub export, addresses revealed through 999, the 84-byte claim payload, and backup **and** restore of both the account records and the allocation state with a `max` merge (§B.8.0's citations). The three asks are lifecycle and recovery surfaces, not new cryptography: **(1) Shop-exclusive naming and status** — the reserved account is labelled as Shop's and shows its status, so a seller cannot casually reuse it or wonder what it is; **(2) a post-restore warning** — after a restore, name the account Shop is watching and warn if allocation state did **not** come back, which is the one condition that turns §B.8.5's invariant into residual R3. **Both restore strings are fixed copy specified in §B.8.8 and asserted against a snapshot (r6, Sol P2)**, as are the downgrade alert and each of the five named downgrade reasons — r5 described these three surfaces without specifying their words, which for the one surface that warns a seller their allocation state is gone is the difference between a warning and a placeholder; **(3) a migration / re-claim surface** — the seller-initiated path to a fresh Shop account, which is how a seller recovers from a §B.8.7 downgrade or a lost allocation state (§B.8.6 has no edit that moves a creator into `exclusive`). All three must be real and tested; none is a prerequisite for taking a mainnet payment, so they gate general availability rather than the W5 canary. | Revert the UI; the allocation primitive underneath is untouched, so a revert loses the warnings, not the reservation. | Medium. Absent, `exclusive` still works but its two named failure modes — silent account reuse and a restore that lost allocation state — reach the seller only as a false paid, which is the outcome §B.8.5 exists to prevent. |
 | 20 | `SANDBOX_PAYMENTS_ENABLED` interplay | **Leave staging `true`.** `payment.sandbox_advance` refuses any payment whose `adapter != "sandbox"` (`handlers/payment.rs:60-65`) and binding Bitcoin sets `paykit` (`payment_methods.rs:593`). The residual risk is a sandbox-advance **before** any rail is bound, so every §D harness asserts `payments.adapter == 'paykit'` immediately after the bind and before any status assertion; with two-phase, the adapter is already `paykit` throughout `preparing` while nothing is published, so the dangerous overlap is gone (§B.11.7). Side effect: `true` disables local pickup on staging (`lib.rs:76`, `handlers/pickup.rs:70`), so the proofs use **shipping** listings. | n/a | Low, given the adapter gate. Worth a runbook line because the flag's name suggests more reach than it has. |
@@ -3159,7 +3473,8 @@ the sentence is rendered, so it cannot be dropped in a later copy pass.
 **r5: the choice comes before the disclosure, and it is presented as two paths
 side by side rather than as a default with an escape hatch.** The disclosure
 above is unchanged and still renders on the manual path — it is exactly the harm
-that path would carry under the disabled `pasted_auto` design, and it is why
+that path would carry under the unconditionally rejected `pasted_auto` design
+(r7 — same phrasing everywhere), and it is why
 `shared_manual` is the default and why r6 removed the flag that could have
 enabled that mode at all (§B.8.6). What changed is that the two paths now differ in
 *what Shop will do*, not only in how much risk the seller carries, and the copy
@@ -3221,7 +3536,7 @@ conditions, each with the check the runbook carries:
 | 3 | No invoice in `expired_tail`; `observation_targets()` returns empty | paykit-server |
 | 4 | No order in `paykit_activation_state = 'preparing'` — the marketplace's activation outbox has drained (§B.11.8) | **marketplace-service** |
 | 5 | No `awaiting_entitlement` paykit payments | marketplace-service |
-| 6 | **No undelivered `paykit.resolve` outbox row** for this stack — every seller confirmation's `paid_manually` has reached the stack that issued the invoice, or is marked `terminal_unresolved` with an alert (§B.8.8) | **marketplace-service** |
+| 6 | **No undelivered `paykit.resolve` outbox row** for this stack — every seller confirmation's `paid_manually` has reached the stack that issued the invoice, **or** is `terminal_unresolved` **with an operator acknowledgement recorded against it** (r7). Termination is never inferred from silence: it is either one of §B.8.8's mapped rejection classes, the 1-hour `resolve_delivery_deadline`, or the operator escape | **marketplace-service** |
 
 **r5 said there was no sixth condition; r6 adds exactly one, and it is not the
 one r5 argued against (Sol P1).** r5's reasoning about
@@ -3247,9 +3562,28 @@ in flight.** It does not strand buyer money, which is why it is condition 6
 rather than a blocker on the state itself, but it strands the audit trail that
 §C row 4e calls "the whole of its safety", so it belongs in the checklist.
 
-Condition 6 is bounded by the same 24-hour window as the orders that produce it
-(§B.8.8), and in the normal case it drains in seconds — it is a condition an
-operator checks, not one they wait on.
+**Condition 6 is bounded by a mechanism, not by an expectation (r7, Kimi P1-1,
+Sol P2).** r6 said it "drains in seconds" and was "a condition an operator checks,
+not one they wait on", and neither was true as written: r6 mapped exactly one
+rejection to termination, so a row hitting any of §B.9's four other permanent
+rejections — or a pinned stack that was unreachable or rejecting — retried
+forever and this condition could never be cleared. Three things make the claim
+true, all specified in §B.8.8:
+
+1. **Every response class has exactly one outcome**, and every permanent
+   rejection terminates with an alert. No class retries indefinitely.
+2. **A 1-hour `resolve_delivery_deadline`** terminates any row still retrying,
+   regardless of class. That is the only wall-clock this condition adds.
+3. **The operator escape** lets an operator terminate a named row immediately,
+   with their identity and reason recorded, so a rollback is never blocked by a
+   row that is going to terminate anyway. It does **not** un-pay the order.
+
+So condition 6 is clearable at any moment by an operator, and self-clearing
+within one hour of the last confirmation without one. What it costs is the
+acknowledgement step: a `terminal_unresolved` row is a real money outcome paykit
+does not know about, and an operator has to write down what they did about it
+before repointing. That is deliberate — the alternative is a drain that counts
+rows and loses the audit trail §C row 4e calls "the whole of its safety".
 
 Condition 4 is the one r3 could not have had, and it is the reason the drain
 check now **spans both services**: an operator who only queries paykit can see a
@@ -3259,13 +3593,19 @@ marketplace's outbox.
 **Bounded and computable.** `prepare_ttl` (15 min) bounds condition 1, and it
 runs *inside* the hold window rather than after it, so it adds nothing to the
 total; the hold window (3600 s) plus the §B.9 tail (24 h) bound conditions 2–3.
-The honest worst case is **just over 25 hours**, the same magnitude as r3.
 `activate` and `void` deliberately keep working while the creation kill switch
 is on (§C.16 row), because refusing them would strand the very `prepared`
-invoices condition 1 is waiting on. Condition 6 adds nothing to the worst case,
-because it drains on the marketplace's own outbox schedule. §C.17's runbook
-carries all six as a checklist with the query for each, because an operator
-draining at 3 a.m. will not re-derive them.
+invoices condition 1 is waiting on. **Condition 6 adds at most the 1-hour
+`resolve_delivery_deadline`**, and the arithmetic is stated rather than waved at
+(r7): the last confirmation an order can produce lands inside the same window
+conditions 2–3 bound, and its row terminates at most one hour later. So the
+honest fully-automatic worst case is **just over 26 hours** — 1 h hold window +
+24 h §B.9 tail + 1 h resolution-delivery deadline — where r3's was just over 25 h
+and r6 claimed condition 6 was free. With the operator escape used, it is back to
+just over 25 h, because the escape clears condition 6 immediately. §C.17's
+runbook carries all six as a checklist with the query for each and both numbers
+stated, because an operator draining at 3 a.m. will not re-derive them and should
+not be surprised by an extra hour.
 
 ---
 
@@ -3527,7 +3867,10 @@ both buyer and seller UIs render paid, evidenced by screenshots the parent
 opens. If Q3 is answered 2 confirmations, assert `paid` occurs at the
 second block and not the first.
 
-FAIL calibrations, all six required before the positive run is trusted:
+FAIL calibrations, **all ten** required before the positive run is trusted — F1,
+F2, **F2b**, **F2c**, F3, F4, F5, F6, **F7** and **F8** (r7, Kimi P3: r6 still
+said "all six", a count that predates F2b, F2c, F7 and F8). The r5/r6 allocation
+calibrations F9–F16 below are a separate, additionally required set:
 
 - **F1 — one satoshi short.** Send `price - 1`. Expected: paykit reports
   `confirmed` with `amount_matched: false`, marketplace routes to
@@ -3626,8 +3969,19 @@ failing in the intended direction** before the mode it protects is trusted.
   (§B.10). **Its race twin (r6, Sol P2):** hold a sentinel candidate, assign that
   same index to a new invoice, then let the scan commit — assert it does **not**
   downgrade, records `superseded_by_assignment`, and that the payment is judged
-  by §B.8.2's amount predicate instead. Without this, the unassigned re-check
-  under the creator allocation lock is unproven.
+  by §B.8.2's amount predicate instead. **That twin proves the re-check but not
+  the lock, and r7 adds the interleaving that does (Sol P3, Kimi P3).** As
+  written, the assignment commits *before* the scan commits, so a lock-free
+  re-check passes it and a repository mock passes it too. The added case runs
+  **two overlapping real database transactions**: the scan takes the creator
+  allocation row and holds it, and the assignment is attempted **while that lock
+  is held**. Assert that the allocator **blocks** until the scan commits and then
+  observes the scan's outcome, or that the scan observes the committed
+  assignment — never that both proceed on stale reads. The assertion is on
+  observed blocking or serialization order against a real database, so an
+  in-memory repository cannot satisfy it, which is the whole point: the
+  mechanism §B.8.7 claims is a row lock, and a test that passes without one is
+  not evidence for it.
 - **F12 — the recovery account reuses nothing.** After a downgrade, re-claim to
   a fresh Bitkit-reserved account. Assert: the new creator record starts
   `exclusive` with `next_child_index` 0 after a clean §B.5 scan; **no** index
@@ -3658,8 +4012,13 @@ failing in the intended direction** before the mode it protects is trusted.
   the stored observation's outpoint txid and `observed_sats` when the body omits
   them; and that a body supplying **either** value differently is rejected with
   `confirmation_observation_mismatch`, with no state change and no audit row.
-  Assert the outbox row carries the issuing stack's `stack_id` and that the
-  delivery arm refuses to send it to a different stack.
+  Assert the outbox row carries the issuing stack's `stack_id` — **the value
+  phase 1 returned, not the configured URL (r7)** — and that the delivery arm
+  refuses to send it to a different stack. **The decisive case is same-role /
+  wrong-instance:** stand up a second stack with the *same* `PAYKIT_STACK_ROLE`
+  and a fresh database, repoint the marketplace at it, and assert the row is
+  never sent and terminates `stack_pin_mismatch`. A role-only comparison passes
+  that case, which is why the identity carries the instance UUID.
 - **F15 — confirmation is idempotent.** Deliver the same confirm twice.
   Expected: the same confirmation record returned, exactly **one** audit row,
   exactly **one** fulfilment event, and exactly **one** `paykit.resolve` outbox
@@ -3669,6 +4028,17 @@ failing in the intended direction** before the mode it protects is trusted.
   assert redelivery of that outbox row against paykit applies once (idempotent
   on `(invoice_id, resolution)`), and that an `unknown_invoice` response marks
   the row `terminal_unresolved` with an alert while the order stays `paid`.
+  **New in r7 — the termination mapping is a calibration, not an assertion:**
+  drive one row per class in §B.8.8's mapping table and assert each lands on its
+  stated outcome — every permanent rejection terminating on the first response
+  with **zero** further attempts, every transient one retrying and then
+  terminating at the 1-hour `resolve_delivery_deadline`, an unrecognised code
+  terminating as `unmapped_resolve_error`, and the operator escape terminating a
+  named row on demand. Assert in all of them that **the order is still `paid`**
+  and that the drain query (§C.16 condition 6) still reports the row as blocking
+  until an acknowledgement exists. **Its FAIL calibration is the r6 defect
+  itself:** delete one mapping row and observe that class retrying past the
+  deadline and condition 6 never clearing.
 - **F16 — the confirm/reaper race has exactly one winner (r6, Kimi P2).** The
   one race in the r5 design with no test. Drive the seller confirm and the
   24-hour window expiry **concurrently** against one order in
@@ -3803,7 +4173,7 @@ least once, and not before Q9 is answered.
 | **Seller wallet and paykit-server are independent allocators** (Sol NEW-2) | A busy seller shares one account between their wallet and Shop; the wallet's counter reaches an index paykit already assigned to a live invoice; an unrelated customer pays it | **Succeeds against r2.** Harm: **the seller ships an item a Shop buyer never paid for.** r3 called the residual ≈10⁻³; **Sol's R3-2 refuted that arithmetic and r4 replaces it** — at the shipped 1 h live window a busy pasted-xpub seller carries `E ≈ 6 × 10⁻²` events per exposed-seller-month, `P(any) ≈ 6%` (§B.8.4). | Both defences (§B.8.3), with the load-bearing one inverted in r4 after the 08:39 owner decision: **(b)** exact-amount matching plus a CSPRNG nonce in `[1,999]` is the mechanism, because it needs no seller cooperation; **(a)** a Bitkit-issued Shop-exclusive account drives `N = 0` and is the recommended default, not a requirement. Plus the baseline (§B.4.1), the composed first-tick rule (§B.4.6), and the fingerprint binding (§B.8.5). Q9 is decided: paste stays, and the number above is what the owner accepted. |
 | **Seller restores the Shop account seed into a third-party wallet** | Deliberate act against written guidance; the other wallet allocates from the Shop account | **Not closed. Residual R2** (§B.10). (a) is an invariant over Bitkit, not over the seed. | §C.10 copy states, in one sentence, that using the account elsewhere can mark an order paid when nobody paid and the seller ships for free; bounded by the nonce at the §B.8.4 rate with `r` set to that wallet's receive rate; requires deliberate action. Named rather than claimed closed. |
 | **paykit publishes a payable request before the marketplace commits its bind** (Sol **R3-1**, P1) | The marketplace calls paykit before its own commit (`payment_methods.rs:713-759`) and paykit queues both outbox rows on commit (`invoices.rs:1023-1040`); then a crash, a lost response, or a failed local commit | **Succeeds against r3, and it is the worst outcome in this document:** a valid published mainnet Payment Request exists for an order that stays `adapter='sandbox'`, which the poller never claims (`workers.rs:721-758`). A buyer pays real money and gets no confirmation, no expiry, and no `manual_review` — silently orphaned funds. Needs no adversary. | **Two-phase prepare/activate (§B.11).** Phase 1 allocates, baselines, mints the nonce and returns the total with the outbox rows written `status='prepared'` — invisible to the delivery worker, whose claim query selects only `'queued'`/`'leased'`/`'retryable'` (`outbox.rs:196-206`). The marketplace commits its bind and a `paykit.activate` outbox row in one transaction. Signed idempotent activation releases publication. Unpayability while `prepared` is traced to the SDK private-message path and Bitkit's ingestion in §B.11.5, and driven as NEG-6 with a mandatory negative calibration that shows r3's build leaking the request to the buyer's wallet. |
-| **A prepared invoice is activated after the operator believes the rollback drain finished** | Rollback drains on r3's boundary ("every delivered request expired or final"), which says nothing about `prepared` invoices or an undrained marketplace activation outbox | Would publish a brand-new payable request **after** `PAYKIT_SERVER_URL` was repointed — the NEW-3 orphan, recreated through the new path. | §C.16's boundary is restated to five conditions including "no invoice in `prepared`" and "no order in `paykit_activation_state='preparing'`", the second checked on the **marketplace** side. `activate`/`void` deliberately keep working while the creation kill switch is on, so the drain can complete. Worst case just over 25 h, in the runbook as a checklist with a query per condition. |
+| **A prepared invoice is activated after the operator believes the rollback drain finished** | Rollback drains on r3's boundary ("every delivered request expired or final"), which says nothing about `prepared` invoices or an undrained marketplace activation outbox | Would publish a brand-new payable request **after** `PAYKIT_SERVER_URL` was repointed — the NEW-3 orphan, recreated through the new path. | §C.16's boundary is restated to **six** conditions (r7 — r6 added the sixth and this row still said five) including "no invoice in `prepared`", "no order in `paykit_activation_state='preparing'`" and "no undelivered or unacknowledged `paykit.resolve` row", the last two checked on the **marketplace** side. `activate`/`void` deliberately keep working while the creation kill switch is on, so the drain can complete. Worst case just over 26 h fully automatic, just over 25 h with the condition-6 escape, in the runbook as a checklist with a query per condition. |
 | **Exact replay reports success for an invoice that was reaped or voided** (Sol **R3-5**) | `create_payment_request.rs:129-142` → `invoices.rs:363-427` returns `replayed: true` without inspecting lifecycle state | The marketplace would commit a bind against an invoice that can never be activated, and the order would sit `preparing` until its hold expired with no diagnosis. | State-inspecting replay (§B.11.6): `prepared` and `observing` return the same body; `awaiting_baseline` waits inside the request deadline; all three void states and `expired_final` return a **named 409, never a success**. NEG-6 asserts all three void states, not one. |
 | **The marketplace records the pre-nonce total** (Sol **R3-3**) | paykit mints the nonce but `POST /v0/payment-requests` returns 204 (`http/payment_requests.rs:42-51`), so the marketplace keeps its own `amount_sats` | The buyer is charged and shown one figure while the wallet is asked for another; under the exact predicate the order can never confirm, so every Bitcoin order silently fails. | Phase 1 returns 200 with `{nonce_sats, total_sats, …}` and the marketplace persists `paykit_total_sats` (§B.11.3). Belt and braces: `activate` echoes `total_sats` and paykit refuses with `activation_total_mismatch` on disagreement, so the two services cannot diverge quietly — driven as NEG-6 row #9. |
 | **Wallet allocation reset reissues the Shop account** (Sol **R3-4**) | Wipe or reinstall with no successful backup restore, or a restore from a snapshot predating the reservation; the wallet then reserves account 1 again | r3 claimed the reservation is "never reissued" globally; **that is false as written** — `WatchOnlyAccountStore.kt:86-89` + `WipeWalletUseCase.kt:57-72`, `WatchOnlyAccountService.swift:250-252` + `AppReset.swift:45-49`. | Partly closed, partly quantified (§B.8.5). Verified in the seller's favour: both wallets back up and restore the high-water mark and iOS merges with `max()` (`BackupRepo.kt:592-599`, `:715-719`; `WatchOnlyAccountService.swift:125-166`), so the common restore path preserves it. The cross-seller variant is closed outright by the paykit-server `claimed_key_fingerprints` binding. The wallet's own reuse needs four conditions to coincide and is **residual R3**, bounded by the same nonce and disclosed in the post-restore UI. |
@@ -3870,23 +4240,23 @@ for the marketplace two-phase work, **implementation tier** for client surfaces,
 | W0e | Owner decision on Q9 | — | owner | W0d | **Done, 2026-09-09 08:39:** manual xpub entry stays on mainnet; Bitkit Shop account becomes the recommended path. Recorded in the review history and §G |
 | W1.1 | Fork: creation baseline and post-invoice eligibility (§B.4) — `awaiting_baseline`, the post-commit/pre-publication snapshot of history **and** mempool, baseline outpoint and replaced-input sets, `void_baseline_failed`, V2 record, `confirmed_height`, migration `0002` | `paykit-server-fork` | **Kimi** | W0c | `cargo test -p paykit-server` → **the NEW-1 case first:** an outpoint present in the baseline as unconfirmed, later seen only as confirmed above the floor, never binds; an outpoint spending a baseline input never binds while one spending an unrelated input does; a post-baseline output binds; an output at `height <= floor` writes no observation; a failed snapshot yields `void_baseline_failed` + `Unavailable` with no outbox delivery and no target-set membership; a burned index is never reissued; a stale tip beyond 3 blocks refuses creation; a V1 record on mainnet is a hard error; two concurrent first binds derive distinct indices and the (creator, index) unique constraint holds |
 | W1.1b | Fork: exact amount predicate + invoice nonce (§B.8.2) | same fork, serialized after W1.1 | **Kimi** | W1.1 | `cargo test -p paykit-server` → `observed_sats == required` binds; `required + 1` reports `amount_matched: false`; `required - 1` unchanged; nonces are CSPRNG-drawn, in `[1,999]`, and differ across invoices for one seller; the order total the marketplace records equals `price + nonce` |
-| W1.1c | **Fork: two-phase prepare/activate (§B.11) — the gating slice (R3-1), and it also closes R3-3 and R3-5** | same fork, serialized after W1.1b | **Kimi** | W1.1b | `cargo test -p paykit-server` → **unpayability first (§B.11.5):** a `prepared` invoice yields **zero** rows from `OutboxStore::claim` across repeated calls and **zero** entries from `observation_targets()`, and a funded observation against its address changes no status. Then: phase 1 returns **200** with `{invoice_id, nonce_sats, total_sats, expires_at, prepare_expires_at, derived_address_fingerprint}` and `total_sats == amount_sats + nonce_sats` (R3-3); `activate` flips `prepared → observing` and both outbox rows `'prepared' → 'queued'` in one transaction; a second `activate` returns the same body and enqueues **nothing** (asserted on row count, not on absence of duplicate messages); `activate` with a mismatched `total_sats` returns `activation_total_mismatch` and leaves the invoice `prepared`; `activate`/`void` on each of `void_baseline_failed`, `void_prepare_expired`, `void_cancelled` return the named 409; **phase-1 replay returns the same prepared body from `prepared`, the same body from `observing`, and a finalized 409 from all three void states** (R3-5, all three asserted); the reaper voids `prepared` at 15 min and never touches `observing`; `void` on `observing` is refused; a reaped index is burned and never reissued; the tick-1 snapshot (§B.4.6) is taken inside `activate` and a `pre_existing` classification is written for a transaction unconfirmed at that moment |
+| W1.1c | **Fork: two-phase prepare/activate (§B.11) — the gating slice (R3-1), and it also closes R3-3 and R3-5** | same fork, serialized after W1.1b | **Kimi** | W1.1b | `cargo test -p paykit-server` → **unpayability first (§B.11.5):** a `prepared` invoice yields **zero** rows from `OutboxStore::claim` across repeated calls and **zero** entries from `observation_targets()`, and a funded observation against its address changes no status. Then: phase 1 returns **200** with `{invoice_id, state, stack_id, allocation_mode, nonce_sats, total_sats, expires_at, prepare_expires_at, derived_address_fingerprint}` and `total_sats == amount_sats + nonce_sats` (R3-3); **`stack_id` equals the `stack_identity` row and `activate` / `void` echoing any other value are refused with `stack_identity_mismatch` while the invoice's state is unchanged** (r7); `activate` flips `prepared → observing` and both outbox rows `'prepared' → 'queued'` in one transaction; a second `activate` returns the same body and enqueues **nothing** (asserted on row count, not on absence of duplicate messages); `activate` with a mismatched `total_sats` returns `activation_total_mismatch` and leaves the invoice `prepared`; `activate`/`void` on each of `void_baseline_failed`, `void_prepare_expired`, `void_cancelled` return the named 409; **phase-1 replay returns the same prepared body from `prepared`, the same body from `observing`, and a finalized 409 from all three void states** (R3-5, all three asserted); the reaper voids `prepared` at 15 min and never touches `observing`; `void` on `observing` is refused; a reaped index is burned and never reissued; the tick-1 snapshot (§B.4.6) is taken inside `activate` and a `pre_existing` classification is written for a transaction unconfirmed at that moment |
 | W1.2 | Fork: claim-time index scan (§B.5) | same fork, serialized after W1.1 | **Kimi** | W1.1 | `cargo test -p paykit-server manual_claim` → unused account starts at 0; account with usage at index *k* starts at `k+21`; Electrum failure refuses the claim; >1,000 scanned refuses |
-| W1.3 | Fork: deny-list on canonical key data, **revised account range (account 0 accepted)**, `key_fingerprint`/`first_derived_address`/`next_child_index` in the claim response, **fingerprint↔seller binding**, `stack_role` invariant (§B.6, §B.8.5) | same fork, serialized after W1.2 | **Kimi** | W1.2 | `cargo test -p paykit-server` → the test-vector key is refused under `production` in both xpub and zpub-normalized form and accepted under `proof`; **`account_index = 0` is accepted under both roles** (the r4 reversal — a test that fails under r3's rule), `1..=99` accepted, `100` refused with a named reason; a declared `account_index` that disagrees with the key's hardened child number is refused (`create_invoice.rs:249-270`); the deny-list covers accounts 0–99; **a key claimed by seller A is refused for seller B with `key_claimed_by_other_seller`, including after A's claim is inactive, while a re-claim by A is accepted**; a proof DB under a production config exits `StartupError::Deployment` |
+| W1.3 | Fork: deny-list on canonical key data, **revised account range (account 0 accepted)**, `key_fingerprint`/`first_derived_address`/`next_child_index`/**`stack_id`** in the claim response, **the `stack_identity` table that mints `stack_id` (r7, §B.8.8)**, **fingerprint↔seller binding**, `stack_role` invariant (§B.6, §B.8.5) | same fork, serialized after W1.2 | **Kimi** | W1.2 | `cargo test -p paykit-server` → **`stack_id` is `{PAYKIT_STACK_ROLE}:{uuid}`, is created once on first migration, is byte-identical across restarts, is returned by the claim response and `/health/ready`, and two databases migrated from the same image get *different* values** (r7 — the same-role/wrong-instance case Sol asked for); the test-vector key is refused under `production` in both xpub and zpub-normalized form and accepted under `proof`; **`account_index = 0` is accepted under both roles** (the r4 reversal — a test that fails under r3's rule), `1..=99` accepted, `100` refused with a named reason; a declared `account_index` that disagrees with the key's hardened child number is refused (`create_invoice.rs:249-270`); the deny-list covers accounts 0–99; **a key claimed by seller A is refused for seller B with `key_claimed_by_other_seller`, including after A's claim is inactive, while a re-claim by A is accepted**; a proof DB under a production config exits `StartupError::Deployment` |
 | W1.4 | Fork: Electrum budget, batching, jitter, backoff, backlog alert, active genesis/tip probe, **availability auto-hide hysteresis** (§B.7, §B.7.1) | same fork, serialized after W1.3 | **Kimi** | W1.3 | Unit tests: budget arithmetic caps at 1,000/tick and ≤5 req/s; deferral is oldest-first; readiness reports tip height and age; an empty target set no longer reports `available` without a probe; 3 failed probes set Bitcoin unavailable and 3 successes clear it, with no flap in between; **auto-hide gates creation only — existing invoices are still observed while hidden, and `activate`/`void` still work while hidden** (§C.16) |
-| W1.4c | **Fork: `bitcoin_offer_available` on `/health/ready` (§B.7.2 hop 1, R3-6)** | same fork, serialized after W1.4 | **Kimi** (it gates a money path's availability) | W1.4, W1.5 | `cargo test -p paykit-server` → `ReadyResponse` serializes `bitcoin_offer_available`, `electrum_tip_height`, `electrum_tip_age_seconds`; the field is `false` after 3 failed probes and `true` only after 3 successes; the field is `false` whenever `PAYKIT_BITCOIN_CREATION_ENABLED=false` **regardless of probe health**, so one boolean carries both gates; the field is independent of the existing `electrum` component string (asserted by a case where they differ) |
-| W1.4b | Fork: Payment Request expiry, `expired_tail`, resolve endpoint (§B.9) | same fork, serialized after W1.4 | **Kimi** | W1.4 | `cargo test -p paykit-server` → a request with missing, past, or over-maximum `expires_at` is refused; `proposal_expires_at` is set on the published request; at expiry the invoice moves to `expired_tail` and after 24 h to `expired_final`, leaving `observation_targets()`; an eligible observation during the tail is recorded with `late_settlement` and never yields `paid`; `resolve` is idempotent, finalizes early from `expired_tail`, is **recorded but does not resume observation** from `expired_final`, and is refused for `awaiting_baseline` / `void_baseline_failed` / unknown invoices |
+| W1.4c | **Fork: `bitcoin_offer_available` on `/health/ready` (§B.7.2 hop 1, R3-6)** | same fork, serialized after W1.4 | **Kimi** (it gates a money path's availability) | W1.4, W1.5 | `cargo test -p paykit-server` → `ReadyResponse` serializes `bitcoin_offer_available`, `electrum_tip_height`, `electrum_tip_age_seconds`, **and `stack_id` — the value the marketplace's resolution arm compares its pinned row against, so it must be present even when `bitcoin_offer_available` is `false` (r7)**; the field is `false` after 3 failed probes and `true` only after 3 successes; the field is `false` whenever `PAYKIT_BITCOIN_CREATION_ENABLED=false` **regardless of probe health**, so one boolean carries both gates; the field is independent of the existing `electrum` component string (asserted by a case where they differ) |
+| W1.4b | Fork: Payment Request expiry, `expired_tail`, resolve endpoint (§B.9) | same fork, serialized after W1.4 | **Kimi** | W1.4 | `cargo test -p paykit-server` → a request with missing, past, or over-maximum `expires_at` is refused; `proposal_expires_at` is set on the published request; at expiry the invoice moves to `expired_tail` and after 24 h to `expired_final`, leaving `observation_targets()`; an eligible observation during the tail is recorded with `late_settlement` and never yields `paid`; `resolve` is idempotent, finalizes early from `expired_tail`, is **recorded but does not resume observation** from `expired_final`, and is refused for `awaiting_baseline` / `void_baseline_failed` / unknown invoices. **New in r7 (Sol P2, and it is what proves §B.9's table and §B.11.1 are one specification): the resolve suite is table-driven over all twelve §B.9 rows, one case per row**, asserting for each the accept/refuse outcome, the named error where it refuses, the resulting `baseline_state` (`resolved_paid_manually` or `resolved_closed` where it transitions, unchanged where it records only), the retained observation and the mismatch flag on the `amount_matched: false` row, and **`observation_targets()` membership immediately before and immediately after the call** — present before and absent after on every accepting `observing`/`expired_tail` row, unchanged on every refusing row; plus `resolve` echoing another stack's `stack_id` refused with `stack_identity_mismatch` with no state change (r7) |
 | W1.5 | Fork: `PAYKIT_BITCOIN_CREATION_ENABLED` kill switch (§C.16) | same fork, serialized after W1.4 | **Kimi** | W1.4 | `cargo test` → creation refused with `bitcoin_creation_disabled` while observation of existing invoices continues |
 | W1.6 | Rails: entrypoint variables (§C.6) **plus** the IaC/script for §B.1 — create both services and databases, wire variables, run the negative miswiring gate, and a separate destructive script that drops the proof database | `pubky-payment-rails` | **Kimi** (operator config gates the watcher) | W0 | `sh paykit-server/tests/entrypoint_test.sh` → pass; `PAYKIT_ENTRYPOINT_RENDER_ONLY=1` with mainnet vars → TOML contains `network = "mainnet"`, `poll_interval = "30s"`, the stack role; bogus network → non-zero exit; the IaC script run twice is idempotent; the miswiring gate fails to boot as expected |
 | W1.7 | Client: network-aware validator, `zpub`→`xpub` normalization, deny-list, `PUBKY_RUNTIME_BITCOIN_NETWORK` | `mp-oneauth` worktree | **Kimi** (client xpub conversion is key handling) | W0 | `npm run test -- payment-methods` → `zpub` converts to the same 78 bytes the server stores; `vpub`/`tpub` rejected on mainnet with named reasons; the test-vector key rejected in both forms and for accounts 0–19; an unset `PUBKY_RUNTIME_BITCOIN_NETWORK` refuses the claim; the published BIP84 test vectors are asserted directly |
 | W1.8 | Client: preview from the exact normalized bytes, fingerprint comparison, confirmation gate, disclosures (§C.10) | separate `mp-*` worktree | **Kimi** — in-browser BIP84 derivation is the gate §C.10 rests on, so the preamble's rule applies (Kimi P2 on r1's tiering) | W1.7 | Component tests green; the published BIP84 test vectors are asserted against the preview derivation; a mutated byte blocks `bitcoinEnabled`; VRT regenerated if a baseline exists for the settings surface |
 | W1.8b | Client: **Bitkit Shop-account claim path as the recommended default, manual paste and file import retained** (§B.8.1, §C.10; owner decision 08:39) — auth URL with `x-bitkit-claim=watch-only-account-v1` and the exact capability set, payload decode, the real `account_index` submitted instead of a hardcoded `0` | separate `mp-*` worktree, after W1.8 | **Kimi** (this is a credential-delivery path) | W1.8 | Tests: the requested capability set is byte-equal to `PubkyAuthClaim.WATCH_ONLY_ACCOUNT_CAPABILITIES`, asserted against a fixture captured from Bitkit rather than retyped; an 84-byte payload decodes to version 1, an `account_index` and a 78-byte xpub, and the submitted index is the payload's rather than `0`; **manual paste and file import remain reachable on mainnet and produce a claim byte-identical to the Bitkit path for the same key** (the §B.0 assertion — same endpoint, same normalized 78 bytes); file import accepts exactly the artifacts named in §C.10 and rejects everything else with a named reason rather than guessing, including a file containing private key material, which is refused loudly and never logged; the pre-claim disclosure renders the one-sentence false-paid warning and the dedicated-account recommendation, asserted on copy presence so it cannot be dropped silently |
-| W1.10 | **marketplace-service: two-phase client + durable activation outbox (§B.11.2, §B.11.8)** | `marketplace-service` worktree | **Kimi** (money path, and the R3-1 fix lives half here) | W1.1c | `cargo test -p marketplace-service` → phase 1's `{invoice_id, total_sats, expires_at}` is persisted and the bind **and** the `paykit.activate` outbox row commit in **one** transaction (asserted by a rollback test: no row, no bind); `deliver_claimed` routes `paykit.activate` instead of `bail!`ing on an unroutable kind (`workers.rs:292-294`), and delivery stamps `delivered_at` with the state change in one transaction so redelivery cannot apply twice; `'preparing'` is accepted by the `paykit_request_state` check and **is not claimed by `claim_due_paykit_orders`** (`workers.rs:745-750`); `prepare_expired` / `invoice_finalized` / `unknown_invoice` void the bind, release the hold and emit `payment.bitcoin_prepare_voided`; `activation_total_mismatch` voids **and alerts**; the buyer-facing total charged equals `paykit_total_sats`, never `amount_sats` (R3-3 on this side) |
+| W1.10 | **marketplace-service: two-phase client + durable activation outbox (§B.11.2, §B.11.8)** | `marketplace-service` worktree | **Kimi** (money path, and the R3-1 fix lives half here) | W1.1c | `cargo test -p marketplace-service` → phase 1's `{invoice_id, stack_id, total_sats, expires_at}` is persisted — **`paykit_stack_id` from the response body and never from configuration, asserted by a test that changes `PAYKIT_SERVER_URL` after the bind and shows the persisted value unchanged (r7)** — and the bind **and** the `paykit.activate` outbox row commit in **one** transaction (asserted by a rollback test: no row, no bind); `deliver_claimed` routes `paykit.activate` instead of `bail!`ing on an unroutable kind (`workers.rs:292-294`), and delivery stamps `delivered_at` with the state change in one transaction so redelivery cannot apply twice; `'preparing'` is accepted by the `paykit_request_state` check and **is not claimed by `claim_due_paykit_orders`** (`workers.rs:745-750`); `prepare_expired` / `invoice_finalized` / `unknown_invoice` void the bind, release the hold and emit `payment.bitcoin_prepare_voided`; `activation_total_mismatch` voids **and alerts**; the buyer-facing total charged equals `paykit_total_sats`, never `amount_sats` (R3-3 on this side) |
 | W1.11 | **marketplace-service: availability consumer (§B.7.2 hop 2, R3-6)** | same tree, serialized after W1.10 | **Kimi** (it changes a public endpoint's failure semantics) | W1.10, W1.4c | `cargo test -p marketplace-service` → `get_payment_config` returns `bitcoin_offer_available` alongside `bitcoin_available`; a fresh value is cached for 15 s and paykit is not re-probed inside it; a paykit error serves the last value until 60 s stale and then reports `false`; **the endpoint returns 200 rather than 503 when paykit is unreachable** (`payment_methods.rs:310-325` today), asserted as a status-code regression test; `bitcoin_available` still requires the seller's claim to exist |
 | W1.12 | **Client: hide Bitcoin at checkout when unavailable (§B.7.2 hop 3, R3-6)** | `mp-oneauth` worktree, independent of W1.8 | implementation tier | W1.11 | Component tests: the Bitcoin option is not rendered when `bitcoin_offer_available` is `false`, and is rendered when both flags are true; the copy is the static string and interpolates **no** operator state (asserted against a snapshot, so a future edit cannot leak a tip height or endpoint name); a seller with no other rail falls through to the existing no-rail empty state rather than a new surface; VRT regenerated if a baseline exists for the checkout surface |
 | W1.13 | **Fork: creator `allocation_mode` and the claim-channel checks (§B.8.6, D1/D2)** — the column and its check constraint, `claim_channel` on the claim request, the four corroborating checks, downgrade-with-a-reason rather than refusal, `allocation_mode_not_enabled`, and the authenticated seller status fields | same fork tree, serialized after W1.3 | **Kimi** (it decides which sellers get automatic money confirmation) | W1.3 | `cargo test -p paykit-server` → a paste is `shared_manual`; a `bitkit_watch_only_v1` claim at index ≥ 1, index-agreeing, scan-clean and fingerprint-free is `exclusive`; each of `account_index = 0`, an index disagreeing with the key's hardened child number, and any scan history **downgrades with a named reason and does not refuse**, the reason being one of §B.8.8's five fixed identifiers; **`pasted_auto` is refused with `allocation_mode_not_enabled` unconditionally — asserted across every accepted configuration, with no enabling flag existing (r6, Sol P1); the r5 assertion "accepted only with the flag explicitly set" is deleted, and a test asserting acceptance is a regression**; there is no code path that edits a creator into `exclusive`; the seller status endpoint returns mode, channel, downgrade reason and evidence to the authenticated seller and 403s for anyone else. **Scope for the canary: `exclusive` and `shared_manual` only** (D8) |
-| W1.14 | **Fork: sentinel detection, evidence records, and the automatic-`paid` gate (§B.8.7, D3)** — creator-level sentinel targets scheduled **inside the §B.7 30 s tick** (re-scan at most every 10 min per creator; **no second cadence**), a **global sentinel token budget** subordinate to live targets, `exclusive`-only admission, a 1 h `sentinel_max_age` freshness SLO with its own age alert, durable evidence rows, the **single downgrade predicate**, the unassigned re-check **under the creator allocation lock**, atomic downgrade, **one** seller alert on the transition, and the confirmation gate reading the creator's **current** mode | same fork tree, serialized after W1.13 | **Kimi** | W1.13, W1.4b | `cargo test -p paykit-server` → an output satisfying the predicate on a never-assigned sentinel downgrades atomically and writes an evidence row; **under-, over- and late payment to an assigned address route that invoice to `manual_review` and leave the mode unchanged** (asserted after all three, not one); the mode survives restart and is read from the database at the transition; a downgrade landing on an already-`observing` invoice stops that invoice's automatic `paid` (matrix row A3); a sentinel-scan Electrum failure downgrades **nothing**; both predicate thresholds behave as configured **in both directions** and a mempool-only output never qualifies; **a candidate whose index is assigned to an invoice before the scan commits is discarded as `superseded_by_assignment` and downgrades nothing** (F11's race twin); **repeat post-downgrade hits write evidence rows and raise no second alert**; a `shared_manual` creator is not admitted to the sentinel set; sentinel work draws only from the sentinel token bucket, never defers a live target, and does not breach the 1,000/tick cap or 5 req/s; the sentinel-age alert fires when the oldest admitted creator exceeds `sentinel_max_age` and does **not** gate creation. **Gates general availability, not the canary** (D8) |
-| W1.15 | **marketplace-service: `shared_manual` checkout and the seller-confirm endpoint (§B.8.8, D2)** — `awaiting_seller_confirmation` on `paykit_request_state` **plus its status-only poll path** (§B.11.2), the extended inventory hold, the **24-hour** window, the hold persisting through operator resolution, `POST /v0/orders/{id}/confirm-bitcoin-payment` as a **single conditional UPDATE**, its session-resolved authorisation, its observation-derived audit fields, and the **stack-pinned `paykit.resolve` outbox** carrying `paid_manually` to paykit | `marketplace-service` worktree, serialized after W1.11 | **Kimi** (money path, and it is the only path that marks an order paid without chain evidence) | **W1.11, W1.13, W1.4b** (it calls `resolve`, which W1.4b introduces) **and the resolution-outbox mechanism itself, which is part of this slice and must land before the confirm path is enabled** (r6, Sol P2) | `cargo test -p marketplace-service` → a matching confirmed observation on a `shared_manual` creator reaches `awaiting_seller_confirmation` and **never** `paid` across repeated poll cycles; **the status-only path refreshes confirmations, invoice state and disappearance while it waits and has no advance-to-paid arm at all**; a **`late_settlement`** observation never enters the state and routes to `manual_review`; the inventory hold is extended on entry and the order does not expire at 3600 s; the **24-hour** window routes to `manual_review`, never to `paid` and never to a silent cancel, **and does not release the hold** — release happens only on operator resolution, with the SLA breach alert asserted; **F13's three unauthorised callers each get `403 not_order_seller` with no state change and no audit row**, and a session for a different seller is refused even with a correct order id; a confirm on an order in the wrong state is refused by a named precondition error; a successful confirm writes every audit field, the fulfilment intent **and** the stack-pinned outbox row **in the same local transaction** as the state change (rollback test: **none of the four** lands alone), with `confirmed_txid` / `confirmed_amount_sats` derived from the stored observation and a disagreeing supplied value rejected as `confirmation_observation_mismatch`; the outbox row delivers `paid_manually` and refuses delivery to any other `stack_id`, terminating as `terminal_unresolved` with an alert on `unknown_invoice` while the order stays `paid`; **F16 races the confirm against the reaper in both orderings and exactly one transition commits**; a second delivery is idempotent — one record, one audit row, one fulfilment event, one outbox row; `buyer_reported_txid` is recorded and is an input to nothing. **In the minimum cutover set** (D8) |
+| W1.14 | **Fork: sentinel detection, evidence records, and the automatic-`paid` gate (§B.8.7, D3)** — creator-level sentinel targets scheduled **inside the §B.7 30 s tick** (re-scan at most every 10 min per creator; **no second cadence**), a **global sentinel token budget** subordinate to live targets, `exclusive`-only admission, a 1 h `sentinel_max_age` freshness SLO with its own age alert, durable evidence rows, the **single downgrade predicate**, the unassigned re-check **under the creator allocation lock**, atomic downgrade, **one** seller alert on the transition, and the confirmation gate reading the creator's **current** mode | same fork tree, serialized after W1.13 | **Kimi** | W1.13, W1.4b | `cargo test -p paykit-server` → an output satisfying the predicate on a never-assigned sentinel downgrades atomically and writes an evidence row; **under-, over- and late payment to an assigned address route that invoice to `manual_review` and leave the mode unchanged** (asserted after all three, not one); the mode survives restart and is read from the database at the transition; a downgrade landing on an already-`observing` invoice stops that invoice's automatic `paid` (matrix row A3); a sentinel-scan Electrum failure downgrades **nothing**; both predicate thresholds behave as configured **in both directions** and a mempool-only output never qualifies; **a candidate whose index is assigned to an invoice before the scan commits is discarded as `superseded_by_assignment` and downgrades nothing** (F11's race twin), **and — new in r7 — the same assertion with the assignment attempted *while the scan holds the creator allocation row*, over two overlapping real database transactions, asserting the allocator blocks or the scanner observes the committed assignment, so the test cannot pass against an in-memory repository** (Sol P3, Kimi P3); **repeat post-downgrade hits write evidence rows and raise no second alert**; a `shared_manual` creator is not admitted to the sentinel set; sentinel work draws only from the sentinel token bucket, never defers a live target, and does not breach the 1,000/tick cap or 5 req/s; the sentinel-age alert fires when the oldest admitted creator exceeds `sentinel_max_age` and does **not** gate creation. **Gates general availability, not the canary** (D8) |
+| W1.15 | **marketplace-service: `shared_manual` checkout and the seller-confirm endpoint (§B.8.8, D2)** — `awaiting_seller_confirmation` on `paykit_request_state` **plus its status-only poll path** (§B.11.2), the extended inventory hold, the **24-hour** window, the hold persisting through operator resolution, `POST /v0/orders/{id}/confirm-bitcoin-payment` as a **single conditional UPDATE**, its session-resolved authorisation, its observation-derived audit fields, and the **stack-pinned `paykit.resolve` outbox** carrying `paid_manually` to paykit | `marketplace-service` worktree, serialized after W1.11 | **Kimi** (money path, and it is the only path that marks an order paid without chain evidence) | **W1.11, W1.13, W1.4b** (it calls `resolve`, which W1.4b introduces) **and the resolution-outbox mechanism itself, which is part of this slice and must land before the confirm path is enabled** (r6, Sol P2) **and W1.1c + W1.3's `stack_id` contract — phase 1's `stack_id` and `/health/ready`'s must both be pinned from captured live responses before these tests are written, because the pin has no anchor without them** (r7, Sol P1-4 / Kimi P2-2) | `cargo test -p marketplace-service` → a matching confirmed observation on a `shared_manual` creator reaches `awaiting_seller_confirmation` and **never** `paid` across repeated poll cycles; **the status-only path refreshes confirmations, invoice state and disappearance while it waits and has no advance-to-paid arm at all**; a **`late_settlement`** observation never enters the state and routes to `manual_review`; the inventory hold is extended on entry and the order does not expire at 3600 s; the **24-hour** window routes to `manual_review`, never to `paid` and never to a silent cancel, **and does not release the hold** — release happens only on operator resolution, with the SLA breach alert asserted; **F13's three unauthorised callers each get `403 not_order_seller` with no state change and no audit row**, and a session for a different seller is refused even with a correct order id; a confirm on an order in the wrong state is refused by a named precondition error; a successful confirm writes every audit field, the fulfilment intent **and** the stack-pinned outbox row **in the same local transaction** as the state change (rollback test: **none of the four** lands alone), with `confirmed_txid` / `confirmed_amount_sats` derived from the stored observation and a disagreeing supplied value rejected as `confirmation_observation_mismatch`; the outbox row delivers `paid_manually` and refuses delivery to any other `stack_id`, terminating as `terminal_unresolved` with an alert on `unknown_invoice` while the order stays `paid`; **new in r7, and this is the slice's liveness gate: the delivery arm is driven table-driven over every row of §B.8.8's response-class mapping** — each permanent rejection (`invoice_not_activated`, `invoice_already_resolved`, each of the three void errors, `unknown_invoice`, `stack_identity_mismatch`) terminates on the **first** response with an alert and **zero** further attempts; `awaiting_baseline`, 5xx, timeouts and 401/403 retry and then terminate with `delivery_deadline_exceeded` at the 1-hour `resolve_delivery_deadline` with clock injection rather than a real wait; a 401/403 alerts on its **first** occurrence as well as at the deadline; an unrecognised code terminates as `unmapped_resolve_error` with the code recorded; a `stack_id` differing from `/health/ready`'s terminates as `stack_pin_mismatch` **without any request being sent** (asserted on the HTTP mock's call count, which is what distinguishes a pin from a post-hoc rejection); the operator escape terminates a named row as `operator_terminated` with the operator identity recorded; and **in every one of those cases the order is still `paid`, the audit row is unchanged and no un-pay occurs** — plus the drain query treats a `terminal_unresolved` row as blocking until an acknowledgement row exists for it (§C.16 condition 6). **Its FAIL calibration: remove one mapping row and observe the delivery arm retrying that class past the deadline**, which is the r6 deadlock; **the endpoint's operation order is asserted (r7)** — a second confirm after the order is `paid` returns the first record rather than `order_not_awaiting_confirmation`, an unauthorised second call gets `403` and never reaches the idempotency lookup, and a losing confirm writes no audit row; `confirmation_basis` is `seller_attestation` on every seller confirmation and `operator_resolution` on an operator resolution; **F16 races the confirm against the reaper in both orderings and exactly one transition commits**; a second delivery is idempotent — one record, one audit row, one fulfilment event, one outbox row; `buyer_reported_txid` is recorded and is an input to nothing. **In the minimum cutover set** (D8) |
 | W1.16 | **Client: two-path seller onboarding and the `shared_manual` buyer/seller surfaces (§C.10, §B.8.8, §B.7.2)** — the side-by-side path chooser, `bitcoin_confirmation_mode` consumption, the buyer's pre-pay and awaiting-confirmation copy, the seller's confirm surface, and the post-downgrade arrival path | `mp-oneauth` worktree, serialized after W1.8b | implementation tier | W1.8b, W1.15 | Component tests: both paths render side by side and neither is styled as broken or provisional; the manual path still renders the §C.10 one-sentence disclosure (the W1.8b assertion, unchanged); `bitcoin_confirmation_mode: "seller"` renders the buyer's pre-pay copy and does **not** hide Bitcoin; the awaiting-confirmation copy renders on the order; **every string is asserted against a snapshot and interpolates no server-supplied value** — no address, amount, txid, tip height or seller name (the house rule, asserted so a later copy pass cannot start interpolating); the seller confirm surface renders the check-your-wallet imperative; arriving at the chooser from a downgrade alert reads sensibly rather than as onboarding; **the downgrade alert and each of the five named downgrade reasons render §B.8.8's fixed copy, asserted against a snapshot** (r6, Sol P2); **the 24-hour window's day-2 human-review copy renders and is consistent with "usually within a day"**. **In the minimum cutover set** (D8) |
 | W1.17 | **Bitkit: Shop-exclusive naming and status, post-restore warning, re-claim surface (§C row 19, D1)** — lifecycle and recovery UI over the allocation primitive that already exists | `bitkit-android` and `bitkit-ios`, one agent per tree | implementation tier per app; **deep reasoning** for the post-restore warning's wording, because it is the surface that tells a seller their allocation state did not come back | W1.13 | Per app: the reserved account is labelled and shows status; a restore that recovered allocation state names the watched account, and a restore that did **not** raises the warning (both directions, driven against the real backup/restore path — `BackupRepo.kt:711-729`, `BackupService.swift:210-219` — not a mocked one); **both restore strings are the fixed copy in §B.8.8 and are asserted against a snapshot** (r6, Sol P2), interpolating no wallet- or server-supplied value; the re-claim surface produces a claim byte-identical to the first-claim path for a fresh reserved account; **size S–M per app**, and none of the three gates the W5 canary — they gate **general availability** (D8) |
 | W10 | **Wave 10 — Option 2 signed reservation pools (§B.8.9)** | Bitkit ×2 (**L** each), `paykit-server-fork` (**L**) | **Kimi** throughout — it is account-key signing, encrypted publication and a money path | r5 shipped and measured | **Not this wave.** Recorded so the sequencing is explicit: exclusive Bitkit now, signed pools next, third-party plugins later, detection throughout. Its proof strategy and its full negative-test list are in §B.8.9 and must be planned from there rather than re-derived |
@@ -3947,7 +4317,7 @@ and it requires exactly this and nothing more:
 | --- | --- |
 | r4's correctness perimeter — W1.1, W1.1b, **W1.1c**, W1.2, W1.3, W1.4, W1.4c, **W1.4b**, W1.5, W1.6, W1.7, W1.8, W1.8b, W1.10, W1.11, W1.12 | Unchanged from r4. These are the money-correctness and rollback mechanisms; none is an allocation-mode item |
 | **W1.13**, scoped to `exclusive` and `shared_manual` only | It decides which sellers get automatic confirmation, which is the whole of D1 |
-| **W1.15**, including the durable stack-pinned resolution outbox, with **W1.4b** and that outbox as prerequisites | The canary's seller is `exclusive`, but a downgrade mid-canary lands them in `shared_manual` with no path to paid unless this exists (§C row 4e's revert coupling, in the forward direction) |
+| **W1.15**, including the durable stack-pinned resolution outbox — **and, in r7, that outbox's complete termination mapping, its 1-hour delivery deadline, its operator escape, and the `stack_id` contract the pin compares against** | The canary's seller is `exclusive`, but a downgrade mid-canary lands them in `shared_manual` with no path to paid unless this exists (§C row 4e's revert coupling, in the forward direction). The r7 additions are in the set for a separate reason: without them §C.16's condition 6 can deadlock, and condition 6 is on the checklist that gates the rollback of a real-money cutover |
 | **W1.16** static buyer and seller surfaces | The copy is the only thing that tells a buyer their paid order is waiting on a human, and a seller what they are being asked to check |
 | The **live mode contract**, captured from a real phase-1 response | Phase 1's `allocation_mode` field must be pinned from a captured response, not retyped (`contract-faithful-tests`) |
 | **State-transition and authorization tests** — F13, F14, F15, **F16**, and §B.8.8's transition table driven end to end | The confirm endpoint is the only path that marks an order paid without chain evidence |
