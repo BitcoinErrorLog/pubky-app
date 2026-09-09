@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PubchiAnswerV1 } from '@/libs/pubchi/schemas';
 import { PubchiAnswerCard } from './PubchiAnswerCard';
@@ -41,6 +41,49 @@ describe('PubchiAnswerCard', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.getByText("Pubchi's reading of the evidence")).toBeInTheDocument();
     expect(screen.getByText('In your graph')).toBeInTheDocument();
+    expect(screen.getByText('Claimants: 1')).toBeInTheDocument();
+  });
+
+  it.each([
+    [['nexus_influencer'], 'Followers'],
+    [['rank_users'], 'Followers'],
+    [['nexus_user_tags'], 'Tagged by'],
+    [['get_tag_landscape'], 'Tagged by'],
+    [['tag_landscape'], 'Tagged by'],
+    [['top_posts'], 'Replies'],
+    [['recommend_follows'], 'Count'],
+    [['recommend'], 'Count'],
+    [['stale_follows'], 'Count'],
+    [['unknown_route'], 'Claimants'],
+  ])('labels %s counts as %s', (tools, label) => {
+    render(<PubchiAnswerCard answer={{ ...answer, tool_trace_summary: { ...answer.tool_trace_summary, tools }} as PubchiAnswerV1} />);
+    expect(screen.getByText(`${label}: 1`)).toBeInTheDocument();
+  });
+
+  it('shows taggers but not claimant details for user evidence', async () => {
+    const tagger = 'a1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+    const tagAnswer = {
+      ...answer,
+      evidence: [
+        { ...answer.evidence[0], kind: 'tag' as const, claimants: [tagger] },
+        { ...answer.evidence[0], label: 'Bob', claimants: [owner] },
+      ],
+      tool_trace_summary: { tools: ['get_tag_landscape'], call_count: 1, truncated: false },
+    };
+    render(<PubchiAnswerCard answer={tagAnswer} currentUserPubky={owner} />);
+    await waitFor(() => expect(screen.getByRole('link', { name: /Alice/ })).toBeInTheDocument());
+    expect(screen.queryByText(owner)).not.toBeInTheDocument();
+  });
+
+  it('uses the graph heading for deterministic routes', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{ ...answer, tool_trace_summary: { tools: ['top_posts'], call_count: 1, truncated: false } }}
+        currentUserPubky={owner}
+      />,
+    );
+    expect(screen.getByText('What the graph shows')).toBeInTheDocument();
+    expect(screen.queryByText("Pubchi's reading of the evidence")).not.toBeInTheDocument();
   });
 
   it('renders an honest empty state for an answer without evidence', () => {

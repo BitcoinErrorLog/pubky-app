@@ -1,11 +1,34 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { PUBCHI_PANEL_SURFACE, PubchiPanel } from '@/organisms/Pubchi/PubchiPanel/PubchiPanel';
 import { renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 
 const mockQuery = vi.hoisted(() => ({
   signingAvailable: true,
+  loading: false,
+  elapsedMs: 0,
+  answer: false,
 }));
+
+const ANSWER: PubchiQuerySuccess = {
+  kind: 'answer',
+  result: {
+    schema: 'pubchi-answer',
+    version: 1,
+    bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+    owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+    generated_at: 1,
+    run_id: 'vrt-answer',
+    purpose: 'ask',
+    question: 'Who is active?',
+    summary: 'The graph shows Alice is active.',
+    evidence: [],
+    sources: [],
+    tool_trace_summary: { tools: ['top_posts'], call_count: 1, truncated: false },
+    policy_version: 1,
+  },
+};
 
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
   usePubchiQuery: () => ({
@@ -17,9 +40,10 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
     },
     submit: vi.fn(),
     applyFeed: vi.fn(),
-    result: undefined,
+    result: mockQuery.answer ? ANSWER : undefined,
     errorCode: undefined,
-    loading: false,
+    loading: mockQuery.loading,
+    elapsedMs: mockQuery.elapsedMs,
     enabled: true,
     pubchiAvailable: true,
     signingAvailable: mockQuery.signingAvailable,
@@ -52,6 +76,13 @@ vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
 }));
 
 describe('PubchiPanel — visual regression', () => {
+  beforeEach(() => {
+    mockQuery.signingAvailable = true;
+    mockQuery.loading = false;
+    mockQuery.elapsedMs = 0;
+    mockQuery.answer = false;
+  });
+
   it('guards the production surface marker', async () => {
     mockQuery.signingAvailable = true;
     const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
@@ -67,6 +98,23 @@ describe('PubchiPanel — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toMatchScreenshot('pubchi-panel-desktop');
+  });
+
+  it('captures the answer surface only', async () => {
+    mockQuery.answer = true;
+    const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-desktop');
+  });
+
+  it('captures the answer loading surface only', async () => {
+    mockQuery.loading = true;
+    mockQuery.elapsedMs = 2450;
+    const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId('pubchi-answer-loading')).toMatchScreenshot('pubchi-answer-loading-desktop');
   });
 
   it('captures the unenrolled signing copy', async () => {

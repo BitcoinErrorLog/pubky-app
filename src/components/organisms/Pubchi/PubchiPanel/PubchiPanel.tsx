@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Collapsible/Collapsible';
 import { Link } from '@/atoms/Link/Link';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/atoms/Sheet/Sheet';
+import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
@@ -135,9 +136,10 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </Typography>
           ) : null}
 
-          {result?.kind === 'answer' ? <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} /> : null}
+          {loading ? <PubchiAnswerSkeleton elapsedMs={elapsedMs} /> : null}
+          {!loading && result?.kind === 'answer' ? <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} /> : null}
 
-          {result?.kind === 'query' ? (
+          {!loading && result?.kind === 'query' ? (
             <div className="flex flex-col gap-3" data-testid="pubchi-evidence">
               {result.result.items.length > 0 ? result.result.items.map((item) => {
                 const href = pubkyUriToAppHref(item.source_uri, currentUserPubky);
@@ -168,7 +170,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </div>
           ) : null}
 
-          {result?.kind === 'feed' ? (
+          {!loading && result?.kind === 'feed' ? (
             <Card data-testid="pubchi-feed-preview">
               <CardHeader>
                 <CardTitle>{result.result.feed.name}</CardTitle>
@@ -189,7 +191,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </Card>
           ) : null}
 
-          {result?.kind === 'feed-unsupported' ? (
+          {!loading && result?.kind === 'feed-unsupported' ? (
             <Typography data-testid="pubchi-error" size="sm">
               {result.code}
             </Typography>
@@ -197,5 +199,23 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function PubchiAnswerSkeleton({ elapsedMs }: { elapsedMs: number }) {
+  return (
+    <div className="flex flex-col gap-2" data-testid="pubchi-answer-loading">
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-4">
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-1/3" />
+        </CardContent>
+      </Card>
+      <Typography size="xs" className="text-muted-foreground">
+        Reading the graph… {Math.floor(elapsedMs / 1000)}s
+      </Typography>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { PUBCHI_PANEL_SURFACE, PubchiPanel } from './PubchiPanel';
 
 const submit = vi.fn();
@@ -15,9 +16,10 @@ const hookState = {
   },
   submit,
   applyFeed,
-  result: undefined,
+  result: undefined as PubchiQuerySuccess | undefined,
   errorCode: undefined,
   loading: false,
+  elapsedMs: 0,
   enabled: true,
   pubchiAvailable: true as boolean | undefined,
   signingAvailable: true,
@@ -60,6 +62,9 @@ describe('PubchiPanel', () => {
     setupDevice.mockReset();
     hookState.pubchiAvailable = true;
     hookState.setupLoading = false;
+    hookState.loading = false;
+    hookState.elapsedMs = 0;
+    hookState.result = undefined;
   });
 
   it('mounts the production panel surface', () => {
@@ -107,5 +112,39 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
     expect(reapprove).toHaveBeenCalledOnce();
+  });
+
+  it('shows a skeleton and elapsed seconds while an answer is loading, then replaces it', () => {
+    hookState.loading = true;
+    hookState.elapsedMs = 2450;
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-answer-loading')).toBeInTheDocument();
+    expect(screen.getByText('Reading the graph… 2s')).toBeInTheDocument();
+    expect(screen.queryByTestId('pubchi-answer')).not.toBeInTheDocument();
+
+    hookState.loading = false;
+    hookState.result = {
+      kind: 'answer',
+      result: {
+        schema: 'pubchi-answer',
+        version: 1,
+        bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        generated_at: 1,
+        run_id: 'answer',
+        purpose: 'ask',
+        question: 'Who is active?',
+        summary: 'Alice is active.',
+        evidence: [],
+        sources: [],
+        tool_trace_summary: { tools: [], call_count: 0, truncated: false },
+        policy_version: 1,
+      },
+    } as PubchiQuerySuccess;
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-answer')).toBeInTheDocument();
+    expect(screen.queryByTestId('pubchi-answer-loading')).not.toBeInTheDocument();
   });
 });

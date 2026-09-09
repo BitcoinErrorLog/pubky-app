@@ -28,7 +28,7 @@ export function PubchiAnswerCard({ answer, currentUserPubky }: PubchiAnswerCardP
 
   useEffect(() => {
     let active = true;
-    const claimantIds = [...new Set(answer.evidence.flatMap((item) => item.claimants))];
+    const claimantIds = [...new Set(answer.evidence.filter((item) => item.kind !== 'user').flatMap((item) => item.claimants))];
     if (claimantIds.length === 0) return;
     void Promise.all(
       claimantIds.map(async (userId) => {
@@ -48,14 +48,20 @@ export function PubchiAnswerCard({ answer, currentUserPubky }: PubchiAnswerCardP
       {answer.evidence.length > 0 ? (
         <div className="flex flex-col gap-2" data-testid="pubchi-answer-evidence">
           {answer.evidence.map((item) => (
-            <EvidenceItem key={`${item.uri}-${item.label}`} item={item} names={names} currentUserPubky={currentUserPubky} />
+            <EvidenceItem
+              key={`${item.uri}-${item.label}`}
+              item={item}
+              names={names}
+              tools={answer.tool_trace_summary.tools}
+              currentUserPubky={currentUserPubky}
+            />
           ))}
         </div>
       ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Pubchi&apos;s reading of the evidence</CardTitle>
+          <CardTitle>{hasDeterministicRoute(answer.tool_trace_summary.tools) ? 'What the graph shows' : "Pubchi's reading of the evidence"}</CardTitle>
         </CardHeader>
         <CardContent>
           <Typography size="sm">{answer.summary || 'No evidence was found for this question.'}</Typography>
@@ -98,10 +104,12 @@ export function PubchiAnswerCard({ answer, currentUserPubky }: PubchiAnswerCardP
 function EvidenceItem({
   item,
   names,
+  tools,
   currentUserPubky,
 }: {
   item: PubchiEvidenceV1;
   names: Map<string, string>;
+  tools: string[];
   currentUserPubky?: string | null;
 }) {
   const href = pubkyUriToAppHref(item.uri, currentUserPubky);
@@ -119,18 +127,46 @@ function EvidenceItem({
           )}
           {item.in_your_graph === true ? <Badge>In your graph</Badge> : null}
         </div>
-        <Typography size="sm">Claimants: {item.claimant_count}</Typography>
-        <div className="flex flex-wrap gap-2">
-          {item.claimants.slice(0, 3).map((claimant) => (
-            <Link key={claimant} href={getUserProfileUrl(claimant, currentUserPubky)} className="text-sm underline">
-              <span className="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs" aria-hidden="true">
-                {(names.get(claimant) ?? claimant).slice(0, 1).toUpperCase()}
-              </span>
-              {names.get(claimant) ?? claimant}
-            </Link>
-          ))}
-        </div>
+        <Typography size="sm">
+          {countLabel(tools)}: {item.claimant_count}
+        </Typography>
+        {item.kind !== 'user' ? (
+          <div className="flex flex-wrap gap-2">
+            {item.claimants.slice(0, 3).map((claimant) => (
+              <Link key={claimant} href={getUserProfileUrl(claimant, currentUserPubky)} className="text-sm underline">
+                <span className="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs" aria-hidden="true">
+                  {(names.get(claimant) ?? claimant).slice(0, 1).toUpperCase()}
+                </span>
+                {names.get(claimant) ?? claimant}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
+}
+
+const DETERMINISTIC_TOOLS = new Set([
+  'nexus_influencer',
+  'rank_users',
+  'nexus_user_tags',
+  'get_tag_landscape',
+  'tag_landscape',
+  'top_posts',
+  'recommend_follows',
+  'recommend',
+  'stale_follows',
+]);
+
+function hasDeterministicRoute(tools: string[]): boolean {
+  return tools.length > 0 && tools.every((tool) => DETERMINISTIC_TOOLS.has(tool));
+}
+
+function countLabel(tools: string[]): string {
+  if (tools.some((tool) => tool === 'nexus_user_tags' || tool === 'get_tag_landscape' || tool === 'tag_landscape')) return 'Tagged by';
+  if (tools.some((tool) => tool === 'nexus_influencer' || tool === 'rank_users')) return 'Followers';
+  if (tools.includes('top_posts')) return 'Replies';
+  if (tools.some((tool) => tool === 'recommend_follows' || tool === 'recommend' || tool === 'stale_follows')) return 'Count';
+  return 'Claimants';
 }
