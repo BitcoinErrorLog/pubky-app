@@ -1,12 +1,28 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceFilters } from '@/organisms/Marketplace/MarketplaceFilters';
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { commerceInitialState, type CommerceState } from '@/stores/commerce/commerce.types';
+
+const auth = vi.hoisted(() => ({ currentUserPubky: null as string | null }));
+
+vi.mock('@/stores/auth/auth.store', () => {
+  const useAuthStore = Object.assign(
+    (selector: (state: { currentUserPubky: string | null }) => unknown) =>
+      selector({ currentUserPubky: auth.currentUserPubky }),
+    {
+      getState: () => ({
+        currentUserPubky: auth.currentUserPubky,
+        selectCurrentUserPubky: () => auth.currentUserPubky,
+      }),
+    },
+  );
+  return { useAuthStore };
+});
 
 function setStoreState(overrides: Partial<CommerceState> = {}) {
   useCommerceStore.setState({ ...commerceInitialState, ...overrides });
@@ -47,6 +63,10 @@ function FiltersHarness({ resultCount, facetPool }: { resultCount: number; facet
 // wherever the previous test file left it, and Chromium re-applies `:hover`
 // to whatever chip sits beneath it — a nondeterministic capture.
 describe('Marketplace filters — visual regression', () => {
+  beforeEach(() => {
+    auth.currentUserPubky = null;
+  });
+
   it('renders the default filter bar at desktop viewport', async () => {
     setStoreState();
 
@@ -100,7 +120,10 @@ describe('Marketplace filters — visual regression', () => {
   it('renders the category drill-down breadcrumb with child chips at desktop viewport', async () => {
     setStoreState({ categoryId: 'fashion-men-footwear' });
 
-    const screen = await renderForVRT(<FiltersHarness resultCount={4} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<FiltersHarness resultCount={4} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-category-drilldown-desktop');
   });
 
@@ -109,6 +132,7 @@ describe('Marketplace filters — visual regression', () => {
 
     const screen = await renderForVRT(<FiltersHarness resultCount={1} facetPool={[facetItem]} />, {
       viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-attribute-facets-desktop');
   });
@@ -118,7 +142,19 @@ describe('Marketplace filters — visual regression', () => {
 
     const screen = await renderForVRT(<FiltersHarness resultCount={1} facetPool={[facetItem]} />, {
       viewport: VRT_VIEWPORT_MOBILE,
+      disableHover: true,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-attribute-facets-mobile');
+  });
+
+  it('renders the saved-searches trigger when signed in at desktop viewport', async () => {
+    auth.currentUserPubky = 'v'.repeat(52);
+    setStoreState();
+
+    const screen = await renderForVRT(<FiltersHarness resultCount={8} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('filters-saved-trigger-desktop');
   });
 });

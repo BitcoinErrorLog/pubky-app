@@ -227,7 +227,7 @@ describe('Messages area — visual regression', () => {
   it('renders the mixed conversation list (unread DM + listing) at desktop viewport', async () => {
     inboxView.conversations = [dmConversationFixture(true), listingConversationFixture()];
 
-    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-list-desktop');
   });
 
@@ -333,7 +333,7 @@ describe('Messages area — visual regression', () => {
   it('renders the conversation list with a Queued preview when the newest item awaits delivery', async () => {
     inboxView.conversations = [queuedDmConversationFixture(), listingConversationFixture()];
 
-    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-list-queued-preview-desktop');
   });
 });

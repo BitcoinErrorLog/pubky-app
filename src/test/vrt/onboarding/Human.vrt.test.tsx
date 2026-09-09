@@ -77,6 +77,10 @@ vi.mock('@/hooks/useLnVerificationInfo/useLnVerificationInfo', () => ({
   useLnVerificationInfo: () => ({ available: true as const, amountSat: 1000 }),
 }));
 
+vi.mock('@/hooks/useSmsVerificationInfo/useSmsVerificationInfo', () => ({
+  useSmsVerificationInfo: () => ({ available: true, error: false }),
+}));
+
 vi.mock('@/hooks/useSatUsdRate/useSatUsdRate', () => ({
   useBtcRate: () => ({ satUsd: 0.0005, btcUsd: 50_000, lastUpdatedAt: new Date(0) }),
 }));
