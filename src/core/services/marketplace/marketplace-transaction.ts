@@ -15,14 +15,14 @@ import {
 } from '@/libs/commerce/payment-methods';
 import {
   classifyMarketplacePickupRefusal,
-  PICKUP_REFUSAL_FAILURE_MESSAGES,
-  pickupRefusalFailureMessage,
   type MarketplaceHealth,
   marketplaceHealthSchema,
   type MarketplacePickupReveal,
   marketplacePickupRevealSchema,
   type MarketplaceSellerPickupDetails,
   marketplaceSellerPickupDetailsSchema,
+  PICKUP_REFUSAL_FAILURE_MESSAGES,
+  pickupRefusalFailureMessage,
 } from '@/libs/commerce/pickup';
 import {
   type SellerShippingConfig,
