@@ -6,6 +6,8 @@ Public changelog for Shop, the Pubky marketplace vibe. Newest changes first.
 
 - [implemented] Marketplace toasts and rendered failure text now map machine-readable reasons to static, client-owned strings in `src/libs/commerce/failure-messages.ts`; server-supplied error messages never reach the toast or `errorMessage`, while typed client-side validation messages remain verbatim. Commits `ea62f5e9`, `f0d82dba`, and `7dcdd63d` shipped in production as part of merge `4607a692c` on `marketplace/pr25-ux` (deploy `pubky-marketplace-production-ccat1hufk`, alias `shop.pubky.app`; staging `pubky-marketplace-staging-k7uzbc06f`); the cleanup commits `148db15ed` and `91e041c9c` follow in the next deploy from `pr25-ux`.
 - [implemented] DM `pubky_app.dm.v0` messages now emit `sent_at` as a Unix-millisecond integer, with inbound parsing accepting integer or legacy ISO strings under a bounded-range guard; legacy ISO rows normalize on read. Commits `ce566979` and `c694b192`. Shipped as `c694b192` on `pr25-ux`; production deploy `pubky-marketplace-production-371i2l41j`, staging deploy `gm8z9ndvp`, then superseded by production merge `4607a692c` and deploy above.
+- [implemented] Shop now redirects `/` to `/marketplace` with a non-permanent redirect. Shipped 2026-09-09 on `marketplace/pr25-ux` at `e6ffcf6e`; production deploy `pubky-marketplace-production-fg6z17e36` (alias `shop.pubky.app`) and staging deploy `pubky-marketplace-staging-1iabskwrx`.
+- [implemented] Shop auto-hides Bitcoin when `bitcoin_available` and `bitcoin_offer_available` do not both permit the offer. This is hop 3 of a 3-hop contract: paykit-server publishing the field on `/health/ready` is in progress (hop 1), and marketplace-service consuming/caching it and avoiding payment-config `503` responses during Paykit outages is implemented but under review (hop 2); both remain undeployed, so the client defaults an absent field to `true` with no behavior change. Shipped 2026-09-09 on `marketplace/pr25-ux` at `e6ffcf6e`; fixture commit `71c2ece6` was required because VRT mocks bypass the Zod default. Production deploy `pubky-marketplace-production-fg6z17e36` (alias `shop.pubky.app`); staging `pubky-marketplace-staging-1iabskwrx`.
 
 ## 2026-09-08
 
@@ -154,4 +156,4 @@ Public changelog for Shop, the Pubky marketplace vibe. Newest changes first.
 - `docs/adr/0026-marketplace-drops.md`
 - `docs/adr/0027-social-v1-migration.md`
 - `docs/adr/0029-vibe-session-consumer.md`
-- `/Users/johncarvalho/.cursor/plans/vibes-first_marketplace_master_plan_d8646c7a.plan.md`
+- `.cursor/plans/vibes-first_marketplace_master_plan_d8646c7a.plan.md`
