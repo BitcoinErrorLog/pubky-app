@@ -114,11 +114,10 @@ export function scanForbidden(value: unknown): ParseResult<void> {
   return code ? err(code) : ok(undefined);
 }
 
-const SECRET_VALUE_PATTERNS = [
+export const SECRET_VALUE_PATTERNS = [
   /^(?:bearer|authtoken|signup[_-]?token)\s+\S+$/i,
-  /^(?:sk|pk|api|ghp)[_-][A-Za-z0-9_-]{16,}$/,
+  /^(?:sk|pk|api)[_-][A-Za-z0-9_-]{16,}$/,
   /^(?:[a-z]+\s+){11}[a-z]+$/i,
-  /^[0-9a-f]{64,}$/i,
 ] as const;
 
 export function scanForbiddenPublicState(value: unknown): ParseResult<void> {

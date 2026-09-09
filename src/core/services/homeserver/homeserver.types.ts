@@ -49,6 +49,8 @@ export type CancelableAuthApproval = {
  */
 export type PubPath<T extends string = string> = `/pub/${T}`;
 
+export type SessionOwnedPath<T extends string = string> = `/pub/${T}` | `/priv/${T}`;
+
 export type TGenerateSignupAuthUrlParams = {
   inviteCode: string;
   caps?: Capabilities;
@@ -94,12 +96,12 @@ export type TParseResponseOrUndefinedParams = {
 export type TResolveOwnedSessionPathParams = {
   url: string;
   session: Session | null;
-  pubPathPrefix: string;
+  pathPrefixes: readonly string[];
 };
 
 export type TOwnedSessionPath = {
   session: Session;
-  path: PubPath<string>;
+  path: SessionOwnedPath<string>;
 };
 
 export type TCheckSessionExpirationParams = {
@@ -115,7 +117,7 @@ export type TAssertOkParams = {
 
 export type TGetOwnedResponseParams = {
   session: Session;
-  path: PubPath<string>;
+  path: SessionOwnedPath<string>;
   url: string;
 };
 

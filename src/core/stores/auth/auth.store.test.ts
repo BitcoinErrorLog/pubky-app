@@ -55,6 +55,7 @@ describe('AuthStore', () => {
 
       expect(usePubchiStore.getState().pubchi).toBeUndefined();
       expect(usePubchiStore.getState().config).toBeNull();
+      expect(usePubchiStore.getState().context).toBeNull();
     });
 
     it('clears status-only Pubchi state on logout reset', () => {
@@ -63,6 +64,7 @@ describe('AuthStore', () => {
       useAuthStore.getState().reset();
 
       expect(usePubchiStore.getState().ownerPubky).toBeNull();
+      expect(usePubchiStore.getState().context).toBeNull();
     });
 
     it('clears status-only Pubchi state when init switches identity', () => {
@@ -71,6 +73,7 @@ describe('AuthStore', () => {
       useAuthStore.getState().init({ session: null, currentUserPubky: 'new-owner', hasProfile: true });
 
       expect(usePubchiStore.getState().ownerPubky).toBeNull();
+      expect(usePubchiStore.getState().context).toBeNull();
     });
 
     it('should set currentUserPubky without affecting authentication state', () => {

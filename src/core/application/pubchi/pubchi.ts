@@ -232,7 +232,13 @@ export class PubchiApplication {
       if (!parsed.ok) throw pubchiValidationError(parsed.code, 'loadPubchiContext');
       return parsed.value;
     } catch (error) {
-      if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
+      if (
+        hasHttpStatus(error, HttpStatusCode.NOT_FOUND) ||
+        hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED) ||
+        hasHttpStatus(error, HttpStatusCode.FORBIDDEN)
+      ) {
+        return null;
+      }
       throw error;
     }
   }

@@ -76,4 +76,21 @@ describe('DeviceDelegationV1 fail-closed validation', () => {
       value,
     });
   });
+
+  it('accepts legacy delegations through 30 days and rejects older ones', async () => {
+    const device = await generateDeviceKey();
+    const withinLegacyWindow = await signedDelegation({
+      signer: device.signer,
+      key: device.key,
+      expires_at: NOW + 30 * 24 * 60 * 60,
+    });
+    const beyondLegacyWindow = await signedDelegation({
+      signer: device.signer,
+      key: device.key,
+      expires_at: NOW + 30 * 24 * 60 * 60 + 1,
+    });
+
+    expect(parseDeviceDelegationV1(withinLegacyWindow).ok).toBe(true);
+    expect(parseDeviceDelegationV1(beyondLegacyWindow)).toEqual({ ok: false, code: 'SCHEMA_INVALID' });
+  });
 });

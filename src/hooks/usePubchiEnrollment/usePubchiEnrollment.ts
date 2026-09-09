@@ -111,17 +111,23 @@ export function usePubchiEnrollment() {
         }
         const nextBinding = await PubchiController.reconcileActiveBinding();
         if (!isCurrentOwner()) return;
-        const [nextDevices, nextConfig, nextContext] = await Promise.all([
+        const [nextDevices, nextConfig] = await Promise.all([
           typeof PubchiController.listDeviceKeys === 'function'
             ? PubchiController.listDeviceKeys()
             : Promise.resolve([]),
           typeof PubchiController.loadPubchiConfig === 'function'
             ? PubchiController.loadPubchiConfig()
             : Promise.resolve(null),
-          typeof PubchiController.loadPubchiContext === 'function'
-            ? PubchiController.loadPubchiContext()
-            : Promise.resolve(null),
         ]);
+        let nextContext: PubchiOwnerContextV1 | null = null;
+        if (typeof PubchiController.loadPubchiContext === 'function') {
+          try {
+            nextContext = await PubchiController.loadPubchiContext();
+          } catch {
+            if (!isCurrentOwner()) return;
+            toast({ variant: 'error', title: 'Pubchi context could not be loaded', dismissButton: true });
+          }
+        }
         if (!isCurrentOwner()) return;
         setBinding(nextBinding);
         usePubchiStore.getState().setPubchi(nextPubchi, ownerAtStart);
@@ -182,7 +188,7 @@ export function usePubchiEnrollment() {
       if (reloadTimer) clearTimeout(reloadTimer);
       reloadTimer = setTimeout(() => {
         reloadTimer = undefined;
-        void reload();
+        void reload().catch(() => undefined);
       }, PUBCHI_SYNC_DEBOUNCE_MS);
     };
     const unsubscribe = subscribeToPubchiSync((message) => {
@@ -444,8 +450,9 @@ export function usePubchiEnrollment() {
       if (result.unlisted > 0 || result.failed.length > 0 || listingHadFailures) {
         toast({
           variant: 'warning',
-          title:
-            'Some device records could not be loaded, so they may still be active. Try again or revoke them individually.',
+          title: contextEditable
+            ? 'Some device records could not be loaded, so they may still be active. Try again or revoke them individually.'
+            : 'Some device records could not be loaded; homeserver revocation is pending re-approval.',
           dismissButton: true,
         });
         return false;

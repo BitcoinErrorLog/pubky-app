@@ -225,6 +225,63 @@ describe('PubchiApplication', () => {
     expect(querySpy.mock.calls[1][0].request.context).toBeUndefined();
   });
 
+  it('loads private context through the authenticated homeserver path', async () => {
+    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw', '/priv/pubchi.app/:rw'];
+    const context = {
+      schema: 'pubchi-owner-context' as const,
+      version: 1 as const,
+      about: 'About',
+      instructions: 'Instructions',
+      updated_at: 10,
+    };
+    vi.mocked(HomeserverService.request).mockResolvedValueOnce(context);
+
+    await expect(PubchiApplication.loadPubchiContext(OWNER)).resolves.toEqual(context);
+
+    expect(HomeserverService.request).toHaveBeenCalledWith({
+      method: HttpMethod.GET,
+      url: `pubky://${OWNER}/priv/pubchi.app/context.json`,
+    });
+  });
+
+  it('writes and reads back private context through the authenticated path', async () => {
+    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw', '/priv/pubchi.app/:rw'];
+    const context = {
+      schema: 'pubchi-owner-context' as const,
+      version: 1 as const,
+      about: 'About',
+      instructions: 'Instructions',
+      updated_at: 10,
+    };
+    vi.mocked(HomeserverService.request)
+      .mockRejectedValueOnce(notFoundError())
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(async () => ({ ...context, updated_at: Math.floor(Date.now() / 1000) }));
+
+    await expect(
+      PubchiApplication.savePubchiContext(OWNER, { about: 'About', instructions: 'Instructions' }),
+    ).resolves.toMatchObject({
+      schema: context.schema,
+      version: context.version,
+      about: context.about,
+      instructions: context.instructions,
+    });
+
+    expect(HomeserverService.request).toHaveBeenNthCalledWith(2, {
+      method: HttpMethod.PUT,
+      url: `pubky://${OWNER}/priv/pubchi.app/context.json`,
+      bodyJson: expect.objectContaining({ about: 'About', instructions: 'Instructions' }),
+    });
+  });
+
+  it('treats private context authorization failures as an absent context', async () => {
+    vi.mocked(HomeserverService.request).mockRejectedValueOnce({
+      context: { statusCode: HttpStatusCode.FORBIDDEN },
+    });
+
+    await expect(PubchiApplication.loadPubchiContext(OWNER)).resolves.toBeNull();
+  });
+
   it('allows read-only asks with a degraded session', async () => {
     sessionIdentity.capabilities = ['/pub/pubky.app/:rw'];
     const querySpy = vi.spyOn(PubchiService, 'query').mockResolvedValue(QUERY_RESULT);

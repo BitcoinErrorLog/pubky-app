@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   load: vi.fn(),
   loadConfig: vi.fn(),
+  loadContext: vi.fn(),
   create: vi.fn(),
   confirm: vi.fn(),
   remove: vi.fn(),
@@ -109,6 +110,7 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     reconcileActiveBinding: (...args: unknown[]) => mocks.reconcile(...args),
     loadPubchi: (...args: unknown[]) => mocks.load(...args),
     loadPubchiConfig: (...args: unknown[]) => mocks.loadConfig(...args),
+    loadPubchiContext: (...args: unknown[]) => mocks.loadContext(...args),
     createPubchi: (...args: unknown[]) => mocks.create(...args),
     confirmBackup: (...args: unknown[]) => mocks.confirm(...args),
     commitDeleteBinding: (...args: unknown[]) => mocks.remove(...args),
@@ -151,6 +153,7 @@ describe('usePubchiEnrollment', () => {
     mocks.reconcile.mockReset();
     mocks.load.mockReset().mockResolvedValue(undefined);
     mocks.loadConfig.mockReset().mockResolvedValue(null);
+    mocks.loadContext.mockReset().mockResolvedValue(null);
     vi.stubGlobal('BroadcastChannel', TestBroadcastChannel);
     mocks.create.mockReset();
     mocks.confirm.mockReset();
@@ -164,6 +167,25 @@ describe('usePubchiEnrollment', () => {
     mocks.getUrl.mockReset();
     mocks.adopt.mockReset();
     mocks.capabilities = [];
+  });
+
+  it('keeps bot and config state when private context loading fails', async () => {
+    mocks.reconcile.mockResolvedValue(ACTIVE);
+    mocks.load.mockResolvedValue({ bot: OWNER, displayName: 'Scout', createdAt: 1, backupConfirmedAt: null, verified: true });
+    mocks.loadConfig.mockResolvedValue(CONFIG);
+    mocks.loadContext.mockRejectedValue(new Error('context unavailable'));
+
+    renderHook(() => usePubchiEnrollment());
+
+    await waitFor(() => {
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Pubchi context could not be loaded', variant: 'error' }),
+      );
+    });
+    expect(usePubchiStore.getState().pubchi).toBeDefined();
+    expect(usePubchiStore.getState().config).toEqual(CONFIG);
+    expect(usePubchiStore.getState().context).toBeNull();
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Pubchi could not be loaded' }));
   });
 
   it('synchronizes a store update to another mounted instance', async () => {
@@ -252,6 +274,23 @@ describe('usePubchiEnrollment', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(mocks.load).toHaveBeenCalledOnce();
+  });
+
+  it('catches a rejected sync reload', async () => {
+    renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+    mocks.load.mockRejectedValueOnce(new Error('sync unavailable'));
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+
+    try {
+      act(() => postSyncMessage(OWNER, 'config-saved'));
+      await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 
   it('clears the receiving tab on a signed-out message', async () => {
@@ -392,7 +431,7 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.devices).toEqual([device]);
     expect(mocks.toast).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Some device records could not be loaded, so they may still be active. Try again or revoke them individually.',
+        title: 'Some device records could not be loaded; homeserver revocation is pending re-approval.',
       }),
     );
     expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'All devices revoked' }));

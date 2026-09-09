@@ -32,6 +32,7 @@ import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { sleep } from '@/libs/utils/utils';
 import type { Pubky as TPubkyModel } from '@/models/models.types';
 import type {
+  PubPath,
   TGenerateAuthUrlResult,
   THomeserverRestoreSessionParams,
   THomeserverSessionResult,
@@ -41,7 +42,7 @@ import type {
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { extractStatusCode, handleError } from './error.utils';
 import type {
-  PubPath,
+  SessionOwnedPath,
   TGenerateSignupAuthUrlParams,
   THomeserverFetchParams,
   THomeserverListAllParams,
@@ -64,6 +65,7 @@ import {
 
 const CAPABILITIES = PUBCHI_SIGNIN_CAPABILITIES;
 const PUB_PATH_PREFIX = '/pub/' as const;
+const SESSION_OWNED_PATH_PREFIXES = ['/pub/', '/priv/'] as const;
 const DELETE_IDEMPOTENT_MAX_ATTEMPTS = 3;
 const DELETE_IDEMPOTENT_RETRY_DELAY_MS = 500;
 /** Default limit for list operations */
@@ -95,7 +97,7 @@ export class HomeserverService {
 
   private static resolveOwnedSessionPath(url: string): TOwnedSessionPath | null {
     const session = useAuthStore.getState().selectSession();
-    return resolveOwnedSessionPath({ url, session, pubPathPrefix: PUB_PATH_PREFIX });
+    return resolveOwnedSessionPath({ url, session, pathPrefixes: SESSION_OWNED_PATH_PREFIXES });
   }
 
   /**
@@ -408,17 +410,17 @@ export class HomeserverService {
 
       switch (method) {
         case HttpMethod.GET: {
-          const response = await getOwnedResponse({ session, path, url });
+          const response = await getOwnedResponse({ session, path: path as PubPath<string>, url });
           return (await parseResponseOrUndefined<T>({ response })) as T;
         }
         case HttpMethod.PUT:
           await session.storage
-            .putJson(path, bodyJson ?? {})
+            .putJson(path as PubPath<string>, bodyJson ?? {})
             .catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
         case HttpMethod.DELETE:
           await session.storage
-            .delete(path)
+            .delete(path as PubPath<string>)
             .catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
       }
@@ -466,7 +468,7 @@ export class HomeserverService {
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
       try {
-        await owned.session.storage.putBytes(owned.path, blob);
+        await owned.session.storage.putBytes(owned.path as PubPath<string>, blob);
         return;
       } catch (error) {
         return handleError({ error, additionalContext: { url, method: HttpMethod.PUT } });
@@ -510,8 +512,8 @@ export class HomeserverService {
     try {
       const owned = this.resolveOwnedSessionPath(baseDirectory);
       if (owned) {
-        const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as PubPath<string>);
-        const files = await owned.session.storage.list(dirPath, cursor ?? null, reverse, limit, false);
+        const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as SessionOwnedPath<string>);
+        const files = await owned.session.storage.list(dirPath as PubPath<string>, cursor ?? null, reverse, limit, false);
         Logger.debug('List successful', { baseDirectory, filesCount: files.length });
         return files;
       }
@@ -605,7 +607,7 @@ export class HomeserverService {
 
       const owned = this.resolveOwnedSessionPath(url);
       if (owned) {
-        return await getOwnedResponse({ session: owned.session, path: owned.path, url });
+        return await getOwnedResponse({ session: owned.session, path: owned.path as PubPath<string>, url });
       }
 
       return await pubkySdk.publicStorage.get(url as Address);
@@ -631,7 +633,7 @@ export class HomeserverService {
 
       const owned = this.resolveOwnedSessionPath(url);
       return owned
-        ? await owned.session.storage.exists(owned.path)
+        ? await owned.session.storage.exists(owned.path as PubPath<string>)
         : await pubkySdk.publicStorage.exists(url as Address);
     } catch (error) {
       return handleError({

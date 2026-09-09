@@ -7,6 +7,7 @@ import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { asOpaque } from '@/test-utils/type-assertions';
+import { resolveOwnedSessionPath } from './homeserver.utils';
 
 // =============================================================================
 // HOISTED MOCKS - Must be hoisted to run before module imports
@@ -232,6 +233,30 @@ describe('HomeserverService', () => {
     // Reset module cache and re-import
     vi.resetModules();
     ({ HomeserverService } = await import('@/services/homeserver/homeserver'));
+  });
+
+  describe('resolveOwnedSessionPath', () => {
+    it('resolves /pub and /priv paths for the current owner', () => {
+      const session = createMockSession();
+
+      expect(
+        resolveOwnedSessionPath({ url: 'pubky://user/pub/data.json', session, pathPrefixes: ['/pub/', '/priv/'] }),
+      ).toMatchObject({ path: '/pub/data.json' });
+      expect(
+        resolveOwnedSessionPath({ url: 'pubky://user/priv/data.json', session, pathPrefixes: ['/pub/', '/priv/'] }),
+      ).toMatchObject({ path: '/priv/data.json' });
+    });
+
+    it('rejects another owner and paths outside session-owned prefixes', () => {
+      const session = createMockSession();
+
+      expect(
+        resolveOwnedSessionPath({ url: 'pubky://other/priv/data.json', session, pathPrefixes: ['/pub/', '/priv/'] }),
+      ).toBeNull();
+      expect(
+        resolveOwnedSessionPath({ url: 'pubky://user/private/data.json', session, pathPrefixes: ['/pub/', '/priv/'] }),
+      ).toBeNull();
+    });
   });
 
   // ===========================================================================
@@ -680,7 +705,7 @@ describe('HomeserverService', () => {
         await HomeserverService.generateAuthUrl();
 
         const requested = mockState.startAuthFlow.mock.calls[0][0] as string;
-        expect(requested).toBe('/pub/pubky.app/:rw,/pub/pubchi.app/:rw');
+        expect(requested).toBe('/pub/pubky.app/:rw,/pub/pubchi.app/:rw,/priv/pubchi.app/:rw');
         expect(capabilitiesCoverPubchiWrite(requested.split(','))).toBe(true);
       });
 

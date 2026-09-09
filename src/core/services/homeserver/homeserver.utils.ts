@@ -12,6 +12,7 @@ import { createCanceledError, extractStatusCode, handleError } from './error.uti
 import type {
   CancelableAuthApproval,
   PubPath,
+  SessionOwnedPath,
   TAssertOkParams,
   TCheckSessionExpirationParams,
   TGetOwnedResponseParams,
@@ -220,23 +221,23 @@ export const createCancelableAuthApproval = (
 
 /**
  * Resolves an owned session path from a URL.
- * Checks if the URL matches the current session's pubky and is a valid /pub/* path.
+ * Checks if the URL matches the current session's pubky and is a valid session-owned path.
  *
  * @param url - The URL to resolve
  * @param session - The current session (or null if not authenticated)
- * @param pubPathPrefix - The pub path prefix constant (e.g., '/pub/')
+ * @param pathPrefixes - The session-owned path prefixes (e.g., ['/pub/', '/priv/'])
  * @returns Object with session and path if owned, null otherwise
  */
 export const resolveOwnedSessionPath = ({
   url,
   session,
-  pubPathPrefix,
+  pathPrefixes,
 }: TResolveOwnedSessionPathParams): TOwnedSessionPath | null => {
   if (!session) return null;
 
   const pathname = toPathname(url);
-  if (!pathname || !pathname.startsWith(pubPathPrefix)) return null;
-  const path = pathname as PubPath<string>;
+  if (!pathname || !pathPrefixes.some((prefix) => pathname.startsWith(prefix))) return null;
+  const path = pathname as SessionOwnedPath<string>;
 
   if (url.startsWith('/')) return { session, path };
 
@@ -302,7 +303,7 @@ export const assertOk = async ({ response, url, operation }: TAssertOkParams): P
  * @throws {HomeserverError} When response is not OK or storage.get fails
  */
 export const getOwnedResponse = async ({ session, path, url }: TGetOwnedResponseParams): Promise<Response> => {
-  const response = await session.storage.get(path).catch((error) =>
+  const response = await session.storage.get(path as PubPath<string>).catch((error) =>
     // Transforms the error into an AppError and re-throws to caller
     handleError({ error, additionalContext: { url, method: HttpMethod.GET } }),
   );
