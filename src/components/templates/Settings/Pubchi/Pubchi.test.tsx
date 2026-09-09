@@ -31,6 +31,7 @@ const hookState = vi.hoisted(() => ({
     expires_at: number;
     signature: string;
   }>,
+  pendingRevocations: [] as string[],
   currentSigner: undefined as string | undefined,
   loading: false,
   enabled: true,
@@ -56,6 +57,7 @@ describe('PubchiSettings', () => {
     hookState.reapprove.mockReset();
     hookState.revokeDevice.mockReset();
     hookState.devices = [];
+    hookState.pendingRevocations = [];
     hookState.currentSigner = undefined;
   });
 
@@ -122,5 +124,17 @@ describe('PubchiSettings', () => {
     expect(screen.getByTestId('pubchi-device-signers')).toHaveTextContent('Purposes: ask, who-tagged-me, build-feed');
     fireEvent.click(screen.getAllByRole('button', { name: 'Revoke' })[1]!);
     expect(hookState.revokeDevice).toHaveBeenCalledWith(remoteSigner);
+  });
+
+  it('reports local revocation while the homeserver DELETE is pending', () => {
+    hookState.pendingRevocations = ['yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy'];
+
+    render(<PubchiSettings />);
+
+    expect(screen.getByTestId('pubchi-pending-revocations')).toHaveTextContent(
+      'Revoked on this device — homeserver revocation pending re-approval.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Re-approve to finish revocation' }));
+    expect(hookState.reapprove).toHaveBeenCalledOnce();
   });
 });

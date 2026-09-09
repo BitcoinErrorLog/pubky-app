@@ -6,7 +6,8 @@ import { verifyPubkySignature } from './ed25519';
 import { PHASE0_PURPOSES } from './request';
 import { fromZod, zPubky, zUnix, zVersion1 } from './zod';
 
-export const DEVICE_DELEGATION_MAX_SECONDS = 30 * 24 * 60 * 60;
+export const DEVICE_DELEGATION_MAX_SECONDS = 7 * 24 * 60 * 60;
+const LEGACY_DEVICE_DELEGATION_MAX_SECONDS = 30 * 24 * 60 * 60;
 
 const UnsignedDeviceDelegationV1Schema = z
   .object({
@@ -40,7 +41,10 @@ export function parseDeviceDelegationV1(input: unknown): ParseResult<DeviceDeleg
   const parsed = fromZod(DeviceDelegationV1Schema, input);
   if (!parsed.ok) return parsed;
   const value = parsed.value;
-  if (value.expires_at <= value.created_at || value.expires_at - value.created_at > DEVICE_DELEGATION_MAX_SECONDS) {
+  if (
+    value.expires_at <= value.created_at ||
+    value.expires_at - value.created_at > LEGACY_DEVICE_DELEGATION_MAX_SECONDS
+  ) {
     return err('SCHEMA_INVALID');
   }
   if (new Set(value.purposes).size !== value.purposes.length) return err('SCHEMA_INVALID');

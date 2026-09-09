@@ -12,9 +12,10 @@
  */
 
 export const PUBCHI_HOMESERVER_DIRECTORY = '/pub/pubchi.app/';
+export const PUBCHI_PRIVATE_DIRECTORY = '/priv/pubchi.app/';
 
 /** Default Ring sign-in request: pubky.app first, Pubchi folder appended. */
-export const PUBCHI_SIGNIN_CAPABILITIES = `/pub/pubky.app/:rw,${PUBCHI_HOMESERVER_DIRECTORY}:rw`;
+export const PUBCHI_SIGNIN_CAPABILITIES = `/pub/pubky.app/:rw,${PUBCHI_HOMESERVER_DIRECTORY}:rw,${PUBCHI_PRIVATE_DIRECTORY}:rw`;
 
 export const PUBCHI_DEGRADED_SESSION_MESSAGE =
   "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.";
@@ -27,7 +28,15 @@ type ParsedCapability = {
 };
 
 export function capabilitiesCoverPubchiWrite(capabilities: readonly string[]): boolean {
-  return capabilities.some((entry) => capabilityCoversPubchiWrite(entry));
+  return sessionCovers(capabilities, PUBCHI_HOMESERVER_DIRECTORY);
+}
+
+export function sessionCovers(capabilities: readonly string[], path: string): boolean {
+  const directory = path.endsWith('/') ? path : `${path}/`;
+  return capabilities.some((entry) => {
+    const parsed = parseCapability(entry);
+    return Boolean(parsed?.writes && directoryScopeCovers(parsed.scope, directory));
+  });
 }
 
 export function capabilityCoversPubchiWrite(entry: string): boolean {

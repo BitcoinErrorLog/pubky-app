@@ -4,6 +4,8 @@ import { deletePubchiDatabase, getPubchiDatabase, resetPubchiDatabaseForTests } 
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import {
+  DEVICE_DELEGATION_MAX_SECONDS,
+  DEVICE_DELEGATION_REFRESH_SECONDS,
   getCurrentDeviceKey,
   loadOrGenerateDeviceKey,
   signWithDeviceKey,
@@ -37,6 +39,25 @@ describe('Pubchi device signer persistence', () => {
     const created = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
     expect(created.key.extractable).toBe(false);
     await expect(crypto.subtle.exportKey('pkcs8', created.key)).rejects.toThrow();
+  });
+
+  it('creates delegations with the seven-day lifetime and refreshes within two days', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const created = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+
+    expect(created.expires_at - created.created_at).toBe(DEVICE_DELEGATION_MAX_SECONDS);
+    expect(DEVICE_DELEGATION_MAX_SECONDS).toBe(7 * 24 * 60 * 60);
+    expect(DEVICE_DELEGATION_REFRESH_SECONDS).toBe(2 * 24 * 60 * 60);
+    await getPubchiDatabase().deviceKeys.update(created.id, {
+      expires_at: 1_800_000_000 + DEVICE_DELEGATION_REFRESH_SECONDS + 1,
+    });
+    await expect(loadOrGenerateDeviceKey(OWNER, 1_800_000_000)).resolves.toMatchObject({ signer: created.signer });
+    await getPubchiDatabase().deviceKeys.update(created.id, {
+      expires_at: 1_800_000_000 + DEVICE_DELEGATION_REFRESH_SECONDS,
+    });
+    await expect(loadOrGenerateDeviceKey(OWNER, 1_800_000_000)).resolves.not.toMatchObject({ signer: created.signer });
+    localStorage.removeItem('pubchi.pendingDelegationDeletes');
   });
 
   it('fails closed when no device key is available', async () => {

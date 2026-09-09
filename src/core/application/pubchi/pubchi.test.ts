@@ -60,10 +60,12 @@ vi.mock('@/libs/pubchi/device-key', () => {
     };
   };
   return {
+    DEVICE_DELEGATION_MAX_SECONDS: 7 * 24 * 60 * 60,
     DEVICE_DELEGATION_REFRESH_SECONDS: 3 * 24 * 60 * 60,
     getCurrentDeviceKey: get,
     loadOrGenerateDeviceKey: get,
     getDeviceKeys: async () => [],
+    updateDeviceKeyExpiry: async () => undefined,
     listDeviceKeysNotOwnedBy: async () => [],
     wipeDeviceKeysNotOwnedBy: async () => 0,
     deleteDeviceKey: async () => undefined,
@@ -724,6 +726,19 @@ describe('PubchiApplication', () => {
     expect(readPendingDelegationDeletes()).toEqual([]);
   });
 
+  it('revokes locally without Pubchi coverage and defers the homeserver DELETE', async () => {
+    const signer = Keypair.random().publicKey.z32();
+    sessionIdentity.capabilities = ['/pub/pubky.app/:rw'];
+    const requestSpy = vi.spyOn(HomeserverService, 'request');
+    const deleteLocalSpy = vi.spyOn(deviceKey, 'deleteDeviceKey').mockResolvedValue(undefined);
+
+    await expect(PubchiApplication.revokeDevice(OWNER, signer)).resolves.toBeUndefined();
+
+    expect(deleteLocalSpy).toHaveBeenCalledWith(OWNER, signer);
+    expect(requestSpy).not.toHaveBeenCalled();
+    expect(readPendingDelegationDeletes()).toEqual([{ owner: OWNER, signer }]);
+  });
+
   it('keeps loaded devices when one delegation record fails', async () => {
     const goodSigner = Keypair.random().publicKey.z32();
     const goodDelegation = {
@@ -1374,7 +1389,7 @@ describe('PubchiApplication', () => {
     await expect(PubchiApplication.savePubchiConfig(OWNER, {})).rejects.toBeInstanceOf(AppError);
   });
 
-  it('refreshes a stale delegation with the served purposes and same signer', async () => {
+  it('refreshes a stale delegation while preserving its narrower purposes', async () => {
     const device = await deviceKey.getCurrentDeviceKey(OWNER);
     const stale = {
       schema: 'pubchi-device-delegation',
@@ -1400,8 +1415,11 @@ describe('PubchiApplication', () => {
 
     expect(published).toMatchObject({
       signer: device!.signer,
-      purposes: ['ask', 'who-tagged-me', 'build-feed'],
+      purposes: ['who-tagged-me'],
     });
+    expect(
+      (published as { expires_at: number }).expires_at - (published as { created_at: number }).created_at,
+    ).toBeLessThanOrEqual(7 * 24 * 60 * 60);
     expect(request.mock.calls.filter(([input]) => input.method === HttpMethod.PUT)).toHaveLength(1);
   });
 

@@ -14,6 +14,7 @@ import { BotPhraseRevealController } from '@/libs/pubchi/bot-phrase-reveal';
 import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
 import { getCurrentDeviceKey } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
+import { readPendingDelegationDeletes } from '@/libs/pubchi/pending-delegation-deletes';
 import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 import { toast } from '@/molecules/Toaster/toast';
@@ -47,6 +48,7 @@ export function usePubchiEnrollment() {
   const [backupController] = useState(() => new BotPhraseRevealController());
   const phraseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [devices, setDevices] = useState<Awaited<ReturnType<typeof PubchiController.listDeviceKeys>>>([]);
+  const [pendingRevocations, setPendingRevocations] = useState<string[]>([]);
   const [deviceListingHadFailures, setDeviceListingHadFailures] = useState(false);
   const [currentSigner, setCurrentSigner] = useState<string | undefined>(undefined);
   const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info.capabilities ?? []);
@@ -86,6 +88,7 @@ export function usePubchiEnrollment() {
     if (!owner) {
       usePubchiStore.getState().clear();
       setBinding(undefined);
+      setPendingRevocations([]);
       return;
     }
     const ownerAtStart = owner;
@@ -118,6 +121,7 @@ export function usePubchiEnrollment() {
         setBinding(nextBinding);
         usePubchiStore.getState().setPubchi(nextPubchi, ownerAtStart);
         setDevices(nextDevices);
+        setPendingRevocations(readPendingDelegationDeletes(ownerAtStart).map((item) => item.signer));
         setDeviceListingHadFailures(
           typeof PubchiController.hadDeviceListingFailures === 'function' &&
             PubchiController.hadDeviceListingFailures(),
@@ -389,6 +393,7 @@ export function usePubchiEnrollment() {
     try {
       await PubchiController.revokeDevice(signer);
       setDevices(await PubchiController.listDeviceKeys());
+      setPendingRevocations(owner ? readPendingDelegationDeletes(owner).map((item) => item.signer) : []);
       return true;
     } catch (error) {
       const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
@@ -407,6 +412,7 @@ export function usePubchiEnrollment() {
       const listingHadFailures =
         typeof PubchiController.hadDeviceListingFailures === 'function' && PubchiController.hadDeviceListingFailures();
       setDevices(nextDevices);
+      setPendingRevocations(owner ? readPendingDelegationDeletes(owner).map((item) => item.signer) : []);
       setDeviceListingHadFailures(listingHadFailures);
       if (result.unlisted > 0 || result.failed.length > 0 || listingHadFailures) {
         toast({
@@ -445,6 +451,7 @@ export function usePubchiEnrollment() {
           await PubchiController.adoptCapabilityApproval(approved);
           await PubchiController.ensureDeviceReady();
           setDevices(await PubchiController.listDeviceKeys());
+          setPendingRevocations(owner ? readPendingDelegationDeletes(owner).map((item) => item.signer) : []);
           setDeviceListingHadFailures(
             typeof PubchiController.hadDeviceListingFailures === 'function' &&
               PubchiController.hadDeviceListingFailures(),
@@ -499,6 +506,7 @@ export function usePubchiEnrollment() {
     backupController,
     devices,
     deviceListingHadFailures,
+    pendingRevocations,
     currentSigner,
     needsReapproval,
     reapprove,
