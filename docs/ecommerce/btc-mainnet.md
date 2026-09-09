@@ -1,4 +1,4 @@
-# Bitcoin Mainnet Switch And Payment-Journey Proof — Design (r4)
+# Bitcoin Mainnet Switch And Payment-Journey Proof — Design (r5)
 
 ## Review history
 
@@ -117,6 +117,37 @@
   restated drain boundary that includes `prepared` invoices (§C.16, NEW-3); and
   a rewritten §F in which every mechanism in this document has exactly one
   slice, one owner tier, a test list and a proof row.
+- **r4 step-back review — GPT-5.6 Sol: REPLACE the allocation core, keep the
+  perimeter** (`/tmp/btc-design-stepback-sol.md`, 2026-09-09). Its finding is
+  not a new defect but a shape judgement across four rounds: the perimeter
+  (isolation, health, expiry, proof composition, load control, rollback, kill
+  switch, auto-hide, fingerprint binding, two-phase, replay) is **converging**,
+  while the money-correctness core is **circling** — r2's height floor became
+  r3's baseline became r4's parameterised residual, and every round left it
+  probabilistic because paykit-server derives receive indices from an xpub whose
+  wallet may derive them too. Its replacement: the seller's wallet issues the
+  address; paste stays as onboarding and Paykit data but must not by itself
+  enable automatic checkout.
+- **Allocation options study** (`/tmp/btc-allocation-options.md`, 2026-09-09).
+  A read-only comparison of **Option 1** (Bitkit-first plus chain detection) and
+  **Option 2** (wallet-issued, account-key-signed, encrypted, append-only
+  reservation pools), each with its exact mechanism, residual risk, Bitkit and
+  paykit-server sizing, and proof strategy, all cited to source. Its
+  recommendation: Option 2 as the **target** architecture; this week ship only
+  Bitkit-exclusive automatic checkout; pasted xpubs onboard but confirm
+  manually; detection is telemetry and a downgrade backstop, **not** a safety
+  proof.
+- **r5 — this commit** (Claude Opus). Takes the allocation decision those two
+  inputs converge on, and changes nothing else. Every r4 mechanism survives
+  unchanged; §B.8 gains a decision record (§B.8.0, D1–D5) and four new
+  subsections — a creator `allocation_mode` (§B.8.6), sentinel detection as a
+  downgrade backstop (§B.8.7), the `shared_manual` seller-confirmed checkout
+  path with its marketplace states, endpoints and copy (§B.8.8), and Option 2
+  recorded as the Wave 10 target architecture with its schema and validation
+  rules (§B.8.9). §B.8.4's bound is re-scoped to the one mode that is disabled,
+  §B.10 gains R4 and R5, §B.11.4 and §D.3 gain the new negative tests, §C.10
+  gains the two-path onboarding text, and §C's row 19 stops saying "no
+  wallet-side change".
 
 ## Owner decisions required
 
@@ -139,6 +170,17 @@ live window this design actually ships (`L = 1 h`, tied to
 case on the amount distribution. The harm is unchanged and is the seller's:
 **they ship an item a Shop buyer never paid for.** The decision is recorded in
 §G with what makes the number smaller and what the disclosure must say.
+
+**r5 narrows what that acceptance buys, without reversing it.** The owner's
+requirement — sellers provide their own xpub the conventional way, and it lands
+in Paykit data rather than a side channel — is unchanged and is still satisfied
+by the same claim path (§B.0, §B.8.6). What changed is that a pasted xpub no
+longer enables **automatic** order confirmation: it enables onboarding and
+observation, and the seller confirms payment themselves (§B.8.8). So the 6%
+figure above is no longer a number anyone is carrying in production this week —
+it is the price of an option (`pasted_auto`) that exists in the model and is
+**not selectable** (§B.8.6). Enabling it is a separate, explicit owner decision
+against that same table. The full reasoning is the r5 decision record, §B.8.0.
 
 ---
 
@@ -927,10 +969,21 @@ The public response becomes:
 {
   "bitcoin_available": true,
   "bitcoin_offer_available": true,
+  "bitcoin_confirmation_mode": "automatic",
   "stripe_payment_link": null,
   "paypal_merchant_email": null
 }
 ```
+
+**`bitcoin_confirmation_mode` is new in r5** and is the third orthogonal thing
+this endpoint now carries: `automatic` for an `exclusive` seller, `seller` for a
+`shared_manual` one (§B.8.6). It is deliberately **not** a third way to hide
+Bitcoin — a `shared_manual` seller's Bitcoin option is rendered normally, with
+different copy — and it deliberately does not leak the seller's
+`allocation_mode` enum or their claim channel to a buyer, only the one fact a
+buyer needs: who confirms. The seller's own `allocation_mode`, claim channel,
+downgrade reason and detection evidence stay on the authenticated seller
+surface (§B.8.6).
 
 `bitcoin_available` keeps its current meaning — this seller enabled Bitcoin and
 has a claimed account — and `bitcoin_offer_available` is the rail-wide gate.
@@ -948,6 +1001,28 @@ and it belongs in §C.17's runbook, not in a buyer's browser. If the seller
 supports no other rail, the existing no-rail empty state is shown; this is not a
 new surface.
 
+**The two other static buyer-side strings this contract now carries (r5).** Both
+are fixed text on the same rule — no server state interpolated, ever.
+
+- **`shared_manual`** (`bitcoin_confirmation_mode: "seller"`), shown at
+  checkout before the buyer pays, and reinforced on the order once the payment
+  is observed. The exact copy is in §B.8.8 and is repeated here as the contract's
+  own inventory so a copy pass cannot lose it: at checkout, *"This seller
+  confirms Bitcoin payments manually. Your order is confirmed once the seller
+  checks the payment, usually within a day."*; after the payment is observed,
+  *"Payment received — awaiting seller confirmation. We can see your payment on
+  the Bitcoin network. Your order is confirmed once the seller checks it. You'll
+  be notified when that happens."*
+- **`seller_address_pool_empty`** — **Wave 10 only** (§B.8.9), listed now
+  because it is a fourth reason Bitcoin can be absent from a checkout and the
+  contract should enumerate all of them in one place rather than gaining a case
+  later. When a pool-capable seller's reservation pool is exhausted, the failure
+  happens **before** the marketplace bind, Bitcoin is hidden **for that seller
+  only**, and the buyer sees: *"This seller needs to add Bitcoin receiving
+  addresses. Choose another payment method."* This is per-seller and must not be
+  routed through `bitcoin_offer_available`, which is rail-wide; it belongs
+  alongside `bitcoin_available`. Existing invoices keep being observed.
+
 **The bind stays fail-closed regardless.** Auto-hide reduces the *probability*
 that a buyer reaches the bind during an outage; it is not a guarantee, because
 the cache can be up to 15 s stale and a buyer can hold a stale page. So
@@ -957,6 +1032,97 @@ rolling the bind back. Auto-hide is a conversion and trust measure, never a
 correctness one; §B.4's fail-closed baseline is the correctness one.
 
 ### B.8 Independent allocators — the fix for NEW-2 (blocking, before general availability)
+
+#### B.8.0 Decision record — the r5 allocation decision (2026-09-09)
+
+**Inputs.** `/tmp/btc-design-stepback-sol.md` (step-back review after r4: the
+perimeter is converging, the allocation core is circling; replace server
+derivation with seller-wallet issuance) and `/tmp/btc-allocation-options.md`
+(options study: Option 1 Bitkit-first plus detection, Option 2 wallet-issued
+signed reservation pools, with mechanisms, residuals, sizing and proof
+strategies cited to source). Both are read-only design inputs; neither is a code
+change. **These are decisions, not open questions.** They are recorded at the
+top of this section because everything below them was written when the answer
+was still "paykit-server allocates for everyone".
+
+**D1 — Automatic Bitcoin checkout ships this week only for a Shop-exclusive
+Bitkit account.** A seller gets automatic order confirmation only if their
+claimed xpub arrived through the Bitkit watch-only claim path for an account
+Bitkit reserved for Shop. That path is not aspirational: both apps already
+reserve `highest + 1` durably (`WatchOnlyAccountStore.kt:150-173`,
+`WatchOnlyAccountService.swift:201-231`), export that account's xpub
+(`WatchOnlyAccountRepo.kt:86-103`, `:226-230`;
+`LightningService.swift:507-515`), track it with addresses revealed through 999
+(`WatchOnlyAccountRepo.kt:247-260`, `WatchOnlyAccount.kt:8-9`), encode the
+account index plus the canonical 78-byte xpub in the claim
+(`WatchOnlyAccountRepo.kt:330-353`, `WatchOnlyAccountService.swift:889-905`),
+and back up **and** restore both the account records and the allocation state,
+merging high-water marks with `max` rather than moving them backward
+(`BackupRepo.kt:587-600`, `:711-729`, `WatchOnlyAccountStore.kt:196-243`;
+`BackupService.swift:735-749`, `:210-219`,
+`WatchOnlyAccountService.swift:145-181`). **§B.8.5's qualification stays exactly
+as written:** collision is impossible while allocation state survives, the
+common restore path preserves it, and the post-restore warning is required
+because the wipe-without-restore path is not covered by any of the above.
+
+**D2 — Pasted and file-imported xpubs are still accepted, through the same
+Paykit claim path, and are `shared_manual` by default.** Acceptance is an owner
+requirement and is unchanged: paste and file import land in
+`POST /v0/accounts/claim` → `manual_claim.rs:198-264` → `real_setup.rs:230-329`
+and publish the same receiver marker on the seller's own homeserver, so the
+seller is using Paykit and Locks data rather than a side channel (§B.0). What
+changes is only what the marketplace is allowed to conclude from an observation:
+for a `shared_manual` creator, paykit-server still derives, still observes, still
+reports `detected` and `confirmed`, and Shop still shows the buyer the payment
+state — but **Shop never auto-transitions the order to `paid`.** The seller
+confirms the payment in their own wallet and explicitly marks the order paid;
+Shop records seller identity, time, txid and reason. A buyer-supplied txid is
+supporting evidence, never proof of purchase. Mechanism, states, endpoint,
+authorisation and copy: §B.8.8.
+
+**D3 — Detection is added as telemetry and a downgrade backstop, not as a
+safety proof.** Per creator, paykit-server watches all assigned invoice
+addresses through the expiry tail **plus** a bounded sentinel window of 20
+indices from `next_child_index` forward. **Only a confirmed output to a sentinel
+address paykit-server has never assigned to any invoice is definitive allocator
+evidence.** Under-, over- and late payment to an **assigned** address routes that
+invoice to `manual_review` and never downgrades the creator. On definitive
+evidence, `shared_manual` is persisted atomically, automatic `paid` stops for
+that creator, and the seller is alerted. **The dust caveat, stated plainly:** an
+attacker who has learned the xpub can send one confirmed output to a sentinel and
+force the downgrade. That is a priced denial of the automatic path, not a false
+payment, and it is not fixable inside Option 1 — see §B.8.7. For a creator
+already in `shared_manual`, detection changes nothing except telemetry.
+
+**D4 — Option 2 is the target architecture, recorded as Wave 10.** Account-key
+signed, encrypted, append-only reservation pools published by the seller's
+wallet, with paykit-server validating and consuming rather than deriving. Its
+schema, homeserver paths, validation rules, and Bitkit/paykit-server sizing are
+copied into §B.8.9 as the migration target. **Not built this week.** Non-Bitkit
+sellers reach automatic checkout through that same protocol via wallet plugins
+later; until such a plugin exists, a non-Bitkit seller onboards by paste and
+stays `shared_manual` (§B.8.9, "Non-Bitkit sellers").
+
+**D5 — Everything else in r4 survives unchanged.** The isolation (§B.1), the
+baseline and eligibility rules (§B.4), the claim scan (§B.5), the deny-list,
+bounded account range and fingerprint↔seller binding (§B.6, §B.8.5), the
+Electrum budget, probe and auto-hide (§B.7, §B.7.1, §B.7.2), the exact-amount
+predicate and nonce (§B.8.2), the expiry, tail and drain boundary (§B.9,
+§C.16), the two-phase prepare/activate protocol (§B.11) and the creation kill
+switch are not reopened by r5 and are not restated here. Read §B.8.1–§B.8.5 as
+r4 wrote them, with three corrections of scope that r5 makes explicit where they
+occur: §B.8.3's "(b) load-bearing, (a) recommended" now describes the
+`pasted_auto` mode that is disabled (§B.8.6); §B.8.4's bound applies to that
+mode alone; and §B.8.1's "recommended, not required" becomes **required for
+automatic checkout** and remains not required for onboarding.
+
+**What this buys, in one line each.** `exclusive` has no probabilistic
+false-paid path at all while allocation state survives — it is the change of
+kind §B.8.4 point 1 already identified, taken as the rule rather than the
+recommendation. `shared_manual` has no *automatic* false-paid path, because
+there is no automatic transition; the risk becomes seller judgement, which is a
+different and openly stated thing (§B.10, R5). `pasted_auto` is the r4 design
+exactly, priced at §B.8.4's table, and is off.
 
 **Reshaped in r4 by the owner's 08:39 decision.** r3 aimed this section at an
 invariant it could only reach by excluding every seller who does not use Bitkit.
@@ -997,7 +1163,18 @@ right that advice is not an invariant — and r4 does not treat it as one. Advic
 plus a quantified bound plus a server-side binding is what r4 ships, and each of
 the three is named separately so nobody mistakes the advice for the mechanism.
 
-#### B.8.1 Option (a) — a Shop-exclusive account xpub (recommended, not required)
+#### B.8.1 Option (a) — a Shop-exclusive account xpub (r5: required for automatic checkout)
+
+**r5 scope note.** Everything below is r4's evidence for why a Bitkit-issued
+Shop-exclusive account is safe, and it is unchanged. What changed is its
+standing: D1 (§B.8.0) makes it the **precondition for automatic order
+confirmation** rather than a recommendation. It is still not a precondition for
+onboarding — a seller who will not use Bitkit still claims, still gets a Paykit
+receiver marker, and still gets Bitcoin checkout, with seller-confirmed payment
+(§B.8.8). The one paragraph below that r5 supersedes is "What (a) cannot do on
+its own": the server still cannot tell a Bitkit-reserved xpub from a paste **by
+the key bytes**, which is exactly why the distinction is carried by the claim
+path and its attestation rather than by the key (§B.8.6).
 
 **Bitkit can export an account xpub at account index ≥ 1, on both platforms,
 today.** This was checked in the source rather than assumed, and it is the fact
@@ -1104,6 +1281,15 @@ was told, at an index the third party did not choose.
 
 #### B.8.3 Decision: (c) — both, with (b) load-bearing and (a) recommended (revised r4)
 
+**r5 scope note.** This subsection is r4's reasoning for the `pasted_auto` mode,
+and `pasted_auto` is **not selectable this week** (§B.8.6). Read it as the
+argument that would have to be re-accepted before that mode is enabled, not as a
+description of what ships. Both mechanisms still ship: (a) is now the gate on
+automatic confirmation (D1), and (b) — the exact-amount predicate and the
+per-invoice nonce — still applies to **every** invoice on every mode, because it
+also bounds R1 (§B.4.6, §B.10) and because a `shared_manual` seller's own
+confirmation decision is easier when the amount is exact and unique.
+
 Both ship. r3 called (a) the invariant and (b) the bound; **r4 inverts which one
 is load-bearing**, because the owner's decision means (a)'s precondition is now
 a seller's choice rather than a product constraint.
@@ -1130,6 +1316,15 @@ is that the design can no longer assume (a) is present, so every claim it makes
 must be true with (a) absent.
 
 #### B.8.4 The residual, as a model (R3-2 — replaces r3's ≈10⁻³ claim)
+
+**r5 scope note, and it is the most important sentence in this subsection:
+everything below prices exactly one allocation mode, `pasted_auto`, and that
+mode is disabled (§B.8.6).** The model is kept in full, unaltered, for two
+reasons: it is what an owner must read before enabling `pasted_auto`, and it is
+still the correct model for the paste-shaped residuals that survive in other
+modes (R2 in §B.10, and the wallet-reissue tail of R3). It is **not** the
+residual of anything that ships this week. The per-mode restatement is at the
+end of this subsection.
 
 **Sol's objection, accepted in full.** r3 wrote "≈1 collision × 1/999 ⇒
 ≈1.0 × 10⁻³" and called it an upper bound. It is neither. It silently replaced
@@ -1252,6 +1447,29 @@ seller-month. That is the r3 correction (#3) restated as the reason B.8.2 ships
 the predicate and the nonce as one unit, and F5/F6 (§D.3) are what prove the
 predicate is actually deployed.
 
+**The residual, restated per allocation mode (r5).** The table above is one
+column of this one:
+
+| Mode | Automatic `paid`? | False-paid residual | Where it is gated |
+| --- | --- | --- | --- |
+| `exclusive` | yes | **R1 only** — a mempool transaction the server's single Electrum had not seen at snapshot time (§B.4.6, §B.10) — **plus** the wallet-side reissue tail: a wipe or reinstall with no successful restore, or a restore from a snapshot predating the Shop reservation, after which the wallet may reserve the same account for something that receives (§B.8.5, R3). Both are bounded by the exact-amount nonce. There is **no** two-allocator term, because the wallet's own receive path takes no account index (`LightningService.kt:613-676`, `LightningService.swift:635-641`) | Q4 (corroboration) for R1; §B.8.5's backup/restore evidence, the post-restore warning (§C.10) and detection (§B.8.7) for the reissue tail |
+| `pasted_auto` | **not selectable** | the table above: at `r=100`, `s=10`, `L=1 h`, `p_band=1`, `E ≈ 6 × 10⁻²` per exposed-seller-month, `P(any) ≈ 6%` | Enabling the mode is an explicit owner decision taken against that table (§B.8.6) |
+| `shared_manual` | **no** | **none by this mechanism.** There is no automatic transition to `paid`, so no chain observation can produce one. Said plainly: the risk does not shrink, it **moves** — from a probability the design carries to a judgement the seller makes, once per order, in their own wallet (§B.10, R5) | §B.8.8's confirm endpoint, its authorisation, and its audit record |
+
+**What detection does *not* do to these numbers, stated because the temptation
+is obvious.** It is tempting to write that with sentinel detection the first
+colliding receipt either pays falsely with probability `1/999` or triggers a
+downgrade, and therefore the monthly figure collapses to ~10⁻³. **Do not write
+that.** In an idealised detector where the first non-exact colliding receipt
+always downgrades, `1/999` describes the first collision under this model's
+worst-case nonce-band assumption — it is a scenario, not a production bound.
+This document models neither sentinel coverage (what fraction of colliding
+indices fall inside a 20-address window) nor the dust policy's false-negative
+rate, and an exact colliding receipt is not unmatched at all, so it can pay
+before any detector fires. Claiming `1/999` as the monthly risk would overstate
+the evidence. Detection is credited as telemetry and as a downgrade backstop
+(§B.8.7), and with **zero** reduction to any number in this subsection.
+
 #### B.8.5 Allocator resets, restores, and the fingerprint binding (R3-4)
 
 Sol checked r3's "never reissued" claim and found it false as written, on both
@@ -1331,6 +1549,408 @@ account's own receive rate — which for a freshly reserved watch-only account i
 low, because it starts empty. The composite is well below the bolded paste-path
 row, and it is bounded by the same nonce. It is added to §B.10 as **residual
 R3** with its gate, rather than being claimed closed.
+
+#### B.8.6 The creator allocation mode (D1, D2)
+
+**One new column on `creators`, in paykit-server, per §B.0:**
+
+```sql
+allocation_mode TEXT NOT NULL DEFAULT 'shared_manual'
+  CHECK (allocation_mode IN ('exclusive','pasted_auto','shared_manual'))
+```
+
+| Value | Automatic `paid`? | How a creator gets it |
+| --- | --- | --- |
+| `exclusive` | yes | a claim on the Bitkit watch-only channel that passes every corroborating check below |
+| `pasted_auto` | yes | **nothing sets it this week.** The value exists in the model; it is not selectable |
+| `shared_manual` | **no** — seller confirms (§B.8.8) | the default: every paste, every file import, and every claim that fails an `exclusive` check |
+
+**`pasted_auto` exists and is not selectable, deliberately.** It is r4's design
+for a pasted xpub with automatic confirmation, priced at §B.8.4's table. It is
+carried in the enum rather than deleted so that enabling it later is a decision
+plus a configuration flag rather than a migration and a second code path, and so
+that the seller status API and the audit records can express the mode a creator
+would be in. **The owner would have to explicitly accept the §B.8.4 bound to
+enable it** — that is the whole gate; there is no operator toggle and no
+per-seller override. A claim that requests it is refused with
+`allocation_mode_not_enabled`, and the refusal is a CI test in both directions
+(§F, W1.13).
+
+**How the claim distinguishes a Bitkit exclusive claim from a paste — and what
+that distinction is actually worth.** The Bitkit claim carries a structured
+attestation the paste does not: the seller's browser obtains a Pubky auth URL
+with `x-bitkit-claim=watch-only-account-v1` (`PubkyAuthRequest.kt:9-14`), Bitkit
+grants it only on an exact capability-set match
+(`PubkyAuthRequest.kt:17-27`), and Bitkit returns an **84-byte wire payload** —
+version(1) + accountIndex(4) + addressType(1) + the canonical 78-byte xpub
+(`WatchOnlyAccountRepo.kt:330-353`, `WatchOnlyAccountService.swift:889-905`) —
+for an account its own reservation machinery just allocated at `highest + 1`. A
+paste produces a bare key and nothing else.
+
+**What the server checks**, all of it inside the existing claim path
+(`manual_claim.rs:198-264` → `real_setup.rs:230-329`):
+
+1. A `claim_channel` field on `POST /v0/accounts/claim`, one of
+   `bitkit_watch_only_v1` or `manual`, submitted by the Shop client. Recorded on
+   the creator row verbatim.
+2. For `bitkit_watch_only_v1`, four corroborating facts that the server verifies
+   for itself and that a Bitkit-reserved account satisfies by construction:
+   **`account_index >= 1`**, because Bitkit's reservation refuses 0
+   (`WatchOnlyAccountStore.kt:259-263`,
+   `WatchOnlyAccountService.swift:282-283`); the declared index **equals the
+   key's own hardened child number**, already enforced on every claim
+   (`create_invoice.rs:249-270` via `real_setup.rs:343-353`); the §B.5 claim
+   scan finds **no history at all**, so `next_child_index` stays 0 — a freshly
+   reserved Shop account is empty, and any history at all means this is not one;
+   and the fingerprint has never been claimed by another seller (§B.8.5).
+3. Any failure downgrades the claim to `shared_manual` **with a named reason
+   returned to the seller**, rather than refusing it. Refusing would take a
+   working paste path away from a seller who did nothing wrong; downgrading
+   keeps them selling and tells them why the automatic path is unavailable.
+
+**What the server cannot prove, stated plainly because it is the reason D4
+exists.** The 84-byte payload is a wire encoding, **not a signature**. Nothing
+in it is signed by Bitkit or by the account key, so the server cannot verify
+that the bytes came out of Bitkit's reservation machinery, and `claim_channel`
+is an assertion by the seller's own browser. A seller who pastes the xpub of a
+**fresh, empty** account of the right depth and index, and whose client asserts
+the Bitkit channel, passes every check in the list above. What the server has is
+therefore a strong correlate — an empty account at index ≥ 1 whose index agrees
+with the key — not proof of exclusivity, and this design does not describe it as
+proof. The consequences are bounded and worth naming: such a seller has
+self-selected into automatic checkout on an account that is empty *today*, so
+§B.8.4's `r` is that account's own future receive rate rather than a busy
+wallet's; detection (§B.8.7) is what notices if it starts receiving; and
+**§B.8.9's account-key signature is the only mechanism in this document that
+converts the assertion into proof**, which is why Option 2 is the target and not
+a nice-to-have.
+
+**Transitions, and there are only three.**
+
+| From | To | Trigger |
+| --- | --- | --- |
+| — | `exclusive` | claim on `bitkit_watch_only_v1` passing all four corroborating checks |
+| — | `shared_manual` | every other claim, including a downgraded Bitkit claim |
+| `exclusive` | `shared_manual` | definitive detection evidence (§B.8.7), atomic, **one-way** |
+
+There is no edit that moves a creator **into** `exclusive`. The claim is
+immutable per creator (`bitkit_claim.rs:69-74`), so a seller who wants to move
+from `shared_manual` to `exclusive` — or to recover from a downgrade — makes a
+**new claim to a fresh Bitkit-reserved account**, which runs the full §B.5 scan,
+the §B.8.5 fingerprint binding and the checks above from scratch. Old invoices
+stay in observation through their expiry tail (§B.9) on the old account; only
+new invoices use the replacement. No index assignment is ever carried across.
+
+**Seller-visible status.** The authenticated seller's Shop settings surface
+reads `allocation_mode`, the `claim_channel` recorded at claim time, the
+downgrade reason if any, and the detection evidence metadata (§B.8.7) from
+paykit-server. It is the seller's own data about their own creator record; it is
+not public, and it is not written to the homeserver.
+
+#### B.8.7 Detection as telemetry and a downgrade backstop (D3)
+
+**Not a safety proof.** Nothing in §B.8.4, §B.8.6 or §B.10 is credited to this
+subsection. It exists to notice that an `exclusive` account is not exclusive
+after all, and to stop the automatic path before the next order rather than
+after the tenth.
+
+**Two watch sets per creator.**
+
+1. **Assigned addresses** — every invoice address, watched through the §B.9
+   expiry tail. This is what the observer already does, except that it loads
+   only non-final invoice addresses today (`invoices.rs:239-329`).
+2. **A sentinel window of 20 indices** from `next_child_index` forward,
+   creator-level rather than invoice-level. **Both creator-level targets and
+   durable evidence records are new**; neither exists in the observer today.
+
+**Classification, and the asymmetry is the whole design:**
+
+- **Definitive allocator evidence:** a **confirmed** output to a **sentinel**
+  address that paykit-server has **never assigned to any invoice**. Somebody
+  other than paykit-server derived and used an address on this account.
+- **Ambiguous invoice evidence:** underpayment, overpayment, or late payment to
+  an **assigned** address. These route **that invoice** to `manual_review` — the
+  path §B.8.2 and `workers.rs:827-859` already take — and **never** classify the
+  account. The rule r2-era prose reached for, "any receipt on a derived address
+  matching no invoice proves sharing", is unsafe and is rejected explicitly:
+  matching is amount-based and per-invoice (`invoices.rs:650-713`), so treating
+  every amount mismatch as account-wide proof would let one honest buyer's typo,
+  one overpayment, or one dust output permanently disable a seller.
+
+**On definitive evidence**, in one transaction: persist
+`allocation_mode = 'shared_manual'`, write an evidence row (`txid:vout`, the
+sentinel index, the confirmation height, the observing tick), and stop automatic
+`paid` for **every current and future invoice of that creator**. Then alert the
+seller. Observation continues unchanged — the point is to keep reporting the
+buyer's payment state, only without concluding from it.
+
+**The gate is read at the instant of the transition, not at invoice creation.**
+Each invoice records `allocation_mode_at_creation` for audit, but the automatic
+`paid` transition tests the creator's **current** mode. A downgrade therefore
+protects invoices that were already live, which is the fail-safe direction and
+the reason to pay the extra read.
+
+**The dust caveat, stated honestly.** A confirmed output to a sentinel proves
+that somebody besides paykit-server knew and used that derived address. It does
+**not** distinguish a second wallet allocator from an attacker who learned the
+xpub and dusted it. So an attacker who has the xpub can force a downgrade for
+the price of one confirmed on-chain output. That is a **priced denial of the
+automatic path, not a false payment** — no order is marked paid, no seller ships
+anything, and the seller's checkout keeps working in `shared_manual`. Raising
+the bar (requiring relay-standard value, or two distinct sentinel hits) raises
+the attacker's cost, delays detection, and introduces false negatives; it is
+still not cryptographic attribution. **This is an inherent Option 1 limitation
+and it is not fixable inside Option 1** — §B.8.9 removes it by removing the
+inference. The configured policy (minimum value, hit count) is one config value
+with a calibration test (§D.3, F11), so the trade can be moved without a code
+change.
+
+**Outage behaviour, and why it is not fail-closed.** If the sentinel scan cannot
+reach Electrum, detection is simply unavailable for that tick. It does **not**
+downgrade — an Electrum blip must not become a fleet-wide downgrade — and it
+does not need to, because the safety argument for `exclusive` rests on §B.8.6's
+claim-time checks and on Bitkit's allocator, not on detection. The **claim-time**
+scan is the one that fails closed, and it already does (§B.5: an unscanned claim
+is refused). A sustained sentinel-scan outage is covered by the §B.7 backlog-age
+alert and by §B.7.1's auto-hide, which stops creation.
+
+**Budget.** 20 extra scripthashes per creator with an active claim, polled on a
+**60-second** cadence and deprioritised behind live invoice targets, counted in
+the same §B.7 budget (`estimated_requests`, 1,000/tick cap, ≤5 req/s). At the
+1-second observer cadence that is one sentinel batch every 60 ticks per creator,
+which is inside the budget at the canary's scale and is a stated input to the
+budget review before general availability.
+
+**Durability.** Evidence rows and the mode are database state, so classification
+survives restart by construction; the automatic-`paid` gate reads the creator row
+rather than any in-memory cache, which is what makes that true rather than
+merely intended (§D.3, F10).
+
+**For a `shared_manual` creator, detection changes nothing** except that the
+evidence is recorded and shown to the seller. There is no automatic transition
+to suppress.
+
+#### B.8.8 `shared_manual` checkout — seller-confirmed payment (D2)
+
+**What stays the same.** Bitcoin is still offered on this seller's listings.
+paykit-server still derives the address, still takes the baseline, still mints
+the nonce, still publishes through two-phase (§B.11), still observes, and still
+reports `detected` and `confirmed` with `amount_matched`. The buyer still gets a
+real Paykit Payment Request in their wallet and still sees their payment state
+in Shop. The only thing removed is the **inference**: no chain observation moves
+this order to `paid`.
+
+**paykit-server.** Phase 1's response and the transaction-status response each
+gain `allocation_mode`, so the marketplace never has to ask a second endpoint on
+the money path. Nothing else in §B.11's message set changes.
+
+**marketplace-service — order state.** One new payment state on the existing
+`paykit_request_state` machine:
+
+| State | Reached from | Meaning | Poller behaviour |
+| --- | --- | --- | --- |
+| `awaiting_seller_confirmation` | `detected` or `confirmed` on an invoice whose creator is `shared_manual` | the chain shows a matching payment; Shop is waiting for the seller | the order is **not** claimed for automatic advancement; it is claimed only for status display |
+
+Consequences that have to be decided rather than left to fall out:
+
+- **The inventory hold is extended, not expired.** A buyer who has demonstrably
+  paid on chain must not lose their order to a 3600 s hold timeout while waiting
+  for a human. On entry to `awaiting_seller_confirmation` the hold is extended to
+  a bounded **seller-confirmation window of 7 days**.
+- **At the end of that window the order routes to `manual_review`**, the
+  existing operations path (`workers.rs:787-820`), never to `paid` and never to
+  a silent cancellation. An operator resolves it with the buyer and the seller.
+- **The §B.9 observation tail is unchanged.** The invoice still moves to
+  `expired_tail` and then `expired_final` on paykit's own clock; the marketplace
+  order outliving the invoice's observation window is expected here, and the
+  seller's confirmation is authoritative for the money outcome
+  (`POST /v0/invoices/{id}/resolve` with `paid_manually`, which §B.9 already
+  defines and which the confirm endpoint calls).
+
+**marketplace-service — the confirm endpoint.**
+`POST /v0/orders/{id}/confirm-bitcoin-payment`, body
+`{txid, confirmed_amount_sats, reason}`.
+
+- **Who may call it: the seller of record for that order's listing, and nobody
+  else.** Not the buyer, not an unauthenticated caller, not an operator. An
+  operator resolving a stuck order uses the existing `manual_review` resolution
+  path, so the audit trail distinguishes a seller's confirmation from an
+  operator's intervention rather than collapsing them into one record. Any other
+  caller gets `403 not_order_seller`, and the attempt is logged.
+- **It is refused unless the order is in `awaiting_seller_confirmation`**, with
+  a named error. A seller cannot confirm an order that has no observed payment.
+- **It is idempotent on order id**: the second call returns the same
+  confirmation record, emits no second fulfilment event, and writes no second
+  audit row.
+- **Audit fields**, written in the same transaction as the state change:
+  `confirmed_by_pubky`, `confirmed_at`, `confirmed_txid`, `confirmed_reason`,
+  `confirmation_source` (`seller`), and
+  `paykit_observation_state_at_confirmation` — the exact
+  `{state, observed_sats, confirmations, amount_matched}` paykit reported at
+  that instant, frozen, so a later dispute can be read without re-querying a
+  chain that has moved.
+- **A buyer-supplied txid is supporting evidence only.** It is recorded as
+  `buyer_reported_txid` on the payment, shown to the seller as unverified, and
+  is **never** an input to any automatic transition or to the endpoint's
+  preconditions.
+
+**Copy — static, no server text interpolated into UI (house rule).**
+
+- Buyer, on a `shared_manual` seller's checkout, before paying:
+  > **This seller confirms Bitcoin payments manually.** Your order is confirmed
+  > once the seller checks the payment, usually within a day.
+- Buyer, after the payment is observed:
+  > **Payment received — awaiting seller confirmation.** We can see your payment
+  > on the Bitcoin network. Your order is confirmed once the seller checks it.
+  > You'll be notified when that happens.
+- Buyer, if the 7-day window elapses:
+  > **This order needs a human.** Your payment is with the seller and our support
+  > team is looking at your order.
+- Seller, on the order awaiting their action:
+  > **Check this payment in your own wallet before confirming.** Shop can see a
+  > payment on the Bitcoin network, but cannot prove it came from this buyer.
+  > Confirm the address, the amount and the confirmations in your wallet, then
+  > mark this order paid.
+
+None of these interpolate an address, an amount, a txid, a tip height, a seller
+name or any other server-supplied string into the sentence. The order's own
+amounts and identifiers are rendered by the surrounding order UI, which already
+owns them; the copy is fixed text, and W1.14 asserts it against a snapshot so a
+later copy pass cannot start interpolating.
+
+#### B.8.9 Wave 10 — the target architecture: wallet-issued signed reservation pools (D4)
+
+**Recorded as the migration target, not built this week.** The reason it is the
+target rather than another mechanism to bolt onto derivation: it **removes the
+independent allocator instead of inferring it from chain traffic.** paykit-server
+stops deriving "the next" receive address and consumes an address the seller's
+wallet has already reserved, so automatic checkout becomes contingent on wallet
+coordination rather than on a probability. It cannot ship this week — both Bitkit
+apps and paykit-server are **L** changes and no third-party wallet emits this
+schema — which is exactly the staging D1–D4 take: exclusive Bitkit now, signed
+pools next, third-party plugins later, detection throughout.
+
+**Homeserver objects.**
+
+- Existing marker, unchanged: `/pub/paykit/v0/bitkit/server/receiver.json`.
+- Pool generation:
+  `/pub/paykit/v0/private/bitkit/server/address-pools/{xpub_fingerprint}/{sequence}.bin`
+- Revocation:
+  `/pub/paykit/v0/private/bitkit/server/address-pool-revocations/{pool_id}.bin`
+
+These blobs are **encrypted to the receiver Noise key advertised by the marker**,
+because publishing future addresses in plaintext enables tracking and pre-emptive
+dusting — the same dusting that §B.8.7's caveat prices. The claim capabilities
+already cover the public and private receiver subtrees
+(`paykit-server/src/bitkit_claim.rs:20-23`), so no new grant is needed.
+
+**Signed plaintext schema** (canonical JSON; the `signature` field is omitted
+while hashing):
+
+```json
+{"version":1,"domain":"paykit-address-pool","network":"mainnet",
+ "seller_pubky":"…","receiver_path":"bitkit/server",
+ "xpub_fingerprint":"16 hex","account_index":7,
+ "pool_id":"uuid","sequence":12,"created_at":"RFC3339","expires_at":"RFC3339",
+ "entries":[{"reservation_id":"uuid","index":104,"address":"bc1q…"}],
+ "signing":{"scheme":"bip340","key":"account-xpub-node"},
+ "signature":"hex"}
+```
+
+**Why the Pubky write is not sufficient, which is the crux.** The homeserver
+write authenticates the seller's *identity*; it does not prove *xpub control*.
+So the pool additionally carries a **BIP340 signature by the account private key
+corresponding to the claimed account xpub**, over the tagged hash
+`Paykit/AddressPool/v1 || SHA256(JCS(payload))`, verified against the public key
+embedded in the account xpub. **That signature is the proof-of-xpub-ownership
+this document does not have today** (§B.8.6, "what the server cannot prove"), and
+a Pubky identity signature alone is insufficient.
+
+**Wallet-side ordering, which is what makes the reservation real.** Before
+publication the wallet **atomically advances its own receive high-water mark past
+every entry** and records each index as reserved-for-Shop. It publishes only
+after that local commit. A failed publish leaves harmless burned indices.
+
+**Server validation, on import.** Pubky seller/path binding; the account-key
+signature; network, account index and fingerprint; strict sequence (no rollback,
+no rewritten generation); expiry; unique reservation ids and indices;
+`address == derive(xpub, 0/index)`; the index never accepted, issued or revoked
+before; and **no confirmed or mempool history** — a failed history query rejects
+the generation rather than admitting it.
+
+**Consumption.** Phase 1 (§B.11) atomically consumes one unused pool row with
+invoice creation, repeating the history and baseline checks; a dirty entry is
+**burned** and the next is tried. A failed baseline burns the reservation and
+never returns it. paykit-server never derives "the next" address.
+
+**Replenishment and exhaustion.** Append a higher signed sequence; low-water
+alert at 20, batches of 100. Exhaustion fails **before** the marketplace bind
+with `seller_address_pool_empty`: checkout hides Bitcoin for that seller with
+the static copy in §B.7.2, and existing invoices keep being observed.
+
+**Revocation.** A signed append-only object naming pool ids or reservation ids
+with a reason and sequence. Unissued entries become unusable immediately.
+**Already-issued invoices cannot be revoked** — they stay observed through the
+§B.9 expiry tail.
+
+**Interaction with r4, which mostly survives.** Marker publication and readback,
+the deny-list, the fingerprint↔seller binding, health, expiry, replay and the
+two-phase prepare/activate protocol are unchanged. The baseline and activation
+snapshots survive, now operating on the **consumed** wallet address.
+`manual_claim.rs:198-264` becomes onboarding and fingerprint binding only — a
+bare xpub no longer enables automatic checkout, which is already true in r5.
+`DerivedNewReaderPayloads::for_child_index` (`create_invoice.rs:280-310`) is
+replaced by a consumed reservation address, and `next_child_index` stops being an
+allocator: it is retained, renamed `highest_accepted_pool_index`, for rollback
+and duplicate checks only, and the increment at `invoices.rs:823-829` is removed.
+
+**Residual risks that survive Option 2**, so nobody reads it as a closure:
+
+- A compromised signing device can reserve, leak or sign a malicious pool. Server
+  validation prevents foreign addresses, duplicate issuance, history and
+  rollback, but **cannot prove the wallet actually advanced its allocator**.
+- A race remains between pool validation and invoice consumption; r4's creation
+  baseline plus activation snapshot still closes known pre-existing outputs, and
+  a transaction invisible to the single Electrum is still **R1**.
+- A wallet restored from a **stale backup** may reissue pool-reserved indices.
+  Sequence and uniqueness prevent re-import, but not independent receipt on an
+  already-pooled address — so **pool reservation state must join the existing
+  backed-up high-water state** (§B.8.5).
+- Pool ciphertext and signatures are replayable across deployments unless the
+  domain includes network, seller Pubky, receiver path, stack identifier, xpub
+  fingerprint and sequence. It does; that is why it is in the schema.
+
+**Sizing.** Bitkit **L per app** — new account-node signing (LDK/Rust API or
+FFI), durable per-index reservation state and backup, encrypted publication,
+background replenishment, inventory and revocation UI; a shared Rust
+implementation reduces duplicated cryptography but each app still needs storage,
+restore reconciliation, jobs and UX. paykit-server **L** — encrypted pool
+ingestion, account-key signature verification, history validation, pool and
+revocation tables, atomic consumption, inventory health, errors and seller
+status.
+
+**Non-Bitkit sellers.** No mainstream wallet emits this schema. Sparrow manages
+descriptors and generates addresses but has no Paykit signed-pool exporter, and
+descriptor export or checksum is **not** proof of private-key control. Electrum's
+Python plugin model makes a custom plugin plausible — reserve addresses in its
+wallet database, sign pool payloads when the signer is available — but it is
+custom software, and a watch-only Electrum cannot produce the account-key
+signature at all. Hardware-backed Sparrow or Electrum would need connected-signer
+support for this custom domain signature. **Until such plugins exist, a
+non-Bitkit seller pastes an xpub for onboarding and stays `shared_manual`**,
+which is exactly the r5 position and the reason r5 and Wave 10 are the same
+staged path rather than two designs.
+
+**Proof strategy for Wave 10**, recorded so it is not re-invented: seller Bitkit
+reserves and publishes a real signed pool; the server validates and consumes
+exactly one entry; the buyer's Bitkit receives and pays the real request; the
+seller's Bitkit sees and spends that exact output; the pool count falls once and
+survives restart and restore. Negatives: Pubky identity without an account-key
+signature; wrong xpub, account, network, path or stack; altered address or index;
+duplicate entry; sequence rollback; expired or revoked pool; history or mempool
+present; Electrum unavailable; concurrent invoices cannot consume one entry;
+empty pool fails before bind; failed baseline burns the entry; stale-backup
+replay; prepared request unreachable; malformed-signature calibration fails.
 
 ### B.9 Payment Request expiry, observation TTL, and the drain boundary (NEW-3, and closes partial G)
 
@@ -1417,9 +2037,18 @@ and the rollback is correspondingly slower and honest about it.
 
 ### B.10 Residuals that are named and gated rather than closed
 
-**Three** exposures survive this design, one more than r3 named. None is papered
-over; each has a gate, and each is now bounded by the §B.8.4 model rather than by
-r3's single number.
+**Five** exposures survive this design — three from r4, two added by r5's
+allocation decision. None is papered over; each has a gate.
+
+**r5 re-scoping, before the list.** R1, R2 and R3 below were written when every
+seller could reach automatic confirmation. After §B.8.0 they apply **only to the
+`exclusive` mode**, because it is the only mode with an automatic
+`paid` transition. For a `shared_manual` seller none of the three can produce a
+false paid, since no chain observation concludes anything — their risk is R5
+instead, and it is a different kind of risk, honestly stated. R1 and the
+wipe-without-restore tail of R3 are therefore **the complete automatic-path
+residual that ships this week**, and both are much smaller than the paste-path
+bound §B.8.4 prices for the mode that is off.
 
 - **R1 — a mempool transaction the server's Electrum has not yet seen at
   snapshot time** (§B.4.4). It is absent from the baseline and can later confirm
@@ -1454,8 +2083,40 @@ r3's single number.
   cross-seller variant outright; the seller UI names the bound account after a
   restore (§C.10); and the remainder needs four independent conditions to
   coincide and is bounded by the same nonce. Named, not closed.
+- **R4 — new in r5: an attacker who has learned a seller's xpub can force a
+  downgrade to `shared_manual`** (§B.8.7). One confirmed output to any address
+  in the creator's 20-index sentinel window is definitive allocator evidence by
+  the classification rule, and the rule cannot tell that evidence from a second
+  wallet allocator — that is the dust caveat, and it is inherent to inferring an
+  allocator from chain traffic. **This is a priced denial, not a false payment:**
+  no order is marked paid, no seller ships for free, and the seller's Bitcoin
+  checkout keeps working with seller confirmation. **Gates:** the attacker needs
+  the xpub, which the buyer never sees (§A step 7) and which paykit stores
+  sealed (`invoices.rs:660-671`); the configured minimum value and hit count are
+  one config value with a calibration test (§D.3, F11), so the price can be
+  raised without a code change; the seller is alerted and can re-claim to a
+  fresh Bitkit account (§B.8.6); and §B.8.9 removes the inference entirely.
+  Accepted as the cost of having a backstop at all, and stated rather than
+  hidden in the classification rule.
+- **R5 — new in r5: for `shared_manual`, the false-paid risk becomes seller
+  judgement.** Said plainly, because the alternative is to let "no automatic
+  false-paid path" read as "no risk": a seller who marks an order paid without
+  actually checking the address, amount and confirmations in their own wallet
+  has done, by hand, what the automatic path would have done by inference — and
+  Shop will fulfil on their word. The risk did not disappear; it moved to a
+  human who has the one piece of evidence the server does not, namely their own
+  wallet's view of their own account. **Gates:** the confirm endpoint requires
+  the seller's own identity and records who, when, txid, reason and paykit's
+  frozen observation state (§B.8.8), so a mistaken confirmation is attributable
+  rather than anonymous; the seller-facing copy says in the imperative to check
+  the wallet first and states that Shop cannot prove the payment came from this
+  buyer; the exact-amount nonce (§B.8.2) makes the check a single equality
+  rather than a judgement call; and the seller bears the fulfilment and refund
+  risk in any case, because a watch-only rail can neither spend nor refund
+  (§B.3). Not closed, and not closable by this design — a marketplace cannot
+  audit a seller's own wallet.
 
-All three are listed in §E and all three are in scope for the W3 Kimi audit and
+All five are listed in §E and all five are in scope for the W3 Kimi audit and
 the W3b review, so a reviewer sees them named rather than discovering them.
 
 ### B.11 Two-phase creation and activation (R3-1, P1 — the gating finding)
@@ -1564,6 +2225,13 @@ value, and the poll query is unchanged in shape: it claims
 `preparing` order is **not polled** until activation flips it to `pending`. That
 is the correct behaviour and it falls out of the existing query rather than
 needing a new predicate.
+
+**r5 adds one state to that same machine, and only for `shared_manual`
+creators:** `awaiting_seller_confirmation`, reached from `detected` or
+`confirmed`, from which no automatic edge leads to `paid`. Its transitions, the
+extended inventory hold, the 7-day window, the confirm endpoint and its
+authorisation are specified in §B.8.8 rather than here, because they are a
+property of the allocation mode and not of the two-phase protocol.
 
 #### B.11.3 The messages, verbatim
 
@@ -1703,6 +2371,22 @@ of the protocol has a payable Payment Request without a committed marketplace
 bind that polls it.* Rows 1, 2, 3, 5, 6, 7 and 10 are all "prepared but
 unpublished"; rows 4 and 8 have a committed bind. There is no row with
 "payable + no committed bind", which is exactly the row R3-1 found in r3.
+
+**Rows added in r5 for the allocation-mode machinery (§B.8.6–§B.8.8).** These
+sit outside the prepare/activate windows above — they are failures of
+classification and of confirmation, not of publication — so they are listed
+separately rather than renumbered into a matrix whose invariant is about
+payability.
+
+| # | Failure | Durable state | Outcome | Why it is the safe direction |
+| --- | --- | --- | --- | --- |
+| A1 | **Claim-time scan cannot reach Electrum** | none — no creator row is written | The claim is **refused** (§B.5, unchanged), so no `allocation_mode` is assigned and no seller is silently admitted to `exclusive` on an unscanned account | An unscanned claim is exactly the P1-A condition; refusing is the r4 behaviour and r5 does not weaken it |
+| A2 | **Sentinel observation cannot reach Electrum** | mode unchanged | Detection is unavailable for that tick. **No downgrade.** The §B.7 backlog-age alert and §B.7.1 auto-hide cover a sustained outage | An Electrum blip must never become a fleet-wide downgrade; `exclusive`'s safety rests on §B.8.6's claim-time checks, not on detection (§B.8.7) |
+| A3 | **Downgrade lands while an invoice is `observing`** | `allocation_mode='shared_manual'` committed; invoice still `observing` | Automatic `paid` stops for **that** invoice too, because the transition reads the creator's current mode rather than `allocation_mode_at_creation`; the order moves to `awaiting_seller_confirmation` on the next matching observation | Protecting already-live invoices is the fail-safe direction and is the reason the extra read exists |
+| A4 | **Confirm called by anyone but the order's seller** | none | `403 not_order_seller`, logged, **no state change**, no audit row | An operator resolving a stuck order uses the `manual_review` path so the audit trail never conflates the two (§B.8.8) |
+| A5 | **Confirm called on an order not in `awaiting_seller_confirmation`** | none | Named error, no state change | A seller cannot confirm an order with no observed payment; the precondition is server-side, never the buyer-supplied txid |
+| A6 | **Confirm delivered twice** (client retry) | the first confirmation record | Idempotent on order id: the same record is returned, no second fulfilment event, no second audit row | Same "effect and mark commit together" discipline as §B.11.8's outbox arm |
+| A7 | **Seller never confirms** | `awaiting_seller_confirmation` for 7 days | Routes to `manual_review` (`workers.rs:787-820`), never to `paid` and never to a silent cancellation; the buyer's inventory hold was extended on entry, so they do not lose the order to a 3600 s timeout while waiting for a human | The buyer has demonstrably paid on chain; expiring their order would be the worst available outcome |
 
 #### B.11.5 Verifying that a `prepared` invoice is unreachable by a buyer
 
@@ -1881,11 +2565,13 @@ production.
 | 1 | Fork: creation baseline and post-invoice eligibility | §B.4 in full: `awaiting_baseline` state excluded from `observation_targets()`, the post-commit/pre-publication baseline snapshot of confirmed history **and** mempool with the tip from the same round, baseline outpoint and replaced-input sets, `void_baseline_failed` on any snapshot failure, V2 payment record with `creation_chain_height` and the baseline digest, `confirmed_height` on `ObservedOutput`, migration `0002`. | Revert; the mainnet databases do not exist yet. | **Critical.** Without it a legitimate seller's old receipts confirm unpaid orders (P1-A), and a pre-invoice mempool transaction mined before the first tick does the same (NEW-1). This is the gate on real money, not a hardening item. |
 | 1b | Fork: exact amount predicate and invoice amount nonce | §B.8.2: `invoices.rs:694` `>=` → `==`; overpayment reports `amount_matched: false` and routes to `manual_review`; CSPRNG nonce `[1,999]` added to the required amount and carried as the order total. | Revert to `>=`; the nonce is inert without it, so revert both together. | **Critical.** This is the bound on NEW-2's residual and on R1, and after the 08:39 owner decision it is the *primary* defence for pasted xpubs rather than a backstop (§B.8.3). Reverting only one half silently removes the defence while leaving the code looking defended. |
 | 1c | **Fork: two-phase prepare/activate (R3-1)** | §B.11 in full: `prepared` / `void_prepare_expired` / `void_cancelled` states; both outbox rows inserted `status='prepared'` instead of `'queued'` (`invoices.rs:1030`); `POST /v0/payment-requests` returns **200 with a body** instead of 204 (`http/payment_requests.rs:42-51`) carrying `{invoice_id, nonce_sats, total_sats, expires_at, prepare_expires_at, derived_address_fingerprint}` (closes R3-3); new signed idempotent `POST /v0/payment-requests/{id}/activate` and `…/void`; the 15-minute `prepare_ttl` reaper; the §B.4.6 tick-1 snapshot inside activation; state-inspecting replay (closes R3-5). | Revert **together with step 4d** — a reverted paykit side with an activating marketplace bricks every Bitcoin bind. Because production is created empty, there is no data migration to reverse. | **Highest.** Without it, a marketplace crash or a failed commit leaves a published, payable mainnet Payment Request that nothing polls, and the buyer's funds are silently orphaned (R3-1). This is the gating change for real money, ahead of every other item in this table. |
+| 1d | **Fork: creator `allocation_mode`, claim-channel checks, sentinel detection (§B.8.6, §B.8.7)** | The `allocation_mode` column and its check constraint defaulting to `shared_manual`; `claim_channel` on the claim request and the four corroborating checks, downgrading with a named reason rather than refusing; `allocation_mode_not_enabled` for `pasted_auto`; creator-level sentinel targets (20 indices, 60 s cadence, inside the §B.7 budget), durable evidence rows, atomic one-way downgrade, seller alert; and the automatic-`paid` gate reading the creator's **current** mode. | Revert. Note the default is the safe direction — reverting the column reverts every creator to r4's behaviour, which is `pasted_auto` for everyone, so **1d must not be reverted without also reverting 4e**, or pasted sellers silently regain automatic confirmation. | **Critical, and asymmetric.** Absent, every seller is on r4's probabilistic path (§B.8.4's table). Present but mis-defaulted, a pasted seller gets automatic confirmation without anyone deciding to give it to them — which is why the default is `shared_manual` at the schema level and not in application code. |
 | 2 | Fork: claim-time index scan | §B.5: `ChainHistoryPort`, gap-limit windows, `next_child_index` initialised above the last used index, refuse on Electrum failure or >1,000 scanned. | Revert. | High. Without it the server derives onto used addresses. Also sets `G = 21`, the gap start offset the §B.8.4 model depends on. |
 | 3 | Fork: deny-list, bounded account range, fingerprint in the claim response, **fingerprint↔seller binding**, `stack_role` invariant | §B.6 and §B.8.5: mainnet accepts `0 <= account_index <= 99` — **account 0 is accepted, reversing r3** (owner decision 08:39); the deny-list covers accounts 0–99 of every known-public mnemonic and stays unconditional off `proof`; `key_fingerprint` / `first_derived_address` / `next_child_index` in the claim response; new `claimed_key_fingerprints` table refusing a key ever claimed by a different seller pubky. | Revert. Reverting the binding re-opens the cross-seller half of R3-4. | High — the public test key reaching a real listing is unrecoverable, and paste being allowed makes that path reachable from a tutorial or from §D.1 of this document. |
 | 4 | Fork: Electrum budget, batching, jitter, backoff, backlog alert, active genesis/tip probe, **availability auto-hide** | §B.7 and §B.7.1, including the 3-probe auto-hide with 3-probe recovery hysteresis. | Revert to the unbounded path only on the proof stack, never production. | High: a ban stops all confirmation silently and `/health/ready` currently reports Electrum without hysteresis. Without auto-hide, one Electrum outage fails every Bitcoin checkout at the bind (NEW-5). |
 | 4c | **Fork: `bitcoin_offer_available` on `/health/ready` (R3-6)** | §B.7.2 hop 1: `ReadyResponse` (`http/health.rs:19-25`) gains `bitcoin_offer_available`, `electrum_tip_height`, `electrum_tip_age_seconds`; the field folds the 3-probe hysteresis **and** the `PAYKIT_BITCOIN_CREATION_ENABLED` kill switch into one boolean so no consumer has to combine two. | Revert; the marketplace then treats a missing field as `true` and behaviour returns to fail-at-bind. | Medium. Its absence is a conversion and trust cost, never a correctness one — the bind stays fail-closed regardless (§B.7.2). |
 | 4d | **marketplace-service: two-phase client, activation outbox, availability consumer** | §B.11.2/§B.11.8 and §B.7.2 hop 2: persist `{paykit_invoice_id, paykit_total_sats, paykit_expires_at, paykit_activation_state}` and commit the bind with a `paykit.activate` outbox row in **one** transaction; add the `paykit.activate` dispatch arm to `deliver_claimed`, which today `bail!`s on any non-`notification.*` kind (`workers.rs:292-294`); add `'preparing'` to the `paykit_request_state` check (`0009_payment_methods.sql:39-40`); consume `bitcoin_offer_available` with a 15 s TTL and a 60 s stale-out, and **stop returning 503** from `get_payment_config` (`payment_methods.rs:310-325`). | Revert together with step 1c. | **Highest**, jointly with 1c — this is the half that makes activation durable. A marketplace that calls `activate` inline instead of from its outbox reintroduces R3-1's window in a narrower form. |
+| 4e | **marketplace-service + client: `shared_manual` checkout and seller confirmation (§B.8.8, §C.10)** | `awaiting_seller_confirmation` on `paykit_request_state`; the extended inventory hold and the 7-day window ending in `manual_review`; `POST /v0/orders/{id}/confirm-bitcoin-payment` authorised to the order's seller only, idempotent, with the audit fields written in the same transaction as the state change and a `paid_manually` resolution to paykit (§B.9); `bitcoin_confirmation_mode` on the payment-config endpoint; the two-path onboarding chooser and the buyer/seller static copy. | Revert **together with 1d** — a reverted marketplace with `allocation_mode` still enforced leaves `shared_manual` sellers' orders with no path to paid at all, which is worse than either end state. | **Highest among the r5 items.** This is the only path in the design that marks an order paid without chain evidence, so its authorisation and audit are the whole of its safety (§B.10, R5). An unauthorised or unaudited confirm endpoint is a strictly worse defect than the residual it replaces. |
 | 4b | Fork: Payment Request expiry, tail observation, resolve endpoint | §B.9: `expires_at` required on `POST /v0/payment-requests` and set into `proposal_expires_at` (`create_payment_request.rs:230`); `expired_tail` → `expired_final` with a 24 h tail; `late_settlement` observations; `POST /v0/invoices/{id}/resolve`. | Revert; but note the §C.16 drain boundary reverts with it and becomes unsafe again. | **Critical.** Without it a delivered Payment Request is payable forever and the rollback drain strands buyers (NEW-3). |
 | 5 | Fork: Bitcoin creation kill switch | §C.16. | Revert. | High if absent — see P1-D and §C.16. |
 | 6 | Rails repo: configurable network and cadence | `entrypoint.sh:150` → `network = "${PAYKIT_BITCOIN_NETWORK:-regtest}"`, validated against `mainnet\|testnet\|signet\|regtest` and failing closed; `:154` → `poll_interval = "${PAYKIT_ELECTRUM_POLL_INTERVAL:-1s}"`; add `PAYKIT_STACK_ROLE` and `PAYKIT_BITCOIN_CREATION_ENABLED`. Defaults leave the existing service unchanged. Update the header comment at `:14-16`. | `git revert`; defaults unchanged. | Low while the defaults hold. A typo'd network reaches `BitcoinNetwork::parse` and the server refuses to boot (`config.rs:61`) — fails closed. |
@@ -1902,7 +2588,7 @@ production.
 
 | 17 | Docs | `pubky-payment-rails/README.md` (env sections `:121`, `:134`, pinned revisions); `pubky-payment-rails/docs/wallet-leg.md:37-40` (not an `mp-oneauth` path) becomes network-specific; `mp-oneauth/docs/ecommerce/status.md:7` and `:150` ("Could this take real money today?" now answers **yes**, with the review waiver stated in the owner's words); `runbook-production.md` gains a Bitcoin-rail section carrying §C.16 verbatim plus the failover endpoint, **the §B.7.1 auto-hide behaviour and its alerts** (so an operator paged at 3 a.m. knows Bitcoin hiding itself is the designed response, not the incident), and **the §B.9 drain boundary with its ~25 h worst case** stated in hours rather than implied; `HANDOFF.md` loses "Money rails remain test networks". | Revert. | Low mechanically. High if skipped: the runbook is what an operator reads at 3 a.m., and r2's runbook would have told them to drain in an hour. |
 | 18 | **Production cutover — owner sign-off gate** | Only after §D's proofs (MAINNET-NEG, D.2-S, D.2-B, REGTEST-POS), W3 Kimi SHIP, W3b and W3c SHIP, and Q3, Q4, Q8, Q9 and Q10 answered. Add the production Shop origin to `PAYKIT_SETUP_ALLOWED_ORIGINS`; set `PAYKIT_SERVER_URL` on production `marketplace-service` and redeploy; set `PUBKY_RUNTIME_PAYKIT_SETUP_URL` on Vercel and redeploy. | §C.16, then both variables back to the regtest service. Independently, `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=unavailable` remains the whole-rail kill switch (`runbook-production.md`). | **Highest.** Real funds from here. Every production seller must re-claim; a seller who does not re-claim sees Bitcoin unavailable rather than losing money (`payment_methods.rs:570-585` refuses the bind). |
-| 19 | Bitkit | **No wallet-side change.** Users already hold mainnet Bitkit; it already uses `ssl://bitkit.to:9999` and already accepts the `btc-bitcoin-p2wpkh` identifier the mainnet server advertises. Confirmed by reading both Env files. | n/a | n/a |
+| 19 | Bitkit | **Revised in r5: no change is needed to *take a payment*, but three are needed to make `exclusive` honest. Size: S–M per app.** Unchanged and still true: users already hold mainnet Bitkit, it already uses `ssl://bitkit.to:9999`, it already accepts `btc-bitcoin-p2wpkh`, and the whole allocation primitive already exists — durable `highest + 1` reservation, account-xpub export, addresses revealed through 999, the 84-byte claim payload, and backup **and** restore of both the account records and the allocation state with a `max` merge (§B.8.0's citations). The three asks are lifecycle and recovery surfaces, not new cryptography: **(1) Shop-exclusive naming and status** — the reserved account is labelled as Shop's and shows its status, so a seller cannot casually reuse it or wonder what it is; **(2) a post-restore warning** — after a restore, name the account Shop is watching and warn if allocation state did **not** come back, which is the one condition that turns §B.8.5's invariant into residual R3; **(3) a migration / re-claim surface** — the seller-initiated path to a fresh Shop account, which is how a seller recovers from a §B.8.7 downgrade or a lost allocation state (§B.8.6 has no edit that moves a creator into `exclusive`). All three must be real and tested; none is a prerequisite for taking a mainnet payment, so they gate general availability rather than the W5 canary. | Revert the UI; the allocation primitive underneath is untouched, so a revert loses the warnings, not the reservation. | Medium. Absent, `exclusive` still works but its two named failure modes — silent account reuse and a restore that lost allocation state — reach the seller only as a false paid, which is the outcome §B.8.5 exists to prevent. |
 | 20 | `SANDBOX_PAYMENTS_ENABLED` interplay | **Leave staging `true`.** `payment.sandbox_advance` refuses any payment whose `adapter != "sandbox"` (`handlers/payment.rs:60-65`) and binding Bitcoin sets `paykit` (`payment_methods.rs:593`). The residual risk is a sandbox-advance **before** any rail is bound, so every §D harness asserts `payments.adapter == 'paykit'` immediately after the bind and before any status assertion; with two-phase, the adapter is already `paykit` throughout `preparing` while nothing is published, so the dangerous overlap is gone (§B.11.7). Side effect: `true` disables local pickup on staging (`lib.rs:76`, `handlers/pickup.rs:70`), so the proofs use **shipping** listings. | n/a | Low, given the adapter gate. Worth a runbook line because the flag's name suggests more reach than it has. |
 
 ### C.10 detail — what "paste or file" means, and the one-sentence disclosure
@@ -1951,6 +2637,46 @@ Below it, the rest of the §C.10 row's disclosures (irreversibility, xpub
 privacy, the chain-data operator's view, the exact nonce'd total). W1.8b asserts
 the sentence is rendered, so it cannot be dropped in a later copy pass.
 
+**r5: the choice comes before the disclosure, and it is presented as two paths
+side by side rather than as a default with an escape hatch.** The disclosure
+above is unchanged and still renders on the manual path — it is exactly the harm
+that path still carries if the seller later enables `pasted_auto`, and it is why
+`shared_manual` is the default. What changed is that the two paths now differ in
+*what Shop will do*, not only in how much risk the seller carries, and the copy
+has to say that in the words a seller can act on. Static copy, no interpolation:
+
+> **How should Shop confirm your Bitcoin payments?**
+>
+> **Create a Shop account in Bitkit — automatic confirmation**
+> Bitkit sets aside a Bitcoin account used only by Shop. Because nothing else
+> receives on it, Shop can confirm your orders automatically as soon as a
+> payment confirms on the Bitcoin network. Recommended.
+> *[Use Bitkit]*
+>
+> **Use my own xpub — you confirm each payment manually**
+> Paste or upload your own account key. Shop will show you every payment it
+> sees on the Bitcoin network, but will not mark orders paid on its own: you
+> check each payment in your own wallet and confirm it. Choose this if you do
+> not use Bitkit.
+> *[Use my own key]*
+
+Three properties of that screen are requirements, not styling:
+
+1. **Neither path is presented as broken or provisional.** The manual path is a
+   supported way to sell, and it publishes the same Paykit receiver marker on the
+   seller's own homeserver as the Bitkit path (§B.0). Copy that reads as
+   "downgraded" pushes sellers toward pasting a key and asserting the Bitkit
+   channel, which is the one thing §B.8.6 cannot detect.
+2. **The difference stated is the one that is true:** who confirms. Not
+   "secure vs insecure" — a `shared_manual` seller checking their own wallet is
+   making a *better*-informed decision than any inference this server can make;
+   they are simply making it themselves, once per order (§B.10, R5).
+3. **A seller who takes the manual path is told what would change if they
+   switched**, and the switch is a new claim to a fresh Bitkit account, not a
+   settings toggle (§B.8.6). The same surface is what a seller reaches after a
+   §B.8.7 downgrade, so it must read sensibly to someone arriving from an alert
+   rather than from onboarding.
+
 ### C.16 restated — the drain boundary under two-phase (NEW-3, D)
 
 r2's boundary was "hold window elapsed", which was unsafe because marketplace
@@ -1974,6 +2700,18 @@ with the check the runbook carries:
 | 3 | No invoice in `expired_tail`; `observation_targets()` returns empty | paykit-server |
 | 4 | No order in `paykit_activation_state = 'preparing'` — the marketplace's activation outbox has drained (§B.11.8) | **marketplace-service** |
 | 5 | No `awaiting_entitlement` paykit payments | marketplace-service |
+
+**r5 adds no sixth condition, and the reason is worth one line so an operator
+does not invent one at 3 a.m.** An order in `awaiting_seller_confirmation`
+(§B.8.8) has already been paid on chain; nothing about it is payable, so it
+cannot strand new buyer money and it does not gate the drain. Its invoice
+expires on paykit's own clock through conditions 2 and 3 like any other. What it
+does gate is **fulfilment**, which is a business question rather than a rollback
+one: repointing `PAYKIT_SERVER_URL` leaves those orders waiting for a seller who
+can still confirm them, because the confirm endpoint is marketplace-side and
+does not depend on the rail. The runbook should say so, because "orders in
+awaiting_seller_confirmation" will show up in the drain query's neighbourhood
+and look alarming.
 
 Condition 4 is the one r3 could not have had, and it is the reason the drain
 check now **spans both services**: an operator who only queries paykit can see a
@@ -2312,6 +3050,63 @@ FAIL calibrations, all six required before the positive run is trusted:
   (endpoint publication delivered before the payment-request proposal is
   claimable — `outbox.rs:205`), and that a second `activate` enqueues nothing.
 
+**New in r5 — the allocation-mode calibrations (§B.8.6–§B.8.8).** F9–F12 are the
+detection set and F13–F15 the manual-confirm set. Like F1–F8 they are FAIL
+calibrations first: each must be **observed failing in the intended direction**
+before the mode it protects is trusted.
+
+- **F9 — a sentinel output classifies the account, and only a sentinel does.**
+  On an `exclusive` creator, send a confirmed output to an address in the
+  20-index sentinel window that paykit has never assigned. Expected:
+  `allocation_mode` flips to `shared_manual` atomically with an evidence row
+  naming `txid:vout`, the sentinel index and the confirmation height; the seller
+  alert fires; observation continues. **Its mandatory negative twin, which is
+  the more important half:** send under-, over- and late payments to a genuinely
+  **assigned** address and assert that each routes *that invoice* to
+  `manual_review` and that `allocation_mode` is **unchanged** after all three.
+  Without the twin, F9 does not distinguish a detector from a tripwire that any
+  buyer typo can trigger (§B.8.7).
+- **F10 — classification survives restart, and the gate reads current state.**
+  After F9, restart paykit-server and assert the mode is still `shared_manual`
+  from the database rather than from any cache; then drive a **fully matching,
+  confirmed, exact-amount** payment on a *new* invoice for that creator and
+  assert the order reaches `awaiting_seller_confirmation` and **never** `paid`.
+  Run the same assertion against an invoice that was already `observing` when
+  the downgrade landed (matrix row A3), which is what proves the transition
+  reads the creator's current mode rather than `allocation_mode_at_creation`.
+- **F11 — dust calibration.** With the configured minimum value and hit count,
+  send an output **below** the threshold to a sentinel and assert **no**
+  downgrade; then send one **at** the threshold and assert the downgrade. This
+  demonstrates the configured policy rather than asserting a hard-coded rule,
+  and it is the test that makes R4's price adjustable without a code change
+  (§B.10).
+- **F12 — the recovery account reuses nothing.** After a downgrade, re-claim to
+  a fresh Bitkit-reserved account. Assert: the new creator record starts
+  `exclusive` with `next_child_index` 0 after a clean §B.5 scan; **no** index
+  assignment, sentinel, or evidence row is carried across from the old account;
+  invoices on the old account stay observed through their expiry tail (§B.9) and
+  still cannot auto-pay; and only new invoices derive from the replacement.
+- **F13 — an unauthorised confirmation marker is rejected.** Call
+  `POST /v0/orders/{id}/confirm-bitcoin-payment` as the **buyer**, as an
+  unrelated seller, and unauthenticated. Expected in all three:
+  `403 not_order_seller`, the attempt logged, **no state change and no audit
+  row**. Then call it as the correct seller on an order that is **not** in
+  `awaiting_seller_confirmation` and assert the named precondition error, so the
+  endpoint is proven to gate on server-side observation state and not on the
+  buyer-supplied txid.
+- **F14 — confirmation requires and records seller identity.** A successful
+  confirm writes `confirmed_by_pubky`, `confirmed_at`, `confirmed_txid`,
+  `confirmed_reason`, `confirmation_source = 'seller'` and the frozen
+  `paykit_observation_state_at_confirmation`, in the **same transaction** as the
+  state change — asserted by a rollback test showing neither lands alone. Assert
+  the recorded pubky is the authenticated seller's and cannot be supplied in the
+  body.
+- **F15 — confirmation is idempotent.** Deliver the same confirm twice.
+  Expected: the same confirmation record returned, exactly **one** audit row,
+  exactly **one** fulfilment event, and one `paid_manually` resolution against
+  paykit (§B.9). Then assert a `buyer_reported_txid` recorded on the payment
+  changed no state and appears nowhere in the endpoint's preconditions.
+
 Also assert on regtest, cheaply: a second order for the same seller derives the
 next index and never reuses an address (`invoices.rs:786-829`); that a burned
 index after a forced baseline failure **or a reaped prepare** is skipped and
@@ -2321,6 +3116,21 @@ is `paykit`, **including while the order is `preparing`** (§B.11.7); and that a
 claim of a key already claimed by a different seller pubky is refused with
 `key_claimed_by_other_seller` while a re-claim by the same seller is accepted
 (§B.8.5).
+
+Also assert on regtest, cheaply, for r5 (§B.8.6): that a **claim-scan outage
+fails closed** — Electrum unreachable at claim time refuses the claim and writes
+no creator row, so no `allocation_mode` is assigned and no seller is admitted to
+`exclusive` on an unscanned account (matrix row A1, and the r4 §B.5 behaviour
+this depends on); that a claim on `bitkit_watch_only_v1` with `account_index = 0`,
+with an index disagreeing with the key's hardened child number, or with **any**
+history found by the scan is **downgraded to `shared_manual` with a named
+reason** rather than refused, and that a paste is `shared_manual` without any
+reason being required; that a claim requesting `pasted_auto` is refused with
+`allocation_mode_not_enabled` **in both directions** — refused with the flag
+unset, accepted only with it explicitly set, which is the test that keeps the
+mode genuinely off; and that a `shared_manual` creator's fully matching
+confirmed payment produces `detected` → `confirmed` → `awaiting_seller_confirmation`
+and stops there across at least three poll cycles.
 
 ### D.4 What is still unproven when all of them pass
 
@@ -2356,6 +3166,23 @@ document should be read as covering them:
   seller behaviour exists — and revisit the bolded row in particular, because a
   6% annualised-per-busy-seller figure is the kind of number that should be
   replaced by a measurement rather than defended.
+- **New in r5 — that a claim on the Bitkit channel really came from Bitkit.**
+  §B.8.6's four corroborating checks are strong correlates, not proof, and no
+  harness can close the gap because there is nothing to verify: the 84-byte
+  payload carries no signature. F9–F12 prove the detector behaves as specified;
+  they do not prove that an `exclusive` creator's account is exclusive. **The
+  only thing that closes this is §B.8.9's account-key signature**, and it is
+  Wave 10.
+- **New in r5 — residual R4** (§B.10): the dust-forced downgrade. F11 proves the
+  configured threshold behaves as configured; it cannot prove the threshold is
+  the right price, because that depends on an attacker's motivation, which is
+  unmeasured.
+- **New in r5 — residual R5** (§B.10): seller judgement on the `shared_manual`
+  path. F13–F15 prove the endpoint is authorised, audited and idempotent. **No
+  test in this document proves a seller actually looked at their wallet before
+  confirming**, and none can. The W5 canary should exercise one manual
+  confirmation end to end so the seller-facing surface is seen working by a
+  human before a stranger relies on it.
 - **Whether the two-phase protocol holds under real concurrency at scale.**
   NEG-6 drives each failure row once, deterministically. It does not prove the
   absence of an interleaving nobody enumerated, which is why §F keeps W3c's
@@ -2397,6 +3224,10 @@ least once, and not before Q9 is answered.
 | **Auto-hide is assumed rather than wired** (Sol **R3-6**) | r3 asserted the marketplace "already polls" a status field; `payment_methods.rs:279-333` only checks account existence | Fail-closed creation stays a checkout-wide failure-at-bind, which reads to a buyer as "the marketplace took my money and broke" (NEW-5 unclosed). | The three-hop contract in §B.7.2 with an owner per hop and tests: `bitcoin_offer_available` on paykit `/health/ready`, a 15 s-TTL / 60 s-stale-out consumer on the marketplace payment-config endpoint that **stops returning 503**, and static client copy. W1.4c and W1.10 in §F; asserted end to end in NEG-5. |
 | **Delivered Payment Request outlives the marketplace hold** (Sol NEW-3) | `proposal_expires_at: None` (`create_payment_request.rs:230`); the rollback drains on "hold elapsed" and repoints | Buyer pays a still-valid address into a database nobody polls; no confirmation, and the late-settlement `manual_review` net never fires. Real funds moved, silently. | Enforceable expiry carried in the request (§B.9), **already parsed and enforced by both wallets** so no wallet release is needed; observation continues through a 24 h `expired_tail` where the only outcome is `manual_review`; the drain boundary becomes "every delivered PR expired or final" (§C.16). |
 | **Fail-closed creation becomes a checkout-wide outage** (Sol NEW-5) | One Electrum outage, with two fail-closed creation gates (§B.4, §B.5) | Every Bitcoin checkout fails at the bind — correct for safety, but indistinguishable from "the marketplace took my money and broke". | A 99.0% monthly availability objective for *offering* Bitcoin, auto-hide after 3 failed probes with 3-probe recovery hysteresis, observation of existing invoices continuing throughout, and paging on sustained or flapping auto-hide (§B.7.1). A degradation is never traded against a false paid. |
+| **Attacker who learned the xpub dusts a sentinel to disable a seller's automatic checkout** (r5, R4) | The xpub, and one confirmed output at or above the configured threshold to any of the 20 sentinel indices | **Succeeds, by design.** `allocation_mode` flips to `shared_manual` and that seller loses automatic confirmation. The classification rule cannot distinguish this from a genuine second allocator — that is the dust caveat and it is inherent to inferring an allocator from chain traffic (§B.8.7). | Bounded to a **priced denial, not a false payment**: no order is paid, no seller ships, checkout keeps working with seller confirmation. The attacker needs the xpub, which the buyer never sees (§A step 7) and which paykit stores sealed (`invoices.rs:660-671`). The minimum value and hit count are config with a calibration test (F11), so the price is adjustable without a code change; the seller is alerted and re-claims to a fresh account (§B.8.6, F12). §B.8.9 removes the inference entirely. Named as **R4** rather than treated as closed. |
+| **Seller pastes a fresh empty account and asserts the Bitkit claim channel** (r5) | A modified or scripted client submitting `claim_channel = bitkit_watch_only_v1` with an empty account xpub at index ≥ 1 whose index agrees with the key | **Passes every check in §B.8.6**, because the 84-byte payload is a wire encoding and carries no signature — there is nothing for the server to verify. The seller obtains automatic checkout on an account Bitkit does not manage. | Stated in §B.8.6 rather than papered over. Bounded: the account is empty at claim time, so §B.8.4's `r` is that account's own future receive rate, not a busy wallet's; the seller has self-selected and carries the harm themselves; detection (§B.8.7) is what notices if it starts receiving; and the disclosure (§C.10) is rendered on the manual path regardless. **The only real fix is §B.8.9's account-key signature**, which is precisely why D4 records Option 2 as the target rather than as an enhancement. |
+| **Seller marks an order paid without checking their wallet** (r5, R5) | `shared_manual`; a seller who clicks through | **Succeeds, and Shop fulfils on their word.** The `shared_manual` path removes the *automatic* false-paid transition; it does not remove the possibility of a wrong confirmation, it relocates it to a human. | Not closable by a marketplace — it cannot audit a seller's own wallet. Bounded and attributed: the confirm endpoint requires the seller's own identity and records who, when, txid, reason and paykit's frozen observation state (§B.8.8), so a mistaken confirmation is attributable rather than anonymous; the copy says in the imperative to check the wallet first and states Shop cannot prove the payment came from this buyer; the exact-amount nonce makes the check a single equality; and the seller bears fulfilment and refund risk in any case, because a watch-only rail can neither spend nor refund (§B.3). Named as **R5**. |
+| **Buyer supplies a txid to push their own order through** (r5) | `shared_manual`; a buyer who reports a plausible txid | **Fails.** The confirm endpoint is authorised to the order's seller only (`403 not_order_seller`), gates on server-side observation state, and never reads `buyer_reported_txid` as a precondition. The field is recorded and shown to the seller as unverified evidence and nothing more. | §B.8.8's authorisation and preconditions; proven by F13 (three unauthorised callers, plus the wrong-state call) and F15 (a recorded buyer txid changes no state). Operator intervention deliberately uses the separate `manual_review` path so the audit trail never conflates an operator with a seller. |
 | Server child index 0 collides with wallet-used addresses | `next_child_index DEFAULT 0` on a used account | **Closed by §B.5** — the scan starts above the last used index plus a gap buffer. | Also a privacy and Electrum-cost fix. Refuse the claim if Electrum is unreachable; never default to 0. |
 | Creation-height protection vs a historical PASS | Both cannot be true | Acknowledged as mutually exclusive; the floor ships and the proof is redesigned around it (§D), not the reverse. | r1 chose the proof; r2 chooses the product. |
 | Deny-list vs the harness claim | W1.4 denies the exact key the proof must claim | Resolved by `stack_role` as a deployment invariant (§B.6), not by a code bypass. | A production database cannot boot with `role=proof`; a CI test asserts both directions. |
@@ -2467,6 +3298,12 @@ for the marketplace two-phase work, **implementation tier** for client surfaces,
 | W1.10 | **marketplace-service: two-phase client + durable activation outbox (§B.11.2, §B.11.8)** | `marketplace-service` worktree | **Kimi** (money path, and the R3-1 fix lives half here) | W1.1c | `cargo test -p marketplace-service` → phase 1's `{invoice_id, total_sats, expires_at}` is persisted and the bind **and** the `paykit.activate` outbox row commit in **one** transaction (asserted by a rollback test: no row, no bind); `deliver_claimed` routes `paykit.activate` instead of `bail!`ing on an unroutable kind (`workers.rs:292-294`), and delivery stamps `delivered_at` with the state change in one transaction so redelivery cannot apply twice; `'preparing'` is accepted by the `paykit_request_state` check and **is not claimed by `claim_due_paykit_orders`** (`workers.rs:745-750`); `prepare_expired` / `invoice_finalized` / `unknown_invoice` void the bind, release the hold and emit `payment.bitcoin_prepare_voided`; `activation_total_mismatch` voids **and alerts**; the buyer-facing total charged equals `paykit_total_sats`, never `amount_sats` (R3-3 on this side) |
 | W1.11 | **marketplace-service: availability consumer (§B.7.2 hop 2, R3-6)** | same tree, serialized after W1.10 | **Kimi** (it changes a public endpoint's failure semantics) | W1.10, W1.4c | `cargo test -p marketplace-service` → `get_payment_config` returns `bitcoin_offer_available` alongside `bitcoin_available`; a fresh value is cached for 15 s and paykit is not re-probed inside it; a paykit error serves the last value until 60 s stale and then reports `false`; **the endpoint returns 200 rather than 503 when paykit is unreachable** (`payment_methods.rs:310-325` today), asserted as a status-code regression test; `bitcoin_available` still requires the seller's claim to exist |
 | W1.12 | **Client: hide Bitcoin at checkout when unavailable (§B.7.2 hop 3, R3-6)** | `mp-oneauth` worktree, independent of W1.8 | implementation tier | W1.11 | Component tests: the Bitcoin option is not rendered when `bitcoin_offer_available` is `false`, and is rendered when both flags are true; the copy is the static string and interpolates **no** operator state (asserted against a snapshot, so a future edit cannot leak a tip height or endpoint name); a seller with no other rail falls through to the existing no-rail empty state rather than a new surface; VRT regenerated if a baseline exists for the checkout surface |
+| W1.13 | **Fork: creator `allocation_mode` and the claim-channel checks (§B.8.6, D1/D2)** — the column and its check constraint, `claim_channel` on the claim request, the four corroborating checks, downgrade-with-a-reason rather than refusal, `allocation_mode_not_enabled`, and the authenticated seller status fields | same fork tree, serialized after W1.3 | **Kimi** (it decides which sellers get automatic money confirmation) | W1.3 | `cargo test -p paykit-server` → a paste is `shared_manual`; a `bitkit_watch_only_v1` claim at index ≥ 1, index-agreeing, scan-clean and fingerprint-free is `exclusive`; each of `account_index = 0`, an index disagreeing with the key's hardened child number, and any scan history **downgrades with a named reason and does not refuse**; `pasted_auto` is refused with `allocation_mode_not_enabled` **and accepted only with the flag explicitly set** (both directions asserted); there is no code path that edits a creator into `exclusive`; the seller status endpoint returns mode, channel, downgrade reason and evidence to the authenticated seller and 403s for anyone else |
+| W1.14 | **Fork: sentinel detection, evidence records, and the automatic-`paid` gate (§B.8.7, D3)** — creator-level sentinel targets on a 60 s cadence inside the §B.7 budget, durable evidence rows, atomic downgrade, seller alert, and the confirmation gate reading the creator's **current** mode | same fork tree, serialized after W1.13 | **Kimi** | W1.13, W1.4b | `cargo test -p paykit-server` → a confirmed output to a never-assigned sentinel downgrades atomically and writes an evidence row; **under-, over- and late payment to an assigned address route that invoice to `manual_review` and leave the mode unchanged** (asserted after all three, not one); the mode survives restart and is read from the database at the transition; a downgrade landing on an already-`observing` invoice stops that invoice's automatic `paid` (matrix row A3); a sentinel-scan Electrum failure downgrades **nothing**; the dust threshold behaves as configured **in both directions**; sentinel targets are counted in `estimated_requests` and do not breach the 1,000/tick cap or 5 req/s |
+| W1.15 | **marketplace-service: `shared_manual` checkout and the seller-confirm endpoint (§B.8.8, D2)** — `awaiting_seller_confirmation` on `paykit_request_state`, the extended inventory hold and 7-day window, `POST /v0/orders/{id}/confirm-bitcoin-payment`, its authorisation, its audit fields, and the `paid_manually` resolution to paykit | `marketplace-service` worktree, serialized after W1.11 | **Kimi** (money path, and it is the only path that marks an order paid without chain evidence) | W1.11, W1.13 | `cargo test -p marketplace-service` → a matching confirmed observation on a `shared_manual` creator reaches `awaiting_seller_confirmation` and **never** `paid` across repeated poll cycles; the inventory hold is extended on entry and the order does not expire at 3600 s; the 7-day window routes to `manual_review`, never to `paid` and never to a silent cancel; **F13's three unauthorised callers each get `403 not_order_seller` with no state change and no audit row**; a confirm on an order in the wrong state is refused by a named precondition error; a successful confirm writes every audit field **in the same transaction** as the state change (rollback test: neither lands alone) and calls `resolve` with `paid_manually`; a second delivery is idempotent — one record, one audit row, one fulfilment event; `buyer_reported_txid` is recorded and is an input to nothing |
+| W1.16 | **Client: two-path seller onboarding and the `shared_manual` buyer/seller surfaces (§C.10, §B.8.8, §B.7.2)** — the side-by-side path chooser, `bitcoin_confirmation_mode` consumption, the buyer's pre-pay and awaiting-confirmation copy, the seller's confirm surface, and the post-downgrade arrival path | `mp-oneauth` worktree, serialized after W1.8b | implementation tier | W1.8b, W1.15 | Component tests: both paths render side by side and neither is styled as broken or provisional; the manual path still renders the §C.10 one-sentence disclosure (the W1.8b assertion, unchanged); `bitcoin_confirmation_mode: "seller"` renders the buyer's pre-pay copy and does **not** hide Bitcoin; the awaiting-confirmation copy renders on the order; **every string is asserted against a snapshot and interpolates no server-supplied value** — no address, amount, txid, tip height or seller name (the house rule, asserted so a later copy pass cannot start interpolating); the seller confirm surface renders the check-your-wallet imperative; arriving at the chooser from a downgrade alert reads sensibly rather than as onboarding |
+| W1.17 | **Bitkit: Shop-exclusive naming and status, post-restore warning, re-claim surface (§C row 19, D1)** — lifecycle and recovery UI over the allocation primitive that already exists | `bitkit-android` and `bitkit-ios`, one agent per tree | implementation tier per app; **deep reasoning** for the post-restore warning's wording, because it is the surface that tells a seller their allocation state did not come back | W1.13 | Per app: the reserved account is labelled and shows status; a restore that recovered allocation state names the watched account, and a restore that did **not** raises the warning (both directions, driven against the real backup/restore path — `BackupRepo.kt:711-729`, `BackupService.swift:210-219` — not a mocked one); the re-claim surface produces a claim byte-identical to the first-claim path for a fresh reserved account; **size S–M per app**, and none of the three gates the W5 canary — they gate general availability |
+| W10 | **Wave 10 — Option 2 signed reservation pools (§B.8.9)** | Bitkit ×2 (**L** each), `paykit-server-fork` (**L**) | **Kimi** throughout — it is account-key signing, encrypted publication and a money path | r5 shipped and measured | **Not this wave.** Recorded so the sequencing is explicit: exclusive Bitkit now, signed pools next, third-party plugins later, detection throughout. Its proof strategy and its full negative-test list are in §B.8.9 and must be planned from there rather than re-derived |
 | W1.9 | Docs pass (§C.17) | umbrella + `mp-oneauth` | **deep reasoning** — this is money-affecting operator text, not a mechanical edit | W1.5 | `git diff --stat` shows exactly the listed files; the parent reads the replacement policy line and the §C.16 rollback order end to end |
 | W2.0 | **Build image digest `D` once** from the commit containing §C steps 1–6, and redeploy **regtest, proof and (later) production** onto it (§D.0) | operator (parent) | parent-only | W1.* merged | `D` recorded in the wave log; all three boot lines print the same digest; the parent reads all three, not one |
 | W2.1 | Proof stack stood up on `D` | operator (parent) | parent-only | W2.0 | Boot line shows `mainnet`, `role=proof`, `ssl://bitkit.to:9999`, and digest `D`; `/health` shows a real tip height; the miswiring gate refuses to boot |
@@ -2476,7 +3313,7 @@ for the marketplace two-phase work, **implementation tier** for client surfaces,
 | W3 | Kimi audit of the full diff | OpenCode, own `OPENCODE_DB` lane | **Kimi** | W1.*, W2.* | Report contains an explicit `SHIP` or `FIX-FIRST`; exit 0 is not a report — grep the log for the verdict |
 | W3b | Deep-reasoning review: do the proofs prove what they claim **over one artifact**, does the runbook rollback order actually drain under §C.16's five conditions, is the §B.8.4 model's `A/W` step defensible, and are R1/R2/R3 correctly scoped | — | deep reasoning | W2.2–W2.4, W1.9 | Verdict recorded; the parent opens the screenshots, re-runs one proof command per proof, and checks the digest in each proof log against `D` |
 | W3c | **Protocol/state-machine review of §B.11's two-phase protocol and §B.9's expiry/resolve contract** — both sides modeled as state machines, every message and credential's provenance traced, the §B.11.4 matrix attacked for a missing row | — | deep reasoning, different family from the implementer | W1.1c, W1.4b, W1.10 | Verdict recorded **before W2.2 runs and again before W5**. Run it twice deliberately: after the design (now) and after the first implementation, per the protocol-review rule — not after the third build. R3-1 is exactly the class of defect a diff audit passed three times and a state-machine review finds in one pass |
-| W4 | **Owner sign-off** | — | — | W3 SHIP + W3b SHIP + W3c SHIP + all proofs | Owner answers Q3, Q4, Q8 and Q10 in writing, having read §B.8.4's table, §B.10 and §D.4. Q9 is already answered (08:39) and is re-confirmed against §B.8.4's corrected number, because the number the owner accepted at 08:39 is ~60× r3's |
+| W4 | **Owner sign-off** | — | — | W3 SHIP + W3b SHIP + W3c SHIP + all proofs | Owner answers Q3, Q4, Q8 and Q10 in writing, having read §B.8.4's table, §B.10 and §D.4. Q9 is already answered (08:39); **r5 narrows rather than reverses it (§B.8.0, Q14), so W4 must put the narrowing in front of the owner explicitly** — paste is still accepted and still lands in Paykit data, but it now confirms manually, and the 6% bound the owner accepted at 08:39 is the price of `pasted_auto`, which is off. The owner's decision at W4 is whether to leave it off, and it is taken against §B.8.4's table rather than against a summary of it |
 | W5 | Production stack, cutover (§C.18), canary (§D.4) | operator (parent) + commerce team | parent-only | W4 | Production boot line shows `role=production` and digest `== D`; one real seller re-claims **through the Bitkit Shop-account flow**, confirms the address in their wallet, one real payment completes end to end at the exact nonce'd total and is spendable, and one order is left to expire and is confirmed unpayable in the buyer's wallet |
 
 Parent duties, never delegated: commits, all remote git and GitHub writes,
@@ -2501,6 +3338,18 @@ response** before W1.10's tests are written, not retyped from this document
 (`contract-faithful-tests`). W1.6, W1.7 and W2.4 are independent trees and run
 in parallel throughout, which is where the concurrency budget is spent. W1.8b
 serializes behind W1.8, and W1.12 is a third client tree independent of both.
+
+**r5's additions to that picture.** W1.13 and W1.14 join the **fork tree** and
+serialize with it, after W1.3 and after each other — the sentinel gate needs the
+mode column to exist. W1.15 joins the **marketplace-service tree** behind W1.11,
+and is wired to W1.13 by a contract rather than a merge, so phase 1's
+`allocation_mode` field must be pinned from a **captured live response** before
+its tests are written (`contract-faithful-tests`), exactly as §B.11.3's shapes
+are. W1.16 serializes behind W1.8b in the client tree. **W1.17 is two genuinely
+new trees** — `bitkit-android` and `bitkit-ios`, one agent each — which are
+independent of every other slice and of each other, so they are the cheapest way
+to keep the concurrency budget full while the fork tree serializes. Nothing in
+r5 makes a previously parallel slice serial.
 
 ### F.1 Review history for round 3, and what r4 changed
 
@@ -2545,6 +3394,21 @@ load-bearing assumption in the model and is argued rather than measured; and
 whether `prepare_ttl = 15 min` is right in both directions — long enough that a
 slow marketplace outbox never loses a bind, short enough that a reaped prepare is
 never confused with an expired order.
+
+**r5 addendum: what a fifth reviewer should attack, given the allocation
+decision.** The `A/W` question above is now largely moot for what ships, because
+the mode it prices is off. Three things replace it. **First, §B.8.6's
+corroborating checks** — they are the whole of `exclusive`'s admission control,
+and the honest gap (a fresh empty pasted account asserting the Bitkit channel) is
+stated but not bounded by anything except the seller's self-interest; a reviewer
+should decide whether that is acceptable for a week or needs a stopgap before
+Wave 10. **Second, §B.8.8's 7-day window and extended hold** — both numbers are
+chosen, not derived, and they trade a buyer's certainty against a seller's
+responsiveness with real inventory held in between. **Third, whether
+`shared_manual` is a product or a dead end**: a path where every order needs a
+human is fine for a canary and corrosive at scale, so the reviewer should check
+that §B.8.9 is genuinely scheduled rather than a place to put the problem. The
+§B.11.4 completeness question is unchanged and still first.
 
 ---
 
@@ -2612,9 +3476,30 @@ here and recorded so the decision is reviewable.
   and because both wallets already enforce exact amounts client-side.
 - **Q13 — Certificate pinning for the Electrum endpoint.** No, with the reason
   recorded rather than left unstated (§B.3).
+- **Q14 — Who gets automatic Bitcoin confirmation. DECIDED 2026-09-09, recorded
+  in full as §B.8.0 (D1–D5).** In one line: automatic confirmation this week is
+  `exclusive` only — a Shop-exclusive Bitkit account; pasted and file-imported
+  xpubs are still accepted through the same Paykit claim path and are
+  `shared_manual`, where the seller confirms each payment; `pasted_auto` exists
+  in the model and is not selectable; detection is a downgrade backstop with no
+  credit taken in any residual number; and Option 2's signed reservation pools
+  are the Wave 10 target. Decided here rather than raised to the owner because
+  it **narrows** what the owner already accepted at 08:39 rather than reversing
+  it: paste stays accepted, in Paykit data, on the same endpoint and marker
+  (§B.0) — the owner's actual requirement — and the 6% bound the owner accepted
+  is no longer being carried by anyone in production. **Re-widening it is the
+  owner's call**, and the mechanism for that is enabling `pasted_auto` against
+  §B.8.4's table (§B.8.6), which W4 should put in front of them explicitly
+  rather than leaving as an unexercised enum value.
 
 Scheduled, explicitly not in this wave, each with the reason it can wait:
-per-target error isolation in the observer (the §B.7 budget shrinks the batch
+**Option 2's wallet-issued signed reservation pools (§B.8.9, Wave 10)** — the
+target allocation architecture, deferred because both Bitkit apps and
+paykit-server are L changes and no third-party wallet emits the schema, and
+because r5 ships the subset of its guarantee that Bitkit's existing allocator
+already provides; **third-party wallet plugins for that schema** (§B.8.9,
+non-Bitkit sellers), which is what eventually moves a pasted-xpub seller off
+`shared_manual`; per-target error isolation in the observer (the §B.7 budget shrinks the batch
 and therefore the blast radius); two-server Electrum corroboration (owner
 Q4); a disappearance-driven `manual_review` edge for reorgs (Q10
 discloses the gap); own bitcoind + Fulcrum (§B.2); a signed
