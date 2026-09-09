@@ -71,7 +71,7 @@ export function useMarketplaceMessagingEnable(
       // on top of degraded storage protection; a later boot retries the
       // sweep and clears the flag.
       setAuthorizationUrl('');
-      setErrorMessage('Messaging paused: storage protection unavailable');
+      setErrorMessage(MARKETPLACE_FAILURE_MESSAGES.messagingStorage);
       setStatus('error');
       return;
     }

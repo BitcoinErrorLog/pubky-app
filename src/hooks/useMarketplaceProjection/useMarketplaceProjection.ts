@@ -8,6 +8,7 @@ import {
   isTransactionalCommerceMode,
 } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { MarketplaceListingProjection } from '@/services/marketplace/marketplace';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -72,7 +73,7 @@ async function loadProjection(
       next = await syncThenReread(sellerPubky, listingId);
     }
     setProjection(next);
-    setError(next ? null : 'This listing could not be prepared for checkout. It may have been removed by the seller.');
+    setError(next ? null : MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable);
     setNeedsSession(false);
   } catch (loadError) {
     // A missing/expired marketplace session is not a dead end: flag it so the

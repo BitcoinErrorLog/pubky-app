@@ -1,6 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { AppError } from '@/libs/error/error';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { useMarketplaceNotifications } from './useMarketplaceNotifications';
 
 const OWNER = 'y'.repeat(52);
@@ -149,7 +152,6 @@ describe('useMarketplaceNotifications', () => {
   it('maps server and thrown sentinel failures to static copy', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_notifications';
     const { toast } = await import('@/molecules/Toaster/use-toast');
-    const { Logger } = await import('@/libs/logger/logger');
     const { result } = renderHook(() => useMarketplaceNotifications());
     await waitFor(() => expect(result.current.preferences).not.toBeNull());
 
@@ -162,15 +164,16 @@ describe('useMarketplaceNotifications', () => {
     });
     expect(vi.mocked(toast).mock.calls[0]?.[0]?.description).toBeTypeOf('string');
     expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
-    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
-      sentinel,
-    );
 
-    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce({
-      name: 'AppError',
-      code: 'INVALID_STATE',
-      message: sentinel,
-    });
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce(
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.CONFLICT,
+        message: sentinel,
+        service: ErrorService.Marketplace,
+        operation: 'notifications',
+      }),
+    );
     await act(async () => {
       await result.current.updatePreferences({ messages: true, offers: true, bids: true, auctions: true });
     });

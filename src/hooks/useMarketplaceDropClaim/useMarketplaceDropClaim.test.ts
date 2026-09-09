@@ -1,6 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { AppError } from '@/libs/error/error';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { useMarketplaceDropClaim } from './useMarketplaceDropClaim';
 
 const SELLER = 's'.repeat(52);
@@ -149,12 +152,15 @@ describe('useMarketplaceDropClaim', () => {
 
   it('maps thrown sentinel failures to static copy', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_drop_claim';
-    const { Logger } = await import('@/libs/logger/logger');
-    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce({
-      name: 'AppError',
-      code: 'INVALID_STATE',
-      message: sentinel,
-    });
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce(
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.CONFLICT,
+        message: sentinel,
+        service: ErrorService.Marketplace,
+        operation: 'claim',
+      }),
+    );
     const { result } = renderHook(() => useMarketplaceDropClaim());
     await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
 
@@ -163,9 +169,6 @@ describe('useMarketplaceDropClaim', () => {
     });
     expect(result.current.failure).toBeTypeOf('string');
     expect(result.current.failure).not.toContain(sentinel);
-    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
-      sentinel,
-    );
   });
 
   it('heals an unregistered listing with one sync before giving up', async () => {

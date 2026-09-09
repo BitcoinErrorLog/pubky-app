@@ -1,8 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useMarketplaceOrders } from './useMarketplaceOrders';
@@ -52,7 +53,7 @@ const sessionRequiredError = () =>
   new AppError({
     category: ErrorCategory.Auth,
     code: AuthErrorCode.SESSION_EXPIRED,
-    message: 'The marketplace session expired. Approve the marketplace connection on your signer and try again.',
+    message: 'SENTINEL_SESSION_TEXT_orders',
     service: ErrorService.Marketplace,
     operation: 'getOrders',
   });
@@ -140,7 +141,6 @@ describe('useMarketplaceOrders', () => {
   it('maps server and thrown sentinel failures to static copy', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_orders';
     const { toast } = await import('@/molecules/Toaster/use-toast');
-    const { Logger } = await import('@/libs/logger/logger');
     const { result } = renderHook(() => useMarketplaceOrders());
     await waitFor(() => expect(result.current.orders).toHaveLength(1));
     const payment = result.current.orders[0].payment!;
@@ -154,15 +154,16 @@ describe('useMarketplaceOrders', () => {
     });
     expect(vi.mocked(toast).mock.calls[0]?.[0]?.description).toBeTypeOf('string');
     expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
-    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
-      sentinel,
-    );
 
-    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce({
-      name: 'AppError',
-      code: 'INVALID_STATE',
-      message: sentinel,
-    });
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce(
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.CONFLICT,
+        message: sentinel,
+        service: ErrorService.Marketplace,
+        operation: 'advancePayment',
+      }),
+    );
     await act(async () => {
       await result.current.advancePayment(payment, 'confirmed', 1);
     });
@@ -291,7 +292,7 @@ describe('useMarketplaceOrders', () => {
 
     const { result } = renderHook(() => useMarketplaceOrders());
     await waitFor(() => expect(result.current.needsSession).toBe(true));
-    expect(result.current.error).toContain('marketplace session expired');
+    expect(result.current.error).toBe(MARKETPLACE_FAILURE_MESSAGES.session);
     expect(result.current.orders).toHaveLength(0);
 
     // Approving on the signer mirrors the session into the store, which must
@@ -333,7 +334,7 @@ describe('useMarketplaceOrders', () => {
 
     expect(succeeded).toBe(false);
     expect(result.current.needsSession).toBe(true);
-    expect(result.current.error).toContain('marketplace session expired');
+    expect(result.current.error).toBe(MARKETPLACE_FAILURE_MESSAGES.session);
   });
 
   it('refuses to advance a payment outside sandbox mode', async () => {

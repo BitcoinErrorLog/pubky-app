@@ -8,7 +8,11 @@ import {
   getCommerceAdapterMode,
 } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import { Logger } from '@/libs/logger/logger';
 import type { CommerceSavedSearchModelSchema, CommerceSavedSearchParams } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -147,7 +151,7 @@ export function useMarketplaceSavedSearches() {
     } catch (error) {
       toast({
         variant: 'error',
-        description: marketplaceFailureMessage(marketplaceErrorCode(error), 'Could not save this search.'),
+        description: marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.savedSearch),
       });
       return false;
     }
@@ -174,7 +178,7 @@ export function useMarketplaceSavedSearches() {
     try {
       await CommerceController.commitDeleteSavedSearch(id);
     } catch {
-      toast({ variant: 'error', description: 'Could not delete this saved search.' });
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.savedSearchDelete });
     }
   }, []);
 

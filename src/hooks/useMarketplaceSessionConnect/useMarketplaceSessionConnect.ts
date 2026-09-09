@@ -89,7 +89,7 @@ export function useMarketplaceSessionConnect(
       Logger.error('Failed to start the marketplace session flow', { error });
       setAuthorizationUrl('');
       setErrorMessage(
-        marketplaceFailureMessage(marketplaceErrorCode(error), 'Could not start the marketplace session.'),
+        marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.sessionStart),
       );
       setStatus('error');
       return;

@@ -71,7 +71,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
   const claim = async (listingOwnerPubky: string, listingId: string): Promise<boolean> => {
     if (submittingListingId !== null) return false;
     if (!claimAddress) {
-      setFailure('Save a delivery address first — the claim sends it with the checkout.');
+      setFailure(MARKETPLACE_FAILURE_MESSAGES.claimAddress);
       return false;
     }
     const compositeId = `${listingOwnerPubky}:${listingId}`;
@@ -83,7 +83,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         projection = await syncThenReread(listingOwnerPubky, listingId);
       }
       if (!projection) {
-        setFailure('This listing could not be prepared for checkout. It may have been removed by the seller.');
+        setFailure(MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable);
         return false;
       }
       const commandId = crypto.randomUUID();

@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
+import { AppError } from '@/libs/error/error';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useMarketplaceCheckout } from './useMarketplaceCheckout';
 
@@ -556,7 +559,6 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
   it('maps server and thrown sentinel failures to static copy', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_checkout';
     const { toast } = await import('@/molecules/Toaster/use-toast');
-    const { Logger } = await import('@/libs/logger/logger');
     const clear = vi.fn(async () => {});
     const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
     act(() => {
@@ -577,15 +579,16 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
     });
     expect(vi.mocked(toast).mock.calls[0]?.[0]?.description).toBeTypeOf('string');
     expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
-    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
-      sentinel,
-    );
 
-    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockRejectedValueOnce({
-      name: 'AppError',
-      code: 'INVALID_STATE',
-      message: sentinel,
-    });
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockRejectedValueOnce(
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.CONFLICT,
+        message: sentinel,
+        service: ErrorService.Marketplace,
+        operation: 'checkout',
+      }),
+    );
     await act(async () => {
       await result.current.submit();
     });

@@ -3,7 +3,11 @@
 import { useEffect, useState } from 'react';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import type { SellerShippingConfig, ShipFromAddress } from '@/libs/commerce/shipping';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -58,7 +62,7 @@ export function useMarketplaceShippingIntegration() {
         title: 'Could not save shipping settings',
         description: marketplaceFailureMessage(
           marketplaceErrorCode(error),
-          'The shipping settings could not be saved.',
+          MARKETPLACE_FAILURE_MESSAGES.shippingSettings,
         ),
       });
       return false;

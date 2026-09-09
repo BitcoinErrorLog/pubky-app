@@ -60,7 +60,10 @@ export function useMarketplaceNotifications() {
           // so the surface renders the session-connect affordance.
           setNeedsSession(isMarketplaceSessionRequiredError(loadError));
           setError(
-            marketplaceFailureMessage(marketplaceErrorCode(loadError), 'Commerce notifications are unavailable.'),
+            marketplaceFailureMessage(
+              marketplaceErrorCode(loadError),
+              MARKETPLACE_FAILURE_MESSAGES.notificationsUnavailable,
+            ),
           );
         }
       } finally {
@@ -79,7 +82,7 @@ export function useMarketplaceNotifications() {
     // Re-checked at call time: `notification.mark_read` does not exist on the
     // durable service (delivered notifications are immutable outbox rows).
     if (getCommerceAdapterMode() !== 'sandbox') {
-      toast({ variant: 'error', description: 'The durable marketplace service does not store read state yet.' });
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.notificationsReadUnavailable });
       return;
     }
     const unread = notifications.filter(({ readAt }) => !readAt);
@@ -117,7 +120,7 @@ export function useMarketplaceNotifications() {
         ),
       );
     } catch {
-      toast({ variant: 'error', description: 'Could not mark commerce notifications read.' });
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.notificationsReadFailed });
     }
   };
 
@@ -130,7 +133,7 @@ export function useMarketplaceNotifications() {
     if (getCommerceAdapterMode() !== 'sandbox') {
       toast({
         variant: 'error',
-        description: 'The durable marketplace service does not store notification preferences yet.',
+        description: MARKETPLACE_FAILURE_MESSAGES.notificationPreferencesUnavailable,
       });
       return false;
     }
@@ -159,7 +162,7 @@ export function useMarketplaceNotifications() {
       });
       return true;
     } catch {
-      toast({ variant: 'error', description: 'Could not update commerce notification preferences.' });
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.notificationPreferencesFailed });
       return false;
     }
   };

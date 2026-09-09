@@ -1,6 +1,9 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessagingController } from '@/controllers/messaging/messaging';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import { useMarketplaceMessagingEnable } from './useMarketplaceMessagingEnable';
 
@@ -41,13 +44,17 @@ describe('useMarketplaceMessagingEnable', () => {
     expect(beginSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('maps thrown sentinel failures to static copy and keeps logger context clean', async () => {
+  it('maps thrown sentinel failures to static copy and keeps the error message static', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_messaging_enable';
-    vi.spyOn(MessagingController, 'beginMessagingEnable').mockRejectedValue({
-      name: 'AppError',
-      code: 'INVALID_STATE',
-      message: sentinel,
-    });
+    vi.spyOn(MessagingController, 'beginMessagingEnable').mockRejectedValue(
+      new AppError({
+        category: ErrorCategory.Auth,
+        code: AuthErrorCode.SESSION_EXPIRED,
+        message: sentinel,
+        service: ErrorService.Marketplace,
+        operation: 'messagingEnable',
+      }),
+    );
     const { result } = renderHook(() => useMarketplaceMessagingEnable());
 
     act(() => result.current.start());

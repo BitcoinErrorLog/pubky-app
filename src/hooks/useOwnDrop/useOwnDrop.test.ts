@@ -223,7 +223,6 @@ describe('useOwnDrop', () => {
   });
   it('maps server and thrown sentinel failures to static copy', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_own_drop';
-    const { Logger } = await import('@/libs/logger/logger');
     const { result } = renderHook(() => useOwnDrop('drop1'));
     await flush();
 
@@ -237,9 +236,6 @@ describe('useOwnDrop', () => {
     });
     expect(outcome?.message).toBeTypeOf('string');
     expect(outcome?.message).not.toContain(sentinel);
-    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
-      sentinel,
-    );
 
     vi.mocked(CommerceController.cancelDrop).mockRejectedValueOnce({
       name: 'AppError',

@@ -72,7 +72,7 @@ export function useMarketplaceOffers() {
           await refresh();
           toast({
             variant: 'error',
-            description: 'This offer changed since you loaded it. The latest state was reloaded — retry from there.',
+            description: MARKETPLACE_FAILURE_MESSAGES.offerChanged,
           });
           return false;
         }
@@ -93,7 +93,7 @@ export function useMarketplaceOffers() {
         toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
         return false;
       }
-      toast({ variant: 'error', description: 'Could not update this offer.' });
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.offer });
       return false;
     }
   };
@@ -129,7 +129,7 @@ export function useMarketplaceOffers() {
             await refresh();
             toast({
               variant: 'error',
-              description: 'This offer changed since you loaded it. The latest state was reloaded — retry from there.',
+              description: MARKETPLACE_FAILURE_MESSAGES.offerChanged,
             });
             return;
           }
@@ -149,7 +149,7 @@ export function useMarketplaceOffers() {
           toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
           return;
         }
-        toast({ variant: 'error', description: 'Could not send this counteroffer.' });
+        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.counterOffer });
       }
     })();
     return succeeded;

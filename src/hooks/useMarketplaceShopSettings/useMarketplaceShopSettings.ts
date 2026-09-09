@@ -6,7 +6,11 @@ import { useForm } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { HOMESERVER_WRITE_SCOPE_REMEDY, isHomeserverWriteScopeError } from '@/libs/error/error.utils';
@@ -269,7 +273,7 @@ export function useMarketplaceShopSettings() {
             : { title: 'Shop settings saved' },
         );
       } catch {
-        toast({ variant: 'error', description: 'Could not save shop settings.' });
+        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.shopSettings });
       }
     })();
     setIsSaving(false);

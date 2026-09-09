@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { classifyMarketplacePickupRefusal, pickupRefusalToastDescription } from '@/libs/commerce/pickup';
 import { buildMarketplaceOrderAggregateId, isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
@@ -52,7 +53,7 @@ export function usePickupOrderActions(
       if (isMarketplaceSessionRequiredError(actionError)) {
         toast({ variant: 'error', description: actionError.message });
       } else {
-        toast({ variant: 'error', description: 'Could not update this order.' });
+        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.order });
       }
       return false;
     } finally {

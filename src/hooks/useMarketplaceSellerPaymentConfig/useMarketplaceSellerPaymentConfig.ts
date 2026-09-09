@@ -115,7 +115,7 @@ export function useMarketplaceSellerPaymentConfig() {
           title: 'Saving payment settings failed',
           description: marketplaceFailureMessage(
             marketplaceErrorCode(error),
-            'The payment settings could not be saved.',
+            MARKETPLACE_FAILURE_MESSAGES.paymentSettingsSave,
           ),
         });
         return false;
@@ -167,7 +167,7 @@ export function useMarketplaceSellerPaymentConfig() {
   const startClaim = useCallback((accountXpub: string) => {
     const trimmed = accountXpub.trim();
     if (!isPlausibleAccountXpub(trimmed)) {
-      setClaimError('That does not look like an account xpub. Export the BIP84 account key from your wallet.');
+      setClaimError(MARKETPLACE_FAILURE_MESSAGES.watchOnlyClaimInvalid);
       setClaimStatus('error');
       return;
     }
@@ -182,7 +182,7 @@ export function useMarketplaceSellerPaymentConfig() {
     } catch (error) {
       Logger.error('Failed to start the watch-only claim flow', { error });
       setClaimError(
-        marketplaceFailureMessage(marketplaceErrorCode(error), 'The watch-only claim could not be started.'),
+        marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.watchOnlyClaimStart),
       );
       setClaimStatus('error');
       return;
@@ -207,7 +207,7 @@ export function useMarketplaceSellerPaymentConfig() {
         Logger.error('Watch-only claim failed', { error });
         setClaimAuthorizationUrl('');
         setClaimError(
-          marketplaceFailureMessage(marketplaceErrorCode(error), 'The watch-only claim could not be completed.'),
+          marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.watchOnlyClaimComplete),
         );
         setClaimStatus('error');
       });

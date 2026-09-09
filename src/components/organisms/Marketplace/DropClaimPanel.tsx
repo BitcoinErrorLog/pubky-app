@@ -24,7 +24,7 @@ type HydratedDropListing = {
  * The live claim surface (drops design, "At T-0"): the drop's listings,
  * each with ONE "Claim one" button — quantity 1 of one listing per checkout
  * is the v1 rule the service enforces. Optimistic `submitting` state, then
- * the authoritative result; a refusal renders the service's pinned copy
+ * the authoritative result; a refusal renders client-owned static copy
  * verbatim in an assertive region. No queue UI exists anywhere.
  */
 export function DropClaimPanel({

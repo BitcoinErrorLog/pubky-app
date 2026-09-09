@@ -2,6 +2,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { copyToClipboard } from '@/libs/utils/utils';
 import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.types';
 import { useMarketplaceSessionConnect } from './useMarketplaceSessionConnect';
@@ -280,14 +283,22 @@ describe('useMarketplaceSessionConnect', () => {
     expect(result.current.errorMessage).toBeNull();
   });
 
-  it('maps thrown sentinel failures to static copy and keeps logger context clean', async () => {
+  it('maps thrown sentinel failures to static copy and keeps the error message static', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_session';
     const { flow, rejectSession } = createDeferredFlow('pubkyauth:///?caps=sentinel');
     vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockReturnValue(flow);
     const { result } = renderHook(() => useMarketplaceSessionConnect());
 
     act(() => result.current.start());
-    rejectSession({ name: 'AppError', code: 'INVALID_STATE', message: sentinel });
+    rejectSession(
+      new AppError({
+        category: ErrorCategory.Auth,
+        code: AuthErrorCode.SESSION_EXPIRED,
+        message: sentinel,
+        service: ErrorService.Marketplace,
+        operation: 'sessionConnect',
+      }),
+    );
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current.errorMessage).toBeTypeOf('string');
     expect(result.current.errorMessage).not.toContain(sentinel);

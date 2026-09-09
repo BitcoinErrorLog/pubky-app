@@ -95,7 +95,7 @@ export function useMarketplaceOrders() {
           await refresh();
           toast({
             variant: 'error',
-            description: 'This payment changed since you loaded it. The latest state was reloaded — retry from there.',
+            description: MARKETPLACE_FAILURE_MESSAGES.paymentChanged,
           });
           return false;
         }
@@ -137,7 +137,7 @@ export function useMarketplaceOrders() {
           await refresh();
           toast({
             variant: 'error',
-            description: 'This order changed since you loaded it. The latest state was reloaded — retry from there.',
+            description: MARKETPLACE_FAILURE_MESSAGES.orderChanged,
           });
           return false;
         }
@@ -169,7 +169,7 @@ export function useMarketplaceOrders() {
         toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
         return false;
       }
-      toast({ variant: 'error', description: 'Could not update this order.' });
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.order });
       return false;
     }
   };

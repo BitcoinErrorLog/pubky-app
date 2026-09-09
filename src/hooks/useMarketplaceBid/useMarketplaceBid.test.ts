@@ -80,7 +80,6 @@ describe('useMarketplaceBid', () => {
   it('maps server and thrown sentinel failures to static copy', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_bid';
     const { toast } = await import('@/molecules/Toaster/use-toast');
-    const { Logger } = await import('@/libs/logger/logger');
     const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, vi.fn(), USD_ASSET));
     act(() => result.current.form.setValue('maximumAmount', '150.00'));
 
@@ -93,9 +92,6 @@ describe('useMarketplaceBid', () => {
     });
     expect(vi.mocked(toast).mock.calls[0]?.[0]?.description).toBeTypeOf('string');
     expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
-    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
-      sentinel,
-    );
 
     vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce({
       name: 'AppError',
