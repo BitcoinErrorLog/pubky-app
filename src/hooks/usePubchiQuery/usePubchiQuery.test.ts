@@ -165,7 +165,7 @@ describe('usePubchiQuery', () => {
     expect(mocks.commitDelete).toHaveBeenCalledWith({ feedId: 'feed-1' });
     expect(mocks.toast).toHaveBeenCalledWith({
       variant: 'error',
-      title: 'FEED_SPECS_INVALID',
+      title: "I couldn't turn that into a feed. Feeds show posts filtered by tags, reach (following, friends, web of trust, everyone) and sort. Try: 'a feed of posts tagged bitcoin or synonym from everyone, newest first'.",
       dismissButton: true,
     });
   });

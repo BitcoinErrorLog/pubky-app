@@ -17,7 +17,7 @@ const hookState = {
   submit,
   applyFeed,
   result: undefined as PubchiQuerySuccess | undefined,
-  errorCode: undefined,
+  errorCode: undefined as string | undefined,
   loading: false,
   elapsedMs: 0,
   enabled: true,
@@ -65,6 +65,7 @@ describe('PubchiPanel', () => {
     hookState.loading = false;
     hookState.elapsedMs = 0;
     hookState.result = undefined;
+    hookState.errorCode = undefined;
   });
 
   it('mounts the production panel surface', () => {
@@ -112,6 +113,16 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
     expect(reapprove).toHaveBeenCalledOnce();
+  });
+
+  it('explains feed errors instead of rendering the raw code', () => {
+    hookState.errorCode = 'FEED_SPECS_INVALID';
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent("I couldn't turn that into a feed");
+    expect(screen.getByRole('alert')).toHaveTextContent('Support code: FEED_SPECS_INVALID');
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/^FEED_SPECS_INVALID$/);
   });
 
   it('shows a skeleton and elapsed seconds while an answer is loading, then replaces it', () => {

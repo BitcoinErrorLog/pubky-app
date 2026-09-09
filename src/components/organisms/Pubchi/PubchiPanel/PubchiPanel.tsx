@@ -13,6 +13,7 @@ import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
 import { QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
 import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
+import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -48,6 +49,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   }
 
   const actionsDisabled = loading || setupLoading || !signingAvailable;
+  const errorCopy = pubchiErrorCopy(errorCode);
   const tier = effectiveTier({
     desired: config?.tier ?? 'read-only',
     ceiling: 'assisted',
@@ -137,9 +139,19 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           </form>
 
           {errorCode ? (
-            <Typography data-testid="pubchi-error" size="sm">
-              {errorCode}
-            </Typography>
+            <div data-testid="pubchi-error" role="alert" className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <Typography size="sm">{errorCopy.message}</Typography>
+              {errorCopy.settingsLink ? (
+                <Link href={errorCopy.settingsLink} size="default">
+                  Open Pubchi settings
+                </Link>
+              ) : null}
+              {errorCopy.supportCode ? (
+                <Typography size="xs" className="text-muted-foreground">
+                  Support code: {errorCopy.supportCode}
+                </Typography>
+              ) : null}
+            </div>
           ) : null}
 
           {loading ? <PubchiAnswerSkeleton elapsedMs={elapsedMs} /> : null}
@@ -200,9 +212,12 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           ) : null}
 
           {!loading && result?.kind === 'feed-unsupported' ? (
-            <Typography data-testid="pubchi-error" size="sm">
-              {result.code}
-            </Typography>
+            <div data-testid="pubchi-error" role="alert" className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <Typography size="sm">{pubchiErrorCopy(result.code).message}</Typography>
+              <Typography size="xs" className="text-muted-foreground">
+                Support code: {result.code}
+              </Typography>
+            </div>
           ) : null}
         </div>
       </SheetContent>

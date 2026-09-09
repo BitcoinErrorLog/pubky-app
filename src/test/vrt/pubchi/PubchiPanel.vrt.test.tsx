@@ -9,6 +9,7 @@ const mockQuery = vi.hoisted(() => ({
   loading: false,
   elapsedMs: 0,
   answer: false,
+  errorCode: undefined as string | undefined,
 }));
 
 const ANSWER: PubchiQuerySuccess = {
@@ -41,7 +42,7 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
     submit: vi.fn(),
     applyFeed: vi.fn(),
     result: mockQuery.answer ? ANSWER : undefined,
-    errorCode: undefined,
+    errorCode: mockQuery.errorCode,
     loading: mockQuery.loading,
     elapsedMs: mockQuery.elapsedMs,
     enabled: true,
@@ -97,6 +98,7 @@ describe('PubchiPanel — visual regression', () => {
     mockQuery.loading = false;
     mockQuery.elapsedMs = 0;
     mockQuery.answer = false;
+    mockQuery.errorCode = undefined;
     enrollment.pubchi = undefined;
     enrollment.config = undefined;
   });
@@ -160,6 +162,14 @@ describe('PubchiPanel — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId('pubchi-answer-loading')).toMatchScreenshot('pubchi-answer-loading-desktop');
+  });
+
+  it('captures the feed error surface only', async () => {
+    mockQuery.errorCode = 'FEED_SPECS_INVALID';
+    const screen = await renderForVRT(<PubchiPanel open onOpenChange={() => {}} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(PUBCHI_PANEL_SURFACE)).toMatchScreenshot('pubchi-panel-feed-error-desktop');
   });
 
   it('captures the unenrolled signing copy', async () => {

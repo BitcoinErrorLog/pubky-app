@@ -7,6 +7,7 @@ import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
+import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
 import { recordPubchiBuiltFeed } from '@/libs/pubchi/feed-provenance';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
@@ -21,14 +22,6 @@ import {
 } from './usePubchiQuery.types';
 
 const SIGNING_UNAVAILABLE = "This browser isn't set up for Pubchi yet. Set it up to start asking.";
-
-function pubchiErrorMessage(code: string): string {
-  if (code === 'UPSTREAM_UNAVAILABLE') {
-    return "I couldn't reach the graph service just now. Nothing is wrong with your account — try again in a minute.";
-  }
-  if (code === 'BUDGET_EXCEEDED') return "You've used today's Pubchi allowance. It resets at 00:00 UTC.";
-  return code;
-}
 
 export function usePubchiQuery() {
   const owner = useAuthStore((state) => state.currentUserPubky);
@@ -105,8 +98,8 @@ export function usePubchiQuery() {
           ok = true;
         } catch (error) {
           const code = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
-          const message = pubchiErrorMessage(code);
-          setErrorCode(message);
+          const { message } = pubchiErrorCopy(code);
+          setErrorCode(code);
           setResult(undefined);
           toast({ variant: 'error', title: message, dismissButton: true });
         } finally {
@@ -135,8 +128,8 @@ export function usePubchiQuery() {
       if (feedId) {
         await FeedController.commitDelete({ feedId }).catch(() => undefined);
       }
-      const message = error instanceof AppError ? error.message : 'FEED_SPECS_INVALID';
-      toast({ variant: 'error', title: message, dismissButton: true });
+      const code = error instanceof AppError ? error.message : 'FEED_SPECS_INVALID';
+      toast({ variant: 'error', title: pubchiErrorCopy(code).message, dismissButton: true });
       return false;
     }
   };
