@@ -159,6 +159,10 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
       try {
         const paymentConfig = await CommerceController.getSellerPaymentConfig(currentUserPubky);
+        if (paymentConfig.bitcoinEnabled && !paymentConfig.bitcoinAvailable) {
+          setPublishBlocked('unverified');
+          return null;
+        }
         if (availablePaymentMethods(paymentConfig).length === 0) {
           setPublishBlocked('no-method');
           return null;

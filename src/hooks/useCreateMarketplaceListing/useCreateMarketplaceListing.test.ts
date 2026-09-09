@@ -154,6 +154,24 @@ describe('useCreateMarketplaceListing', () => {
     expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
   });
 
+  it('blocks publishing when Bitcoin is enabled but the seller account is unverified', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+      bitcoinEnabled: true,
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe('unverified');
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
+  });
+
   it('reports the two truths separately when the record published but service registration failed', async () => {
     vi.mocked(CommerceController.commitUpsertListing).mockResolvedValueOnce({ registered: false });
     const { result } = renderHook(() => useCreateMarketplaceListing());
@@ -311,6 +329,36 @@ describe('useCreateMarketplaceListing', () => {
     expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
       '018f47d26a277c23a49d6b21bb770121',
       expect.objectContaining({ title: 'Autosaved boots' }),
+    );
+  });
+
+  it('autosaves a draft even when publishing has no payment method', async () => {
+    vi.useFakeTimers();
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
+      bitcoinEnabled: false,
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.form.setValue('title', 'Draft without payment settings');
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      vi.advanceTimersByTime(750);
+    });
+
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
+      '018f47d26a277c23a49d6b21bb770121',
+      expect.objectContaining({ title: 'Draft without payment settings' }),
     );
   });
 

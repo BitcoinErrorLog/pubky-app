@@ -142,6 +142,44 @@ describe('useEditMarketplaceListing', () => {
     });
   });
 
+  it('refuses to publish when the seller has no payment method', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+      bitcoinEnabled: false,
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe('no-method');
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
+  });
+
+  it('refuses to publish when Bitcoin is enabled but the seller account is unverified', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+      bitcoinEnabled: true,
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe('unverified');
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
+  });
+
   it('round-trips unknown record members through an edit (open-world records)', async () => {
     // A member added by a newer writer that this client knows nothing about
     // must survive a read-modify-write untouched (social/v1 alignment).

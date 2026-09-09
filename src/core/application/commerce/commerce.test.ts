@@ -401,6 +401,49 @@ describe('CommerceApplication', () => {
   });
 
   describe('fetchSellerCatalogListings', () => {
+    it('returns locally cached seller listings without fetching the catalog', async () => {
+      const first = createCommerceListingFixture({ listingId: 'boots_01' });
+      const second = createCommerceListingFixture({ listingId: 'boots_02' });
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      await LocalCommerceService.upsertListing(first, 'synced');
+      await LocalCommerceService.upsertListing(second, 'synced');
+      await LocalCommerceService.bulkUpsertCatalogEntries([
+        createCommerceCatalogEntryFixture({ listing_id: 'boots_01' }),
+        createCommerceCatalogEntryFixture({ id: `${COMMERCE_FIXTURE_SELLER}:boots_02`, listing_id: 'boots_02' }),
+      ]);
+
+      const fetchCatalog = vi.spyOn(CommerceApplication, 'fetchSellerCatalogListings');
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson');
+
+      await expect(CommerceApplication.getOrFetchListingsBySeller(COMMERCE_FIXTURE_SELLER)).resolves.toHaveLength(2);
+
+      expect(fetchCatalog).not.toHaveBeenCalled();
+      expect(fetchJson).not.toHaveBeenCalled();
+    });
+
+    it('fetches an empty seller catalog and persists fetched listings in Dexie', async () => {
+      const listing = createCommerceListingFixture();
+      const catalogEntry = createCommerceCatalogEntryFixture();
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      const fetchStream = vi
+        .spyOn(NexusMarketplaceService, 'fetchListingStream')
+        .mockResolvedValue([createNexusListingDetailsFixture()]);
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(listing);
+
+      await expect(CommerceApplication.getOrFetchListingsBySeller(COMMERCE_FIXTURE_SELLER)).resolves.toMatchObject([
+        expect.objectContaining({ listing_id: 'boots_01' }),
+      ]);
+
+      expect(fetchStream).toHaveBeenCalledWith(
+        expect.objectContaining({ seller_id: COMMERCE_FIXTURE_SELLER, state: 'active' }),
+      );
+      expect(fetchJson).toHaveBeenCalledOnce();
+      expect(await LocalCommerceService.getCatalogEntriesBySeller(COMMERCE_FIXTURE_SELLER)).toEqual([catalogEntry]);
+      expect(await LocalCommerceService.getListingsBySeller(COMMERCE_FIXTURE_SELLER)).toHaveLength(1);
+    });
+
     it('hydrates canonical seller listings after discovering catalog entries', async () => {
       const first = createCommerceListingFixture({ listingId: 'boots_01' });
       const second = createCommerceListingFixture({ listingId: 'boots_02' });
