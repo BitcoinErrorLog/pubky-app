@@ -35,7 +35,10 @@ export function useMarketplaceSellerDashboard() {
     ({ state, offeredBy }) => (state === 'pending' || state === 'countered') && offeredBy !== currentUserPubky,
   ).length;
   const totalInventory = activeListings.reduce(
-    (total, listing) => total + listing.record.variants.reduce((sum, variant) => sum + variant.quantity, 0),
+    (total, listing) =>
+      total +
+      (listing.purchasableQuantity ??
+        listing.record.variants.reduce((sum, variant) => sum + (variant.enabled ? variant.quantity : 0), 0)),
     0,
   );
   // One revenue figure per pricing asset: minor units of different assets

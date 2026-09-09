@@ -92,22 +92,28 @@ async function loadProjection(
 
 async function cacheProjection(projection: MarketplaceListingProjection): Promise<void> {
   const aggregate = projection.aggregateId.slice('listing:'.length);
-  const separator = aggregate.indexOf('_');
-  if (separator < 0) return;
-  const sellerPubky = aggregate.slice(0, separator);
-  const listingId = aggregate.slice(separator + 1);
+  if (aggregate.length < 54 || aggregate[52] !== '_') return;
+  const sellerPubky = aggregate.slice(0, 52);
+  const listingId = aggregate.slice(53);
   if (!sellerPubky || !listingId) return;
   await CommerceController.cacheMarketplaceListingProjection({
     id: `${sellerPubky}:${listingId}`,
     seller_id: sellerPubky,
     listing_id: listingId,
-    listing_revision: 1,
-    content_hash: '',
+    listing_revision: projection.listingRevision,
+    content_hash: projection.contentHash,
     server_revision: projection.serverRevision,
     state: projection.state,
     available_quantity: projection.availableQuantity,
     current_price: projection.auction?.currentPrice ?? projection.unitPrice,
-    auction_state: null,
+    auction_state:
+      projection.auction?.status === 'scheduled' ||
+      projection.auction?.status === 'active' ||
+      projection.auction?.status === 'sold' ||
+      projection.auction?.status === 'unsold' ||
+      projection.auction?.status === 'cancelled'
+        ? projection.auction.status
+        : null,
     bid_count: projection.auction?.bidCount ?? 0,
     sync_status: 'synced',
     synced_at: Date.now(),

@@ -111,7 +111,7 @@ const fixtures = vi.hoisted(async () => {
     order: createOrderFixture('delivered', {
       id: '018f47d2-6a27-7c23-a49d-000000000703',
       deliveryAssumed: true,
-      nextActor: 'buyer',
+      nextActor: 'none',
     }),
     payment: createPaymentFixture('confirmed'),
     receipt: null,

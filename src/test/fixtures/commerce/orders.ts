@@ -173,11 +173,12 @@ function defaultNextActor(state: MarketplaceOrder['state']): MarketplaceOrder['n
   switch (state) {
     case 'pending_payment':
     case 'shipped':
-    case 'delivered':
     // A pickup order in `ready_for_pickup` waits on the buyer to confirm the
     // handover (the service's `next_actor` rule, §A6).
     case 'ready_for_pickup':
       return 'buyer';
+    case 'delivered':
+      return 'none';
     case 'paid':
     case 'processing':
     case 'cancel_requested':

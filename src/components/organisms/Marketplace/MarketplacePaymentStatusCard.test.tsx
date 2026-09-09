@@ -113,4 +113,21 @@ describe('MarketplacePaymentStatusCard', () => {
       expect(screen.queryByText(/seller has not set up any payment methods/i)).not.toBeInTheDocument();
     },
   );
+
+  it('keeps confirmed Locks delivery visible after order completion', () => {
+    const payment = createPaymentFixture('confirmed', { adapter: 'locks' });
+
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('completed', { paymentId: payment.id })}
+        payment={payment}
+        isBuyer
+        adapterMode="locks-paykit"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Payment confirmed')).toBeInTheDocument();
+  });
 });

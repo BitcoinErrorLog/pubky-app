@@ -27,6 +27,8 @@ export const marketplaceListingProjectionSchema = z
     aggregateId: z.string(),
     sellerPubky: commercePubkySchema,
     listingId: z.string(),
+    listingRevision: z.number().int().positive(),
+    contentHash: z.string(),
     serverRevision: z.number().int().positive(),
     state: z.enum(['available', 'reserved', 'sold']),
     availableQuantity: z.number().int().nonnegative(),
@@ -71,7 +73,7 @@ export const marketplaceBidHistorySchema = z.object({
   auction: z
     .object({
       endsAt: z.string(),
-      status: z.string(),
+        status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']),
       bidCount: z.number().int().nonnegative(),
     })
     .passthrough()

@@ -213,17 +213,23 @@ export type CommerceIndexedReviewsResult =
   | { status: 'ok'; reviews: CommerceIndexedReview[] }
   | { status: 'unavailable' };
 
+type CommerceListingWithProjection = CommerceListingModelSchema & {
+  purchasableQuantity: number | null;
+};
+
 function applyInventoryProjection(
   listing: CommerceListingModelSchema,
   projection: CommerceListingProjectionModelSchema | null | undefined,
-): CommerceListingModelSchema {
-  if (!projection || projection.available_quantity > 0) return listing;
+): CommerceListingWithProjection {
+  const recordQuantity = listing.record.variants
+    .filter(({ enabled }) => enabled)
+    .reduce((total, variant) => total + variant.quantity, 0);
+  if (!projection || projection.listing_revision !== listing.revision) {
+    return { ...listing, purchasableQuantity: null };
+  }
   return {
     ...listing,
-    record: {
-      ...listing.record,
-      variants: listing.record.variants.map((variant) => ({ ...variant, quantity: 0 })),
-    },
+    purchasableQuantity: Math.min(recordQuantity, projection.available_quantity),
   };
 }
 

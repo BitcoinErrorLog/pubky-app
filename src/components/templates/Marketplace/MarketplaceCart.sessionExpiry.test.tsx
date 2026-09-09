@@ -132,6 +132,8 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
       aggregateId: `listing:${BUYER}_boots`,
       sellerPubky: BUYER,
       listingId: 'boots',
+      listingRevision: 1,
+      contentHash: 'c'.repeat(64),
       serverRevision: 1,
       state: 'available',
       availableQuantity: 1,

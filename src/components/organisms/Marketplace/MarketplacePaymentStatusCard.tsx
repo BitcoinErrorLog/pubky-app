@@ -116,7 +116,7 @@ export function MarketplacePaymentStatusCard({
   const isDurable = isDurableCommerceMode(adapterMode);
   const isTerminal = ['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
   const visibleStatus = payment ? buyerVisiblePaymentStatus(payment.state) : null;
-  const isAwaiting = visibleStatus === 'awaiting_entitlement';
+  const isAwaiting = visibleStatus === 'awaiting_entitlement' && !isTerminal;
   // Digital Locks orders keep the Locks/Paykit flow; everything else in the
   // durable modes goes through the seller-configured payment methods.
   const usesMethodFlow = isDurable && isAwaiting && !digitalLock;
@@ -127,13 +127,20 @@ export function MarketplacePaymentStatusCard({
   });
   const [paypalTransactionRef, setPaypalTransactionRef] = useState('');
 
-  if (!payment || visibleStatus === null || isTerminal) return null;
+  if (!payment || visibleStatus === null) return null;
+
+  const visibleStatusLabel =
+    isTerminal && visibleStatus === 'awaiting_entitlement'
+      ? order.state === 'cancelled'
+        ? 'Order cancelled'
+        : 'Not paid'
+      : BUYER_VISIBLE_STATUS_LABELS[visibleStatus];
 
   return (
     <div className="grid gap-3 rounded-xl border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={visibleStatus === 'confirmed' ? 'default' : 'outline'}>
-          {BUYER_VISIBLE_STATUS_LABELS[visibleStatus]}
+          {visibleStatusLabel}
         </Badge>
         {payment.adapter === 'locks' && <Badge variant="secondary">Locks/Paykit</Badge>}
         {order.paymentMethod === 'bitcoin' && <Badge variant="secondary">₿ Bitcoin</Badge>}

@@ -14,6 +14,8 @@ export function createListingProjectionFixture(
     aggregateId: buildMarketplaceListingAggregateId(PROJECTION_FIXTURE_SELLER, 'boots_01'),
     sellerPubky: PROJECTION_FIXTURE_SELLER,
     listingId: 'boots_01',
+    listingRevision: 1,
+    contentHash: 'c'.repeat(64),
     serverRevision: 3,
     state: 'available',
     availableQuantity: 2,

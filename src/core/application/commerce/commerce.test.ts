@@ -21,6 +21,7 @@ import {
   createNexusAuctionListingDetailsFixture,
   createNexusListingDetailsFixture,
 } from '@/test/fixtures/commerce/commerce';
+import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import { CommerceApplication } from './commerce';
 
 const SHOP_URL = `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/shop.json`;
@@ -47,6 +48,100 @@ describe('CommerceApplication', () => {
 
     await expect(CommerceApplication.getOrFetchShop(COMMERCE_FIXTURE_SELLER)).resolves.toEqual(record);
     expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { available: 0, expected: 0 },
+    { available: 2, expected: 2 },
+  ])('derives purchasable inventory without rewriting the signed record', async ({ available, expected }) => {
+    const record = createCommerceListingFixture({
+      variants: [{ ...createCommerceListingFixture().variants[0], quantity: 3 }],
+    });
+    const model = toCommerceListingModel(record);
+    vi.spyOn(LocalCommerceService, 'getListingsBySeller').mockResolvedValue([model]);
+    vi.spyOn(LocalCommerceService, 'getListingProjection').mockResolvedValue({
+      id: model.id,
+      seller_id: model.seller_id,
+      listing_id: model.listing_id,
+      listing_revision: record.revision,
+      content_hash: record.media[0].contentHash,
+      server_revision: 2,
+      state: available === 0 ? 'sold' : 'available',
+      available_quantity: available,
+      current_price: record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice,
+      auction_state: null,
+      bid_count: 0,
+      sync_status: 'synced',
+      synced_at: Date.now(),
+    });
+
+    const [listing] = await CommerceApplication.getListingsBySeller(record.ownerPubky);
+
+    expect(listing.purchasableQuantity).toBe(expected);
+    expect(listing.record.variants[0].quantity).toBe(3);
+  });
+
+  it('keeps the original quantity in the homeserver write after reading projected inventory', async () => {
+    const record = createCommerceListingFixture({
+      variants: [{ ...createCommerceListingFixture().variants[0], quantity: 3 }],
+    });
+    const model = toCommerceListingModel(record);
+    vi.spyOn(LocalCommerceService, 'getListingsBySeller').mockResolvedValue([model]);
+    vi.spyOn(LocalCommerceService, 'getListingProjection').mockResolvedValue({
+      id: model.id,
+      seller_id: model.seller_id,
+      listing_id: model.listing_id,
+      listing_revision: record.revision,
+      content_hash: record.media[0].contentHash,
+      server_revision: 2,
+      state: 'available',
+      available_quantity: 0,
+      current_price: record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice,
+      auction_state: null,
+      bid_count: 0,
+      sync_status: 'synced',
+      synced_at: Date.now(),
+    });
+    const [listing] = await CommerceApplication.getListingsBySeller(record.ownerPubky);
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+
+    await CommerceApplication.commitUpsertListing({
+      ...listing.record,
+      revision: listing.record.revision + 1,
+      state: 'paused',
+      updatedAt: new Date().toISOString(),
+    });
+
+    expect(put.mock.calls[0][1]).toMatchObject({ variants: [{ quantity: 3 }] });
+  });
+
+  it('does not derive availability from a stale projection revision', async () => {
+    const record = createCommerceListingFixture();
+    const model = toCommerceListingModel(record);
+    vi.spyOn(LocalCommerceService, 'getListingsBySeller').mockResolvedValue([model]);
+    vi.spyOn(LocalCommerceService, 'getListingProjection').mockResolvedValue({
+      id: model.id,
+      seller_id: model.seller_id,
+      listing_id: model.listing_id,
+      listing_revision: record.revision - 1,
+      content_hash: record.media[0].contentHash,
+      server_revision: 2,
+      state: 'sold',
+      available_quantity: 0,
+      current_price: record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice,
+      auction_state: null,
+      bid_count: 0,
+      sync_status: 'synced',
+      synced_at: Date.now(),
+    });
+
+    const [listing] = await CommerceApplication.getListingsBySeller(record.ownerPubky);
+
+    expect(listing.purchasableQuantity).toBeNull();
   });
 
   it('seeds catalog data only when sandbox mode is explicit', async () => {

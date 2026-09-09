@@ -28,6 +28,8 @@ describe('useMarketplaceProjection', () => {
       aggregateId: 'listing:seller_item',
       sellerPubky: 'y'.repeat(52),
       listingId: 'item',
+      listingRevision: 1,
+      contentHash: 'c'.repeat(64),
       serverRevision: 2,
       state: 'available',
       availableQuantity: 1,
@@ -75,6 +77,8 @@ describe('useMarketplaceProjection', () => {
       aggregateId: `listing:${'y'.repeat(52)}_item`,
       sellerPubky: 'y'.repeat(52),
       listingId: 'item',
+      listingRevision: 1,
+      contentHash: 'c'.repeat(64),
       serverRevision: 3,
       state: 'sold',
       availableQuantity: 0,
@@ -98,6 +102,8 @@ describe('useMarketplaceProjection', () => {
     config.mode = 'transaction-service';
     const registered = {
       aggregateId: `listing:${'y'.repeat(52)}_item`,
+      listingRevision: 1,
+      contentHash: 'c'.repeat(64),
       serverRevision: 1,
     };
     vi.mocked(CommerceController.getMarketplaceListingProjection)

@@ -153,7 +153,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
   const sellerDisplayName = shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`;
-  const isSoldOut = !record.variants.some(({ enabled, quantity }) => enabled && quantity > 0);
+  const recordQuantity = record.variants.reduce((total, variant) => total + (variant.enabled ? variant.quantity : 0), 0);
+  const isSoldOut = (listing.purchasableQuantity ?? recordQuantity) <= 0;
   const isPurchasable = record.state === 'active';
   const stateNotice =
     record.state === 'paused'
