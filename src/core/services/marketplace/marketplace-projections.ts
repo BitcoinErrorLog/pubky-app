@@ -43,6 +43,7 @@ export const marketplaceListingProjectionSchema = z
       .object({
         startsAt: z.string(),
         endsAt: z.string(),
+        status: z.string().optional(),
         minimumIncrement: marketplaceMoneySchema,
         currentPrice: marketplaceMoneySchema,
         leaderPubky: commercePubkySchema.nullable(),
@@ -73,7 +74,7 @@ export const marketplaceBidHistorySchema = z.object({
   auction: z
     .object({
       endsAt: z.string(),
-        status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']),
+      status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']),
       bidCount: z.number().int().nonnegative(),
     })
     .passthrough()
@@ -298,7 +299,6 @@ export const marketplaceOrderSchema = z
     updatedAt: z.string(),
   })
   .passthrough();
-
 
 /**
  * The PUBLIC drop projection (`GET /v0/drops/{seller}/{dropId}`, ADR 0026):

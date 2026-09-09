@@ -265,6 +265,8 @@ describe('MarketplaceListing', () => {
   });
 
   function renderAuctionListingNeedingSession() {
+    const auctionStartsAt = new Date(Date.now() - 60_000).toISOString();
+    const auctionEndsAt = new Date(Date.now() + 60 * 60_000).toISOString();
     view.listing = toCommerceListingModel(
       createCommerceListingFixture({
         listingId: 'rangefinder_camera',
@@ -274,8 +276,8 @@ describe('MarketplaceListing', () => {
           startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
           reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
           minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
-          startsAt: '2026-08-19T20:00:00.000Z',
-          endsAt: '2026-08-29T20:00:00.000Z',
+          startsAt: auctionStartsAt,
+          endsAt: auctionEndsAt,
           antiSnipingWindowSeconds: 300,
           antiSnipingExtensionSeconds: 300,
         },
@@ -286,6 +288,41 @@ describe('MarketplaceListing', () => {
     view.needsSession = true;
     renderListing();
   }
+
+  it('uses an anti-sniping projection extension to keep bidding live', () => {
+    const scheduledEndsAt = new Date(Date.now() - 60_000).toISOString();
+    const projectedEndsAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        sale: {
+          format: 'auction',
+          startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
+          minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+          startsAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+          endsAt: scheduledEndsAt,
+          antiSnipingWindowSeconds: 300,
+          antiSnipingExtensionSeconds: 300,
+        },
+      }),
+    );
+    view.projection = createListingProjectionFixture({
+      saleFormat: 'auction',
+      auction: {
+        startsAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+        endsAt: projectedEndsAt,
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+        currentPrice: { amountMinor: 6_900, currency: 'USD', exponent: 2 },
+        leaderPubky: 'b'.repeat(52),
+        bidCount: 4,
+        reserveMet: true,
+      },
+    });
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Place a bid' })).toBeEnabled();
+  });
 
   it('reveals the full-grant approval card when a bridged buyer with a narrow grant places a bid', async () => {
     view.hasFullHomeserverGrant = false;

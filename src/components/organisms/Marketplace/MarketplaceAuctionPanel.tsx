@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Clock3, Gavel } from 'lucide-react';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import type { AuctionPhase } from '@/libs/commerce/auction-phase';
 import { dropClockOffsetMs, formatDropCountdown } from '@/libs/commerce/drop-clock';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { Logger } from '@/libs/logger/logger';
@@ -27,6 +28,7 @@ export function MarketplaceAuctionPanel({
   auction,
   scheduledEndsAt,
   isSignedIn,
+  auctionPhase,
 }: {
   sellerPubky: string;
   listingId: string;
@@ -35,6 +37,7 @@ export function MarketplaceAuctionPanel({
   /** The seller-signed `sale.endsAt` from the record (pre-session fallback). */
   scheduledEndsAt: string | null;
   isSignedIn: boolean;
+  auctionPhase?: AuctionPhase;
 }) {
   const [history, setHistory] = useState<MarketplaceBidHistory | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState<number | null>(null);
@@ -71,14 +74,15 @@ export function MarketplaceAuctionPanel({
     return () => window.clearInterval(timer);
   }, [endsAt]);
 
-  const remainingMs = endsAt && deviceNowMs !== null ? Date.parse(endsAt) - (deviceNowMs + (clockOffsetMs ?? 0)) : null;
+  const remainingMs =
+    endsAt && deviceNowMs !== null ? Math.max(0, Date.parse(endsAt) - (deviceNowMs + (clockOffsetMs ?? 0))) : null;
 
   return (
     <div className="grid gap-3 rounded-xl border p-4">
       {endsAt && remainingMs !== null && (
         <div className="flex flex-wrap items-center gap-2">
           <Clock3 className="size-4 text-muted-foreground" />
-          {remainingMs > 0 ? (
+          {auctionPhase !== 'ended' ? (
             <Typography as="p" className="text-sm">
               Ends in <span className="font-semibold tabular-nums">{formatDropCountdown(remainingMs)}</span>
               <span className="text-muted-foreground"> · {new Date(endsAt).toLocaleString()}</span>
@@ -95,7 +99,12 @@ export function MarketplaceAuctionPanel({
           )}
         </div>
       )}
-      {remainingMs !== null && remainingMs > 0 && (
+      {auctionPhase === 'ended' && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          Bidding is closed for this auction.
+        </Typography>
+      )}
+      {auctionPhase !== 'ended' && remainingMs !== null && (
         <Typography as="p" className="text-xs text-muted-foreground">
           A bid in the final window extends the end time (anti-sniping) — the countdown updates from the
           marketplace&rsquo;s clock, which is the only clock the auction runs on.

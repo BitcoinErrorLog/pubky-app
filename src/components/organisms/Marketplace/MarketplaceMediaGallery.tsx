@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Film, Gavel, PackageCheck } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Image } from '@/atoms/Image/Image';
+import type { AuctionPhase } from '@/libs/commerce/auction-phase';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { cn } from '@/libs/utils/utils';
@@ -11,6 +12,7 @@ import { cn } from '@/libs/utils/utils';
 export interface MarketplaceMediaGalleryProps {
   media: CommerceListingRecord['media'];
   saleFormat: CommerceListingRecord['sale']['format'];
+  auctionPhase?: AuctionPhase;
 }
 
 /**
@@ -24,7 +26,7 @@ export interface MarketplaceMediaGalleryProps {
  * broken images; when nothing remains viewable the gallery honestly falls
  * back to the same gradient+icon hero that media-less rendering always used.
  */
-export function MarketplaceMediaGallery({ media, saleFormat }: MarketplaceMediaGalleryProps) {
+export function MarketplaceMediaGallery({ media, saleFormat, auctionPhase = 'live' }: MarketplaceMediaGalleryProps) {
   const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -72,7 +74,7 @@ export function MarketplaceMediaGallery({ media, saleFormat }: MarketplaceMediaG
           <PackageCheck className="size-32 text-foreground/75 drop-shadow-2xl" />
         )}
         <Badge className="absolute top-4 left-4 bg-background/85 text-foreground backdrop-blur-md">
-          {saleFormat === 'auction' ? 'Live auction' : 'Buy now'}
+          {saleFormat === 'auction' ? (auctionPhase === 'ended' ? 'Auction ended' : 'Live auction') : 'Buy now'}
         </Badge>
       </div>
 

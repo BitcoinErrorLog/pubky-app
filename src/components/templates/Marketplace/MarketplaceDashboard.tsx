@@ -282,160 +282,171 @@ export function MarketplaceDashboard() {
             )}
 
             <Card className="border">
-              <CardContent className="grid gap-4 px-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <Typography as="h2" className="text-xl font-semibold">
-                      My listings
-                    </Typography>
-                    <Typography as="p" className="text-sm text-muted-foreground">
-                      {dashboard.metrics.openOffers} open offers need attention.
-                    </Typography>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="rounded-full"
-                      disabled={!selected.length}
-                      onClick={() => void dashboard.updateListingState(selected, 'paused')}
-                    >
-                      <Pause className="mr-2 size-4" />
-                      Pause
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="rounded-full"
-                      disabled={!selected.length}
-                      onClick={() => void dashboard.updateListingState(selected, 'active')}
-                    >
-                      <Play className="mr-2 size-4" />
-                      Activate
-                    </Button>
-                    <Button size="sm" variant="secondary" className="rounded-full" onClick={exportCsv}>
-                      <Download className="mr-2 size-4" />
-                      Export CSV
-                    </Button>
-                  </div>
+              {dashboard.error ? (
+                <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-6">
+                  <Heading level={3} size="md">
+                    Listings could not be loaded
+                  </Heading>
+                  <Typography as="p" className="mt-2 text-muted-foreground">
+                    {dashboard.error}
+                  </Typography>
                 </div>
-
-                {dashboard.listings.length === 0 ? (
-                  <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed bg-card/40 p-8 text-center">
-                    <ShoppingBag className="mb-4 size-10 text-muted-foreground" />
-                    <Heading level={3} size="md">
-                      You have no listings yet
-                    </Heading>
-                    <Typography as="p" className="mt-2 text-muted-foreground">
-                      Publish your first item — it appears here with its state, inventory, and actions.
-                    </Typography>
-                    <Button asChild className="mt-6 rounded-full">
-                      <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
-                        Sell an item
-                      </Link>
-                    </Button>
+              ) : (
+                <CardContent className="grid gap-4 px-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <Typography as="h2" className="text-xl font-semibold">
+                        My listings
+                      </Typography>
+                      <Typography as="p" className="text-sm text-muted-foreground">
+                        {dashboard.metrics.openOffers} open offers need attention.
+                      </Typography>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="rounded-full"
+                        disabled={!selected.length}
+                        onClick={() => void dashboard.updateListingState(selected, 'paused')}
+                      >
+                        <Pause className="mr-2 size-4" />
+                        Pause
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="rounded-full"
+                        disabled={!selected.length}
+                        onClick={() => void dashboard.updateListingState(selected, 'active')}
+                      >
+                        <Play className="mr-2 size-4" />
+                        Activate
+                      </Button>
+                      <Button size="sm" variant="secondary" className="rounded-full" onClick={exportCsv}>
+                        <Download className="mr-2 size-4" />
+                        Export CSV
+                      </Button>
+                    </div>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-2xl text-left text-sm">
-                      <thead className="text-muted-foreground">
-                        <tr className="border-b">
-                          <th className="p-3">
-                            <span className="sr-only">Select</span>
-                          </th>
-                          <th className="p-3">Listing</th>
-                          <th className="p-3">State</th>
-                          <th className="p-3">Format</th>
-                          <th className="p-3">Inventory</th>
-                          <th className="p-3">Price</th>
-                          <th className="p-3">
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dashboard.listings.map((listing) => {
-                          const checked = selected.includes(listing.id);
-                          return (
-                            <tr key={listing.id} className="border-b last:border-0">
-                              <td className="p-3">
-                                <Checkbox
-                                  checked={checked}
-                                  onCheckedChange={(next) =>
-                                    setSelected((current) =>
-                                      next ? [...current, listing.id] : current.filter((id) => id !== listing.id),
-                                    )
-                                  }
-                                  aria-label={`Select ${listing.record.title}`}
-                                />
-                              </td>
-                              <td className="p-3">
-                                <div className="flex items-center gap-3">
-                                  <ListingThumbnail
-                                    mediaUrls={listing.record.media
-                                      .filter(({ type }) => type === 'image')
-                                      .map(({ url }) => url)}
-                                    title={listing.record.title}
+
+                  {dashboard.listings.length === 0 ? (
+                    <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed bg-card/40 p-8 text-center">
+                      <ShoppingBag className="mb-4 size-10 text-muted-foreground" />
+                      <Heading level={3} size="md">
+                        You have no listings yet
+                      </Heading>
+                      <Typography as="p" className="mt-2 text-muted-foreground">
+                        Publish your first item — it appears here with its state, inventory, and actions.
+                      </Typography>
+                      <Button asChild className="mt-6 rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
+                          Sell an item
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-2xl text-left text-sm">
+                        <thead className="text-muted-foreground">
+                          <tr className="border-b">
+                            <th className="p-3">
+                              <span className="sr-only">Select</span>
+                            </th>
+                            <th className="p-3">Listing</th>
+                            <th className="p-3">State</th>
+                            <th className="p-3">Format</th>
+                            <th className="p-3">Inventory</th>
+                            <th className="p-3">Price</th>
+                            <th className="p-3">
+                              <span className="sr-only">Actions</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dashboard.listings.map((listing) => {
+                            const checked = selected.includes(listing.id);
+                            return (
+                              <tr key={listing.id} className="border-b last:border-0">
+                                <td className="p-3">
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(next) =>
+                                      setSelected((current) =>
+                                        next ? [...current, listing.id] : current.filter((id) => id !== listing.id),
+                                      )
+                                    }
+                                    aria-label={`Select ${listing.record.title}`}
                                   />
-                                  <Link
-                                    href={getMarketplaceListingRoute(listing.seller_id, listing.listing_id)}
-                                    overrideDefaults
-                                    className="font-semibold hover:text-brand hover:underline"
-                                  >
-                                    {listing.record.title}
-                                  </Link>
-                                </div>
-                              </td>
-                              <td className="p-3">
-                                <Badge variant="secondary">{listing.state}</Badge>
-                              </td>
-                              <td className="p-3">{listing.format.replace('_', ' ')}</td>
-                              <td className="p-3">
-                                {listing.record.variants.reduce((total, variant) => total + variant.quantity, 0)}
-                              </td>
-                              <td className="p-3">
-                                {/* The record's own price money: the model row's
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-3">
+                                    <ListingThumbnail
+                                      mediaUrls={listing.record.media
+                                        .filter(({ type }) => type === 'image')
+                                        .map(({ url }) => url)}
+                                      title={listing.record.title}
+                                    />
+                                    <Link
+                                      href={getMarketplaceListingRoute(listing.seller_id, listing.listing_id)}
+                                      overrideDefaults
+                                      className="font-semibold hover:text-brand hover:underline"
+                                    >
+                                      {listing.record.title}
+                                    </Link>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <Badge variant="secondary">{listing.state}</Badge>
+                                </td>
+                                <td className="p-3">{listing.format.replace('_', ' ')}</td>
+                                <td className="p-3">
+                                  {listing.record.variants.reduce((total, variant) => total + variant.quantity, 0)}
+                                </td>
+                                <td className="p-3">
+                                  {/* The record's own price money: the model row's
                                     `price_minor` has no exponent column, and
                                     assuming 2 misstates bitcoin-priced listings. */}
-                                {formatCommerceMoney(
-                                  listing.record.sale.format === 'fixed_price'
-                                    ? listing.record.sale.unitPrice
-                                    : listing.record.sale.startingPrice,
-                                )}
-                              </td>
-                              <td className="p-3">
-                                <div className="flex flex-wrap gap-1">
-                                  <Button asChild size="sm" variant="ghost" className="rounded-full">
-                                    <Link
-                                      href={getMarketplaceListingEditRoute(listing.seller_id, listing.listing_id)}
-                                      overrideDefaults
+                                  {formatCommerceMoney(
+                                    listing.record.sale.format === 'fixed_price'
+                                      ? listing.record.sale.unitPrice
+                                      : listing.record.sale.startingPrice,
+                                  )}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex flex-wrap gap-1">
+                                    <Button asChild size="sm" variant="ghost" className="rounded-full">
+                                      <Link
+                                        href={getMarketplaceListingEditRoute(listing.seller_id, listing.listing_id)}
+                                        overrideDefaults
+                                      >
+                                        <PencilLine className="mr-2 size-4" />
+                                        Edit
+                                      </Link>
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="rounded-full"
+                                      disabled={duplicatingId === listing.listing_id}
+                                      onClick={() => {
+                                        void requestDuplicate(listing.listing_id);
+                                      }}
                                     >
-                                      <PencilLine className="mr-2 size-4" />
-                                      Edit
-                                    </Link>
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="rounded-full"
-                                    disabled={duplicatingId === listing.listing_id}
-                                    onClick={() => {
-                                      void requestDuplicate(listing.listing_id);
-                                    }}
-                                  >
-                                    <Copy className="mr-2 size-4" />
-                                    Duplicate
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
+                                      <Copy className="mr-2 size-4" />
+                                      Duplicate
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              )}
             </Card>
           </>
         )}

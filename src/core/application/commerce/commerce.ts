@@ -352,10 +352,18 @@ export class CommerceApplication {
     );
   }
 
-  static async cacheMarketplaceListingProjection(
-    projection: CommerceListingProjectionModelSchema,
-  ): Promise<void> {
+  static async cacheMarketplaceListingProjection(projection: CommerceListingProjectionModelSchema): Promise<void> {
     await LocalCommerceService.cacheListingProjection(projection);
+  }
+
+  static async getOrFetchListingsBySeller(sellerPubky: string) {
+    const listings = await LocalCommerceService.getListingsBySeller(sellerPubky);
+    if (listings.length > 0) return listings;
+
+    await this.fetchSellerCatalogListings(sellerPubky);
+    const entries = await LocalCommerceService.getCatalogEntriesBySeller(sellerPubky);
+    await Promise.all(entries.map((entry) => this.getOrFetchListing(sellerPubky, entry.listing_id)));
+    return await LocalCommerceService.getListingsBySeller(sellerPubky);
   }
 
   static async getListingsByCategory(categoryId: string) {
@@ -852,12 +860,9 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getReceipt(actorPubky, receiptId);
   }
 
-
   static async getMarketplaceOrder(actorPubky: string, orderId: string) {
     return await MarketplaceGatewayService.getOrder(actorPubky, orderId);
   }
-
-
 
   static async uploadMarketplaceAttachment(actorPubky: string, recipientPubky: string, file: File) {
     return await MarketplaceGatewayService.uploadAttachment(actorPubky, recipientPubky, file);
@@ -1416,9 +1421,7 @@ export class CommerceApplication {
     // orders-surface load; report that honestly instead of claiming done.
     const hasUnpublished = eligible.some(
       (order) =>
-        !this.publishedReceiptUrls.has(
-          CommerceRecordNormalizer.orderReceiptUri(ownerPubky, order.receiptId as string),
-        ),
+        !this.publishedReceiptUrls.has(CommerceRecordNormalizer.orderReceiptUri(ownerPubky, order.receiptId as string)),
     );
     return hasUnpublished ? 'unavailable' : 'published';
   }

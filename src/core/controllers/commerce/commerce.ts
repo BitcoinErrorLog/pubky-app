@@ -13,10 +13,7 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import type {
-  CommerceIndexedReview,
-  CommerceListingProjectionModelSchema,
-} from '@/models/commerce/commerce.schema';
+import type { CommerceIndexedReview, CommerceListingProjectionModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
@@ -84,6 +81,10 @@ export class CommerceController {
 
   static async getListingsBySeller(sellerPubky: unknown) {
     return await CommerceApplication.getListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
+  static async getOrFetchListingsBySeller(sellerPubky: unknown) {
+    return await CommerceApplication.getOrFetchListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
   }
 
   static async cacheMarketplaceListingProjection(projection: CommerceListingProjectionModelSchema): Promise<void> {
@@ -632,7 +633,6 @@ export class CommerceController {
     );
   }
 
-
   static async getMarketplaceOrder(orderId: unknown) {
     return await CommerceApplication.getMarketplaceOrder(
       this.getCurrentUserPubky(),
@@ -741,8 +741,6 @@ export class CommerceController {
     }
     return value;
   }
-
-
 
   static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
     const recipient = CommerceRecordNormalizer.pubky(recipientPubky);

@@ -107,4 +107,20 @@ describe('MarketplaceAuctionPanel', () => {
     expect(screen.getByText(/Sign in to see the bid history/)).toBeInTheDocument();
     expect(mockedController.getMarketplaceListingBids).not.toHaveBeenCalled();
   });
+
+  it('shows ended state and refuses bidding after the end time', () => {
+    render(
+      <MarketplaceAuctionPanel
+        sellerPubky={SELLER}
+        listingId="listing01"
+        auction={auctionProjection({ endsAt: new Date(Date.now() - 1_000).toISOString() })}
+        scheduledEndsAt={null}
+        isSignedIn={false}
+        auctionPhase="ended"
+      />,
+    );
+
+    expect(screen.getByText(/Auction ended/)).toBeInTheDocument();
+    expect(screen.getByText(/Bidding is closed/)).toBeInTheDocument();
+  });
 });

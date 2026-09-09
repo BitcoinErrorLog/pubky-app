@@ -1,10 +1,11 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { useMarketplaceSellerDashboard } from './useMarketplaceSellerDashboard';
 
 const OWNER = 'y'.repeat(52);
+let localListings: Array<{ state: 'active'; record: ReturnType<typeof createCommerceListingFixture> }> = [];
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: OWNER }),
@@ -23,12 +24,14 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
 }));
 
 vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: () => [],
+  useLiveQuery: () => localListings,
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getListingsBySeller: vi.fn(async () => []),
+    getOrFetchListingsBySeller: vi.fn(async () => []),
+    fetchSellerCatalogListings: vi.fn(async () => undefined),
     getOrFetchListing: vi.fn(),
     commitUpdateListingDraft: vi.fn(),
     commitUpsertListing: vi.fn(),
@@ -44,10 +47,34 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 describe('useMarketplaceSellerDashboard duplicateListing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localListings = [];
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([]);
     vi.mocked(CommerceController.commitUpdateListingDraft).mockResolvedValue(undefined);
     vi.mocked(CommerceController.commitDeleteListingDraft).mockResolvedValue(undefined);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770999');
+  });
+
+  it('fetches the seller catalog when the local cache is empty', async () => {
+    const listing = createCommerceListingFixture({ listingId: 'boots_02' });
+    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockImplementationOnce(async () => {
+      localListings = [{ state: 'active', record: listing }];
+      return localListings as never;
+    });
+    const { result, rerender } = renderHook(() => useMarketplaceSellerDashboard());
+
+    await waitFor(() => expect(CommerceController.getOrFetchListingsBySeller).toHaveBeenCalledWith(OWNER));
+    rerender();
+
+    expect(result.current.listings).toEqual([{ state: 'active', record: listing }]);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('reports a catalog fetch failure instead of showing an empty state', async () => {
+    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+
+    await waitFor(() => expect(result.current.error).toBe('Could not load your listings.'));
+    expect(result.current.listings).toEqual([]);
   });
 
   it('seeds a new create draft from a fixed-price listing and excludes ids and revision', async () => {

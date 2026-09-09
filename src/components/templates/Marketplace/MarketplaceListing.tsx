@@ -20,6 +20,7 @@ import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCar
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
+import { getAuctionPhase } from '@/libs/commerce/auction-phase';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
   commerceListingFulfillmentMethods,
@@ -62,6 +63,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [showSessionRequired, setShowSessionRequired] = useState(false);
   const [shopAvatarFailed, setShopAvatarFailed] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const isOwner = currentUserPubky === sellerPubky;
@@ -93,6 +95,15 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const listing = useLiveQuery(() => CommerceController.getListing(sellerPubky, listingId), [sellerPubky, listingId]);
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
+  const auctionEndsAt =
+    listing?.record.sale.format === 'auction'
+      ? (negotiation.projection?.auction?.endsAt ?? listing.record.sale.endsAt)
+      : null;
+  const auctionStatus = negotiation.projection?.auction?.status;
+  const auctionPhase =
+    listing?.record.sale.format === 'auction'
+      ? getAuctionPhase(listing.record.sale.startsAt, auctionEndsAt ?? listing.record.sale.endsAt, nowMs, auctionStatus)
+      : null;
   const shopAvatarUrl =
     !shopAvatarFailed && shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(shop.record.avatarUrl) : null;
 
@@ -106,6 +117,13 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   useEffect(() => {
     if (!negotiation.needsSession) setShowSessionRequired(false);
   }, [negotiation.needsSession]);
+
+  useEffect(() => {
+    if (!auctionEndsAt) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [auctionEndsAt]);
 
   if (listing === undefined || shop === undefined || (!listing && !isFetchSettled && !error)) {
     return (
@@ -153,7 +171,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
   const sellerDisplayName = shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`;
-  const recordQuantity = record.variants.reduce((total, variant) => total + (variant.enabled ? variant.quantity : 0), 0);
+  const recordQuantity = record.variants.reduce(
+    (total, variant) => total + (variant.enabled ? variant.quantity : 0),
+    0,
+  );
   const isSoldOut = (listing.purchasableQuantity ?? recordQuantity) <= 0;
   const isPurchasable = record.state === 'active';
   const stateNotice =
@@ -210,7 +231,11 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-          <MarketplaceMediaGallery media={record.media} saleFormat={record.sale.format} />
+          <MarketplaceMediaGallery
+            media={record.media}
+            saleFormat={record.sale.format}
+            auctionPhase={auctionPhase ?? undefined}
+          />
 
           <div className="flex flex-col gap-5">
             {isOwner && <MarketplaceListingOwnerPanel record={record} />}
@@ -398,6 +423,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 auction={negotiation.projection?.auction ?? null}
                 scheduledEndsAt={record.sale.endsAt ?? null}
                 isSignedIn={Boolean(currentUserPubky)}
+                auctionPhase={auctionPhase ?? undefined}
               />
             )}
 
@@ -414,6 +440,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     isSessionRequired={negotiation.needsSession}
                     onSessionRequired={revealSessionRequired}
                     onAccepted={negotiation.refresh}
+                    auctionPhase={auctionPhase ?? undefined}
                   />
                 </div>
               ) : (

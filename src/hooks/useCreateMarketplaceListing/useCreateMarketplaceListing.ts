@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { commerceAttributeFieldsFor } from '@/config/taxonomy/taxonomy';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
@@ -14,6 +15,7 @@ import {
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
+import { availablePaymentMethods } from '@/libs/commerce/payment-methods';
 import {
   amountInputFromMoney,
   amountInputToMoney,
@@ -56,6 +58,7 @@ export interface UseCreateMarketplaceListingResult {
   seededAuctionAsFixedPrice: boolean;
   submit: () => Promise<string | null>;
   reset: () => void;
+  publishBlocked: 'no-method' | 'unverified' | null;
 }
 
 export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult {
@@ -66,6 +69,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [seededFromTitle, setSeededFromTitle] = useState<string | null>(null);
   const [seededAuctionAsFixedPrice, setSeededAuctionAsFixedPrice] = useState(false);
+  const [publishBlocked, setPublishBlocked] = useState<'no-method' | 'unverified' | null>(null);
   const draftReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingListingIdRef = useRef<string | null>(null);
@@ -149,7 +153,21 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky) return null;
+    setPublishBlocked(null);
     let createdListingId: string | null = null;
+
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      try {
+        const paymentConfig = await CommerceController.getSellerPaymentConfig(currentUserPubky);
+        if (availablePaymentMethods(paymentConfig).length === 0) {
+          setPublishBlocked('no-method');
+          return null;
+        }
+      } catch {
+        setPublishBlocked('unverified');
+        return null;
+      }
+    }
 
     await form.handleSubmit(async (data) => {
       const preparedMedia = await media.prepare(currentUserPubky);
@@ -197,6 +215,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     setRestoredDraft(false);
     setSeededFromTitle(null);
     setSeededAuctionAsFixedPrice(false);
+    setPublishBlocked(null);
     pendingListingIdRef.current = null;
     draftReadyRef.current = false;
     void CommerceController.commitDeleteListingDraft(draftId);
@@ -204,7 +223,17 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     draftReadyRef.current = true;
   };
 
-  return { form, media, draftId, restoredDraft, seededFromTitle, seededAuctionAsFixedPrice, submit, reset };
+  return {
+    form,
+    media,
+    draftId,
+    restoredDraft,
+    seededFromTitle,
+    seededAuctionAsFixedPrice,
+    submit,
+    reset,
+    publishBlocked,
+  };
 }
 
 /**

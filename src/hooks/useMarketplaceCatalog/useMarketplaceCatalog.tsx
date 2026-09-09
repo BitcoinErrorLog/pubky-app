@@ -85,6 +85,16 @@ export function useMarketplaceCatalog(
     countryCode,
     sort,
   });
+  const countryFacetPool = filterMarketplaceCatalog(sourceItems, {
+    query,
+    categoryId,
+    saleFormat,
+    conditions,
+    minimumPriceMinor,
+    maximumPriceMinor,
+    countryCode: null,
+    sort,
+  });
   const listings = applyMarketplaceAttributeFilters(facetPool, attributeFilters);
   const shopsBySeller = new Map<string, (typeof initialShops)[number]>(
     initialShops.map((shop) => [shop.ownerPubky, shop]),
@@ -96,6 +106,7 @@ export function useMarketplaceCatalog(
   return {
     listings,
     facetPool,
+    countryFacetPool,
     shopsBySeller,
     isLoading,
     adapterMode,

@@ -7,6 +7,11 @@ import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce'
 import { seedDraftFormFromListing, useCreateMarketplaceListing } from './useCreateMarketplaceListing';
 
 const OWNER = 'y'.repeat(52);
+
+vi.mock('@/config/commerce', async () => ({
+  ...(await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce')),
+  getCommerceAdapterMode: () => 'transaction-service',
+}));
 const mediaState = vi.hoisted(() => ({
   prepared: true,
 }));
@@ -70,6 +75,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitDeleteListingDraft: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(async () => ({ registered: true })),
+    getSellerPaymentConfig: vi.fn(async () => ({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    })),
   },
 }));
 
@@ -124,6 +135,35 @@ describe('useCreateMarketplaceListing', () => {
     });
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
+  });
+
+  it('blocks publishing when the seller has no payment method', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe('no-method');
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
+  });
+
+  it('blocks publishing when the public payment-config request is rejected', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe('unverified');
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
   });
 
   it('reports the two truths separately when the record published but service registration failed', async () => {
@@ -283,6 +323,35 @@ describe('useCreateMarketplaceListing', () => {
     expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
       '018f47d26a277c23a49d6b21bb770121',
       expect.objectContaining({ title: 'Autosaved boots' }),
+    );
+  });
+
+  it('autosaves a draft even when publishing has no payment method', async () => {
+    vi.useFakeTimers();
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.form.setValue('title', 'Draft without payment settings');
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      vi.advanceTimersByTime(750);
+    });
+
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
+      '018f47d26a277c23a49d6b21bb770121',
+      expect.objectContaining({ title: 'Draft without payment settings' }),
     );
   });
 

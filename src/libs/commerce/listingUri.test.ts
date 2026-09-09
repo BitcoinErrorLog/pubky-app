@@ -3,6 +3,7 @@ import { isListingUri, parseListingUri } from './listingUri';
 
 const SELLER = 'pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy';
 const LISTING_ID = '0034A0X7NJ52A';
+const LONG_LISTING_ID = '1061cf08aaad4c8f99d996f3c2c092ba';
 const CANONICAL = `pubky://${SELLER}/pub/pubky.app/marketplace/v1/listings/${LISTING_ID}`;
 
 describe('parseListingUri', () => {
@@ -17,11 +18,18 @@ describe('parseListingUri', () => {
     ['trailing slash', `${CANONICAL}/`],
     ['query string', `${CANONICAL}?x=1`],
     ['short pubky id', `pubky://short/pub/pubky.app/marketplace/v1/listings/${LISTING_ID}`],
-    ['short listing id', `pubky://${SELLER}/pub/pubky.app/marketplace/v1/listings/SHORT`],
+    ['invalid short listing id', `pubky://${SELLER}/pub/pubky.app/marketplace/v1/listings/short!1234567`],
     ['http scheme', `https://${SELLER}/pub/pubky.app/marketplace/v1/listings/${LISTING_ID}`],
     ['empty string', ''],
   ])('returns null for %s', (_, uri) => {
     expect(parseListingUri(uri)).toBeNull();
+  });
+
+  it('parses a 32-character commerce entity id', () => {
+    expect(parseListingUri(`pubky://${SELLER}/pub/pubky.app/marketplace/v1/listings/${LONG_LISTING_ID}`)).toEqual({
+      sellerPubky: SELLER,
+      listingId: LONG_LISTING_ID,
+    });
   });
 });
 

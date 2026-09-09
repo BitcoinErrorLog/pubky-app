@@ -59,6 +59,11 @@ const publishedRecord = {
 
 const authState = vi.hoisted(() => ({ currentUserPubky: 'y'.repeat(52) }));
 
+vi.mock('@/config/commerce', async () => ({
+  ...(await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce')),
+  getCommerceAdapterMode: () => 'transaction-service',
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector(authState),
 }));
@@ -68,6 +73,12 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(),
+    getSellerPaymentConfig: vi.fn(async () => ({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    })),
   },
 }));
 
@@ -129,6 +140,37 @@ describe('useEditMarketplaceListing', () => {
       sale: { format: 'fixed_price', unitPrice: { amountMinor: 15_000 }, acceptsOffers: true },
       media: [{ id: 'image_01' }],
     });
+  });
+
+  it('refuses to publish when the seller has no payment method', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe('no-method');
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
+  });
+
+  it('refuses to publish when the public payment-config request is rejected', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe('unverified');
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
   });
 
   it('round-trips unknown record members through an edit (open-world records)', async () => {

@@ -3,7 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, History, Rocket, ShieldCheck } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingEditRoute, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import {
+  APP_ROUTES,
+  getMarketplaceListingEditRoute,
+  getMarketplaceListingRoute,
+  MARKETPLACE_ROUTES,
+} from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -15,6 +20,7 @@ import { useCreateMarketplaceListing } from '@/hooks/useCreateMarketplaceListing
 import { CREATE_MARKETPLACE_LISTING_FIELDS } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function MarketplaceSell() {
   const router = useRouter();
@@ -141,7 +147,40 @@ export function MarketplaceSell() {
           </div>
         )}
 
-        <MarketplaceListingForm form={listing.form} media={listing.media} onSubmit={submit} isPublishing={isPublishing} />
+        {listing.publishBlocked && (
+          <div
+            role="alert"
+            data-surface="seller-publish-blocked"
+            className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
+          >
+            <Typography as="p" className="font-semibold">
+              {listing.publishBlocked === 'no-method'
+                ? 'Configure a payment method before publishing'
+                : 'We could not verify your payment settings. Reconnect your session and try again.'}
+            </Typography>
+            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+              {listing.publishBlocked === 'no-method'
+                ? 'Buyers cannot pay for a published listing until you add at least one payment method.'
+                : 'Your payment settings could not be checked against the marketplace service.'}
+            </Typography>
+            {listing.publishBlocked === 'no-method' ? (
+              <Button asChild variant="link" className="mt-2 h-auto p-0">
+                <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
+                  Payment settings
+                </Link>
+              </Button>
+            ) : (
+              <MarketplaceSessionRequiredCard />
+            )}
+          </div>
+        )}
+
+        <MarketplaceListingForm
+          form={listing.form}
+          media={listing.media}
+          onSubmit={submit}
+          isPublishing={isPublishing}
+        />
       </Container>
     </ContentLayout>
   );

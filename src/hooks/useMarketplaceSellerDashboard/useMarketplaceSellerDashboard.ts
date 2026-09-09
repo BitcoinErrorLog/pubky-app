@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { seedDraftFormFromListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
@@ -13,12 +13,23 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function useMarketplaceSellerDashboard() {
   const [nowMs, setNowMs] = useState(0);
+  const [catalogFetchState, setCatalogFetchState] = useState<'idle' | 'loading' | 'settled' | 'error'>('idle');
+  const catalogFetchAttempted = useRef<string | null>(null);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const measurementSystem = useMeasurementSystem();
   const localListings = useLiveQuery(
     () => (currentUserPubky ? CommerceController.getListingsBySeller(currentUserPubky) : []),
     [currentUserPubky],
   );
+  useEffect(() => {
+    if (!currentUserPubky || localListings === undefined || localListings.length > 0) return;
+    if (catalogFetchAttempted.current === currentUserPubky) return;
+    catalogFetchAttempted.current = currentUserPubky;
+    setCatalogFetchState('loading');
+    CommerceController.getOrFetchListingsBySeller(currentUserPubky)
+      .then(() => setCatalogFetchState('settled'))
+      .catch(() => setCatalogFetchState('error'));
+  }, [currentUserPubky, localListings]);
   const orders = useMarketplaceOrders();
   const offers = useMarketplaceOffers();
   const sellerOrders = orders.orders.filter(({ order }) => order.sellerPubky === currentUserPubky);
@@ -131,7 +142,13 @@ export function useMarketplaceSellerDashboard() {
     listings: localListings ?? [],
     sellerOrders,
     offers: sellerOffers,
-    isLoading: localListings === undefined || orders.isLoading || offers.isLoading,
+    isLoading:
+      localListings === undefined ||
+      (localListings.length === 0 && (catalogFetchState === 'idle' || catalogFetchState === 'loading')) ||
+      catalogFetchState === 'loading' ||
+      orders.isLoading ||
+      offers.isLoading,
+    error: catalogFetchState === 'error' ? 'Could not load your listings.' : null,
     // Orders and offers ride the same durable session, so either flag means
     // the dashboard's remote-backed numbers are missing until reconnect.
     needsSession: orders.needsSession || offers.needsSession,
