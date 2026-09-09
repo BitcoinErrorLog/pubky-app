@@ -63,6 +63,8 @@ import { Logger } from '@/libs/logger/logger';
 import type {
   CommerceCatalogEntryModelSchema,
   CommerceIndexedReview,
+  CommerceListingModelSchema,
+  CommerceListingProjectionModelSchema,
   CommerceReputationSummary,
   CommerceReviewModelSchema,
   CommerceReviewResponseModelSchema,
@@ -211,6 +213,20 @@ export type CommerceIndexedReviewsResult =
   | { status: 'ok'; reviews: CommerceIndexedReview[] }
   | { status: 'unavailable' };
 
+function applyInventoryProjection(
+  listing: CommerceListingModelSchema,
+  projection: CommerceListingProjectionModelSchema | null | undefined,
+): CommerceListingModelSchema {
+  if (!projection || projection.available_quantity > 0) return listing;
+  return {
+    ...listing,
+    record: {
+      ...listing.record,
+      variants: listing.record.variants.map((variant) => ({ ...variant, quantity: 0 })),
+    },
+  };
+}
+
 export class CommerceApplication {
   private constructor() {}
 
@@ -237,7 +253,10 @@ export class CommerceApplication {
   }
 
   static async getListing(compositeListingId: string) {
-    return await LocalCommerceService.getListing(compositeListingId);
+    const listing = await LocalCommerceService.getListing(compositeListingId);
+    if (!listing) return listing;
+    const projection = await LocalCommerceService.getListingProjection(compositeListingId);
+    return applyInventoryProjection(listing, projection);
   }
 
   /**
@@ -319,7 +338,18 @@ export class CommerceApplication {
   }
 
   static async getListingsBySeller(sellerPubky: string) {
-    return await LocalCommerceService.getListingsBySeller(sellerPubky);
+    const listings = await LocalCommerceService.getListingsBySeller(sellerPubky);
+    return await Promise.all(
+      listings.map(async (listing) =>
+        applyInventoryProjection(listing, await LocalCommerceService.getListingProjection(listing.id)),
+      ),
+    );
+  }
+
+  static async cacheMarketplaceListingProjection(
+    projection: CommerceListingProjectionModelSchema,
+  ): Promise<void> {
+    await LocalCommerceService.cacheListingProjection(projection);
   }
 
   static async getListingsByCategory(categoryId: string) {

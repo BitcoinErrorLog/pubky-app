@@ -92,4 +92,25 @@ describe('MarketplacePaymentStatusCard', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Card \(Stripe\)/ })).toBeInTheDocument();
   });
+
+  it.each(['cancelled', 'refunded_external', 'closed', 'completed'] as const)(
+    'does not show payment instructions for terminal %s orders',
+    (state) => {
+      const payment = createPaymentFixture('awaiting_entitlement');
+
+      render(
+        <MarketplacePaymentStatusCard
+          order={createOrderFixture(state, { paymentId: payment.id })}
+          payment={payment}
+          isBuyer
+          adapterMode="transaction-service"
+          advancePayment={async () => false}
+          onPaymentChanged={() => {}}
+        />,
+      );
+
+      expect(screen.queryByText('Awaiting payment')).not.toBeInTheDocument();
+      expect(screen.queryByText(/seller has not set up any payment methods/i)).not.toBeInTheDocument();
+    },
+  );
 });

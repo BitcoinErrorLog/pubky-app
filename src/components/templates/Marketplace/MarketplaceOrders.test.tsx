@@ -156,7 +156,8 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByRole('tab', { name: /To ship 1/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Needs attention 1/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /In transit 2/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Completed 3/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Completed 2/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Cancelled 1/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /All 8/i })).toBeInTheDocument();
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
 
@@ -169,11 +170,14 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Bought delivered hat/)).toBeInTheDocument();
     expect(screen.queryByText(/Sold paid boots/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: /Completed 3/i }));
+    await user.click(screen.getByRole('tab', { name: /Completed 2/i }));
     expect(screen.getByText(/Bought completed scarf/)).toBeInTheDocument();
     expect(screen.getByText(/Sold refunded belt/)).toBeInTheDocument();
-    expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bought cancelled mittens/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Sold return requested gloves/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /Cancelled 1/i }));
+    expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /All 8/i }));
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
@@ -209,6 +213,30 @@ describe('MarketplaceOrders tabs', () => {
     const boughtCard = screen.getByText(/Bought paid coat/).closest('[data-slot="card"]');
     expect(within(soldCard as HTMLElement).getByText('Your move')).toBeInTheDocument();
     expect(within(boughtCard as HTMLElement).getByText('Waiting on seller')).toBeInTheDocument();
+  });
+
+  it('renders a neutral hint when the service reports no pending actor', async () => {
+    ordersState.orders = [orderView('completed', 'Completed order', 'buyer', { nextActor: 'none' })];
+
+    render(<MarketplaceOrders />);
+    await userEvent.setup().click(screen.getByRole('tab', { name: /All 1/i }));
+
+    expect(screen.getByText('No action pending')).toBeInTheDocument();
+  });
+
+  it('renders each service actor variant without inventing an actor', async () => {
+    ordersState.orders = [
+      orderView('pending_payment', 'Seller config needed', 'buyer', { nextActor: 'seller' }),
+      orderView('pending_payment', 'Seller confirmation needed', 'seller', { nextActor: 'seller' }),
+      orderView('delivered', 'Auto completion pending', 'buyer', { nextActor: 'none' }),
+    ];
+
+    render(<MarketplaceOrders />);
+    await userEvent.setup().click(screen.getByRole('tab', { name: /All 3/i }));
+
+    expect(screen.getByText('Waiting on seller')).toBeInTheDocument();
+    expect(screen.getAllByText('Your move')).toHaveLength(1);
+    expect(screen.getByText('No action pending')).toBeInTheDocument();
   });
 
   it('uses next_actor to place buyer and seller work in Needs attention', async () => {

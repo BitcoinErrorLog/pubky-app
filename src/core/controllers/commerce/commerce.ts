@@ -13,7 +13,10 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import type { CommerceIndexedReview } from '@/models/commerce/commerce.schema';
+import type {
+  CommerceIndexedReview,
+  CommerceListingProjectionModelSchema,
+} from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
@@ -81,6 +84,10 @@ export class CommerceController {
 
   static async getListingsBySeller(sellerPubky: unknown) {
     return await CommerceApplication.getListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
+  static async cacheMarketplaceListingProjection(projection: CommerceListingProjectionModelSchema): Promise<void> {
+    await CommerceApplication.cacheMarketplaceListingProjection(projection);
   }
 
   /**

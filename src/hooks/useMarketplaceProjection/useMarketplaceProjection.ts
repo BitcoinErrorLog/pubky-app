@@ -73,6 +73,7 @@ async function loadProjection(
       next = await syncThenReread(sellerPubky, listingId);
     }
     setProjection(next);
+    if (next) await cacheProjection(next);
     setError(next ? null : MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable);
     setNeedsSession(false);
   } catch (loadError) {
@@ -87,6 +88,30 @@ async function loadProjection(
   } finally {
     setIsLoading(false);
   }
+}
+
+async function cacheProjection(projection: MarketplaceListingProjection): Promise<void> {
+  const aggregate = projection.aggregateId.slice('listing:'.length);
+  const separator = aggregate.indexOf('_');
+  if (separator < 0) return;
+  const sellerPubky = aggregate.slice(0, separator);
+  const listingId = aggregate.slice(separator + 1);
+  if (!sellerPubky || !listingId) return;
+  await CommerceController.cacheMarketplaceListingProjection({
+    id: `${sellerPubky}:${listingId}`,
+    seller_id: sellerPubky,
+    listing_id: listingId,
+    listing_revision: 1,
+    content_hash: '',
+    server_revision: projection.serverRevision,
+    state: projection.state,
+    available_quantity: projection.availableQuantity,
+    current_price: projection.auction?.currentPrice ?? projection.unitPrice,
+    auction_state: null,
+    bid_count: projection.auction?.bidCount ?? 0,
+    sync_status: 'synced',
+    synced_at: Date.now(),
+  });
 }
 
 /**

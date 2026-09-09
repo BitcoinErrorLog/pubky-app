@@ -16,6 +16,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMarketplaceListingProjection: vi.fn(),
     syncListingRegistration: vi.fn(),
+    cacheMarketplaceListingProjection: vi.fn(),
   },
 }));
 
@@ -67,6 +68,30 @@ describe('useMarketplaceProjection', () => {
 
     expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalled();
     expect(result.current.projection).toMatchObject({ serverRevision: 2 });
+  });
+
+  it('caches zero available quantity so listing consumers render sold out', async () => {
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValueOnce({
+      aggregateId: `listing:${'y'.repeat(52)}_item`,
+      sellerPubky: 'y'.repeat(52),
+      listingId: 'item',
+      serverRevision: 3,
+      state: 'sold',
+      availableQuantity: 0,
+      reservedQuantity: 0,
+      unitPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      saleFormat: 'fixed_price',
+      fulfillmentMethods: ['shipping'],
+      auction: null,
+    });
+
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(CommerceController.cacheMarketplaceListingProjection).toHaveBeenCalledWith(
+      expect.objectContaining({ available_quantity: 0, state: 'sold' }),
+    );
   });
 
   it('heals an unregistered listing with one service-side sync, then re-reads', async () => {

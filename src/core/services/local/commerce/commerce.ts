@@ -409,6 +409,10 @@ export class LocalCommerceService {
     return await CommerceListingModel.findById(compositeListingId);
   }
 
+  static async cacheListingProjection(projection: CommerceListingProjectionModelSchema): Promise<void> {
+    await CommerceListingProjectionModel.upsert(projection);
+  }
+
   static async getCatalogEntry(compositeListingId: string) {
     return await CommerceCatalogEntryModel.findById(compositeListingId);
   }

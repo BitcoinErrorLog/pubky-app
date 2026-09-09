@@ -114,6 +114,7 @@ export function MarketplacePaymentStatusCard({
   });
 
   const isDurable = isDurableCommerceMode(adapterMode);
+  const isTerminal = ['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
   const visibleStatus = payment ? buyerVisiblePaymentStatus(payment.state) : null;
   const isAwaiting = visibleStatus === 'awaiting_entitlement';
   // Digital Locks orders keep the Locks/Paykit flow; everything else in the
@@ -126,7 +127,7 @@ export function MarketplacePaymentStatusCard({
   });
   const [paypalTransactionRef, setPaypalTransactionRef] = useState('');
 
-  if (!payment || visibleStatus === null) return null;
+  if (!payment || visibleStatus === null || isTerminal) return null;
 
   return (
     <div className="grid gap-3 rounded-xl border p-4">

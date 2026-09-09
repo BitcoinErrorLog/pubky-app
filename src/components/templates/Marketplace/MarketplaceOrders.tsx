@@ -27,13 +27,14 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
-type OrdersTab = 'to_ship' | 'needs_attention' | 'in_transit' | 'completed' | 'all';
+type OrdersTab = 'to_ship' | 'needs_attention' | 'in_transit' | 'completed' | 'cancelled' | 'all';
 
 const ORDER_TABS: { id: OrdersTab; label: string }[] = [
   { id: 'to_ship', label: 'To ship' },
   { id: 'needs_attention', label: 'Needs attention' },
   { id: 'in_transit', label: 'In transit' },
   { id: 'completed', label: 'Completed' },
+  { id: 'cancelled', label: 'Cancelled' },
   { id: 'all', label: 'All' },
 ];
 
@@ -321,6 +322,7 @@ function getOrderTabCounts(
     needs_attention: orders.filter(({ order }) => isOrderInTab(order, 'needs_attention', currentUserPubky)).length,
     in_transit: orders.filter(({ order }) => isOrderInTab(order, 'in_transit', currentUserPubky)).length,
     completed: orders.filter(({ order }) => isOrderInTab(order, 'completed', currentUserPubky)).length,
+    cancelled: orders.filter(({ order }) => isOrderInTab(order, 'cancelled', currentUserPubky)).length,
     all: orders.length,
   };
 }
@@ -334,7 +336,9 @@ function isOrderInTab(order: MarketplaceOrder, tab: OrdersTab, currentUserPubky:
     case 'in_transit':
       return ['shipped', 'delivered'].includes(order.state);
     case 'completed':
-      return ['completed', 'refunded_external', 'cancelled'].includes(order.state);
+      return ['completed', 'refunded_external', 'closed'].includes(order.state);
+    case 'cancelled':
+      return order.state === 'cancelled';
     case 'all':
       return true;
   }
@@ -381,5 +385,5 @@ function getNextActorHint(order: MarketplaceOrder, isBuyer: boolean): { label: s
   if (order.nextActor === 'seller') {
     return isBuyer ? { label: 'Waiting on seller', isCurrentUser: false } : { label: 'Your move', isCurrentUser: true };
   }
-  return null;
+  return { label: 'No action pending', isCurrentUser: false };
 }
