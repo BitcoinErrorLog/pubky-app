@@ -6,6 +6,9 @@ describe('getMarketplaceNotificationActionText', () => {
     expect(getMarketplaceNotificationActionText({ type: 'auction_ended' })).toBe('ended an auction');
     expect(getMarketplaceNotificationActionText({ type: 'outbid' })).toBe('outbid you in an auction');
     expect(getMarketplaceNotificationActionText({ type: 'offer_received' })).toBe('sent you an offer');
+    expect(getMarketplaceNotificationActionText({ type: 'payment_confirmed' })).toBe(
+      'confirmed receipt of payment for an order',
+    );
     expect(getMarketplaceNotificationActionText({ type: 'order_delivery_assumed' })).toBe(
       'marked an order delivered automatically',
     );

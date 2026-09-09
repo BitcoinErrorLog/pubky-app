@@ -16,8 +16,11 @@ import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMode } from '@/config/commerce';
-import type { MarketplaceCartGroup } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
-import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
+import {
+  type MarketplaceCartGroup,
+  marketplaceCartShippingTotals,
+  useMarketplaceCart,
+} from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { marketplaceCheckoutSchema } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
@@ -38,6 +41,17 @@ export function MarketplaceCart() {
   const isSandbox = adapterMode === 'sandbox';
   const formValues = useWatch({ control: checkout.form.control });
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
+  const shipping = marketplaceCartShippingTotals(cart.groups, checkout.fulfillmentForSeller);
+  const totalSubtotals = [...cart.subtotals, ...shipping.totals].reduce<
+    Array<{ amountMinor: number; currency: string; exponent: number }>
+  >((totals, money) => {
+    const existing = totals.find(
+      (candidate) => candidate.currency === money.currency && candidate.exponent === money.exponent,
+    );
+    if (existing) existing.amountMinor += money.amountMinor;
+    else totals.push({ ...money });
+    return totals;
+  }, []);
   const sessionExpired = Boolean(checkout.needsSession && checkout.sessionError);
   const approvalNeeded = isDurableCommerceMode(adapterMode) && (!checkout.hasMarketplaceSession || sessionExpired);
   const canPlaceOrder = !approvalNeeded && formValid && !checkout.hasFulfillmentConflict;
@@ -389,9 +403,39 @@ export function MarketplaceCart() {
                       ))}
                     </div>
                   </div>
+                  {shipping.totals.length > 0 && (
+                    <div className="flex justify-between">
+                      <Typography as="span">Shipping</Typography>
+                      <div className="flex flex-col items-end">
+                        {shipping.totals.map((subtotal) => (
+                          <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
+                            {formatCommerceMoney(subtotal)}{' '}
+                            <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
+                          </Typography>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t pt-3">
+                    <Typography as="span" className="font-semibold">
+                      Total
+                    </Typography>
+                    <div className="flex flex-col items-end">
+                      {totalSubtotals.map((subtotal) => (
+                        <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
+                          {formatCommerceMoney(subtotal)}{' '}
+                          <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
+                        </Typography>
+                      ))}
+                    </div>
+                  </div>
                   <Typography as="p" className="text-xs text-muted-foreground">
-                    {checkout.requiresDeliveryAddress
-                      ? 'Shipping is calculated authoritatively at checkout for the items that ship.'
+                    {shipping.hasCalculatedShipping
+                      ? 'Shipping calculated at checkout for the items that ship.'
+                      : shipping.totals.length > 0
+                        ? 'Shipping is shown from each seller’s configured flat or free option.'
+                        : checkout.requiresDeliveryAddress
+                          ? 'Shipping is calculated authoritatively at checkout for the items that ship.'
                       : 'No shipping — pickup is arranged with the seller after payment.'}
                   </Typography>
                   {/* The (seller, fulfillment) split, stated plainly before

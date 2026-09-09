@@ -256,13 +256,30 @@ describe('MarketplaceOrderActions own-review verified status', () => {
     });
   });
 
-  it('never claims a public record exists when none was published', async () => {
+  it('does not claim that no attestation was issued when the durable row is unavailable', async () => {
     mockedController.getOwnMarketplaceReview.mockResolvedValue(null);
     renderActions();
 
     await waitFor(() => {
-      expect(screen.getByTestId('own-review-status')).toHaveTextContent(/No public record was published/);
+      expect(screen.getByTestId('own-review-status')).toHaveTextContent(/publication status will appear/);
     });
+  });
+});
+
+describe('MarketplaceOrderActions refund reference labels', () => {
+  it.each([
+    ['bitcoin', 'External Bitcoin transaction reference'],
+    ['paypal', 'PayPal transaction reference'],
+    ['stripe', 'Stripe payment reference'],
+    [undefined, 'External payment reference'],
+  ] as const)('uses the %s rail label', async (paymentMethod, label) => {
+    const order = createOrderFixture('return_received', { paymentMethod });
+    render(
+      <MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={vi.fn(async () => true)} />,
+    );
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Record external refund' }));
+    expect(screen.getByLabelText(label)).toBeInTheDocument();
   });
 });
 

@@ -12,7 +12,7 @@ import { isTrustedMarketplaceAttestor } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceReviews } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { cn } from '@/libs/utils/utils';
-import type { CommerceIndexedReview } from '@/models/commerce/commerce.schema';
+import type { CommerceIndexedReview, CommerceReviewResponseModelSchema } from '@/models/commerce/commerce.schema';
 import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -41,7 +41,7 @@ export interface MarketplaceReviewsSectionProps {
  * nothing at all — absence, not an empty claim.
  */
 export function MarketplaceReviewsSection({ sellerPubky, listingId, className }: MarketplaceReviewsSectionProps) {
-  const { status, reviews, isFetching, hasMore, loadMore, refresh } = useMarketplaceReviews({ sellerPubky, listingId });
+  const { status, reviews, isFetching, hasMore, loadMore } = useMarketplaceReviews({ sellerPubky, listingId });
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
 
   if (status === 'unavailable' || status === 'loading') return null;
@@ -62,7 +62,6 @@ export function MarketplaceReviewsSection({ sellerPubky, listingId, className }:
               key={`${review.reviewerId}:${review.reviewId}`}
               review={review}
               currentUserPubky={currentUserPubky}
-              onResponsePublished={refresh}
             />
           ))}
         </ul>
@@ -85,14 +84,13 @@ export function MarketplaceReviewsSection({ sellerPubky, listingId, className }:
 function MarketplaceReviewItem({
   review,
   currentUserPubky,
-  onResponsePublished,
 }: {
   review: CommerceIndexedReview;
   currentUserPubky: string | null;
-  onResponsePublished: () => void;
 }) {
   const isSubject = currentUserPubky !== null && currentUserPubky === review.subjectId;
   const [composerOpen, setComposerOpen] = useState(false);
+  const [response, setResponse] = useState(review.response);
 
   return (
     <li className="flex flex-col gap-2 rounded-lg border border-border/60 p-3" data-cy="marketplace-review-item">
@@ -125,7 +123,7 @@ function MarketplaceReviewItem({
           {review.text}
         </Typography>
       )}
-      {review.response !== null && (
+      {response !== null && (
         <div className="flex flex-col gap-1 rounded-md border-l-2 border-brand/50 bg-muted/40 p-2 pl-3">
           <Typography
             as="p"
@@ -133,27 +131,27 @@ function MarketplaceReviewItem({
             className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
           >
             <MessageSquareReply className="size-3.5" />
-            Response from {review.response.responderId === review.subjectId
+            Response from {response.responderId === review.subjectId
               ? 'the reviewed party'
-              : 'the subject'} · {formatReviewDate(review.response.updatedAt)}
+            : 'the subject'} · {formatReviewDate(response.updatedAt)}
           </Typography>
           <Typography as="p" overrideDefaults className="text-sm whitespace-pre-wrap text-foreground">
-            {review.response.text}
+            {response.text}
           </Typography>
         </div>
       )}
       {isSubject && !composerOpen && (
         <Button size="sm" variant="ghost" className="self-start rounded-full" onClick={() => setComposerOpen(true)}>
-          {review.response === null ? 'Respond' : 'Edit response'}
+          {response === null ? 'Respond' : 'Edit response'}
         </Button>
       )}
       {isSubject && composerOpen && (
         <MarketplaceReviewResponseComposer
           review={review}
           onClose={() => setComposerOpen(false)}
-          onPublished={() => {
+          onPublished={(published) => {
+            setResponse(toIndexedReviewResponse(published));
             setComposerOpen(false);
-            onResponsePublished();
           }}
         />
       )}
@@ -210,7 +208,7 @@ function MarketplaceReviewResponseComposer({
 }: {
   review: CommerceIndexedReview;
   onClose: () => void;
-  onPublished: () => void;
+  onPublished: (response: CommerceReviewResponseModelSchema) => void;
 }) {
   const [text, setText] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -234,7 +232,7 @@ function MarketplaceReviewResponseComposer({
   const publish = async () => {
     setIsPublishing(true);
     try {
-      await CommerceController.publishMarketplaceReviewResponse({
+      const published = await CommerceController.publishMarketplaceReviewResponse({
         review,
         text: text.trim(),
         priorRevision: review.response?.revision ?? null,
@@ -244,7 +242,7 @@ function MarketplaceReviewResponseComposer({
         title: 'Response published',
         description: 'Your response is on your homeserver; the index will pick it up.',
       });
-      onPublished();
+      onPublished(published);
     } catch {
       toast({ variant: 'error', description: 'Could not publish the response.' });
     } finally {
@@ -281,4 +279,14 @@ function formatReviewDate(iso: string): string {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(
     new Date(iso),
   );
+}
+
+function toIndexedReviewResponse(response: CommerceReviewResponseModelSchema): NonNullable<CommerceIndexedReview['response']> {
+  return {
+    responderId: response.owner_id,
+    text: response.record.text,
+    createdAt: response.record.createdAt,
+    updatedAt: response.record.updatedAt,
+    revision: response.record.revision,
+  };
 }
