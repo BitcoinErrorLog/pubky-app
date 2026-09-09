@@ -60,7 +60,7 @@ function getBaseActionText(type: MarketplaceFeedNotification['type']): string {
     case 'order_created':
       return 'placed an order';
     case 'payment_confirmed':
-      return 'confirmed receipt of payment for an order';
+      return 'confirmed payment for an order';
     case 'order_cancelled':
       return 'updated an order cancellation';
     case 'order_cancelled_terms_change':

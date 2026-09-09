@@ -11,7 +11,10 @@ import { NotificationsContainer } from '@/organisms/NotificationsContainer/Notif
 // only where read state actually exists (sandbox), and never any payload
 // beyond actor + action + deep link.
 const fixtures = vi.hoisted(async () => {
-  const { NOTIFICATION_FIXTURE_ACTOR } = await import('@/test/fixtures/commerce/notifications');
+  const {
+    NOTIFICATION_FIXTURE_ACTOR: SELLER_ACTOR,
+    NOTIFICATION_FIXTURE_RECIPIENT: BUYER_ACTOR,
+  } = await import('@/test/fixtures/commerce/notifications');
   const { NotificationType } = await import('@/models/notification/notification.types');
   const { VRT_FROZEN_NOW_MS: NOW, HOUR_MS: HOUR } = await import('@/test-utils/vrt.clock');
 
@@ -35,12 +38,13 @@ const fixtures = vi.hoisted(async () => {
     hoursAgo: number,
     isUnread: boolean,
     href: string,
+    actorPubky: string,
     aggregateId = 'order:018f47d2-6a27-7c23-a62f-000000000002',
   ) => ({
     id: `marketplace:018f47d2-6a27-7c23-a62f-${String(hoursAgo).padStart(12, '0')}`,
     source: 'marketplace' as const,
     type,
-    actorPubky: NOTIFICATION_FIXTURE_ACTOR,
+    actorPubky,
     aggregateId,
     timestamp: NOW - hoursAgo * HOUR,
     isUnread,
@@ -50,13 +54,13 @@ const fixtures = vi.hoisted(async () => {
   return {
     social: [socialFollow, socialReply],
     sandboxItems: [
-      marketplaceItem('offer_received', 1, true, '/marketplace/offers'),
-      marketplaceItem('order_shipped', 3, false, '/marketplace/orders'),
-      marketplaceItem('outbid', 4, true, `/marketplace/listing/${'s'.repeat(52)}/boots_01`),
+      marketplaceItem('offer_received', 1, true, '/marketplace/offers', SELLER_ACTOR),
+      marketplaceItem('order_shipped', 3, false, '/marketplace/orders', SELLER_ACTOR),
+      marketplaceItem('outbid', 4, true, `/marketplace/listing/${'s'.repeat(52)}/boots_01`, SELLER_ACTOR),
     ],
     durableItems: [
-      marketplaceItem('payment_confirmed', 1, false, '/marketplace/orders'),
-      marketplaceItem('review_received', 3, false, '/marketplace/orders'),
+      marketplaceItem('payment_confirmed', 1, false, '/marketplace/orders', BUYER_ACTOR),
+      marketplaceItem('review_received', 3, false, '/marketplace/orders', SELLER_ACTOR),
     ],
   };
 });
@@ -112,7 +116,12 @@ vi.mock('@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed', () 
 vi.mock('@/hooks/useUserProfile/useUserProfile', () => ({
   useUserProfile: (userId: string) => ({
     profile: {
-      name: userId === 'social-actor' ? 'Satoshi Follower' : 'Marketplace Seller',
+      name:
+        userId === 'social-actor'
+          ? 'Satoshi Follower'
+          : userId === 'b'.repeat(52)
+            ? 'Marketplace Buyer'
+            : 'Marketplace Seller',
       bio: '',
       publicKey: `pk:${userId}`,
       link: `/profile/${userId}`,

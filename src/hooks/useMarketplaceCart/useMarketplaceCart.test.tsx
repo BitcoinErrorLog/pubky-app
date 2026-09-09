@@ -142,6 +142,135 @@ describe('groupMarketplaceCartItems', () => {
     expect(marketplaceCartShippingTotals([group], () => 'pickup').totals).toEqual([]);
   });
 
+  it('charges flat shipping once per seller order line', () => {
+    const sellerPubky = 's'.repeat(52);
+    const group = groupMarketplaceCartItems([
+      cartItem({
+        sellerPubky,
+        title: 'boots',
+        variantId: '42',
+        quantity: 1,
+        amountMinor: 1200,
+        currency: 'USD',
+        exponent: 2,
+        shippingOptions: [
+          {
+            id: 'ground',
+            pricing: 'flat',
+            label: 'Ground',
+            price: { amountMinor: 500, currency: 'USD', exponent: 2 },
+            estimatedMinDays: 3,
+            estimatedMaxDays: 7,
+          },
+        ],
+      }),
+      cartItem({
+        sellerPubky,
+        title: 'jacket',
+        variantId: 'm',
+        quantity: 1,
+        amountMinor: 8900,
+        currency: 'USD',
+        exponent: 2,
+        shippingOptions: [
+          {
+            id: 'ground',
+            pricing: 'flat',
+            label: 'Ground',
+            price: { amountMinor: 500, currency: 'USD', exponent: 2 },
+            estimatedMinDays: 3,
+            estimatedMaxDays: 7,
+          },
+        ],
+      }),
+    ]);
+
+    expect(marketplaceCartShippingTotals(group, () => 'shipping')).toEqual({
+      totals: [{ amountMinor: 1000, currency: 'USD', exponent: 2 }],
+      hasCalculatedShipping: false,
+    });
+  });
+
+  it('charges priceable lines while flagging calculated lines', () => {
+    const sellerPubky = 's'.repeat(52);
+    const group = groupMarketplaceCartItems([
+      cartItem({
+        sellerPubky,
+        title: 'boots',
+        variantId: '42',
+        quantity: 1,
+        amountMinor: 1200,
+        currency: 'USD',
+        exponent: 2,
+        shippingOptions: [
+          {
+            id: 'shippo',
+            pricing: 'calculated',
+            label: 'Calculated',
+            provider: 'shippo',
+            serviceCode: 'ground',
+            estimatedMinDays: 3,
+            estimatedMaxDays: 7,
+          },
+        ],
+      }),
+      cartItem({
+        sellerPubky,
+        title: 'jacket',
+        variantId: 'm',
+        quantity: 1,
+        amountMinor: 8900,
+        currency: 'USD',
+        exponent: 2,
+        shippingOptions: [
+          {
+            id: 'ground',
+            pricing: 'flat',
+            label: 'Ground',
+            price: { amountMinor: 500, currency: 'USD', exponent: 2 },
+            estimatedMinDays: 3,
+            estimatedMaxDays: 7,
+          },
+        ],
+      }),
+    ]);
+
+    expect(marketplaceCartShippingTotals(group, () => 'shipping')).toEqual({
+      totals: [{ amountMinor: 500, currency: 'USD', exponent: 2 }],
+      hasCalculatedShipping: true,
+    });
+  });
+
+  it('charges shipping once for a quantity-two line', () => {
+    const sellerPubky = 's'.repeat(52);
+    const [group] = groupMarketplaceCartItems([
+      cartItem({
+        sellerPubky,
+        title: 'boots',
+        variantId: '42',
+        quantity: 2,
+        amountMinor: 1200,
+        currency: 'USD',
+        exponent: 2,
+        shippingOptions: [
+          {
+            id: 'ground',
+            pricing: 'flat',
+            label: 'Ground',
+            price: { amountMinor: 500, currency: 'USD', exponent: 2 },
+            estimatedMinDays: 3,
+            estimatedMaxDays: 7,
+          },
+        ],
+      }),
+    ]);
+
+    expect(marketplaceCartShippingTotals([group], () => 'shipping')).toEqual({
+      totals: [{ amountMinor: 500, currency: 'USD', exponent: 2 }],
+      hasCalculatedShipping: false,
+    });
+  });
+
   it('reports calculated shipping instead of inventing a client-side amount', () => {
     const sellerPubky = 's'.repeat(52);
     const [group] = groupMarketplaceCartItems([
