@@ -199,7 +199,7 @@
   - **Sol P3-2 → §B.8.8 copy, §B.11.4 A7, §C row 4e, §F.1.** The window is 24
     hours, so "usually within a day" is now consistent.
   - **Sol Q2 → §B.8.0 D6, §B.8.8, §B.11.4 A7.** 24-hour window; inventory held
-    through operator resolution; a stated operator SLA.
+    through seller resolution or the seven-day inactivity reaper; a stated seller-response SLA.
   - **Sol Q3 → §B.8.0 D7.** Account-key claim signing stays Wave 10; Wave 9's
     Bitkit channel is corroborated provenance, never proof.
   - **Sol Q6 → §B.8.0 D8, §F.** The minimum cutover set for the named-seller
@@ -214,7 +214,7 @@
   - **Kimi P3-2 → §B.8.8.** Entry from `detected` is deliberate and the
     confirmations check is the seller's, by design.
   - **Kimi P3-3 → §B.8.8, §B.11.4 A7.** The inventory hold persists through
-    operator resolution.
+    seller resolution.
   - **Kimi P3-4 → §B.8.7.** The seller alert fires on the mode transition only.
 - **r6 re-verification — GPT-5.6 Sol: FIX-FIRST**
   (`/tmp/btc-design-r6-sol-review.md`, 2026-09-09). Confirmed D1–D8 intact and
@@ -270,7 +270,7 @@
     Decided as **attestation-only** and said in those words: no confirmation
     floor, no re-verification, the depth disclosed and never enforced, and
     `confirmation_basis = 'seller_attestation'` on the audit row (against
-    `operator_resolution`). The cost is R5, restated rather than softened.
+    `seller_attestation` or `seller_unresponsive`). The cost is R5, restated rather than softened.
     W1.4b's resolve suite becomes table-driven over all twelve §B.9 rows with
     `observation_targets()` membership asserted before and after each.
   - **Sol P3 (confirm ordering) → §B.8.8, §F W1.15.** Authorise → idempotency
@@ -349,7 +349,7 @@
     on the order row, frozen at bind from the URL that phase-1 call actually
     went to, copied onto the resolution outbox row, and **the delivery arm dials
     the row's pinned endpoint rather than the current default** — so a seller
-    confirming after the repoint, or an operator resolving `manual_review` at any
+    confirming after the repoint, or a seller resolving `manual_review`, or the inactivity reaper resolving it, at any
     hour, still reaches the stack that issued the invoice. The readiness cache
     becomes per-endpoint, because after a repoint two endpoints are in play.
     **(b)** §C.16 gains **condition 7**: no order in `awaiting_seller_confirmation`
@@ -359,13 +359,13 @@
     rollback so that repointing is step 4 and *deleting the service* is a later,
     separately gated step 6. The count moves from six to seven in §C.16's
     boundary sentence and table, §E's drain row, §E's findings row, and W3b's
-    brief. The operator `manual_review` resolution's delivery mechanism is
+    brief. The seller/manual-inactivity resolution delivery mechanism is
     stated where §B.9 defines it: same outbox, same 1-hour deadline, same
-    twelve-row mapping, `confirmation_basis = 'operator_resolution'`, and no
+    twelve-row mapping, `resolution_basis = 'seller_attestation'`, and no
     inline call. The **26 h arithmetic is scoped rather than corrected**: it
-    bounds conditions 1–6 against seller confirmations, operator resolutions have
-    no creation clock at all, and condition 7 is therefore stated as a condition
-    cleared by operator action rather than as a duration. New matrix row **A11**
+    bounds conditions 1–6 against seller confirmations and the seven-day inactivity reaper; seller resolutions have
+    no creation clock before that reaper, and condition 7 is therefore stated as a condition
+    cleared by seller action or automatically after seven days rather than as a duration. New matrix row **A11**
     is the post-repoint resolution; F14 now drives the pin in **both**
     directions, because r7's test proved only that a misdelivery is caught and
     not that a delivery which should still succeed is not destroyed.
@@ -386,37 +386,38 @@
     §F W1.15.** Condition 7 is the exact empty-set predicate: zero orders pinned
     to the old stack in `awaiting_seller_confirmation` or `manual_review`.
     The reaper transitions an elapsed seller window to `manual_review`; closing a
-    window is never an alternative to resolving the order. Retention remains
-    unbounded while unresolved `manual_review` work exists and is cleared only by
-    operator action.
+    window is never an alternative to resolving the order. Retention lasts until seller resolution or the seven-day inactivity reaper clears
+    `manual_review`; the two-business-day seller-response SLA alerts before that automatic exit.
   - **Sol P2 #2 (`Retry-After` can spin) → §B.8.8, §D.3 F15, §F W1.15.**
     Retry scheduling is now `min(resolve_delivery_deadline,
     max(backoff_due_at, retry_after_due_at))`; zero, near-zero, and past
     `Retry-After` values cannot undercut normal backoff, while malformed values
     still fall back to it. F15 adds those cases and a deliberate floor-removal
     anti-spin calibration.
-  - **Kimi P3 (operator `paid` under-enumerated) → §B.9, §C.16.** An operator
+  - **Kimi P3 (seller `paid` outcome under-enumerated) → §B.9, §C.16.** A seller
     resolving `manual_review` to `paid` writes a `paid_manually` resolve row with
-    `confirmation_basis = 'operator_resolution'`, using the same outbox,
-    deadline, and twelve-row mapping as every other operator resolution.
+    `resolution_basis = 'seller_attestation'`, using the same outbox,
+    deadline, and twelve-row mapping as every other seller resolution.
 - **r10 — this commit** (GPT-5.6 Terra). Folds Sol r9 P2/P3 and Kimi r9 P3
   against **r9 base `eba322569`**, without reopening D1–D8, the 24-hour window,
   the unconditional `pasted_auto` rejection, or the minimum cutover set:
-  - **Sol P2 (condition 7 column trace) → §B.8.8, §C.16, §C row 17,
+  - **Sol P2 (condition 7 column trace) → §B.8.8, §C.16, §C row 4e, §C row 17,
     §F W1.15.** The document defines `orders.paykit_request_state` as the
     Paykit lifecycle (`pending`, `detected`, `confirmed`, `preparing`,
     `awaiting_seller_confirmation`) at §B.8.8 and §B.11.2, while the existing
     late/reaper path writes `payments.state = 'manual_review'` and leaves
     `orders.paykit_request_state = 'confirmed'`. Condition 7 therefore joins
     the order's payment row and blocks either unresolved branch; the reaper's
-    two-column write and the operator-resolution exit are explicit.
+    two-column write and the seller-resolution and inactivity-reaper exits are explicit.
   - **Sol P3 (A11 outcome) → §B.11.4.** Post-repoint delivery keeps the common
     pinned-endpoint assertion, but its durable order outcome now depends on the
-    seller or operator resolution: `paid`, `refunded`, or `abandoned`.
+    seller resolution or inactivity-reaper outcome: `paid`, `refunded`, or `abandoned`.
   - **Kimi P3 (W1.15 acceptance regression) → §F W1.15, F13–F15.** r9
     condensed W1.15 and dropped the only test home for five assertions; this
     revision restores the SLA alert, seller-attestation basis, authorization
     ordering, post-repoint pin FAIL calibration, and 3600-second hold extension.
+
+- **r11 — this commit (RESHAPE).** The r10 condition-7 predicate was correct, but its sole commercial exit was not: migration `0018_remove_operator_authority.sql:1-14` says “there is no master of the marketplace” and removes master adjudication, while r10 still assigned paid/refunded/abandoned authority to service personnel. The step-back sweep classified 113 uses of that term: **58 infra** (deployment, alerting, acknowledgement and rollback) and **55 order-authority**, which are removed or reassigned here. `manual_review` now exits only through the listing seller's Bearer-session `POST /v0/orders/{id}/bitcoin/resolve` action or the seven-day inactivity reaper. The handler authorises `actor.pubky == listing.seller_pubky` before its UUID `Idempotency-Key` lookup, takes no actor/seller/txid/amount in its body, and atomically writes the outcome, audit, inventory effect and pinned `paykit.resolve` row. Seller `paid` → payment `confirmed` plus existing confirmation effects; `refunded` → payment `confirmed` plus `resolution_outcome='refunded'`, external-refund reference and `refunded_external`; `abandoned` → payment `expired`, `resolution_outcome='abandoned'` and cancel/release. The reaper uses the latter branch with `resolution_basis='seller_unresponsive'`; later resolve calls return 409 and later shipment/refund is off-ledger. The two-business-day seller-response SLA remains an alert. **Coordinator decision; owner may override before Wave 9.3 cutover:** after seven days, release the hold and record abandoned because the marketplace cannot move the seller's BTC; continuing the hold cannot obtain shipment or refund, locks seller stock, and destroys condition-7 liveness.
 
 ## Owner decisions required
 
@@ -1401,14 +1402,14 @@ alone; and §B.8.1's "recommended, not required" becomes **required for
 automatic checkout** and remains not required for onboarding.
 
 **D6 — The seller-confirmation window is 24 hours, and inventory is held
-through resolution (r6, Sol Q2).** The window is aligned with the existing
-24-hour observation tail (§B.9) rather than chosen independently, so the two
-clocks an operator has to reason about are one number. On entry to
-`awaiting_seller_confirmation` the inventory hold is extended, not expired; at 24
-hours the order routes to `manual_review` and **the inventory is not released
-automatically** — it stays held until an operator resolves it as paid, refunded
-or abandoned, under a stated **2-business-day operator SLA**. The buyer sees the
-human-review copy on day 2. Mechanism: §B.8.8.
+through resolution (r11).** The window is aligned with the existing 24-hour
+observation tail (§B.9), so the two clocks service operators monitor are one
+number. On entry to `awaiting_seller_confirmation` the inventory hold is extended,
+not expired; at 24 hours the order routes to `manual_review` and stays held while
+the seller decides. The **2-business-day seller-response SLA** alerts; at seven
+days the inactivity reaper records `abandoned`, releases the hold, and writes the
+pinned resolution row. The buyer sees the human-review copy on day 2. Mechanism:
+§B.8.8.
 
 **D7 — Account-key claim signing stays Wave 10 (r6, Sol Q3).** A BIP340
 signature by the account key is the only mechanism that converts the Bitkit
@@ -1885,7 +1886,7 @@ allocation_mode TEXT NOT NULL DEFAULT 'shared_manual'
 | Value | Automatic `paid`? | How a creator gets it |
 | --- | --- | --- |
 | `exclusive` | yes | a claim on the Bitkit watch-only channel that passes every corroborating check below |
-| `pasted_auto` | n/a — **unreachable** | **nothing.** No claim, flag, migration or operator action can set it (r6) |
+| `pasted_auto` | n/a — **unreachable** | **nothing.** No claim, flag, migration or seller action or the inactivity reaper can set it (r6) |
 | `shared_manual` | **no** — seller confirms (§B.8.8) | the default: every paste, every file import, and every claim that fails an `exclusive` check |
 
 **`pasted_auto` is rejected unconditionally (r6, Sol P1).** r5 carried it as an
@@ -2222,25 +2223,25 @@ Consequences that have to be decided rather than left to fall out:
   cannot outlive the observation that justified it by an order of magnitude, as
   r5's seven days did.
 - **At the end of that window the reaper routes the payment to
-  `manual_review`**, the existing operations path (`workers.rs:787-820`), never
+  `manual_review`**, the ordinary payment reaper (`workers.rs:787-820`), never
   to `paid` and never to a silent cancellation. Its conditional update is
   `orders.paykit_request_state = 'awaiting_seller_confirmation'` → `'confirmed'`
   plus `payments.state = 'manual_review'`; the condition makes it race the
-  seller-confirm path safely, so first committer wins. An operator then resolves
-  it with the buyer and the seller.
-- **The inventory stays held through operator resolution (Kimi P3).** Routing to
-  `manual_review` does **not** release the hold. The stock remains held until an
-  operator resolves the order as **paid, refunded or abandoned**; only that
-  resolution releases or consumes it. Releasing at routing would put a buyer who
+  seller-confirm path safely, so first committer wins. The seller then resolves
+  it, or the seven-day inactivity reaper records `abandoned`.
+- **The inventory stays held through seller resolution (Kimi P3).** Routing to
+  `manual_review` does **not** release the hold. The stock remains held until the
+  seller resolves the order as **paid, refunded or abandoned**, or the seven-day
+  inactivity reaper records `abandoned`; only those transitions release or consume it. Releasing at routing would put a buyer who
   has demonstrably paid on chain into a race with other buyers for the item they
   already paid for, which is the same failure the extended hold exists to
   prevent — one day later. The cost is stated rather than hidden: **stock can be
-  held indefinitely by an unresponsive operator**, so the hold carries an
-  explicit **operator SLA of 2 business days** from the routing to
-  `manual_review`, alerting on breach. That SLA is an operations commitment, not
-  a state transition: nothing automatic fires at the end of it, because every
-  automatic option (release the buyer's item, or mark it paid) is worse than a
-  page.
+  held by an unresponsive seller**, so the hold carries an explicit
+  **seller-response SLA of 2 business days** from routing to `manual_review`,
+  alerting on breach. At **seven days**, the inactivity reaper records
+  `abandoned`, releases the hold, and writes the pinned resolution row. The
+  marketplace cannot move the seller's BTC, so continued hold buys the buyer
+  nothing while locking the seller's stock and preventing condition-7 liveness.
 - **The §B.9 observation tail is unchanged.** The invoice still moves to
   `expired_tail` and then `expired_final` on paykit's own clock; the marketplace
   order outliving the invoice's observation window is expected here, and the
@@ -2265,8 +2266,9 @@ table is not a transition.
 | **Late first detection** — the first eligible observation arrives only in the tail, carrying `late_settlement` | **never enters this state**; `manual_review` | per the existing late path | The precedence rule above. Stated in the table too, because "the state it never reaches" is exactly the pairing an implementer fills in wrongly |
 | **Creator downgraded after the order was already `paid`** | unchanged — `paid` | consumed | A downgrade is one-way and forward-looking; there is no un-pay edge anywhere in this design (`workers.rs:862-918`). §B.11.4 A3 covers the `observing` case; this row covers the already-settled one so nobody adds a retroactive edge |
 | **Seller confirms** | `paid`, with the audit record and the fulfilment intent | consumed | The one intended exit. Conditional UPDATE, below |
-| **24-hour window elapses (the reaper)** | `orders.paykit_request_state='confirmed'`; `payments.state='manual_review'` | **held** through operator resolution | The reaper conditionally updates an elapsed order only from `awaiting_seller_confirmation`, writes `payments.state = 'manual_review'`, and leaves no later resolution row to be written before this transition; D6 and the hold rule above |
-| **Operator resolves from `manual_review`** | `paid`, `refunded` or `abandoned` | released or consumed by that resolution | The existing operations path, unchanged. It resolves the `payments.state='manual_review'` payment and writes a `paid_manually` row for a `paid` outcome with `confirmation_basis = 'operator_resolution'`; the audit trail distinguishes it from a seller confirmation because `confirmation_source` differs |
+| **24-hour window elapses (the reaper)** | `orders.paykit_request_state='confirmed'`; `payments.state='manual_review'` | **held** through seller resolution or the inactivity reaper | The reaper conditionally updates an elapsed order only from `awaiting_seller_confirmation`, writes `payments.state = 'manual_review'`, and starts the two-business-day SLA alert and seven-day inactivity clock |
+| **Seller resolves from `manual_review`** | `paid`, `refunded` or `abandoned` | released or consumed by that resolution | `POST /v0/orders/{id}/bitcoin/resolve`, authenticated as the listing seller, atomically exits `payments.state` and writes its pinned Paykit resolve row; details below |
+| **Seven days after `manual_review` entry (inactivity reaper)** | `abandoned`; `payments.state='expired'`; `resolution_outcome='abandoned'` | released | The seller did not respond. The reaper writes `resolution_basis='seller_unresponsive'`, audit/event, cancellation/release, and pinned `paykit.resolve {resolution:'abandoned'}` in one transaction. A later marketplace resolve returns 409; later shipment or refund is off-ledger between the parties |
 | **Seller confirm races the reaper** | whichever commits first; the loser gets a named precondition error | per the winner | The next paragraph |
 
 **The confirm-vs-reaper race, resolved by construction (Kimi P2).** Both the
@@ -2284,7 +2286,7 @@ fulfilment intent, outbox row) committed in the same transaction as that UPDATE:
   confirm on any other state gets — and writes no audit row and no outbox row. A
   reaper pass that affects zero rows logs and moves on; it does not retry.
 - **A seller who loses is not stuck.** The order is in `manual_review` with the
-  frozen observation attached, and the operator resolution path is the exit. The
+  frozen observation attached, and the seller-resolution endpoint or seven-day inactivity reaper is the exit. The
   error copy points there.
 - **This is tested, and it was the one race with no test** (§D.3, **F16**):
   drive the confirm and the expiry concurrently against one order and assert
@@ -2296,10 +2298,9 @@ fulfilment intent, outbox row) committed in the same transaction as that UPDATE:
 longer carries `txid` or `confirmed_amount_sats`; see the audit fields below.
 
 - **Who may call it: the seller of record for that order's listing, and nobody
-  else.** Not the buyer, not an unauthenticated caller, not an operator. An
-  operator resolving a stuck order uses the existing `manual_review` resolution
-  path, so the audit trail distinguishes a seller's confirmation from an
-  operator's intervention rather than collapsing them into one record. Any other
+  else.** Not the buyer and not an unauthenticated caller. A later seller resolution uses
+  the separate `manual_review` endpoint, so its audit record distinguishes that
+  outcome from the initial seller confirmation. Any other
   caller gets `403 not_order_seller`, and the attempt is logged.
 - **The credential, named (Kimi P2).** r5 stated the authorisation rule and left
   the credential implied. Because §C row 4e calls this "the only path in the
@@ -2397,10 +2398,10 @@ buys:
 - **The attestation is named in the audit row.** Alongside the fields below, the
   record carries **`confirmation_basis = 'seller_attestation'`** — a constant, not
   a computation — so a dispute reads "the seller asserted this" rather than
-  inferring evidentiary weight from the presence of a frozen observation. An
-  operator resolution from `manual_review` writes
-  `confirmation_basis = 'operator_resolution'` for the same reason
-  `confirmation_source` already distinguishes the two.
+  inferring evidentiary weight from the presence of a frozen observation. A seller resolution from `manual_review` writes
+  `resolution_basis = 'seller_attestation'`; the inactivity reaper writes
+  `resolution_basis = 'seller_unresponsive'`, so neither is mistaken for the
+  initial confirmation.
 - **The cost, stated:** a seller who clicks without looking produces a `paid`
   order with a complete, attributable audit trail and no payment. That is
   **residual R5** (§B.10) exactly, it is not closable by a marketplace, and the
@@ -2474,7 +2475,7 @@ testing a contract that did not exist on paper. The contract in full:
   outbox row with the `stack_id`, and **the delivery arm dials the row's pinned
   endpoint, not the current default.** The distinction is what closes §C.16
   condition 6 under future writes: a resolution row created *after* a repoint —
-  a seller confirming in the tail of their 24 h window, or an operator resolving
+  a seller confirming in the tail of their 24 h window, or an a seller resolving
   `manual_review` (§B.9) — must still reach the stack that issued the invoice,
   and the current default URL is by construction the wrong one. The endpoint is
   **trusted** in the only sense that matters here: it is the marketplace's own
@@ -2585,8 +2586,8 @@ which is what makes the transient half bounded and the totality claim true.
   `delivery_deadline_exceeded` there without a final attempt. The header changes
   *when* a retry may happen, never whether the row outlives its deadline or
   whether it can bypass backoff.
-- **The operator escape, because a stuck row must never block a rollback.** The
-  runbook (§C row 17) carries one action: an operator may terminate a **named**
+- **The infrastructure termination acknowledgement, because a stuck row must never block a rollback.** The
+  runbook (§C row 17) carries one action: an infrastructure operator may terminate a **named**
   undelivered row, which writes `terminal_unresolved` with reason
   `operator_terminated`, the operator's identity and their reason text, and
   alerts. **It does not un-pay the order, and it cannot** — there is no un-pay
@@ -2594,7 +2595,7 @@ which is what makes the transient half bounded and the totality claim true.
   above). The order stays `paid`, the audit record and the fulfilment intent
   stand, and what is discarded is paykit's copy of an outcome the marketplace
   already owns and is authoritative for. The escape exists so condition 6 is a
-  condition an operator can **clear** rather than one they can only wait on.
+  condition infrastructure staff can **acknowledge** rather than one they can only wait on.
 - **Every outcome in the table leaves the order `paid`.** The marketplace's
   record is authoritative for the money outcome (§B.9 says exactly this for
   `expired_final`), and what a terminal row loses is only paykit's audit copy of
@@ -2628,7 +2629,7 @@ which is what makes the transient half bounded and the totality claim true.
   With a 24-hour window the buyer sees this on **day 2**, which is what makes
   "usually within a day" above an honest sentence rather than one contradicted
   by a hold a week long, as r5's was (Sol P3). The item stays held for them
-  while support works it.
+  until the seller resolves it or the seven-day inactivity reaper closes it.
 - Seller, on the order awaiting their action:
   > **Check this payment in your own wallet before confirming.** Shop can see a
   > payment on the Bitcoin network, but cannot prove it came from this buyer.
@@ -2916,22 +2917,29 @@ stated explicitly because it is the case that has no obvious answer:
 - For an unknown invoice, or one in `awaiting_baseline` or `void_baseline_failed`:
   rejected with a named error, never silently accepted.
 
-**How an operator resolution actually gets here, stated because r7 never said
-(r8, Sol P2 #3 / Kimi P3-4).** An operator resolving `manual_review` to
-`paid`, `refunded` or `abandoned` does **not** call this endpoint inline. A
-`paid` resolution writes a **`paid_manually`** resolve row with
-`confirmation_basis = 'operator_resolution'`. Every outcome goes through
-**exactly the same mechanism as a seller confirmation**: one local transaction
-writes the resolution, the audit row, and a **`paykit.resolve` outbox row pinned
-to the issuing stack's `stack_id` and `paykit_stack_endpoint`** (§B.8.8).
-Delivery is retried under the **same 1-hour `resolve_delivery_deadline`**, mapped
-by the **same twelve-row response-class table**, and terminated by the same
-operator escape. There is no second delivery path and no inline call to write
-down, which is the answer to "same outbox, same deadline, same mapping?" — yes,
-all three. This matters to the rollback rather than to the money: an operator
-resolution can be written at **any** hour, so unlike a seller confirmation it is
-not bounded by the 24 h window, and §C.16's condition 7 is what bounds it
-instead.
+**How seller and inactivity resolutions get here (r11).**
+`POST /v0/orders/{id}/bitcoin/resolve` is the only peer action for a
+`manual_review` payment. It uses the marketplace Bearer session; the handler
+loads order → listing and requires `actor.pubky == listing.seller_pubky`. It
+authorises before its idempotency lookup. The body is `{outcome, reason,
+external_refund_reference?}` and carries no actor, seller, txid or amount.
+`Idempotency-Key` is a UUID stored as `resolution_id`, unique on
+`(order_id, resolution_id)`. A duplicate by that seller returns the immutable
+resolution; a different key after resolution returns 409.
+
+Every seller outcome is one local transaction: `paid` changes
+`manual_review → confirmed`, applies the existing confirmation effects, and
+writes `paid_manually`; `refunded` changes payment to `confirmed`, writes
+`resolution_outcome='refunded'`, requires the external refund reference, moves
+the order to `refunded_external`, and releases its hold; `abandoned` changes
+payment to `expired`, writes `resolution_outcome='abandoned'`, and cancels and
+releases the held order. Each writes an immutable audit/event with
+`resolution_basis='seller_attestation'` and one **`paykit.resolve`** outbox row
+pinned to the issuing `stack_id` and endpoint. The seven-day reaper performs the
+same abandoned branch with `resolution_basis='seller_unresponsive'`; it is not a
+peer decision and later resolve calls return 409. Every branch uses the same
+1-hour delivery deadline and twelve-row mapping. There is no inline call and no
+second delivery path.
 
 **`paid_manually` from every reachable state, as a table (r6, Sol P1).** r5
 defined `resolve` for `expired_tail`, `expired_final`, the invalid states and
@@ -3474,14 +3482,14 @@ payability.
 | A1 | **Claim-time scan cannot reach Electrum** | none — no creator row is written | The claim is **refused** (§B.5, unchanged), so no `allocation_mode` is assigned and no seller is silently admitted to `exclusive` on an unscanned account | An unscanned claim is exactly the P1-A condition; refusing is the r4 behaviour and r5 does not weaken it |
 | A2 | **Sentinel observation cannot reach Electrum** | mode unchanged | Detection is unavailable for that tick. **No downgrade.** The §B.7 backlog-age alert and §B.7.1 auto-hide cover a sustained outage | An Electrum blip must never become a fleet-wide downgrade; `exclusive`'s safety rests on §B.8.6's claim-time checks, not on detection (§B.8.7) |
 | A3 | **Downgrade lands while an invoice is `observing`** | `allocation_mode='shared_manual'` committed; invoice still `observing` | Automatic `paid` stops for **that** invoice too, because the transition reads the creator's current mode rather than `allocation_mode_at_creation`; the order moves to `awaiting_seller_confirmation` on the next matching observation | Protecting already-live invoices is the fail-safe direction and is the reason the extra read exists |
-| A4 | **Confirm called by anyone but the order's seller** | none | `403 not_order_seller`, logged, **no state change**, no audit row | An operator resolving a stuck order uses the `manual_review` path so the audit trail never conflates the two (§B.8.8) |
+| A4 | **Confirm called by anyone but the order's seller** | none | `403 not_order_seller`, logged, **no state change**, no audit row | An a seller resolving a stuck order uses the `manual_review` path so the audit trail never conflates the two (§B.8.8) |
 | A5 | **Confirm called on an order not in `awaiting_seller_confirmation`** | none | Named error, no state change | A seller cannot confirm an order with no observed payment; the precondition is server-side, never the buyer-supplied txid |
 | A6 | **Confirm delivered twice** (client retry) | the first confirmation record | Idempotent on order id: the same record is returned, no second fulfilment event, no second audit row | Same "effect and mark commit together" discipline as §B.11.8's outbox arm |
-| A7 | **Seller never confirms** | `awaiting_seller_confirmation` for **24 hours** (D6) | Routes to `manual_review` (`workers.rs:787-820`), never to `paid` and never to a silent cancellation. The buyer's inventory hold was extended on entry, so they do not lose the order to a 3600 s timeout while waiting for a human, and **the hold is not released at routing — it persists until an operator resolves the order as paid, refunded or abandoned**, under a 2-business-day operator SLA that alerts on breach (§B.8.8) | The buyer has demonstrably paid on chain; expiring their order, or releasing their item to another buyer one day later, would be the worst available outcomes |
+| A7 | **Seller never confirms** | `awaiting_seller_confirmation` for **24 hours** (D6) | Routes to `manual_review` (`workers.rs:787-820`), never to `paid` and never to a silent cancellation. The buyer's inventory hold was extended on entry, so they do not lose the order to a 3600 s timeout while waiting for a human, and **the hold is not released at routing — it persists until an seller resolves the order as paid, refunded or abandoned**, under a 2-business-day seller-response SLA that alerts on breach (§B.8.8) | The buyer has demonstrably paid on chain; expiring their order, or releasing their item to another buyer one day later, would be the worst available outcomes |
 | A8 | **Seller confirm races the 24-hour reaper** | whichever of the two committed first; the other changed nothing | Both are a **single conditional UPDATE on `state = 'awaiting_seller_confirmation'`** with every side effect in the same transaction, so **first committer wins**: the loser affects zero rows, writes no audit row and no outbox row, and a losing confirm returns `order_not_awaiting_confirmation`. Raced in both orderings by §D.3's **F16** | Without a stated winner an implementation that landed both would produce an order that is simultaneously `manual_review` and `paid` — a state no reader of either path would expect (Kimi P2) |
-| A9 | **`paykit.resolve` outbox row cannot be delivered** (stack torn down, the invoice unknown after a repoint, a permanent rejection from §B.9's table, a sustained transport or auth failure, or an unrecognised code) | order `paid`, audit record written, outbox row `terminal_unresolved` with the mapped reason | The confirmation stands — the marketplace's record is authoritative for the money outcome — and an **alert** fires. **Every response class has exactly one outcome and none retries without a bound (r7):** permanent rejections terminate immediately, transient ones retry until the 1-hour `resolve_delivery_deadline` and then terminate, and an operator can terminate a named row at any time. Terminal rows gate the drain until acknowledged (§C.16 condition 6) | The seller's decision and the buyer's fulfilment must not depend on a remote service being reachable; what is lost is paykit's audit copy, and losing it visibly is the whole point of the row (§B.8.8). r6's single mapped rejection left the other classes retrying forever, which deadlocked the rollback checklist — a liveness defect in the procedure that gates real money |
+| A9 | **`paykit.resolve` outbox row cannot be delivered** (stack torn down, the invoice unknown after a repoint, a permanent rejection from §B.9's table, a sustained transport or auth failure, or an unrecognised code) | order `paid`, audit record written, outbox row `terminal_unresolved` with the mapped reason | The confirmation stands — the marketplace's record is authoritative for the money outcome — and an **alert** fires. **Every response class has exactly one outcome and none retries without a bound (r7):** permanent rejections terminate immediately, transient ones retry until the 1-hour `resolve_delivery_deadline` and then terminate, and an infrastructure operator can terminate a named row at any time. Terminal rows gate the drain until acknowledged (§C.16 condition 6) | The seller's decision and the buyer's fulfilment must not depend on a remote service being reachable; what is lost is paykit's audit copy, and losing it visibly is the whole point of the row (§B.8.8). r6's single mapped rejection left the other classes retrying forever, which deadlocked the rollback checklist — a liveness defect in the procedure that gates real money |
 | A10 | **The row's pinned endpoint is answered by a different stack than the one that issued the invoice** (the address was re-bound, or a rebuilt production stack with the same `PAYKIT_STACK_ROLE` now sits behind it) | order `paid`; the row is **never sent** | Local check: the row's `stack_id` ≠ the `stack_id` that the **row's pinned endpoint** reports on `/health/ready` → `terminal_unresolved` with reason `stack_pin_mismatch` + alert. If the address was re-bound after that read, the remote check refuses the body with `stack_identity_mismatch` (409) → same terminal outcome. `stack_id` is `{role}:{instance_uuid}`, so a same-role replacement instance is a **different** identity and is caught (r7) | A role comparison would pass for a rebuilt production stack and deliver a resolution to whatever invoice happens to share that id there. The pin's value is turning a silent misdelivery into a named, alerting termination — it is not an authentication mechanism (§B.8.8) |
-| A11 | **A resolution is written *after* `PAYKIT_SERVER_URL` was repointed** (r8) — a seller confirming in the tail of their 24 h window, or an operator resolving `payments.state='manual_review'` at any hour | order outcome is **`paid`, `refunded`, or `abandoned`** as that seller or operator resolution determines; its audit record is written, and the row is **delivered to the stack that issued the invoice** | The row carries `paykit_stack_endpoint`, frozen at bind, and the delivery arm dials **that** address rather than the current default, so the identity pin passes and the resolution lands. If the old stack has already been torn down the row terminates `unknown_invoice` or on transport failure, alerting — which is why §C.16 **condition 7** retains the old stack (creation off, `activate` / `void` / `resolve` still served) until no order can still write one of these rows | In r7 this row was created after the operator had already cleared condition 6, found the default URL repointed, and terminated `stack_pin_mismatch` **outside** the acknowledgement gate — the drain certified an audit trail and then lost it one write later (Sol P2 #3). Routing by pinned address plus condition 7 is what closes condition 6 under future writes |
+| A11 | **A resolution is written *after* `PAYKIT_SERVER_URL` was repointed** (r8) — a seller confirming in the tail of their 24 h window, or an a seller resolving `payments.state='manual_review'` at any hour | order outcome is **`paid`, `refunded`, or `abandoned`** as that seller or seller resolution determines; its audit record is written, and the row is **delivered to the stack that issued the invoice** | The row carries `paykit_stack_endpoint`, frozen at bind, and the delivery arm dials **that** address rather than the current default, so the identity pin passes and the resolution lands. If the old stack has already been torn down the row terminates `unknown_invoice` or on transport failure, alerting — which is why §C.16 **condition 7** retains the old stack (creation off, `activate` / `void` / `resolve` still served) until no order can still write one of these rows | In r7 this row was created after infrastructure staff had already acknowledged condition 6, found the default URL repointed, and terminated `stack_pin_mismatch` **outside** the acknowledgement gate — the drain certified an audit trail and then lost it one write later (Sol P2 #3). Routing by pinned address plus condition 7 is what closes condition 6 under future writes |
 
 #### B.11.5 Verifying that a `prepared` invoice is unreachable by a buyer
 
@@ -3666,7 +3674,7 @@ production.
 | 4 | Fork: Electrum budget, batching, jitter, backoff, backlog alert, active genesis/tip probe, **availability auto-hide** | §B.7 and §B.7.1, including the 3-probe auto-hide with 3-probe recovery hysteresis. | Revert to the unbounded path only on the proof stack, never production. | High: a ban stops all confirmation silently and `/health/ready` currently reports Electrum without hysteresis. Without auto-hide, one Electrum outage fails every Bitcoin checkout at the bind (NEW-5). |
 | 4c | **Fork: `bitcoin_offer_available` on `/health/ready` (R3-6)** | §B.7.2 hop 1: `ReadyResponse` (`http/health.rs:19-25`) gains `bitcoin_offer_available`, `electrum_tip_height`, `electrum_tip_age_seconds`; the field folds the 3-probe hysteresis **and** the `PAYKIT_BITCOIN_CREATION_ENABLED` kill switch into one boolean so no consumer has to combine two. | Revert; the marketplace then treats a missing field as `true` and behaviour returns to fail-at-bind. | Medium. Its absence is a conversion and trust cost, never a correctness one — the bind stays fail-closed regardless (§B.7.2). |
 | 4d | **marketplace-service: two-phase client, activation outbox, availability consumer** | §B.11.2/§B.11.8 and §B.7.2 hop 2: persist `{paykit_invoice_id, paykit_stack_id, paykit_stack_endpoint, paykit_total_sats, paykit_expires_at, paykit_activation_state}` — **`paykit_stack_id` is the issuing stack's identity from phase 1 and is the anchor every later message and the resolution outbox row is checked against (r7); `paykit_stack_endpoint` is the base URL used for that phase-1 call, frozen at bind, and is the address the resolution arm dials so a resolution written after a repoint still reaches the issuing stack (r8, §C.16 condition 7)** — and commit the bind with a `paykit.activate` outbox row in **one** transaction; add the `paykit.activate` dispatch arm to `deliver_claimed`, which today `bail!`s on any non-`notification.*` kind (`workers.rs:292-294`); add `'preparing'` to the `paykit_request_state` check (`0009_payment_methods.sql:39-40`); consume `bitcoin_offer_available` with a 15 s TTL and a 60 s stale-out, and **stop returning 503** from `get_payment_config` (`payment_methods.rs:310-325`). | Revert together with step 1c. | **Highest**, jointly with 1c — this is the half that makes activation durable. A marketplace that calls `activate` inline instead of from its outbox reintroduces R3-1's window in a narrower form. |
-| 4e | **marketplace-service + client: `shared_manual` checkout and seller confirmation (§B.8.8, §C.10)** | `awaiting_seller_confirmation` on `paykit_request_state` **plus its status-only poll path** (§B.11.2); the extended inventory hold and the **24-hour** window whose reaper changes `orders.paykit_request_state` to `confirmed` and `payments.state` to `manual_review` **with the hold persisting through operator resolution**; `POST /v0/orders/{id}/confirm-bitcoin-payment` authorised to **the marketplace session whose pubky equals the order's listing's seller pubky, taken from the session and never the body**, idempotent, a **single conditional UPDATE** on the state so it cannot race the reaper, with `confirmed_txid` / `confirmed_amount_sats` **derived from the stored Paykit observation** (a disagreeing supplied value is rejected) and every audit field written in the same local transaction as the state change, the fulfilment intent, and a **stack-pinned `paykit.resolve` outbox row** delivering `paid_manually` to paykit (§B.9) — **with r7's complete response-class → outcome mapping, the 1-hour `resolve_delivery_deadline`, the `{role}:{instance_uuid}` stack-identity comparison on both ends, the operator escape, and the terminal-row acknowledgement condition 6 requires**; the endpoint's fixed operation order (authorise → idempotency lookup → conditional UPDATE, r7); `confirmation_basis = 'seller_attestation'` recorded on every seller confirmation, because the endpoint is attestation-only by decision (r7); `bitcoin_confirmation_mode` on the payment-config endpoint; the two-path onboarding chooser and the buyer/seller static copy. | Revert **together with 1d** — a reverted marketplace with `allocation_mode` still enforced leaves `shared_manual` sellers' orders with no path to paid at all, which is worse than either end state. | **Highest among the r5 items.** This is the only path in the design that marks an order paid without chain evidence, so its authorisation and audit are the whole of its safety (§B.10, R5). An unauthorised or unaudited confirm endpoint is a strictly worse defect than the residual it replaces. |
+| 4e | **marketplace-service + client: `shared_manual` checkout and seller confirmation (§B.8.8, §C.10)** | `awaiting_seller_confirmation` on `paykit_request_state` **plus its status-only poll path** (§B.11.2); the extended inventory hold and the **24-hour** window whose reaper changes `orders.paykit_request_state` to `confirmed` and `payments.state` to `manual_review` **with the hold persisting through seller resolution or the seven-day inactivity reaper or the inactivity reaper**; `POST /v0/orders/{id}/confirm-bitcoin-payment` authorised to **the marketplace session whose pubky equals the order's listing's seller pubky, taken from the session and never the body**, idempotent, a **single conditional UPDATE** on the state so it cannot race the reaper, with `confirmed_txid` / `confirmed_amount_sats` **derived from the stored Paykit observation** (a disagreeing supplied value is rejected) and every audit field written in the same local transaction as the state change, the fulfilment intent, and a **stack-pinned `paykit.resolve` outbox row** delivering `paid_manually` to paykit (§B.9) — **with r7's complete response-class → outcome mapping, the 1-hour `resolve_delivery_deadline`, the `{role}:{instance_uuid}` stack-identity comparison on both ends, the infrastructure termination acknowledgement, and the terminal-row acknowledgement condition 6 requires**; the endpoint's fixed operation order (authorise → idempotency lookup → conditional UPDATE, r11); `POST /v0/orders/{id}/bitcoin/resolve` for seller-only `manual_review` outcomes plus the seven-day `seller_unresponsive` reaper; `confirmation_basis = 'seller_attestation'` recorded on every seller confirmation, because the endpoint is attestation-only by decision (r7); `bitcoin_confirmation_mode` on the payment-config endpoint; the two-path onboarding chooser and the buyer/seller static copy. | Revert **together with 1d** — a reverted marketplace with `allocation_mode` still enforced leaves `shared_manual` sellers' orders with no path to paid at all, which is worse than either end state. | **Highest among the r5 items.** This is the only path in the design that marks an order paid without chain evidence, so its authorisation and audit are the whole of its safety (§B.10, R5). An unauthorised or unaudited confirm endpoint is a strictly worse defect than the residual it replaces. |
 | 4b | Fork: Payment Request expiry, tail observation, resolve endpoint | §B.9: `expires_at` required on `POST /v0/payment-requests` and set into `proposal_expires_at` (`create_payment_request.rs:230`); `expired_tail` → `expired_final` with a 24 h tail; `late_settlement` observations; `POST /v0/invoices/{id}/resolve`. | Revert; but note the §C.16 drain boundary reverts with it and becomes unsafe again. | **Critical.** Without it a delivered Payment Request is payable forever and the rollback drain strands buyers (NEW-3). |
 | 5 | Fork: Bitcoin creation kill switch | §C.16. | Revert. | High if absent — see P1-D and §C.16. |
 | 6 | Rails repo: configurable network and cadence | `entrypoint.sh:150` → `network = "${PAYKIT_BITCOIN_NETWORK:-regtest}"`, validated against `mainnet\|testnet\|signet\|regtest` and failing closed; `:154` → `poll_interval = "${PAYKIT_ELECTRUM_POLL_INTERVAL:-1s}"`; add `PAYKIT_STACK_ROLE` and `PAYKIT_BITCOIN_CREATION_ENABLED`. Defaults leave the existing service unchanged. Update the header comment at `:14-16`. | `git revert`; defaults unchanged. | Low while the defaults hold. A typo'd network reaches `BitcoinNetwork::parse` and the server refuses to boot (`config.rs:61`) — fails closed. |
@@ -3681,7 +3689,7 @@ production.
 | 15 | Hold window and confirmation floor | Leave `FIAT_PAYMENT_WINDOW_SECONDS` unset (3600 s). `LOCKS_PAYKIT_MIN_CONFIRMATIONS` does nothing here (correction #2). If Q3 is answered "2 confirmations", that is a fork change at `invoices.rs:702-707` plus a status-contract note, landed with step 1. | n/a | Low if left alone; the danger is believing a variable did something it did not. |
 | 16 | Bitcoin creation kill switch and drain-safe rollback (P1-D, NEW-3, restated in r4 for two-phase) | `PAYKIT_BITCOIN_CREATION_ENABLED` (default `true`). When `false`, **phase 1** (`POST /v0/payment-requests`) refuses with `bitcoin_creation_disabled` and the marketplace bind fails cleanly; `bitcoin_offer_available` goes `false` in the same field the checkout already reads (§B.7.2), so Shop hides Bitcoin rather than failing at the bind. **`activate` and `void` keep working** — refusing them would strand exactly the `prepared` invoices this switch is trying to drain. The observer keeps polling every existing mainnet invoice. Rollback order, exactly: (1) set it `false` on the mainnet service and redeploy; (2) confirm Shop no longer offers Bitcoin at checkout (`bitcoin_offer_available: false` on the payment-config endpoint, not by eyeballing the page); (3) **drain to the restated boundary — see below**; (4) only then repoint `PAYKIT_SERVER_URL` and redeploy; (5) announce; **(6) leave the old stack running, creation-disabled but still serving `activate` / `void` / `resolve`, and tear it down only when §C.16's condition 7 holds (r8)** — repointing is step 4 and deleting the service is a separate, later decision, because post-repoint resolutions are routed to the old stack's pinned endpoint (§B.8.8). | The kill switch is itself the rollback. | **Highest.** This is the difference between a reversible cutover and lost buyer money. |
 
-| 17 | Docs | `pubky-payment-rails/README.md` (env sections `:121`, `:134`, pinned revisions); `pubky-payment-rails/docs/wallet-leg.md:37-40` (not an `mp-oneauth` path) becomes network-specific; `mp-oneauth/docs/ecommerce/status.md:7` and `:150` ("Could this take real money today?" now answers **yes**, with the review waiver stated in the owner's words); `runbook-production.md` gains a Bitcoin-rail section carrying §C.16 verbatim plus the failover endpoint, **the §B.7.1 auto-hide behaviour and its alerts** (so an operator paged at 3 a.m. knows Bitcoin hiding itself is the designed response, not the incident), and **the §B.9 drain boundary with its ~26 h worst case** stated in hours rather than implied (~25 h if the operator uses the condition-6 escape — §C.16), **plus the two condition-6 operator actions (r7): acknowledging a `terminal_unresolved` row, and terminating a named undelivered `paykit.resolve` row, with the sentence that neither un-pays the order** (§B.8.8), **plus condition 7's exact old-stack-pinned empty-set predicate: `NOT EXISTS (SELECT 1 FROM orders o LEFT JOIN payments p ON p.order_id = o.id WHERE o.paykit_stack_id = :old_stack_id AND (o.paykit_request_state = 'awaiting_seller_confirmation' OR p.state = 'manual_review'))`; the reaper changes `o.paykit_request_state` to `confirmed` and `p.state` to `manual_review`, and only operator resolution clears the query. Retention is unbounded while that unresolved work exists — waiting never clears it. At 3 a.m., repointing is safe at just over 26 h, but deleting the old service is safe only when this query returns empty**; `HANDOFF.md` loses "Money rails remain test networks". | Revert. | Low mechanically. High if skipped: the runbook is what an operator reads at 3 a.m., and r2's runbook would have told them to drain in an hour. |
+| 17 | Docs | `pubky-payment-rails/README.md` (env sections `:121`, `:134`, pinned revisions); `pubky-payment-rails/docs/wallet-leg.md:37-40` (not an `mp-oneauth` path) becomes network-specific; `mp-oneauth/docs/ecommerce/status.md:7` and `:150` ("Could this take real money today?" now answers **yes**, with the review waiver stated in the owner's words); `runbook-production.md` gains a Bitcoin-rail section carrying §C.16 verbatim plus the failover endpoint, **the §B.7.1 auto-hide behaviour and its alerts** (so an operator paged at 3 a.m. knows Bitcoin hiding itself is the designed response, not the incident), and **the §B.9 drain boundary with its ~26 h worst case** stated in hours rather than implied (~25 h if the infrastructure staff uses the condition-6 acknowledgement — §C.16), **plus the two condition-6 infrastructure actions (r7): acknowledging a `terminal_unresolved` row, and terminating a named undelivered `paykit.resolve` row, with the sentence that neither un-pays the order** (§B.8.8), **plus condition 7's exact old-stack-pinned empty-set predicate: `NOT EXISTS (SELECT 1 FROM orders o LEFT JOIN payments p ON p.order_id = o.id WHERE o.paykit_stack_id = :old_stack_id AND (o.paykit_request_state = 'awaiting_seller_confirmation' OR p.state = 'manual_review'))`; the reaper changes `o.paykit_request_state` to `confirmed` and `p.state` to `manual_review`, and only seller resolution or the seven-day inactivity reaper clears the query. Retention lasts until seller resolution or the seven-day inactivity reaper clears it. At 3 a.m., repointing is safe at just over 26 h, but deleting the old service is safe only when this query returns empty**; `HANDOFF.md` loses "Money rails remain test networks". | Revert. | Low mechanically. High if skipped: the runbook is what an operator reads at 3 a.m., and r2's runbook would have told them to drain in an hour. |
 | 18 | **Production cutover — owner sign-off gate** | Only after §D's proofs (MAINNET-NEG, D.2-S, D.2-B, REGTEST-POS), W3 Kimi SHIP, W3b and W3c SHIP, and Q3, Q4, Q8, Q9 and Q10 answered. Add the production Shop origin to `PAYKIT_SETUP_ALLOWED_ORIGINS`; set `PAYKIT_SERVER_URL` on production `marketplace-service` and redeploy; set `PUBKY_RUNTIME_PAYKIT_SETUP_URL` on Vercel and redeploy. | §C.16, then both variables back to the regtest service. Independently, `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=unavailable` remains the whole-rail kill switch (`runbook-production.md`). | **Highest.** Real funds from here. Every production seller must re-claim; a seller who does not re-claim sees Bitcoin unavailable rather than losing money (`payment_methods.rs:570-585` refuses the bind). |
 | 19 | Bitkit | **Revised in r5: no change is needed to *take a payment*, but three are needed to make `exclusive` honest. Size: S–M per app.** Unchanged and still true: users already hold mainnet Bitkit, it already uses `ssl://bitkit.to:9999`, it already accepts `btc-bitcoin-p2wpkh`, and the whole allocation primitive already exists — durable `highest + 1` reservation, account-xpub export, addresses revealed through 999, the 84-byte claim payload, and backup **and** restore of both the account records and the allocation state with a `max` merge (§B.8.0's citations). The three asks are lifecycle and recovery surfaces, not new cryptography: **(1) Shop-exclusive naming and status** — the reserved account is labelled as Shop's and shows its status, so a seller cannot casually reuse it or wonder what it is; **(2) a post-restore warning** — after a restore, name the account Shop is watching and warn if allocation state did **not** come back, which is the one condition that turns §B.8.5's invariant into residual R3. **Both restore strings are fixed copy specified in §B.8.8 and asserted against a snapshot (r6, Sol P2)**, as are the downgrade alert and each of the five named downgrade reasons — r5 described these three surfaces without specifying their words, which for the one surface that warns a seller their allocation state is gone is the difference between a warning and a placeholder; **(3) a migration / re-claim surface** — the seller-initiated path to a fresh Shop account, which is how a seller recovers from a §B.8.7 downgrade or a lost allocation state (§B.8.6 has no edit that moves a creator into `exclusive`). All three must be real and tested; none is a prerequisite for taking a mainnet payment, so they gate general availability rather than the W5 canary. | Revert the UI; the allocation primitive underneath is untouched, so a revert loses the warnings, not the reservation. | Medium. Absent, `exclusive` still works but its two named failure modes — silent account reuse and a restore that lost allocation state — reach the seller only as a false paid, which is the outcome §B.8.5 exists to prevent. |
 | 20 | `SANDBOX_PAYMENTS_ENABLED` interplay | **Leave staging `true`.** `payment.sandbox_advance` refuses any payment whose `adapter != "sandbox"` (`handlers/payment.rs:60-65`) and binding Bitcoin sets `paykit` (`payment_methods.rs:593`). The residual risk is a sandbox-advance **before** any rail is bound, so every §D harness asserts `payments.adapter == 'paykit'` immediately after the bind and before any status assertion; with two-phase, the adapter is already `paykit` throughout `preparing` while nothing is published, so the dangerous overlap is gone (§B.11.7). Side effect: `true` disables local pickup on staging (`lib.rs:76`, `handlers/pickup.rs:70`), so the proofs use **shipping** listings. | n/a | Low, given the adapter gate. Worth a runbook line because the flag's name suggests more reach than it has. |
@@ -3799,7 +3807,7 @@ seventh (Sol P2 #3)** — each with the check the runbook carries:
 | 3 | No invoice in `expired_tail`; `observation_targets()` returns empty | paykit-server |
 | 4 | No order in `paykit_activation_state = 'preparing'` — the marketplace's activation outbox has drained (§B.11.8) | **marketplace-service** |
 | 5 | No `awaiting_entitlement` paykit payments | marketplace-service |
-| 6 | **No undelivered `paykit.resolve` outbox row** for this stack — every seller confirmation's `paid_manually` has reached the stack that issued the invoice, **or** is `terminal_unresolved` **with an operator acknowledgement recorded against it** (r7). Termination is never inferred from silence: it is either one of §B.8.8's mapped rejection classes, the 1-hour `resolve_delivery_deadline`, or the operator escape | **marketplace-service** |
+| 6 | **No undelivered `paykit.resolve` outbox row** for this stack — every seller confirmation's `paid_manually` has reached the stack that issued the invoice, **or** is `terminal_unresolved` **with an operator acknowledgement recorded against it** (r7). Termination is never inferred from silence: it is either one of §B.8.8's mapped rejection classes, the 1-hour `resolve_delivery_deadline`, or the infrastructure termination acknowledgement | **marketplace-service** |
 | 7 | **No order can still create a resolution row pinned to this stack** (r10) — the exact empty-set predicate is `NOT EXISTS (SELECT 1 FROM orders o LEFT JOIN payments p ON p.order_id = o.id WHERE o.paykit_stack_id = :old_stack_id AND (o.paykit_request_state = 'awaiting_seller_confirmation' OR p.state = 'manual_review'))`. The join examines the order's payment row: `manual_review` is `payments.state`, not a `paykit_request_state`. Every elapsed seller window must first change `o.paykit_request_state` to `confirmed` and `p.state` to `manual_review`, and every matching order must then be resolved before this condition holds. This is the only condition that is not about rows that exist; it is about rows that can still be written, and it is what keeps the old stack retained rather than torn down | **marketplace-service** (the query is over orders and their payment rows, not outbox rows) |
 
 **r5 said there was no sixth condition; r6 adds exactly one, and it is not the
@@ -3838,20 +3846,20 @@ true, all specified in §B.8.8:
    rejection terminates with an alert. No class retries indefinitely.
 2. **A 1-hour `resolve_delivery_deadline`** terminates any row still retrying,
    regardless of class. That is the only wall-clock this condition adds.
-3. **The operator escape** lets an operator terminate a named row immediately,
+3. **The infrastructure termination acknowledgement** lets an operator terminate a named row immediately,
    with their identity and reason recorded, so a rollback is never blocked by a
    row that is going to terminate anyway. It does **not** un-pay the order.
 
-So condition 6 is clearable at any moment by an operator, and self-clearing
-within one hour of the last confirmation without one. What it costs is the
-acknowledgement step: a `terminal_unresolved` row is a real money outcome paykit
-does not know about, and an operator has to write down what they did about it
+So condition 6 is clearable at any moment by infrastructure acknowledgement,
+and self-clearing within one hour of the last confirmation without one. What it
+costs is the acknowledgement step: a `terminal_unresolved` row is a real money
+outcome paykit does not know about, and infrastructure staff record their action
 before repointing. That is deliberate — the alternative is a drain that counts
 rows and loses the audit trail §C row 4e calls "the whole of its safety".
 
 **Condition 6 was not closed under future writes, which is why r8 adds condition
 7 (Sol P2 #3, Kimi P3-4).** Condition 6 quantifies over rows that **exist** at
-the moment the operator checks it. Two writers can create a new one *after* that
+the moment infrastructure staff check it. Two writers can create a new one *after* that
 check has passed, and r7 contained both of them without noticing:
 
 - A **seller confirmation**. `awaiting_seller_confirmation` deliberately does not
@@ -3859,15 +3867,14 @@ check has passed, and r7 contained both of them without noticing:
   those sellers "can still confirm them" after the repoint, because the confirm
   endpoint is marketplace-side. Each such confirm writes a fresh
   `paykit.resolve` row pinned to the **old** stack.
-- An **operator resolution** of `manual_review` to `paid`, `refunded` or
-  `abandoned` (§B.9). A `paid` resolution writes `paid_manually` with
-  `confirmation_basis = 'operator_resolution'`; all three use the same outbox,
-  deadline and mapping — and no window at all: an operator can write one at any
-  hour.
+- A **seller resolution** of `manual_review` to `paid`, `refunded` or
+  `abandoned` (§B.9), or the seven-day inactivity reaper's `abandoned` branch.
+  Each uses the same outbox, deadline and mapping; seller action may happen before
+  the reaper, while the reaper guarantees the final writer.
 
 In r7 both rows then found the default URL repointed, failed the local pin
 comparison, and terminated `stack_pin_mismatch` — **outside** the acknowledgement
-gate that condition 6 exists to impose, since the operator had already cleared
+gate that condition 6 exists to impose, since infrastructure staff had already acknowledged
 condition 6 and moved on. The drain therefore certified an audit trail it went on
 to lose, quietly, which is exactly the defect condition 6 was added to prevent,
 one write later.
@@ -3884,18 +3891,17 @@ Two mechanisms close it, and they have to be taken together:
    `activate` / `void` / `resolve` still served — until the exact empty-set query
    in the table above returns no `awaiting_seller_confirmation` or
    `manual_review` order pinned to it. The reaper first moves an elapsed seller
-   window into `manual_review`; only operator resolution clears it. Only then is
+   window into `manual_review`; only seller resolution or the seven-day inactivity reaper clears it. Only then is
    tearing the stack down safe.
 
-Condition 7 is stated as a **condition rather than a duration** on purpose,
-because unlike conditions 1–6 it has no wall clock that bounds it in the general
-case: an order sitting in `manual_review` waits on a human, and a human has no
-deadline. Retention is therefore unbounded while unresolved `manual_review`
-work exists. What it does have is the exact empty-set query an operator can run
-and an escape they already have — resolving those orders is the only action that
-clears them, and each resolution's row then terminates or delivers inside the
-1-hour deadline. The honest statement is that **condition 7 is clearable by
-operator action, not by waiting**, and §C.17's runbook says so next to its query.
+Condition 7 is stated as a condition with a **seven-day upper bound**. Before
+that, a `manual_review` order waits for seller action; at seven days the
+inactivity reaper writes the `seller_unresponsive` abandoned outcome, releases
+its hold, and enqueues its pinned resolution row. Retention lasts until seller
+resolution or that reaper; each resulting row delivers or terminates inside the
+one-hour deadline. The exact empty-set query is therefore not cleared merely by
+waiting for the 24-hour seller-confirmation window; it clears by the seller
+resolution or the seven-day inactivity outcome, and §C.17's runbook carries both.
 
 Condition 4 is the one r3 could not have had, and it is the reason the drain
 check now **spans both services**: an operator who only queries paykit can see a
@@ -3913,7 +3919,7 @@ invoices condition 1 is waiting on. **Condition 6 adds at most the 1-hour
 conditions 2–3 bound, and its row terminates at most one hour later. So the
 honest fully-automatic worst case is **just over 26 hours** — 1 h hold window +
 24 h §B.9 tail + 1 h resolution-delivery deadline — where r3's was just over 25 h
-and r6 claimed condition 6 was free. With the operator escape used, it is back to
+and r6 claimed condition 6 was free. With the infrastructure termination acknowledgement used, it is back to
 just over 25 h, because the escape clears condition 6 immediately.
 
 **What the 26 hours does and does not bound, corrected in r8 (Sol P2 #3, Kimi
@@ -3925,19 +3931,17 @@ to be said, because the two writers condition 7 exists for are outside it:
   to `awaiting_seller_confirmation` requires a non-late observation, so the last
   one an order can produce lands inside conditions 2–3's window; +24 h window
   +1 h deadline is the just-over-26 h figure.
-- **Operator resolutions are not bounded by any clock.** An operator can resolve
-  `manual_review` at any hour, and that write creates a resolution row (§B.9).
-  Its *delivery* is bounded — the same 1-hour deadline — but its *creation* is
-  bounded only by condition 7. So the fully-automatic worst case for **condition
-  7** is not a number: it is "until those orders are resolved", plus one hour for
-  the last row to deliver or terminate.
+- **Seller resolutions may occur before the reaper.** A seller can resolve
+  `manual_review` at any hour before day seven; that write creates a resolution row
+  (§B.9). Its delivery is bounded by the same 1-hour deadline. If no seller acts,
+  the seven-day inactivity reaper creates the `abandoned` row, so condition 7
+  completes no later than that reaper plus one hour for delivery or termination.
 
-Stated as one sentence an operator can act on: **repointing is safe at just over
+Stated as one sentence for infrastructure staff: **repointing is safe at just over
 26 hours; tearing the old stack down is safe only when condition 7's query
 returns empty**, and those are two different moments. §C.17's runbook carries all
 seven as a checklist with the query for each and all three numbers — 26 h, 25 h
-with the escape, and condition 7's "no clock, operator action" — stated rather
-than implied, because an operator draining at 3 a.m. will not re-derive them and
+with the escape, and condition 7's seven-day reaper bound — stated rather than implied, because an operator draining at 3 a.m. will not re-derive them and
 should not discover the difference by deleting a service.
 
 ---
@@ -4375,7 +4379,7 @@ failing in the intended direction** before the mode it protects is trusted.
   stated outcome — every permanent rejection terminating on the first response
   with **zero** further attempts, every transient one retrying and then
   terminating at the 1-hour `resolve_delivery_deadline`, an unrecognised code
-  terminating as `unmapped_resolve_error`, and the operator escape terminating a
+  terminating as `unmapped_resolve_error`, and the infrastructure termination acknowledgement terminating a
   named row on demand. **All twelve rows in r8, including the `408` / `425` /
   `429` row and `Retry-After` honoured as a backoff floor under the deadline
   clamp** — drive a `429` with a `Retry-After` longer than the remaining deadline
@@ -4532,7 +4536,7 @@ least once, and not before Q9 is answered.
 | **Seller wallet and paykit-server are independent allocators** (Sol NEW-2) | A busy seller shares one account between their wallet and Shop; the wallet's counter reaches an index paykit already assigned to a live invoice; an unrelated customer pays it | **Succeeds against r2.** Harm: **the seller ships an item a Shop buyer never paid for.** r3 called the residual ≈10⁻³; **Sol's R3-2 refuted that arithmetic and r4 replaces it** — at the shipped 1 h live window a busy pasted-xpub seller carries `E ≈ 6 × 10⁻²` events per exposed-seller-month, `P(any) ≈ 6%` (§B.8.4). | Both defences (§B.8.3), with the load-bearing one inverted in r4 after the 08:39 owner decision: **(b)** exact-amount matching plus a CSPRNG nonce in `[1,999]` is the mechanism, because it needs no seller cooperation; **(a)** a Bitkit-issued Shop-exclusive account drives `N = 0` and is the recommended default, not a requirement. Plus the baseline (§B.4.1), the composed first-tick rule (§B.4.6), and the fingerprint binding (§B.8.5). Q9 is decided: paste stays, and the number above is what the owner accepted. |
 | **Seller restores the Shop account seed into a third-party wallet** | Deliberate act against written guidance; the other wallet allocates from the Shop account | **Not closed. Residual R2** (§B.10). (a) is an invariant over Bitkit, not over the seed. | §C.10 copy states, in one sentence, that using the account elsewhere can mark an order paid when nobody paid and the seller ships for free; bounded by the nonce at the §B.8.4 rate with `r` set to that wallet's receive rate; requires deliberate action. Named rather than claimed closed. |
 | **paykit publishes a payable request before the marketplace commits its bind** (Sol **R3-1**, P1) | The marketplace calls paykit before its own commit (`payment_methods.rs:713-759`) and paykit queues both outbox rows on commit (`invoices.rs:1023-1040`); then a crash, a lost response, or a failed local commit | **Succeeds against r3, and it is the worst outcome in this document:** a valid published mainnet Payment Request exists for an order that stays `adapter='sandbox'`, which the poller never claims (`workers.rs:721-758`). A buyer pays real money and gets no confirmation, no expiry, and no `manual_review` — silently orphaned funds. Needs no adversary. | **Two-phase prepare/activate (§B.11).** Phase 1 allocates, baselines, mints the nonce and returns the total with the outbox rows written `status='prepared'` — invisible to the delivery worker, whose claim query selects only `'queued'`/`'leased'`/`'retryable'` (`outbox.rs:196-206`). The marketplace commits its bind and a `paykit.activate` outbox row in one transaction. Signed idempotent activation releases publication. Unpayability while `prepared` is traced to the SDK private-message path and Bitkit's ingestion in §B.11.5, and driven as NEG-6 with a mandatory negative calibration that shows r3's build leaking the request to the buyer's wallet. |
-| **A prepared invoice is activated after the operator believes the rollback drain finished** | Rollback drains on r3's boundary ("every delivered request expired or final"), which says nothing about `prepared` invoices or an undrained marketplace activation outbox | Would publish a brand-new payable request **after** `PAYKIT_SERVER_URL` was repointed — the NEW-3 orphan, recreated through the new path. | §C.16's boundary is restated to **seven** conditions (r8 — r7 said six; r6 added the sixth and that revision's row still said five) including "no invoice in `prepared`", "no order in `paykit_activation_state='preparing'`", "no undelivered or unacknowledged `paykit.resolve` row", and **"no order that can still create a resolution row pinned to this stack" (condition 7)** — the last three checked on the **marketplace** side. `activate`/`void` deliberately keep working while the creation kill switch is on, so the drain can complete, and the old stack is **retained** past the repoint so post-repoint resolutions still route to it (§B.8.8). Worst case just over 26 h fully automatic for conditions 1–6, just over 25 h with the condition-6 escape; condition 7 has no clock and is cleared by resolving the orders, in the runbook as a checklist with a query per condition. |
+| **A prepared invoice is activated after the operator believes the rollback drain finished** | Rollback drains on r3's boundary ("every delivered request expired or final"), which says nothing about `prepared` invoices or an undrained marketplace activation outbox | Would publish a brand-new payable request **after** `PAYKIT_SERVER_URL` was repointed — the NEW-3 orphan, recreated through the new path. | §C.16's boundary is restated to **seven** conditions (r8 — r7 said six; r6 added the sixth and that revision's row still said five) including "no invoice in `prepared`", "no order in `paykit_activation_state='preparing'`", "no undelivered or unacknowledged `paykit.resolve` row", and **"no order that can still create a resolution row pinned to this stack" (condition 7)** — the last three checked on the **marketplace** side. `activate`/`void` deliberately keep working while the creation kill switch is on, so the drain can complete, and the old stack is **retained** past the repoint so post-repoint resolutions still route to it (§B.8.8). Worst case just over 26 h fully automatic for conditions 1–6, just over 25 h with the condition-6 escape; condition 7 is bounded by the seven-day inactivity reaper, in the runbook as a checklist with a query per condition. |
 | **Exact replay reports success for an invoice that was reaped or voided** (Sol **R3-5**) | `create_payment_request.rs:129-142` → `invoices.rs:363-427` returns `replayed: true` without inspecting lifecycle state | The marketplace would commit a bind against an invoice that can never be activated, and the order would sit `preparing` until its hold expired with no diagnosis. | State-inspecting replay (§B.11.6): `prepared` and `observing` return the same body; `awaiting_baseline` waits inside the request deadline; all three void states and `expired_final` return a **named 409, never a success**. NEG-6 asserts all three void states, not one. |
 | **The marketplace records the pre-nonce total** (Sol **R3-3**) | paykit mints the nonce but `POST /v0/payment-requests` returns 204 (`http/payment_requests.rs:42-51`), so the marketplace keeps its own `amount_sats` | The buyer is charged and shown one figure while the wallet is asked for another; under the exact predicate the order can never confirm, so every Bitcoin order silently fails. | Phase 1 returns 200 with `{nonce_sats, total_sats, …}` and the marketplace persists `paykit_total_sats` (§B.11.3). Belt and braces: `activate` echoes `total_sats` and paykit refuses with `activation_total_mismatch` on disagreement, so the two services cannot diverge quietly — driven as NEG-6 row #9. |
 | **Wallet allocation reset reissues the Shop account** (Sol **R3-4**) | Wipe or reinstall with no successful backup restore, or a restore from a snapshot predating the reservation; the wallet then reserves account 1 again | r3 claimed the reservation is "never reissued" globally; **that is false as written** — `WatchOnlyAccountStore.kt:86-89` + `WipeWalletUseCase.kt:57-72`, `WatchOnlyAccountService.swift:250-252` + `AppReset.swift:45-49`. | Partly closed, partly quantified (§B.8.5). Verified in the seller's favour: both wallets back up and restore the high-water mark and iOS merges with `max()` (`BackupRepo.kt:592-599`, `:715-719`; `WatchOnlyAccountService.swift:125-166`), so the common restore path preserves it. The cross-seller variant is closed outright by the paykit-server `claimed_key_fingerprints` binding. The wallet's own reuse needs four conditions to coincide and is **residual R3**, bounded by the same nonce and disclosed in the post-restore UI. |
@@ -4542,7 +4546,7 @@ least once, and not before Q9 is answered.
 | **Attacker who learned the xpub dusts a sentinel to disable a seller's automatic checkout** (r5, R4) | The xpub, and one confirmed output at or above the configured threshold to any of the 20 sentinel indices | **Succeeds, by design.** `allocation_mode` flips to `shared_manual` and that seller loses automatic confirmation. The classification rule cannot distinguish this from a genuine second allocator — that is the dust caveat and it is inherent to inferring an allocator from chain traffic (§B.8.7). | Bounded to a **priced denial, not a false payment**: no order is paid, no seller ships, checkout keeps working with seller confirmation. The attacker needs the xpub, which the buyer never sees (§A step 7) and which paykit stores sealed (`invoices.rs:660-671`). The minimum value and hit count are config with a calibration test (F11), so the price is adjustable without a code change; the seller is alerted and re-claims to a fresh account (§B.8.6, F12). §B.8.9 removes the inference entirely. Named as **R4** rather than treated as closed. |
 | **Seller pastes a fresh empty account and asserts the Bitkit claim channel** (r5) | A modified or scripted client submitting `claim_channel = bitkit_watch_only_v1` with an empty account xpub at index ≥ 1 whose index agrees with the key | **Passes every check in §B.8.6**, because the 84-byte payload is a wire encoding and carries no signature — there is nothing for the server to verify. The seller obtains automatic checkout on an account Bitkit does not manage. | Stated in §B.8.6 rather than papered over. Bounded: the account is empty at claim time, so §B.8.4's `r` is that account's own future receive rate, not a busy wallet's; the seller has self-selected and carries the harm themselves; detection (§B.8.7) is what notices if it starts receiving; and the disclosure (§C.10) is rendered on the manual path regardless. **The only real fix is §B.8.9's account-key signature**, which is precisely why D4 records Option 2 as the target rather than as an enhancement. |
 | **Seller marks an order paid without checking their wallet** (r5, R5) | `shared_manual`; a seller who clicks through | **Succeeds, and Shop fulfils on their word.** The `shared_manual` path removes the *automatic* false-paid transition; it does not remove the possibility of a wrong confirmation, it relocates it to a human. | Not closable by a marketplace — it cannot audit a seller's own wallet. Bounded and attributed: the confirm endpoint requires the seller's own identity and records who, when, txid, reason and paykit's frozen observation state (§B.8.8), so a mistaken confirmation is attributable rather than anonymous; the copy says in the imperative to check the wallet first and states Shop cannot prove the payment came from this buyer; the exact-amount nonce makes the check a single equality; and the seller bears fulfilment and refund risk in any case, because a watch-only rail can neither spend nor refund (§B.3). Named as **R5**. |
-| **Buyer supplies a txid to push their own order through** (r5) | `shared_manual`; a buyer who reports a plausible txid | **Fails.** The confirm endpoint is authorised to the order's seller only (`403 not_order_seller`), gates on server-side observation state, and never reads `buyer_reported_txid` as a precondition. The field is recorded and shown to the seller as unverified evidence and nothing more. | §B.8.8's authorisation and preconditions; proven by F13 (three unauthorised callers, plus the wrong-state call) and F15 (a recorded buyer txid changes no state). Operator intervention deliberately uses the separate `manual_review` path so the audit trail never conflates an operator with a seller. |
+| **Buyer supplies a txid to push their own order through** (r5) | `shared_manual`; a buyer who reports a plausible txid | **Fails.** The confirm endpoint is authorised to the order's seller only (`403 not_order_seller`), gates on server-side observation state, and never reads `buyer_reported_txid` as a precondition. The field is recorded and shown to the seller as unverified evidence and nothing more. | §B.8.8's authorisation and preconditions; proven by F13 (three unauthorised callers, plus the wrong-state call) and F15 (a recorded buyer txid changes no state). The separate seller-resolution path preserves an audit record distinct from the initial seller confirmation. |
 | Server child index 0 collides with wallet-used addresses | `next_child_index DEFAULT 0` on a used account | **Closed by §B.5** — the scan starts above the last used index plus a gap buffer. | Also a privacy and Electrum-cost fix. Refuse the claim if Electrum is unreachable; never default to 0. |
 | Creation-height protection vs a historical PASS | Both cannot be true | Acknowledged as mutually exclusive; the floor ships and the proof is redesigned around it (§D), not the reverse. | r1 chose the proof; r2 chooses the product. |
 | Deny-list vs the harness claim | W1.4 denies the exact key the proof must claim | Resolved by `stack_role` as a deployment invariant (§B.6), not by a code bypass. | A production database cannot boot with `role=proof`; a CI test asserts both directions. |
@@ -4615,7 +4619,7 @@ for the marketplace two-phase work, **implementation tier** for client surfaces,
 | W1.12 | **Client: hide Bitcoin at checkout when unavailable (§B.7.2 hop 3, R3-6)** | `mp-oneauth` worktree, independent of W1.8 | implementation tier | W1.11 | Component tests: the Bitcoin option is not rendered when `bitcoin_offer_available` is `false`, and is rendered when both flags are true; the copy is the static string and interpolates **no** operator state (asserted against a snapshot, so a future edit cannot leak a tip height or endpoint name); a seller with no other rail falls through to the existing no-rail empty state rather than a new surface; VRT regenerated if a baseline exists for the checkout surface |
 | W1.13 | **Fork: creator `allocation_mode` and the claim-channel checks (§B.8.6, D1/D2)** — the column and its check constraint, `claim_channel` on the claim request, the four corroborating checks, downgrade-with-a-reason rather than refusal, `allocation_mode_not_enabled`, and the authenticated seller status fields | same fork tree, serialized after W1.3 | **Kimi** (it decides which sellers get automatic money confirmation) | W1.3 | `cargo test -p paykit-server` → a paste is `shared_manual`; a `bitkit_watch_only_v1` claim at index ≥ 1, index-agreeing, scan-clean and fingerprint-free is `exclusive`; each of `account_index = 0`, an index disagreeing with the key's hardened child number, and any scan history **downgrades with a named reason and does not refuse**, the reason being one of §B.8.8's five fixed identifiers; **`pasted_auto` is refused with `allocation_mode_not_enabled` unconditionally — asserted across every accepted configuration, with no enabling flag existing (r6, Sol P1); the r5 assertion "accepted only with the flag explicitly set" is deleted, and a test asserting acceptance is a regression**; there is no code path that edits a creator into `exclusive`; the seller status endpoint returns mode, channel, downgrade reason and evidence to the authenticated seller and 403s for anyone else. **Scope for the canary: `exclusive` and `shared_manual` only** (D8) |
 | W1.14 | **Fork: sentinel detection, evidence records, and the automatic-`paid` gate (§B.8.7, D3)** — creator-level sentinel targets scheduled **inside the §B.7 30 s tick** (re-scan at most every 10 min per creator; **no second cadence**), a **global sentinel token budget** subordinate to live targets, `exclusive`-only admission, a 1 h `sentinel_max_age` freshness SLO with its own age alert, durable evidence rows, the **single downgrade predicate**, the unassigned re-check **under the creator allocation lock**, atomic downgrade, **one** seller alert on the transition, and the confirmation gate reading the creator's **current** mode | same fork tree, serialized after W1.13 | **Kimi** | W1.13, W1.4b | `cargo test -p paykit-server` → an output satisfying the predicate on a never-assigned sentinel downgrades atomically and writes an evidence row; **under-, over- and late payment to an assigned address route that invoice to `manual_review` and leave the mode unchanged** (asserted after all three, not one); the mode survives restart and is read from the database at the transition; a downgrade landing on an already-`observing` invoice stops that invoice's automatic `paid` (matrix row A3); a sentinel-scan Electrum failure downgrades **nothing**; both predicate thresholds behave as configured **in both directions** and a mempool-only output never qualifies; **a candidate whose index is assigned to an invoice before the scan commits is discarded as `superseded_by_assignment` and downgrades nothing** (F11's race twin), **and — new in r7 — the same assertion with the assignment attempted *while the scan holds the creator allocation row*, over two overlapping real database transactions, asserting the allocator blocks or the scanner observes the committed assignment, so the test cannot pass against an in-memory repository** (Sol P3, Kimi P3); **repeat post-downgrade hits write evidence rows and raise no second alert**; a `shared_manual` creator is not admitted to the sentinel set; sentinel work draws only from the sentinel token bucket, never defers a live target, and does not breach the 1,000/tick cap or 5 req/s; the sentinel-age alert fires when the oldest admitted creator exceeds `sentinel_max_age` and does **not** gate creation. **Gates general availability, not the canary** (D8) |
-| W1.15 | **marketplace-service: `shared_manual` checkout and the seller-confirm endpoint (§B.8.8, D2)** — `awaiting_seller_confirmation` with status-only polling, extended inventory hold, a 24-hour window whose reaper changes `orders.paykit_request_state` to `confirmed` and `payments.state` to `manual_review`, seller authorisation, observation-derived audit fields, and a stack-pinned `paykit.resolve` outbox | `marketplace-service` worktree, serialized after W1.11 | **Kimi** (money path) | W1.11, W1.13, W1.4b, W1.1c, W1.3, and this slice's resolution outbox | `cargo test -p marketplace-service` → verify seller confirmation is authorised **before the idempotency lookup**, idempotent, atomic with audit/fulfilment/outbox writes, observation-derived, records `confirmation_basis = 'seller_attestation'`, and never automatically advances a `shared_manual` order; verify late settlement and the confirm/reaper race. Assert the 3600-second hold is extended on entry, not expired, and that an SLA-breach alert fires two business days after the reaper writes `payments.state = 'manual_review'`. Drive every §B.8.8 response-class row: permanent rejections terminate; transient rows retry under the 1-hour deadline; 401/403 alerts; the operator escape and acknowledgement gate work; a pin mismatch sends no request; and no case un-pays the order. For `429`/`503`, schedule valid `Retry-After` as `min(resolve_delivery_deadline, max(backoff_due_at, retry_after_due_at))`; `0`, near-zero and past-date values preserve `backoff_due_at`, malformed falls back to backoff, and the deadline clamp remains. **FAIL calibration:** remove the floor, return `Retry-After: 0`, and demonstrate repeated claims before normal backoff is due. Bind against A, repoint to B, and assert both seller confirmation and operator `payments.state = 'manual_review'` resolution route only to A; force delivery through current-default B to show `stack_pin_mismatch` outside the acknowledgement gate, then restore pinned-A routing. An operator `paid` resolution writes `paid_manually` with `confirmation_basis = 'operator_resolution'`. Finally assert condition 7 is exactly `NOT EXISTS (SELECT 1 FROM orders o LEFT JOIN payments p ON p.order_id = o.id WHERE o.paykit_stack_id = :old_stack_id AND (o.paykit_request_state = 'awaiting_seller_confirmation' OR p.state = 'manual_review'))`: it blocks before and after a seller window elapses (because the reaper changes the payment row to `manual_review`) and returns empty only after every matching order is resolved. **In the minimum cutover set** (D8) |
+| W1.15 | **marketplace-service: `shared_manual` checkout, seller-confirm, and seller-resolution paths (§B.8.8, D2)** — `awaiting_seller_confirmation` with status-only polling, extended inventory hold, a 24-hour window whose reaper changes `orders.paykit_request_state` to `confirmed` and `payments.state` to `manual_review`, seller authorisation, observation-derived audit fields, and a stack-pinned `paykit.resolve` outbox | `marketplace-service` worktree, serialized after W1.11 | **Kimi** (money path) | W1.11, W1.13, W1.4b, W1.1c, W1.3, and this slice's resolution outbox | `cargo test -p marketplace-service` → verify seller confirmation is authorised **before the idempotency lookup**, idempotent, atomic with audit/fulfilment/outbox writes, observation-derived, records `confirmation_basis = 'seller_attestation'`, and never automatically advances a `shared_manual` order; verify late settlement and the confirm/reaper race. Assert the 3600-second hold is extended on entry, not expired, and that an SLA-breach alert fires two business days after the reaper writes `payments.state = 'manual_review'`. Drive every §B.8.8 response-class row: permanent rejections terminate; transient rows retry under the 1-hour deadline; 401/403 alerts; the infrastructure termination acknowledgement and acknowledgement gate work; a pin mismatch sends no request; and no case un-pays the order. For `429`/`503`, schedule valid `Retry-After` as `min(resolve_delivery_deadline, max(backoff_due_at, retry_after_due_at))`; `0`, near-zero and past-date values preserve `backoff_due_at`, malformed falls back to backoff, and the deadline clamp remains. **FAIL calibration:** remove the floor, return `Retry-After: 0`, and demonstrate repeated claims before normal backoff is due. Bind against A, repoint to B, and assert both seller confirmation and seller `payments.state = 'manual_review'` resolution route only to A; force delivery through current-default B to show `stack_pin_mismatch` outside the acknowledgement gate, then restore pinned-A routing. A seller `paid` resolution writes `paid_manually` with `resolution_basis = 'seller_attestation'`. Finally assert condition 7 is exactly `NOT EXISTS (SELECT 1 FROM orders o LEFT JOIN payments p ON p.order_id = o.id WHERE o.paykit_stack_id = :old_stack_id AND (o.paykit_request_state = 'awaiting_seller_confirmation' OR p.state = 'manual_review'))`: it blocks before and after a seller window elapses (because the reaper changes the payment row to `manual_review`) and returns empty only after every matching order is resolved. Add three seller-resolution positive cases (`paid`, `refunded`, `abandoned`) and three duplicate-`Idempotency-Key` cases: each asserts one immutable resolution/audit/event/outbox row, its exact payment/order/hold result, and that condition 7 remains false until condition 6 governs the row. Buyer and unrelated-seller calls to `/bitcoin/resolve` return 403 before idempotency lookup. Drive the inactivity reaper at seven days: it records `seller_unresponsive`, takes the abandoned/release branch, writes one pinned outbox row, and a later resolve returns 409. **FAIL calibration:** omit the payment-state update and assert condition 7 rejects the otherwise-resolved order. **In the minimum cutover set** (D8) |
 | W1.16 | **Client: two-path seller onboarding and the `shared_manual` buyer/seller surfaces (§C.10, §B.8.8, §B.7.2)** — the side-by-side path chooser, `bitcoin_confirmation_mode` consumption, the buyer's pre-pay and awaiting-confirmation copy, the seller's confirm surface, and the post-downgrade arrival path | `mp-oneauth` worktree, serialized after W1.8b | implementation tier | W1.8b, W1.15 | Component tests: both paths render side by side and neither is styled as broken or provisional; the manual path still renders the §C.10 one-sentence disclosure (the W1.8b assertion, unchanged); `bitcoin_confirmation_mode: "seller"` renders the buyer's pre-pay copy and does **not** hide Bitcoin; the awaiting-confirmation copy renders on the order; **every string is asserted against a snapshot and interpolates no server-supplied value** — no address, amount, txid, tip height or seller name (the house rule, asserted so a later copy pass cannot start interpolating); the seller confirm surface renders the check-your-wallet imperative; arriving at the chooser from a downgrade alert reads sensibly rather than as onboarding; **the downgrade alert and each of the five named downgrade reasons render §B.8.8's fixed copy, asserted against a snapshot** (r6, Sol P2); **the 24-hour window's day-2 human-review copy renders and is consistent with "usually within a day"**. **In the minimum cutover set** (D8) |
 | W1.17 | **Bitkit: Shop-exclusive naming and status, post-restore warning, re-claim surface (§C row 19, D1)** — lifecycle and recovery UI over the allocation primitive that already exists | `bitkit-android` and `bitkit-ios`, one agent per tree | implementation tier per app; **deep reasoning** for the post-restore warning's wording, because it is the surface that tells a seller their allocation state did not come back | W1.13 | Per app: the reserved account is labelled and shows status; a restore that recovered allocation state names the watched account, and a restore that did **not** raises the warning (both directions, driven against the real backup/restore path — `BackupRepo.kt:711-729`, `BackupService.swift:210-219` — not a mocked one); **both restore strings are the fixed copy in §B.8.8 and are asserted against a snapshot** (r6, Sol P2), interpolating no wallet- or server-supplied value; the re-claim surface produces a claim byte-identical to the first-claim path for a fresh reserved account; **size S–M per app**, and none of the three gates the W5 canary — they gate **general availability** (D8) |
 | W10 | **Wave 10 — Option 2 signed reservation pools (§B.8.9)** | Bitkit ×2 (**L** each), `paykit-server-fork` (**L**) | **Kimi** throughout — it is account-key signing, encrypted publication and a money path | r5 shipped and measured | **Not this wave.** Recorded so the sequencing is explicit: exclusive Bitkit now, signed pools next, third-party plugins later, detection throughout. Its proof strategy and its full negative-test list are in §B.8.9 and must be planned from there rather than re-derived |
@@ -4631,7 +4635,7 @@ for the marketplace two-phase work, **implementation tier** for client surfaces,
 | W4 | **Owner sign-off** | — | — | W3 SHIP + W3b SHIP + W3c SHIP + all proofs | Owner answers Q3, Q4, Q8 and Q10 in writing, having read §B.8.4's table, §B.10 and §D.4. Q9 is already answered (08:39); **r5 narrows rather than reverses it (§B.8.0, Q14), so W4 must put the narrowing in front of the owner explicitly** — paste is still accepted and still lands in Paykit data, but it now confirms manually, and the 6% bound the owner accepted at 08:39 is the price of `pasted_auto`, which r6 makes **unreachable** — rejected unconditionally, with no flag (§B.8.6). The owner's decision at W4 is whether to leave it that way; re-widening requires a **separately approved design revision**, not a variable, and is taken against §B.8.4's table rather than against a summary of it. **W4 must also sign off the minimum cutover set (D8)** — that the canary is one named `exclusive` seller and that W1.14 and W1.17 gate general availability instead |
 | W5 | Production stack, cutover (§C.18), **named-seller `exclusive`-only canary** (§D.4, D8) | operator (parent) + commerce team | parent-only | W4 + **the minimum cutover set below** | Production boot line shows `role=production` and digest `== D`; **one named** real seller re-claims **through the Bitkit Shop-account flow** and lands in `exclusive` (asserted on the creator row, not inferred), confirms the address in their wallet, one real payment completes end to end at the exact nonce'd total and is spendable, and one order is left to expire and is confirmed unpayable in the buyer's wallet |
 
-**W1.15 r9 acceptance amendments.** Its delivery tests must schedule a valid
+**W1.15 r9 amendments, r10 predicate revision.** Its delivery tests must schedule a valid
 `Retry-After` as `min(resolve_delivery_deadline,
 max(backoff_due_at, retry_after_due_at))`: `0`, near-zero, and past-date values
 must not run before `backoff_due_at`; malformed values still fall back to normal
@@ -4644,9 +4648,9 @@ p.order_id = o.id WHERE o.paykit_stack_id = :old_stack_id AND
 'manual_review'))`: an elapsed seller window is first reaped by changing
 `o.paykit_request_state` to `confirmed` and `p.state` to `manual_review`, and
 the query returns empty only after every matching order is resolved, never merely
-because its seller window closed. The operator-resolution case includes `paid`:
+because its seller window closed. The seller-resolution case includes `paid`:
 it writes `paid_manually` with
-`confirmation_basis = 'operator_resolution'`, then follows the same outbox,
+`resolution_basis = 'seller_attestation'`, then follows the same outbox,
 deadline, and twelve-row mapping.
 
 Parent duties, never delegated: commits, all remote git and GitHub writes,
@@ -4694,7 +4698,7 @@ and it requires exactly this and nothing more:
 | --- | --- |
 | r4's correctness perimeter — W1.1, W1.1b, **W1.1c**, W1.2, W1.3, W1.4, W1.4c, **W1.4b**, W1.5, W1.6, W1.7, W1.8, W1.8b, W1.10, W1.11, W1.12 | Unchanged from r4. These are the money-correctness and rollback mechanisms; none is an allocation-mode item |
 | **W1.13**, scoped to `exclusive` and `shared_manual` only | It decides which sellers get automatic confirmation, which is the whole of D1 |
-| **W1.15**, including the durable stack-pinned resolution outbox — **and, in r7, that outbox's complete termination mapping, its 1-hour delivery deadline, its operator escape, and the `stack_id` contract the pin compares against** | The canary's seller is `exclusive`, but a downgrade mid-canary lands them in `shared_manual` with no path to paid unless this exists (§C row 4e's revert coupling, in the forward direction). The r7 additions are in the set for a separate reason: without them §C.16's condition 6 can deadlock, and condition 6 is on the checklist that gates the rollback of a real-money cutover |
+| **W1.15**, including the durable stack-pinned resolution outbox — **and, in r7, that outbox's complete termination mapping, its 1-hour delivery deadline, its infrastructure termination acknowledgement, and the `stack_id` contract the pin compares against** | The canary's seller is `exclusive`, but a downgrade mid-canary lands them in `shared_manual` with no path to paid unless this exists (§C row 4e's revert coupling, in the forward direction). The r7 additions are in the set for a separate reason: without them §C.16's condition 6 can deadlock, and condition 6 is on the checklist that gates the rollback of a real-money cutover |
 | **W1.16** static buyer and seller surfaces | The copy is the only thing that tells a buyer their paid order is waiting on a human, and a seller what they are being asked to check |
 | The **live mode contract**, captured from a real phase-1 response | Phase 1's `allocation_mode` field must be pinned from a captured response, not retyped (`contract-faithful-tests`) |
 | **State-transition and authorization tests** — F13, F14, F15, **F16**, and §B.8.8's transition table driven end to end | The confirm endpoint is the only path that marks an order paid without chain evidence |
@@ -4765,11 +4769,11 @@ P2 — Kimi verified the money-at-risk path as self-harm only and Sol recorded t
 Wave 9 stance as corroborated provenance (D7) — so the question is now scoped to
 "acceptable until Wave 10?" rather than open. **Second, §B.8.8's window and
 extended hold** — r6 sets the window to **24 hours**, aligned with the §B.9
-observation tail, and holds inventory through operator resolution under a
+observation tail, and holds inventory through seller resolution or the inactivity reaper under a
 2-business-day SLA (D6). The alignment removes the arbitrariness Sol objected to
 in r5's seven days, but the SLA is still an operations commitment rather than a
 mechanism, and a sixth reviewer should attack **that**: what actually happens to
-held stock when the operator misses it. **Third, whether
+held stock when the seller does not respond. **Third, whether
 `shared_manual` is a product or a dead end**: a path where every order needs a
 human is fine for a canary and corrosive at scale, so the reviewer should check
 that §B.8.9 is genuinely scheduled rather than a place to put the problem. The
@@ -4864,7 +4868,7 @@ here and recorded so the decision is reviewable.
 - **Q15 — the seller-confirmation window, the inventory hold, the claim-signing
   wave, and the minimum cutover set. DECIDED 2026-09-09, recorded as §B.8.0
   D6–D8.** In one line each: the window is **24 hours**, aligned with §B.9's
-  observation tail, and inventory is held through operator resolution under a
+  observation tail, and inventory is held through seller resolution or the inactivity reaper under a
   2-business-day SLA rather than released at routing; **account-key claim signing
   stays Wave 10**, so Wave 9's Bitkit channel is corroborated provenance and
   never proof; and the **minimum cutover set** for the named-seller
