@@ -154,6 +154,48 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.binding).toEqual(ACTIVE);
   });
 
+  it('passes the three typed backup words to confirmBackup', async () => {
+    const phrase = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.create.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Pubchi',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase,
+    });
+    mocks.confirm.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Pubchi',
+      createdAt: 1,
+      backupConfirmedAt: 2,
+      verified: true,
+    });
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    await act(async () => {
+      result.current.form.setValue(ENROLL_FORM_FIELDS.DISPLAY_NAME, 'Pubchi');
+      await result.current.submit();
+      result.current.openBackup();
+    });
+
+    const words = phrase.split(' ');
+    const positions = result.current.backupPositions;
+    await act(async () => {
+      result.current.backupForm.setValue('wordOne', words[positions[0]!]!);
+      result.current.backupForm.setValue('wordTwo', words[positions[1]!]!);
+      result.current.backupForm.setValue('wordThree', words[positions[2]!]!);
+      await result.current.confirmBackup();
+    });
+
+    expect(mocks.confirm).toHaveBeenCalledWith({
+      phrase,
+      confirmations: positions.map((position) => ({ position, word: words[position] })),
+    });
+  });
+
   it('reconciles an existing remote Pubchi when create returns PUBCHI_ALREADY_EXISTS', async () => {
     mocks.reconcile.mockResolvedValueOnce(undefined).mockResolvedValueOnce(ACTIVE);
     mocks.create.mockRejectedValue(

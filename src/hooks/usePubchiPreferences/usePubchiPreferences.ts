@@ -22,12 +22,17 @@ export function usePubchiPreferences() {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    void PubchiController.loadPubchiConfig()
-      .then((config) => {
+    void Promise.all([
+      PubchiController.loadPubchiConfig(),
+      typeof PubchiController.loadPubchi === 'function' ? PubchiController.loadPubchi() : Promise.resolve(undefined),
+    ])
+      .then(([config, bot]) => {
         if (!active || !config) return;
         form.reset({
-          display_name: config.display_name,
-          language: ['en', 'es', 'de', 'fr', 'pt'].includes(config.language) ? (config.language as PubchiPreferencesFormData['language']) : 'en',
+          display_name: bot?.displayName ?? config.display_name,
+          language: ['en', 'es', 'de', 'fr', 'pt'].includes(config.language)
+            ? (config.language as PubchiPreferencesFormData['language'])
+            : 'en',
           summary_length: config.summary.length,
           include_sources: config.summary.include_sources,
           include_disagreement: config.summary.include_disagreement,

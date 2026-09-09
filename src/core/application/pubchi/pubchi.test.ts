@@ -43,7 +43,14 @@ vi.mock('@/libs/pubchi/device-key', () => {
   const get = async () => {
     const { key } = await deviceKeyPromise;
     const now = Math.floor(Date.now() / 1000);
-    return { key, signer, id: `test:${signer}`, owner: 'owner', created_at: now - 24 * 60 * 60, expires_at: now + 10 * 24 * 60 * 60 };
+    return {
+      key,
+      signer,
+      id: `test:${signer}`,
+      owner: 'owner',
+      created_at: now - 24 * 60 * 60,
+      expires_at: now + 10 * 24 * 60 * 60,
+    };
   };
   return {
     DEVICE_DELEGATION_REFRESH_SECONDS: 3 * 24 * 60 * 60,
@@ -397,7 +404,8 @@ describe('PubchiApplication', () => {
 
   it('allows enrollment when the session has root /:rw', async () => {
     sessionIdentity.capabilities = ['/:rw'];
-    const requestSpy = vi.spyOn(HomeserverService, 'request')
+    const requestSpy = vi
+      .spyOn(HomeserverService, 'request')
       .mockRejectedValueOnce(notFoundError())
       .mockResolvedValue(undefined);
     await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).resolves.toMatchObject({
@@ -446,7 +454,8 @@ describe('PubchiApplication', () => {
       created_at: Math.floor(Date.now() / 1000) - 24 * 60 * 60,
       expires_at: 2_000_000_000,
     }));
-    const requestSpy = vi.spyOn(HomeserverService, 'request')
+    const requestSpy = vi
+      .spyOn(HomeserverService, 'request')
       .mockRejectedValueOnce(notFoundError())
       .mockResolvedValue(undefined);
 
@@ -985,17 +994,37 @@ describe('PubchiApplication', () => {
     } as const;
     const request = vi.mocked(HomeserverService.request);
     request.mockReset();
-    request.mockResolvedValueOnce(config).mockResolvedValueOnce(undefined).mockResolvedValueOnce({
-      ...config,
-      summary: { ...config.summary, length: 'long' },
-      updated_at: Math.floor(Date.now() / 1000),
+    const bot = {
+      schema: 'pubchi-bot',
+      version: 1,
+      bot: BOT,
+      owner: OWNER,
+      display_name: 'Existing name',
+      created_at: 1,
+      backup_confirmed_at: null,
+      homeserver_account: null,
+      key_generation: 1,
+    };
+    let configReads = 0;
+    request.mockImplementation(async ({ method, url }) => {
+      if (method === HttpMethod.GET && url.endsWith('/config.json')) {
+        configReads += 1;
+        return configReads === 1
+          ? config
+          : { ...config, summary: { ...config.summary, length: 'long' }, updated_at: Math.floor(Date.now() / 1000) };
+      }
+      if (method === HttpMethod.GET && url.endsWith('/bot.json')) return bot;
+      if (method === HttpMethod.GET) return config;
+      return undefined;
     });
 
-    await expect(PubchiApplication.savePubchiConfig(OWNER, { summary: { ...config.summary, length: 'long' } })).resolves.toMatchObject({
+    await expect(
+      PubchiApplication.savePubchiConfig(OWNER, { summary: { ...config.summary, length: 'long' } }),
+    ).resolves.toMatchObject({
       display_name: 'Existing name',
       summary: { length: 'long' },
     });
-    expect(request.mock.calls[1]?.[0].method).toBe('PUT');
+    expect(request.mock.calls.some(([input]) => input.method === HttpMethod.PUT)).toBe(true);
   });
 
   it('does not put when the initial config get fails', async () => {

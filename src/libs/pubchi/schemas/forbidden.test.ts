@@ -8,6 +8,12 @@ const fixtures = import.meta.glob('./__fixtures__/forbidden/*.json', {
 }) as Record<string, unknown>;
 
 describe('scanForbiddenPublicState', () => {
+  it('rejects secret-shaped public values', () => {
+    expect(scanForbiddenPublicState('sk-abcdefghijklmnopqrstuvwxyz')).toEqual({
+      ok: false,
+      code: 'FORBIDDEN_SECRET',
+    });
+  });
   it('matches the service verdict encoded by every shared fixture filename', () => {
     for (const [path, fixture] of Object.entries(fixtures)) {
       const expected = path.match(/__([A-Z_]+)__/)?.[1];

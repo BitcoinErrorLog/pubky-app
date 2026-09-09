@@ -142,17 +142,25 @@ export class PubchiApplication {
       existing = null;
     }
     const now = Math.floor(Date.now() / 1000);
+    const currentBot = await readBotIfPresent(owner);
+    if (!currentBot) throw pubchiValidationError('BOT_MISMATCH', 'savePubchiConfig');
+    const requestedDisplayName = partial.display_name?.trim();
+    const displayName = requestedDisplayName ?? currentBot.display_name;
     const candidate = {
       ...(existing ?? defaultPubchiConfig(owner, binding.bot, now)),
       ...partial,
       owner,
       bot: binding.bot,
+      display_name: displayName,
       updated_at: now,
     };
     const parsed = parsePubchiConfigV1(candidate);
     if (!parsed.ok) throw pubchiValidationError(parsed.code, 'savePubchiConfig');
     const forbidden = scanForbiddenPublicState(candidate);
     if (!forbidden.ok) throw pubchiValidationError(forbidden.code, 'savePubchiConfig');
+    if (displayName !== currentBot.display_name) {
+      await putAndVerifyBot(owner, { ...currentBot, display_name: displayName }, currentBot);
+    }
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: parsed.value });
     const readBack = await this.loadPubchiConfig(owner);
     if (!readBack || !deepEqual(readBack, parsed.value)) {
@@ -290,10 +298,7 @@ export class PubchiApplication {
     if (!pointer) return undefined;
     const binding = await readOwnerBindingIfPresent(owner, pointer.bot);
     await tombstoneUnreferencedRemoteBindings(owner, pointer.bot, false);
-    const verified =
-      binding?.bot === pointer.bot &&
-      binding.owner === pointer.owner &&
-      binding.status === 'active';
+    const verified = binding?.bot === pointer.bot && binding.owner === pointer.owner && binding.status === 'active';
     if (verified && binding) {
       await replaceLocalActiveBinding(binding);
       await refreshPublishedDelegation(owner);
@@ -552,7 +557,7 @@ export class PubchiApplication {
     await PubchiApplication.unpublishKnownDelegations(owner, { attemptRemote: true, includeLocalKeys: false });
 
     const local = await LocalPubchiBindingService.readActive(owner);
-    if (!local) return undefined;
+    if (!local) return findLegacyActiveBinding(owner);
 
     const uri = ownerBindingUri(owner, local.bot);
     let present: boolean;
@@ -659,10 +664,7 @@ async function putAndVerifyOwnerBinding(owner: string, candidate: OwnerBindingV1
   await readAndVerifyOwnerBinding(owner, candidate);
 }
 
-async function readAndVerifyOwnerBinding(
-  owner: string,
-  candidate: OwnerBindingV1,
-): Promise<void> {
+async function readAndVerifyOwnerBinding(owner: string, candidate: OwnerBindingV1): Promise<void> {
   const parsed = parseOwnerBindingV1(
     await HomeserverService.request({
       method: HttpMethod.GET,
@@ -674,10 +676,7 @@ async function readAndVerifyOwnerBinding(
   }
 }
 
-async function tryReadOwnerBinding(
-  url: string,
-  candidate: OwnerBindingV1,
-): Promise<boolean> {
+async function tryReadOwnerBinding(url: string, candidate: OwnerBindingV1): Promise<boolean> {
   try {
     const parsed = parseOwnerBindingV1(await HomeserverService.request({ method: HttpMethod.GET, url }));
     return parsed.ok && sameOwnerBinding(parsed.value, candidate);
@@ -769,6 +768,22 @@ async function tombstoneUnreferencedRemoteBindings(
   }
 }
 
+async function findLegacyActiveBinding(owner: string): Promise<OwnerBindingV1 | undefined> {
+  try {
+    const files = await HomeserverService.listAll({ baseDirectory: ownerBindingsUri(owner) });
+    for (const file of files) {
+      const match = file.match(/\/bots\/([^/]+)\.json$/);
+      const bot = match?.[1];
+      if (!bot || !isPubkyId(bot)) continue;
+      const binding = await readOwnerBindingIfPresent(owner, bot);
+      if (binding?.status === 'active' && binding.owner === owner && binding.bot === bot) return binding;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 async function tombstoneBindingIfActive(owner: string, bot: string, now: number): Promise<void> {
   const remote = await readOwnerBindingIfPresent(owner, bot);
   if (!remote || remote.status !== 'active') return;
@@ -811,10 +826,7 @@ async function deleteAndVerifyMissing(url: string, operation: string): Promise<v
   throw pubchiValidationError('SCHEMA_INVALID', operation);
 }
 
-function sameOwnerBinding(
-  left: OwnerBindingV1,
-  right: OwnerBindingV1,
-): boolean {
+function sameOwnerBinding(left: OwnerBindingV1, right: OwnerBindingV1): boolean {
   return (
     left.schema === right.schema &&
     left.version === right.version &&
@@ -827,10 +839,7 @@ function sameOwnerBinding(
   );
 }
 
-function sameBot(
-  left: PubchiBotV1,
-  right: PubchiBotV1,
-): boolean {
+function sameBot(left: PubchiBotV1, right: PubchiBotV1): boolean {
   return (
     left.schema === right.schema &&
     left.version === right.version &&
@@ -844,10 +853,7 @@ function sameBot(
   );
 }
 
-function sameDelegation(
-  left: DeviceDelegationV1,
-  right: DeviceDelegationV1,
-): boolean {
+function sameDelegation(left: DeviceDelegationV1, right: DeviceDelegationV1): boolean {
   return (
     left.owner === right.owner &&
     left.signer === right.signer &&
@@ -1037,7 +1043,10 @@ function deepEqual(left: unknown, right: unknown): boolean {
   const leftRecord = left as Record<string, unknown>;
   const rightRecord = right as Record<string, unknown>;
   const keys = Object.keys(leftRecord);
-  return keys.length === Object.keys(rightRecord).length && keys.every((key) => key in rightRecord && deepEqual(leftRecord[key], rightRecord[key]));
+  return (
+    keys.length === Object.keys(rightRecord).length &&
+    keys.every((key) => key in rightRecord && deepEqual(leftRecord[key], rightRecord[key]))
+  );
 }
 
 function sessionCanWritePubchi(owner: string): boolean {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -8,13 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
 import { Input } from '@/atoms/Input/Input';
 import { Label } from '@/atoms/Label/Label';
 import { RadioGroup, RadioGroupItem } from '@/atoms/RadioGroup/RadioGroup';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/atoms/Select/Select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 
 export const PUBCHI_BRAIN_PANEL_SURFACE = 'pubchi-brain-panel';
@@ -50,21 +44,28 @@ function isSafeEndpoint(endpoint: string) {
 }
 
 export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving = false }: PubchiBrainPanelProps) {
+  const [draft, setDraft] = useState<PubchiBrainChoice>(value);
   const [endpointError, setEndpointError] = useState(false);
-  const isSelfHosted = value.execution === 'self-hosted';
+  const isSelfHosted = draft.execution === 'self-hosted';
+
+  useEffect(() => {
+    setDraft(value);
+    setEndpointError(false);
+  }, [value]);
 
   function selectExecution(execution: string) {
     if (saving) return;
     if (execution === 'synonym-hosted') {
+      setDraft(PUBCHI_HOSTED_BRAIN);
       void onChange(PUBCHI_HOSTED_BRAIN);
       setEndpointError(false);
       return;
     }
-    void onChange({
+    setDraft({
       execution: 'self-hosted',
-      provider_id: 'openai-compatible',
-      model_id: '',
-      endpoint: '',
+      provider_id: value.execution === 'self-hosted' ? value.provider_id : 'openai-compatible',
+      model_id: value.execution === 'self-hosted' ? value.model_id : '',
+      endpoint: value.execution === 'self-hosted' ? value.endpoint : '',
     });
   }
 
@@ -72,32 +73,20 @@ export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving
     const valid = endpoint.length === 0 || isSafeEndpoint(endpoint);
     setEndpointError(!valid);
     if (valid) {
-      void onChange({
-        execution: 'self-hosted',
-        provider_id: value.execution === 'self-hosted' ? value.provider_id : 'openai-compatible',
-        model_id: value.execution === 'self-hosted' ? value.model_id : '',
-        endpoint,
-      });
+      setDraft((current) => (current.execution === 'self-hosted' ? { ...current, endpoint } : current));
     }
   }
 
   function changeProvider(provider_id: 'openai-compatible' | 'ollama') {
-    void onChange({
-      execution: 'self-hosted',
-      provider_id,
-      model_id: value.execution === 'self-hosted' ? value.model_id : '',
-      endpoint: value.execution === 'self-hosted' ? value.endpoint : '',
-    });
+    setDraft((current) => (current.execution === 'self-hosted' ? { ...current, provider_id } : current));
   }
 
   function changeModel(model_id: string) {
-    void onChange({
-      execution: 'self-hosted',
-      provider_id: value.execution === 'self-hosted' ? value.provider_id : 'openai-compatible',
-      model_id,
-      endpoint: value.execution === 'self-hosted' ? value.endpoint : '',
-    });
+    setDraft((current) => (current.execution === 'self-hosted' ? { ...current, model_id } : current));
   }
+
+  const selfHostedIsValid =
+    draft.execution === 'self-hosted' && Boolean(draft.model_id.trim()) && isSafeEndpoint(draft.endpoint);
 
   return (
     <Card data-surface={PUBCHI_BRAIN_PANEL_SURFACE} data-testid={PUBCHI_BRAIN_PANEL_SURFACE}>
@@ -113,7 +102,7 @@ export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <RadioGroup value={value.execution} onValueChange={selectExecution} aria-label="Pubchi brain">
+        <RadioGroup value={draft.execution} onValueChange={selectExecution} aria-label="Pubchi brain">
           <div className="flex gap-3 rounded-lg border border-border p-4 has-[[data-state=checked]]:border-brand">
             <RadioGroupItem value="synonym-hosted" id="pubchi-brain-hosted" disabled={saving} />
             <div>
@@ -143,7 +132,7 @@ export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving
             <div className="flex flex-col gap-2">
               <Label htmlFor="pubchi-brain-provider">Provider</Label>
               <Select
-                value={value.provider_id}
+                value={draft.provider_id}
                 onValueChange={(provider) => changeProvider(provider as 'openai-compatible' | 'ollama')}
                 disabled={saving}
               >
@@ -161,7 +150,7 @@ export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving
               <Input
                 id="pubchi-brain-endpoint"
                 type="url"
-                value={value.endpoint}
+                value={draft.endpoint}
                 onChange={(event) => changeEndpoint(event.target.value)}
                 placeholder="https://your-machine.example/v1"
                 aria-invalid={endpointError}
@@ -175,7 +164,7 @@ export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving
               <Label htmlFor="pubchi-brain-model">Model ID</Label>
               <Input
                 id="pubchi-brain-model"
-                value={value.model_id}
+                value={draft.model_id}
                 onChange={(event) => changeModel(event.target.value)}
                 placeholder="Model ID"
                 disabled={saving}
@@ -184,11 +173,18 @@ export function PubchiBrainPanel({ value, previous, onChange, onRollback, saving
           </div>
         ) : null}
 
+        {isSelfHosted ? (
+          <Button type="button" disabled={saving || !selfHostedIsValid} onClick={() => void onChange(draft)}>
+            Save
+          </Button>
+        ) : null}
+
         <Typography className="rounded-lg bg-muted/30 p-3 text-sm">
-          Your Pubchi&apos;s identity, settings, and history live on your homeserver. Changing the brain changes how it thinks, not who it is.
+          Your Pubchi&apos;s identity, settings, and history live on your homeserver. Changing the brain changes how it
+          thinks, not who it is.
         </Typography>
 
-        {previous && onRollback ? (
+        {previous && onRollback && JSON.stringify(previous) !== JSON.stringify(value) ? (
           <Button type="button" variant="outline" disabled={saving} onClick={() => void onRollback()}>
             <RotateCcw aria-hidden="true" />
             Roll back to previous brain
