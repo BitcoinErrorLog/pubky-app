@@ -87,4 +87,17 @@ describe('MarketplaceMediaGallery', () => {
     // The honest media-less fallback for an auction is the gavel hero.
     expect(document.querySelector('svg.lucide-gavel')).toBeInTheDocument();
   });
+
+  it('labels an ended auction as ended', () => {
+    render(
+      <MarketplaceMediaGallery
+        media={[]}
+        saleFormat="auction"
+        auctionPhase="ended"
+      />,
+    );
+
+    expect(screen.getByText('Auction ended')).toBeInTheDocument();
+    expect(screen.queryByText('Live auction')).not.toBeInTheDocument();
+  });
 });

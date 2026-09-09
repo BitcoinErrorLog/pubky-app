@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceBid } from '@/hooks/useMarketplaceBid/useMarketplaceBid';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import type { AuctionPhase } from '@/libs/commerce/auction-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { amountInputUnitLabel, type CommerceAsset, isBitcoinAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
@@ -19,6 +20,7 @@ export function MarketplaceBidDialog({
   isSessionRequired = false,
   onSessionRequired,
   onAccepted,
+  auctionPhase = 'live',
 }: {
   aggregateId: string;
   projection: MarketplaceListingProjection | null;
@@ -27,11 +29,12 @@ export function MarketplaceBidDialog({
   isSessionRequired?: boolean;
   onSessionRequired?: () => void;
   onAccepted: () => void | Promise<void>;
+  auctionPhase?: AuctionPhase;
 }) {
   const [open, setOpen] = useState(false);
   // `onAccepted` refreshes the projection, which is exactly the recovery a
   // revision conflict needs: reload the price/revision, then the user rebids.
-  const bid = useMarketplaceBid(aggregateId, projection?.serverRevision ?? null, onAccepted, priceAsset);
+  const bid = useMarketplaceBid(aggregateId, projection?.serverRevision ?? null, onAccepted, priceAsset, auctionPhase);
   const { requireAuth } = useRequireAuth();
 
   const submit = async () => {
@@ -49,6 +52,7 @@ export function MarketplaceBidDialog({
           setOpen(false);
           return;
         }
+        if (auctionPhase === 'ended') return;
         if (isSessionRequired) {
           requireAuth(() => onSessionRequired?.());
           return;
@@ -57,7 +61,11 @@ export function MarketplaceBidDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="lg" className="flex-1 rounded-full" disabled={!projection?.auction && !isSessionRequired}>
+        <Button
+          size="lg"
+          className="flex-1 rounded-full"
+          disabled={auctionPhase === 'ended' || (!projection?.auction && !isSessionRequired)}
+        >
           <Gavel className="mr-2 size-4" />
           Place a bid
         </Button>
@@ -96,7 +104,7 @@ export function MarketplaceBidDialog({
           <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button className="rounded-full" onClick={submit}>
+          <Button className="rounded-full" onClick={submit} disabled={auctionPhase === 'ended'}>
             Confirm bid
           </Button>
         </DialogFooter>

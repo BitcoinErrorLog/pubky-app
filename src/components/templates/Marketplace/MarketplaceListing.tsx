@@ -20,6 +20,7 @@ import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCar
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
+import { getAuctionPhase } from '@/libs/commerce/auction-phase';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
   commerceListingFulfillmentMethods,
@@ -93,6 +94,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const listing = useLiveQuery(() => CommerceController.getListing(sellerPubky, listingId), [sellerPubky, listingId]);
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
+  const auctionPhase =
+    listing?.record.sale.format === 'auction'
+      ? getAuctionPhase(listing.record.sale.startsAt, listing.record.sale.endsAt)
+      : null;
   const shopAvatarUrl =
     !shopAvatarFailed && shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(shop.record.avatarUrl) : null;
 
@@ -209,7 +214,11 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-          <MarketplaceMediaGallery media={record.media} saleFormat={record.sale.format} />
+          <MarketplaceMediaGallery
+            media={record.media}
+            saleFormat={record.sale.format}
+            auctionPhase={auctionPhase ?? undefined}
+          />
 
           <div className="flex flex-col gap-5">
             {isOwner && <MarketplaceListingOwnerPanel record={record} />}
@@ -397,6 +406,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 auction={negotiation.projection?.auction ?? null}
                 scheduledEndsAt={record.sale.endsAt ?? null}
                 isSignedIn={Boolean(currentUserPubky)}
+                auctionPhase={auctionPhase ?? undefined}
               />
             )}
 
@@ -413,6 +423,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     isSessionRequired={negotiation.needsSession}
                     onSessionRequired={revealSessionRequired}
                     onAccepted={negotiation.refresh}
+                    auctionPhase={auctionPhase ?? undefined}
                   />
                 </div>
               ) : (

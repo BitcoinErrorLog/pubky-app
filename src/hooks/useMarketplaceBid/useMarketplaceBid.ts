@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import type { AuctionPhase } from '@/libs/commerce/auction-phase';
 import { MARKETPLACE_FAILURE_MESSAGES, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import { amountInputSchemaForAsset, amountInputToMoney, type CommerceAsset } from '@/libs/commerce/pricing';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
@@ -25,6 +26,7 @@ export function useMarketplaceBid(
   expectedRevision: number | null,
   onConflict: () => void | Promise<void>,
   priceAsset: CommerceAsset,
+  auctionPhase: AuctionPhase = 'live',
 ): UseMarketplaceBidResult {
   const form = useForm<MarketplaceBidData>({
     resolver: zodResolver(marketplaceBidSchema),
@@ -33,7 +35,7 @@ export function useMarketplaceBid(
   });
 
   const submit = async (): Promise<boolean> => {
-    if (expectedRevision === null) return false;
+    if (expectedRevision === null || auctionPhase === 'ended') return false;
     let succeeded = false;
     await form.handleSubmit(async (data) => {
       const assetCheck = amountInputSchemaForAsset(priceAsset).safeParse(data.maximumAmount);
