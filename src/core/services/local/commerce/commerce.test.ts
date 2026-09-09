@@ -20,6 +20,7 @@ import {
   CommerceWatchSnapshotModel,
 } from '@/models/commerce/commerce.models';
 import type {
+  CommercePaymentClaimModelSchema,
   CommerceWatchAlertModelSchema,
   CommerceWatchSnapshotModelSchema,
 } from '@/models/commerce/commerce.schema';
@@ -67,6 +68,10 @@ describe('LocalCommerceService', () => {
       firstDerivedAddress: 'bc1qgkju4yvvtuz0s8vqn837q396jezu2h8ex7gk98',
       verifiedAt: 1_756_000_000_000,
       source: 'session_claim',
+      firstChildIndex: 0,
+      allocationMode: 'shared_manual',
+      claimChannel: 'manual',
+      downgradeReason: null,
     });
 
     const stored = await LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_SELLER);
@@ -76,6 +81,10 @@ describe('LocalCommerceService', () => {
       key_fingerprint_hex: '5f9600ba5b1bf3f0',
       account_index: 0,
       source: 'session_claim',
+      first_child_index: 0,
+      allocation_mode: 'shared_manual',
+      claim_channel: 'manual',
+      downgrade_reason: null,
     });
 
     // A Ring status verification with no local key replaces the row: one
@@ -87,6 +96,10 @@ describe('LocalCommerceService', () => {
       firstDerivedAddress: 'bc1qexample',
       verifiedAt: 1_756_000_100_000,
       source: 'authenticated_status',
+      firstChildIndex: 3,
+      allocationMode: 'exclusive',
+      claimChannel: 'bitkit_watch_only_v1',
+      downgradeReason: null,
     });
 
     const replaced = await LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_SELLER);
@@ -100,6 +113,31 @@ describe('LocalCommerceService', () => {
 
     // Another owner's row is untouched.
     await expect(LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_BUYER)).resolves.toBeNull();
+  });
+
+  it('a pre-W1.8c claim row (no W1.13 r3 columns) reads the new fields as null and does not throw', async () => {
+    // Write the row exactly as a pre-W1.8c client would have: the four
+    // non-indexed columns simply absent from the stored object.
+    const legacyRow = {
+      id: COMMERCE_FIXTURE_SELLER,
+      owner_id: COMMERCE_FIXTURE_SELLER,
+      xpub: 'xpub6DNfJehqF1LUs9kwaqDu12Ajpz9psYVtbGhTykQo1CYdkkqV2vAyR4DiWXSTTDujWHzVy1AtV6ENGKWgwbLWqa4wXMZR4ZmdpRjQBG5EgTV',
+      key_fingerprint_hex: '5f9600ba5b1bf3f0',
+      account_index: 0,
+      first_derived_address: 'bc1qgkju4yvvtuz0s8vqn837q396jezu2h8ex7gk98',
+      source: 'session_claim',
+      verified_at: 1_756_000_000_000,
+    };
+    await CommercePaymentClaimModel.table.put(legacyRow as CommercePaymentClaimModelSchema);
+
+    const stored = await LocalCommerceService.getPaymentClaim(COMMERCE_FIXTURE_SELLER);
+    expect(stored).toMatchObject({
+      key_fingerprint_hex: '5f9600ba5b1bf3f0',
+      first_child_index: null,
+      allocation_mode: null,
+      claim_channel: null,
+      downgrade_reason: null,
+    });
   });
 
   it('seeds the deterministic sandbox catalog once', async () => {

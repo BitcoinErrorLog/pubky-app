@@ -12,11 +12,19 @@ const MNEMONIC = 'legal winner thank year wave sausage worth useful legal winner
 const BIP84_TEST_MNEMONIC =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
+const PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
+
+/** The full W1.13 r3 claim success body. */
 const CLAIMED_BODY = {
   status: 'claimed',
-  creator: 'pubkygy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+  creator: `pubky${PUBKY}`,
+  account_index: 0,
+  allocation_mode: 'shared_manual',
+  claim_channel: 'manual',
+  downgrade_reason: null,
   key_fingerprint: 'deadbeefdeadbeef',
   first_derived_address: 'bc1qexample',
+  first_child_index: 0,
   next_child_index: 0,
   stack_id: 'proof:3f6f4b2a-0000-4000-8000-000000000000',
 };
@@ -59,13 +67,13 @@ function refusalResponse(status: number, code: string): Response {
 /** Run one claim and return the parsed JSON body the service POSTed. */
 async function claimAndReadRequestBody(accountXpub: string, accountIndex: number) {
   vi.mocked(fetch).mockResolvedValueOnce(claimedResponse(accountIndex));
-  const flow = MarketplacePaykitClaimService.beginClaimFlow(accountXpub, accountIndex);
+  const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, accountXpub, accountIndex);
   const result = await flow.awaitClaim();
   expect(fetch).toHaveBeenCalledTimes(1);
   const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
   expect(url).toBe('http://localhost:3102/v0/accounts/claim');
   expect(result.accountIndex).toBe(accountIndex);
-  return JSON.parse(init.body as string) as { account_xpub: string; account_index: number };
+  return JSON.parse(init.body as string) as { account_xpub: string; account_index: number; claim_channel: string };
 }
 
 describe('MarketplacePaykitClaimService', () => {
@@ -104,7 +112,7 @@ describe('MarketplacePaykitClaimService', () => {
     const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
     vi.mocked(fetch).mockResolvedValueOnce(refusalResponse(422, 'account_index_out_of_range'));
 
-    const flow = MarketplacePaykitClaimService.beginClaimFlow(tpub, 1);
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
     await expect(flow.awaitClaim()).rejects.toMatchObject({
       message: 'This account index is outside the range Shop accepts (0–99).',
     });
@@ -114,20 +122,106 @@ describe('MarketplacePaykitClaimService', () => {
     const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
     vi.mocked(fetch).mockResolvedValueOnce(refusalResponse(409, 'key_claimed_by_other_seller'));
 
-    const flow = MarketplacePaykitClaimService.beginClaimFlow(tpub, 1);
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
     await expect(flow.awaitClaim()).rejects.toMatchObject({
       message: 'This key is already claimed by another seller on this stack.',
     });
   });
 
+  it("declares the paste path's channel: the claim body carries claim_channel 'manual'", async () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    const body = await claimAndReadRequestBody(tpub, 1);
+    expect(body.claim_channel).toBe('manual');
+  });
+
+  it('parses the W1.13 r3 claim fields (allocation_mode, claim_channel, downgrade_reason, first_child_index)', async () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    vi.mocked(fetch).mockResolvedValueOnce(claimedResponse(1));
+
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
+    const result = await flow.awaitClaim();
+
+    expect(result).toMatchObject({
+      allocationMode: 'shared_manual',
+      claimChannel: 'manual',
+      downgradeReason: null,
+      firstChildIndex: 0,
+      nextChildIndex: 0,
+    });
+  });
+
+  it('a pre-W1.13 claim body parses with the new fields null (verification fails closed downstream)', async () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    const {
+      allocation_mode: _mode,
+      claim_channel: _channel,
+      downgrade_reason: _reason,
+      first_child_index: _first,
+      ...legacyBody
+    } = CLAIMED_BODY;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...legacyBody, account_index: 1 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
+    const result = await flow.awaitClaim();
+
+    expect(result).toMatchObject({
+      allocationMode: null,
+      claimChannel: null,
+      downgradeReason: null,
+      firstChildIndex: null,
+    });
+  });
+
+  it('refuses with creator_mismatch when the echoed creator is not the seller the flow was begun for', async () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...CLAIMED_BODY, creator: 'pubky0000000000000000000000000000000000000000000000000000' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
+    await expect(flow.awaitClaim()).rejects.toMatchObject({
+      message:
+        'The Paykit server confirmed the claim for a different identity than the one you approved with, so nothing was enabled. Start the claim again.',
+      context: { reason: 'creator_mismatch' },
+    });
+  });
+
+  it('maps unknown_claim_channel to the static user-facing refusal', async () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    vi.mocked(fetch).mockResolvedValueOnce(refusalResponse(422, 'unknown_claim_channel'));
+
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
+    await expect(flow.awaitClaim()).rejects.toMatchObject({
+      message: 'The Paykit server refused the claim channel Shop declared. Update Shop or contact the operator.',
+    });
+  });
+
+  it('maps allocation_mode_not_enabled to the static user-facing refusal', async () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    vi.mocked(fetch).mockResolvedValueOnce(refusalResponse(422, 'allocation_mode_not_enabled'));
+
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
+    await expect(flow.awaitClaim()).rejects.toMatchObject({
+      message:
+        'This Paykit server does not allow automatic payment detection for pasted keys. Claim with Bitkit instead, or contact the operator.',
+    });
+  });
+
   describe('insecure paykit origin (W1.8 F1: fail closed before any token or fetch)', () => {
-    const PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
     const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
 
     it('refuses an http:// non-loopback origin before any token is built or fetch is sent', () => {
       runtimeMock.paykitSetupUrl = 'http://paykit.example/setup';
 
-      expect(() => MarketplacePaykitClaimService.beginClaimFlow(tpub, 1)).toThrow(
+      expect(() => MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1)).toThrow(
         expect.objectContaining({
           message:
             'The Paykit server address is not a secure HTTPS origin, so Shop refused to send your approval to it. Contact the operator.',
@@ -159,7 +253,7 @@ describe('MarketplacePaykitClaimService', () => {
         runtimeMock.paykitSetupUrl = setupUrl;
         vi.mocked(fetch).mockResolvedValueOnce(claimedResponse(1));
 
-        const flow = MarketplacePaykitClaimService.beginClaimFlow(tpub, 1);
+        const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
         await flow.awaitClaim();
 
         expect(tokenFlowCalls.count).toBe(1);
@@ -173,7 +267,7 @@ describe('MarketplacePaykitClaimService', () => {
       runtimeMock.paykitSetupUrl = 'https://paykit.example/setup';
       vi.mocked(fetch).mockResolvedValueOnce(claimedResponse(1));
 
-      const flow = MarketplacePaykitClaimService.beginClaimFlow(tpub, 1);
+      const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
       await flow.awaitClaim();
 
       expect(tokenFlowCalls.count).toBe(1);
@@ -184,8 +278,6 @@ describe('MarketplacePaykitClaimService', () => {
   });
 
   describe('fetchOwnClaimStatus (authenticated status read)', () => {
-    const PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
-
     const STATUS_BODY = {
       creator: `pubky${PUBKY}`,
       allocation_mode: 'shared_manual',
@@ -193,6 +285,9 @@ describe('MarketplacePaykitClaimService', () => {
       downgrade_reason: null,
       key_fingerprint: 'deadbeefdeadbeef',
       first_derived_address: 'bc1qexample',
+      account_index: 1,
+      first_child_index: 0,
+      next_child_index: 3,
       evidence: [],
     };
 
@@ -221,6 +316,9 @@ describe('MarketplacePaykitClaimService', () => {
           downgradeReason: null,
           keyFingerprint: 'deadbeefdeadbeef',
           firstDerivedAddress: 'bc1qexample',
+          accountIndex: 1,
+          firstChildIndex: 0,
+          nextChildIndex: 3,
         },
       });
     });
@@ -245,6 +343,9 @@ describe('MarketplacePaykitClaimService', () => {
           downgradeReason: null,
           keyFingerprint: 'deadbeefdeadbeef',
           firstDerivedAddress: 'bc1qexample',
+          accountIndex: 1,
+          firstChildIndex: 0,
+          nextChildIndex: 3,
         },
       });
     });
@@ -266,6 +367,35 @@ describe('MarketplacePaykitClaimService', () => {
     it('refuses a 200 body missing a required field (fail closed on parse)', async () => {
       const { key_fingerprint: _omitted, ...missingFingerprint } = STATUS_BODY;
       vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, missingFingerprint));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
+    it('refuses a 200 body missing first_child_index (fail closed on parse)', async () => {
+      const { first_child_index: _omitted, ...missingFirstIndex } = STATUS_BODY;
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, missingFirstIndex));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
+    it.each(['account_index', 'next_child_index'] as const)('refuses a 200 body missing %s', async (field) => {
+      const body = { ...STATUS_BODY } as Record<string, unknown>;
+      delete body[field];
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, body));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
+    it('refuses a 200 whose echoed creator is not the authenticated seller', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        statusResponse(200, { ...STATUS_BODY, creator: 'pubky0000000000000000000000000000000000000000000000000000' }),
+      );
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
+    it.each([-1, 1.5, '0'])('refuses a 200 with a non-usable first_child_index %s', async (value) => {
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, { ...STATUS_BODY, first_child_index: value }));
       const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
       expect(result).toEqual({ ok: false, reason: 'refused' });
     });
@@ -327,14 +457,14 @@ describe('MarketplacePaykitClaimService', () => {
       expect(isSecurePaykitOrigin(new URL(input))).toBe(secure);
 
       if (secure) {
-        expect(() => MarketplacePaykitClaimService.beginClaimFlow(tpub, 1)).not.toThrow();
+        expect(() => MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1)).not.toThrow();
         const built = new URL(LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/back', 'state'));
         expect(built.protocol).toBe(new URL(input).protocol);
         expect(built.host).toBe(new URL(input).host);
       } else {
         // Token flow refuses before any token is built; navigation builder
         // refuses before any URL is produced — with the same reason.
-        expect(() => MarketplacePaykitClaimService.beginClaimFlow(tpub, 1)).toThrow(refusal);
+        expect(() => MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1)).toThrow(refusal);
         expect(() => LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/back', 'state')).toThrow(refusal);
         expect(tokenFlowCalls.count).toBe(0);
         expect(fetch).not.toHaveBeenCalled();

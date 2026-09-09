@@ -90,6 +90,10 @@ export const CLAIM_VERIFICATION_COPY: Record<ClaimVerificationRejectionReason, s
     'The Paykit server reported a different key than the one you submitted, so bitcoin payments were not enabled. Do not use this account for Shop; contact the operator.',
   server_account_index_mismatch:
     'The Paykit server reported a different account index than your key declares, so bitcoin payments were not enabled. Contact the operator.',
+  server_first_index_missing:
+    'The Paykit server did not report the child index it derived your first address from, so bitcoin payments were not enabled. The server must be updated before claiming works here — nothing was enabled.',
+  server_cursor_mismatch:
+    'The Paykit server reported a derivation cursor that does not match its first-address index for a fresh claim, so bitcoin payments were not enabled. Contact the operator.',
   server_address_mismatch:
     'The Paykit server derived a different first address than this app computed from your key, so bitcoin payments were not enabled. Contact the operator.',
 };
@@ -107,6 +111,10 @@ export const BITCOIN_ENABLE_BLOCKED_COPY = {
     'The account key changed, so the verified claim no longer matches it. Claim this key before enabling bitcoin.',
   claim_unknown:
     'Shop could not confirm your watch-only account, so bitcoin cannot be enabled. Verify with Ring to confirm the claim, or claim the account again.',
+  account_index_mismatch:
+    'The Paykit server reported a different account index than your key declares, so bitcoin cannot be enabled. Contact the operator.',
+  address_mismatch:
+    'The Paykit server derived a different first address than this app computed from your key, so bitcoin cannot be enabled. Contact the operator.',
 } as const;
 
 /**
@@ -233,6 +241,12 @@ export function useMarketplaceSellerPaymentConfig() {
           firstDerivedAddress: record.first_derived_address,
           verifiedAt: record.verified_at,
           source: record.source,
+          // The local read already coalesced the W1.13 r3 columns of a
+          // pre-W1.8c row to null.
+          firstChildIndex: record.first_child_index,
+          allocationMode: record.allocation_mode,
+          claimChannel: record.claim_channel,
+          downgradeReason: record.downgrade_reason,
         });
         if (parsed.success && parsed.data.xpub) {
           const normalized = normalizeAccountXpub(parsed.data.xpub, parseBitcoinNetwork(getBitcoinNetwork()));
@@ -447,6 +461,10 @@ export function useMarketplaceSellerPaymentConfig() {
           firstDerivedAddress: result.firstDerivedAddress!,
           verifiedAt: Date.now(),
           source: 'session_claim',
+          firstChildIndex: result.firstChildIndex,
+          allocationMode: result.allocationMode,
+          claimChannel: result.claimChannel,
+          downgradeReason: result.downgradeReason,
         };
         setVerifiedClaim(verified);
         setWatchedAccount({
@@ -485,9 +503,12 @@ export function useMarketplaceSellerPaymentConfig() {
    * `GET /v0/accounts/{creator}/status` read. A 200 binds the claim to THIS
    * session and THIS identity — the second of the two paths allowed to
    * record a verified claim. With a local key the server's
-   * `key_fingerprint` MUST match it (mismatch → refuse, record nothing);
-   * without one (a Bitkit-set-up seller) the server's fingerprint and first
-   * address are recorded and shown as the identity being enabled (§B.6).
+   * `key_fingerprint`, `account_index`, and `first_derived_address` MUST all
+   * agree with it (any mismatch → refuse, record nothing); without one (a
+   * fresh device, a Bitkit-set-up seller) the server's fingerprint and first
+   * address are recorded and shown as the identity being enabled (§B.6) —
+   * they are presented to the seller for OUT-OF-BAND comparison against
+   * their own wallet, which is the only check possible with no local key.
    */
   const verifyWithRing = () => {
     const previous = activeVerifyRef.current;
@@ -543,6 +564,29 @@ export function useMarketplaceSellerPaymentConfig() {
           setBitcoinEnabledState(false);
           return;
         }
+        // W1.13 r3: with a local key the server's derivation coordinates
+        // must agree with it too — the persisted account index must be the
+        // one the key itself declares, and the stable first address must
+        // re-derive from the key at the immutable `first_child_index` (the
+        // mutable `next_child_index` cursor is informational and never
+        // compared).
+        if (localKey?.ok && status.accountIndex !== accountIndexFromBytes(localKey.bytes)) {
+          setVerifyError(BITCOIN_ENABLE_BLOCKED_COPY.account_index_mismatch);
+          setVerifyStatus('error');
+          // Do NOT record.
+          setBitcoinEnabledState(false);
+          return;
+        }
+        if (
+          localKey?.ok &&
+          status.firstDerivedAddress !== deriveBip84P2wpkhAddress(localKey.bytes, network!, status.firstChildIndex)
+        ) {
+          setVerifyError(BITCOIN_ENABLE_BLOCKED_COPY.address_mismatch);
+          setVerifyStatus('error');
+          // Do NOT record.
+          setBitcoinEnabledState(false);
+          return;
+        }
         const verified: VerifiedPaykitClaim = {
           xpub: localKey?.ok ? localKey.xpub : null,
           keyFingerprintHex: status.keyFingerprint,
@@ -550,6 +594,10 @@ export function useMarketplaceSellerPaymentConfig() {
           firstDerivedAddress: status.firstDerivedAddress,
           verifiedAt: Date.now(),
           source: 'authenticated_status',
+          firstChildIndex: status.firstChildIndex,
+          allocationMode: status.allocationMode,
+          claimChannel: status.claimChannel,
+          downgradeReason: status.downgradeReason,
         };
         setVerifiedClaim(verified);
         if (verified.xpub) {

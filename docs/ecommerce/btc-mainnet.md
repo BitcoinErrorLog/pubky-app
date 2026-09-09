@@ -212,6 +212,61 @@ already extends), one server is proportionate. If the owner wants more
 assurance now, the cheap lever is raising the confirmation floor, not adding
 a second server. Recorded as the next hardening step in §G.
 
+### The claim and status contract the client consumes (W1.13 r3)
+
+paykit-server's accounts API (its `docs/accounts-api.md`) fixes the two
+contracts the Shop client verifies against. The claim POST declares its
+channel explicitly — the paste path sends `claim_channel: "manual"`; the
+server admits only `manual` and `bitkit_watch_only_v1` (anything else is a
+422 `unknown_claim_channel`), reserves and refuses `pasted_auto` (422
+`allocation_mode_not_enabled`), and treats a missing channel as `manual`. The
+claim response echoes `creator` (which the client refuses unless it is
+exactly the seller the flow was begun for) and carries, beside the W1.3
+fields, `allocation_mode`, the nullable `claim_channel` and
+`downgrade_reason`, and the derivation coordinates `account_index`,
+`first_child_index`, `next_child_index`, `key_fingerprint`, and
+`first_derived_address` — the address derived at (`account_index`,
+`first_child_index`). At claim time `first_child_index == next_child_index`,
+and the client refuses a claim response where they differ.
+
+The owner-authenticated status read
+(`GET /v0/accounts/{creator}/status`, bearer AuthToken) answers 200 with:
+
+```json
+{
+  "creator": "…",
+  "allocation_mode": "shared_manual",
+  "claim_channel": "manual",
+  "downgrade_reason": null,
+  "key_fingerprint": "16 hex",
+  "first_derived_address": "bc1q…",
+  "account_index": 1,
+  "first_child_index": 0,
+  "next_child_index": 3,
+  "evidence": []
+}
+```
+
+`first_derived_address` is stable forever — derived at the immutable
+`first_child_index` — so the client re-derives and compares at THAT index,
+never at `next_child_index`: the cursor moves as invoices are allocated and
+is informational only. With a local account key the status read must agree
+with it on `key_fingerprint`, `account_index`, and the re-derived
+`first_derived_address`, or the client refuses and records nothing.
+
+The bearer is the same capability-scoped Pubky AuthToken the claim POST
+sends. Per the pubky SDK that mints it, the token is **single-use and
+time-bounded** (a signed, expiring proof of key ownership verified offline
+with `pubky-common`): the client relies on exactly that — it requests a fresh
+Ring approval for every status read, never stores or reuses a token, and
+treats the approval ceremony itself as the proof that THIS session and THIS
+identity stand behind the read.
+
+Finally, `paykitServerOrigin()` refuses any non-HTTPS paykit origin except
+loopback before a token is built or a byte is sent (true since W1.8/W1.8b) —
+the shared predicate documented in [`../environment.md`](../environment.md)
+under `PUBKY_RUNTIME_PAYKIT_SETUP_URL`.
+
 ---
 
 ## C. Per-layer switch table

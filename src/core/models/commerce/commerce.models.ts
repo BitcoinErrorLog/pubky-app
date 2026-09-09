@@ -891,6 +891,10 @@ export class CommercePaymentClaimModel
   first_derived_address: string;
   source: string;
   verified_at: number;
+  first_child_index: number | null;
+  allocation_mode: string | null;
+  claim_channel: string | null;
+  downgrade_reason: string | null;
 
   constructor(claim: CommercePaymentClaimModelSchema) {
     super(claim);
@@ -901,5 +905,9 @@ export class CommercePaymentClaimModel
     this.first_derived_address = claim.first_derived_address;
     this.source = claim.source;
     this.verified_at = claim.verified_at;
+    this.first_child_index = claim.first_child_index;
+    this.allocation_mode = claim.allocation_mode;
+    this.claim_channel = claim.claim_channel;
+    this.downgrade_reason = claim.downgrade_reason;
   }
 }

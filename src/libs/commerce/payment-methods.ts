@@ -91,6 +91,12 @@ export const verifiedPaykitClaimSchema = z.object({
   firstDerivedAddress: z.string(),
   verifiedAt: z.number(),
   source: z.enum(['session_claim', 'authenticated_status']),
+  // W1.13 r3 claim/status fields. Null on a record written before W1.8c (or
+  // by a pre-W1.13 server) — reads coalesce a missing column to null.
+  firstChildIndex: z.number().int().nullable(),
+  allocationMode: z.string().nullable(),
+  claimChannel: z.string().nullable(),
+  downgradeReason: z.string().nullable(),
 });
 
 export type VerifiedPaykitClaim = z.infer<typeof verifiedPaykitClaimSchema>;

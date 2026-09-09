@@ -68,8 +68,12 @@ const VERIFIED_CLAIM_RESULT = {
   accountIndex: 0,
   keyFingerprint: accountKeyFingerprint(ACCOUNT.payload),
   firstDerivedAddress: deriveBip84P2wpkhAddress(ACCOUNT.payload, 'mainnet', 0),
+  firstChildIndex: 0,
   nextChildIndex: 0,
   stackId: 'proof:3f6f4b2a-0000-4000-8000-000000000000',
+  allocationMode: 'shared_manual',
+  claimChannel: 'manual',
+  downgradeReason: null,
 };
 
 /** The Dexie record a verified claim persists as (snake_case, one per seller). */
@@ -83,11 +87,23 @@ function storedClaimRecord(account: typeof ACCOUNT = ACCOUNT) {
     first_derived_address: deriveBip84P2wpkhAddress(account.payload, 'mainnet', 0),
     source: 'session_claim',
     verified_at: 1_756_000_000_000,
+    first_child_index: 0,
+    allocation_mode: 'shared_manual',
+    claim_channel: 'manual',
+    downgrade_reason: null,
   };
 }
 
-/** A 200 status body matching the given account's key. */
-function matchingStatusOutcome(account: typeof ACCOUNT = ACCOUNT) {
+/**
+ * A 200 status body matching the given account's key. `firstChildIndex` /
+ * `nextChildIndex` default to the claim-time state (equal); the drift case
+ * passes explicit coordinates.
+ */
+function matchingStatusOutcome(
+  account: typeof ACCOUNT = ACCOUNT,
+  coordinates: { firstChildIndex?: number; nextChildIndex?: number } = {},
+) {
+  const firstChildIndex = coordinates.firstChildIndex ?? 0;
   return {
     ok: true as const,
     status: {
@@ -95,7 +111,10 @@ function matchingStatusOutcome(account: typeof ACCOUNT = ACCOUNT) {
       claimChannel: 'manual',
       downgradeReason: null,
       keyFingerprint: accountKeyFingerprint(account.payload),
-      firstDerivedAddress: deriveBip84P2wpkhAddress(account.payload, 'mainnet', 0),
+      firstDerivedAddress: deriveBip84P2wpkhAddress(account.payload, 'mainnet', firstChildIndex),
+      accountIndex: accountIndexFromBytes(account.payload),
+      firstChildIndex,
+      nextChildIndex: coordinates.nextChildIndex ?? firstChildIndex,
     },
   };
 }
@@ -366,6 +385,63 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     expect(result.current.bitcoinEnabled).toBe(false);
   });
 
+  it('a verified session claim persists the W1.13 r3 fields (first_child_index, allocation_mode, claim_channel)', async () => {
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => VERIFIED_CLAIM_RESULT,
+      cancel: vi.fn(),
+    });
+    const { result } = await renderPaymentConfig();
+
+    act(() => result.current.setXpubInput(PASTED_ZPUB));
+    act(() => result.current.startClaim(PASTED_ZPUB));
+    await waitFor(() => expect(result.current.claimStatus).toBe('claimed'));
+
+    expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firstChildIndex: 0,
+        allocationMode: 'shared_manual',
+        claimChannel: 'manual',
+        downgradeReason: null,
+      }),
+    );
+  });
+
+  it('W1.13 r3: a claim response with next_child_index != first_child_index is refused (server_cursor_mismatch)', async () => {
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, nextChildIndex: 7 }),
+      cancel: vi.fn(),
+    });
+    const { result } = await renderPaymentConfig();
+
+    act(() => result.current.setXpubInput(PASTED_ZPUB));
+    act(() => result.current.startClaim(PASTED_ZPUB));
+    await waitFor(() => expect(result.current.claimStatus).toBe('error'));
+
+    expect(result.current.claimError).toBe(CLAIM_VERIFICATION_COPY.server_cursor_mismatch);
+    expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+    expect(result.current.canEnableBitcoin).toBe(false);
+    expect(result.current.bitcoinEnabled).toBe(false);
+  });
+
+  it('W1.13 r3: a claim response missing first_child_index is refused (server_first_index_missing)', async () => {
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, firstChildIndex: null }),
+      cancel: vi.fn(),
+    });
+    const { result } = await renderPaymentConfig();
+
+    act(() => result.current.setXpubInput(PASTED_ZPUB));
+    act(() => result.current.startClaim(PASTED_ZPUB));
+    await waitFor(() => expect(result.current.claimStatus).toBe('error'));
+
+    expect(result.current.claimError).toBe(CLAIM_VERIFICATION_COPY.server_first_index_missing);
+    expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+    expect(result.current.bitcoinEnabled).toBe(false);
+  });
+
   describe('account-index regression gate (P2)', () => {
     it('an account-1 key claims with beginPaykitClaimFlow(normalizedXpub, 1)', async () => {
       const { result } = await renderPaymentConfig();
@@ -431,6 +507,81 @@ describe('useMarketplaceSellerPaymentConfig', () => {
       expect(result.current.canEnableBitcoin).toBe(true);
       act(() => result.current.setBitcoinEnabled(true));
       expect(result.current.bitcoinEnabled).toBe(true);
+    });
+
+    it('a 200 with next_child_index drifted past first_child_index still verifies (the cursor is informational at status time)', async () => {
+      // Invoices have been allocated since the claim: the mutable cursor
+      // moved to 7 while the immutable first address stays derived at 5.
+      // The status read compares the address at first_child_index ONLY.
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => matchingStatusOutcome(ACCOUNT, { firstChildIndex: 5, nextChildIndex: 7 }),
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(PASTED_ZPUB));
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('verified'));
+
+      expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'authenticated_status',
+          firstChildIndex: 5,
+          firstDerivedAddress: deriveBip84P2wpkhAddress(ACCOUNT.payload, 'mainnet', 5),
+        }),
+      );
+      expect(result.current.canEnableBitcoin).toBe(true);
+    });
+
+    it('a 200 whose account_index disagrees with the local key refuses with account_index_mismatch and records nothing', async () => {
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => {
+          const outcome = matchingStatusOutcome();
+          return { ...outcome, status: { ...outcome.status, accountIndex: 1 } };
+        },
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(PASTED_ZPUB));
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('error'));
+
+      expect(result.current.verifyError).toBe(BITCOIN_ENABLE_BLOCKED_COPY.account_index_mismatch);
+      expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+      expect(result.current.canEnableBitcoin).toBe(false);
+      expect(result.current.bitcoinEnabled).toBe(false);
+    });
+
+    it('a 200 whose first_derived_address does not re-derive at first_child_index refuses with address_mismatch', async () => {
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => {
+          const outcome = matchingStatusOutcome();
+          // first_child_index 0, but the address of index 4: the immutable
+          // anchor does not re-derive from the local key.
+          return {
+            ...outcome,
+            status: {
+              ...outcome.status,
+              firstDerivedAddress: deriveBip84P2wpkhAddress(ACCOUNT.payload, 'mainnet', 4),
+            },
+          };
+        },
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(PASTED_ZPUB));
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('error'));
+
+      expect(result.current.verifyError).toBe(BITCOIN_ENABLE_BLOCKED_COPY.address_mismatch);
+      expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+      expect(result.current.canEnableBitcoin).toBe(false);
+      expect(result.current.bitcoinEnabled).toBe(false);
     });
 
     it('a 200 with a mismatching fingerprint refuses with key_changed and records nothing', async () => {

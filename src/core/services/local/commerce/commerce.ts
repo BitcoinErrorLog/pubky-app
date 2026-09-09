@@ -831,7 +831,17 @@ export class LocalCommerceService {
    * when no verification has completed on this device.
    */
   static async getPaymentClaim(ownerId: string): Promise<CommercePaymentClaimModelSchema | null> {
-    return (await CommercePaymentClaimModel.findById(ownerId)) ?? null;
+    const record = (await CommercePaymentClaimModel.findById(ownerId)) ?? null;
+    if (!record) return null;
+    // Rows written before W1.8c lack the non-indexed W1.13 r3 columns; a
+    // legacy row reads them as null rather than undefined.
+    return {
+      ...record,
+      first_child_index: record.first_child_index ?? null,
+      allocation_mode: record.allocation_mode ?? null,
+      claim_channel: record.claim_channel ?? null,
+      downgrade_reason: record.downgrade_reason ?? null,
+    };
   }
 
   /**
@@ -850,6 +860,10 @@ export class LocalCommerceService {
       first_derived_address: claim.firstDerivedAddress,
       source: claim.source,
       verified_at: claim.verifiedAt,
+      first_child_index: claim.firstChildIndex,
+      allocation_mode: claim.allocationMode,
+      claim_channel: claim.claimChannel,
+      downgrade_reason: claim.downgradeReason,
     });
   }
 

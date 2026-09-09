@@ -105,11 +105,15 @@ function storedClaimRecord() {
     first_derived_address: deriveBip84P2wpkhAddress(DERIVED_ACCOUNT.payload, 'mainnet', 0),
     source: 'session_claim',
     verified_at: 1_756_000_000_000,
+    first_child_index: 0,
+    allocation_mode: 'shared_manual',
+    claim_channel: 'manual',
+    downgrade_reason: null,
   };
 }
 
 /**
- * A W1.3 claim response that verifies against the normalized bytes of
+ * A W1.13 r3 claim response that verifies against the normalized bytes of
  * DERIVED_ACCOUNT — the honest-server case the confirmation gate accepts.
  */
 const VERIFIED_CLAIM_RESULT = {
@@ -117,8 +121,12 @@ const VERIFIED_CLAIM_RESULT = {
   accountIndex: 0,
   keyFingerprint: accountKeyFingerprint(DERIVED_ACCOUNT.payload),
   firstDerivedAddress: deriveBip84P2wpkhAddress(DERIVED_ACCOUNT.payload, 'mainnet', 0),
+  firstChildIndex: 0,
   nextChildIndex: 0,
   stackId: 'proof:3f6f4b2a-7c5d-4e1f-8a2b-000000000000',
+  allocationMode: 'shared_manual',
+  claimChannel: 'manual',
+  downgradeReason: null,
 };
 
 const BITCOIN_NETWORK_ENV = 'PUBKY_RUNTIME_BITCOIN_NETWORK';
@@ -611,6 +619,9 @@ describe('MarketplacePaymentSettings', () => {
             downgradeReason: null,
             keyFingerprint: accountKeyFingerprint(DERIVED_ACCOUNT.payload),
             firstDerivedAddress: deriveBip84P2wpkhAddress(DERIVED_ACCOUNT.payload, 'mainnet', 0),
+            accountIndex: 0,
+            firstChildIndex: 0,
+            nextChildIndex: 0,
           },
         }),
         cancel: vi.fn(),

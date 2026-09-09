@@ -134,7 +134,9 @@ export function accountNodeFromBytes(normalizedBytes: Uint8Array): HdPublicNode 
 /**
  * Derive the BIP84 P2WPKH address at `<change>/<childIndex>` from the exact
  * normalized 78 account-key bytes — never from the pasted string. The claim
- * preview is `0/0`; the server-comparison address is `0/<next_child_index>`.
+ * preview is `0/0`; the server-comparison address is `0/<first_child_index>`
+ * (W1.13 r3: `first_derived_address` is derived at the immutable
+ * `first_child_index`, never at the mutable `next_child_index` cursor).
  */
 export function deriveBip84P2wpkhAddress(
   normalizedBytes: Uint8Array,
@@ -162,15 +164,25 @@ export function accountIndexFromBytes(normalizedBytes: Uint8Array): number {
   return view.getUint32(CHILD_NUMBER_OFFSET, false) - HARDENED_OFFSET;
 }
 
-/** The four W1.3 claim-response fields the client verifies against. */
+/** The W1.13 r3 claim-response fields the client verifies against. */
 export interface ClaimedAccountDetails {
   /** Server-reported account index; must be a bounded integer 0–99. */
   accountIndex: number;
   /** `key_fingerprint` — null when the server predates W1.3. */
   keyFingerprint: string | null;
-  /** `first_derived_address` — the address at `0/<next_child_index>`. */
+  /** `first_derived_address` — the address at `0/<first_child_index>`. */
   firstDerivedAddress: string | null;
-  /** `next_child_index` — the scanned start index the server will watch from. */
+  /**
+   * `first_child_index` — the immutable claim-time child index
+   * `first_derived_address` was derived at (W1.13 r3). Null on a pre-W1.13
+   * server; the gate fails closed on that case.
+   */
+  firstChildIndex: number | null;
+  /**
+   * `next_child_index` — the mutable derivation cursor. At claim time it MUST
+   * equal `first_child_index` (nothing has been allocated yet); afterwards it
+   * drifts and is informational only.
+   */
   nextChildIndex: number | null;
   /** `stack_id` — the paykit-server stack identity (W1.3). */
   stackId: string | null;
@@ -180,6 +192,8 @@ export type ClaimVerificationRejectionReason =
   | 'server_fingerprint_missing'
   | 'server_fingerprint_mismatch'
   | 'server_account_index_mismatch'
+  | 'server_first_index_missing'
+  | 'server_cursor_mismatch'
   | 'server_address_mismatch';
 
 export type ClaimVerification = { ok: true } | { ok: false; reason: ClaimVerificationRejectionReason };
@@ -209,11 +223,16 @@ export function verifyClaimedAccount(
   if (claim.accountIndex !== accountIndexFromBytes(normalizedBytes)) {
     return { ok: false, reason: 'server_account_index_mismatch' };
   }
+  // W1.13 r3: the comparison address derives at the immutable
+  // `first_child_index`. A pre-W1.13 server has no such field — fail closed.
+  if (claim.firstChildIndex === null || !Number.isInteger(claim.firstChildIndex) || claim.firstChildIndex < 0) {
+    return { ok: false, reason: 'server_first_index_missing' };
+  }
+  // The non-hardened bound check rides on `first_child_index` now (it guarded
+  // `next_child_index` before W1.13 r3): an index CKDpub cannot derive makes
+  // the address comparison meaningless.
   if (
-    claim.nextChildIndex === null ||
-    !Number.isInteger(claim.nextChildIndex) ||
-    claim.nextChildIndex < 0 ||
-    claim.nextChildIndex >= HARDENED_OFFSET ||
+    claim.firstChildIndex >= HARDENED_OFFSET ||
     !claim.firstDerivedAddress ||
     !Number.isInteger(claim.accountIndex) ||
     claim.accountIndex < 0 ||
@@ -221,7 +240,13 @@ export function verifyClaimedAccount(
   ) {
     return { ok: false, reason: 'server_address_mismatch' };
   }
-  const expected = deriveBip84P2wpkhAddress(normalizedBytes, network, claim.nextChildIndex);
+  // At claim time nothing has been allocated yet, so the mutable cursor must
+  // still sit at the first index. A drifted cursor in a CLAIM response means
+  // the server's report is not about this claim.
+  if (claim.nextChildIndex !== claim.firstChildIndex) {
+    return { ok: false, reason: 'server_cursor_mismatch' };
+  }
+  const expected = deriveBip84P2wpkhAddress(normalizedBytes, network, claim.firstChildIndex);
   if (claim.firstDerivedAddress !== expected) return { ok: false, reason: 'server_address_mismatch' };
   return { ok: true };
 }

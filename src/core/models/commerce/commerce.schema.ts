@@ -652,6 +652,15 @@ export interface CommercePaymentClaimModelSchema {
   /** 'session_claim' | 'authenticated_status' */
   source: string;
   verified_at: number;
+  /**
+   * W1.13 r3 claim/status fields. NON-INDEXED columns: absent on rows
+   * written before W1.8c, read as `null`. No Dexie version bump — the table
+   * schema string (indexes) is unchanged.
+   */
+  first_child_index: number | null;
+  allocation_mode: string | null;
+  claim_channel: string | null;
+  downgrade_reason: string | null;
 }
 
 export const commercePaymentClaimTableSchema = '&id, owner_id';

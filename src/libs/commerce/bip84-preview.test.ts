@@ -34,6 +34,7 @@ function validClaim(normalizedBytes: Uint8Array, network: 'mainnet' | 'testnet' 
     accountIndex: accountIndexFromBytes(normalizedBytes),
     keyFingerprint: accountKeyFingerprint(normalizedBytes),
     firstDerivedAddress: deriveBip84P2wpkhAddress(normalizedBytes, network, 0),
+    firstChildIndex: 0,
     nextChildIndex: 0,
     stackId: 'proof:3f6f4b2a-0000-4000-8000-000000000000',
   };
@@ -117,14 +118,52 @@ describe('bip84-preview', () => {
       });
     });
 
-    it('accepts a scanned start index: first_derived_address at 0/<next_child_index>', () => {
+    it('accepts a claim-time start index: first_derived_address at 0/<first_child_index>', () => {
       const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
       const claim: ClaimedAccountDetails = {
         ...validClaim(account.payload, 'mainnet'),
+        firstChildIndex: 25,
         nextChildIndex: 25,
         firstDerivedAddress: deriveBip84P2wpkhAddress(account.payload, 'mainnet', 25),
       };
       expect(verifyClaimedAccount(account.payload, 'mainnet', claim)).toEqual({ ok: true });
+    });
+
+    it('accepts first_child_index 5 with the address derived at 5 (real BIP84 derivation)', () => {
+      const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
+      const claim: ClaimedAccountDetails = {
+        ...validClaim(account.payload, 'mainnet'),
+        firstChildIndex: 5,
+        nextChildIndex: 5,
+        firstDerivedAddress: deriveBip84P2wpkhAddress(account.payload, 'mainnet', 5),
+      };
+      expect(verifyClaimedAccount(account.payload, 'mainnet', claim)).toEqual({ ok: true });
+    });
+
+    it('refuses with server_cursor_mismatch when next_child_index != first_child_index in a claim response', () => {
+      const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
+      // The cursor drifted to 7 while the first address stays at index 5: at
+      // claim time nothing may be allocated yet, so this report is not about
+      // this claim — even with an honestly derived address.
+      const claim: ClaimedAccountDetails = {
+        ...validClaim(account.payload, 'mainnet'),
+        firstChildIndex: 5,
+        nextChildIndex: 7,
+        firstDerivedAddress: deriveBip84P2wpkhAddress(account.payload, 'mainnet', 5),
+      };
+      expect(verifyClaimedAccount(account.payload, 'mainnet', claim)).toEqual({
+        ok: false,
+        reason: 'server_cursor_mismatch',
+      });
+    });
+
+    it('fails closed with server_first_index_missing when first_child_index is absent (pre-W1.13 server)', () => {
+      const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
+      const claim = validClaim(account.payload, 'mainnet');
+      expect(verifyClaimedAccount(account.payload, 'mainnet', { ...claim, firstChildIndex: null })).toEqual({
+        ok: false,
+        reason: 'server_first_index_missing',
+      });
     });
 
     it('fails closed with server_fingerprint_missing when the fingerprint (or stack_id) is absent', () => {
@@ -181,14 +220,16 @@ describe('bip84-preview', () => {
           firstDerivedAddress: deriveBip84P2wpkhAddress(other.payload, 'mainnet', 0),
         }),
       ).toEqual({ ok: false, reason: 'server_address_mismatch' });
-      // Missing address or unusable index also fails closed.
+      // Missing address also fails closed.
       expect(verifyClaimedAccount(account.payload, 'mainnet', { ...claim, firstDerivedAddress: null })).toEqual({
         ok: false,
         reason: 'server_address_mismatch',
       });
+      // A missing cursor no longer reaches the address comparison: it fails
+      // the claim-time cursor equality first.
       expect(verifyClaimedAccount(account.payload, 'mainnet', { ...claim, nextChildIndex: null })).toEqual({
         ok: false,
-        reason: 'server_address_mismatch',
+        reason: 'server_cursor_mismatch',
       });
     });
 
