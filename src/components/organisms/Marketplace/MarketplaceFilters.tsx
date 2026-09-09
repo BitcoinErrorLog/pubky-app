@@ -31,6 +31,7 @@ export interface MarketplaceFiltersProps {
    * facet chips are computed from (see `useMarketplaceCatalog`).
    */
   facetPool?: MarketplaceCatalogItem[];
+  countryFacetPool?: MarketplaceCatalogItem[];
 }
 
 /** `US` → `United States`; falls back to the raw code for unknown values. */
@@ -42,7 +43,16 @@ function countryLabel(code: string): string {
   }
 }
 
-export function MarketplaceFilters({ resultCount, facetPool = [] }: MarketplaceFiltersProps) {
+export function collectMarketplaceCountryFacets(items: MarketplaceCatalogItem[]): Array<[string, number]> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const code = item.location.countryCode;
+    if (code) counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort(([left], [right]) => left.localeCompare(right));
+}
+
+export function MarketplaceFilters({ resultCount, facetPool = [], countryFacetPool = facetPool }: MarketplaceFiltersProps) {
   const query = useCommerceStore((state) => state.query);
   const categoryId = useCommerceStore((state) => state.categoryId);
   const attributeFilters = useCommerceStore((state) => state.attributeFilters);
@@ -63,11 +73,7 @@ export function MarketplaceFilters({ resultCount, facetPool = [] }: MarketplaceF
   // catalog, with counts. The active selection stays listed even when it
   // currently matches nothing (the pool is filtered by it), so it can
   // always be seen and cleared.
-  const countryCounts = new Map<string, number>();
-  for (const item of facetPool) {
-    const code = item.location.countryCode;
-    if (code) countryCounts.set(code, (countryCounts.get(code) ?? 0) + 1);
-  }
+  const countryCounts = new Map(collectMarketplaceCountryFacets(countryFacetPool));
   if (countryCode && !countryCounts.has(countryCode)) countryCounts.set(countryCode, 0);
   const countryOptions = [...countryCounts.entries()].sort(([left], [right]) => left.localeCompare(right));
 

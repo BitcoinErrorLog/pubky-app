@@ -55,7 +55,7 @@ export function Marketplace({
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const catalog = useMarketplaceCatalog(initialListings, initialShops);
-  const { shopsBySeller, adapterMode, listings, facetPool } = catalog;
+  const { shopsBySeller, adapterMode, listings, facetPool, countryFacetPool } = catalog;
   const isLoading = catalog.isLoading && listings.length === 0;
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
   const [promoStorageHydrated, setPromoStorageHydrated] = useState(false);
@@ -266,7 +266,11 @@ export function Marketplace({
         )}
 
         <section id="marketplace-catalog" className="flex scroll-mt-28 flex-col gap-5">
-          <MarketplaceFilters resultCount={listings.length} facetPool={facetPool} />
+          <MarketplaceFilters
+            resultCount={listings.length}
+            facetPool={facetPool}
+            countryFacetPool={countryFacetPool}
+          />
 
           {adapterMode === 'unavailable' && (
             <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
