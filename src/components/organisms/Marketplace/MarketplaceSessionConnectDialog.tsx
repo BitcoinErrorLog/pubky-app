@@ -92,7 +92,7 @@ export function MarketplaceSessionConnectDialog({
         </Typography>
         {requestsFullGrant && (
           <div className="rounded-md border border-border bg-muted/40 p-3">
-            <code className="block break-all font-mono text-xs" data-cy="session-connect-requested-capabilities">
+            <code className="block break-all font-sans text-xs" data-cy="session-connect-requested-capabilities">
               {CAPABILITIES}
             </code>
             <Typography as="p" className="mt-1 text-xs text-muted-foreground">
