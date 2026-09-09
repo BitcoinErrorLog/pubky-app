@@ -548,6 +548,7 @@ describe('MarketplaceTransactionService read projections', () => {
 
       expect(configView).toEqual({
         bitcoinAvailable: true,
+        bitcoinOfferAvailable: true,
         stripePaymentLink: 'https://buy.stripe.com/test_abc',
         paypalMerchantEmail: 'seller@example.com',
       });

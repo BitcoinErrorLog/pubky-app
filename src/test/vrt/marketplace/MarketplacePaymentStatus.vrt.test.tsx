@@ -37,6 +37,7 @@ const view = vi.hoisted(() => ({
   },
   sellerConfig: {
     bitcoinAvailable: true,
+    bitcoinOfferAvailable: true,
     stripePaymentLink: 'https://buy.stripe.com/test_fixture' as string | null,
     paypalMerchantEmail: 'seller@example.com' as string | null,
   },
@@ -230,7 +231,12 @@ describe('Marketplace payment status card — visual regression', () => {
   it('renders the honest empty state when the seller configured no payment methods', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const previous = view.sellerConfig;
-    view.sellerConfig = { bitcoinAvailable: false, stripePaymentLink: null, paypalMerchantEmail: null };
+    view.sellerConfig = {
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service');
     await expect.element(screen.getByText(/has not set up any payment methods/)).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-none-desktop');
