@@ -143,7 +143,11 @@ export function MarketplaceSell() {
         )}
 
         {listing.publishBlocked && (
-          <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <div
+            role="alert"
+            data-surface="seller-publish-blocked"
+            className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
+          >
             <Typography as="p" className="font-semibold">
               {listing.publishBlocked === 'no-method'
                 ? 'Configure a payment method before publishing'

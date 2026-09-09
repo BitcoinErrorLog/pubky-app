@@ -57,7 +57,6 @@ const view = vi.hoisted(() => ({
 const sellerPaymentConfig = vi.hoisted(() =>
   vi.fn(() =>
     Promise.resolve({
-      bitcoinEnabled: false,
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
       stripePaymentLink: null,
@@ -201,7 +200,11 @@ describe('Marketplace sell studio — visual regression', () => {
     await screen.getByRole('button', { name: 'Publish listing' }).click();
     await vi.waitFor(() => screen.getByText('Configure a payment method before publishing'));
     expect(sellerPaymentConfig).toHaveBeenCalledWith('y'.repeat(52));
-    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-publish-blocked-desktop');
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveAttribute('data-surface', 'seller-publish-blocked');
+    expect(alert).toHaveTextContent('Configure a payment method before publishing');
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeEnabled();
+    await expect(expectVrtSurface('seller-publish-blocked')).toMatchScreenshot('sell-publish-blocked-desktop');
   });
 
   // The shipping section with saved presets: the apply-preset picker renders
