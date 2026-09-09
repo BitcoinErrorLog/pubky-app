@@ -4,7 +4,7 @@ import { PubchiProfile } from '@/templates/Pubchi/PubchiProfile/PubchiProfile';
 import { renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 
-const BOT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const BOT = vi.hoisted(() => '9o6xw6h5r4n3m2k1j0hgfedcba987654321zyxwvutsrqpox444y');
 
 vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
   usePubchiEnrollment: () => ({
@@ -34,29 +34,52 @@ vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
 
 vi.mock('@/controllers/feed/feed', () => ({
   FeedController: {
-    getList: async () => [{
-      id: 'vrt-pubchi-feed',
-      name: 'Builders',
-      icon: 'sparkles',
-      tags: ['builders', 'rust'],
-      domain_tags: [],
-      reach: PubkyAppFeedReach.Following,
-      sort: PubkyAppFeedSort.Recent,
-      content: null,
-      layout: PubkyAppFeedLayout.Columns,
-      created_at: 1_768_454_400_000,
-      updated_at: 1_768_454_400_000,
-    }],
+    getList: async () => [
+      {
+        id: 'vrt-pubchi-feed',
+        name: 'Builders',
+        icon: 'sparkles',
+        tags: ['builders', 'rust'],
+        domain_tags: [],
+        reach: PubkyAppFeedReach.Following,
+        sort: PubkyAppFeedSort.Recent,
+        content: null,
+        layout: PubkyAppFeedLayout.Columns,
+        created_at: 1_768_454_400_000,
+        updated_at: 1_768_454_400_000,
+      },
+      {
+        id: 'vrt-user-feed',
+        name: 'My Feed',
+        icon: 'sparkles',
+        tags: ['bitcoin'],
+        domain_tags: [],
+        reach: PubkyAppFeedReach.Following,
+        sort: PubkyAppFeedSort.Recent,
+        content: null,
+        layout: PubkyAppFeedLayout.Columns,
+        created_at: 1_768_454_400_000,
+        updated_at: 1_768_454_400_000,
+      },
+    ],
   },
 }));
 
 vi.mock('@/libs/pubchi/feed-provenance', () => ({
-  getPubchiBuiltFeedIds: async () => new Set(['vrt-pubchi-feed']),
+  listPubchiFeedProvenance: async () => [
+    {
+      schema: 'pubchi-feed-provenance',
+      version: 1,
+      feed_id: 'vrt-pubchi-feed',
+      created_at: 1_768_454_400,
+      proposal_hash: 'a'.repeat(64),
+      bot: BOT,
+    },
+  ],
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: BOT }),
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: BOT }),
 }));
 
 describe('PubchiProfile — visual regression', () => {

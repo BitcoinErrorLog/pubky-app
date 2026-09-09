@@ -5,7 +5,7 @@ import { PubchiProfile } from './PubchiProfile';
 
 const mocks = vi.hoisted(() => ({
   getList: vi.fn(),
-  getPubchiBuiltFeedIds: vi.fn(),
+  listPubchiFeedProvenance: vi.fn(),
   owner: 'owner-pubky',
 }));
 
@@ -23,7 +23,7 @@ vi.mock('@/controllers/feed/feed', () => ({
 }));
 
 vi.mock('@/libs/pubchi/feed-provenance', () => ({
-  getPubchiBuiltFeedIds: (...args: unknown[]) => mocks.getPubchiBuiltFeedIds(...args),
+  listPubchiFeedProvenance: (...args: unknown[]) => mocks.listPubchiFeedProvenance(...args),
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -34,7 +34,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 describe('PubchiProfile', () => {
   beforeEach(() => {
     mocks.getList.mockReset();
-    mocks.getPubchiBuiltFeedIds.mockReset();
+    mocks.listPubchiFeedProvenance.mockReset();
     mocks.getList.mockResolvedValue([
       {
         id: 'pubchi-feed',
@@ -61,7 +61,16 @@ describe('PubchiProfile', () => {
         updated_at: 1_768_454_400_000,
       },
     ]);
-    mocks.getPubchiBuiltFeedIds.mockResolvedValue(new Set(['pubchi-feed']));
+    mocks.listPubchiFeedProvenance.mockResolvedValue([
+      {
+        schema: 'pubchi-feed-provenance',
+        version: 1,
+        feed_id: 'pubchi-feed',
+        created_at: 1_768_454_400,
+        proposal_hash: 'a'.repeat(64),
+        bot: 'b'.repeat(52),
+      },
+    ]);
   });
 
   it('lists a Pubchi-applied feed and excludes a same-named user feed', async () => {
@@ -71,6 +80,6 @@ describe('PubchiProfile', () => {
     expect(screen.getByTestId('pubchi-built-feeds')).toHaveTextContent('builders');
     expect(screen.queryByText('user')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open/i })).toHaveAttribute('href', '/feed/pubchi-feed');
-    expect(mocks.getPubchiBuiltFeedIds).toHaveBeenCalledWith('owner-pubky');
+    expect(mocks.listPubchiFeedProvenance).toHaveBeenCalledWith('owner-pubky');
   });
 });

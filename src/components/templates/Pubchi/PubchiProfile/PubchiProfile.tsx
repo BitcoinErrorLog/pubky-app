@@ -12,38 +12,59 @@ import { PubchiProfileCard } from '@/components/organisms/Pubchi/PubchiProfileCa
 import { FeedController } from '@/controllers/feed/feed';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
-import { getPubchiBuiltFeedIds } from '@/libs/pubchi/feed-provenance';
+import { listPubchiFeedProvenance } from '@/libs/pubchi/feed-provenance';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function PubchiProfile() {
   const { pubchi, config, devices, needsReapproval } = usePubchiEnrollment();
   const owner = useAuthStore((state) => state.currentUserPubky);
-  const [builtFeeds, setBuiltFeeds] = useState<FeedModelSchema[]>([]);
+  const [builtFeeds, setBuiltFeeds] = useState<Array<{ feed: FeedModelSchema; createdAt: number }>>([]);
+  const [builtFeedsError, setBuiltFeedsError] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!owner || !pubchi) {
       setBuiltFeeds([]);
+      setBuiltFeedsError(false);
       return;
     }
     let cancelled = false;
-    void Promise.all([FeedController.getList(), getPubchiBuiltFeedIds(owner)])
-      .then(([feeds, builtFeedIds]) => {
-        if (!cancelled) setBuiltFeeds(feeds.filter((feed) => builtFeedIds.has(feed.id)));
+    setBuiltFeedsError(false);
+    void Promise.all([FeedController.getList(), listPubchiFeedProvenance(owner)])
+      .then(([feeds, provenance]) => {
+        const feedsById = new Map(feeds.map((feed) => [feed.id, feed]));
+        const joined = provenance.flatMap((record) => {
+          const feed = feedsById.get(record.feed_id);
+          return feed ? [{ feed, createdAt: record.created_at }] : [];
+        });
+        if (!cancelled) setBuiltFeeds(joined);
       })
       .catch(() => {
-        if (!cancelled) setBuiltFeeds([]);
+        if (!cancelled) {
+          setBuiltFeeds([]);
+          setBuiltFeedsError(true);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [owner, pubchi]);
+  }, [owner, pubchi, reload]);
 
   if (!pubchi) {
     return (
       <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-        <Typography size="xl" className="font-semibold">Your Pubchi</Typography>
-        <Card><CardContent className="p-6"><Typography>Your Pubchi has not been created yet.</Typography><Link href="/settings/pubchi" className="mt-3 inline-flex items-center gap-2">Create it in Settings <ArrowRight aria-hidden="true" /></Link></CardContent></Card>
+        <Typography size="xl" className="font-semibold">
+          Your Pubchi
+        </Typography>
+        <Card>
+          <CardContent className="p-6">
+            <Typography>Your Pubchi has not been created yet.</Typography>
+            <Link href="/settings/pubchi" className="mt-3 inline-flex items-center gap-2">
+              Create it in Settings <ArrowRight aria-hidden="true" />
+            </Link>
+          </CardContent>
+        </Card>
       </main>
     );
   }
@@ -54,21 +75,55 @@ export function PubchiProfile() {
     sessionCoversPubchi: !needsReapproval,
   });
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6" data-surface="pubchi-profile-page" data-testid="pubchi-profile-page">
+    <main
+      className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6"
+      data-surface="pubchi-profile-page"
+      data-testid="pubchi-profile-page"
+    >
       <div className="flex items-center justify-between gap-3">
-        <div><Typography size="xl" className="font-semibold">Your Pubchi</Typography><Typography className="text-muted-foreground">Your graph assistant and its permissions.</Typography></div>
-        <Link href="/settings/pubchi" className="inline-flex items-center gap-2"><Settings aria-hidden="true" /> Settings</Link>
+        <div>
+          <Typography size="xl" className="font-semibold">
+            Your Pubchi
+          </Typography>
+          <Typography className="text-muted-foreground">Your graph assistant and its permissions.</Typography>
+        </div>
+        <Link href="/settings/pubchi" className="inline-flex items-center gap-2">
+          <Settings aria-hidden="true" /> Settings
+        </Link>
       </div>
-      <PubchiProfileCard bot={pubchi.bot} displayName={pubchi.displayName} createdAt={pubchi.createdAt} verified={pubchi.verified} backupConfirmed={Boolean(pubchi.backupConfirmedAt)} tier={tier} brainLabel={config?.brain.execution === 'self-hosted' ? 'Own endpoint' : 'Hosted Kimi'} />
+      <PubchiProfileCard
+        bot={pubchi.bot}
+        displayName={pubchi.displayName}
+        createdAt={pubchi.createdAt}
+        verified={pubchi.verified}
+        backupConfirmed={Boolean(pubchi.backupConfirmedAt)}
+        tier={tier}
+        brainLabel={config?.brain.execution === 'self-hosted' ? 'Own endpoint' : 'Hosted Kimi'}
+      />
       <PubchiCapabilities tier={tier} onSelect={() => undefined} onBuildFeed={() => undefined} />
       <Card data-testid="pubchi-built-feeds">
-        <CardHeader><CardTitle>Feeds built by your Pubchi</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Feeds built by your Pubchi</CardTitle>
+        </CardHeader>
         <CardContent>
           {builtFeeds.length === 0 ? (
-            <Typography size="sm" className="text-muted-foreground">No Pubchi-built feeds yet. Build one from the Pubchi flyout.</Typography>
+            builtFeedsError ? (
+              <div className="flex items-center justify-between gap-3">
+                <Typography size="sm" className="text-muted-foreground">
+                  Could not load Pubchi-built feeds.
+                </Typography>
+                <button type="button" onClick={() => setReload((value) => value + 1)} className="underline">
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <Typography size="sm" className="text-muted-foreground">
+                No Pubchi-built feeds yet. Build one from the Pubchi flyout.
+              </Typography>
+            )
           ) : (
             <ul className="flex flex-col gap-3">
-              {builtFeeds.map((feed) => (
+              {builtFeeds.map(({ feed, createdAt }) => (
                 <li key={feed.id} className="flex items-center justify-between gap-3">
                   <div>
                     <Typography className="font-medium">{feed.name}</Typography>
@@ -76,7 +131,7 @@ export function PubchiProfile() {
                       {feed.tags.length > 0 ? feed.tags.join(', ') : 'No tags'} · {feed.reach}
                     </Typography>
                     <Typography size="sm" className="text-muted-foreground">
-                      Created {new Date(feed.created_at).toLocaleDateString()}
+                      Created {new Date(createdAt * 1000).toLocaleDateString()}
                     </Typography>
                   </div>
                   <Link href={`${APP_ROUTES.FEED}/${feed.id}`} className="inline-flex items-center gap-2">
@@ -89,16 +144,37 @@ export function PubchiProfile() {
         </CardContent>
       </Card>
       <Card data-testid="pubchi-devices">
-        <CardHeader><CardTitle className="flex items-center gap-2"><Smartphone aria-hidden="true" /> Devices</CardTitle></CardHeader>
-        <CardContent className="flex items-center justify-between gap-3"><Typography>{devices.length} device signer{devices.length === 1 ? '' : 's'}</Typography><Link href="/settings/pubchi" className="inline-flex items-center gap-2">Manage <ArrowRight aria-hidden="true" /></Link></CardContent>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Smartphone aria-hidden="true" /> Devices
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-3">
+          <Typography>
+            {devices.length} device signer{devices.length === 1 ? '' : 's'}
+          </Typography>
+          <Link href="/settings/pubchi" className="inline-flex items-center gap-2">
+            Manage <ArrowRight aria-hidden="true" />
+          </Link>
+        </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Pubchi settings</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Pubchi settings</CardTitle>
+        </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Badge variant="outline"><Link href="/settings/pubchi#rename">Rename</Link></Badge>
-          <Badge variant="outline"><Link href="/settings/pubchi#tier">Permission tier</Link></Badge>
-          <Badge variant="outline"><Link href="/settings/pubchi#brain">Brain</Link></Badge>
-          <Badge variant="outline"><Link href="/settings/pubchi#preferences">Preferences</Link></Badge>
+          <Badge variant="outline">
+            <Link href="/settings/pubchi#rename">Rename</Link>
+          </Badge>
+          <Badge variant="outline">
+            <Link href="/settings/pubchi#tier">Permission tier</Link>
+          </Badge>
+          <Badge variant="outline">
+            <Link href="/settings/pubchi#brain">Brain</Link>
+          </Badge>
+          <Badge variant="outline">
+            <Link href="/settings/pubchi#preferences">Preferences</Link>
+          </Badge>
         </CardContent>
       </Card>
     </main>

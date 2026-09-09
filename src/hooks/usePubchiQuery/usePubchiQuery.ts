@@ -8,7 +8,7 @@ import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
-import { markFeedAsPubchiBuilt } from '@/libs/pubchi/feed-provenance';
+import { recordPubchiBuiltFeed } from '@/libs/pubchi/feed-provenance';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
@@ -128,7 +128,7 @@ export function usePubchiQuery() {
     try {
       const feed = await FeedController.commitCreate(feedProposalToCreateParams(result.result));
       feedId = feed.id;
-      await markFeedAsPubchiBuilt(owner, feed);
+      await recordPubchiBuiltFeed(owner, result.result, feed);
       toast({ variant: 'default', title: 'Feed applied', dismissButton: true });
       return true;
     } catch (error) {

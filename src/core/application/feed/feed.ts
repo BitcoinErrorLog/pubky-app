@@ -8,6 +8,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
+import { deletePubchiFeedProvenance } from '@/libs/pubchi/feed-provenance';
 import { FeedModel } from '@/models/feed/feed';
 import { buildFeedStreamId, reachToString } from '@/models/feed/feed.helpers';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
@@ -117,6 +118,7 @@ export class FeedApplication {
         ? [LocalStreamPostsService.deleteById({ streamId }), LocalStreamPostsService.clearUnreadStream({ streamId })]
         : []),
     ]);
+    await deletePubchiFeedProvenance(userId, feedId).catch(() => undefined);
   }
 
   /**

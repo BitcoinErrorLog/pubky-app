@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PubchiProfile } from '@/templates/Pubchi/PubchiProfile/PubchiProfile';
 import PubchiPage from './page';
 
 const mocks = vi.hoisted(() => ({
@@ -35,7 +36,7 @@ describe('Pubchi page', () => {
   it('renders the profile when Pubchi is enabled', () => {
     mocks.isPubchiEnabled.mockReturnValue(true);
 
-    expect(PubchiPage()).toEqual(<div data-testid="pubchi-profile" />);
+    expect(PubchiPage()).toEqual(<PubchiProfile />);
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 });

@@ -38,7 +38,7 @@ const mocks = vi.hoisted(() => ({
   fetchPubchiQuery: vi.fn(),
   commitCreate: vi.fn(),
   commitDelete: vi.fn(),
-  markFeedAsPubchiBuilt: vi.fn(),
+  recordPubchiBuiltFeed: vi.fn(),
   toast: vi.fn(),
   ensureDeviceReady: vi.fn(),
   loadPubchi: vi.fn(),
@@ -64,7 +64,7 @@ vi.mock('@/controllers/feed/feed', () => ({
 }));
 
 vi.mock('@/libs/pubchi/feed-provenance', () => ({
-  markFeedAsPubchiBuilt: (...args: unknown[]) => mocks.markFeedAsPubchiBuilt(...args),
+  recordPubchiBuiltFeed: (...args: unknown[]) => mocks.recordPubchiBuiltFeed(...args),
 }));
 
 vi.mock('@/molecules/Toaster/toast', () => ({
@@ -83,10 +83,11 @@ describe('usePubchiQuery', () => {
     mocks.fetchPubchiQuery.mockReset();
     mocks.commitCreate.mockReset();
     mocks.commitDelete.mockReset();
-    mocks.markFeedAsPubchiBuilt.mockReset();
+    mocks.recordPubchiBuiltFeed.mockReset();
     mocks.toast.mockReset();
     mocks.fetchPubchiQuery.mockResolvedValue(FEED_SUCCESS);
     mocks.commitCreate.mockResolvedValue({ id: 'feed-1' });
+    mocks.commitDelete.mockResolvedValue(undefined);
     mocks.ensureDeviceReady.mockReset().mockResolvedValue(true);
     mocks.loadPubchi.mockReset().mockResolvedValue({ verified: true });
   });
@@ -117,7 +118,7 @@ describe('usePubchiQuery', () => {
     });
 
     expect(mocks.commitCreate).toHaveBeenCalledOnce();
-    expect(mocks.markFeedAsPubchiBuilt).toHaveBeenCalledWith('a'.repeat(52), { id: 'feed-1' });
+    expect(mocks.recordPubchiBuiltFeed).toHaveBeenCalledWith('a'.repeat(52), FEED_PROPOSAL, { id: 'feed-1' });
     const params = mocks.commitCreate.mock.calls[0][0];
     expect(params.name).toBe('Builders');
     expect(params.tags).toEqual(['builder']);
@@ -148,13 +149,16 @@ describe('usePubchiQuery', () => {
   });
 
   it('rolls back the feed when provenance cannot be recorded', async () => {
-    mocks.markFeedAsPubchiBuilt.mockRejectedValue(new Error('database unavailable'));
     const { result } = renderHook(() => usePubchiQuery());
     await waitFor(() => expect(result.current.signingAvailable).toBe(true));
 
     await act(async () => {
       result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'build a feed of builders');
       await result.current.submit('build-feed');
+    });
+    expect(result.current.result).toEqual(FEED_SUCCESS);
+    mocks.recordPubchiBuiltFeed.mockRejectedValue(new Error('homeserver unavailable'));
+    await act(async () => {
       await expect(result.current.applyFeed()).resolves.toBe(false);
     });
 
