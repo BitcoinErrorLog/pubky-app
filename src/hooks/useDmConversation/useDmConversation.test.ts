@@ -48,7 +48,7 @@ function historyRow(id: string, body: string, recordedAt: number): CommerceMessa
     counterparty_pubky: COUNTERPARTY,
     direction: 'sent',
     body,
-    sent_at: '2026-08-24T10:00:00.000Z',
+    sent_at: 1_756_627_200_000,
     recorded_at: recordedAt,
   };
 }
@@ -136,7 +136,7 @@ describe('useDmConversation queued-message behavior', () => {
         version: 1,
         kind: 'pubky_app.dm.v0',
         event_id: crypto.randomUUID(),
-        sent_at: '2026-08-24T10:00:00.000Z',
+        sent_at: 1_756_627_200_000,
         body: 'live',
       },
     });

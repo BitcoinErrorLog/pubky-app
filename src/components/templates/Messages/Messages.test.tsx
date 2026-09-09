@@ -102,7 +102,7 @@ describe('Messages inbox previews', () => {
           counterparty_pubky: COUNTERPARTY,
           direction: 'sent',
           body: 'sent a while ago',
-          sent_at: '2026-08-24T09:00:00.000Z',
+          sent_at: 1_787_562_000_000,
           recorded_at: 100,
         },
         lastQueued: {
@@ -137,7 +137,7 @@ describe('Messages inbox previews', () => {
           counterparty_pubky: COUNTERPARTY,
           direction: 'sent',
           body: 'the newest message',
-          sent_at: '2026-08-24T09:00:00.000Z',
+          sent_at: 1_787_562_000_000,
           recorded_at: 300,
         },
         lastQueued: {

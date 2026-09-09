@@ -27,13 +27,13 @@ function chatMessage(body: string, eventId = crypto.randomUUID()): MarketplaceCh
     event_id: eventId,
     conversation_id: CONVERSATION_ID,
     listing_ref: LISTING_REF,
-    sent_at: '2026-08-24T10:00:00.000Z',
+    sent_at: 1_787_565_600_000,
     body,
   };
 }
 
 function dmMessage(body: string, eventId = crypto.randomUUID()): PubkyAppDmMessage {
-  return { version: 1, kind: PUBKY_APP_DM_KIND, event_id: eventId, sent_at: '2026-08-24T10:00:00.000Z', body };
+  return { version: 1, kind: PUBKY_APP_DM_KIND, event_id: eventId, sent_at: 1_787_565_600_000, body };
 }
 
 function mockLinkState(state: MessagingLinkState) {

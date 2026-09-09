@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  dropCachedWrappingKeyForTests,
-  resetMessagingKeyringForTests,
-} from '@/libs/crypto/messaging-keyring';
+import { dropCachedWrappingKeyForTests, resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
 import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
 import { isAppError } from '@/libs/error/error';
 import {
@@ -13,6 +10,7 @@ import {
   CommerceMessagingReceiverModel,
 } from '@/models/messaging/messaging.models';
 import type { CommerceMessagingOutboxModelSchema } from '@/models/messaging/messaging.schema';
+import { asInvalid } from '@/test-utils/type-assertions';
 import { LocalMessagingService } from './messaging';
 
 const OWNER = 'a'.repeat(52);
@@ -27,7 +25,7 @@ function messageRow(eventSuffix: string, recordedAt: number) {
     counterparty_pubky: COUNTERPARTY,
     direction: 'received' as const,
     body: `message ${eventSuffix}`,
-    sent_at: '2026-08-21T10:00:00.000Z',
+    sent_at: 1_787_306_400_000,
     recorded_at: recordedAt,
   };
 }
@@ -95,6 +93,20 @@ describe('LocalMessagingService', () => {
     await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('early', 10));
     const messages = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
     expect(messages.map(({ body }) => body)).toEqual(['message early', 'message late']);
+  });
+
+  it('normalizes legacy ISO sent_at values when reading persisted messages', async () => {
+    const sentAt = '2026-08-21T10:00:00.000Z';
+    await CommerceMessagingMessageModel.table.add({
+      id: `${OWNER}:legacy`,
+      ...messageRow('legacy', 10),
+      sent_at: asInvalid<number>(sentAt),
+    });
+
+    const messages = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
+
+    expect(messages[0].sent_at).toBe(Date.parse(sentAt));
+    expect(typeof messages[0].sent_at).toBe('number');
   });
 
   it('touchConversation creates once and only moves timestamps forward', async () => {
@@ -374,9 +386,7 @@ describe('LocalMessagingService', () => {
       const { subtle: _subtle, ...rest } = globalThis.crypto;
       vi.stubGlobal('crypto', rest);
 
-      await expect(LocalMessagingService.upsertReceiver(receiverRow())).rejects.toSatisfy((error) =>
-        isAppError(error),
-      );
+      await expect(LocalMessagingService.upsertReceiver(receiverRow())).rejects.toSatisfy((error) => isAppError(error));
       await expect(CommerceMessagingReceiverModel.findById(OWNER)).resolves.toBeNull();
     });
 

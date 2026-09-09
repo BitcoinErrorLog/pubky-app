@@ -3,6 +3,7 @@ import { db } from '@/database/franky/franky';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { parsePamSentAt } from '@/libs/messaging/pam-sent-at';
 import { RecordModelBase } from '@/models/shared/base/record/baseRecord';
 import type {
   CommerceMessagingConversationModelSchema,
@@ -141,7 +142,7 @@ export class CommerceMessagingMessageModel
   counterparty_pubky: string;
   direction: CommerceMessagingMessageModelSchema['direction'];
   body: string;
-  sent_at: string;
+  sent_at: number;
   recorded_at: number;
 
   constructor(message: CommerceMessagingMessageModelSchema) {
@@ -162,7 +163,12 @@ export class CommerceMessagingMessageModel
   ): Promise<CommerceMessagingMessageModelSchema[]> {
     try {
       const messages = await this.table.where({ owner_id: ownerId, conversation_id: conversationId }).toArray();
-      return messages.sort((left, right) => left.recorded_at - right.recorded_at);
+      return messages
+        .map((message) => {
+          const sentAt = parsePamSentAt((message as { sent_at: unknown }).sent_at);
+          return sentAt === null ? message : { ...message, sent_at: sentAt };
+        })
+        .sort((left, right) => left.recorded_at - right.recorded_at);
     } catch (error) {
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by conversation`, {
         service: ErrorService.Local,

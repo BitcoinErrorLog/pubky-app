@@ -112,7 +112,7 @@ export type ReceivedMessage = {
   event_id: string;
   conversation_id: string;
   listing_ref: string | null;
-  sent_at: string;
+  sent_at: number;
   body: string;
   counterpartyPubky: string;
 };
@@ -495,7 +495,7 @@ export class PaykitMessagingService {
         eventId: input.eventId ?? crypto.randomUUID(),
         conversationId: input.conversationId,
         listingRef: input.listingRef,
-        sentAt: new Date().toISOString(),
+        sentAt: Date.now(),
         body: input.body,
       });
       await link.sendPrivateApplicationMessageJson(json);
@@ -527,7 +527,7 @@ export class PaykitMessagingService {
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendDmMessage');
       const { message, json } = buildDmMessage({
         eventId: input.eventId ?? crypto.randomUUID(),
-        sentAt: new Date().toISOString(),
+        sentAt: Date.now(),
         body: input.body,
       });
       await link.sendPrivateApplicationMessageJson(json);
@@ -654,7 +654,7 @@ export class PaykitMessagingService {
       eventId: string;
       conversationId: string;
       listingRef: string | null;
-      sentAt: string;
+      sentAt: number;
       body: string;
     },
   ): Promise<void> {

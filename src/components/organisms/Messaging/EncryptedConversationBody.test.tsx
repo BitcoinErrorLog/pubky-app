@@ -22,7 +22,7 @@ function sentItem(id: string, body: string): ConversationThreadItem {
     counterparty_pubky: COUNTERPARTY,
     direction: 'sent',
     body,
-    sent_at: '2026-08-24T10:00:00.000Z',
+    sent_at: 1_787_565_600_000,
     recorded_at: 10,
   };
   return { deliveryState: 'sent', message };

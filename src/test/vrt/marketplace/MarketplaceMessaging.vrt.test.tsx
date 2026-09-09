@@ -37,7 +37,7 @@ function fixedMessage(
       counterparty_pubky: SELLER,
       direction,
       body,
-      sent_at: '2026-01-01T12:00:00.000Z',
+      sent_at: 1_767_268_800_000,
       recorded_at: recordedAt,
     },
   };

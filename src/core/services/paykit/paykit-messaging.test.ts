@@ -465,6 +465,7 @@ describe('PaykitMessagingService', () => {
         listing_ref: LISTING_REF,
         body: 'Is this still available?',
       });
+      expect(typeof JSON.parse(link.sent[0]).sent_at).toBe('number');
 
       const rows = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
       expect(rows).toHaveLength(1);
@@ -512,6 +513,7 @@ describe('PaykitMessagingService', () => {
       const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
       expect(received).toHaveLength(1);
       expect(received[0].body).toBe('hello from the counterparty');
+      expect(received[0].sent_at).toBe(Date.parse('2026-08-21T10:00:00.000Z'));
 
       // Replay the same event (expected after a snapshot restore): no duplicate.
       link.inboundQueue.push({ version: 1, kind: 'marketplace.chat_message.v0', rawJson });
@@ -561,6 +563,7 @@ describe('PaykitMessagingService', () => {
         kind: 'pubky_app.dm.v0',
         body: 'hi — direct',
       });
+      expect(typeof JSON.parse(link.sent[0]).sent_at).toBe('number');
       expect(JSON.parse(link.sent[0])).not.toHaveProperty('listing_ref');
 
       const rows = await LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`);
