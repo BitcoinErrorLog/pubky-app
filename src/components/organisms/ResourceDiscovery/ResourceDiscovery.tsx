@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import type { FormEvent } from 'react';
@@ -8,13 +8,15 @@ import { getResourceLookupRoute, getResourceRoute, getResourceTagRoute } from '@
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
-import { Input } from '@/atoms/Input/Input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { CONTENT_GUTTER_CLASS } from '@/config/layoutClasses';
+import { RESOURCE_DISCOVERY_LIMIT } from '@/config/nexus';
 import { ResourceController } from '@/controllers/resource/resource';
 import { useResourceLookupForm } from '@/hooks/useResourceLookupForm/useResourceLookupForm';
+import type { ResourceLookupFormData } from '@/hooks/useResourceLookupForm/useResourceLookupForm.types';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { cn } from '@/libs/utils/utils';
+import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ResourceCard } from '@/molecules/ResourceCard/ResourceCard';
 import { ResourceEmpty } from '@/molecules/ResourceEmpty/ResourceEmpty';
 import type { NexusResource, TResourceStreamParams } from '@/services/nexus/resource/resource.types';
@@ -32,10 +34,19 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   const [nextSkip, setNextSkip] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState(false);
+  const resolvedResourceRef = useRef<NexusResource | null>(null);
   const lookup = useResourceLookupForm((value) => router.push(getResourceLookupRoute(value)));
 
   useEffect(() => {
     let active = true;
+    if (id && !id.includes('://') && resolvedResourceRef.current?.details.id === id) {
+      setResource(resolvedResourceRef.current);
+      setIsLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+    resolvedResourceRef.current = null;
     setIsLoading(true);
     setIsNotFoundError(false);
     setHasError(false);
@@ -45,9 +56,9 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     setLoadMoreError(false);
 
     const request = tag
-      ? ResourceController.fetchByTag({ tag, limit: 20 })
+      ? ResourceController.fetchByTag({ tag, limit: RESOURCE_DISCOVERY_LIMIT })
       : !id
-        ? ResourceController.fetchStreamPage({ app: 'jeb.pubky.app', limit: 20, sorting: sort })
+        ? ResourceController.fetchStreamPage({ sorting: sort })
         : id?.includes('://')
           ? ResourceController.fetchByUri({ uri: id })
           : ResourceController.fetchById({ id: id ?? '' });
@@ -63,11 +74,13 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
           setNextSkip(result.nextSkip);
           setTagLabels(labelsByFrequency(result.resources));
         } else {
-          setResource({
+          const resolvedResource = {
             details: result.resource,
             tags: result.tags,
-            taggers_count: result.tags.reduce((count, item) => count + item.taggers_count, 0),
-          });
+            taggers_count: 0,
+          };
+          setResource(resolvedResource);
+          resolvedResourceRef.current = resolvedResource;
           if (id?.includes('://')) router.replace(getResourceRoute(result.resource.id));
         }
       })
@@ -92,15 +105,13 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     setLoadMoreError(false);
     try {
       const result = await ResourceController.fetchStreamPage({
-        app: 'jeb.pubky.app',
-        limit: 20,
         sorting: sort,
         skip: nextSkip,
       });
       setResources((current) => [...current, ...result.resources]);
       setNextSkip(result.nextSkip);
-    } catch (error: unknown) {
-      if (isAppError(error)) setLoadMoreError(true);
+    } catch {
+      setLoadMoreError(true);
     } finally {
       setLoadingMore(false);
     }
@@ -127,7 +138,12 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
             Resource discovery
           </Heading>
           <form className="flex gap-2" onSubmit={submitLookup}>
-            <Input {...lookup.form.register('uri')} placeholder="Paste a URL" aria-label="Resource URL" />
+            <ControlledInputField<ResourceLookupFormData>
+              name="uri"
+              control={lookup.form.control}
+              placeholder="Paste a URL"
+              ariaLabel="Resource URL"
+            />
             <Button type="submit" variant={ButtonVariant.BRAND} aria-label="Look up resource">
               <Search aria-hidden="true" />
               Look up
@@ -167,12 +183,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
             ))}
             {nextSkip !== null ? (
               <Button type="button" variant={ButtonVariant.OUTLINE} onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading…' : 'Load more'}
-              </Button>
-            ) : null}
-            {loadMoreError ? (
-              <Button type="button" variant={ButtonVariant.OUTLINE} onClick={loadMore}>
-                Retry loading resources
+                {loadingMore ? 'Loading…' : loadMoreError ? 'Retry loading resources' : 'Load more'}
               </Button>
             ) : null}
           </Container>

@@ -13,6 +13,7 @@ export function ControlledInputField<T extends FieldValues>({
   label,
   labelHint,
   placeholder,
+  ariaLabel,
   maxLength,
   variant = 'dashed',
   size = 'lg',
@@ -42,6 +43,7 @@ export function ControlledInputField<T extends FieldValues>({
           onBlur={controllerField.onBlur}
           maxLength={maxLength}
           placeholder={placeholder}
+          ariaLabel={ariaLabel}
           variant={variant}
           size={size}
           icon={icon}

@@ -12,6 +12,7 @@ interface InputFieldProps {
   name?: string;
   value: string;
   placeholder?: string;
+  ariaLabel?: string;
   disabled?: boolean;
   readOnly?: boolean;
   onClick?: () => void;
@@ -42,6 +43,7 @@ export function InputField({
   name,
   value,
   placeholder,
+  ariaLabel,
   disabled = false,
   readOnly = false,
   onClick,
@@ -142,6 +144,7 @@ export function InputField({
           className={cn('w-full border-none !bg-transparent', inputClassName)}
           value={loading ? resolvedLoadingText : value}
           placeholder={placeholder}
+          aria-label={ariaLabel}
           disabled={disabled || loading}
           readOnly={readOnly}
           onClick={onClick}

@@ -12,6 +12,8 @@ export interface ControlledInputFieldProps<T extends FieldValues> {
   labelHint?: ReactNode;
   /** Placeholder text for the input */
   placeholder?: string;
+  /** Accessible name for the input */
+  ariaLabel?: string;
   /** Maximum character length */
   maxLength?: number;
   /** Input border style variant */

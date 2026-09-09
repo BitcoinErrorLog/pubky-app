@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getResourceRoute } from '@/app/routes';
 import { ResourceController } from '@/controllers/resource/resource';
@@ -74,6 +74,19 @@ describe('ResourceDiscovery', () => {
 
     expect(await screen.findByRole('button', { name: 'docs' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Sort resources' })).toHaveTextContent('Recent');
+  });
+
+  it('shows the lookup validation message without calling the URI controller', async () => {
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({ resources: [], nextSkip: null });
+
+    render(<ResourceDiscovery />);
+
+    const input = await screen.findByRole('textbox', { name: 'Resource URL' });
+    fireEvent.change(input, { target: { value: 'example.com' } });
+    fireEvent.submit(input.closest('form')!);
+
+    expect(await screen.findByText('Enter a valid HTTP or HTTPS URL')).toBeInTheDocument();
+    expect(ResourceController.fetchByUri).not.toHaveBeenCalled();
   });
 
   it('renders the index error state when the stream fails', async () => {
@@ -171,6 +184,33 @@ describe('ResourceDiscovery', () => {
     expect(screen.getByText('Unable to load resources')).toBeInTheDocument();
     expect(container.querySelector('img')).toBeNull();
     vi.useRealTimers();
+  });
+
+  it('uses one retry button and retries any load-more failure', async () => {
+    vi.mocked(ResourceController.fetchStreamPage)
+      .mockResolvedValueOnce({ resources: [taggedResource('resource-1', 'https://example.com/one')], nextSkip: 1 })
+      .mockRejectedValueOnce(new TypeError('network aborted'));
+
+    render(<ResourceDiscovery />);
+
+    const loadMore = await screen.findByRole('button', { name: 'Load more' });
+    fireEvent.click(loadMore);
+
+    expect(await screen.findByRole('button', { name: 'Retry loading resources' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Retry loading resources' })).toHaveLength(1);
+  });
+
+  it('keeps a URI lookup result when replacing the route', async () => {
+    const response = { resource: taggedResource('resource-1', 'https://example.com/one').details, tags: [] };
+    vi.mocked(ResourceController.fetchByUri).mockResolvedValueOnce(response);
+
+    const view = render(<ResourceDiscovery id="https://example.com/one" />);
+    await screen.findByRole('heading', { name: 'Preview' });
+
+    view.rerender(<ResourceDiscovery id="resource-1" />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Preview' })).toBeInTheDocument());
+    expect(ResourceController.fetchByUri).toHaveBeenCalledOnce();
+    expect(ResourceController.fetchById).not.toHaveBeenCalled();
   });
 
   it('does not render a javascript: href from a tagged resource', async () => {
