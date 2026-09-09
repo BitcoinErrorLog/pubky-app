@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Bitcoin,
   CheckCircle2,
@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Smartphone,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -24,8 +25,18 @@ import { Input } from '@/atoms/Input/Input';
 import { Label } from '@/atoms/Label/Label';
 import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
-import { getLocksUrl } from '@/config/commerce';
-import { useMarketplaceSellerPaymentConfig } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
+import { getBitcoinNetwork, getLocksUrl } from '@/config/commerce';
+import {
+  CLAIM_REJECTION_COPY,
+  useMarketplaceSellerPaymentConfig,
+} from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
+import {
+  ACCOUNT_KEY_FILE_MAX_BYTES,
+  ACCOUNT_KEY_FILE_REJECTION_COPY,
+  type AccountKeyFileRejection,
+  parseAccountKeyFile,
+} from '@/libs/commerce/account-key-file';
+import { parseBitcoinNetwork } from '@/libs/commerce/payment-methods';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
@@ -104,6 +115,12 @@ function MethodCard({
   );
 }
 
+/** Static copy for every named file-import refusal (file-level + validator). */
+const FILE_IMPORT_COPY: Record<AccountKeyFileRejection, string> = {
+  ...CLAIM_REJECTION_COPY,
+  ...ACCOUNT_KEY_FILE_REJECTION_COPY,
+};
+
 /**
  * The seller's "How you get paid" methods, in buyer-familiar order: PayPal,
  * card via Stripe, then bitcoin. Every rail is seller-direct — bitcoin
@@ -121,6 +138,8 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   const [paypalMerchantEmail, setPaypalMerchantEmail] = useState('');
   const [xpubInput, setXpubInput] = useState('');
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+  const [fileImportError, setFileImportError] = useState<string | null>(null);
+  const accountKeyFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!payments.config) return;
@@ -141,6 +160,38 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   const onStartClaim = () => {
     setClaimDialogOpen(true);
     payments.startClaim(xpubInput);
+  };
+
+  /**
+   * §C.10 file import: every accepted artifact reduces to the same
+   * normalized 78 bytes through the validator, so the paste field is filled
+   * with the canonical xpub and the claim path is identical to a paste.
+   * Refusals show named static copy; file contents are never logged,
+   * toasted, or persisted.
+   */
+  const onAccountKeyFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    // The size cap refuses before the contents are read.
+    if (file.size > ACCOUNT_KEY_FILE_MAX_BYTES) {
+      setFileImportError(FILE_IMPORT_COPY.file_too_large);
+      return;
+    }
+    let content: string;
+    try {
+      content = await file.text();
+    } catch {
+      setFileImportError(FILE_IMPORT_COPY.unrecognized_file);
+      return;
+    }
+    const result = parseAccountKeyFile(content, parseBitcoinNetwork(getBitcoinNetwork()));
+    if (!result.ok) {
+      setFileImportError(FILE_IMPORT_COPY[result.reason]);
+      return;
+    }
+    setFileImportError(null);
+    setXpubInput(result.xpub);
   };
 
   const onCloseClaimDialog = (open: boolean) => {
@@ -439,7 +490,28 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
                       >
                         Claim with signer
                       </Button>
+                      <Button
+                        variant="ghost"
+                        className="rounded-full"
+                        onClick={() => accountKeyFileRef.current?.click()}
+                      >
+                        <Upload className="mr-2 size-4" />
+                        Import from file
+                      </Button>
+                      <input
+                        ref={accountKeyFileRef}
+                        type="file"
+                        accept=".txt,.json,text/plain,application/json"
+                        className="hidden"
+                        aria-label="Account key file"
+                        onChange={(event) => void onAccountKeyFile(event)}
+                      />
                     </div>
+                    {fileImportError && (
+                      <Typography as="p" role="alert" className="text-sm text-amber-300">
+                        {fileImportError}
+                      </Typography>
+                    )}
                     {payments.claimStatus === 'error' && payments.claimError && (
                       <Typography as="p" role="alert" className="text-sm text-amber-300">
                         {payments.claimError}

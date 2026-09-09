@@ -1,0 +1,13 @@
+{
+  "chain": "BTC",
+  "xfp": "EA517EE5",
+  "account": 0,
+  "bip44": { "deriv": "m/44'/0'/0'", "xpub": "ignored-not-a-key" },
+  "bip49": { "deriv": "m/49'/0'/0'", "xpub": "ignored-not-a-key", "_pub": "ignored" },
+  "bip84": {
+    "deriv": "m/84'/0'/0'",
+    "xpub": "xpub6DNfJehqF1LUs9kwaqDu12Ajpz9psYVtbGhTykQo1CYdkkqV2vAyR4DiWXSTTDujWHzVy1AtV6ENGKWgwbLWqa4wXMZR4ZmdpRjQBG5EgTV",
+    "_pub": "zpub6s3Buz3fYNRSZk9BFYo9RCMkAvSiknUtRVjuYYCZmDJPrxTwYEW6fBXzYwMdT3DaKaE7TxN1QQwU2tjpNzAYS3S9G2xGEPQcMsrgxQNwh47"
+  },
+  "xpub": "ignored-top-level"
+}

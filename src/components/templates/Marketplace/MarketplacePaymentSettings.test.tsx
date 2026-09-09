@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { CLAIM_VERIFICATION_COPY } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
+import { ACCOUNT_KEY_FILE_MAX_BYTES, ACCOUNT_KEY_FILE_REJECTION_COPY } from '@/libs/commerce/account-key-file';
 import { accountKeyFingerprint, deriveBip84P2wpkhAddress } from '@/libs/commerce/bip84-preview';
 import { encodeBase58Check, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
@@ -58,6 +61,8 @@ const EMPTY_CONFIG: SellerPaymentConfigOwnView = {
  */
 const NON_DENY_LISTED_MNEMONIC = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
 const DERIVED_ACCOUNT = deriveBip84Account(NON_DENY_LISTED_MNEMONIC, 0, 0);
+/** A second account of the same wallet — a different key, for mismatch cases. */
+const OTHER_ACCOUNT = deriveBip84Account(NON_DENY_LISTED_MNEMONIC, 0, 1);
 const PASTED_ZPUB = encodeBase58Check(
   (() => {
     const payload = new Uint8Array(DERIVED_ACCOUNT.payload);
@@ -383,12 +388,11 @@ describe('MarketplacePaymentSettings', () => {
   });
 
   it('refuses with server_address_mismatch when the server derives a different first address', async () => {
-    const otherAccount = deriveBip84Account(NON_DENY_LISTED_MNEMONIC, 0, 1);
     mockedController.beginPaykitClaimFlow.mockReturnValue({
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({
         ...VERIFIED_CLAIM_RESULT,
-        firstDerivedAddress: deriveBip84P2wpkhAddress(otherAccount.payload, 'mainnet', 0),
+        firstDerivedAddress: deriveBip84P2wpkhAddress(OTHER_ACCOUNT.payload, 'mainnet', 0),
       }),
       cancel: vi.fn(),
     });
@@ -399,5 +403,55 @@ describe('MarketplacePaymentSettings', () => {
 
     await screen.findAllByText(CLAIM_VERIFICATION_COPY.server_address_mismatch);
     expect(screen.getByRole('switch', { name: 'Accept bitcoin', hidden: true })).not.toBeChecked();
+  });
+
+  describe('file import (§C.10)', () => {
+    function keyFixture(name: string): string {
+      return readFileSync(resolve(__dirname, '../../../test/fixtures/commerce/account-keys', name), 'utf8');
+    }
+
+    function upload(name: string, content: string): File {
+      return new File([content], name, { type: name.endsWith('.json') ? 'application/json' : 'text/plain' });
+    }
+
+    it('fills the paste field with the normalized xpub from a text or descriptor file', async () => {
+      const user = userEvent.setup();
+      await renderSettings();
+      await user.click(screen.getByRole('button', { name: 'Technical details' }));
+
+      await user.upload(screen.getByLabelText('Account key file'), upload('xpub.txt', keyFixture('bip84-account-zpub.txt')));
+      await waitFor(() => expect(screen.getByLabelText('Account xpub')).toHaveValue(NORMALIZED_XPUB));
+
+      await user.upload(screen.getByLabelText('Account key file'), upload('descriptor.txt', keyFixture('wpkh-descriptor.txt')));
+      await waitFor(() => expect(screen.getByLabelText('Account xpub')).toHaveValue(NORMALIZED_XPUB));
+
+      await user.upload(screen.getByLabelText('Account key file'), upload('coldcard-export.json', keyFixture('coldcard-export.json')));
+      await waitFor(() => expect(screen.getByLabelText('Account xpub')).toHaveValue(NORMALIZED_XPUB));
+    });
+
+    it('refuses private key material loudly and fills nothing', async () => {
+      const user = userEvent.setup();
+      await renderSettings();
+      await user.click(screen.getByRole('button', { name: 'Technical details' }));
+
+      await user.upload(screen.getByLabelText('Account key file'), upload('backup.txt', keyFixture('xprv-backup.txt')));
+
+      await screen.findByText(ACCOUNT_KEY_FILE_REJECTION_COPY.private_key_material);
+      expect(screen.getByLabelText('Account xpub')).toHaveValue('');
+    });
+
+    it('refuses an oversize file before reading it', async () => {
+      const user = userEvent.setup();
+      await renderSettings();
+      await user.click(screen.getByRole('button', { name: 'Technical details' }));
+
+      const big = upload('big.txt', 'x'.repeat(ACCOUNT_KEY_FILE_MAX_BYTES + 1));
+      const textSpy = vi.spyOn(File.prototype, 'text');
+      await user.upload(screen.getByLabelText('Account key file'), big);
+
+      await screen.findByText(ACCOUNT_KEY_FILE_REJECTION_COPY.file_too_large);
+      expect(textSpy).not.toHaveBeenCalled();
+      textSpy.mockRestore();
+    });
   });
 });
