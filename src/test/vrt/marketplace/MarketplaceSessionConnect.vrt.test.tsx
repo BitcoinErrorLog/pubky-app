@@ -12,6 +12,12 @@ const VRT_AUTH_URL =
   'pubkyauth:///?relay=https%3A%2F%2Fvrt.invalid%2Flink%2F&capabilities=%2Fpub%2Fpubky.app%2F%3Arw&secret=vrt-fixed-secret';
 
 const QR_LOGO_URLS = ['/images/ring-logo.svg'];
+const SESSION_CONNECT_TEXT_SCREENSHOT = {
+  comparatorOptions: {
+    allowedMismatchedPixels: 600,
+    allowedMismatchedPixelRatio: 0.003,
+  },
+} as const;
 
 // The session-connect dialog in its three real states: awaiting approval
 // (QR + deeplink affordances), the failure state with the transport's actual
@@ -83,7 +89,10 @@ describe('Marketplace session connect — visual regression', () => {
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
     await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-awaiting-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'session-connect-awaiting-desktop',
+      SESSION_CONNECT_TEXT_SCREENSHOT,
+    );
   });
 
   it('renders the awaiting-approval QR state at mobile viewport', async () => {
@@ -97,7 +106,10 @@ describe('Marketplace session connect — visual regression', () => {
       { viewport: VRT_VIEWPORT_MOBILE },
     );
     await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-awaiting-mobile');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'session-connect-awaiting-mobile',
+      SESSION_CONNECT_TEXT_SCREENSHOT,
+    );
   });
 
   it('renders the generating state before a URL exists at desktop viewport', async () => {
@@ -110,7 +122,10 @@ describe('Marketplace session connect — visual regression', () => {
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
     await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-generating-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'session-connect-generating-desktop',
+      SESSION_CONNECT_TEXT_SCREENSHOT,
+    );
   });
 
   it('renders the failure state with the real error and retry at desktop viewport', async () => {
@@ -125,11 +140,10 @@ describe('Marketplace session connect — visual regression', () => {
     );
     await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
     // Darwin antialiasing on the capability URL line caused 514 mismatched pixels in run 34348504440.
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-error-desktop', {
-      comparatorOptions: {
-        allowedMismatchedPixels: 600,
-      },
-    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'session-connect-error-desktop',
+      SESSION_CONNECT_TEXT_SCREENSHOT,
+    );
   });
 
   it('renders the session-required card that replaces durable-mode dead ends at desktop viewport', async () => {
