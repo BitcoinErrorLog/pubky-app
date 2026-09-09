@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 export interface OgMetadata {
   url: string;
   title: string | null;
+  description?: string | null;
   image: string | null;
   type: 'website' | 'image' | 'video' | 'audio';
 }

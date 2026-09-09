@@ -15,6 +15,7 @@ export interface TOgMetadataResult {
   url: string;
   type: 'website' | 'image' | 'video' | 'audio';
   title?: string | null;
+  description?: string | null;
   image?: string | null;
 }
 

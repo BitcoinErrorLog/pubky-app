@@ -85,6 +85,18 @@ describe('extractMetadata', () => {
     expect(result.title).toBe('Fallback');
   });
 
+  it('should extract OG description and fall back to the description meta tag', async () => {
+    const ogHtml = '<meta property="og:description" content="OG description" />';
+    await expect(extractMetadata('https://example.com/', ogHtml)).resolves.toMatchObject({
+      description: 'OG description',
+    });
+
+    const fallbackHtml = '<meta name="description" content="Meta description" />';
+    await expect(extractMetadata('https://example.com/', fallbackHtml)).resolves.toMatchObject({
+      description: 'Meta description',
+    });
+  });
+
   it('should decode HTML entities in title', async () => {
     const html = '<html><head><meta property="og:title" content="A &amp; B" /></head></html>';
     const result = await extractMetadata('https://example.com/', html);
@@ -143,6 +155,7 @@ describe('buildFallbackMetadata', () => {
     expect(result).toEqual({
       url: 'https://example.com/blocked',
       title: null,
+      description: null,
       image: null,
       type: 'website',
     });

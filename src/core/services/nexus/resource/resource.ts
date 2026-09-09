@@ -3,7 +3,6 @@ import { queryNexus } from '@/services/nexus/nexus.utils';
 import { resourceApi } from './resource.api';
 import type {
   NexusResource,
-  NexusResourceKeyStream,
   NexusResourcePage,
   NexusResourceTagsResponse,
   TResourceByIdParams,
@@ -33,26 +32,10 @@ export class NexusResourceService {
     });
   }
 
-  static async fetchStream(params: TResourceStreamParams): Promise<NexusResource[]> {
-    return await queryNexus<NexusResource[]>({ url: resourceApi.stream(params) });
-  }
-
-  static async fetchStreamIds(params: TResourceStreamParams): Promise<NexusResourceKeyStream> {
-    return await queryNexus<NexusResourceKeyStream>({ url: resourceApi.streamIds(params) });
-  }
-
   static async fetchStreamPage(params: TResourceStreamParams): Promise<NexusResourcePage> {
-    const keys = await this.fetchStreamIds(params);
-    const resources = await Promise.all(
-      keys.resource_ids.map(async (id) => {
-        const result = await this.fetchById({ id });
-        return {
-          details: result.resource,
-          tags: result.tags,
-          taggers_count: result.tags.reduce((count, tag) => count + tag.taggers_count, 0),
-        };
-      }),
-    );
-    return { resources, lastScore: keys.last_score };
+    const resources = await queryNexus<NexusResource[]>({ url: resourceApi.stream(params) });
+    const limit = params.limit ?? resources.length;
+    const skip = params.skip ?? 0;
+    return { resources, nextSkip: resources.length === limit ? skip + resources.length : null };
   }
 }

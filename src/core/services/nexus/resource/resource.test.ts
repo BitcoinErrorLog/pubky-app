@@ -43,13 +43,14 @@ describe('NexusResourceService', () => {
     expect(queryNexus).toHaveBeenCalledWith(expect.objectContaining({ retry: false }));
   });
 
-  it('fetches the cursor page through the ids endpoint and detail reads', async () => {
-    vi.mocked(queryNexus)
-      .mockResolvedValueOnce({ resource_ids: ['1'], last_score: 42 })
-      .mockResolvedValueOnce({
-        resource: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 },
+  it('fetches a resource page directly from the full stream endpoint', async () => {
+    vi.mocked(queryNexus).mockResolvedValueOnce([
+      {
+        details: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 },
         tags: [],
-      });
+        taggers_count: 0,
+      },
+    ]);
 
     await expect(NexusResourceService.fetchStreamPage({ app: 'jeb.pubky.app', limit: 20 })).resolves.toEqual({
       resources: [
@@ -59,7 +60,7 @@ describe('NexusResourceService', () => {
           taggers_count: 0,
         },
       ],
-      lastScore: 42,
+      nextSkip: null,
     });
   });
 });

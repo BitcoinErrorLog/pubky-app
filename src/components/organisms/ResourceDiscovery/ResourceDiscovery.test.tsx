@@ -67,13 +67,27 @@ describe('ResourceDiscovery', () => {
   it('renders the index with frequency-derived tags and sort control', async () => {
     vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({
       resources: [resourceWithLabels('resource-index', 'https://example.com/index', ['docs', 'bitcoin', 'docs'])],
-      lastScore: null,
+      nextSkip: null,
     });
 
     render(<ResourceDiscovery />);
 
     expect(await screen.findByRole('button', { name: 'docs' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sort: recent/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Sort resources' })).toHaveTextContent('Recent');
+  });
+
+  it('renders the index error state when the stream fails', async () => {
+    vi.mocked(ResourceController.fetchStreamPage).mockRejectedValueOnce(
+      Err.network(NetworkErrorCode.CONNECTION_FAILED, 'offline', {
+        service: ErrorService.Nexus,
+        operation: 'fetchNexus',
+      }),
+    );
+
+    render(<ResourceDiscovery />);
+
+    expect(await screen.findByText('Unable to load resources')).toBeInTheDocument();
+    expect(screen.queryByText('No resources yet')).not.toBeInTheDocument();
   });
 
   it('renders the inline no-tags state for an unknown URI', async () => {
@@ -98,18 +112,13 @@ describe('ResourceDiscovery', () => {
     const { container } = render(<ResourceDiscovery tag="docs" />);
 
     await waitFor(() => expect(container.querySelectorAll('[data-surface="resource-card"]')).toHaveLength(2));
-    expect(screen.getAllByRole('link', { name: /open resource/i }).map((link) => link.getAttribute('href'))).toEqual([
-      'https://example.com/one',
-      'https://example.com/two',
-    ]);
-    expect(screen.getByRole('link', { name: 'https://example.com/one' })).toHaveAttribute(
-      'href',
+    expect(
+      screen.getAllByRole('link', { name: /example.com\/(one|two)/i }).map((link) => link.getAttribute('href')),
+    ).toEqual(['https://example.com/one', 'https://example.com/two']);
+    expect(screen.getAllByRole('link', { name: 'Preview' }).map((link) => link.getAttribute('href'))).toEqual([
       getResourceRoute('resource-1'),
-    );
-    expect(screen.getByRole('link', { name: 'https://example.com/two' })).toHaveAttribute(
-      'href',
       getResourceRoute('resource-2'),
-    );
+    ]);
   });
 
   it('renders all ten labels on a resource card', async () => {
@@ -120,7 +129,7 @@ describe('ResourceDiscovery', () => {
 
     render(<ResourceDiscovery tag="docs" />);
 
-    await waitFor(() => expect(screen.getByText(labels.join(', '))).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByTestId('tag-name')).toHaveLength(labels.length));
   });
 
   it('renders the empty stream state', async () => {

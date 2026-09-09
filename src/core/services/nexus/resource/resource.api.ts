@@ -30,9 +30,4 @@ export const resourceApi = {
       baseRoute: STREAM_PREFIX,
       params,
     }),
-  streamIds: (params: TResourceStreamParams) =>
-    buildUrlWithQuery({
-      baseRoute: `${STREAM_PREFIX}/ids`,
-      params,
-    }),
 };

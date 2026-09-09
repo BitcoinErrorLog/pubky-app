@@ -1,0 +1,22 @@
+{
+  "https://store.blockstream.com/products/jade-plus": {
+    "title": "Jade Plus hardware wallet",
+    "description": "Secure Bitcoin self-custody with the Jade Plus hardware wallet.",
+    "image": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='100'%3E%3Crect width='180' height='100' fill='%2300ff00'/%3E%3C/svg%3E"
+  },
+  "https://store.blockstream.com/": {
+    "title": "Blockstream Store",
+    "description": "Bitcoin hardware and accessories from Blockstream.",
+    "image": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='100'%3E%3Crect width='180' height='100' fill='%2300dd00'/%3E%3C/svg%3E"
+  },
+  "https://github.com/opentimestamps/opentimestamps-client/pull/138": {
+    "title": "OpenTimestamps client pull request",
+    "description": "Review and discussion for the OpenTimestamps client.",
+    "image": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='100'%3E%3Crect width='180' height='100' fill='%2300bb00'/%3E%3C/svg%3E"
+  },
+  "https://bitcoin.org/": {
+    "title": "Bitcoin.org",
+    "description": "Bitcoin is an innovative payment network and a new kind of money.",
+    "image": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='100'%3E%3Crect width='180' height='100' fill='%23009900'/%3E%3C/svg%3E"
+  }
+}

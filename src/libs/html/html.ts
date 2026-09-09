@@ -32,6 +32,16 @@ export const OG_PATTERNS = {
     /<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i,
     /<meta\s+content=["']([^"']+)["']\s+name=["']og:image["']/i,
   ],
+  DESCRIPTION: [
+    /<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i,
+    /<meta\s+name=["']og:description["']\s+content=["']([^"']+)["']/i,
+    /<meta\s+content=["']([^"']+)["']\s+property=["']og:description["']/i,
+    /<meta\s+content=["']([^"']+)["']\s+name=["']og:description["']/i,
+  ],
+  DESCRIPTION_TAG: [
+    /<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i,
+    /<meta\s+content=["']([^"']+)["']\s+name=["']description["']/i,
+  ],
 } as const;
 
 /**

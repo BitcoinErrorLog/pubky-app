@@ -5,8 +5,16 @@ import type { NexusResource } from '@/services/nexus/resource/resource.types';
 import { ResourceCard } from './ResourceCard';
 
 vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
-  useOgMetadata: () => ({
-    metadata: { url: 'https://example.com/resource', title: 'Example resource', image: null, type: 'website' },
+  useOgMetadata: (url: string | null) => ({
+    metadata: url
+      ? {
+          url,
+          title: 'Example resource',
+          description: 'A useful example resource.',
+          image: null,
+          type: 'website' as const,
+        }
+      : null,
     isLoading: false,
     error: null,
   }),
@@ -26,12 +34,13 @@ function resourceWithUri(uri: string, labels = ['docs']): NexusResource {
 }
 
 describe('ResourceCard', () => {
-  it('renders the production resource surface and canonical link', () => {
+  it('renders OG metadata and one external URI action', () => {
     const { container } = render(<ResourceCard resource={resourceWithUri('https://example.com/resource')} />);
 
-    expect(screen.getByTestId('generic-website-preview')).toBeInTheDocument();
-    expect(screen.getAllByText('https://example.com/resource')).toHaveLength(2);
-    expect(screen.getByRole('link', { name: /open resource/i })).toHaveAttribute(
+    expect(screen.getByRole('heading', { name: 'Example resource' })).toBeInTheDocument();
+    expect(screen.getByText('A useful example resource.')).toBeInTheDocument();
+    expect(screen.getAllByText('example.com/resource')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'example.com/resource' })).toHaveAttribute(
       'href',
       'https://example.com/resource',
     );
@@ -41,7 +50,7 @@ describe('ResourceCard', () => {
   it('renders a safe http(s) resource as an external anchor', () => {
     render(<ResourceCard resource={resourceWithUri('https://example.com/resource')} />);
 
-    const link = screen.getByRole('link', { name: /open resource/i });
+    const link = screen.getByRole('link', { name: 'example.com/resource' });
     expect(link).toHaveAttribute('href', 'https://example.com/resource');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveAttribute('target', '_blank');
@@ -52,11 +61,12 @@ describe('ResourceCard', () => {
 
     render(<ResourceCard resource={resource} showDetailsLink />);
 
-    expect(screen.getByRole('link', { name: resource.details.uri })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /Example resource/ })).toHaveAttribute(
       'href',
       getResourceRoute(resource.details.id),
     );
-    expect(screen.getByRole('link', { name: /open resource/i })).toHaveAttribute('href', resource.details.uri);
+    expect(screen.getAllByTestId('tag')[0]).toHaveTextContent('one1');
+    expect(screen.getByRole('link', { name: 'example.com/resource' })).toHaveAttribute('href', resource.details.uri);
     expect(screen.getByText('More tags')).toBeInTheDocument();
   });
 
@@ -76,10 +86,27 @@ describe('ResourceCard', () => {
     (uri) => {
       const { container } = render(<ResourceCard resource={resourceWithUri(uri)} />);
 
-      expect(container.querySelector('a')).toBeNull();
+      expect(container.querySelector('a[target="_blank"]')).toBeNull();
       expect(screen.getByText(uri)).toBeInTheDocument();
       expect(screen.getByText('Unsupported link')).toBeInTheDocument();
-      expect(screen.queryByTestId('generic-website-preview')).not.toBeInTheDocument();
+      expect(container.querySelector('a[target="_blank"]')).toBeNull();
     },
   );
+});
+
+describe('ResourceCard - Snapshots', () => {
+  it('matches the metadata card snapshot', () => {
+    const { container } = render(<ResourceCard resource={resourceWithUri('https://example.com/resource')} />);
+    expect(container.firstChild).toMatchSnapshot();
+  });
+
+  it('matches the five-tag card snapshot', () => {
+    const { container } = render(
+      <ResourceCard
+        resource={resourceWithUri('https://example.com/resource', ['one', 'two', 'three', 'four', 'five'])}
+        showDetailsLink
+      />,
+    );
+    expect(container.firstChild).toMatchSnapshot();
+  });
 });

@@ -47,6 +47,14 @@ export function getResourceRoute(resourceId: string): string {
   return `${APP_ROUTES.RESOURCES}/${encodeURIComponent(resourceId)}`;
 }
 
+export function getResourceTagRoute(tag: string): string {
+  return `${APP_ROUTES.RESOURCES}/tag/${encodeURIComponent(tag)}`;
+}
+
+export function getResourceLookupRoute(uri: string): string {
+  return `${APP_ROUTES.RESOURCES}/lookup?uri=${encodeURIComponent(uri)}`;
+}
+
 export enum COLLECTION_ROUTES {
   BOOKMARKS = '/collections/bookmarks',
 }

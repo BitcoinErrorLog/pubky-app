@@ -23,14 +23,9 @@ export type NexusResourceTagsResponse = {
   tags: NexusTagDetails[];
 };
 
-export type NexusResourceKeyStream = {
-  resource_ids: string[];
-  last_score: number | null;
-};
-
 export type NexusResourcePage = {
   resources: NexusResource[];
-  lastScore: number | null;
+  nextSkip: number | null;
 };
 
 export type TResourceStreamParams = {

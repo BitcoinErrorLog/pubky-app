@@ -4,12 +4,17 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import type { FormEvent } from 'react';
+import { getResourceLookupRoute, getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Input } from '@/atoms/Input/Input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
+import { CONTENT_GUTTER_CLASS } from '@/config/layoutClasses';
 import { ResourceController } from '@/controllers/resource/resource';
+import { useResourceLookupForm } from '@/hooks/useResourceLookupForm/useResourceLookupForm';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
+import { cn } from '@/libs/utils/utils';
 import { ResourceCard } from '@/molecules/ResourceCard/ResourceCard';
 import { ResourceEmpty } from '@/molecules/ResourceEmpty/ResourceEmpty';
 import type { NexusResource, TResourceStreamParams } from '@/services/nexus/resource/resource.types';
@@ -22,11 +27,12 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isNotFoundError, setIsNotFoundError] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [uri, setUri] = useState('');
   const [sort, setSort] = useState<TResourceStreamParams['sorting']>('timeline');
   const [tagLabels, setTagLabels] = useState<string[]>([]);
-  const [lastScore, setLastScore] = useState<number | null>(null);
+  const [nextSkip, setNextSkip] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
+  const lookup = useResourceLookupForm((value) => router.push(getResourceLookupRoute(value)));
 
   useEffect(() => {
     let active = true;
@@ -35,6 +41,8 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     setHasError(false);
     setResources([]);
     setResource(null);
+    setNextSkip(null);
+    setLoadMoreError(false);
 
     const request = tag
       ? ResourceController.fetchByTag({ tag, limit: 20 })
@@ -52,7 +60,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
           setTagLabels(labelsByFrequency(result));
         } else if ('resources' in result) {
           setResources(result.resources);
-          setLastScore(result.lastScore);
+          setNextSkip(result.nextSkip);
           setTagLabels(labelsByFrequency(result.resources));
         } else {
           setResource({
@@ -60,7 +68,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
             tags: result.tags,
             taggers_count: result.tags.reduce((count, item) => count + item.taggers_count, 0),
           });
-          if (id?.includes('://')) router.replace(`/resources/${encodeURIComponent(result.resource.id)}`);
+          if (id?.includes('://')) router.replace(getResourceRoute(result.resource.id));
         }
       })
       .catch((error: unknown) => {
@@ -79,81 +87,92 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   }, [id, router, sort, tag]);
 
   async function loadMore() {
-    if (loadingMore || lastScore === null) return;
+    if (loadingMore || nextSkip === null) return;
     setLoadingMore(true);
+    setLoadMoreError(false);
     try {
       const result = await ResourceController.fetchStreamPage({
         app: 'jeb.pubky.app',
         limit: 20,
         sorting: sort,
-        end: lastScore,
+        skip: nextSkip,
       });
       setResources((current) => [...current, ...result.resources]);
-      setLastScore(result.lastScore);
+      setNextSkip(result.nextSkip);
+    } catch (error: unknown) {
+      if (isAppError(error)) setLoadMoreError(true);
     } finally {
       setLoadingMore(false);
     }
   }
 
-  function submitLookup(event: FormEvent<HTMLFormElement>) {
+  async function submitLookup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const value = uri.trim();
-    if (!value) return;
-    router.push(`/resources/lookup?uri=${encodeURIComponent(value)}`);
+    await lookup.submit();
   }
 
   if (isLoading) return <ResourceDiscoverySkeleton />;
   if (!tag && !id) {
     return (
-      <Container data-surface="resource-discovery" className="gap-6">
+      <Container
+        overrideDefaults
+        data-surface="resource-discovery"
+        className={cn(
+          'container m-auto w-full max-w-(--container-max-width) flex-col gap-6 pb-12',
+          CONTENT_GUTTER_CLASS,
+        )}
+      >
         <Container overrideDefaults className="gap-3">
           <Heading level={1} size="xl">
             Resource discovery
           </Heading>
           <form className="flex gap-2" onSubmit={submitLookup}>
-            <Input
-              value={uri}
-              onChange={(event) => setUri(event.target.value)}
-              placeholder="Paste a URL"
-              aria-label="Resource URL"
-            />
+            <Input {...lookup.form.register('uri')} placeholder="Paste a URL" aria-label="Resource URL" />
             <Button type="submit" variant={ButtonVariant.BRAND} aria-label="Look up resource">
               <Search aria-hidden="true" />
               Look up
             </Button>
           </form>
-          <Container overrideDefaults className="flex-row flex-wrap gap-2">
-            {tagLabels.map((label) => (
-              <Button
-                key={label}
-                type="button"
-                size="sm"
-                variant={ButtonVariant.OUTLINE}
-                onClick={() => router.push(`/resources/tag/${encodeURIComponent(label)}`)}
-              >
-                {label}
-              </Button>
-            ))}
-            <Button
-              type="button"
-              size="sm"
-              variant={ButtonVariant.SECONDARY}
-              onClick={() => setSort(sort === 'timeline' ? 'taggers_count' : 'timeline')}
-            >
-              Sort: {sort === 'timeline' ? 'Recent' : 'Most taggers'}
-            </Button>
+          <Container overrideDefaults className="flex flex-wrap items-center gap-2">
+            <Container overrideDefaults className="flex flex-1 flex-wrap items-center gap-2">
+              {tagLabels.map((label) => (
+                <Button
+                  key={label}
+                  type="button"
+                  size="sm"
+                  variant={ButtonVariant.OUTLINE}
+                  onClick={() => router.push(getResourceTagRoute(label))}
+                >
+                  {label}
+                </Button>
+              ))}
+            </Container>
+            <Select value={sort} onValueChange={(value) => setSort(value as TResourceStreamParams['sorting'])}>
+              <SelectTrigger size="sm" aria-label="Sort resources" className="ml-auto border border-border/60 px-2">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="timeline">Recent</SelectItem>
+                <SelectItem value="taggers_count">Most taggers</SelectItem>
+              </SelectContent>
+            </Select>
           </Container>
         </Container>
         {resources.length === 0 ? (
-          <ResourceEmpty />
+          <ResourceEmpty error={hasError} />
         ) : (
           <Container overrideDefaults className="gap-4">
             {resources.map((item) => (
               <ResourceCard key={item.details.id} resource={item} showDetailsLink />
             ))}
-            {lastScore !== null ? (
+            {nextSkip !== null ? (
               <Button type="button" variant={ButtonVariant.OUTLINE} onClick={loadMore} disabled={loadingMore}>
                 {loadingMore ? 'Loading…' : 'Load more'}
+              </Button>
+            ) : null}
+            {loadMoreError ? (
+              <Button type="button" variant={ButtonVariant.OUTLINE} onClick={loadMore}>
+                Retry loading resources
               </Button>
             ) : null}
           </Container>

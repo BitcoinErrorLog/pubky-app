@@ -26,7 +26,7 @@ export function GenericPreview({ url }: GenericPreviewProps) {
   if (error || !metadata) {
     return null;
   }
-  const { url: displayUrl, title, image, type } = metadata;
+  const { url: displayUrl, title, description, image, type } = metadata;
   if (type === 'image')
     return (
       <Link overrideDefaults href={url}>
@@ -42,6 +42,11 @@ export function GenericPreview({ url }: GenericPreviewProps) {
           {title && (
             <Typography size="lg" className="wrap-break-word">
               {title}
+            </Typography>
+          )}
+          {description && (
+            <Typography size="sm" className="line-clamp-3 text-muted-foreground">
+              {description}
             </Typography>
           )}
 

@@ -175,6 +175,7 @@ describe('NextJsOgMetadataService', () => {
     expect(result).toEqual({
       url: 'https://example.com/api',
       title: null,
+      description: null,
       image: null,
       type: 'website',
     });
@@ -201,6 +202,7 @@ describe('NextJsOgMetadataService', () => {
     expect(result).toEqual({
       url: 'https://example.com/blocked',
       title: null,
+      description: null,
       image: null,
       type: 'website',
     });
@@ -694,6 +696,7 @@ describe('NextJsOgMetadataService', () => {
     await expect(NextJsOgMetadataService.fetch(new URL('http://dns-change.example.test/'))).resolves.toEqual({
       url: 'http://dns-change.example.test/',
       title: null,
+      description: null,
       image: null,
       type: 'website',
     });

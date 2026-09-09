@@ -35,6 +35,9 @@ export async function extractMetadata(url: string, html: string): Promise<TOgMet
   const titleTag = html.match(OG_PATTERNS.TITLE_TAG)?.[1] || null;
   const rawTitle = ogTitle || titleTag;
   const title = rawTitle ? decodeHtmlEntities(rawTitle) : null;
+  const rawDescription =
+    extractFromHtml(html, OG_PATTERNS.DESCRIPTION) ?? extractFromHtml(html, OG_PATTERNS.DESCRIPTION_TAG);
+  const description = rawDescription ? decodeHtmlEntities(rawDescription).trim() : null;
 
   // Extract og:image
   const image = extractFromHtml(html, OG_PATTERNS.IMAGE);
@@ -45,6 +48,7 @@ export async function extractMetadata(url: string, html: string): Promise<TOgMet
   return {
     url: truncateMiddle(url, URL_TRUNCATE_LENGTH),
     title: title ? truncateString(title.trim(), TITLE_TRUNCATE_LENGTH) : null,
+    description: description ? truncateString(description, TITLE_TRUNCATE_LENGTH) : null,
     image: normalizedImage,
     type: 'website',
   };
@@ -57,6 +61,7 @@ export function buildFallbackMetadata(url: string): TOgMetadataResult {
   return {
     url: truncateMiddle(url, URL_TRUNCATE_LENGTH),
     title: null,
+    description: null,
     image: null,
     type: 'website',
   };
