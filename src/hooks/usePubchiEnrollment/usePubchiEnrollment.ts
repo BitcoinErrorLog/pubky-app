@@ -287,9 +287,24 @@ export function usePubchiEnrollment() {
   const revokeAllDevices = async (): Promise<boolean> => {
     setLoading(true);
     try {
-      await PubchiController.revokeAllDevices();
+      const result = await PubchiController.revokeAllDevices();
+      const nextDevices = await PubchiController.listDeviceKeys();
+      const listingHadFailures =
+        typeof PubchiController.hadDeviceListingFailures === 'function' &&
+        PubchiController.hadDeviceListingFailures();
+      setDevices(nextDevices);
+      setDeviceListingHadFailures(listingHadFailures);
+      if (result.unlisted > 0 || result.failed.length > 0 || listingHadFailures) {
+        toast({
+          variant: 'warning',
+          title: 'Some device records could not be loaded, so they may still be active. Try again or revoke them individually.',
+          dismissButton: true,
+        });
+        return false;
+      }
       setDevices([]);
       setDeviceListingHadFailures(false);
+      toast({ variant: 'default', title: 'All devices revoked', dismissButton: true });
       return true;
     } catch (error) {
       const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';

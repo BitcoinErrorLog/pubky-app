@@ -115,6 +115,8 @@ function randomNonce(): string {
 export class PubchiApplication {
   private static readonly deviceReadiness = new Map<string, Promise<boolean>>();
   private static deviceListingHadFailures = false;
+  private static deviceListingUnlistedSigners: string[] = [];
+  private static deviceListingUnlistedCount = 0;
 
   private constructor() {}
 
@@ -223,21 +225,40 @@ export class PubchiApplication {
     const results = await Promise.allSettled(
       files.map(async (file) => {
         const signer = file.match(/\/devices\/([^/]+)\.json$/)?.[1];
-        if (!signer || !isPubkyId(signer)) return undefined;
-        const parsed = parseDeviceDelegationV1(
-          await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: delegationUri(owner, signer) }),
-        );
-        if (!parsed.ok || parsed.value.owner !== owner || parsed.value.signer !== signer) return undefined;
-        return parsed.value;
+        if (!signer || !isPubkyId(signer)) return { signer: undefined, device: undefined, failed: false };
+        try {
+          const parsed = parseDeviceDelegationV1(
+            await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: delegationUri(owner, signer) }),
+          );
+          if (!parsed.ok || parsed.value.owner !== owner || parsed.value.signer !== signer) {
+            return { signer, device: undefined, failed: false };
+          }
+          return { signer, device: parsed.value, failed: false };
+        } catch {
+          return { signer, device: undefined, failed: true };
+        }
       }),
     );
-    this.deviceListingHadFailures = results.some((result) => result.status === 'rejected');
-    const devices = results.map((result) => (result.status === 'fulfilled' ? result.value : undefined));
-    return devices.filter((device): device is DeviceDelegationV1 => device !== undefined);
+    this.deviceListingHadFailures = results.some((result) => result.status === 'fulfilled' && result.value.failed);
+    this.deviceListingUnlistedCount = results.filter(
+      (result) => result.status === 'rejected' || !result.value.device,
+    ).length;
+    this.deviceListingUnlistedSigners = results.flatMap((result) => {
+      if (result.status === 'rejected' || !result.value.device) {
+        const signer = result.status === 'fulfilled' ? result.value.signer : undefined;
+        return signer && isPubkyId(signer) ? [signer] : [];
+      }
+      return [];
+    });
+    return results.flatMap((result) => (result.status === 'fulfilled' && result.value.device ? [result.value.device] : []));
   }
 
   static hadDeviceListingFailures(): boolean {
     return this.deviceListingHadFailures;
+  }
+
+  static getUnlistedDeviceSigners(): string[] {
+    return [...this.deviceListingUnlistedSigners];
   }
 
   static async revokeDevice(owner: string, signer: string): Promise<void> {
@@ -257,20 +278,30 @@ export class PubchiApplication {
     await deleteDeviceKey(owner, signer);
   }
 
-  static async revokeAllDevices(owner: string): Promise<void> {
+  static async revokeAllDevices(owner: string): Promise<{
+    revoked: string[];
+    failed: string[];
+    unlisted: number;
+  }> {
     const [remote, local] = await Promise.all([this.listDeviceDelegations(owner), getDeviceKeys(owner)]);
     for (const device of local) {
       if (!isPubkyId(device.signer)) {
         await deleteDeviceKey(owner, device.signer);
       }
     }
+    const unlistedSigners = this.getUnlistedDeviceSigners();
+    rememberPendingDelegationDeletes(unlistedSigners.map((signer) => ({ owner, signer })));
     const signers = new Set([
       ...remote.map((device) => device.signer),
       ...local.filter((device) => isPubkyId(device.signer)).map((device) => device.signer),
+      ...unlistedSigners,
     ]);
     const results = await Promise.allSettled([...signers].map((signer) => this.revokeDevice(owner, signer)));
-    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-    if (failed) throw failed.reason;
+    return {
+      revoked: results.flatMap((result, index) => (result.status === 'fulfilled' ? [[...signers][index]!] : [])),
+      failed: results.flatMap((result, index) => (result.status === 'rejected' ? [[...signers][index]!] : [])),
+      unlisted: this.deviceListingUnlistedCount,
+    };
   }
 
   static async createPubchi(params: CreatePubchiParams): Promise<CreatedPubchi> {

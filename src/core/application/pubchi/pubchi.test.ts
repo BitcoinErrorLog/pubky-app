@@ -703,11 +703,19 @@ describe('PubchiApplication', () => {
     ]);
     vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
       if (String(input.url) === delegationUri(OWNER, badSigner)) throw new Error('temporary failure');
+      if (input.method === HttpMethod.DELETE) return undefined;
+      if (input.method === HttpMethod.GET && readPendingDelegationDeletes().length) throw notFoundError();
       return goodDelegation;
     });
 
     await expect(PubchiApplication.listDeviceDelegations(OWNER)).resolves.toEqual([goodDelegation]);
     expect(PubchiApplication.hadDeviceListingFailures()).toBe(true);
+
+    const result = await PubchiApplication.revokeAllDevices(OWNER);
+    expect(result).toEqual({ revoked: [goodSigner], failed: [badSigner], unlisted: 1 });
+    expect(readPendingDelegationDeletes()).toEqual(
+      expect.arrayContaining([{ owner: OWNER, signer: badSigner }]),
+    );
   });
 
   it('rejects a request whose signer is not the stored device key', () => {

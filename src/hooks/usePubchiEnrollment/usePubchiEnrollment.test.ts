@@ -52,6 +52,8 @@ const mocks = vi.hoisted(() => ({
   devices: vi.fn(),
   ensureDeviceReady: vi.fn(),
   revokeDevice: vi.fn(),
+  revokeAllDevices: vi.fn(),
+  hadDeviceListingFailures: vi.fn(),
   toast: vi.fn(),
   getUrl: vi.fn(),
   adopt: vi.fn(),
@@ -73,7 +75,8 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     listDeviceKeys: (...args: unknown[]) => mocks.devices(...args),
     ensureDeviceReady: (...args: unknown[]) => mocks.ensureDeviceReady(...args),
     revokeDevice: (...args: unknown[]) => mocks.revokeDevice(...args),
-    revokeAllDevices: vi.fn(),
+    revokeAllDevices: (...args: unknown[]) => mocks.revokeAllDevices(...args),
+    hadDeviceListingFailures: (...args: unknown[]) => mocks.hadDeviceListingFailures(...args),
     getCapabilityApprovalUrl: (...args: unknown[]) => mocks.getUrl(...args),
     adoptCapabilityApproval: (...args: unknown[]) => mocks.adopt(...args),
   },
@@ -107,6 +110,8 @@ describe('usePubchiEnrollment', () => {
     mocks.devices.mockReset().mockResolvedValue([]);
     mocks.ensureDeviceReady.mockReset().mockResolvedValue(true);
     mocks.revokeDevice.mockReset().mockResolvedValue(undefined);
+    mocks.revokeAllDevices.mockReset().mockResolvedValue({ revoked: [], failed: [], unlisted: 0 });
+    mocks.hadDeviceListingFailures.mockReset().mockReturnValue(false);
     mocks.toast.mockReset();
     mocks.getUrl.mockReset();
     mocks.adopt.mockReset();
@@ -150,6 +155,60 @@ describe('usePubchiEnrollment', () => {
 
     expect(mocks.revokeDevice).toHaveBeenCalledWith(remoteSigner);
     expect(mocks.devices).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps loaded devices and shows a warning after partial revoke-all listing', async () => {
+    const device = {
+      schema: 'pubchi-device-delegation' as const,
+      version: 1 as const,
+      owner: OWNER,
+      signer: 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy',
+      bot: OWNER,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'] as const,
+      created_at: 1,
+      expires_at: 2_000_000_000,
+      signature: 'a'.repeat(128),
+    };
+    mocks.devices.mockResolvedValueOnce([device]).mockResolvedValueOnce([device]);
+    mocks.revokeAllDevices.mockResolvedValue({ revoked: [device.signer], failed: [], unlisted: 1 });
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(result.current.devices).toEqual([device]));
+
+    await act(async () => {
+      await expect(result.current.revokeAllDevices()).resolves.toBe(false);
+    });
+
+    expect(result.current.devices).toEqual([device]);
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Some device records could not be loaded, so they may still be active. Try again or revoke them individually.',
+      }),
+    );
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'All devices revoked' }));
+  });
+
+  it('clears devices and shows success after revoke-all completes', async () => {
+    const device = {
+      schema: 'pubchi-device-delegation' as const,
+      version: 1 as const,
+      owner: OWNER,
+      signer: 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy',
+      bot: OWNER,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'] as const,
+      created_at: 1,
+      expires_at: 2_000_000_000,
+      signature: 'a'.repeat(128),
+    };
+    mocks.devices.mockResolvedValueOnce([device]).mockResolvedValueOnce([]);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(result.current.devices).toEqual([device]));
+
+    await act(async () => {
+      await expect(result.current.revokeAllDevices()).resolves.toBe(true);
+    });
+
+    expect(result.current.devices).toEqual([]);
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'All devices revoked' }));
   });
 
   it('updates the loaded profile name from the saved controller result', async () => {

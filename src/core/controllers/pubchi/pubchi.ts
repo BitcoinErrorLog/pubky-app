@@ -211,7 +211,7 @@ export class PubchiController {
     await PubchiApplication.revokeDevice(owner, signer);
   }
 
-  static async revokeAllDevices(): Promise<void> {
+  static async revokeAllDevices(): ReturnType<typeof PubchiApplication.revokeAllDevices> {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
     if (!isPubkyId(owner)) {
       throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'INVALID_PUBKY', {
@@ -219,6 +219,6 @@ export class PubchiController {
         operation: 'revokeAllDevices',
       });
     }
-    await PubchiApplication.revokeAllDevices(owner);
+    return PubchiApplication.revokeAllDevices(owner);
   }
 }

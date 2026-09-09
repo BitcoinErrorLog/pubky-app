@@ -139,7 +139,9 @@ describe('PubchiController', () => {
 
   it('delegates revoking all devices to the application layer', async () => {
     setPubchiEnv('true', 'https://pubchi.example.com');
-    const revokeAllSpy = vi.spyOn(PubchiApplication, 'revokeAllDevices').mockResolvedValue(undefined);
+    const revokeAllSpy = vi
+      .spyOn(PubchiApplication, 'revokeAllDevices')
+      .mockResolvedValue({ revoked: [], failed: [], unlisted: 0 });
 
     await PubchiController.revokeAllDevices();
 
