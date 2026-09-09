@@ -99,6 +99,45 @@ describe('Pubchi device signer persistence', () => {
     expect(await getCurrentDeviceKey(otherOwner, 1_800_000_001)).toMatchObject({ signer: second.signer });
   });
 
+  it('does not migrate a legacy pointer belonging to another owner', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const otherOwner = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+    const first = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+    const second = await loadOrGenerateDeviceKey(otherOwner, 1_800_000_000);
+
+    localStorage.removeItem(`pubchi.deviceSigner:${OWNER}`);
+    localStorage.setItem('pubchi.deviceSigner', second.signer);
+
+    await expect(getCurrentDeviceKey(OWNER, 1_800_000_001)).resolves.toBeUndefined();
+    expect(localStorage.getItem(`pubchi.deviceSigner:${OWNER}`)).toBeNull();
+    expect(localStorage.getItem('pubchi.deviceSigner')).toBe(second.signer);
+    expect(first.signer).not.toBe(second.signer);
+  });
+
+  it('continues using the legacy pointer when migration storage fails', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const created = await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+    localStorage.removeItem(`pubchi.deviceSigner:${OWNER}`);
+    localStorage.setItem('pubchi.deviceSigner', created.signer);
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    const unhandledRejection = vi.fn();
+    process.on('unhandledRejection', unhandledRejection);
+
+    try {
+      await expect(getCurrentDeviceKey(OWNER, 1_800_000_001)).resolves.toMatchObject({ signer: created.signer });
+      expect(localStorage.getItem('pubchi.deviceSigner')).toBe(created.signer);
+      await Promise.resolve();
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandledRejection);
+      setItem.mockRestore();
+    }
+  });
+
   it('rejects a fourth live device signer', async () => {
     process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
     resetRuntimeConfigForTests();
