@@ -1,33 +1,34 @@
 import { create } from 'zustand';
 import type { LoadedPubchi } from '@/application/pubchi/pubchi.types';
 import type { PubchiConfigV1 } from '@/libs/pubchi/schemas';
+import type { Pubky } from '@/models/models.types';
 
-export type PubchiStatus = 'idle' | 'loading' | 'ready' | 'error';
+type StoredPubchi = Omit<LoadedPubchi, 'phrase'>;
+type NoPhrase<T> = T & { phrase?: never };
 
 export interface PubchiStore {
-  pubchi: LoadedPubchi | undefined;
+  pubchi: StoredPubchi | undefined;
   config: PubchiConfigV1 | null;
-  status: PubchiStatus;
-  lastLoadedAt: number | null;
-  setPubchi: (pubchi: LoadedPubchi | undefined) => void;
-  setConfig: (config: PubchiConfigV1 | null) => void;
-  setStatus: (status: PubchiStatus) => void;
-  markLoaded: () => void;
+  ownerPubky: Pubky | null;
+  setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
+  setConfig: (config: PubchiConfigV1 | null, ownerPubky: Pubky | null) => void;
   clear: () => void;
 }
 
 const initialState = {
   pubchi: undefined,
   config: null,
-  status: 'idle' as PubchiStatus,
-  lastLoadedAt: null,
+  ownerPubky: null,
 };
 
 export const usePubchiStore = create<PubchiStore>((set) => ({
   ...initialState,
-  setPubchi: (pubchi) => set({ pubchi }),
-  setConfig: (config) => set({ config }),
-  setStatus: (status) => set({ status }),
-  markLoaded: () => set({ status: 'ready', lastLoadedAt: Date.now() }),
+  setPubchi: (pubchi, ownerPubky) => {
+    if (pubchi && Object.prototype.hasOwnProperty.call(pubchi, 'phrase')) {
+      throw new Error('Pubchi recovery phrase cannot be stored');
+    }
+    set({ pubchi, ownerPubky });
+  },
+  setConfig: (config, ownerPubky) => set({ config, ownerPubky }),
   clear: () => set(initialState),
 }));

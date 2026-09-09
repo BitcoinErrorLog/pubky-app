@@ -19,9 +19,7 @@ const safeSessionExport = (session: Session | null): string | null => {
 // Actions/Mutators - State modification functions
 export const createAuthActions = (set: ZustandSet<AuthStore>): AuthActions => ({
   init: ({ session, currentUserPubky, hasProfile }: AuthInitParams) => {
-    if (usePubchiStore.getState().pubchi || usePubchiStore.getState().config) {
-      usePubchiStore.getState().clear();
-    }
+    usePubchiStore.getState().clear();
     set(
       (state) => ({
         ...state,
@@ -49,9 +47,7 @@ export const createAuthActions = (set: ZustandSet<AuthStore>): AuthActions => ({
   },
   // Authentication data management
   setCurrentUserPubky: (pubky: Pubky | null) => {
-    if (usePubchiStore.getState().pubchi || usePubchiStore.getState().config) {
-      usePubchiStore.getState().clear();
-    }
+    usePubchiStore.getState().clear();
     set({ currentUserPubky: pubky }, false, AuthActionTypes.SET_PUBKY);
   },
 

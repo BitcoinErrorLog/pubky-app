@@ -48,13 +48,29 @@ describe('AuthStore', () => {
     it('clears Pubchi state when the identity is cleared', () => {
       usePubchiStore
         .getState()
-        .setPubchi({ bot: 'bot', displayName: 'Bot', createdAt: 1, backupConfirmedAt: null, verified: true });
-      usePubchiStore.getState().setConfig({ display_name: 'Bot' } as never);
+        .setPubchi({ bot: 'bot', displayName: 'Bot', createdAt: 1, backupConfirmedAt: null, verified: true }, 'owner' as never);
+      usePubchiStore.getState().setConfig({ display_name: 'Bot' } as never, 'owner' as never);
 
       useAuthStore.getState().setCurrentUserPubky(null);
 
       expect(usePubchiStore.getState().pubchi).toBeUndefined();
       expect(usePubchiStore.getState().config).toBeNull();
+    });
+
+    it('clears status-only Pubchi state on logout reset', () => {
+      usePubchiStore.setState({ ownerPubky: 'test-owner' as never });
+
+      useAuthStore.getState().reset();
+
+      expect(usePubchiStore.getState().ownerPubky).toBeNull();
+    });
+
+    it('clears status-only Pubchi state when init switches identity', () => {
+      usePubchiStore.setState({ ownerPubky: 'old-owner' as never });
+
+      useAuthStore.getState().init({ session: null, currentUserPubky: 'new-owner', hasProfile: true });
+
+      expect(usePubchiStore.getState().ownerPubky).toBeNull();
     });
 
     it('should set currentUserPubky without affecting authentication state', () => {

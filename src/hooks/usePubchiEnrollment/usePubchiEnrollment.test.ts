@@ -4,6 +4,7 @@ import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { usePubchiEnrollment } from './usePubchiEnrollment';
 import { ENROLL_FORM_FIELDS } from './usePubchiEnrollment.types';
 
@@ -58,7 +59,7 @@ const mocks = vi.hoisted(() => ({
   getUrl: vi.fn(),
   adopt: vi.fn(),
   capabilities: [] as string[],
-  owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+  owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as string | null,
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -91,17 +92,23 @@ vi.mock('@/libs/pubchi/device-key', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (
-    selector: (state: { currentUserPubky: string; session: { info: { capabilities: string[] } } }) => unknown,
-  ) =>
-    selector({
+  useAuthStore: Object.assign((
+    selector: (state: { currentUserPubky: string | null; session: { info: { capabilities: string[] } } }) => unknown,
+  ) => selector({
+      currentUserPubky: mocks.owner,
+      session: { info: { capabilities: mocks.capabilities } },
+    }), {
+    getState: () => ({
       currentUserPubky: mocks.owner,
       session: { info: { capabilities: mocks.capabilities } },
     }),
+  }),
 }));
 
 describe('usePubchiEnrollment', () => {
   beforeEach(() => {
+    usePubchiStore.getState().clear();
+    mocks.owner = OWNER;
     mocks.reconcile.mockReset();
     mocks.load.mockReset().mockResolvedValue(undefined);
     mocks.create.mockReset();
@@ -116,6 +123,80 @@ describe('usePubchiEnrollment', () => {
     mocks.getUrl.mockReset();
     mocks.adopt.mockReset();
     mocks.capabilities = [];
+  });
+
+  it('synchronizes a store update to another mounted instance', async () => {
+    const first = renderHook(() => usePubchiEnrollment());
+    const second = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    act(() => {
+      usePubchiStore.getState().setPubchi(
+        { bot: OWNER, displayName: 'Shared', createdAt: 1, backupConfirmedAt: null, verified: true },
+        OWNER,
+      );
+    });
+
+    await waitFor(() => expect(first.result.current.pubchi?.displayName).toBe('Shared'));
+    expect(second.result.current.pubchi?.displayName).toBe('Shared');
+  });
+
+  it('does not repopulate the store after sign-out during a load', async () => {
+    let resolveLoad!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
+    mocks.load.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    const { rerender } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    mocks.owner = null;
+    rerender();
+    await act(async () => {
+      resolveLoad({ bot: OWNER, displayName: 'A', createdAt: 1, backupConfirmedAt: null, verified: true });
+    });
+
+    expect(usePubchiStore.getState().ownerPubky).toBeNull();
+    expect(usePubchiStore.getState().pubchi).toBeUndefined();
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Pubchi could not be loaded' }));
+  });
+
+  it('keeps the next identity from seeing the previous identity bot', async () => {
+    const otherOwner = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    let resolveA!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
+    let resolveB!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
+    mocks.load
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveA = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveB = resolve;
+        }),
+      );
+    const { result, rerender } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    mocks.owner = otherOwner;
+    rerender();
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+    expect(result.current.pubchi).toBeUndefined();
+    expect(usePubchiStore.getState().ownerPubky).toBeNull();
+
+    await act(async () => {
+      resolveB({ bot: otherOwner, displayName: 'B', createdAt: 2, backupConfirmedAt: null, verified: true });
+    });
+    await waitFor(() => expect(result.current.pubchi?.displayName).toBe('B'));
+
+    await act(async () => {
+      resolveA({ bot: OWNER, displayName: 'A', createdAt: 1, backupConfirmedAt: null, verified: true });
+    });
+
+    expect(usePubchiStore.getState().ownerPubky).toBe(otherOwner);
+    expect(result.current.pubchi?.displayName).toBe('B');
   });
 
   afterEach(() => {

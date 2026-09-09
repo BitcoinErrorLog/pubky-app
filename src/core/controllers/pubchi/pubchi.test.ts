@@ -10,12 +10,14 @@ import type { Pubky } from '@/models/models.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { AuthStore } from '@/stores/auth/auth.types';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { PubchiController } from './pubchi';
 
 const OWNER = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Pubky;
 const BOT = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
 const OTHER = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Pubky;
+let currentOwner: Pubky | null = OWNER;
 
 const authState = {
   setSession: vi.fn(),
@@ -38,6 +40,8 @@ function sessionFor(pubky: string, capabilities: string[] = []) {
 
 describe('PubchiController', () => {
   beforeEach(() => {
+    currentOwner = OWNER;
+    usePubchiStore.getState().clear();
     authState.setSession.mockReset().mockImplementation((session: Session | null) => {
       authState.session = session ?? undefined;
     });
@@ -45,9 +49,12 @@ describe('PubchiController', () => {
     vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockResolvedValue({ failed: [] });
     vi.spyOn(useAuthStore, 'getState').mockReturnValue(
       asOpaque<AuthStore>({
-        selectCurrentUserPubky: () => OWNER,
-        currentUserPubky: OWNER,
+        selectCurrentUserPubky: () => currentOwner!,
+        get currentUserPubky() {
+          return currentOwner;
+        },
         session: authState.session,
+        selectSession: () => authState.session,
         setSession: authState.setSession,
       }),
     );
@@ -78,6 +85,45 @@ describe('PubchiController', () => {
     expect(querySpy).not.toHaveBeenCalled();
     expect(createSpy).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('never stores the recovery phrase returned by createPubchi', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    vi.spyOn(PubchiApplication, 'createPubchi').mockResolvedValue({
+      bot: BOT,
+      displayName: 'Bot',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase: 'secret phrase',
+    });
+    const snapshots: unknown[] = [];
+    const unsubscribe = usePubchiStore.subscribe((state) => snapshots.push(state.pubchi));
+
+    await PubchiController.createPubchi({ displayName: 'Bot' });
+
+    unsubscribe();
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).not.toHaveProperty('phrase');
+    expect(usePubchiStore.getState().pubchi).not.toHaveProperty('phrase');
+  });
+
+  it('does not repopulate Pubchi after the owner changes during load', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    let resolveLoad!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
+    vi.spyOn(PubchiApplication, 'loadPubchi').mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    const loading = PubchiController.loadPubchi();
+    currentOwner = null;
+    resolveLoad({ bot: BOT, displayName: 'Old', createdAt: 1, backupConfirmedAt: null, verified: true });
+
+    await loading;
+
+    expect(usePubchiStore.getState().pubchi).toBeUndefined();
+    expect(usePubchiStore.getState().ownerPubky).toBeNull();
   });
 
   it('passes an explicitly discovered binding bot to the application', async () => {
