@@ -19,7 +19,6 @@ describe('NexusResourceService', () => {
     const resource = {
       details: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 },
       tags: [],
-      taggers_count: 0,
     };
     vi.mocked(queryNexus).mockResolvedValueOnce([resource]);
 
@@ -56,7 +55,6 @@ describe('NexusResourceService', () => {
       {
         details: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 },
         tags: [],
-        taggers_count: 0,
       },
     ]);
 
@@ -65,7 +63,6 @@ describe('NexusResourceService', () => {
         {
           details: { id: '1', uri: 'https://example.com', scheme: 'https', indexed_at: 1 },
           tags: [],
-          taggers_count: 0,
         },
       ],
       nextSkip: null,

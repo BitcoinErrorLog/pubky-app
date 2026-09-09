@@ -1,8 +1,14 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import type { NexusResource } from '@/services/nexus/resource/resource.types';
 import { ResourceCard } from './ResourceCard';
+
+const mockPush = vi.hoisted(() => vi.fn());
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
 
 vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
   useOgMetadata: (url: string | null) => ({
@@ -29,7 +35,6 @@ function resourceWithUri(uri: string, labels = ['docs']): NexusResource {
       indexed_at: 1,
     },
     tags: labels.map((label) => ({ label, taggers: [], taggers_count: 1, relationship: false })),
-    taggers_count: labels.length,
   };
 }
 
@@ -70,10 +75,14 @@ describe('ResourceCard', () => {
     expect(screen.getByText('More tags')).toBeInTheDocument();
   });
 
-  it('links each tag chip to the resource tag route', () => {
-    render(<ResourceCard resource={resourceWithUri('https://example.com/resource', ['docs'])} />);
+  it('navigates when a tag chip is clicked', () => {
+    const { container } = render(<ResourceCard resource={resourceWithUri('https://example.com/resource', ['docs'])} />);
 
-    expect(screen.getByRole('link', { name: 'docs 1' })).toHaveAttribute('href', getResourceTagRoute('docs'));
+    fireEvent.click(screen.getByRole('button', { name: 'docs tag (1 posts)' }));
+
+    expect(mockPush).toHaveBeenCalledOnce();
+    expect(mockPush).toHaveBeenCalledWith(getResourceTagRoute('docs'));
+    expect(container.querySelector('[data-cy="post-tag"]')?.closest('a')).toBeNull();
   });
 
   it('does not hint at more tags below the stream preview limit', () => {

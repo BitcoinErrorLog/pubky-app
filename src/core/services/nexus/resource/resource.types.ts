@@ -15,7 +15,6 @@ export type NexusTagDetails = {
 export type NexusResource = {
   details: NexusResourceDetails;
   tags: NexusTagDetails[];
-  taggers_count: number;
 };
 
 export type NexusResourceTagsResponse = {

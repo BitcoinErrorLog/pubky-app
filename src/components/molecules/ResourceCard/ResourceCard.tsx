@@ -1,6 +1,6 @@
 'use client';
 
-import NextLink from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
 import { Image } from '@/atoms/Image/Image';
@@ -19,6 +19,7 @@ export function ResourceCard({
   resource: NexusResource;
   showDetailsLink?: boolean;
 }) {
+  const router = useRouter();
   const safeUrl = getSafeExternalUrl(resource.details.uri);
   const { metadata } = useOgMetadata(safeUrl);
   const detailsHref = getResourceRoute(resource.details.id);
@@ -50,9 +51,12 @@ export function ResourceCard({
       </Link>
       <Container overrideDefaults className="flex flex-wrap items-center gap-2">
         {resource.tags.map((tag) => (
-          <NextLink key={tag.label} href={getResourceTagRoute(tag.label)}>
-            <PostTag label={tag.label} count={tag.taggers_count} />
-          </NextLink>
+          <PostTag
+            key={tag.label}
+            label={tag.label}
+            count={tag.taggers_count}
+            onClick={() => router.push(getResourceTagRoute(tag.label))}
+          />
         ))}
         {showDetailsLink && resource.tags.length === RESOURCE_STREAM_TAGS_PREVIEW ? (
           <Typography size="sm" className="self-center text-muted-foreground">

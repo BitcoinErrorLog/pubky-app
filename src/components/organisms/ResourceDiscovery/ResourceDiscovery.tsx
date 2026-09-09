@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import type { FormEvent } from 'react';
@@ -34,19 +34,10 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   const [nextSkip, setNextSkip] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState(false);
-  const resolvedResourceRef = useRef<NexusResource | null>(null);
   const lookup = useResourceLookupForm((value) => router.push(getResourceLookupRoute(value)));
 
   useEffect(() => {
     let active = true;
-    if (id && !id.includes('://') && resolvedResourceRef.current?.details.id === id) {
-      setResource(resolvedResourceRef.current);
-      setIsLoading(false);
-      return () => {
-        active = false;
-      };
-    }
-    resolvedResourceRef.current = null;
     setIsLoading(true);
     setIsNotFoundError(false);
     setHasError(false);
@@ -74,13 +65,10 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
           setNextSkip(result.nextSkip);
           setTagLabels(labelsByFrequency(result.resources));
         } else {
-          const resolvedResource = {
+          setResource({
             details: result.resource,
             tags: result.tags,
-            taggers_count: 0,
-          };
-          setResource(resolvedResource);
-          resolvedResourceRef.current = resolvedResource;
+          });
           if (id?.includes('://')) router.replace(getResourceRoute(result.resource.id));
         }
       })

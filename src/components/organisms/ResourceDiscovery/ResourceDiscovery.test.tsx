@@ -36,7 +36,6 @@ function taggedResource(id: string, uri: string): NexusResource {
   return {
     details: { id, uri, scheme: uri.split(':')[0] ?? '', indexed_at: 1 },
     tags: [{ label: 'docs', taggers: [], taggers_count: 1, relationship: false }],
-    taggers_count: 1,
   };
 }
 
@@ -44,7 +43,6 @@ function resourceWithLabels(id: string, uri: string, labels: string[]): NexusRes
   return {
     details: { id, uri, scheme: uri.split(':')[0] ?? '', indexed_at: 1 },
     tags: labels.map((label) => ({ label, taggers: [], taggers_count: 1, relationship: false })),
-    taggers_count: labels.length,
   };
 }
 
@@ -198,19 +196,6 @@ describe('ResourceDiscovery', () => {
 
     expect(await screen.findByRole('button', { name: 'Retry loading resources' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Retry loading resources' })).toHaveLength(1);
-  });
-
-  it('keeps a URI lookup result when replacing the route', async () => {
-    const response = { resource: taggedResource('resource-1', 'https://example.com/one').details, tags: [] };
-    vi.mocked(ResourceController.fetchByUri).mockResolvedValueOnce(response);
-
-    const view = render(<ResourceDiscovery id="https://example.com/one" />);
-    await screen.findByRole('heading', { name: 'Preview' });
-
-    view.rerender(<ResourceDiscovery id="resource-1" />);
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Preview' })).toBeInTheDocument());
-    expect(ResourceController.fetchByUri).toHaveBeenCalledOnce();
-    expect(ResourceController.fetchById).not.toHaveBeenCalled();
   });
 
   it('does not render a javascript: href from a tagged resource', async () => {

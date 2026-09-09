@@ -24,7 +24,7 @@ export class NexusResourceService {
       url: resourceApi.byTag({
         ...params,
         limit: params.limit ?? RESOURCE_DISCOVERY_LIMIT,
-        limit_tags: RESOURCE_STREAM_TAGS_PREVIEW,
+        limit_tags: params.limit_tags ?? RESOURCE_STREAM_TAGS_PREVIEW,
       }),
     });
   }
@@ -47,9 +47,9 @@ export class NexusResourceService {
     const resources = await queryNexus<NexusResource[]>({
       url: resourceApi.stream({
         ...params,
-        app: RESOURCE_DISCOVERY_APP,
+        app: params.app ?? RESOURCE_DISCOVERY_APP,
         limit: params.limit ?? RESOURCE_DISCOVERY_LIMIT,
-        limit_tags: RESOURCE_STREAM_TAGS_PREVIEW,
+        limit_tags: params.limit_tags ?? RESOURCE_STREAM_TAGS_PREVIEW,
       }),
     });
     const limit = params.limit ?? RESOURCE_DISCOVERY_LIMIT;
