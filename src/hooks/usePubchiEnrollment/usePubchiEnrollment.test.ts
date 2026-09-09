@@ -154,6 +154,38 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.binding).toEqual(ACTIVE);
   });
 
+  it('passes the discovered binding bot through remove before showing success', async () => {
+    mocks.reconcile.mockResolvedValue(ACTIVE);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(result.current.binding).toEqual(ACTIVE));
+
+    await act(async () => {
+      await result.current.remove();
+    });
+
+    expect(mocks.remove).toHaveBeenCalledWith({ bot: OWNER });
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Pubchi bot removed', variant: 'default' }));
+  });
+
+  it('does not show removal success when no bot can be resolved', async () => {
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.remove.mockRejectedValue(
+      Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_NOT_FOUND', {
+        service: ErrorService.Pubchi,
+        operation: 'commitDeleteBinding',
+      }),
+    );
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(result.current.binding).toBeUndefined());
+
+    await act(async () => {
+      await result.current.remove();
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'PUBCHI_NOT_FOUND', variant: 'error' }));
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Pubchi bot removed' }));
+  });
+
   it('passes the three typed backup words to confirmBackup', async () => {
     const phrase = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
     mocks.reconcile.mockResolvedValue(undefined);

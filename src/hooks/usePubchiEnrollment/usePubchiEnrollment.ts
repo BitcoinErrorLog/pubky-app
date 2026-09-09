@@ -170,7 +170,7 @@ export function usePubchiEnrollment() {
   const remove = async (): Promise<boolean> => {
     setLoading(true);
     try {
-      await PubchiController.commitDeleteBinding();
+      await PubchiController.commitDeleteBinding({ bot: binding?.bot });
       setBinding(undefined);
       setPubchi(undefined);
       backupController.clear();

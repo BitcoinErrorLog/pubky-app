@@ -84,6 +84,29 @@ describe('PubchiController', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('passes an explicitly discovered binding bot to the application', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    const deleteSpy = vi.spyOn(PubchiApplication, 'commitDeleteBinding').mockResolvedValue(undefined);
+    const activeSpy = vi.spyOn(PubchiApplication, 'getActiveBinding');
+    const loadSpy = vi.spyOn(PubchiApplication, 'loadPubchi');
+
+    await PubchiController.commitDeleteBinding({ bot: BOT });
+
+    expect(deleteSpy).toHaveBeenCalledWith({ owner: OWNER, bot: BOT });
+    expect(activeSpy).not.toHaveBeenCalled();
+    expect(loadSpy).not.toHaveBeenCalled();
+  });
+
+  it('throws instead of silently succeeding when no binding bot is resolvable', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    vi.spyOn(PubchiApplication, 'getActiveBinding').mockResolvedValue(undefined);
+    vi.spyOn(PubchiApplication, 'loadPubchi').mockResolvedValue(undefined);
+    const deleteSpy = vi.spyOn(PubchiApplication, 'commitDeleteBinding');
+
+    await expect(PubchiController.commitDeleteBinding()).rejects.toThrow('PUBCHI_NOT_FOUND');
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
   it('fetchPubchiQuery delegates to the application when the panel is enabled', async () => {
     setPubchiEnv('true', 'https://pubchi.example.com');
     const success = {

@@ -73,7 +73,7 @@ export class PubchiController {
     return PubchiApplication.confirmBackup({ owner, ...params });
   }
 
-  static async commitDeleteBinding(): Promise<void> {
+  static async commitDeleteBinding(params: { bot?: string } = {}): Promise<void> {
     if (!isPubchiEnabled()) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
         service: ErrorService.Pubchi,
@@ -81,10 +81,26 @@ export class PubchiController {
       });
     }
     const owner = useAuthStore.getState().selectCurrentUserPubky();
+    if (params.bot !== undefined && !isPubkyId(params.bot.trim())) {
+      throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'INVALID_PUBKY', {
+        service: ErrorService.Pubchi,
+        operation: 'commitDeleteBinding',
+      });
+    }
+    const requestedBot = params.bot?.trim();
+    if (requestedBot) {
+      await PubchiApplication.commitDeleteBinding({ owner, bot: requestedBot });
+      return;
+    }
     const binding = await PubchiApplication.getActiveBinding(owner);
     const remote = await PubchiApplication.loadPubchi(owner);
     const bot = remote?.bot ?? binding?.bot;
-    if (!bot) return;
+    if (!bot) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_NOT_FOUND', {
+        service: ErrorService.Pubchi,
+        operation: 'commitDeleteBinding',
+      });
+    }
     await PubchiApplication.commitDeleteBinding({ owner, bot });
   }
 

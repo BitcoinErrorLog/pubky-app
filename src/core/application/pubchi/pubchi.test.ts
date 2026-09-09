@@ -361,6 +361,28 @@ describe('PubchiApplication', () => {
     expect(deleteSpy).not.toHaveBeenCalled();
   });
 
+  it('deletes the requested remote binding and verifies absence before clearing local state', async () => {
+    const requestSpy = vi.mocked(HomeserverService.request);
+    requestSpy.mockImplementation(async ({ method }) => {
+      if (method === HttpMethod.GET) throw notFoundError();
+      return undefined;
+    });
+    const deleteSpy = vi.spyOn(LocalPubchiBindingService, 'delete');
+
+    await PubchiApplication.commitDeleteBinding({ owner: OWNER, bot: BOT });
+
+    expect(requestSpy).toHaveBeenCalledTimes(3);
+    expect(requestSpy.mock.calls[1]?.[0]).toMatchObject({
+      method: HttpMethod.DELETE,
+      url: expect.stringContaining(`/bots/${BOT}.json`),
+    });
+    expect(requestSpy.mock.calls[2]?.[0]).toMatchObject({
+      method: HttpMethod.GET,
+      url: expect.stringContaining(`/bots/${BOT}.json`),
+    });
+    expect(deleteSpy).toHaveBeenCalledWith(OWNER, BOT);
+  });
+
   it('marks the local row revoked when the homeserver binding is absent', async () => {
     vi.spyOn(HomeserverService, 'exists').mockResolvedValue(false);
     const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
