@@ -29,6 +29,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 
 vi.mock('@/molecules/Toaster/use-toast', () => ({ toast: vi.fn() }));
 
+vi.mock('@/libs/logger/logger', () => ({
+  Logger: { error: vi.fn(), warn: vi.fn() },
+}));
+
 const digitalLock: CommerceDigitalLock = {
   policyUri: `pubky://${SELLER}/pub/locks.app/${'0'.repeat(52)}.json`,
   criterionId: 'criterion-1',
@@ -130,6 +134,41 @@ describe('useMarketplaceLocksPayment', () => {
 
     expect(onPaymentChanged).toHaveBeenCalled();
     expect(result.current.error).toBeNull();
+  });
+
+  it('maps server and thrown sentinel failures to static copy', async () => {
+    const sentinel = 'SENTINEL_SERVER_TEXT_locks_payment';
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const { Logger } = await import('@/libs/logger/logger');
+    vi.mocked(CommerceController.getMarketplaceOrder).mockResolvedValue({ ...order, payment } as never);
+    const { result } = renderHook(() =>
+      useMarketplaceLocksPayment({ order, payment, digitalLock, isBuyer: true, onPaymentChanged: vi.fn() }),
+    );
+
+    vi.mocked(CommerceController.beginMarketplaceLocksPayment).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: sentinel },
+    } as never);
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.error).toBeTypeOf('string');
+    expect(result.current.error).not.toContain(sentinel);
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
+    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
+      sentinel,
+    );
+
+    vi.mocked(CommerceController.beginMarketplaceLocksPayment).mockRejectedValueOnce({
+      name: 'AppError',
+      code: 'INVALID_STATE',
+      message: sentinel,
+    });
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.error).toBeTypeOf('string');
+    expect(result.current.error).not.toContain(sentinel);
   });
 
   it('unlocks confirmed content and exposes the verified delivery', async () => {

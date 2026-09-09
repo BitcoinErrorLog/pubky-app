@@ -57,6 +57,10 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
 
+vi.mock('@/libs/logger/logger', () => ({
+  Logger: { error: vi.fn(), warn: vi.fn() },
+}));
+
 const authMock = vi.hoisted(() => ({ currentUserPubky: null as string | null }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -138,26 +142,26 @@ describe('useMarketplaceCheckout', () => {
         fulfillmentChoiceBySeller: { [listing.ownerPubky]: 'shipping' },
         deliveryAddress: expect.objectContaining({ line1: '1 Market Street' }),
         lines: [
-            {
-              listingAggregateId: `listing:${listing.ownerPubky}_${listing.listingId}`,
-              sellerPubky: listing.ownerPubky,
-              publishedFulfillmentMethods: ['shipping'],
-              expectedRevision: 1,
-              quantity: 1,
-              // The chosen variant rides the line as a display snapshot: the
-              // id plus its option dimensions as an ordered {name, value}
-              // array (safe through the wire-casing layer).
-              variantId: listing.variants[0].id,
-              ...(Object.keys(listing.variants[0].options).length
-                ? {
-                    variantOptions: Object.entries(listing.variants[0].options).map(([name, value]) => ({
-                      name,
-                      value,
-                    })),
-                  }
-                : {}),
-            },
-          ],
+          {
+            listingAggregateId: `listing:${listing.ownerPubky}_${listing.listingId}`,
+            sellerPubky: listing.ownerPubky,
+            publishedFulfillmentMethods: ['shipping'],
+            expectedRevision: 1,
+            quantity: 1,
+            // The chosen variant rides the line as a display snapshot: the
+            // id plus its option dimensions as an ordered {name, value}
+            // array (safe through the wire-casing layer).
+            variantId: listing.variants[0].id,
+            ...(Object.keys(listing.variants[0].options).length
+              ? {
+                  variantOptions: Object.entries(listing.variants[0].options).map(([name, value]) => ({
+                    name,
+                    value,
+                  })),
+                }
+              : {}),
+          },
+        ],
       }),
     );
     expect(clear).toHaveBeenCalled();
@@ -526,7 +530,10 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
   it('removes pickup from the options when the deployment capability is off', async () => {
     vi.mocked(CommerceController.fetchPickupAvailable).mockResolvedValue(false);
     const { result } = renderHook(() =>
-      useMarketplaceCheckout([itemWithFulfillment(['physical', 'shipping', 'pickup'])], vi.fn(async () => {})),
+      useMarketplaceCheckout(
+        [itemWithFulfillment(['physical', 'shipping', 'pickup'])],
+        vi.fn(async () => {}),
+      ),
     );
 
     await vi.waitFor(() => {
@@ -535,11 +542,53 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
     // A pickup-only listing on such a deployment leaves the group with no
     // common method — the honest conflict, never a silent shipping fallback.
     const conflict = renderHook(() =>
-      useMarketplaceCheckout([itemWithFulfillment(['pickup'])], vi.fn(async () => {})),
+      useMarketplaceCheckout(
+        [itemWithFulfillment(['pickup'])],
+        vi.fn(async () => {}),
+      ),
     );
     await vi.waitFor(() => {
       expect(conflict.result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual([]);
     });
     expect(conflict.result.current.hasFulfillmentConflict).toBe(true);
+  });
+
+  it('maps server and thrown sentinel failures to static copy', async () => {
+    const sentinel = 'SENTINEL_SERVER_TEXT_checkout';
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const { Logger } = await import('@/libs/logger/logger');
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: sentinel },
+    } as never);
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(vi.mocked(toast).mock.calls[0]?.[0]?.description).toBeTypeOf('string');
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
+    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
+      sentinel,
+    );
+
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockRejectedValueOnce({
+      name: 'AppError',
+      code: 'INVALID_STATE',
+      message: sentinel,
+    });
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
   });
 });

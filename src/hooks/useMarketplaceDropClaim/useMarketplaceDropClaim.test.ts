@@ -26,6 +26,10 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
 
+vi.mock('@/libs/logger/logger', () => ({
+  Logger: { error: vi.fn(), warn: vi.fn() },
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string | null }) => unknown) =>
     selector({ currentUserPubky: 'b'.repeat(52) }),
@@ -141,6 +145,27 @@ describe('useMarketplaceDropClaim', () => {
     });
     expect(result.current.failure).toBe('The claim could not be completed.');
     expect(result.current.failure).not.toContain('SENTINEL_SERVER_TEXT_drop');
+  });
+
+  it('maps thrown sentinel failures to static copy', async () => {
+    const sentinel = 'SENTINEL_SERVER_TEXT_drop_claim';
+    const { Logger } = await import('@/libs/logger/logger');
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce({
+      name: 'AppError',
+      code: 'INVALID_STATE',
+      message: sentinel,
+    });
+    const { result } = renderHook(() => useMarketplaceDropClaim());
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    await act(async () => {
+      await result.current.claim(SELLER, 'listing1');
+    });
+    expect(result.current.failure).toBeTypeOf('string');
+    expect(result.current.failure).not.toContain(sentinel);
+    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
+      sentinel,
+    );
   });
 
   it('heals an unregistered listing with one sync before giving up', async () => {

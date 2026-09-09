@@ -27,6 +27,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
+vi.mock('@/libs/logger/logger', () => ({
+  Logger: { error: vi.fn(), warn: vi.fn() },
+}));
+
 function sellerDrop(overrides: Record<string, unknown> = {}) {
   return {
     sellerPubky: SELLER,
@@ -216,5 +220,36 @@ describe('useOwnDrop', () => {
     await flush();
     // serverTime is 12:00, device says 11:59 → the service runs +60s ahead.
     expect(result.current.offsetMs).toBe(60_000);
+  });
+  it('maps server and thrown sentinel failures to static copy', async () => {
+    const sentinel = 'SENTINEL_SERVER_TEXT_own_drop';
+    const { Logger } = await import('@/libs/logger/logger');
+    const { result } = renderHook(() => useOwnDrop('drop1'));
+    await flush();
+
+    vi.mocked(CommerceController.cancelDrop).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: sentinel },
+    } as never);
+    let outcome: Awaited<ReturnType<typeof result.current.cancel>> | undefined;
+    await act(async () => {
+      outcome = await result.current.cancel();
+    });
+    expect(outcome?.message).toBeTypeOf('string');
+    expect(outcome?.message).not.toContain(sentinel);
+    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
+      sentinel,
+    );
+
+    vi.mocked(CommerceController.cancelDrop).mockRejectedValueOnce({
+      name: 'AppError',
+      code: 'INVALID_STATE',
+      message: sentinel,
+    });
+    await act(async () => {
+      outcome = await result.current.cancel();
+    });
+    expect(outcome?.message).toBeTypeOf('string');
+    expect(outcome?.message).not.toContain(sentinel);
   });
 });

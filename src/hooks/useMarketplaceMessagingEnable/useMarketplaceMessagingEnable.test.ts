@@ -40,4 +40,18 @@ describe('useMarketplaceMessagingEnable', () => {
     expect(result.current.status).toBe('awaiting');
     expect(beginSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('maps thrown sentinel failures to static copy and keeps logger context clean', async () => {
+    const sentinel = 'SENTINEL_SERVER_TEXT_messaging_enable';
+    vi.spyOn(MessagingController, 'beginMessagingEnable').mockRejectedValue({
+      name: 'AppError',
+      code: 'INVALID_STATE',
+      message: sentinel,
+    });
+    const { result } = renderHook(() => useMarketplaceMessagingEnable());
+
+    act(() => result.current.start());
+    await vi.waitFor(() => expect(result.current.errorMessage).toBeTypeOf('string'));
+    expect(result.current.errorMessage).not.toContain(sentinel);
+  });
 });

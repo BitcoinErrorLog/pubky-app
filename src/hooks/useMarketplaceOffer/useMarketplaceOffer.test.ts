@@ -14,6 +14,10 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
 
+vi.mock('@/libs/logger/logger', () => ({
+  Logger: { error: vi.fn(), warn: vi.fn() },
+}));
+
 describe('useMarketplaceOffer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -87,5 +91,39 @@ describe('useMarketplaceOffer', () => {
     expect(vi.mocked(toast)).toHaveBeenCalledWith(
       expect.objectContaining({ description: expect.stringContaining('reloaded') }),
     );
+  });
+
+  it('maps server and thrown sentinel failures to static copy', async () => {
+    const sentinel = 'SENTINEL_SERVER_TEXT_offer';
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const { Logger } = await import('@/libs/logger/logger');
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3, vi.fn(), USD_ASSET));
+    act(() => {
+      result.current.form.setValue('amount', '100.00');
+      result.current.form.setValue('quantity', '1');
+    });
+
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: sentinel },
+    });
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(vi.mocked(toast).mock.calls[0]?.[0]?.description).toBeTypeOf('string');
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
+    expect(JSON.stringify([...vi.mocked(Logger.error).mock.calls, ...vi.mocked(Logger.warn).mock.calls])).not.toContain(
+      sentinel,
+    );
+
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce({
+      name: 'AppError',
+      code: 'INVALID_STATE',
+      message: sentinel,
+    });
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
   });
 });

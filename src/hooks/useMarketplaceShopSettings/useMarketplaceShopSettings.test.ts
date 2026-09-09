@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { Logger } from '@/libs/logger/logger';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { useMarketplaceShopSettings } from './useMarketplaceShopSettings';
 
@@ -241,9 +242,16 @@ describe('useMarketplaceShopSettings', () => {
     expect(result.current.avatar.hasImage).toBe(true);
   });
 
-  it('does not publish the shop record when an image upload fails', async () => {
+  it('maps thrown sentinel image-upload failures to static copy', async () => {
     const { toast } = await import('@/molecules/Toaster/use-toast');
-    vi.mocked(CommerceController.commitCreateMedia).mockRejectedValue(new Error('homeserver unreachable'));
+    const sentinel = 'SENTINEL_SERVER_TEXT_shop_settings';
+    vi.mocked(CommerceController.commitCreateMedia).mockRejectedValue({
+      name: 'AppError',
+      code: 'INVALID_STATE',
+      message: sentinel,
+    });
+    const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
 
     const { result } = renderHook(() => useMarketplaceShopSettings());
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -261,5 +269,8 @@ describe('useMarketplaceShopSettings', () => {
       variant: 'error',
       description: expect.stringContaining('Could not upload the shop avatar image'),
     });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
+    expect(JSON.stringify([...errorSpy.mock.calls, ...warnSpy.mock.calls])).not.toContain(sentinel);
+    expect(typeof vi.mocked(toast).mock.calls.at(-1)?.[0]?.description).toBe('string');
   });
 });

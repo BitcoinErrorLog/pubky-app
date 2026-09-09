@@ -6,6 +6,10 @@ import { copyToClipboard } from '@/libs/utils/utils';
 import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.types';
 import { useMarketplaceSessionConnect } from './useMarketplaceSessionConnect';
 
+vi.mock('@/libs/logger/logger', () => ({
+  Logger: { error: vi.fn(), warn: vi.fn() },
+}));
+
 const SESSION: CommerceMarketplaceSession = {
   pubky: 'z'.repeat(52),
   capabilities: '/pub/pubky.app/:rw',
@@ -274,6 +278,19 @@ describe('useMarketplaceSessionConnect', () => {
     await act(async () => {});
     expect(result.current.status).toBe('idle');
     expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('maps thrown sentinel failures to static copy and keeps logger context clean', async () => {
+    const sentinel = 'SENTINEL_SERVER_TEXT_session';
+    const { flow, rejectSession } = createDeferredFlow('pubkyauth:///?caps=sentinel');
+    vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockReturnValue(flow);
+    const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+    act(() => result.current.start());
+    rejectSession({ name: 'AppError', code: 'INVALID_STATE', message: sentinel });
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.errorMessage).toBeTypeOf('string');
+    expect(result.current.errorMessage).not.toContain(sentinel);
   });
 
   it('a superseding start cancels the previous flow and ignores its late rejection', async () => {
