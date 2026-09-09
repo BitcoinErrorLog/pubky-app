@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
+import {
+  PUBCHI_SYNC_DEBOUNCE_MS,
+  PUBCHI_SYNC_MAX_AGE_MS,
+  subscribeToPubchiSync,
+} from '@/controllers/pubchi/pubchi-sync';
 import { AppError } from '@/libs/error/error';
 import { BotPhraseRevealController } from '@/libs/pubchi/bot-phrase-reveal';
 import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
@@ -32,6 +37,7 @@ export function usePubchiEnrollment() {
   const storedPubchi = usePubchiStore((state) => state.pubchi);
   const storedConfig = usePubchiStore((state) => state.config);
   const storedOwner = usePubchiStore((state) => state.ownerPubky);
+  const lastUpdatedAt = usePubchiStore((state) => state.lastUpdatedAt);
   const pubchi = owner && storedOwner === owner ? storedPubchi : undefined;
   const config = owner && storedOwner === owner ? storedConfig : null;
   const [loading, setLoading] = useState(false);
@@ -131,6 +137,61 @@ export function usePubchiEnrollment() {
       }
     })();
   }, [owner]);
+
+  useEffect(() => {
+    if (!owner) return;
+
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+    let reloadInFlight = false;
+    const reload = async (): Promise<void> => {
+      if (reloadInFlight || readCurrentOwner(owner) !== owner) return;
+      reloadInFlight = true;
+      try {
+        const [nextPubchi, nextConfig] = await Promise.all([
+          PubchiController.loadPubchi(),
+          typeof PubchiController.loadPubchiConfig === 'function'
+            ? PubchiController.loadPubchiConfig()
+            : Promise.resolve(usePubchiStore.getState().config),
+        ]);
+        if (readCurrentOwner(owner) !== owner) return;
+        const store = usePubchiStore.getState();
+        store.setPubchi(nextPubchi, owner);
+        store.setConfig(nextConfig, owner);
+        if (nextConfig && store.pubchi) {
+          store.setPubchi({ ...store.pubchi, displayName: nextConfig.display_name }, owner);
+        }
+      } finally {
+        reloadInFlight = false;
+      }
+    };
+    const scheduleReload = () => {
+      if (reloadTimer) clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => {
+        reloadTimer = undefined;
+        void reload();
+      }, PUBCHI_SYNC_DEBOUNCE_MS);
+    };
+    const unsubscribe = subscribeToPubchiSync((message) => {
+      if (message.owner !== readCurrentOwner(owner)) return;
+      if (message.kind === 'signed-out') {
+        usePubchiStore.getState().clear();
+        return;
+      }
+      scheduleReload();
+    });
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (lastUpdatedAt === null || Date.now() - lastUpdatedAt > PUBCHI_SYNC_MAX_AGE_MS) scheduleReload();
+    };
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.addEventListener('focus', refreshIfStale);
+    return () => {
+      unsubscribe();
+      if (reloadTimer) clearTimeout(reloadTimer);
+      document.removeEventListener('visibilitychange', refreshIfStale);
+      window.removeEventListener('focus', refreshIfStale);
+    };
+  }, [owner, lastUpdatedAt]);
 
   const saveConfig = async (partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1 | undefined> => {
     if (typeof PubchiController.savePubchiConfig !== 'function') return undefined;

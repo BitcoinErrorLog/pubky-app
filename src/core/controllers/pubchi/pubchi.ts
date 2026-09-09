@@ -19,6 +19,7 @@ import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.ty
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import type { TConfirmPubchiBackupParams, TCreatePubchiParams, TPubchiQueryParams } from './pubchi.types';
+import { publishPubchiSync } from './pubchi-sync';
 
 export class PubchiController {
   private constructor() {}
@@ -44,6 +45,7 @@ export class PubchiController {
     if (useAuthStore.getState().currentUserPubky === owner) {
       usePubchiStore.getState().setPubchi(loaded, owner);
     }
+    publishPubchiSync(owner, 'created');
     return created;
   }
 
@@ -61,10 +63,13 @@ export class PubchiController {
         operation: 'commitCreateBinding',
       });
     }
-    return PubchiApplication.commitCreateBinding({
-      owner: useAuthStore.getState().selectCurrentUserPubky(),
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const result = await PubchiApplication.commitCreateBinding({
+      owner,
       bot,
     });
+    publishPubchiSync(owner, 'created');
+    return result;
   }
 
   static async loadPubchi(): Promise<LoadedPubchi | undefined> {
@@ -84,6 +89,7 @@ export class PubchiController {
     if (useAuthStore.getState().currentUserPubky === owner) {
       usePubchiStore.getState().setPubchi(pubchi, owner);
     }
+    publishPubchiSync(owner, 'config-saved');
     return pubchi;
   }
 
@@ -105,6 +111,7 @@ export class PubchiController {
     if (requestedBot) {
       await PubchiApplication.commitDeleteBinding({ owner: ownerAtStart, bot: requestedBot });
       if (useAuthStore.getState().currentUserPubky === ownerAtStart) usePubchiStore.getState().clear();
+      publishPubchiSync(ownerAtStart, 'removed');
       return;
     }
     const binding = await PubchiApplication.getActiveBinding(ownerAtStart);
@@ -118,6 +125,7 @@ export class PubchiController {
     }
     await PubchiApplication.commitDeleteBinding({ owner: ownerAtStart, bot });
     if (useAuthStore.getState().currentUserPubky === ownerAtStart) usePubchiStore.getState().clear();
+    publishPubchiSync(ownerAtStart, 'removed');
   }
 
   /**
@@ -150,6 +158,7 @@ export class PubchiController {
     if (!isPubchiEnabled()) return false;
     const ownerAtStart = useAuthStore.getState().selectCurrentUserPubky();
     const ready = await PubchiApplication.ensureDeviceReady(ownerAtStart);
+    if (ready) publishPubchiSync(ownerAtStart, 'devices-changed');
     return ready;
   }
 
@@ -179,6 +188,7 @@ export class PubchiController {
       store.setConfig(config, ownerAtStart);
       if (store.pubchi) store.setPubchi({ ...store.pubchi, displayName: config.display_name }, ownerAtStart);
     }
+    publishPubchiSync(ownerAtStart, 'config-saved');
     return config;
   }
 
@@ -241,6 +251,7 @@ export class PubchiController {
       });
     }
     await PubchiApplication.revokeDevice(owner, signer);
+    publishPubchiSync(owner, 'devices-changed');
   }
 
   static async revokeAllDevices(): ReturnType<typeof PubchiApplication.revokeAllDevices> {
@@ -252,6 +263,7 @@ export class PubchiController {
       });
     }
     const result = await PubchiApplication.revokeAllDevices(owner);
+    publishPubchiSync(owner, 'devices-changed');
     return result;
   }
 }

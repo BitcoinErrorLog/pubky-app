@@ -12,6 +12,7 @@ import type {
   TLoginWithMnemonicParams,
   TSignUpParams,
 } from '@/controllers/auth/auth.types';
+import { publishPubchiSync } from '@/controllers/pubchi/pubchi-sync';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
@@ -359,6 +360,7 @@ export class AuthController {
     // Capture pubky before resetting auth store; used to scope marker cleanup.
     const pubky = useAuthStore.getState().currentUserPubky;
     if (pubky) {
+      publishPubchiSync(pubky, 'signed-out');
       TagApplication.clearViewerMarkers(pubky);
     }
 

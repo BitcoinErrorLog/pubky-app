@@ -10,6 +10,7 @@ export interface PubchiStore {
   pubchi: StoredPubchi | undefined;
   config: PubchiConfigV1 | null;
   ownerPubky: Pubky | null;
+  lastUpdatedAt: number | null;
   setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
   setConfig: (config: PubchiConfigV1 | null, ownerPubky: Pubky | null) => void;
   clear: () => void;
@@ -19,6 +20,7 @@ const initialState = {
   pubchi: undefined,
   config: null,
   ownerPubky: null,
+  lastUpdatedAt: null,
 };
 
 export const usePubchiStore = create<PubchiStore>((set) => ({
@@ -27,8 +29,8 @@ export const usePubchiStore = create<PubchiStore>((set) => ({
     if (pubchi && Object.prototype.hasOwnProperty.call(pubchi, 'phrase')) {
       throw new Error('Pubchi recovery phrase cannot be stored');
     }
-    set({ pubchi, ownerPubky });
+    set({ pubchi, ownerPubky, lastUpdatedAt: Date.now() });
   },
-  setConfig: (config, ownerPubky) => set({ config, ownerPubky }),
+  setConfig: (config, ownerPubky) => set({ config, ownerPubky, lastUpdatedAt: Date.now() }),
   clear: () => set(initialState),
 }));
