@@ -1,17 +1,43 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { ArrowRight, Settings, Smartphone } from 'lucide-react';
+import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { PubchiCapabilities } from '@/components/organisms/Pubchi/PubchiCapabilities/PubchiCapabilities';
 import { PubchiProfileCard } from '@/components/organisms/Pubchi/PubchiProfileCard/PubchiProfileCard';
+import { FeedController } from '@/controllers/feed/feed';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
+import { getPubchiBuiltFeedIds } from '@/libs/pubchi/feed-provenance';
+import type { FeedModelSchema } from '@/models/feed/feed.schema';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function PubchiProfile() {
   const { pubchi, config, devices, needsReapproval } = usePubchiEnrollment();
+  const owner = useAuthStore((state) => state.currentUserPubky);
+  const [builtFeeds, setBuiltFeeds] = useState<FeedModelSchema[]>([]);
+
+  useEffect(() => {
+    if (!owner || !pubchi) {
+      setBuiltFeeds([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([FeedController.getList(), getPubchiBuiltFeedIds(owner)])
+      .then(([feeds, builtFeedIds]) => {
+        if (!cancelled) setBuiltFeeds(feeds.filter((feed) => builtFeedIds.has(feed.id)));
+      })
+      .catch(() => {
+        if (!cancelled) setBuiltFeeds([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [owner, pubchi]);
 
   if (!pubchi) {
     return (
@@ -37,7 +63,30 @@ export function PubchiProfile() {
       <PubchiCapabilities tier={tier} onSelect={() => undefined} onBuildFeed={() => undefined} />
       <Card data-testid="pubchi-built-feeds">
         <CardHeader><CardTitle>Feeds built by your Pubchi</CardTitle></CardHeader>
-        <CardContent><Typography size="sm" className="text-muted-foreground">No Pubchi-built feeds yet. Build one from the Pubchi flyout.</Typography></CardContent>
+        <CardContent>
+          {builtFeeds.length === 0 ? (
+            <Typography size="sm" className="text-muted-foreground">No Pubchi-built feeds yet. Build one from the Pubchi flyout.</Typography>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {builtFeeds.map((feed) => (
+                <li key={feed.id} className="flex items-center justify-between gap-3">
+                  <div>
+                    <Typography className="font-medium">{feed.name}</Typography>
+                    <Typography size="sm" className="text-muted-foreground">
+                      {feed.tags.length > 0 ? feed.tags.join(', ') : 'No tags'} · {feed.reach}
+                    </Typography>
+                    <Typography size="sm" className="text-muted-foreground">
+                      Created {new Date(feed.created_at).toLocaleDateString()}
+                    </Typography>
+                  </div>
+                  <Link href={`${APP_ROUTES.FEED}/${feed.id}`} className="inline-flex items-center gap-2">
+                    Open <ArrowRight aria-hidden="true" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
       </Card>
       <Card data-testid="pubchi-devices">
         <CardHeader><CardTitle className="flex items-center gap-2"><Smartphone aria-hidden="true" /> Devices</CardTitle></CardHeader>

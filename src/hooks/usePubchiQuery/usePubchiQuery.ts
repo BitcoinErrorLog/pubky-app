@@ -8,6 +8,7 @@ import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
+import { markFeedAsPubchiBuilt } from '@/libs/pubchi/feed-provenance';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
@@ -121,11 +122,19 @@ export function usePubchiQuery() {
 
   const applyFeed = async (): Promise<boolean> => {
     if (!result || result.kind !== 'feed' || !result.applyAllowed) return false;
+    const owner = useAuthStore.getState().currentUserPubky;
+    if (!owner) return false;
+    let feedId: string | undefined;
     try {
-      await FeedController.commitCreate(feedProposalToCreateParams(result.result));
+      const feed = await FeedController.commitCreate(feedProposalToCreateParams(result.result));
+      feedId = feed.id;
+      await markFeedAsPubchiBuilt(owner, feed);
       toast({ variant: 'default', title: 'Feed applied', dismissButton: true });
       return true;
     } catch (error) {
+      if (feedId) {
+        await FeedController.commitDelete({ feedId }).catch(() => undefined);
+      }
       const message = error instanceof AppError ? error.message : 'FEED_SPECS_INVALID';
       toast({ variant: 'error', title: message, dismissButton: true });
       return false;

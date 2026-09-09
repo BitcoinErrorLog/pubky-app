@@ -37,6 +37,8 @@ const FEED_SUCCESS: PubchiQuerySuccess = {
 const mocks = vi.hoisted(() => ({
   fetchPubchiQuery: vi.fn(),
   commitCreate: vi.fn(),
+  commitDelete: vi.fn(),
+  markFeedAsPubchiBuilt: vi.fn(),
   toast: vi.fn(),
   ensureDeviceReady: vi.fn(),
   loadPubchi: vi.fn(),
@@ -57,7 +59,12 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
 vi.mock('@/controllers/feed/feed', () => ({
   FeedController: {
     commitCreate: (...args: unknown[]) => mocks.commitCreate(...args),
+    commitDelete: (...args: unknown[]) => mocks.commitDelete(...args),
   },
+}));
+
+vi.mock('@/libs/pubchi/feed-provenance', () => ({
+  markFeedAsPubchiBuilt: (...args: unknown[]) => mocks.markFeedAsPubchiBuilt(...args),
 }));
 
 vi.mock('@/molecules/Toaster/toast', () => ({
@@ -65,14 +72,18 @@ vi.mock('@/molecules/Toaster/toast', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 'a'.repeat(52) }),
+  useAuthStore: Object.assign(
+    (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: 'a'.repeat(52) }),
+    { getState: () => ({ currentUserPubky: 'a'.repeat(52) }) },
+  ),
 }));
 
 describe('usePubchiQuery', () => {
   beforeEach(() => {
     mocks.fetchPubchiQuery.mockReset();
     mocks.commitCreate.mockReset();
+    mocks.commitDelete.mockReset();
+    mocks.markFeedAsPubchiBuilt.mockReset();
     mocks.toast.mockReset();
     mocks.fetchPubchiQuery.mockResolvedValue(FEED_SUCCESS);
     mocks.commitCreate.mockResolvedValue({ id: 'feed-1' });
@@ -106,6 +117,7 @@ describe('usePubchiQuery', () => {
     });
 
     expect(mocks.commitCreate).toHaveBeenCalledOnce();
+    expect(mocks.markFeedAsPubchiBuilt).toHaveBeenCalledWith('a'.repeat(52), { id: 'feed-1' });
     const params = mocks.commitCreate.mock.calls[0][0];
     expect(params.name).toBe('Builders');
     expect(params.tags).toEqual(['builder']);
@@ -133,6 +145,25 @@ describe('usePubchiQuery', () => {
       "This browser isn't set up for Pubchi yet. Set it up to start asking.",
     );
     expect(result.current.errorCode).toBe("This browser isn't set up for Pubchi yet. Set it up to start asking.");
+  });
+
+  it('rolls back the feed when provenance cannot be recorded', async () => {
+    mocks.markFeedAsPubchiBuilt.mockRejectedValue(new Error('database unavailable'));
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'build a feed of builders');
+      await result.current.submit('build-feed');
+      await expect(result.current.applyFeed()).resolves.toBe(false);
+    });
+
+    expect(mocks.commitDelete).toHaveBeenCalledWith({ feedId: 'feed-1' });
+    expect(mocks.toast).toHaveBeenCalledWith({
+      variant: 'error',
+      title: 'FEED_SPECS_INVALID',
+      dismissButton: true,
+    });
   });
 
   it('does not set up a device when the owner has no Pubchi', async () => {

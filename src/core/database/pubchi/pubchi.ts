@@ -5,6 +5,10 @@ import { ErrorService } from '@/libs/error/error.types';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { type PubchiBindingRecord, pubchiBindingTableSchema } from '@/models/pubchi/binding.schema';
 import { type PubchiDeviceKeyRecord, pubchiDeviceKeyTableSchema } from '@/models/pubchi/device-key.schema';
+import {
+  type PubchiFeedProvenanceRecord,
+  pubchiFeedProvenanceTableSchema,
+} from '@/models/pubchi/feed-provenance.schema';
 
 /**
  * Isolated IndexedDB for Phase 0 Pubchi bindings. Separate from franky so the
@@ -13,12 +17,18 @@ import { type PubchiDeviceKeyRecord, pubchiDeviceKeyTableSchema } from '@/models
 class PubchiDatabase extends Dexie {
   bindings!: Table<PubchiBindingRecord>;
   deviceKeys!: Table<PubchiDeviceKeyRecord>;
+  feedProvenance!: Table<PubchiFeedProvenanceRecord>;
 
   constructor() {
     super('pubchi');
     this.version(2).stores({
       bindings: pubchiBindingTableSchema,
       deviceKeys: pubchiDeviceKeyTableSchema,
+    });
+    this.version(3).stores({
+      bindings: pubchiBindingTableSchema,
+      deviceKeys: pubchiDeviceKeyTableSchema,
+      feedProvenance: pubchiFeedProvenanceTableSchema,
     });
   }
 }
