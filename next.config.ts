@@ -4,6 +4,23 @@ import { withSentryConfig } from '@sentry/nextjs';
 import packageJson from './package.json';
 import { buildDenyFramingRouteHeaders } from './src/libs/security/headers';
 
+export const redirects = async () => [
+  {
+    source: '/',
+    destination: '/marketplace',
+    permanent: false,
+  },
+  // /profile/[pubky] is the canonical other-user posts view (see app/profile/[pubky]/page.tsx).
+  // The legacy /profile/[pubky]/posts route is kept as a 308 permanent redirect so existing
+  // bookmarks, shares, and search indexes consolidate onto the canonical URL without invoking
+  // any React/SSR work for the legacy path.
+  {
+    source: '/profile/:pubky/posts',
+    destination: '/profile/:pubky',
+    permanent: true,
+  },
+];
+
 const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version,
@@ -30,19 +47,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return buildDenyFramingRouteHeaders();
   },
-  async redirects() {
-    return [
-      // /profile/[pubky] is the canonical other-user posts view (see app/profile/[pubky]/page.tsx).
-      // The legacy /profile/[pubky]/posts route is kept as a 308 permanent redirect so existing
-      // bookmarks, shares, and search indexes consolidate onto the canonical URL without invoking
-      // any React/SSR work for the legacy path.
-      {
-        source: '/profile/:pubky/posts',
-        destination: '/profile/:pubky',
-        permanent: true,
-      },
-    ];
-  },
+  redirects,
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals.push('@synonymdev/pubky');
