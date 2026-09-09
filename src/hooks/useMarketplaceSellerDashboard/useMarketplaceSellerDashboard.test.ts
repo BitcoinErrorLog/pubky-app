@@ -30,6 +30,7 @@ vi.mock('dexie-react-hooks', () => ({
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getListingsBySeller: vi.fn(async () => []),
+    getOrFetchListingsBySeller: vi.fn(async () => []),
     fetchSellerCatalogListings: vi.fn(async () => undefined),
     getOrFetchListing: vi.fn(),
     commitUpdateListingDraft: vi.fn(),
@@ -55,12 +56,13 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
 
   it('fetches the seller catalog when the local cache is empty', async () => {
     const listing = createCommerceListingFixture({ listingId: 'boots_02' });
-    vi.mocked(CommerceController.fetchSellerCatalogListings).mockImplementationOnce(async () => {
+    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockImplementationOnce(async () => {
       localListings = [{ state: 'active', record: listing }];
+      return localListings as never;
     });
     const { result, rerender } = renderHook(() => useMarketplaceSellerDashboard());
 
-    await waitFor(() => expect(CommerceController.fetchSellerCatalogListings).toHaveBeenCalledWith(OWNER));
+    await waitFor(() => expect(CommerceController.getOrFetchListingsBySeller).toHaveBeenCalledWith(OWNER));
     rerender();
 
     expect(result.current.listings).toEqual([{ state: 'active', record: listing }]);
@@ -68,7 +70,7 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
   });
 
   it('reports a catalog fetch failure instead of showing an empty state', async () => {
-    vi.mocked(CommerceController.fetchSellerCatalogListings).mockRejectedValueOnce(new Error('offline'));
+    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockRejectedValueOnce(new Error('offline'));
     const { result } = renderHook(() => useMarketplaceSellerDashboard());
 
     await waitFor(() => expect(result.current.error).toBe('Could not load your listings.'));

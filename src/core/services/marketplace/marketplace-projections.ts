@@ -41,6 +41,7 @@ export const marketplaceListingProjectionSchema = z
       .object({
         startsAt: z.string(),
         endsAt: z.string(),
+        status: z.string().optional(),
         minimumIncrement: marketplaceMoneySchema,
         currentPrice: marketplaceMoneySchema,
         leaderPubky: commercePubkySchema.nullable(),

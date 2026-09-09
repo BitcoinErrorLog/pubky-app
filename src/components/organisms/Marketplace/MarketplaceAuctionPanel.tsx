@@ -74,14 +74,17 @@ export function MarketplaceAuctionPanel({
     return () => window.clearInterval(timer);
   }, [endsAt]);
 
-  const remainingMs = endsAt && deviceNowMs !== null ? Date.parse(endsAt) - (deviceNowMs + (clockOffsetMs ?? 0)) : null;
+  const remainingMs =
+    endsAt && deviceNowMs !== null
+      ? Math.max(0, Date.parse(endsAt) - (deviceNowMs + (clockOffsetMs ?? 0)))
+      : null;
 
   return (
     <div className="grid gap-3 rounded-xl border p-4">
       {endsAt && remainingMs !== null && (
         <div className="flex flex-wrap items-center gap-2">
           <Clock3 className="size-4 text-muted-foreground" />
-          {auctionPhase !== 'ended' && remainingMs > 0 ? (
+          {auctionPhase !== 'ended' ? (
             <Typography as="p" className="text-sm">
               Ends in <span className="font-semibold tabular-nums">{formatDropCountdown(remainingMs)}</span>
               <span className="text-muted-foreground"> · {new Date(endsAt).toLocaleString()}</span>
@@ -103,7 +106,7 @@ export function MarketplaceAuctionPanel({
           Bidding is closed for this auction.
         </Typography>
       )}
-      {remainingMs !== null && remainingMs > 0 && (
+      {auctionPhase !== 'ended' && remainingMs !== null && (
         <Typography as="p" className="text-xs text-muted-foreground">
           A bid in the final window extends the end time (anti-sniping) — the countdown updates from the
           marketplace&rsquo;s clock, which is the only clock the auction runs on.

@@ -88,6 +88,22 @@ const fixtures = vi.hoisted(async () => {
         },
       }),
     ),
+    endedAuctionListing: toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId: 'ended_rangefinder',
+        title: 'Ended rangefinder camera',
+        sale: {
+          format: 'auction',
+          startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
+          minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+          startsAt: '2026-08-19T20:00:00.000Z',
+          endsAt: '2026-08-29T20:00:00.000Z',
+          antiSnipingWindowSeconds: 120,
+          antiSnipingExtensionSeconds: 120,
+        },
+      }),
+    ),
     digitalListing: toCommerceListingModel(
       createCommerceListingFixture({
         listingId: 'field_recordings',
@@ -385,6 +401,24 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-auction-desktop');
+  });
+
+  it('renders an ended auction with bidding closed at desktop viewport', async () => {
+    const { seller, endedAuctionListing, auctionProjection } = await fixtures;
+    await setView({
+      listing: endedAuctionListing,
+      projection: {
+        ...auctionProjection,
+        auction: auctionProjection.auction
+          ? { ...auctionProjection.auction, endsAt: '2026-08-29T20:00:00.000Z', status: 'ended' }
+          : null,
+      },
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="ended_rangefinder" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-auction-ended-desktop');
   });
 
   it('renders a digital listing with a Locks lock at desktop viewport', async () => {

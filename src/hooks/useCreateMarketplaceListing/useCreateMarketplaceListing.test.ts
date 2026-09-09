@@ -7,6 +7,11 @@ import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce'
 import { seedDraftFormFromListing, useCreateMarketplaceListing } from './useCreateMarketplaceListing';
 
 const OWNER = 'y'.repeat(52);
+
+vi.mock('@/config/commerce', async () => ({
+  ...(await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce')),
+  getCommerceAdapterMode: () => 'transaction-service',
+}));
 const mediaState = vi.hoisted(() => ({
   prepared: true,
 }));
@@ -70,12 +75,11 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitDeleteListingDraft: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(async () => ({ registered: true })),
-    getMyPaymentConfig: vi.fn(async () => ({
-      bitcoinEnabled: true,
+    getSellerPaymentConfig: vi.fn(async () => ({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
       stripePaymentLink: null,
       paypalMerchantEmail: null,
-      stripeRestrictedKeySet: false,
-      updatedAt: '2026-09-09T00:00:00.000Z',
     })),
   },
 }));
@@ -134,12 +138,11 @@ describe('useCreateMarketplaceListing', () => {
   });
 
   it('blocks publishing when the seller has no payment method', async () => {
-    vi.mocked(CommerceController.getMyPaymentConfig).mockResolvedValueOnce({
-      bitcoinEnabled: false,
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
       stripePaymentLink: null,
       paypalMerchantEmail: null,
-      stripeRestrictedKeySet: false,
-      updatedAt: '2026-09-09T00:00:00.000Z',
     });
     const { result } = renderHook(() => useCreateMarketplaceListing());
 
@@ -147,7 +150,7 @@ describe('useCreateMarketplaceListing', () => {
       await result.current.submit();
     });
 
-    expect(result.current.publishBlocked).toBe(true);
+    expect(result.current.publishBlocked).toBe('no-method');
     expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
   });
 

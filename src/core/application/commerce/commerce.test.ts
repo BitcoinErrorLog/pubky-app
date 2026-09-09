@@ -401,6 +401,52 @@ describe('CommerceApplication', () => {
   });
 
   describe('fetchSellerCatalogListings', () => {
+    it('hydrates canonical seller listings after discovering catalog entries', async () => {
+      const first = createCommerceListingFixture({ listingId: 'boots_01' });
+      const second = createCommerceListingFixture({ listingId: 'boots_02' });
+      const listingRows = [
+        new CommerceListingModel({
+          id: `${COMMERCE_FIXTURE_SELLER}:boots_01`,
+          listing_id: 'boots_01',
+          record: first,
+          revision: first.revision,
+          state: 'active',
+          category_id: first.categoryId,
+          format: 'fixed_price',
+          price_minor: 12_500,
+          currency: 'USD',
+          sync_status: 'synced',
+          updated_at: Date.parse(first.updatedAt),
+          seller_id: COMMERCE_FIXTURE_SELLER,
+        }),
+        new CommerceListingModel({
+          id: `${COMMERCE_FIXTURE_SELLER}:boots_02`,
+          listing_id: 'boots_02',
+          record: second,
+          revision: second.revision,
+          state: 'active',
+          category_id: second.categoryId,
+          format: 'fixed_price',
+          price_minor: 12_500,
+          currency: 'USD',
+          sync_status: 'synced',
+          updated_at: Date.parse(second.updatedAt),
+          seller_id: COMMERCE_FIXTURE_SELLER,
+        }),
+      ];
+      vi.spyOn(LocalCommerceService, 'getListingsBySeller').mockResolvedValueOnce([]).mockResolvedValueOnce(listingRows);
+      vi.spyOn(LocalCommerceService, 'getCatalogEntriesBySeller').mockResolvedValue([
+        createCommerceCatalogEntryFixture({ listing_id: 'boots_01' }),
+        createCommerceCatalogEntryFixture({ listing_id: 'boots_02' }),
+      ]);
+      vi.spyOn(CommerceApplication, 'fetchSellerCatalogListings').mockResolvedValue(undefined);
+      const hydrate = vi.spyOn(CommerceApplication, 'getOrFetchListing').mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+
+      await expect(CommerceApplication.getOrFetchListingsBySeller(COMMERCE_FIXTURE_SELLER)).resolves.toHaveLength(2);
+      expect(hydrate).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, 'boots_01');
+      expect(hydrate).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, 'boots_02');
+    });
+
     it('hydrates one seller from the Nexus index outside sandbox mode', async () => {
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
       const stream = vi

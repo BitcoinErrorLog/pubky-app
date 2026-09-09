@@ -63,6 +63,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [showSessionRequired, setShowSessionRequired] = useState(false);
   const [shopAvatarFailed, setShopAvatarFailed] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const isOwner = currentUserPubky === sellerPubky;
@@ -94,9 +95,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const listing = useLiveQuery(() => CommerceController.getListing(sellerPubky, listingId), [sellerPubky, listingId]);
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
+  const auctionEndsAt =
+    listing?.record.sale.format === 'auction'
+      ? negotiation.projection?.auction?.endsAt ?? listing.record.sale.endsAt
+      : null;
+  const auctionStatus = negotiation.projection?.auction?.status;
   const auctionPhase =
     listing?.record.sale.format === 'auction'
-      ? getAuctionPhase(listing.record.sale.startsAt, listing.record.sale.endsAt)
+      ? getAuctionPhase(listing.record.sale.startsAt, auctionEndsAt ?? listing.record.sale.endsAt, nowMs, auctionStatus)
       : null;
   const shopAvatarUrl =
     !shopAvatarFailed && shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(shop.record.avatarUrl) : null;
@@ -111,6 +117,13 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   useEffect(() => {
     if (!negotiation.needsSession) setShowSessionRequired(false);
   }, [negotiation.needsSession]);
+
+  useEffect(() => {
+    if (!auctionEndsAt) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [auctionEndsAt]);
 
   if (listing === undefined || shop === undefined || (!listing && !isFetchSettled && !error)) {
     return (

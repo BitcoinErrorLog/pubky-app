@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { commerceAttributeFieldsFor } from '@/config/taxonomy/taxonomy';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
@@ -28,6 +29,7 @@ import {
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
+import { availablePaymentMethods } from '@/libs/commerce/payment-methods';
 import {
   amountInputFromMoney,
   amountInputToMoney,
@@ -47,7 +49,7 @@ export interface UseEditMarketplaceListingResult {
   media: UseListingMediaManagerResult;
   /** True for auction listings: the sale terms were fixed at publish time. */
   saleTermsLocked: boolean;
-  publishBlocked: boolean;
+  publishBlocked: 'no-method' | 'unverified' | null;
   submit: () => Promise<string | null>;
 }
 
@@ -73,7 +75,7 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
   const media = useListingMediaManager();
   const [status, setStatus] = useState<EditMarketplaceListingStatus>('loading');
   const [record, setRecord] = useState<CommerceListingRecord | null>(null);
-  const [publishBlocked, setPublishBlocked] = useState(false);
+  const [publishBlocked, setPublishBlocked] = useState<'no-method' | 'unverified' | null>(null);
   const form = useForm<CreateMarketplaceListingData>({
     resolver: zodResolver(createMarketplaceListingSchema),
     defaultValues: createMarketplaceListingDefaults,
@@ -120,14 +122,18 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky || !record) return null;
-    setPublishBlocked(false);
-    const paymentConfig = await CommerceController.getMyPaymentConfig().catch(() => null);
-    if (
-      !paymentConfig ||
-      (!paymentConfig.bitcoinEnabled && !paymentConfig.stripePaymentLink && !paymentConfig.paypalMerchantEmail)
-    ) {
-      setPublishBlocked(true);
-      return null;
+    setPublishBlocked(null);
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      try {
+        const paymentConfig = await CommerceController.getSellerPaymentConfig(currentUserPubky);
+        if (availablePaymentMethods(paymentConfig).length === 0) {
+          setPublishBlocked('no-method');
+          return null;
+        }
+      } catch {
+        setPublishBlocked('unverified');
+        return null;
+      }
     }
     let savedListingId: string | null = null;
 

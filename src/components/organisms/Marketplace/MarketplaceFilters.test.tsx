@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { collectMarketplaceCountryFacets, MarketplaceFilters } from './MarketplaceFilters';
 
@@ -110,6 +110,44 @@ describe('MarketplaceFilters', () => {
       ['FR', 1],
       ['PT', 1],
     ]);
+  });
+
+  it('renders alternative countries when one country is selected', async () => {
+    const item = (countryCode: string) => ({
+      id: `seller:${countryCode}`,
+      sellerId: 'seller',
+      listingId: countryCode,
+      state: 'active' as const,
+      title: countryCode,
+      description: '',
+      categoryId: 'fashion',
+      condition: 'good' as const,
+      tags: [],
+      saleFormat: 'fixed_price' as const,
+      price: { amountMinor: 100, currency: 'USD', exponent: 2 },
+      auction: null,
+      attributes: null,
+      location: { countryCode, region: null },
+      mediaUrls: [],
+      reputation: null,
+      revision: 1,
+      updatedAt: 1,
+    });
+
+    useCommerceStore.getState().setCountryCode('BE');
+    render(
+      <MarketplaceFilters
+        resultCount={1}
+        facetPool={[item('BE')]}
+        countryFacetPool={[item('BE'), item('FR'), item('PT')]}
+      />,
+    );
+    const locationSelect = screen.getByRole('combobox', { name: 'Item location' });
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    fireEvent.keyDown(locationSelect, { key: 'ArrowDown' });
+
+    await waitFor(() => expect(screen.getByRole('option', { name: 'France · 1' })).toBeInTheDocument());
+    expect(screen.getByRole('option', { name: 'Portugal · 1' })).toBeInTheDocument();
   });
 
   it('renders attribute facets from the facet pool and toggles a filter', async () => {

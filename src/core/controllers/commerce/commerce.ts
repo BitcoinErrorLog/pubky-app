@@ -83,6 +83,10 @@ export class CommerceController {
     return await CommerceApplication.getListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
   }
 
+  static async getOrFetchListingsBySeller(sellerPubky: unknown) {
+    return await CommerceApplication.getOrFetchListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
   /**
    * Reads locally cached community tags for a listing (viewer write-through included).
    */

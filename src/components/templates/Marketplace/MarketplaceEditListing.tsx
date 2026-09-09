@@ -13,6 +13,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useEditMarketplaceListing } from '@/hooks/useEditMarketplaceListing/useEditMarketplaceListing';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceEditListingProps {
@@ -110,14 +111,24 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
         {editing.publishBlocked && (
           <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
             <Typography as="p" className="font-semibold">
-              Configure a payment method before publishing
+              {editing.publishBlocked === 'no-method'
+                ? 'Configure a payment method before publishing'
+                : 'We could not verify your payment settings. Reconnect your session and try again.'}
             </Typography>
             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              Buyers cannot pay for this listing until you add at least one payment method.
+              {editing.publishBlocked === 'no-method'
+                ? 'Buyers cannot pay for this listing until you add at least one payment method.'
+                : 'Your payment settings could not be checked against the marketplace service.'}
             </Typography>
-            <Link href={MARKETPLACE_ROUTES.SETTINGS} className="mt-2 inline-flex">
-              Open Get Paid settings
-            </Link>
+            {editing.publishBlocked === 'no-method' ? (
+              <Button asChild variant="link" className="mt-2 h-auto p-0">
+                <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
+                  Payment settings
+                </Link>
+              </Button>
+            ) : (
+              <MarketplaceSessionRequiredCard />
+            )}
           </div>
         )}
 

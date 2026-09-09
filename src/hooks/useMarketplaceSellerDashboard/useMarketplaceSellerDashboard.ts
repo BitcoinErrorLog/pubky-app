@@ -26,7 +26,7 @@ export function useMarketplaceSellerDashboard() {
     if (catalogFetchAttempted.current === currentUserPubky) return;
     catalogFetchAttempted.current = currentUserPubky;
     setCatalogFetchState('loading');
-    CommerceController.fetchSellerCatalogListings(currentUserPubky)
+    CommerceController.getOrFetchListingsBySeller(currentUserPubky)
       .then(() => setCatalogFetchState('settled'))
       .catch(() => setCatalogFetchState('error'));
   }, [currentUserPubky, localListings]);
@@ -140,7 +140,11 @@ export function useMarketplaceSellerDashboard() {
     sellerOrders,
     offers: sellerOffers,
     isLoading:
-      localListings === undefined || catalogFetchState === 'loading' || orders.isLoading || offers.isLoading,
+      localListings === undefined ||
+      (localListings.length === 0 && (catalogFetchState === 'idle' || catalogFetchState === 'loading')) ||
+      catalogFetchState === 'loading' ||
+      orders.isLoading ||
+      offers.isLoading,
     error: catalogFetchState === 'error' ? 'Could not load your listings.' : null,
     // Orders and offers ride the same durable session, so either flag means
     // the dashboard's remote-backed numbers are missing until reconnect.

@@ -48,11 +48,29 @@ interface MockMediaItem {
 }
 
 const view = vi.hoisted(() => ({
+  adapterMode: 'sandbox' as 'sandbox' | 'transaction-service',
+  forcePublishBlocked: false,
   drafts: [] as unknown[],
   mediaItems: [] as unknown[],
   shippingPresets: [] as unknown[],
   pickupAvailable: false,
 }));
+
+vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing')>();
+  return {
+    ...actual,
+    useCreateMarketplaceListing: () => {
+      const result = actual.useCreateMarketplaceListing();
+      return { ...result, publishBlocked: view.forcePublishBlocked ? 'no-method' : result.publishBlocked };
+    },
+  };
+});
+
+vi.mock('@/config/commerce', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/config/commerce')>();
+  return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
+});
 
 // Two device-local shipping presets so the shipping section's apply-preset
 // picker renders (shape mirrors CommerceShippingPresetModelSchema).
@@ -104,6 +122,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getShippingPresets: () => Promise.resolve(view.shippingPresets),
     commitUpsertShippingPreset: () => Promise.resolve(),
     fetchPickupAvailable: () => Promise.resolve(view.pickupAvailable),
+    getSellerPaymentConfig: () =>
+      Promise.resolve({ bitcoinAvailable: false, bitcoinOfferAvailable: true, stripePaymentLink: null, paypalMerchantEmail: null }),
   },
 }));
 
@@ -140,6 +160,8 @@ describe('Marketplace sell studio — visual regression', () => {
     // committed baselines were captured with.
     useMarketplaceDisplayStore.setState({ measurementSystem: 'imperial' });
     view.pickupAvailable = false;
+    view.adapterMode = 'sandbox';
+    view.forcePublishBlocked = false;
   });
 
   it('renders the empty listing form at desktop viewport', async () => {
@@ -156,6 +178,32 @@ describe('Marketplace sell studio — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-empty-form-mobile');
+  });
+
+  it('renders the publish-blocked payment state at desktop viewport', async () => {
+    view.adapterMode = 'transaction-service';
+    view.forcePublishBlocked = true;
+    view.drafts = [
+      {
+        ...draftFixture,
+        data: {
+          ...draftFixture.data,
+          form: {
+            ...draftFixture.data.form,
+            categoryId: 'fashion-men-footwear-boots',
+            attrSize: 'US 9',
+            currency: 'USD',
+            fulfillment: 'pickup',
+          },
+        },
+      },
+    ];
+    view.mediaItems = [photoItem('photo_front', 'Front view of the boots')];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await screen.getByRole('button', { name: 'Publish listing' }).click();
+    await vi.waitFor(() => screen.getByText('Configure a payment method before publishing'));
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-publish-blocked-desktop');
   });
 
   // The shipping section with saved presets: the apply-preset picker renders

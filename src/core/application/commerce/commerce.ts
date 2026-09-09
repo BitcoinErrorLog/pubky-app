@@ -322,6 +322,16 @@ export class CommerceApplication {
     return await LocalCommerceService.getListingsBySeller(sellerPubky);
   }
 
+  static async getOrFetchListingsBySeller(sellerPubky: string) {
+    const listings = await LocalCommerceService.getListingsBySeller(sellerPubky);
+    if (listings.length > 0) return listings;
+
+    await this.fetchSellerCatalogListings(sellerPubky);
+    const entries = await LocalCommerceService.getCatalogEntriesBySeller(sellerPubky);
+    await Promise.all(entries.map((entry) => this.getOrFetchListing(sellerPubky, entry.listing_id)));
+    return await LocalCommerceService.getListingsBySeller(sellerPubky);
+  }
+
   static async getListingsByCategory(categoryId: string) {
     return await LocalCommerceService.getListingsByCategory(categoryId);
   }

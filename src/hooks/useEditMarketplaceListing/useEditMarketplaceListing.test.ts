@@ -59,6 +59,11 @@ const publishedRecord = {
 
 const authState = vi.hoisted(() => ({ currentUserPubky: 'y'.repeat(52) }));
 
+vi.mock('@/config/commerce', async () => ({
+  ...(await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce')),
+  getCommerceAdapterMode: () => 'transaction-service',
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector(authState),
 }));
@@ -68,12 +73,11 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(),
-    getMyPaymentConfig: vi.fn(async () => ({
-      bitcoinEnabled: true,
+    getSellerPaymentConfig: vi.fn(async () => ({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
       stripePaymentLink: null,
       paypalMerchantEmail: null,
-      stripeRestrictedKeySet: false,
-      updatedAt: '2026-09-09T00:00:00.000Z',
     })),
   },
 }));

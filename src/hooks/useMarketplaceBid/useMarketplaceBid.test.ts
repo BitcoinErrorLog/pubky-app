@@ -55,6 +55,19 @@ describe('useMarketplaceBid', () => {
     );
   });
 
+  it('refuses to submit after the shared auction phase ends', async () => {
+    const { result } = renderHook(() => useMarketplaceBid('listing:seller_item', 3, vi.fn(), USD_ASSET, 'ended'));
+    act(() => result.current.form.setValue('maximumAmount', '150.00'));
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+  });
+
   it('refetches the projection and asks for a retry on a revision conflict', async () => {
     vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
       ok: false,
