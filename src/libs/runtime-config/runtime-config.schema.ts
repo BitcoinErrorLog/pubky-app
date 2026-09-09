@@ -15,7 +15,7 @@ import { isSecurePaykitOrigin } from '@/services/marketplace/paykit-origin';
  *    analytics, Prelude, and external-link values that deployers may override without rebuilding.
  *
  * This module is a leaf (zod only, no `Env`, no logger) so the runtime-config resolver never
- * pulls in the heavy `env -> libs/error -> logger -> env` import cycle.
+ * pulls in the heavy `env -> libs/error/error.factories -> libs/observability/sentry -> env` import cycle.
  *
  * Two schemas are intentionally provided because the two inputs differ in shape:
  *  - env vars arrive as STRINGS (e.g. `PKARR_RELAYS` is a JSON string, `TESTNET` is "true"/"false")

@@ -302,11 +302,16 @@ describe('MarketplacePaykitClaimService', () => {
     const ORIGIN_TABLE: Array<{ input: string; secure: boolean }> = [
       { input: 'http://paykit.example/setup', secure: false },
       { input: 'http://localhost:3102/setup', secure: true },
+      { input: 'http://127.0.0.1:3102/setup', secure: true },
+      { input: 'http://[::1]:3102/setup', secure: true },
+      { input: 'http://LOCALHOST:3102/setup', secure: true },
       { input: 'https://paykit.example/setup', secure: true },
       // Hostname confusion: none of these is loopback.
       { input: 'http://localhost.evil.example', secure: false },
       { input: 'http://127.0.0.1.evil', secure: false },
       { input: 'http://localhost.:8080', secure: false },
+      { input: 'http://localhost@evil.com/setup', secure: false },
+      { input: 'http://evil.com/setup#localhost', secure: false },
       // The URL parser normalizes the scheme; https is secure regardless of userinfo.
       { input: 'HTTPS://Host', secure: true },
       { input: 'https://user:pw@evil/', secure: true },

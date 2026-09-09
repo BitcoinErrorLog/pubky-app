@@ -13,7 +13,7 @@
  *    to PARSE an insecure `PUBKY_RUNTIME_PAYKIT_SETUP_URL`.
  *
  * Pure by design — no imports — so the zod-only runtime-config schema can
- * share it without pulling in the `env -> libs/error -> logger -> env`
+ * share it without pulling in the `env -> libs/error/error.factories -> libs/observability/sentry -> env`
  * import cycle.
  */
 
