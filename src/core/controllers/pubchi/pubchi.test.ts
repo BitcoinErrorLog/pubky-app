@@ -19,6 +19,19 @@ const BOT = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
 const OTHER = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Pubky;
 let currentOwner: Pubky | null = OWNER;
 
+class RecordingBroadcastChannel {
+  static messages: unknown[] = [];
+
+  constructor(readonly name: string) {}
+
+  postMessage(message: unknown): void {
+    expect(this.name).toBe('pubchi');
+    RecordingBroadcastChannel.messages.push(message);
+  }
+
+  close(): void {}
+}
+
 const authState = {
   setSession: vi.fn(),
   session: undefined as Session | undefined,
@@ -46,6 +59,8 @@ describe('PubchiController', () => {
       authState.session = session ?? undefined;
     });
     authState.session = sessionFor(OWNER);
+    RecordingBroadcastChannel.messages = [];
+    vi.stubGlobal('BroadcastChannel', RecordingBroadcastChannel);
     vi.spyOn(PubchiApplication, 'unpublishKnownDelegations').mockResolvedValue({ failed: [] });
     vi.spyOn(useAuthStore, 'getState').mockReturnValue(
       asOpaque<AuthStore>({
@@ -64,6 +79,7 @@ describe('PubchiController', () => {
     setPubchiEnv();
     localStorage.removeItem(PENDING_DELEGATION_DELETES_KEY);
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('does not call the application or network when the flag is off', async () => {
@@ -106,6 +122,28 @@ describe('PubchiController', () => {
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]).not.toHaveProperty('phrase');
     expect(usePubchiStore.getState().pubchi).not.toHaveProperty('phrase');
+  });
+
+  it('posts only the owner, kind, and timestamp after a successful controller write', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    vi.spyOn(PubchiApplication, 'createPubchi').mockResolvedValue({
+      bot: BOT,
+      displayName: 'Bot',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+      phrase: 'secret phrase',
+    });
+
+    await PubchiController.createPubchi({ displayName: 'Bot' });
+
+    expect(RecordingBroadcastChannel.messages).toHaveLength(1);
+    const message = RecordingBroadcastChannel.messages[0] as Record<string, unknown>;
+    expect(Object.keys(message).sort()).toEqual(['at', 'kind', 'owner']);
+    expect(message).toEqual({ owner: OWNER, kind: 'created', at: expect.any(Number) });
+    expect(message).not.toHaveProperty('bot');
+    expect(message).not.toHaveProperty('displayName');
+    expect(message).not.toHaveProperty('phrase');
   });
 
   it('does not repopulate Pubchi after the owner changes during load', async () => {

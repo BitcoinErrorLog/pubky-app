@@ -47,6 +47,7 @@ const CONFIG: PubchiConfigV1 = {
 const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   load: vi.fn(),
+  loadConfig: vi.fn(),
   create: vi.fn(),
   confirm: vi.fn(),
   remove: vi.fn(),
@@ -62,6 +63,43 @@ const mocks = vi.hoisted(() => ({
   owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as string | null,
 }));
 
+function postSyncMessage(owner: string, kind: string): void {
+  const channel = new BroadcastChannel('pubchi');
+  channel.postMessage({ owner, kind, at: Date.now() });
+  channel.close();
+}
+
+class TestBroadcastChannel {
+  static channels = new Set<TestBroadcastChannel>();
+  readonly listeners = new Set<(event: MessageEvent<unknown>) => void>();
+
+  constructor(readonly name: string) {
+    TestBroadcastChannel.channels.add(this);
+  }
+
+  addEventListener(_type: string, listener: (event: MessageEvent<unknown>) => void): void {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: string, listener: (event: MessageEvent<unknown>) => void): void {
+    this.listeners.delete(listener);
+  }
+
+  postMessage(data: unknown): void {
+    for (const channel of TestBroadcastChannel.channels) {
+      if (channel === this || channel.name !== this.name) continue;
+      queueMicrotask(() => {
+        for (const listener of channel.listeners) listener({ data } as MessageEvent<unknown>);
+      });
+    }
+  }
+
+  close(): void {
+    TestBroadcastChannel.channels.delete(this);
+    this.listeners.clear();
+  }
+}
+
 vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiEnabled: () => true,
 }));
@@ -70,6 +108,7 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
     reconcileActiveBinding: (...args: unknown[]) => mocks.reconcile(...args),
     loadPubchi: (...args: unknown[]) => mocks.load(...args),
+    loadPubchiConfig: (...args: unknown[]) => mocks.loadConfig(...args),
     createPubchi: (...args: unknown[]) => mocks.create(...args),
     confirmBackup: (...args: unknown[]) => mocks.confirm(...args),
     commitDeleteBinding: (...args: unknown[]) => mocks.remove(...args),
@@ -111,6 +150,8 @@ describe('usePubchiEnrollment', () => {
     mocks.owner = OWNER;
     mocks.reconcile.mockReset();
     mocks.load.mockReset().mockResolvedValue(undefined);
+    mocks.loadConfig.mockReset().mockResolvedValue(null);
+    vi.stubGlobal('BroadcastChannel', TestBroadcastChannel);
     mocks.create.mockReset();
     mocks.confirm.mockReset();
     mocks.remove.mockReset();
@@ -139,6 +180,93 @@ describe('usePubchiEnrollment', () => {
 
     await waitFor(() => expect(first.result.current.pubchi?.displayName).toBe('Shared'));
     expect(second.result.current.pubchi?.displayName).toBe('Shared');
+  });
+
+  it('reloads once for a current-owner message and updates the mounted display name', async () => {
+    mocks.load.mockResolvedValueOnce(undefined).mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Scout III',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+    });
+    mocks.loadConfig.mockResolvedValue({ ...CONFIG, display_name: 'Scout III' });
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    act(() => postSyncMessage(OWNER, 'config-saved'));
+
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+    expect(result.current.pubchi?.displayName).toBe('Scout III');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores messages for a different owner without reloading', async () => {
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    act(() => postSyncMessage('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'config-saved'));
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mocks.load).toHaveBeenCalledOnce();
+    expect(result.current.pubchi).toBeUndefined();
+  });
+
+  it('reloads once after stale visibility regain and debounces rapid toggles', async () => {
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+    mocks.load.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Visible Again',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+    });
+
+    act(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      usePubchiStore.setState({ lastUpdatedAt: Date.now() - 15_001 });
+    });
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+    expect(result.current.pubchi?.displayName).toBe('Visible Again');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reload when visibility regain is younger than fifteen seconds', async () => {
+    renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    act(() => {
+      usePubchiStore.setState({ lastUpdatedAt: Date.now() - 14_999 });
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mocks.load).toHaveBeenCalledOnce();
+  });
+
+  it('clears the receiving tab on a signed-out message', async () => {
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+    act(() => {
+      usePubchiStore.getState().setPubchi(
+        { bot: OWNER, displayName: 'Scout', createdAt: 1, backupConfirmedAt: null, verified: true },
+        OWNER,
+      );
+    });
+    postSyncMessage(OWNER, 'signed-out');
+
+    await waitFor(() => expect(result.current.pubchi).toBeUndefined());
+    expect(usePubchiStore.getState().ownerPubky).toBeNull();
   });
 
   it('does not repopulate the store after sign-out during a load', async () => {
@@ -201,6 +329,8 @@ describe('usePubchiEnrollment', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    TestBroadcastChannel.channels.clear();
   });
 
   it('reconciles the Dexie binding with the homeserver on load', async () => {
