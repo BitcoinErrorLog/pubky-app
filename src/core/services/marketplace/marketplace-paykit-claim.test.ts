@@ -231,6 +231,36 @@ describe('MarketplacePaykitClaimService', () => {
       expect(result).toMatchObject({ ok: true });
     });
 
+    it('parses a 200 body that OMITS claim_channel and downgrade_reason (optional, not present-or-null)', async () => {
+      const { claim_channel: _channel, downgrade_reason: _reason, ...omittingBody } = STATUS_BODY;
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, omittingBody));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({
+        ok: true,
+        status: {
+          allocationMode: 'shared_manual',
+          claimChannel: null,
+          downgradeReason: null,
+          keyFingerprint: 'deadbeefdeadbeef',
+          firstDerivedAddress: 'bc1qexample',
+        },
+      });
+    });
+
+    it('parses a 200 body with claim_channel and downgrade_reason present as null', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        statusResponse(200, { ...STATUS_BODY, claim_channel: null, downgrade_reason: null }),
+      );
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toMatchObject({ ok: true, status: { claimChannel: null, downgradeReason: null } });
+    });
+
+    it('refuses a 200 body with a non-string claim_channel (fail closed on parse)', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, { ...STATUS_BODY, claim_channel: 42 }));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
     it('refuses a 200 body missing a required field (fail closed on parse)', async () => {
       const { key_fingerprint: _omitted, ...missingFingerprint } = STATUS_BODY;
       vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, missingFingerprint));

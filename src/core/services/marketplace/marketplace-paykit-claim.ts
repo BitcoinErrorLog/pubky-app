@@ -58,13 +58,14 @@ export interface PaykitClaimFlow {
  * unknown extra fields are ignored, and a body missing any REQUIRED field
  * is a refusal — the gate fails closed rather than trusting a partial
  * answer. `allocation_mode`, `key_fingerprint` and `first_derived_address`
- * are required; `claim_channel` and `downgrade_reason` are present but
- * nullable on the server.
+ * are required; `claim_channel` and `downgrade_reason` are OPTIONAL and
+ * nullable on the server — a server that omits them must not trip the
+ * refusal.
  */
 const ownClaimStatusBodySchema = z.object({
   allocation_mode: z.string(),
-  claim_channel: z.string().nullable(),
-  downgrade_reason: z.string().nullable(),
+  claim_channel: z.string().nullish(),
+  downgrade_reason: z.string().nullish(),
   key_fingerprint: z.string(),
   first_derived_address: z.string(),
 });
@@ -254,8 +255,8 @@ export class MarketplacePaykitClaimService {
       ok: true,
       status: {
         allocationMode: parsed.data.allocation_mode,
-        claimChannel: parsed.data.claim_channel,
-        downgradeReason: parsed.data.downgrade_reason,
+        claimChannel: parsed.data.claim_channel ?? null,
+        downgradeReason: parsed.data.downgrade_reason ?? null,
         keyFingerprint: parsed.data.key_fingerprint,
         firstDerivedAddress: parsed.data.first_derived_address,
       },
