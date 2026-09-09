@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
+import { usePubchiStore } from '../pubchi/pubchi.store';
 import { useAuthStore } from './auth.store';
 
 // Mock the logger
@@ -44,6 +45,18 @@ describe('AuthStore', () => {
   });
 
   describe('Authentication Management', () => {
+    it('clears Pubchi state when the identity is cleared', () => {
+      usePubchiStore
+        .getState()
+        .setPubchi({ bot: 'bot', displayName: 'Bot', createdAt: 1, backupConfirmedAt: null, verified: true });
+      usePubchiStore.getState().setConfig({ display_name: 'Bot' } as never);
+
+      useAuthStore.getState().setCurrentUserPubky(null);
+
+      expect(usePubchiStore.getState().pubchi).toBeUndefined();
+      expect(usePubchiStore.getState().config).toBeNull();
+    });
+
     it('should set currentUserPubky without affecting authentication state', () => {
       const pubky = 'test-pubky-key';
       const store = useAuthStore.getState();
