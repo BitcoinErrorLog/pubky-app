@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { PAM_SENT_AT_UNIX_MS_MAX, pamSentAtEmitSchema, parsePamSentAt } from './pam-sent-at';
+import {
+  PAM_SENT_AT_UNIX_MS_EMIT_MAX,
+  PAM_SENT_AT_UNIX_MS_MAX,
+  pamSentAtEmitSchema,
+  parsePamSentAt,
+} from './pam-sent-at';
 
 describe('parsePamSentAt', () => {
   it('accepts a positive Unix-ms integer at the Date ceiling', () => {
@@ -20,10 +25,15 @@ describe('parsePamSentAt', () => {
 });
 
 describe('pamSentAtEmitSchema', () => {
+  it('enforces the 13-digit emit range', () => {
+    expect(pamSentAtEmitSchema.safeParse(PAM_SENT_AT_UNIX_MS_EMIT_MAX).success).toBe(true);
+    expect(pamSentAtEmitSchema.safeParse(PAM_SENT_AT_UNIX_MS_EMIT_MAX + 1).success).toBe(false);
+  });
+
   it('rejects integers above the Date ceiling', () => {
     expect(pamSentAtEmitSchema.safeParse(1e30).success).toBe(false);
     expect(pamSentAtEmitSchema.safeParse(8.64e15 + 1).success).toBe(false);
     expect(pamSentAtEmitSchema.safeParse(2 ** 53 + 1).success).toBe(false);
-    expect(pamSentAtEmitSchema.safeParse(PAM_SENT_AT_UNIX_MS_MAX).success).toBe(true);
+    expect(pamSentAtEmitSchema.safeParse(PAM_SENT_AT_UNIX_MS_MAX).success).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import {
   parseDmConversationId,
   PUBKY_APP_DM_KIND,
 } from './dm-contracts';
+import { PAM_SENT_AT_UNIX_MS_EMIT_MAX, PAM_SENT_AT_UNIX_MS_PLACEHOLDER } from './pam-sent-at';
 
 const COUNTERPARTY = 'z'.repeat(52);
 const EVENT_ID = '5b3f9a0e-8f2c-4f4e-9d35-1c2b4a6d8e01';
@@ -63,6 +64,28 @@ describe('pubky_app.dm.v0 direct message contract', () => {
       body: 'x'.repeat(budget),
     });
     expect(withOtherIds.byteSize).toBe(PAYKIT_NOISE_MESSAGE_MAX_BYTES);
+  });
+
+  it('emits the maximum 13-digit timestamp at the placeholder envelope length', () => {
+    const maximum = buildDmMessage({
+      eventId: EVENT_ID,
+      sentAt: PAM_SENT_AT_UNIX_MS_EMIT_MAX,
+      body: 'x',
+    });
+    const placeholder = buildDmMessage({
+      eventId: EVENT_ID,
+      sentAt: PAM_SENT_AT_UNIX_MS_PLACEHOLDER,
+      body: 'x',
+    });
+    expect(maximum.message.sent_at).toBe(PAM_SENT_AT_UNIX_MS_EMIT_MAX);
+    expect(maximum.byteSize).toBe(placeholder.byteSize);
+    expect(() =>
+      buildDmMessage({
+        eventId: EVENT_ID,
+        sentAt: PAM_SENT_AT_UNIX_MS_EMIT_MAX + 1,
+        body: 'x',
+      }),
+    ).toThrow();
   });
 
   it('rejects ISO-8601 sent_at on the send path', () => {

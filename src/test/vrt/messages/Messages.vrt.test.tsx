@@ -119,7 +119,7 @@ function dmMessageFixture(id: string, direction: 'sent' | 'received', body: stri
       counterparty_pubky: DM_COUNTERPARTY,
       direction,
       body,
-      sent_at: 1_755_691_200_000,
+      sent_at: 1_787_227_200_000,
       recorded_at: recordedAt,
     },
   };

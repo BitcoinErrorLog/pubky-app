@@ -513,6 +513,7 @@ describe('PaykitMessagingService', () => {
       const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
       expect(received).toHaveLength(1);
       expect(received[0].body).toBe('hello from the counterparty');
+      expect(received[0].sent_at).toBe(Date.parse('2026-08-21T10:00:00.000Z'));
 
       // Replay the same event (expected after a snapshot restore): no duplicate.
       link.inboundQueue.push({ version: 1, kind: 'marketplace.chat_message.v0', rawJson });
