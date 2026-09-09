@@ -56,6 +56,7 @@ export interface UseCreateMarketplaceListingResult {
   seededAuctionAsFixedPrice: boolean;
   submit: () => Promise<string | null>;
   reset: () => void;
+  publishBlocked: boolean;
 }
 
 export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult {
@@ -66,6 +67,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [seededFromTitle, setSeededFromTitle] = useState<string | null>(null);
   const [seededAuctionAsFixedPrice, setSeededAuctionAsFixedPrice] = useState(false);
+  const [publishBlocked, setPublishBlocked] = useState(false);
   const draftReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingListingIdRef = useRef<string | null>(null);
@@ -149,7 +151,25 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky) return null;
+    setPublishBlocked(false);
     let createdListingId: string | null = null;
+
+    let paymentConfig;
+    try {
+      paymentConfig = await CommerceController.getMyPaymentConfig();
+    } catch {
+      setPublishBlocked(true);
+      return null;
+    }
+    const hasPaymentMethod =
+      paymentConfig !== null &&
+      (paymentConfig.bitcoinEnabled ||
+        Boolean(paymentConfig.stripePaymentLink) ||
+        Boolean(paymentConfig.paypalMerchantEmail));
+    if (!hasPaymentMethod) {
+      setPublishBlocked(true);
+      return null;
+    }
 
     await form.handleSubmit(async (data) => {
       const preparedMedia = await media.prepare(currentUserPubky);
@@ -197,6 +217,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     setRestoredDraft(false);
     setSeededFromTitle(null);
     setSeededAuctionAsFixedPrice(false);
+    setPublishBlocked(false);
     pendingListingIdRef.current = null;
     draftReadyRef.current = false;
     void CommerceController.commitDeleteListingDraft(draftId);
@@ -204,7 +225,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     draftReadyRef.current = true;
   };
 
-  return { form, media, draftId, restoredDraft, seededFromTitle, seededAuctionAsFixedPrice, submit, reset };
+  return { form, media, draftId, restoredDraft, seededFromTitle, seededAuctionAsFixedPrice, submit, reset, publishBlocked };
 }
 
 /**

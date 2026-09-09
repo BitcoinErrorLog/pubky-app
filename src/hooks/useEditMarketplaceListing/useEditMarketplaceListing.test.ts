@@ -68,6 +68,13 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(),
+    getMyPaymentConfig: vi.fn(async () => ({
+      bitcoinEnabled: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+      stripeRestrictedKeySet: false,
+      updatedAt: '2026-09-09T00:00:00.000Z',
+    })),
   },
 }));
 

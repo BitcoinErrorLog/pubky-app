@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, PencilLine, Store } from 'lucide-react';
-import { getMarketplaceListingRoute } from '@/app/routes';
+import { getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -106,6 +106,20 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
             re-uploaded.
           </Typography>
         </div>
+
+        {editing.publishBlocked && (
+          <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+            <Typography as="p" className="font-semibold">
+              Configure a payment method before publishing
+            </Typography>
+            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+              Buyers cannot pay for this listing until you add at least one payment method.
+            </Typography>
+            <Link href={MARKETPLACE_ROUTES.SETTINGS} className="mt-2 inline-flex">
+              Open Get Paid settings
+            </Link>
+          </div>
+        )}
 
         <MarketplaceListingForm
           form={editing.form}

@@ -70,6 +70,13 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitDeleteListingDraft: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(async () => ({ registered: true })),
+    getMyPaymentConfig: vi.fn(async () => ({
+      bitcoinEnabled: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+      stripeRestrictedKeySet: false,
+      updatedAt: '2026-09-09T00:00:00.000Z',
+    })),
   },
 }));
 
@@ -124,6 +131,24 @@ describe('useCreateMarketplaceListing', () => {
     });
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
+  });
+
+  it('blocks publishing when the seller has no payment method', async () => {
+    vi.mocked(CommerceController.getMyPaymentConfig).mockResolvedValueOnce({
+      bitcoinEnabled: false,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+      stripeRestrictedKeySet: false,
+      updatedAt: '2026-09-09T00:00:00.000Z',
+    });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.publishBlocked).toBe(true);
+    expect(CommerceController.commitUpsertListing).not.toHaveBeenCalled();
   });
 
   it('reports the two truths separately when the record published but service registration failed', async () => {

@@ -141,6 +141,20 @@ export function MarketplaceSell() {
           </div>
         )}
 
+        {listing.publishBlocked && (
+          <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+            <Typography as="p" className="font-semibold">
+              Configure a payment method before publishing
+            </Typography>
+            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+              Buyers cannot pay for a published listing until you add at least one payment method.
+            </Typography>
+            <Link href={MARKETPLACE_ROUTES.SETTINGS} className="mt-2 inline-flex">
+              Open Get Paid settings
+            </Link>
+          </div>
+        )}
+
         <MarketplaceListingForm form={listing.form} media={listing.media} onSubmit={submit} isPublishing={isPublishing} />
       </Container>
     </ContentLayout>

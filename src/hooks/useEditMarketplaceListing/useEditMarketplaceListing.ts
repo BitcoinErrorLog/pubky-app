@@ -47,6 +47,7 @@ export interface UseEditMarketplaceListingResult {
   media: UseListingMediaManagerResult;
   /** True for auction listings: the sale terms were fixed at publish time. */
   saleTermsLocked: boolean;
+  publishBlocked: boolean;
   submit: () => Promise<string | null>;
 }
 
@@ -72,6 +73,7 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
   const media = useListingMediaManager();
   const [status, setStatus] = useState<EditMarketplaceListingStatus>('loading');
   const [record, setRecord] = useState<CommerceListingRecord | null>(null);
+  const [publishBlocked, setPublishBlocked] = useState(false);
   const form = useForm<CreateMarketplaceListingData>({
     resolver: zodResolver(createMarketplaceListingSchema),
     defaultValues: createMarketplaceListingDefaults,
@@ -118,6 +120,15 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky || !record) return null;
+    setPublishBlocked(false);
+    const paymentConfig = await CommerceController.getMyPaymentConfig().catch(() => null);
+    if (
+      !paymentConfig ||
+      (!paymentConfig.bitcoinEnabled && !paymentConfig.stripePaymentLink && !paymentConfig.paypalMerchantEmail)
+    ) {
+      setPublishBlocked(true);
+      return null;
+    }
     let savedListingId: string | null = null;
 
     await form.handleSubmit(async (data) => {
@@ -147,6 +158,7 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
     form,
     media,
     saleTermsLocked: record?.sale.format === 'auction',
+    publishBlocked,
     submit,
   };
 }
