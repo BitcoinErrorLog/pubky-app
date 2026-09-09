@@ -13,6 +13,7 @@ import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import {
   type BackupConfirmationData,
   backupConfirmationDefaults,
@@ -27,8 +28,8 @@ export function usePubchiEnrollment() {
   const owner = useAuthStore((state) => state.currentUserPubky);
   const session = useAuthStore((state) => state.session);
   const [binding, setBinding] = useState<OwnerBindingV1 | undefined>(undefined);
-  const [pubchi, setPubchi] = useState<Awaited<ReturnType<typeof PubchiController.loadPubchi>>>(undefined);
-  const [config, setConfig] = useState<PubchiConfigV1 | null>(null);
+  const pubchi = usePubchiStore((state) => state.pubchi);
+  const config = usePubchiStore((state) => state.config);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
@@ -93,21 +94,20 @@ export function usePubchiEnrollment() {
             : Promise.resolve(null),
         ]);
         setBinding(nextBinding);
-        setPubchi(nextPubchi);
+        usePubchiStore.getState().setPubchi(nextPubchi);
         setDevices(nextDevices);
         setDeviceListingHadFailures(
           typeof PubchiController.hadDeviceListingFailures === 'function' &&
             PubchiController.hadDeviceListingFailures(),
         );
-        setConfig(nextConfig);
+        usePubchiStore.getState().setConfig(nextConfig);
         if (owner) {
           void getCurrentDeviceKey(owner).then((key) => setCurrentSigner(key?.signer));
         }
       } catch {
         setBinding(undefined);
-        setPubchi(undefined);
+        usePubchiStore.getState().clear();
         setDevices([]);
-        setConfig(null);
         toast({ variant: 'error', title: 'Pubchi could not be loaded', dismissButton: true });
       }
     })();
@@ -116,13 +116,17 @@ export function usePubchiEnrollment() {
   const saveConfig = async (partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1 | undefined> => {
     if (typeof PubchiController.savePubchiConfig !== 'function') return undefined;
     const next = await PubchiController.savePubchiConfig(partial);
-    setConfig(next);
+    usePubchiStore.getState().setConfig(next);
+    if (usePubchiStore.getState().pubchi) {
+      usePubchiStore.getState().setPubchi({ ...usePubchiStore.getState().pubchi!, displayName: next.display_name });
+    }
     return next;
   };
 
   const acceptSavedConfig = (next: PubchiConfigV1): void => {
-    setConfig(next);
-    setPubchi((current) => (current ? { ...current, displayName: next.display_name } : current));
+    usePubchiStore.getState().setConfig(next);
+    const current = usePubchiStore.getState().pubchi;
+    if (current) usePubchiStore.getState().setPubchi({ ...current, displayName: next.display_name });
   };
 
   const submit = async (): Promise<boolean> => {
@@ -145,7 +149,7 @@ export function usePubchiEnrollment() {
             },
             5 * 60 * 1000,
           );
-          setPubchi({
+          usePubchiStore.getState().setPubchi({
             bot: next.bot,
             displayName: next.displayName,
             createdAt: next.createdAt,
@@ -160,7 +164,7 @@ export function usePubchiEnrollment() {
         } catch (error) {
           if (error instanceof AppError && error.message === 'PUBCHI_ALREADY_EXISTS') {
             try {
-              setPubchi(await PubchiController.loadPubchi());
+              usePubchiStore.getState().setPubchi(await PubchiController.loadPubchi());
               setBinding(await PubchiController.reconcileActiveBinding());
               toast({
                 variant: 'info',
@@ -198,7 +202,7 @@ export function usePubchiEnrollment() {
     try {
       await PubchiController.commitDeleteBinding({ bot: binding?.bot });
       setBinding(undefined);
-      setPubchi(undefined);
+      usePubchiStore.getState().clear();
       backupController.clear();
       if (phraseTimerRef.current) clearTimeout(phraseTimerRef.current);
       setBackupOpen(false);
@@ -242,7 +246,7 @@ export function usePubchiEnrollment() {
           phrase,
           confirmations: backupPositions.map((position, index) => ({ position, word: entered[index] ?? '' })),
         });
-        setPubchi(next);
+        usePubchiStore.getState().setPubchi(next);
         backupController.clear();
         if (phraseTimerRef.current) clearTimeout(phraseTimerRef.current);
         closeBackup();
@@ -294,14 +298,14 @@ export function usePubchiEnrollment() {
       const result = await PubchiController.revokeAllDevices();
       const nextDevices = await PubchiController.listDeviceKeys();
       const listingHadFailures =
-        typeof PubchiController.hadDeviceListingFailures === 'function' &&
-        PubchiController.hadDeviceListingFailures();
+        typeof PubchiController.hadDeviceListingFailures === 'function' && PubchiController.hadDeviceListingFailures();
       setDevices(nextDevices);
       setDeviceListingHadFailures(listingHadFailures);
       if (result.unlisted > 0 || result.failed.length > 0 || listingHadFailures) {
         toast({
           variant: 'warning',
-          title: 'Some device records could not be loaded, so they may still be active. Try again or revoke them individually.',
+          title:
+            'Some device records could not be loaded, so they may still be active. Try again or revoke them individually.',
           dismissButton: true,
         });
         return false;
@@ -325,40 +329,40 @@ export function usePubchiEnrollment() {
     let flow!: Promise<boolean>;
     flow = (async (): Promise<boolean> => {
       try {
-      const { authorizationUrl, awaitApproval, cancelAuthFlow } = await PubchiController.getCapabilityApprovalUrl();
-      approvalCancelRef.current = cancelAuthFlow;
-      window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
-      try {
-        const approved = await awaitApproval;
-        if (approvalGenerationRef.current !== generation || approvalFlowRef.current !== flow) return false;
-        await PubchiController.adoptCapabilityApproval(approved);
-        await PubchiController.ensureDeviceReady();
-        setDevices(await PubchiController.listDeviceKeys());
-        setDeviceListingHadFailures(
-          typeof PubchiController.hadDeviceListingFailures === 'function' &&
-            PubchiController.hadDeviceListingFailures(),
-        );
-        if (owner) {
-          const key = await getCurrentDeviceKey(owner);
-          setCurrentSigner(key?.signer);
+        const { authorizationUrl, awaitApproval, cancelAuthFlow } = await PubchiController.getCapabilityApprovalUrl();
+        approvalCancelRef.current = cancelAuthFlow;
+        window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+        try {
+          const approved = await awaitApproval;
+          if (approvalGenerationRef.current !== generation || approvalFlowRef.current !== flow) return false;
+          await PubchiController.adoptCapabilityApproval(approved);
+          await PubchiController.ensureDeviceReady();
+          setDevices(await PubchiController.listDeviceKeys());
+          setDeviceListingHadFailures(
+            typeof PubchiController.hadDeviceListingFailures === 'function' &&
+              PubchiController.hadDeviceListingFailures(),
+          );
+          if (owner) {
+            const key = await getCurrentDeviceKey(owner);
+            setCurrentSigner(key?.signer);
+          }
+          return true;
+        } finally {
+          cancelAuthFlow();
+          if (approvalCancelRef.current === cancelAuthFlow) {
+            approvalCancelRef.current = null;
+          }
         }
-        return true;
-      } finally {
-        cancelAuthFlow();
-        if (approvalCancelRef.current === cancelAuthFlow) {
-          approvalCancelRef.current = null;
+      } catch (error) {
+        if (
+          approvalGenerationRef.current !== generation ||
+          (error instanceof Error && error.name === AUTH_FLOW_CANCELED_ERROR_NAME)
+        ) {
+          return false;
         }
-      }
-    } catch (error) {
-      if (
-        approvalGenerationRef.current !== generation ||
-        (error instanceof Error && error.name === AUTH_FLOW_CANCELED_ERROR_NAME)
-      ) {
+        const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
+        toast({ variant: 'error', title: message, dismissButton: true });
         return false;
-      }
-      const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
-      toast({ variant: 'error', title: message, dismissButton: true });
-      return false;
       } finally {
         if (approvalFlowRef.current === flow) approvalFlowRef.current = null;
       }

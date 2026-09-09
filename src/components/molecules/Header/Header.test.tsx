@@ -42,6 +42,9 @@ vi.mock('@/stores/auth/auth.store', () => ({
 vi.mock('@/stores/notification/notification.store', () => ({
   useNotificationStore: vi.fn(),
 }));
+vi.mock('@/libs/pubchi/flags', () => ({
+  isPubchiPanelEnabled: () => true,
+}));
 vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => ({
   useCollectionsNavDiscovery: () => ({
     showCollectionsNew: collectionsDiscoveryMock.showCollectionsNew,
@@ -421,6 +424,13 @@ describe('Header Components', () => {
   });
 
   describe('HeaderNavigationButtons', () => {
+    it('renders the Pubchi navigation button when enabled', () => {
+      render(<HeaderNavigationButtons includePubchi avatarName="TU" />);
+
+      expect(screen.getByRole('button', { name: 'Pubchi' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Pubchi' })).toHaveAttribute('data-cy', 'header-pubchi-btn');
+    });
+
     it('renders with default props', () => {
       render(<HeaderNavigationButtons avatarImage="/images/default-avatar.png" avatarName="U" />);
 

@@ -17,6 +17,7 @@ import { isPubkyId, type PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import type { TConfirmPubchiBackupParams, TCreatePubchiParams, TPubchiQueryParams } from './pubchi.types';
 
 export class PubchiController {
@@ -38,7 +39,10 @@ export class PubchiController {
     const auth = useAuthStore.getState();
     const owner = auth.selectCurrentUserPubky();
     const capabilities = auth.selectSession()?.info.capabilities ?? [];
-    return PubchiApplication.createPubchi({ owner, displayName: params.displayName, capabilities });
+    const created = await PubchiApplication.createPubchi({ owner, displayName: params.displayName, capabilities });
+    usePubchiStore.getState().setPubchi(created);
+    usePubchiStore.getState().markLoaded();
+    return created;
   }
 
   static async commitCreateBinding(params: { bot: string }): Promise<PubchiBindingRecordResult> {
@@ -63,12 +67,25 @@ export class PubchiController {
 
   static async loadPubchi(): Promise<LoadedPubchi | undefined> {
     if (!isPubchiEnabled()) return undefined;
-    return PubchiApplication.loadPubchi(useAuthStore.getState().selectCurrentUserPubky());
+    const store = usePubchiStore.getState();
+    store.setStatus('loading');
+    try {
+      const pubchi = await PubchiApplication.loadPubchi(useAuthStore.getState().selectCurrentUserPubky());
+      store.setPubchi(pubchi);
+      store.markLoaded();
+      return pubchi;
+    } catch (error) {
+      store.setStatus('error');
+      throw error;
+    }
   }
 
   static async confirmBackup(params: TConfirmPubchiBackupParams): Promise<LoadedPubchi> {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
-    return PubchiApplication.confirmBackup({ owner, ...params });
+    const pubchi = await PubchiApplication.confirmBackup({ owner, ...params });
+    usePubchiStore.getState().setPubchi(pubchi);
+    usePubchiStore.getState().markLoaded();
+    return pubchi;
   }
 
   static async commitDeleteBinding(params: { bot?: string } = {}): Promise<void> {
@@ -88,6 +105,7 @@ export class PubchiController {
     const requestedBot = params.bot?.trim();
     if (requestedBot) {
       await PubchiApplication.commitDeleteBinding({ owner, bot: requestedBot });
+      usePubchiStore.getState().clear();
       return;
     }
     const binding = await PubchiApplication.getActiveBinding(owner);
@@ -100,6 +118,7 @@ export class PubchiController {
       });
     }
     await PubchiApplication.commitDeleteBinding({ owner, bot });
+    usePubchiStore.getState().clear();
   }
 
   /**
@@ -130,12 +149,16 @@ export class PubchiController {
 
   static async ensureDeviceReady(): Promise<boolean> {
     if (!isPubchiEnabled()) return false;
-    return PubchiApplication.ensureDeviceReady(useAuthStore.getState().selectCurrentUserPubky());
+    const ready = await PubchiApplication.ensureDeviceReady(useAuthStore.getState().selectCurrentUserPubky());
+    usePubchiStore.getState().markLoaded();
+    return ready;
   }
 
   static async listDeviceKeys() {
     if (!isPubchiEnabled()) return [];
-    return PubchiApplication.listDeviceDelegations(useAuthStore.getState().selectCurrentUserPubky());
+    const devices = await PubchiApplication.listDeviceDelegations(useAuthStore.getState().selectCurrentUserPubky());
+    usePubchiStore.getState().markLoaded();
+    return devices;
   }
 
   static hadDeviceListingFailures(): boolean {
@@ -143,11 +166,19 @@ export class PubchiController {
   }
 
   static async loadPubchiConfig(): Promise<PubchiConfigV1 | null> {
-    return PubchiApplication.loadPubchiConfig(useAuthStore.getState().selectCurrentUserPubky());
+    const config = await PubchiApplication.loadPubchiConfig(useAuthStore.getState().selectCurrentUserPubky());
+    usePubchiStore.getState().setConfig(config);
+    usePubchiStore.getState().markLoaded();
+    return config;
   }
 
   static async savePubchiConfig(partial: Partial<PubchiConfigV1>): Promise<PubchiConfigV1> {
-    return PubchiApplication.savePubchiConfig(useAuthStore.getState().selectCurrentUserPubky(), partial);
+    const config = await PubchiApplication.savePubchiConfig(useAuthStore.getState().selectCurrentUserPubky(), partial);
+    const store = usePubchiStore.getState();
+    store.setConfig(config);
+    if (store.pubchi) store.setPubchi({ ...store.pubchi, displayName: config.display_name });
+    store.markLoaded();
+    return config;
   }
 
   static async getCapabilityApprovalUrl(): Promise<TGenerateAuthUrlResult> {
@@ -209,6 +240,7 @@ export class PubchiController {
       });
     }
     await PubchiApplication.revokeDevice(owner, signer);
+    usePubchiStore.getState().markLoaded();
   }
 
   static async revokeAllDevices(): ReturnType<typeof PubchiApplication.revokeAllDevices> {
@@ -219,6 +251,8 @@ export class PubchiController {
         operation: 'revokeAllDevices',
       });
     }
-    return PubchiApplication.revokeAllDevices(owner);
+    const result = await PubchiApplication.revokeAllDevices(owner);
+    usePubchiStore.getState().markLoaded();
+    return result;
   }
 }

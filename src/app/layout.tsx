@@ -1,9 +1,7 @@
 import './globals.css';
-import nextDynamic from 'next/dynamic';
 import type { Viewport } from 'next';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
-import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { RootContainer } from '@/molecules/ContainerRoot/ContainerRoot';
 import { Fab } from '@/molecules/Fab/Fab';
 import { Metadata } from '@/molecules/Metadata/Metadata';
@@ -16,10 +14,6 @@ import { DatabaseProvider } from '@/providers/DatabaseProvider/DatabaseProvider'
 import { ErrorBoundaryProvider } from '@/providers/ErrorBoundaryProvider/ErrorBoundaryProvider';
 import { GlobalErrorHandlerProvider } from '@/providers/GlobalErrorHandlerProvider/GlobalErrorHandlerProvider';
 import { RouteGuardProvider } from '@/providers/RouteGuardProvider/RouteGuardProvider';
-
-const PubchiLauncher = nextDynamic(() =>
-  import('@/organisms/Pubchi/PubchiLauncher/PubchiLauncher').then((module) => ({ default: module.PubchiLauncher })),
-);
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -59,7 +53,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <Header />
                 {children}
                 <Fab />
-                {isPubchiPanelEnabled() ? <PubchiLauncher /> : null}
                 <Toaster />
                 <DialogSignIn />
               </RouteGuardProvider>
