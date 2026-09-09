@@ -39,6 +39,7 @@
     "test:marketplace:reviews": "vitest run --config vitest.reviews.config.ts",
     "test:marketplace:drops": "vitest run --config vitest.drops.config.ts",
     "vrt:gallery": "node scripts/vrt-gallery.mjs",
+    "probe:prod-writes": "node scripts/probe-production-writes.mjs",
     "test:marketplace:dm": "vitest run --config vitest.dm.config.ts"
   },
   "lint-staged": {
