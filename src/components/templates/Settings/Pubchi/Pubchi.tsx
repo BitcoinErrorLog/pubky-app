@@ -47,6 +47,7 @@ export function PubchiSettings() {
     backupPositions,
     backupController,
     devices = [],
+    pendingRevocations = [],
     deviceListingHadFailures,
     currentSigner,
     loading,
@@ -70,6 +71,16 @@ export function PubchiSettings() {
             <Typography size="sm">{PUBCHI_DEGRADED_SESSION_MESSAGE}</Typography>
             <Button type="button" disabled={loading} onClick={() => void reapprove()}>
               Re-approve
+            </Button>
+          </div>
+        ) : null}
+        {pendingRevocations.length ? (
+          <div className="flex flex-col gap-3 px-6" data-testid="pubchi-pending-revocations">
+            <Typography size="sm">
+              Revoked on this device — homeserver revocation pending re-approval.
+            </Typography>
+            <Button type="button" disabled={loading} onClick={() => void reapprove()}>
+              Re-approve to finish revocation
             </Button>
           </div>
         ) : null}

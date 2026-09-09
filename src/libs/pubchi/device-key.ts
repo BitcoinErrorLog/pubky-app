@@ -8,8 +8,8 @@ import { bytesToHex } from './schemas/canonical';
 
 const SPKI_PREFIX_LENGTH = 12;
 const Z32_ALPHABET = 'ybndrfg8ejkmcpqxot1uwisza345h769';
-export const DEVICE_DELEGATION_MAX_SECONDS = 30 * 24 * 60 * 60;
-export const DEVICE_DELEGATION_REFRESH_SECONDS = 3 * 24 * 60 * 60;
+export const DEVICE_DELEGATION_MAX_SECONDS = 7 * 24 * 60 * 60;
+export const DEVICE_DELEGATION_REFRESH_SECONDS = 2 * 24 * 60 * 60;
 const LEGACY_CURRENT_DEVICE_SIGNER_KEY = 'pubchi.deviceSigner';
 const DEVICE_MINT_LOCK = 'pubchi-device-mint';
 const deviceMintLocks = new Map<string, Promise<StoredDeviceKey>>();
@@ -145,6 +145,10 @@ export async function signWithDeviceKey(key: CryptoKey, message: Uint8Array): Pr
 
 export async function deleteDeviceKey(owner: string, signer: string): Promise<void> {
   await getPubchiDatabase().deviceKeys.delete(`${owner}:${signer}`);
+}
+
+export async function updateDeviceKeyExpiry(owner: string, signer: string, expiresAt: number): Promise<void> {
+  await getPubchiDatabase().deviceKeys.update(`${owner}:${signer}`, { expires_at: expiresAt });
 }
 
 /**

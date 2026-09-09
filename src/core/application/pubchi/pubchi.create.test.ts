@@ -35,6 +35,7 @@ vi.mock('@/libs/pubchi/device-key', () => {
     .generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
     .then((pair) => (pair as CryptoKeyPair).privateKey);
   return {
+    DEVICE_DELEGATION_MAX_SECONDS: 7 * 24 * 60 * 60,
     DEVICE_DELEGATION_REFRESH_SECONDS: 3 * 24 * 60 * 60,
     loadOrGenerateDeviceKey: async () => ({
       key: await key,
@@ -47,6 +48,7 @@ vi.mock('@/libs/pubchi/device-key', () => {
     deleteDeviceKey: vi.fn(),
     getCurrentDeviceKey: vi.fn(),
     getDeviceKeys: vi.fn(async () => []),
+    updateDeviceKeyExpiry: vi.fn(),
     listDeviceKeysNotOwnedBy: vi.fn(async () => []),
     wipeDeviceKeysNotOwnedBy: vi.fn(async () => 0),
     signWithDeviceKey: async (privateKey: CryptoKey, bytes: Uint8Array) =>

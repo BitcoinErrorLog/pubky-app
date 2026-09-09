@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { capabilitiesCoverPubchiWrite } from './capabilities';
+import {
+  capabilitiesCoverPubchiWrite,
+  PUBCHI_PRIVATE_DIRECTORY,
+  PUBCHI_SIGNIN_CAPABILITIES,
+  sessionCovers,
+} from './capabilities';
 
 describe('capabilitiesCoverPubchiWrite', () => {
   it('accepts root /:rw (keypair session mint)', () => {
     expect(capabilitiesCoverPubchiWrite(['/:rw'])).toBe(true);
+    expect(sessionCovers(['/:rw'], PUBCHI_PRIVATE_DIRECTORY)).toBe(true);
   });
 
   it('accepts /pub/:rw', () => {
@@ -35,5 +41,18 @@ describe('capabilitiesCoverPubchiWrite', () => {
 
   it('rejects a file-scope grant of the same name', () => {
     expect(capabilitiesCoverPubchiWrite(['/pub/pubchi.app:rw'])).toBe(false);
+  });
+
+  it('accepts a private Pubchi directory grant and rejects read-only coverage', () => {
+    expect(sessionCovers([`${PUBCHI_PRIVATE_DIRECTORY}:rw`], PUBCHI_PRIVATE_DIRECTORY)).toBe(true);
+    expect(sessionCovers([`${PUBCHI_PRIVATE_DIRECTORY}:r`], PUBCHI_PRIVATE_DIRECTORY)).toBe(false);
+  });
+});
+
+describe('PUBCHI_SIGNIN_CAPABILITIES', () => {
+  it('requests public, Pubchi homeserver, and private Pubchi write access', () => {
+    expect(PUBCHI_SIGNIN_CAPABILITIES).toBe(
+      '/pub/pubky.app/:rw,/pub/pubchi.app/:rw,/priv/pubchi.app/:rw',
+    );
   });
 });

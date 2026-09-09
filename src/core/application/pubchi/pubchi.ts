@@ -1,5 +1,12 @@
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  ClientErrorCode,
+  DatabaseErrorCode,
+  ServerErrorCode,
+  TimeoutErrorCode,
+  ValidationErrorCode,
+} from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { hasHttpStatus } from '@/libs/error/error.utils';
@@ -9,11 +16,13 @@ import { mintBotKey, phraseToBot } from '@/libs/pubchi/bot-key-custody';
 import { capabilitiesCoverPubchiWrite } from '@/libs/pubchi/capabilities';
 import {
   deleteDeviceKey,
+  DEVICE_DELEGATION_MAX_SECONDS,
   DEVICE_DELEGATION_REFRESH_SECONDS,
   getCurrentDeviceKey,
   getDeviceKeys,
   listDeviceKeysNotOwnedBy,
   loadOrGenerateDeviceKey,
+  updateDeviceKeyExpiry,
   wipeDeviceKeysNotOwnedBy,
 } from '@/libs/pubchi/device-key';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
@@ -269,7 +278,16 @@ export class PubchiApplication {
       });
     }
     const pending = { owner, signer };
-    rememberPendingDelegationDeletes([pending]);
+    if (!rememberPendingDelegationDeletes([pending])) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Could not persist Pubchi device revocation', {
+        service: ErrorService.Pubchi,
+        operation: 'revokeDevice',
+      });
+    }
+    if (!sessionCanWritePubchi(owner)) {
+      await deleteDeviceKey(owner, signer);
+      return;
+    }
     await deleteAndVerifyMissing(delegationUri(owner, signer), 'revokeDevice');
     replacePendingDelegationDeletesForOwner(
       owner,
@@ -297,6 +315,13 @@ export class PubchiApplication {
       ...unlistedSigners,
     ]);
     const results = await Promise.allSettled([...signers].map((signer) => this.revokeDevice(owner, signer)));
+    if (!sessionCanWritePubchi(owner)) {
+      return {
+        revoked: [],
+        failed: [...signers],
+        unlisted: this.deviceListingUnlistedCount,
+      };
+    }
     return {
       revoked: results.flatMap((result, index) => (result.status === 'fulfilled' ? [[...signers][index]!] : [])),
       failed: results.flatMap((result, index) => (result.status === 'rejected' ? [[...signers][index]!] : [])),
@@ -1175,9 +1200,9 @@ async function publishDeviceDelegation(
     owner,
     signer: device.signer,
     bot,
-    purposes: [...SERVED_DELEGATION_PURPOSES],
-    created_at: device.created_at,
-    expires_at: device.expires_at,
+    purposes: current.ok ? [...current.value.purposes] : [...SERVED_DELEGATION_PURPOSES],
+    created_at: Math.max(device.created_at, now),
+    expires_at: now + DEVICE_DELEGATION_MAX_SECONDS,
   };
   const signed = await signDeviceDelegationV1(unsigned, device.key);
   await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: signed });
@@ -1185,6 +1210,7 @@ async function publishDeviceDelegation(
   if (!readBack.ok || JSON.stringify(readBack.value) !== JSON.stringify(signed)) {
     throw pubchiValidationError('SCHEMA_INVALID', 'refreshPublishedDelegation');
   }
+  await updateDeviceKeyExpiry(owner, device.signer, signed.expires_at);
   return true;
 }
 
