@@ -35,6 +35,7 @@ export function usePubchiEnrollment() {
   const [backupController] = useState(() => new BotPhraseRevealController());
   const phraseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [devices, setDevices] = useState<Awaited<ReturnType<typeof PubchiController.listDeviceKeys>>>([]);
+  const [deviceListingHadFailures, setDeviceListingHadFailures] = useState(false);
   const [currentSigner, setCurrentSigner] = useState<string | undefined>(undefined);
   const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info.capabilities ?? []);
   const approvalCancelRef = useRef<(() => void) | null>(null);
@@ -90,6 +91,10 @@ export function usePubchiEnrollment() {
         setBinding(nextBinding);
         setPubchi(nextPubchi);
         setDevices(nextDevices);
+        setDeviceListingHadFailures(
+          typeof PubchiController.hadDeviceListingFailures === 'function' &&
+            PubchiController.hadDeviceListingFailures(),
+        );
         setConfig(nextConfig);
         if (owner) {
           void getCurrentDeviceKey(owner).then((key) => setCurrentSigner(key?.signer));
@@ -284,6 +289,7 @@ export function usePubchiEnrollment() {
     try {
       await PubchiController.revokeAllDevices();
       setDevices([]);
+      setDeviceListingHadFailures(false);
       return true;
     } catch (error) {
       const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
@@ -305,6 +311,10 @@ export function usePubchiEnrollment() {
         await PubchiController.adoptCapabilityApproval(approved);
         await PubchiController.ensureDeviceReady();
         setDevices(await PubchiController.listDeviceKeys());
+        setDeviceListingHadFailures(
+          typeof PubchiController.hadDeviceListingFailures === 'function' &&
+            PubchiController.hadDeviceListingFailures(),
+        );
         if (owner) {
           const key = await getCurrentDeviceKey(owner);
           setCurrentSigner(key?.signer);
@@ -344,6 +354,7 @@ export function usePubchiEnrollment() {
     backupPositions,
     backupController,
     devices,
+    deviceListingHadFailures,
     currentSigner,
     needsReapproval,
     reapprove,

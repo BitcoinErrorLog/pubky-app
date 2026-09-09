@@ -9,6 +9,8 @@ const Z32_ALPHABET = 'ybndrfg8ejkmcpqxot1uwisza345h769';
 export const DEVICE_DELEGATION_MAX_SECONDS = 30 * 24 * 60 * 60;
 export const DEVICE_DELEGATION_REFRESH_SECONDS = 3 * 24 * 60 * 60;
 const CURRENT_DEVICE_SIGNER_KEY = 'pubchi.deviceSigner';
+const DEVICE_MINT_LOCK = 'pubchi-device-mint';
+const deviceMintLocks = new Map<string, Promise<StoredDeviceKey>>();
 
 export type StoredDeviceKey = {
   id: string;
@@ -59,6 +61,26 @@ export async function loadOrGenerateDeviceKey(
   owner: string,
   now = Math.floor(Date.now() / 1000),
 ): Promise<StoredDeviceKey> {
+  const inFlight = deviceMintLocks.get(owner);
+  if (inFlight) return inFlight;
+  const mint = mintDeviceKey(owner, now);
+  deviceMintLocks.set(owner, mint);
+  try {
+    return await mint;
+  } finally {
+    if (deviceMintLocks.get(owner) === mint) deviceMintLocks.delete(owner);
+  }
+}
+
+async function mintDeviceKey(owner: string, now: number): Promise<StoredDeviceKey> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (locks) {
+    return locks.request(DEVICE_MINT_LOCK, () => mintDeviceKeyWithoutLock(owner, now));
+  }
+  return mintDeviceKeyWithoutLock(owner, now);
+}
+
+async function mintDeviceKeyWithoutLock(owner: string, now: number): Promise<StoredDeviceKey> {
   const current = await getCurrentDeviceKey(owner, now);
   if (current && current.expires_at - now > DEVICE_DELEGATION_REFRESH_SECONDS) return current;
   if (current) await getPubchiDatabase().deviceKeys.delete(current.id);

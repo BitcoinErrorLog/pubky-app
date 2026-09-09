@@ -138,6 +138,10 @@ export class PubchiController {
     return PubchiApplication.listDeviceDelegations(useAuthStore.getState().selectCurrentUserPubky());
   }
 
+  static hadDeviceListingFailures(): boolean {
+    return PubchiApplication.hadDeviceListingFailures();
+  }
+
   static async loadPubchiConfig(): Promise<PubchiConfigV1 | null> {
     return PubchiApplication.loadPubchiConfig(useAuthStore.getState().selectCurrentUserPubky());
   }

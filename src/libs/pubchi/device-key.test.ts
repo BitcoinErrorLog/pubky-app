@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deletePubchiDatabase, getPubchiDatabase, resetPubchiDatabaseForTests } from '@/database/pubchi/pubchi';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
@@ -53,6 +53,20 @@ describe('Pubchi device signer persistence', () => {
       })),
     );
     await expect(loadOrGenerateDeviceKey(OWNER, 1_800_000_000)).rejects.toThrow('PUBCHI_DEVICE_LIMIT');
+  });
+
+  it('uses the cross-tab mint lock when available', async () => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const request = vi.fn(async (_name: string, callback: () => Promise<unknown>) => callback());
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } });
+
+    try {
+      await loadOrGenerateDeviceKey(OWNER, 1_800_000_000);
+      expect(request).toHaveBeenCalledWith('pubchi-device-mint', expect.any(Function));
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
   });
 
   it('wipes local keys that belong to another identity', async () => {

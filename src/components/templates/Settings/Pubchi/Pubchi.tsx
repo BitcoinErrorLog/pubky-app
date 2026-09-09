@@ -47,6 +47,7 @@ export function PubchiSettings() {
     backupPositions,
     backupController,
     devices = [],
+    deviceListingHadFailures,
     currentSigner,
     loading,
     enabled,
@@ -219,9 +220,12 @@ export function PubchiSettings() {
             </form>
           </div>
         ) : null}
-        {devices.length ? (
+        {devices.length || deviceListingHadFailures ? (
           <div className="flex flex-col gap-3 px-6 pb-6" data-testid="pubchi-device-signers">
-            <Typography size="sm">Device signers</Typography>
+            {devices.length ? <Typography size="sm">Device signers</Typography> : null}
+            {deviceListingHadFailures ? (
+              <Typography size="xs">Some device records could not be loaded</Typography>
+            ) : null}
             {devices.map((device) => (
               <div className="flex items-center justify-between gap-3" key={device.signer}>
                 <Typography size="sm" className="break-all">
@@ -243,14 +247,16 @@ export function PubchiSettings() {
                 </Button>
               </div>
             ))}
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={loading || needsReapproval}
-              onClick={() => void revokeAllDevices()}
-            >
-              Revoke all
-            </Button>
+            {devices.length ? (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={loading || needsReapproval}
+                onClick={() => void revokeAllDevices()}
+              >
+                Revoke all
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </SettingsSectionCard>

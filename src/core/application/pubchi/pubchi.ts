@@ -114,6 +114,7 @@ function randomNonce(): string {
 
 export class PubchiApplication {
   private static readonly deviceReadiness = new Map<string, Promise<boolean>>();
+  private static deviceListingHadFailures = false;
 
   private constructor() {}
 
@@ -145,8 +146,11 @@ export class PubchiApplication {
     await replaceLocalActiveBinding(binding);
     if (!sessionCanWritePubchi(owner)) return false;
     const device = await loadTrustedDeviceKey(owner, Math.floor(Date.now() / 1000));
-    await publishDeviceDelegation(owner, binding.bot, device);
-    return true;
+    try {
+      return await publishDeviceDelegation(owner, binding.bot, device);
+    } catch {
+      return false;
+    }
   }
 
   static async loadPubchiConfig(owner: string, refreshDelegation = true): Promise<PubchiConfigV1 | null> {
@@ -216,7 +220,7 @@ export class PubchiApplication {
   static async listDeviceDelegations(owner: string): Promise<DeviceDelegationV1[]> {
     if (!isPubchiEnabled()) return [];
     const files = await HomeserverService.listAll({ baseDirectory: devicesUri(owner) });
-    const devices = await Promise.all(
+    const results = await Promise.allSettled(
       files.map(async (file) => {
         const signer = file.match(/\/devices\/([^/]+)\.json$/)?.[1];
         if (!signer || !isPubkyId(signer)) return undefined;
@@ -227,7 +231,13 @@ export class PubchiApplication {
         return parsed.value;
       }),
     );
+    this.deviceListingHadFailures = results.some((result) => result.status === 'rejected');
+    const devices = results.map((result) => (result.status === 'fulfilled' ? result.value : undefined));
     return devices.filter((device): device is DeviceDelegationV1 => device !== undefined);
+  }
+
+  static hadDeviceListingFailures(): boolean {
+    return this.deviceListingHadFailures;
   }
 
   static async revokeDevice(owner: string, signer: string): Promise<void> {
@@ -1083,7 +1093,11 @@ export async function refreshPublishedDelegation(owner: string): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const device = await getCurrentDeviceKey(owner, now);
   if (!device) return;
-  await publishDeviceDelegation(owner, binding.bot, device, now);
+  try {
+    await publishDeviceDelegation(owner, binding.bot, device, now);
+  } catch {
+    return;
+  }
 }
 
 async function publishDeviceDelegation(
@@ -1091,15 +1105,15 @@ async function publishDeviceDelegation(
   bot: string,
   device: Awaited<ReturnType<typeof loadOrGenerateDeviceKey>>,
   now = Math.floor(Date.now() / 1000),
-): Promise<void> {
+): Promise<boolean> {
   const url = delegationUri(owner, device.signer);
   let current: ReturnType<typeof parseDeviceDelegationV1>;
   try {
     const raw = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
     current = parseDeviceDelegationV1(raw);
-    if (!current.ok && raw !== undefined) return;
+    if (!current.ok) current = { ok: false, code: 'SCHEMA_INVALID' };
   } catch (error) {
-    if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return;
+    if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) throw error;
     current = { ok: false, code: 'SCHEMA_INVALID' };
   }
   if (
@@ -1110,7 +1124,7 @@ async function publishDeviceDelegation(
     SERVED_DELEGATION_PURPOSES.every((purpose) => current.value.purposes.includes(purpose)) &&
     current.value.expires_at - now > DEVICE_DELEGATION_REFRESH_SECONDS
   ) {
-    return;
+    return true;
   }
   const unsigned: UnsignedDeviceDelegationV1 = {
     schema: 'pubchi-device-delegation',
@@ -1128,6 +1142,7 @@ async function publishDeviceDelegation(
   if (!readBack.ok || JSON.stringify(readBack.value) !== JSON.stringify(signed)) {
     throw pubchiValidationError('SCHEMA_INVALID', 'refreshPublishedDelegation');
   }
+  return true;
 }
 
 function deepEqual(left: unknown, right: unknown): boolean {

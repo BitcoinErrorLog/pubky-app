@@ -562,6 +562,88 @@ describe('PubchiApplication', () => {
     expect(HomeserverService.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.PUT }));
   });
 
+  it('keeps setup disabled when delegation lookup fails', async () => {
+    sessionIdentity.capabilities = ['/:rw'];
+    const device = await deviceKey.loadOrGenerateDeviceKey(OWNER);
+    const now = Math.floor(Date.now() / 1000);
+    vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
+      if (String(input.url) === botUri(OWNER)) {
+        return {
+          schema: 'pubchi-bot',
+          version: 1,
+          owner: OWNER,
+          bot: BOT,
+          display_name: 'Scout',
+          created_at: now - 100,
+          backup_confirmed_at: null,
+          homeserver_account: null,
+          key_generation: 1,
+        };
+      }
+      if (String(input.url) === ownerBindingUri(OWNER, BOT)) {
+        return {
+          schema: 'pubchi-owner-binding',
+          version: 1,
+          owner: OWNER,
+          bot: BOT,
+          status: 'active',
+          key_generation: 1,
+          created_at: now - 100,
+          updated_at: now - 100,
+        };
+      }
+      if (String(input.url) === delegationUri(OWNER, device.signer)) throw new Error('transport failure');
+      return undefined;
+    });
+
+    await expect(PubchiApplication.ensureDeviceReady(OWNER)).resolves.toBe(false);
+    expect(HomeserverService.request).not.toHaveBeenCalledWith(
+      expect.objectContaining({ method: HttpMethod.PUT, url: delegationUri(OWNER, device.signer) }),
+    );
+  });
+
+  it('republishes a malformed delegation record', async () => {
+    sessionIdentity.capabilities = ['/:rw'];
+    const device = await deviceKey.loadOrGenerateDeviceKey(OWNER);
+    const now = Math.floor(Date.now() / 1000);
+    let delegation: unknown = { malformed: true };
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
+      if (String(input.url) === botUri(OWNER)) {
+        return {
+          schema: 'pubchi-bot',
+          version: 1,
+          owner: OWNER,
+          bot: BOT,
+          display_name: 'Scout',
+          created_at: now - 100,
+          backup_confirmed_at: null,
+          homeserver_account: null,
+          key_generation: 1,
+        };
+      }
+      if (String(input.url) === ownerBindingUri(OWNER, BOT)) {
+        return {
+          schema: 'pubchi-owner-binding',
+          version: 1,
+          owner: OWNER,
+          bot: BOT,
+          status: 'active',
+          key_generation: 1,
+          created_at: now - 100,
+          updated_at: now - 100,
+        };
+      }
+      if (String(input.url) === delegationUri(OWNER, device.signer)) {
+        if (input.method === HttpMethod.PUT) delegation = input.bodyJson;
+        return delegation;
+      }
+      return undefined;
+    });
+
+    await expect(PubchiApplication.ensureDeviceReady(OWNER)).resolves.toBe(true);
+    expect(requestSpy.mock.calls.filter(([input]) => input.method === HttpMethod.PUT)).toHaveLength(1);
+  });
+
   it('does not mint when the owner has no bot pointer', async () => {
     const mintSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey');
     vi.spyOn(HomeserverService, 'request').mockRejectedValue(notFoundError());
@@ -599,6 +681,33 @@ describe('PubchiApplication', () => {
     expect(requestSpy).toHaveBeenCalledWith({ method: HttpMethod.GET, url: delegationUri(OWNER, signer) });
     expect(deleteLocalSpy).toHaveBeenCalledWith(OWNER, signer);
     expect(readPendingDelegationDeletes()).toEqual([]);
+  });
+
+  it('keeps loaded devices when one delegation record fails', async () => {
+    const goodSigner = Keypair.random().publicKey.z32();
+    const goodDelegation = {
+      schema: 'pubchi-device-delegation' as const,
+      version: 1 as const,
+      owner: OWNER,
+      signer: goodSigner,
+      bot: BOT,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'] as const,
+      created_at: 1,
+      expires_at: 2_000_000,
+      signature: 'a'.repeat(128),
+    };
+    const badSigner = Keypair.random().publicKey.z32();
+    vi.spyOn(HomeserverService, 'listAll').mockResolvedValue([
+      delegationUri(OWNER, goodSigner),
+      delegationUri(OWNER, badSigner),
+    ]);
+    vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
+      if (String(input.url) === delegationUri(OWNER, badSigner)) throw new Error('temporary failure');
+      return goodDelegation;
+    });
+
+    await expect(PubchiApplication.listDeviceDelegations(OWNER)).resolves.toEqual([goodDelegation]);
+    expect(PubchiApplication.hadDeviceListingFailures()).toBe(true);
   });
 
   it('rejects a request whose signer is not the stored device key', () => {
