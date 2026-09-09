@@ -90,7 +90,7 @@ describe('OnboardingScanPage (onboarding) — visual regression', () => {
 
   it('renders the scan/QR page at mobile viewport', async () => {
     await preloadImages(SCAN_PAGE_IMAGE_URLS);
-    await renderForVRT(<ScanWithHeader />, { viewport: VRT_VIEWPORT_MOBILE });
+    await renderForVRT(<ScanWithHeader />, { viewport: VRT_VIEWPORT_MOBILE, freezeMotion: true });
     await matchVrtFrameScreenshot('onboarding-scan-mobile');
   });
 });
