@@ -94,6 +94,14 @@ describe('PubchiService', () => {
     expect(parsed).toEqual(FEED_PROPOSAL);
   });
 
+  it('surfaces a runtime error code from a non-ok response body', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ error: 'BUDGET_EXCEEDED' }, 429));
+
+    await expect(
+      PubchiService.query({ request: request('who-tagged-me'), body: { question: 'who tagged me?' } }),
+    ).rejects.toThrow('BUDGET_EXCEEDED');
+  });
+
   it.each(['what-i-missed', 'summarize'] as const)('does not send %s', async (purpose) => {
     await expect(PubchiService.query({ request: request(purpose), body: { question: purpose } })).rejects.toThrow(
       'PURPOSE_UNSUPPORTED',

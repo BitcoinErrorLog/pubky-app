@@ -1,17 +1,7 @@
+import { RUNTIME_ERROR_CODES } from './errors';
 import { ERROR_CODES, type ErrorCode } from './schemas';
 
-const SERVICE_ONLY_ERROR_CODES = [
-  'TENANT_NOT_ENROLLED',
-  'UNAUTHORIZED',
-  'BUDGET_EXCEEDED',
-  'RATE_LIMITED',
-  'UPSTREAM_UNAVAILABLE',
-  'BRAIN_UNAVAILABLE',
-  'FEED_DISABLED',
-  'AUDIENCE_MISMATCH',
-] as const;
-
-export const PUBCHI_ERROR_CODES = [...ERROR_CODES, ...SERVICE_ONLY_ERROR_CODES] as const;
+export const PUBCHI_ERROR_CODES = [...ERROR_CODES, ...RUNTIME_ERROR_CODES] as const;
 export type PubchiErrorCode = (typeof PUBCHI_ERROR_CODES)[number];
 
 export type PubchiErrorCopy = {
@@ -52,6 +42,10 @@ const COPY_BY_CODE: Partial<Record<PubchiErrorCode, string>> = {
   AUDIENCE_MISMATCH: 'This version of the app is out of date — reload to update.',
 };
 
+export const PUBCHI_ERROR_COPY_BY_CODE: Record<PubchiErrorCode, string> = Object.fromEntries(
+  PUBCHI_ERROR_CODES.map((code) => [code, COPY_BY_CODE[code] ?? 'Something went wrong on the Pubchi service.']),
+) as Record<PubchiErrorCode, string>;
+
 export function pubchiErrorCopy(code: string | undefined): PubchiErrorCopy {
   if (!code) {
     return { message: 'Something went wrong on the Pubchi service.' };
@@ -69,8 +63,8 @@ export function pubchiErrorCopy(code: string | undefined): PubchiErrorCopy {
       supportCode: code,
     };
   }
-  if (code in COPY_BY_CODE) {
-    return { message: COPY_BY_CODE[code as PubchiErrorCode]!, supportCode: code };
+  if (code in PUBCHI_ERROR_COPY_BY_CODE) {
+    return { message: PUBCHI_ERROR_COPY_BY_CODE[code as PubchiErrorCode] };
   }
   return {
     message: 'Something went wrong on the Pubchi service.',

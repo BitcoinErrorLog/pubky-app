@@ -3,12 +3,27 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { ERROR_CODES, type ErrorCode } from '@/libs/pubchi/schemas';
 
-export function isPubchiErrorCode(value: unknown): value is ErrorCode {
-  return typeof value === 'string' && (ERROR_CODES as readonly string[]).includes(value);
+export const RUNTIME_ERROR_CODES = [
+  'TENANT_NOT_ENROLLED',
+  'UNAUTHORIZED',
+  'BUDGET_EXCEEDED',
+  'RATE_LIMITED',
+  'UPSTREAM_UNAVAILABLE',
+  'BRAIN_UNAVAILABLE',
+  'FEED_DISABLED',
+  'AUDIENCE_MISMATCH',
+] as const;
+
+export type PubchiErrorCode = ErrorCode | (typeof RUNTIME_ERROR_CODES)[number];
+
+const PUBCHI_ERROR_CODES = new Set<string>([...ERROR_CODES, ...RUNTIME_ERROR_CODES]);
+
+export function isPubchiErrorCode(value: unknown): value is PubchiErrorCode {
+  return typeof value === 'string' && PUBCHI_ERROR_CODES.has(value);
 }
 
 /** Extract a closed Pubchi error code from a response body. Nothing else is used. */
-export function extractPubchiErrorCode(body: unknown): ErrorCode | undefined {
+export function extractPubchiErrorCode(body: unknown): PubchiErrorCode | undefined {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
   const record = body as Record<string, unknown>;
   if (isPubchiErrorCode(record.code)) return record.code;
@@ -21,7 +36,7 @@ export function extractPubchiErrorCode(body: unknown): ErrorCode | undefined {
   return undefined;
 }
 
-export function pubchiValidationError(code: ErrorCode, operation: string) {
+export function pubchiValidationError(code: PubchiErrorCode, operation: string) {
   return Err.validation(ValidationErrorCode.INVALID_INPUT, code, {
     service: ErrorService.Pubchi,
     operation,
@@ -29,7 +44,7 @@ export function pubchiValidationError(code: ErrorCode, operation: string) {
   });
 }
 
-export function pubchiClientError(code: ErrorCode, operation: string) {
+export function pubchiClientError(code: PubchiErrorCode, operation: string) {
   return Err.client(ClientErrorCode.UNPROCESSABLE, code, {
     service: ErrorService.Pubchi,
     operation,

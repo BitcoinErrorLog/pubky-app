@@ -121,8 +121,7 @@ describe('PubchiPanel', () => {
     render(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(screen.getByRole('alert')).toHaveTextContent("I couldn't turn that into a feed");
-    expect(screen.getByRole('alert')).toHaveTextContent('Support code: FEED_SPECS_INVALID');
-    expect(screen.getByRole('alert')).not.toHaveTextContent(/^FEED_SPECS_INVALID$/);
+    expect(screen.getByRole('alert')).not.toHaveTextContent('FEED_SPECS_INVALID');
   });
 
   it('shows a skeleton and elapsed seconds while an answer is loading, then replaces it', () => {
