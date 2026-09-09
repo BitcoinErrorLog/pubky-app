@@ -5,7 +5,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
+  BITCOIN_ENABLE_BLOCKED_COPY,
   CLAIM_DISCLOSURE_SENTENCE,
+  CLAIM_STATUS_NOT_DEPLOYED_LINE,
   CLAIM_VERIFICATION_COPY,
 } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
 import { ACCOUNT_KEY_FILE_MAX_BYTES, ACCOUNT_KEY_FILE_REJECTION_COPY } from '@/libs/commerce/account-key-file';
@@ -29,8 +31,11 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getPaykitSetupUrl: vi.fn(() => 'https://paykit.example/setup'),
     getMyPaymentConfig: vi.fn(),
     isOwnPaykitAccountClaimed: vi.fn(),
+    getMyVerifiedPaykitClaim: vi.fn(),
+    commitSaveVerifiedPaykitClaim: vi.fn(),
     putMyPaymentConfig: vi.fn(),
     beginPaykitClaimFlow: vi.fn(),
+    beginPaykitClaimStatusFlow: vi.fn(),
     beginMarketplaceSessionConnect: vi.fn(),
     createLocksFrontendSession: vi.fn(),
   },
@@ -66,6 +71,15 @@ const NON_DENY_LISTED_MNEMONIC = 'legal winner thank year wave sausage worth use
 const DERIVED_ACCOUNT = deriveBip84Account(NON_DENY_LISTED_MNEMONIC, 0, 0);
 /** A second account of the same wallet — a different key, for mismatch cases. */
 const OTHER_ACCOUNT = deriveBip84Account(NON_DENY_LISTED_MNEMONIC, 0, 1);
+/** The account-1 key as the wallet exports it (zpub) and as the claim submits it. */
+const ACCOUNT_1_ZPUB = encodeBase58Check(
+  (() => {
+    const payload = new Uint8Array(OTHER_ACCOUNT.payload);
+    new DataView(payload.buffer).setUint32(0, BIP84_VERSION_BYTES.zpub, false);
+    return payload;
+  })(),
+);
+const NORMALIZED_XPUB_1 = encodeBase58Check(OTHER_ACCOUNT.payload);
 const PASTED_ZPUB = encodeBase58Check(
   (() => {
     const payload = new Uint8Array(DERIVED_ACCOUNT.payload);
@@ -74,6 +88,20 @@ const PASTED_ZPUB = encodeBase58Check(
   })(),
 );
 const NORMALIZED_XPUB = encodeBase58Check(DERIVED_ACCOUNT.payload);
+
+/** The Dexie record a verified claim persists as (snake_case, one per seller). */
+function storedClaimRecord() {
+  return {
+    id: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+    owner_id: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+    xpub: NORMALIZED_XPUB,
+    key_fingerprint_hex: accountKeyFingerprint(DERIVED_ACCOUNT.payload),
+    account_index: 0,
+    first_derived_address: deriveBip84P2wpkhAddress(DERIVED_ACCOUNT.payload, 'mainnet', 0),
+    source: 'session_claim',
+    verified_at: 1_756_000_000_000,
+  };
+}
 
 /**
  * A W1.3 claim response that verifies against the normalized bytes of
@@ -98,6 +126,8 @@ beforeEach(() => {
   view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
   mockedController.getMyPaymentConfig.mockReset().mockResolvedValue(EMPTY_CONFIG);
   mockedController.isOwnPaykitAccountClaimed.mockReset().mockResolvedValue(false);
+  mockedController.getMyVerifiedPaykitClaim.mockReset().mockResolvedValue(null);
+  mockedController.commitSaveVerifiedPaykitClaim.mockReset().mockResolvedValue(undefined);
   mockedController.putMyPaymentConfig.mockReset().mockImplementation(async (input) => ({
     bitcoinEnabled: input.bitcoinEnabled,
     stripePaymentLink: input.stripePaymentLink,
@@ -108,6 +138,11 @@ beforeEach(() => {
   mockedController.beginPaykitClaimFlow.mockReset().mockReturnValue({
     authorizationUrl: 'https://auth.example/claim',
     awaitClaim: () => new Promise<typeof VERIFIED_CLAIM_RESULT>(() => {}),
+    cancel: vi.fn(),
+  });
+  mockedController.beginPaykitClaimStatusFlow.mockReset().mockReturnValue({
+    authorizationUrl: 'https://auth.example/verify',
+    awaitStatus: () => new Promise<never>(() => {}),
     cancel: vi.fn(),
   });
   // A marketplace session makes the stored-rail forms render; the page is the
@@ -236,9 +271,10 @@ describe('MarketplacePaymentSettings', () => {
   });
 
   it('saves the Stripe and PayPal rails with the unchanged payload shape', async () => {
-    // A server-reported claim (e.g. completed through Bitkit) opens the
-    // Accept-bitcoin gate, so the toggle is interactive here.
+    // A persisted verified claim opens the Accept-bitcoin gate, so the
+    // toggle is interactive here.
     mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+    mockedController.getMyVerifiedPaykitClaim.mockResolvedValue(storedClaimRecord());
     const user = userEvent.setup();
     await renderSettings();
 
@@ -291,6 +327,19 @@ describe('MarketplacePaymentSettings', () => {
     // The pasted zpub is normalized to the canonical xpub before anything is sent.
     expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
     expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledWith(NORMALIZED_XPUB, 0);
+  });
+
+  it('template-level account-index gate: an account-1 key claims with its own declared index', async () => {
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Technical details' }));
+    await user.type(screen.getByLabelText('Account xpub'), ACCOUNT_1_ZPUB);
+    await user.click(screen.getByRole('button', { name: 'Claim with signer' }));
+
+    // The claim carries the account index the key itself declares — never 0.
+    expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
+    expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledWith(NORMALIZED_XPUB_1, 1);
   });
 
   it('refuses the claim with a named reason when no Bitcoin network is configured', async () => {
@@ -496,6 +545,65 @@ describe('MarketplacePaymentSettings', () => {
     await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
     expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(expect.objectContaining({ bitcoinEnabled: true }));
+  });
+
+  describe('Verify with Ring (authenticated status)', () => {
+    it('offers Verify with Ring while the toggle is blocked on an unconfirmed claim, and a matching 200 enables it', async () => {
+      // The public existence read is unavailable (paykit outage): claim
+      // state unknown, the toggle disabled with the re-verify copy. The
+      // seller pastes the key they believe they claimed, then verifies —
+      // the 200 fingerprint matches the pasted key and the gate opens.
+      mockedController.isOwnPaykitAccountClaimed.mockRejectedValue(new Error('paykit unreachable'));
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => ({
+          ok: true as const,
+          status: {
+            allocationMode: 'shared_manual',
+            claimChannel: 'manual',
+            downgradeReason: null,
+            keyFingerprint: accountKeyFingerprint(DERIVED_ACCOUNT.payload),
+            firstDerivedAddress: deriveBip84P2wpkhAddress(DERIVED_ACCOUNT.payload, 'mainnet', 0),
+          },
+        }),
+        cancel: vi.fn(),
+      });
+      const user = userEvent.setup();
+      await renderSettings();
+
+      const toggle = screen.getByRole('switch', { name: 'Accept bitcoin' });
+      expect(toggle).toBeDisabled();
+      expect(screen.getByTestId('bitcoin-enable-blocked-reason')).toHaveTextContent(
+        BITCOIN_ENABLE_BLOCKED_COPY.claim_unknown,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Technical details' }));
+      await user.type(screen.getByLabelText('Account xpub'), PASTED_ZPUB);
+      await user.click(screen.getByRole('button', { name: 'Verify with Ring' }));
+      expect(mockedController.beginPaykitClaimStatusFlow).toHaveBeenCalledTimes(1);
+
+      await waitFor(() => expect(toggle).toBeEnabled());
+      expect(screen.getByTestId('verified-account-identity')).toHaveTextContent(
+        accountKeyFingerprint(DERIVED_ACCOUNT.payload),
+      );
+    });
+
+    it('a 404 on the status read keeps the toggle off and shows the not-available line', async () => {
+      mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => ({ ok: false as const, reason: 'not_deployed' as const }),
+        cancel: vi.fn(),
+      });
+      const user = userEvent.setup();
+      await renderSettings();
+
+      await user.click(screen.getByRole('button', { name: 'Verify with Ring' }));
+
+      await screen.findAllByText(CLAIM_STATUS_NOT_DEPLOYED_LINE);
+      expect(screen.getByRole('switch', { name: 'Accept bitcoin', hidden: true })).toBeDisabled();
+      expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+    });
   });
 
   describe('file import (§C.10)', () => {

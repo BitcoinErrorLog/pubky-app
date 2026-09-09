@@ -1,12 +1,13 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { accountKeyFingerprint, deriveBip84P2wpkhAddress } from '@/libs/commerce/bip84-preview';
+import { accountIndexFromBytes, accountKeyFingerprint, deriveBip84P2wpkhAddress } from '@/libs/commerce/bip84-preview';
 import { encodeBase58Check, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { BIP84_VERSION_BYTES, deriveBip84Account } from '@/test-utils/bip84';
 import {
   BITCOIN_ENABLE_BLOCKED_COPY,
+  CLAIM_REJECTION_COPY,
   useMarketplaceSellerPaymentConfig,
 } from './useMarketplaceSellerPaymentConfig';
 
@@ -14,8 +15,11 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMyPaymentConfig: vi.fn(),
     isOwnPaykitAccountClaimed: vi.fn(),
+    getMyVerifiedPaykitClaim: vi.fn(),
+    commitSaveVerifiedPaykitClaim: vi.fn(),
     putMyPaymentConfig: vi.fn(),
     beginPaykitClaimFlow: vi.fn(),
+    beginPaykitClaimStatusFlow: vi.fn(),
   },
 }));
 
@@ -35,22 +39,28 @@ const EMPTY_CONFIG: SellerPaymentConfigOwnView = {
 
 const MNEMONIC = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
 const ACCOUNT = deriveBip84Account(MNEMONIC, 0, 0);
+const ACCOUNT_1 = deriveBip84Account(MNEMONIC, 0, 1);
+const ACCOUNT_99 = deriveBip84Account(MNEMONIC, 0, 99);
+const ACCOUNT_100 = deriveBip84Account(MNEMONIC, 0, 100);
+/** The maximum hardened child number (2^31 − 1) — far outside 0–99. */
+const ACCOUNT_MAX_HARDENED = deriveBip84Account(MNEMONIC, 0, 0x7fffffff);
 const OTHER_ACCOUNT = deriveBip84Account(MNEMONIC, 0, 1);
-const PASTED_ZPUB = encodeBase58Check(
-  (() => {
-    const payload = new Uint8Array(ACCOUNT.payload);
-    new DataView(payload.buffer).setUint32(0, BIP84_VERSION_BYTES.zpub, false);
-    return payload;
-  })(),
-);
-const OTHER_ZPUB = encodeBase58Check(
-  (() => {
-    const payload = new Uint8Array(OTHER_ACCOUNT.payload);
-    new DataView(payload.buffer).setUint32(0, BIP84_VERSION_BYTES.zpub, false);
-    return payload;
-  })(),
-);
+
+function zpubFormOf(account: typeof ACCOUNT): string {
+  const payload = new Uint8Array(account.payload);
+  new DataView(payload.buffer).setUint32(0, BIP84_VERSION_BYTES.zpub, false);
+  return encodeBase58Check(payload);
+}
+
+const PASTED_ZPUB = zpubFormOf(ACCOUNT);
+const OTHER_ZPUB = zpubFormOf(OTHER_ACCOUNT);
+const ZPUB_ACCOUNT_1 = zpubFormOf(ACCOUNT_1);
+const ZPUB_ACCOUNT_99 = zpubFormOf(ACCOUNT_99);
+const ZPUB_ACCOUNT_100 = zpubFormOf(ACCOUNT_100);
+const ZPUB_ACCOUNT_MAX_HARDENED = zpubFormOf(ACCOUNT_MAX_HARDENED);
 const NORMALIZED_XPUB = encodeBase58Check(ACCOUNT.payload);
+const NORMALIZED_XPUB_1 = encodeBase58Check(ACCOUNT_1.payload);
+const NORMALIZED_XPUB_99 = encodeBase58Check(ACCOUNT_99.payload);
 
 const VERIFIED_CLAIM_RESULT = {
   creator: 'pubkygy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
@@ -60,6 +70,34 @@ const VERIFIED_CLAIM_RESULT = {
   nextChildIndex: 0,
   stackId: 'proof:3f6f4b2a-0000-4000-8000-000000000000',
 };
+
+/** The Dexie record a verified claim persists as (snake_case, one per seller). */
+function storedClaimRecord(account: typeof ACCOUNT = ACCOUNT) {
+  return {
+    id: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+    owner_id: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+    xpub: encodeBase58Check(account.payload),
+    key_fingerprint_hex: accountKeyFingerprint(account.payload),
+    account_index: accountIndexFromBytes(account.payload),
+    first_derived_address: deriveBip84P2wpkhAddress(account.payload, 'mainnet', 0),
+    source: 'session_claim',
+    verified_at: 1_756_000_000_000,
+  };
+}
+
+/** A 200 status body matching the given account's key. */
+function matchingStatusOutcome(account: typeof ACCOUNT = ACCOUNT) {
+  return {
+    ok: true as const,
+    status: {
+      allocationMode: 'shared_manual',
+      claimChannel: 'manual',
+      downgradeReason: null,
+      keyFingerprint: accountKeyFingerprint(account.payload),
+      firstDerivedAddress: deriveBip84P2wpkhAddress(account.payload, 'mainnet', 0),
+    },
+  };
+}
 
 const BITCOIN_NETWORK_ENV = 'PUBKY_RUNTIME_BITCOIN_NETWORK';
 
@@ -75,6 +113,8 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     resetRuntimeConfigForTests();
     mockedController.getMyPaymentConfig.mockReset().mockResolvedValue(EMPTY_CONFIG);
     mockedController.isOwnPaykitAccountClaimed.mockReset().mockResolvedValue(false);
+    mockedController.getMyVerifiedPaykitClaim.mockReset().mockResolvedValue(null);
+    mockedController.commitSaveVerifiedPaykitClaim.mockReset().mockResolvedValue(undefined);
     mockedController.putMyPaymentConfig.mockReset().mockImplementation(async (input) => ({
       bitcoinEnabled: input.bitcoinEnabled,
       stripePaymentLink: input.stripePaymentLink,
@@ -85,6 +125,11 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     mockedController.beginPaykitClaimFlow.mockReset().mockReturnValue({
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: () => new Promise<typeof VERIFIED_CLAIM_RESULT>(() => {}),
+      cancel: vi.fn(),
+    });
+    mockedController.beginPaykitClaimStatusFlow.mockReset().mockReturnValue({
+      authorizationUrl: 'https://auth.example/verify',
+      awaitStatus: () => new Promise<ReturnType<typeof matchingStatusOutcome>>(() => {}),
       cancel: vi.fn(),
     });
   });
@@ -112,6 +157,129 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     expect(saved).toBe(true);
     expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(
       expect.objectContaining({ bitcoinEnabled: false }),
+    );
+  });
+
+  it('P1-B negative: the public {claimed:true} boolean alone never opens the gate', async () => {
+    // The unauthenticated existence lookup says an account is registered —
+    // display-only. Without a verified claim the toggle stays off and the
+    // save payload cannot carry true.
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+    const { result } = await renderPaymentConfig();
+
+    expect(result.current.accountClaimed).toBe(true);
+    expect(result.current.canEnableBitcoin).toBe(false);
+    expect(result.current.bitcoinEnableBlockedReason).toBe(BITCOIN_ENABLE_BLOCKED_COPY.claim_unknown);
+
+    act(() => result.current.setBitcoinEnabled(true));
+    expect(result.current.bitcoinEnabled).toBe(false);
+
+    await act(async () => {
+      await result.current.save({ stripePaymentLink: '', stripeRestrictedKey: '', paypalMerchantEmail: '' });
+    });
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ bitcoinEnabled: false }),
+    );
+  });
+
+  it('P1-A regression: a pre-W1.8 stored config {bitcoinEnabled:true, no verifiedClaim} loads OFF and saves false', async () => {
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    const { result } = await renderPaymentConfig();
+
+    // The stored flag is a hint, never authority: with no verified claim on
+    // this device the toggle loads OFF.
+    expect(result.current.bitcoinEnabled).toBe(false);
+    expect(result.current.canEnableBitcoin).toBe(false);
+
+    await act(async () => {
+      await result.current.save({ stripePaymentLink: '', stripeRestrictedKey: '', paypalMerchantEmail: '' });
+    });
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ bitcoinEnabled: false }),
+    );
+  });
+
+  it('P1-A regression (cont.): a successful verification flips the stale config on and saves true', async () => {
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => VERIFIED_CLAIM_RESULT,
+      cancel: vi.fn(),
+    });
+    const { result } = await renderPaymentConfig();
+    expect(result.current.bitcoinEnabled).toBe(false);
+
+    act(() => result.current.setXpubInput(PASTED_ZPUB));
+    act(() => result.current.startClaim(PASTED_ZPUB));
+    await waitFor(() => expect(result.current.claimStatus).toBe('claimed'));
+
+    // The verified claim was recorded (session_claim source) and the gate opened.
+    expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ xpub: NORMALIZED_XPUB, source: 'session_claim' }),
+    );
+    expect(result.current.canEnableBitcoin).toBe(true);
+    act(() => result.current.setBitcoinEnabled(true));
+    expect(result.current.bitcoinEnabled).toBe(true);
+
+    await act(async () => {
+      await result.current.save({ stripePaymentLink: '', stripeRestrictedKey: '', paypalMerchantEmail: '' });
+    });
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ bitcoinEnabled: true }),
+    );
+  });
+
+  it('a stored bitcoinEnabled:true with a persisted verified claim loads ON and saves true', async () => {
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    mockedController.getMyVerifiedPaykitClaim.mockResolvedValue(storedClaimRecord());
+    const { result } = await renderPaymentConfig();
+
+    expect(result.current.canEnableBitcoin).toBe(true);
+    expect(result.current.bitcoinEnabled).toBe(true);
+    // The key text seeds from the verified claim so the seller sees the key it binds to.
+    expect(result.current.xpubInput).toBe(NORMALIZED_XPUB);
+
+    await act(async () => {
+      await result.current.save({ stripePaymentLink: '', stripeRestrictedKey: '', paypalMerchantEmail: '' });
+    });
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ bitcoinEnabled: true }),
+    );
+  });
+
+  it('a persisted claim whose stored xpub no longer normalizes to itself fails closed on load', async () => {
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    // A corrupted/non-canonical record: the claim restores only when the
+    // stored xpub normalizes to ITSELF on this network — an undecodable (or
+    // non-canonical, e.g. zpub-form) stored string restores nothing.
+    mockedController.getMyVerifiedPaykitClaim.mockResolvedValue({
+      ...storedClaimRecord(),
+      xpub: 'xpub-not-base58',
+    });
+    const { result } = await renderPaymentConfig();
+
+    expect(result.current.verifiedClaim).toBeNull();
+    expect(result.current.bitcoinEnabled).toBe(false);
+    expect(result.current.canEnableBitcoin).toBe(false);
+  });
+
+  it('the Stripe-removal path derives bitcoinEnabled from the gate too (no field passthrough)', async () => {
+    // Stored config has bitcoinEnabled:true and a stored Stripe key; with no
+    // verified claim the removal payload must carry false, not the stored flag.
+    mockedController.getMyPaymentConfig.mockResolvedValue({
+      ...EMPTY_CONFIG,
+      bitcoinEnabled: true,
+      stripePaymentLink: 'https://buy.stripe.com/test_abc',
+      stripeRestrictedKeySet: true,
+    });
+    const { result } = await renderPaymentConfig();
+    expect(result.current.bitcoinEnabled).toBe(false);
+
+    await act(async () => {
+      await result.current.clearStripeKey();
+    });
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ bitcoinEnabled: false, stripeRestrictedKey: '' }),
     );
   });
 
@@ -168,6 +336,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
     expect(result.current.canEnableBitcoin).toBe(false);
     expect(result.current.bitcoinEnabled).toBe(false);
+    expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
     act(() => result.current.setBitcoinEnabled(true));
     expect(result.current.bitcoinEnabled).toBe(false);
     await act(async () => {
@@ -178,12 +347,149 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     );
   });
 
-  it('a server-reported claim (Bitkit setup) opens the gate without a session claim', async () => {
-    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
-    const { result } = await renderPaymentConfig();
+  describe('account-index regression gate (P2)', () => {
+    it('an account-1 key claims with beginPaykitClaimFlow(normalizedXpub, 1)', async () => {
+      const { result } = await renderPaymentConfig();
 
-    expect(result.current.canEnableBitcoin).toBe(true);
-    act(() => result.current.setBitcoinEnabled(true));
-    expect(result.current.bitcoinEnabled).toBe(true);
+      act(() => result.current.setXpubInput(ZPUB_ACCOUNT_1));
+      act(() => result.current.startClaim(ZPUB_ACCOUNT_1));
+
+      expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
+      expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledWith(NORMALIZED_XPUB_1, 1);
+    });
+
+    it('an account-99 key claims with beginPaykitClaimFlow(normalizedXpub, 99)', async () => {
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(ZPUB_ACCOUNT_99));
+      act(() => result.current.startClaim(ZPUB_ACCOUNT_99));
+
+      expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
+      expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledWith(NORMALIZED_XPUB_99, 99);
+    });
+
+    it('an account-100 key is refused client-side BEFORE any POST with account_index_out_of_range', async () => {
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(ZPUB_ACCOUNT_100));
+      act(() => result.current.startClaim(ZPUB_ACCOUNT_100));
+
+      expect(mockedController.beginPaykitClaimFlow).not.toHaveBeenCalled();
+      expect(result.current.claimStatus).toBe('error');
+      expect(result.current.claimError).toBe(CLAIM_REJECTION_COPY.account_index_out_of_range);
+    });
+
+    it('the maximum hardened child (2^31 − 1) is refused client-side BEFORE any POST', async () => {
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(ZPUB_ACCOUNT_MAX_HARDENED));
+      act(() => result.current.startClaim(ZPUB_ACCOUNT_MAX_HARDENED));
+
+      expect(mockedController.beginPaykitClaimFlow).not.toHaveBeenCalled();
+      expect(result.current.claimStatus).toBe('error');
+      expect(result.current.claimError).toBe(CLAIM_REJECTION_COPY.account_index_out_of_range);
+    });
+  });
+
+  describe('Verify with Ring (authenticated status)', () => {
+    it('a 200 with a fingerprint matching the local key opens the gate and records authenticated_status', async () => {
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => matchingStatusOutcome(),
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(PASTED_ZPUB));
+      expect(result.current.canEnableBitcoin).toBe(false);
+
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('verified'));
+
+      expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
+        expect.objectContaining({ xpub: NORMALIZED_XPUB, source: 'authenticated_status' }),
+      );
+      expect(result.current.canEnableBitcoin).toBe(true);
+      act(() => result.current.setBitcoinEnabled(true));
+      expect(result.current.bitcoinEnabled).toBe(true);
+    });
+
+    it('a 200 with a mismatching fingerprint refuses with key_changed and records nothing', async () => {
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => matchingStatusOutcome(deriveBip84Account(MNEMONIC, 0, 7)),
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(PASTED_ZPUB));
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('error'));
+
+      expect(result.current.verifyError).toBe(BITCOIN_ENABLE_BLOCKED_COPY.key_changed);
+      expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
+      expect(result.current.canEnableBitcoin).toBe(false);
+      expect(result.current.bitcoinEnabled).toBe(false);
+    });
+
+    it('a refused status read (401/403/5xx/network/parse) shuts the gate with claim_unknown', async () => {
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => ({ ok: false as const, reason: 'refused' as const }),
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('error'));
+
+      expect(result.current.verifyError).toBe(BITCOIN_ENABLE_BLOCKED_COPY.claim_unknown);
+      expect(result.current.statusEndpointUnavailable).toBe(false);
+      expect(result.current.canEnableBitcoin).toBe(false);
+      expect(result.current.bitcoinEnabled).toBe(false);
+    });
+
+    it('a 404 shuts the gate and raises the not-available line', async () => {
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => ({ ok: false as const, reason: 'not_deployed' as const }),
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('error'));
+
+      expect(result.current.statusEndpointUnavailable).toBe(true);
+      expect(result.current.verifyError).toBe(BITCOIN_ENABLE_BLOCKED_COPY.claim_unknown);
+      expect(result.current.canEnableBitcoin).toBe(false);
+    });
+
+    it('with no local key the server fingerprint and first address are recorded as the identity being enabled', async () => {
+      const serverAccount = deriveBip84Account(MNEMONIC, 0, 7);
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => matchingStatusOutcome(serverAccount),
+        cancel: vi.fn(),
+      });
+      const { result } = await renderPaymentConfig();
+
+      // No key text, no persisted claim: the Bitkit-set-up seller case.
+      expect(result.current.xpubInput).toBe('');
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('verified'));
+
+      expect(result.current.verifiedClaim).toMatchObject({
+        xpub: null,
+        keyFingerprintHex: accountKeyFingerprint(serverAccount.payload),
+        firstDerivedAddress: deriveBip84P2wpkhAddress(serverAccount.payload, 'mainnet', 0),
+        source: 'authenticated_status',
+      });
+      expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
+        expect.objectContaining({ xpub: null, source: 'authenticated_status' }),
+      );
+      // The identity was just shown to the seller: the gate opens for it.
+      expect(result.current.canEnableBitcoin).toBe(true);
+    });
   });
 });

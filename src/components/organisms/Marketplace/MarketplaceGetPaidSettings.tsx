@@ -29,6 +29,7 @@ import { getBitcoinNetwork, getLocksUrl } from '@/config/commerce';
 import {
   CLAIM_DISCLOSURE_SENTENCE,
   CLAIM_REJECTION_COPY,
+  CLAIM_STATUS_NOT_DEPLOYED_LINE,
   useMarketplaceSellerPaymentConfig,
 } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
 import {
@@ -137,6 +138,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   const [stripeRestrictedKey, setStripeRestrictedKey] = useState('');
   const [paypalMerchantEmail, setPaypalMerchantEmail] = useState('');
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
   const [fileImportError, setFileImportError] = useState<string | null>(null);
   const accountKeyFileRef = useRef<HTMLInputElement>(null);
 
@@ -150,6 +152,10 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
     if (payments.claimStatus === 'claimed') setClaimDialogOpen(false);
   }, [payments.claimStatus]);
 
+  useEffect(() => {
+    if (payments.verifyStatus === 'verified') setVerifyDialogOpen(false);
+  }, [payments.verifyStatus]);
+
   const onSave = async () => {
     const saved = await payments.save({ stripePaymentLink, stripeRestrictedKey, paypalMerchantEmail });
     if (saved) setStripeRestrictedKey('');
@@ -158,6 +164,16 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   const onStartClaim = () => {
     setClaimDialogOpen(true);
     payments.startClaim(payments.xpubInput);
+  };
+
+  const onVerifyWithRing = () => {
+    setVerifyDialogOpen(true);
+    payments.verifyWithRing();
+  };
+
+  const onCloseVerifyDialog = (open: boolean) => {
+    setVerifyDialogOpen(open);
+    if (!open) payments.cancelVerify();
   };
 
   /**
@@ -197,15 +213,18 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
     if (!open) payments.cancelClaim();
   };
 
-  const copyClaimUrl = async () => {
+  const copyAuthorizationUrl = async (url: string) => {
     try {
-      await copyToClipboard({ text: payments.claimAuthorizationUrl });
+      await copyToClipboard({ text: url });
       toast({ variant: 'info', title: 'Authorization link copied' });
     } catch (error) {
-      Logger.error('Failed to copy the claim authorization link', { error });
+      Logger.error('Failed to copy the authorization link', { error });
       toast({ variant: 'error', description: 'Could not copy to clipboard' });
     }
   };
+
+  const copyClaimUrl = () => copyAuthorizationUrl(payments.claimAuthorizationUrl);
+  const copyVerifyUrl = () => copyAuthorizationUrl(payments.verifyAuthorizationUrl);
 
   const saveButton = (
     <Button className="w-fit rounded-full" disabled={payments.isSaving} onClick={() => void onSave()}>
@@ -441,6 +460,24 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
 
         {renderStoredRailBody(
           <>
+            {payments.verifiedClaim?.source === 'authenticated_status' && (
+              <div
+                className="grid gap-1 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+                data-testid="verified-account-identity"
+              >
+                <Typography as="p">
+                  Verified with Ring — enable bitcoin only if this is the watch-only account you claimed:
+                </Typography>
+                <Typography as="p" className="text-muted-foreground">
+                  Key fingerprint:{' '}
+                  <code className="break-all font-mono text-xs">{payments.verifiedClaim.keyFingerprintHex}</code>
+                </Typography>
+                <Typography as="p" className="text-muted-foreground">
+                  First receiving address:{' '}
+                  <code className="break-all font-mono text-xs">{payments.verifiedClaim.firstDerivedAddress}</code>
+                </Typography>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-4 rounded-xl border p-4">
               <div>
                 <Label htmlFor="get-paid-bitcoin" className="font-medium">
@@ -453,6 +490,21 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
                   <Typography as="p" className="mt-1 text-sm text-amber-300" data-testid="bitcoin-enable-blocked-reason">
                     {payments.bitcoinEnableBlockedReason}
                   </Typography>
+                )}
+                {payments.statusEndpointUnavailable && (
+                  <Typography as="p" className="mt-1 text-sm text-amber-300" data-testid="claim-status-not-deployed">
+                    {CLAIM_STATUS_NOT_DEPLOYED_LINE}
+                  </Typography>
+                )}
+                {!payments.canEnableBitcoin && payments.accountClaimed !== false && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2 rounded-full"
+                    onClick={onVerifyWithRing}
+                  >
+                    Verify with Ring
+                  </Button>
                 )}
               </div>
               <Switch
@@ -635,6 +687,87 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
           )}
           <DialogFooter>
             <Button variant="secondary" className="rounded-full" onClick={() => onCloseClaimDialog(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={verifyDialogOpen} onOpenChange={onCloseVerifyDialog}>
+        <DialogContent className="border-border bg-popover">
+          <DialogHeader>
+            <DialogTitle>Verify watch-only account with Ring</DialogTitle>
+          </DialogHeader>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            Approving on your signer proves this identity owns the claimed watch-only account — Shop then reads your
+            account status from the Paykit server with that approval. The approval is scoped to the Paykit receiver
+            path and grants nothing else.
+          </Typography>
+          {payments.verifyStatus === 'error' ? (
+            <div className="grid gap-3">
+              <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
+                {payments.verifyError}
+                {payments.statusEndpointUnavailable && (
+                  <Typography as="p" className="mt-2 text-amber-300">
+                    {CLAIM_STATUS_NOT_DEPLOYED_LINE}
+                  </Typography>
+                )}
+              </div>
+              <Button className="w-fit rounded-full" onClick={onVerifyWithRing}>
+                <RefreshCw className="mr-2 size-4" />
+                Try again
+              </Button>
+            </div>
+          ) : (
+            <div className="grid justify-items-center gap-4">
+              <button
+                type="button"
+                className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
+                onClick={() => void copyVerifyUrl()}
+                disabled={!payments.verifyAuthorizationUrl}
+                aria-label="Copy verification link"
+              >
+                <QrCodeSlot
+                  isLoading={payments.verifyStatus !== 'awaiting'}
+                  isExpired={false}
+                  url={payments.verifyAuthorizationUrl}
+                  generatingLabel="Generating QR Code..."
+                  clickToReloadLabel="Click to reload"
+                  activeQrHasHoverEffect
+                />
+              </button>
+              {payments.verifyStatus === 'awaiting' && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+                  <Loader2 className="size-4 animate-spin" />
+                  Waiting for approval on your signer…
+                </div>
+              )}
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  variant="secondary"
+                  className="rounded-full"
+                  onClick={() => {
+                    window.location.href = payments.verifyAuthorizationUrl;
+                  }}
+                  disabled={!payments.verifyAuthorizationUrl}
+                >
+                  <Smartphone className="mr-2 size-4" />
+                  Open in Pubky Ring
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="rounded-full"
+                  onClick={() => void copyVerifyUrl()}
+                  disabled={!payments.verifyAuthorizationUrl}
+                >
+                  <Copy className="mr-2 size-4" />
+                  Copy link
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" className="rounded-full" onClick={() => onCloseVerifyDialog(false)}>
               Cancel
             </Button>
           </DialogFooter>

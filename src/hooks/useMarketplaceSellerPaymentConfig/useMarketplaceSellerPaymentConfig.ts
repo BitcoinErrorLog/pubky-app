@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getBitcoinNetwork } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   accountIndexFromBytes,
+  accountKeyFingerprint,
   type ClaimVerificationRejectionReason,
   deriveBip84P2wpkhAddress,
+  MAX_ACCOUNT_INDEX,
   verifyClaimedAccount,
 } from '@/libs/commerce/bip84-preview';
 import {
@@ -16,6 +18,8 @@ import {
   normalizeAccountXpub,
   parseBitcoinNetwork,
   type SellerPaymentConfigOwnView,
+  type VerifiedPaykitClaim,
+  verifiedPaykitClaimSchema,
 } from '@/libs/commerce/payment-methods';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
@@ -23,7 +27,11 @@ import { toast } from '@/molecules/Toaster/use-toast';
 
 type ClaimStatus = 'idle' | 'awaiting' | 'claimed' | 'error';
 
+type VerifyStatus = 'idle' | 'awaiting' | 'verified' | 'error';
+
 type ClaimFlow = ReturnType<typeof CommerceController.beginPaykitClaimFlow>;
+
+type ClaimStatusFlow = ReturnType<typeof CommerceController.beginPaykitClaimStatusFlow>;
 
 /** The watched account as the verified claim response reported it. */
 export interface WatchedAccount {
@@ -36,7 +44,7 @@ export interface WatchedAccount {
  * Static seller-facing copy for each named xpub rejection. Never interpolate
  * the pasted key into these strings (or anywhere else in the claim UI).
  */
-export const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason, string> = {
+export const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason | 'account_index_out_of_range', string> = {
   bitcoin_network_unconfigured:
     'This deployment has no Bitcoin network configured, so a watch-only account cannot be claimed. Contact the operator.',
   not_base58check: 'That does not look like an account xpub. Export the BIP84 account key from your wallet.',
@@ -56,6 +64,9 @@ export const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason, string> = 
   invalid_public_key: 'That key carries an invalid public key. Export the BIP84 account xpub from your wallet again.',
   deny_listed_key:
     'That key is a publicly known test key — anyone can spend from it. Export your own account key from your wallet.',
+  // The same identifier the server uses for its 0–99 bound; refused
+  // client-side before anything is POSTed.
+  account_index_out_of_range: 'This account index is outside the range Shop accepts (0–99).',
 };
 
 /**
@@ -92,22 +103,35 @@ export const BITCOIN_ENABLE_BLOCKED_COPY = {
     'Bitcoin can only be enabled after a watch-only account claim is verified — claim with the signer below, or through Bitkit.',
   key_changed:
     'The account key changed, so the verified claim no longer matches it. Claim this key before enabling bitcoin.',
-  claim_unknown: 'Shop could not confirm your watch-only account right now, so bitcoin cannot be enabled.',
+  claim_unknown:
+    'Shop could not confirm your watch-only account, so bitcoin cannot be enabled. Verify with Ring to confirm the claim, or claim the account again.',
 } as const;
 
 /**
+ * The extra static line shown when the authenticated status read 404s: the
+ * deployed paykit-server predates W1.13 (or nothing is claimed). The gate
+ * fails closed identically either way.
+ */
+export const CLAIM_STATUS_NOT_DEPLOYED_LINE = 'Bitcoin account status is not available from this server yet.';
+
+/**
  * The seller's "Get paid" configuration: stored rails (loaded from the
- * durable service), the save action, and the manual watch-only claim flow.
- * Claim state (`accountClaimed`) is read from paykit-server, so it reflects
- * the Bitkit-driven setup and the manual claim alike.
+ * durable service), the save action, the manual watch-only claim flow, and
+ * the Ring-approved status verification.
  *
  * The `bitcoinEnabled` invariant lives HERE, not in any component (F1):
- * the toggle state can only turn on while a verified claim exists — a claim
- * whose fingerprint, first address, and stack id all matched the normalized
- * bytes this session (`verifiedClaim`), or a claim paykit-server already
- * reports for this identity. Editing the key text or importing a different
- * file breaks the match and forces the toggle back off, so a second surface
- * using this hook cannot bypass the claim gate.
+ * the toggle can only turn on while a verified claim exists — recorded in
+ * the seller's local payment-config record (Dexie) by one of exactly two
+ * paths: a session claim whose response verified against the exact
+ * normalized bytes POSTed (`session_claim`), or the authenticated
+ * `GET /v0/accounts/{creator}/status` read approved in Ring
+ * (`authenticated_status`). The stored `bitcoinEnabled` flag is a hint,
+ * never authority: on load the toggle is `stored && verified claim exists
+ * && the claim's xpub still normalizes to itself` — a pre-W1.8 config saved
+ * with the flag set loads OFF. The public `{claimed}` existence boolean is
+ * display-only and never opens the gate (Terra P1). Editing the key text or
+ * importing a different file breaks the match and forces the toggle off, so
+ * a second surface using this hook cannot bypass the claim gate.
  */
 export function useMarketplaceSellerPaymentConfig() {
   const [isLoading, setIsLoading] = useState(true);
@@ -121,27 +145,49 @@ export function useMarketplaceSellerPaymentConfig() {
   const [claimError, setClaimError] = useState<string | null>(null);
   /** Preview address at 0/0 derived from the exact normalized bytes being POSTed. */
   const [claimPreviewAddress, setClaimPreviewAddress] = useState<string | null>(null);
-  /** The verified claim (this session only), bound to the normalized xpub it verified. */
-  const [verifiedClaim, setVerifiedClaim] = useState<{ xpub: string; account: WatchedAccount } | null>(null);
+  /**
+   * The verified claim — the gate state. Mirrors the seller's local
+   * payment-config record (Dexie), written only by the two verification
+   * paths; `null` until a verification completes on this device.
+   */
+  const [verifiedClaim, setVerifiedClaim] = useState<VerifiedPaykitClaim | null>(null);
+  /** Session-claim watch details (display only; the status read has no child index). */
+  const [watchedAccount, setWatchedAccount] = useState<WatchedAccount | null>(null);
   /** The account-key text the claim flow and the enable gate both read. */
   const [xpubInput, setXpubInput] = useState('');
+
+  const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle');
+  const [verifyAuthorizationUrl, setVerifyAuthorizationUrl] = useState('');
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  /** The status read 404'd: the deployed server predates W1.13 (or nothing is claimed). */
+  const [statusEndpointUnavailable, setStatusEndpointUnavailable] = useState(false);
   /**
    * The Accept-bitcoin toggle. Owned by the hook so the claim gate below is
-   * the ONLY way it turns on within a session (a stored `true` loads from
-   * the saved config, which was itself gated when it was saved).
+   * the ONLY way it turns on.
    */
   const [bitcoinEnabled, setBitcoinEnabledState] = useState(false);
   const activeClaimRef = useRef<ClaimFlow | null>(null);
+  const activeVerifyRef = useRef<ClaimStatusFlow | null>(null);
 
-  // The enable gate: once a claim verified this session, the toggle is only
-  // available while the CURRENT key text still normalizes to the claimed
-  // xpub; with no session claim, a server-reported claim (Bitkit setup or an
-  // earlier session) gates it. Unknown claim state never enables.
+  // The enable gate: the toggle is available only while a verified claim
+  // exists AND the current key text still binds to it. A claim recorded
+  // with an xpub requires the key text to normalize to exactly that xpub; a
+  // claim recorded without one (Ring-verified status read, Bitkit setup)
+  // stands until a DIFFERENT valid key is entered — one whose fingerprint
+  // disagrees with the record. The public `{claimed}` boolean never opens
+  // this gate.
   const network = parseBitcoinNetwork(getBitcoinNetwork());
   const normalizedInput = xpubInput.trim() ? normalizeAccountXpub(xpubInput, network) : null;
   const verifiedClaimMatchesKey =
-    verifiedClaim !== null && normalizedInput !== null && normalizedInput.ok && normalizedInput.xpub === verifiedClaim.xpub;
-  const canEnableBitcoin = verifiedClaim ? verifiedClaimMatchesKey : accountClaimed === true;
+    verifiedClaim !== null &&
+    (verifiedClaim.xpub !== null
+      ? normalizedInput !== null && normalizedInput.ok && normalizedInput.xpub === verifiedClaim.xpub
+      : !(
+          normalizedInput !== null &&
+          normalizedInput.ok &&
+          accountKeyFingerprint(normalizedInput.bytes) !== verifiedClaim.keyFingerprintHex
+        ));
+  const canEnableBitcoin = verifiedClaimMatchesKey;
   const bitcoinEnableBlockedReason = canEnableBitcoin
     ? null
     : verifiedClaim
@@ -165,14 +211,46 @@ export function useMarketplaceSellerPaymentConfig() {
     const load = async () => {
       setIsLoading(true);
       setLoadError(null);
-      const [configResult, claimedResult] = await Promise.allSettled([
+      const [configResult, claimedResult, storedClaimResult] = await Promise.allSettled([
         CommerceController.getMyPaymentConfig(),
         CommerceController.isOwnPaykitAccountClaimed(),
+        CommerceController.getMyVerifiedPaykitClaim(),
       ]);
       if (!active) return;
+      // Fail closed on load: a stored claim restores only when it parses AND
+      // its xpub still normalizes to itself on this network. A claim
+      // recorded without an xpub (Ring-verified status read with no local
+      // key) is session-scoped — after a reload the seller re-verifies.
+      let restoredClaim: VerifiedPaykitClaim | null = null;
+      if (storedClaimResult.status === 'fulfilled' && storedClaimResult.value) {
+        const record = storedClaimResult.value;
+        const parsed = verifiedPaykitClaimSchema.safeParse({
+          xpub: record.xpub,
+          keyFingerprintHex: record.key_fingerprint_hex,
+          accountIndex: record.account_index,
+          firstDerivedAddress: record.first_derived_address,
+          verifiedAt: record.verified_at,
+          source: record.source,
+        });
+        if (parsed.success && parsed.data.xpub) {
+          const normalized = normalizeAccountXpub(parsed.data.xpub, parseBitcoinNetwork(getBitcoinNetwork()));
+          if (normalized.ok && normalized.xpub === parsed.data.xpub) restoredClaim = parsed.data;
+        }
+      }
+      setVerifiedClaim(restoredClaim);
+      // The key text seeds from the restored claim so the seller sees (and
+      // can edit, breaking the match) the exact key the claim verified.
+      if (restoredClaim?.xpub) {
+        const xpub = restoredClaim.xpub;
+        setXpubInput((current) => (current.trim() ? current : xpub));
+      }
       if (configResult.status === 'fulfilled') {
         setConfig(configResult.value);
-        setBitcoinEnabledState(configResult.value?.bitcoinEnabled ?? false);
+        // The effective flag: `stored && verified claim exists && the
+        // claim's xpub normalizes to itself` (restoredClaim is exactly that
+        // conjunction). A pre-W1.8 config saved `true` with no verified
+        // claim loads OFF and re-saves `false`.
+        setBitcoinEnabledState((configResult.value?.bitcoinEnabled ?? false) && restoredClaim !== null);
       } else {
         Logger.error('Failed to load the payment configuration', { error: configResult.reason });
         setLoadError(getErrorMessage(configResult.reason));
@@ -188,66 +266,78 @@ export function useMarketplaceSellerPaymentConfig() {
     };
   }, []);
 
-  const save = useCallback(
-    async (input: {
-      stripePaymentLink: string;
-      stripeRestrictedKey: string;
-      paypalMerchantEmail: string;
-    }): Promise<boolean> => {
-      const stripePaymentLink = input.stripePaymentLink.trim();
-      const paypalMerchantEmail = input.paypalMerchantEmail.trim();
-      const stripeRestrictedKey = input.stripeRestrictedKey.trim();
-      if (stripePaymentLink && !isStripePaymentLink(stripePaymentLink)) {
-        toast({
-          title: 'Invalid Stripe payment link',
-          description: 'Paste the https://buy.stripe.com/… link from your Stripe dashboard.',
-        });
-        return false;
-      }
-      if (stripeRestrictedKey && !isStripeRestrictedKey(stripeRestrictedKey)) {
-        toast({
-          title: 'Invalid Stripe key',
-          description:
-            'Paste a restricted key (rk_…) with read access to Checkout Sessions. Secret keys (sk_…) are refused and should never leave your Stripe account.',
-        });
-        return false;
-      }
-      setIsSaving(true);
-      try {
-        const saved = await CommerceController.putMyPaymentConfig({
-          // The hook's gated state, never a caller-supplied value: the
-          // payload cannot carry `bitcoinEnabled: true` past the claim gate.
-          bitcoinEnabled,
+  /**
+   * The single writer of the `bitcoinEnabled` payload field: derived from
+   * the gate at save time, never from the stored config or a caller
+   * argument. `save` and `clearStripeKey` both build through this — no
+   * other writer of the field may exist.
+   */
+  const buildPaymentConfigPayload = (rails: {
+    stripePaymentLink: string | null;
+    stripeRestrictedKey?: string;
+    paypalMerchantEmail: string | null;
+  }) => ({
+    ...rails,
+    bitcoinEnabled: bitcoinEnabled && canEnableBitcoin,
+  });
+
+  const save = async (input: {
+    stripePaymentLink: string;
+    stripeRestrictedKey: string;
+    paypalMerchantEmail: string;
+  }): Promise<boolean> => {
+    const stripePaymentLink = input.stripePaymentLink.trim();
+    const paypalMerchantEmail = input.paypalMerchantEmail.trim();
+    const stripeRestrictedKey = input.stripeRestrictedKey.trim();
+    if (stripePaymentLink && !isStripePaymentLink(stripePaymentLink)) {
+      toast({
+        title: 'Invalid Stripe payment link',
+        description: 'Paste the https://buy.stripe.com/… link from your Stripe dashboard.',
+      });
+      return false;
+    }
+    if (stripeRestrictedKey && !isStripeRestrictedKey(stripeRestrictedKey)) {
+      toast({
+        title: 'Invalid Stripe key',
+        description:
+          'Paste a restricted key (rk_…) with read access to Checkout Sessions. Secret keys (sk_…) are refused and should never leave your Stripe account.',
+      });
+      return false;
+    }
+    setIsSaving(true);
+    try {
+      const saved = await CommerceController.putMyPaymentConfig(
+        buildPaymentConfigPayload({
           stripePaymentLink: stripePaymentLink || null,
           // Omit to preserve the stored key; the empty string clears it only
           // when a key exists to clear (an explicit user action in the form).
           ...(stripeRestrictedKey ? { stripeRestrictedKey } : {}),
           paypalMerchantEmail: paypalMerchantEmail || null,
-        });
-        setConfig(saved);
-        toast({ title: 'Payment settings saved' });
-        return true;
-      } catch (error) {
-        Logger.error('Failed to save the payment configuration', { error });
-        toast({ title: 'Saving payment settings failed', description: getErrorMessage(error) });
-        return false;
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [bitcoinEnabled],
-  );
+        }),
+      );
+      setConfig(saved);
+      toast({ title: 'Payment settings saved' });
+      return true;
+    } catch (error) {
+      Logger.error('Failed to save the payment configuration', { error });
+      toast({ title: 'Saving payment settings failed', description: getErrorMessage(error) });
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-  const clearStripeKey = useCallback(async (): Promise<boolean> => {
+  const clearStripeKey = async (): Promise<boolean> => {
     if (!config) return false;
     setIsSaving(true);
     try {
-      const saved = await CommerceController.putMyPaymentConfig({
-        bitcoinEnabled: config.bitcoinEnabled,
-        stripePaymentLink: config.stripePaymentLink,
-        stripeRestrictedKey: '',
-        paypalMerchantEmail: config.paypalMerchantEmail,
-      });
+      const saved = await CommerceController.putMyPaymentConfig(
+        buildPaymentConfigPayload({
+          stripePaymentLink: config.stripePaymentLink,
+          stripeRestrictedKey: '',
+          paypalMerchantEmail: config.paypalMerchantEmail,
+        }),
+      );
       setConfig(saved);
       toast({ title: 'Stripe key removed' });
       return true;
@@ -258,9 +348,9 @@ export function useMarketplaceSellerPaymentConfig() {
     } finally {
       setIsSaving(false);
     }
-  }, [config]);
+  };
 
-  const cancelClaim = useCallback(() => {
+  const cancelClaim = () => {
     const flow = activeClaimRef.current;
     activeClaimRef.current = null;
     if (flow) flow.cancel();
@@ -268,9 +358,16 @@ export function useMarketplaceSellerPaymentConfig() {
     setClaimAuthorizationUrl('');
     setClaimError(null);
     setClaimPreviewAddress(null);
-  }, []);
+  };
 
-  const startClaim = useCallback((accountXpub: string) => {
+  /** Persists the gate state; only the two verification paths call this. */
+  const persistVerifiedClaim = (claim: VerifiedPaykitClaim) => {
+    CommerceController.commitSaveVerifiedPaykitClaim(claim).catch((error: unknown) => {
+      Logger.error('Failed to persist the verified watch-only claim', { error });
+    });
+  };
+
+  const startClaim = (accountXpub: string) => {
     // Validate against the configured network and normalize (zpub→xpub /
     // vpub→tpub) BEFORE anything is sent: the claim submits the normalized
     // xpub, never the raw paste. Unset/unrecognised network refuses the claim.
@@ -281,15 +378,24 @@ export function useMarketplaceSellerPaymentConfig() {
       setClaimStatus('error');
       return;
     }
+
+    // The account index the key itself declares: the hardened child number
+    // at offset 9..13 of the normalized 78 bytes, hardened bit cleared (the
+    // hardened structure check already ran inside normalizeAccountXpub).
+    // The server's 0–99 bound is enforced here BEFORE anything is POSTed,
+    // under the same `account_index_out_of_range` identifier.
+    const accountIndex = accountIndexFromBytes(normalized.bytes);
+    if (accountIndex > MAX_ACCOUNT_INDEX) {
+      setClaimError(CLAIM_REJECTION_COPY.account_index_out_of_range);
+      setClaimStatus('error');
+      return;
+    }
+
     const previous = activeClaimRef.current;
     activeClaimRef.current = null;
     if (previous) previous.cancel();
     setClaimError(null);
 
-    // The account index the key itself declares: the hardened child number
-    // at offset 9..13 of the normalized 78 bytes, hardened bit cleared (the
-    // hardened structure check already ran inside normalizeAccountXpub).
-    const accountIndex = accountIndexFromBytes(normalized.bytes);
     let flow: ClaimFlow;
     try {
       flow = CommerceController.beginPaykitClaimFlow(normalized.xpub, accountIndex);
@@ -330,14 +436,21 @@ export function useMarketplaceSellerPaymentConfig() {
         // The verified claim is bound to the exact normalized xpub: editing
         // the key text or importing a different file breaks this match and
         // the enable gate closes (see verifiedClaimMatchesKey above).
-        setVerifiedClaim({
+        const verified: VerifiedPaykitClaim = {
           xpub: normalized.xpub,
-          account: {
-            accountIndex: result.accountIndex,
-            firstDerivedAddress: result.firstDerivedAddress!,
-            nextChildIndex: result.nextChildIndex!,
-          },
+          keyFingerprintHex: result.keyFingerprint!,
+          accountIndex: result.accountIndex,
+          firstDerivedAddress: result.firstDerivedAddress!,
+          verifiedAt: Date.now(),
+          source: 'session_claim',
+        };
+        setVerifiedClaim(verified);
+        setWatchedAccount({
+          accountIndex: result.accountIndex,
+          firstDerivedAddress: result.firstDerivedAddress!,
+          nextChildIndex: result.nextChildIndex!,
         });
+        persistVerifiedClaim(verified);
         setClaimStatus('claimed');
         setAccountClaimed(true);
         toast({ title: 'Watch-only account claimed', description: 'Bitcoin payment requests now use this account.' });
@@ -350,13 +463,118 @@ export function useMarketplaceSellerPaymentConfig() {
         setClaimError(getErrorMessage(error));
         setClaimStatus('error');
       });
-  }, []);
+  };
+
+  const cancelVerify = () => {
+    const flow = activeVerifyRef.current;
+    activeVerifyRef.current = null;
+    if (flow) flow.cancel();
+    setVerifyStatus('idle');
+    setVerifyAuthorizationUrl('');
+    setVerifyError(null);
+    setStatusEndpointUnavailable(false);
+  };
+
+  /**
+   * "Verify with Ring" (design §B.8.6): the seller approves the exact claim
+   * capability grant on their signer, and the token authenticates one
+   * `GET /v0/accounts/{creator}/status` read. A 200 binds the claim to THIS
+   * session and THIS identity — the second of the two paths allowed to
+   * record a verified claim. With a local key the server's
+   * `key_fingerprint` MUST match it (mismatch → refuse, record nothing);
+   * without one (a Bitkit-set-up seller) the server's fingerprint and first
+   * address are recorded and shown as the identity being enabled (§B.6).
+   */
+  const verifyWithRing = () => {
+    const previous = activeVerifyRef.current;
+    activeVerifyRef.current = null;
+    if (previous) previous.cancel();
+    setVerifyError(null);
+    setStatusEndpointUnavailable(false);
+
+    let flow: ClaimStatusFlow;
+    try {
+      flow = CommerceController.beginPaykitClaimStatusFlow();
+    } catch (error) {
+      Logger.error('Failed to start the Ring verification flow', { error });
+      setVerifyError(getErrorMessage(error));
+      setVerifyStatus('error');
+      return;
+    }
+    activeVerifyRef.current = flow;
+    setVerifyAuthorizationUrl(flow.authorizationUrl);
+    setVerifyStatus('awaiting');
+
+    flow
+      .awaitStatus()
+      .then((outcome) => {
+        if (activeVerifyRef.current !== flow) return;
+        activeVerifyRef.current = null;
+        setVerifyAuthorizationUrl('');
+        if (!outcome.ok) {
+          // Fail closed on 401/403/5xx/network/parse — and on 404, which
+          // means the deployed server predates W1.13 (or nothing is
+          // claimed): the gate stays shut either way, with the extra
+          // not-available line on the 404.
+          if (outcome.reason === 'not_deployed') setStatusEndpointUnavailable(true);
+          setVerifyError(BITCOIN_ENABLE_BLOCKED_COPY.claim_unknown);
+          setVerifyStatus('error');
+          setBitcoinEnabledState(false);
+          return;
+        }
+        const status = outcome.status;
+        // The local key the server fingerprint must agree with: the current
+        // key text first, then the persisted claim's xpub.
+        const localKey =
+          normalizedInput?.ok === true
+            ? normalizedInput
+            : verifiedClaim?.xpub
+              ? normalizeAccountXpub(verifiedClaim.xpub, network)
+              : null;
+        if (localKey?.ok && accountKeyFingerprint(localKey.bytes) !== status.keyFingerprint) {
+          setVerifyError(BITCOIN_ENABLE_BLOCKED_COPY.key_changed);
+          setVerifyStatus('error');
+          // Do NOT record: the server watches a different key than the one
+          // this seller is looking at.
+          setBitcoinEnabledState(false);
+          return;
+        }
+        const verified: VerifiedPaykitClaim = {
+          xpub: localKey?.ok ? localKey.xpub : null,
+          keyFingerprintHex: status.keyFingerprint,
+          accountIndex: localKey?.ok ? accountIndexFromBytes(localKey.bytes) : null,
+          firstDerivedAddress: status.firstDerivedAddress,
+          verifiedAt: Date.now(),
+          source: 'authenticated_status',
+        };
+        setVerifiedClaim(verified);
+        if (verified.xpub) {
+          const xpub = verified.xpub;
+          setXpubInput((current) => (current.trim() ? current : xpub));
+        }
+        persistVerifiedClaim(verified);
+        setAccountClaimed(true);
+        setVerifyStatus('verified');
+        toast({ title: 'Watch-only account verified', description: 'The claim is confirmed for this identity.' });
+      })
+      .catch((error: unknown) => {
+        if (activeVerifyRef.current !== flow) return;
+        activeVerifyRef.current = null;
+        Logger.error('Ring verification failed', { error });
+        setVerifyAuthorizationUrl('');
+        setVerifyError(getErrorMessage(error));
+        setVerifyStatus('error');
+      });
+  };
 
   useEffect(() => {
     return () => {
-      const flow = activeClaimRef.current;
+      const claimFlow = activeClaimRef.current;
       activeClaimRef.current = null;
-      if (flow) flow.cancel();
+      if (claimFlow) claimFlow.cancel();
+      const verifyFlow = activeVerifyRef.current;
+      activeVerifyRef.current = null;
+      if (verifyFlow) verifyFlow.cancel();
     };
   }, []);
 
@@ -372,7 +590,8 @@ export function useMarketplaceSellerPaymentConfig() {
     claimAuthorizationUrl,
     claimError,
     claimPreviewAddress,
-    watchedAccount: verifiedClaim?.account ?? null,
+    watchedAccount,
+    verifiedClaim,
     bitcoinEnabled,
     setBitcoinEnabled,
     canEnableBitcoin,
@@ -381,5 +600,11 @@ export function useMarketplaceSellerPaymentConfig() {
     setXpubInput,
     startClaim,
     cancelClaim,
+    verifyStatus,
+    verifyAuthorizationUrl,
+    verifyError,
+    statusEndpointUnavailable,
+    verifyWithRing,
+    cancelVerify,
   };
 }

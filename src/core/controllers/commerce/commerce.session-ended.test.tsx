@@ -58,6 +58,7 @@ vi.mock('@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentCo
       claimError: null,
       claimPreviewAddress: null,
       watchedAccount: null,
+      verifiedClaim: null,
       bitcoinEnabled: false,
       setBitcoinEnabled: vi.fn(),
       canEnableBitcoin: false,
@@ -68,6 +69,12 @@ vi.mock('@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentCo
       clearStripeKey: vi.fn(),
       startClaim: vi.fn(),
       cancelClaim: vi.fn(),
+      verifyStatus: 'idle',
+      verifyAuthorizationUrl: '',
+      verifyError: null,
+      statusEndpointUnavailable: false,
+      verifyWithRing: vi.fn(),
+      cancelVerify: vi.fn(),
     }),
   };
 });

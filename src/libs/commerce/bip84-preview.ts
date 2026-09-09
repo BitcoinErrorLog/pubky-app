@@ -185,7 +185,7 @@ export type ClaimVerificationRejectionReason =
 export type ClaimVerification = { ok: true } | { ok: false; reason: ClaimVerificationRejectionReason };
 
 /** The server's documented account-index bound (design §B.6: 0–99). */
-const MAX_ACCOUNT_INDEX = 99;
+export const MAX_ACCOUNT_INDEX = 99;
 
 /**
  * The confirmation gate: refuse to enable `bitcoinEnabled` unless the
