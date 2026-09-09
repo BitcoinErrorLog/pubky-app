@@ -12,6 +12,19 @@ describe('PubchiCapabilities', () => {
     expect(onSelect).toHaveBeenCalledWith('Who are the most followed users on Pubky?', 'ask');
   });
 
+  it('wraps every compact quick question without a horizontal scroll container', () => {
+    render(<PubchiCapabilities compact tier="read-only" onSelect={() => {}} onBuildFeed={() => {}} />);
+
+    expect(screen.getByRole('button', { name: 'Who tagged me?' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Most followed users' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Active threads' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Trending tags' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Who should I follow?' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Quiet follows' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Build feed' })).toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-capabilities-compact').querySelector('.overflow-x-auto')).toBeNull();
+  });
+
   it('renders autonomous capabilities as disabled-looking non-controls', () => {
     render(<PubchiCapabilities tier="read-only" onSelect={() => {}} onBuildFeed={() => {}} />);
 

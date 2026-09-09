@@ -20,6 +20,15 @@ describe('PubchiTierPanel', () => {
     expect(screen.getByText(defaultProps.autonomousDisabledReason)).toBeInTheDocument();
   });
 
+  it('describes the current assisted capabilities truthfully', () => {
+    render(<PubchiTierPanel {...defaultProps} />);
+
+    expect(screen.getByText('Answers and proposes; you approve.')).toBeInTheDocument();
+    expect(screen.getByText('Answers questions about your graph and proposes feeds you approve.')).toBeInTheDocument();
+    expect(screen.getByText('Act unattended; nothing is published without you.')).toBeInTheDocument();
+    expect(screen.queryByText('Drafts posts, tags, and feed changes you approve.')).not.toBeInTheDocument();
+  });
+
   it('shows the effective-tier alert when the effective tier is lower', () => {
     render(<PubchiTierPanel {...defaultProps} effectiveTier="read-only" effectiveReason="Session lacks /pub/pubchi.app/:rw" />);
 

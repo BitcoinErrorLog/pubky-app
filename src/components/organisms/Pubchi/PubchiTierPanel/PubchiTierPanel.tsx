@@ -30,9 +30,9 @@ const tierDetails: Record<PubchiTier, { label: string; description: string; can:
   },
   assisted: {
     label: 'Assisted',
-    description: 'Prepare changes for you to review.',
-    can: 'Drafts posts, tags, and feed changes you approve.',
-    cannot: 'Act unattended; it publishes only as you after approval.',
+    description: 'Answers and proposes; you approve.',
+    can: 'Answers questions about your graph and proposes feeds you approve.',
+    cannot: 'Act unattended; nothing is published without you.',
   },
   autonomous: {
     label: 'Autonomous',

@@ -27,7 +27,7 @@ const quickQuestions: Array<{ label: string; question: string; purpose: Phase0Pu
 export function PubchiCapabilities({ tier, compact = false, disabled = false, onSelect, onBuildFeed }: PubchiCapabilitiesProps) {
   const content = (
     <>
-      <div className={compact ? 'flex gap-2 overflow-x-auto pb-1' : 'grid gap-2 sm:grid-cols-2'}>
+      <div className={compact ? 'flex w-full flex-wrap gap-2 pb-1' : 'grid gap-2 sm:grid-cols-2'}>
         {quickQuestions.map(({ label, question, purpose, icon: Icon }) => (
           <Button
             key={question}
