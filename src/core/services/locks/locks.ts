@@ -9,6 +9,7 @@ import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
+import { assertSecurePaykitOrigin } from '@/services/marketplace/paykit-origin-assert';
 
 type LocksSdkModule = typeof import('locks-sdk-wasm');
 
@@ -244,8 +245,17 @@ export class LocksGatewayService {
     return parsed.data;
   }
 
+  /**
+   * The seller-facing "set up payments" navigation target. Goes through the
+   * SAME secure-origin assert as the token-carrying claim calls (W1.8b N1):
+   * the hosted setup page runs its own Ring approval, so navigating the
+   * seller to an origin the app itself refuses to send tokens to would hand
+   * a cleartext attacker the capability-scoped AuthToken. Refuses with
+   * `paykit_origin_insecure` before any URL is produced.
+   */
   static buildPaykitSetupUrl(returnTo: string, state: string): string {
     const url = new URL(getPaykitSetupUrl());
+    assertSecurePaykitOrigin(url, 'buildPaykitSetupUrl');
     url.searchParams.set('return_to', returnTo);
     url.searchParams.set('state', state);
     return url.toString();

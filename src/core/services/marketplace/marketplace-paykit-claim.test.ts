@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeBase58Check } from '@/libs/commerce/payment-methods';
 import { Logger } from '@/libs/logger/logger';
+import { LocksGatewayService } from '@/services/locks/locks';
 import { deriveBip84Account } from '@/test-utils/bip84';
 import { MarketplacePaykitClaimService } from './marketplace-paykit-claim';
+import { isSecurePaykitOrigin } from './paykit-origin';
 
 /** A public BIP39 vector mnemonic whose accounts are NOT deny-listed. */
 const MNEMONIC = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
@@ -284,6 +286,53 @@ describe('MarketplacePaykitClaimService', () => {
       vi.mocked(fetch).mockRejectedValueOnce(new TypeError('fetch failed'));
       const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
       expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+  });
+
+  /**
+   * W1.8b N1: ONE shared predicate decides every paykit gate — the
+   * token-carrying claim choke point AND the seller-navigation setup-URL
+   * builder. This table drives all three (predicate, claim flow, setup URL)
+   * over the SAME inputs so the two callers can never diverge, including
+   * hostname confusion (`localhost.evil.example`, `127.0.0.1.evil`,
+   * `localhost.`) and case/userinfo edge cases.
+   */
+  describe('shared secure-origin predicate (W1.8b N1: token flow and setup navigation agree)', () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    const ORIGIN_TABLE: Array<{ input: string; secure: boolean }> = [
+      { input: 'http://paykit.example/setup', secure: false },
+      { input: 'http://localhost:3102/setup', secure: true },
+      { input: 'https://paykit.example/setup', secure: true },
+      // Hostname confusion: none of these is loopback.
+      { input: 'http://localhost.evil.example', secure: false },
+      { input: 'http://127.0.0.1.evil', secure: false },
+      { input: 'http://localhost.:8080', secure: false },
+      // The URL parser normalizes the scheme; https is secure regardless of userinfo.
+      { input: 'HTTPS://Host', secure: true },
+      { input: 'https://user:pw@evil/', secure: true },
+    ];
+
+    it.each(ORIGIN_TABLE)('$input → secure=$secure for BOTH callers', ({ input, secure }) => {
+      runtimeMock.paykitSetupUrl = input;
+      const refusal = expect.objectContaining({ context: { reason: 'paykit_origin_insecure' } });
+
+      expect(isSecurePaykitOrigin(new URL(input))).toBe(secure);
+
+      if (secure) {
+        expect(() => MarketplacePaykitClaimService.beginClaimFlow(tpub, 1)).not.toThrow();
+        const built = new URL(LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/back', 'state'));
+        expect(built.protocol).toBe(new URL(input).protocol);
+        expect(built.host).toBe(new URL(input).host);
+      } else {
+        // Token flow refuses before any token is built; navigation builder
+        // refuses before any URL is produced — with the same reason.
+        expect(() => MarketplacePaykitClaimService.beginClaimFlow(tpub, 1)).toThrow(refusal);
+        expect(() => LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/back', 'state')).toThrow(
+          refusal,
+        );
+        expect(tokenFlowCalls.count).toBe(0);
+        expect(fetch).not.toHaveBeenCalled();
+      }
     });
   });
 });

@@ -14,6 +14,8 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksConnect } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
+import { getErrorMessage } from '@/libs/error/error.utils';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceGetPaidSettings } from '@/organisms/Marketplace/MarketplaceGetPaidSettings';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
@@ -26,8 +28,15 @@ export function MarketplacePaymentSettings() {
   const setMeasurementSystem = useMarketplaceDisplayStore((state) => state.setMeasurementSystem);
 
   const openPaykit = () => {
-    const url = CommerceController.getPaykitSetupUrl(window.location.href, crypto.randomUUID().replaceAll('-', ''));
-    window.open(url, '_blank', 'noopener,noreferrer');
+    try {
+      const url = CommerceController.getPaykitSetupUrl(window.location.href, crypto.randomUUID().replaceAll('-', ''));
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      // The builder fails closed on an insecure paykit origin
+      // (`paykit_origin_insecure`): no navigation, and the seller sees WHY
+      // instead of a dead button.
+      toast({ variant: 'error', description: getErrorMessage(error) });
+    }
   };
 
   return (

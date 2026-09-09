@@ -14,6 +14,7 @@ import { ACCOUNT_KEY_FILE_MAX_BYTES, ACCOUNT_KEY_FILE_REJECTION_COPY } from '@/l
 import { accountKeyFingerprint, deriveBip84P2wpkhAddress } from '@/libs/commerce/bip84-preview';
 import { encodeBase58Check, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { BIP84_VERSION_BYTES, deriveBip84Account } from '@/test-utils/bip84';
 import { MarketplacePaymentSettings } from './MarketplacePaymentSettings';
@@ -50,6 +51,10 @@ vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => (
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
+}));
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({
+  toast: vi.fn(),
 }));
 
 const mockedController = vi.mocked(CommerceController);
@@ -124,6 +129,7 @@ beforeEach(() => {
   process.env[BITCOIN_NETWORK_ENV] = 'mainnet';
   resetRuntimeConfigForTests();
   view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+  vi.mocked(toast).mockClear();
   mockedController.getMyPaymentConfig.mockReset().mockResolvedValue(EMPTY_CONFIG);
   mockedController.isOwnPaykitAccountClaimed.mockReset().mockResolvedValue(false);
   mockedController.getMyVerifiedPaykitClaim.mockReset().mockResolvedValue(null);
@@ -314,6 +320,30 @@ describe('MarketplacePaymentSettings', () => {
     expect(mockedController.getPaykitSetupUrl.mock.calls).toMatchSnapshot();
     openSpy.mockRestore();
     uuidSpy.mockRestore();
+  });
+
+  it('surfaces the paykit_origin_insecure refusal and never navigates (W1.8b N1)', async () => {
+    const user = userEvent.setup();
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    // The controller → application → LocksGatewayService.buildPaykitSetupUrl
+    // chain throws this on an insecure paykit origin.
+    mockedController.getPaykitSetupUrl.mockImplementationOnce(() => {
+      throw new Error(
+        'The Paykit server address is not a secure HTTPS origin, so Shop refused to send your approval to it. Contact the operator.',
+      );
+    });
+    await renderSettings();
+
+    await user.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+
+    // No navigation happened, and the seller sees the refusal reason.
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description:
+        'The Paykit server address is not a secure HTTPS origin, so Shop refused to send your approval to it. Contact the operator.',
+    });
+    openSpy.mockRestore();
   });
 
   it('starts the watch-only claim with the normalized xpub, never the raw paste', async () => {

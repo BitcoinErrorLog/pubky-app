@@ -17,12 +17,15 @@ vi.mock('locks-sdk-wasm', () => ({
   BundleId: { generate: sdkMocks.generateBundleId },
 }));
 
+/** Mutable paykit setup URL the config mock serves (reset per test). */
+const runtimeMock = vi.hoisted(() => ({ paykitSetupUrl: 'https://paykit.example.com/setup' }));
+
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
   return {
     ...actual,
     getLocksUrl: () => 'https://locks.example.com',
-    getPaykitSetupUrl: () => 'https://paykit.example.com/setup',
+    getPaykitSetupUrl: () => runtimeMock.paykitSetupUrl,
   };
 });
 
@@ -47,6 +50,9 @@ describe('LocksGatewayService', () => {
     vi.clearAllMocks();
     sdkMocks.init.mockResolvedValue(undefined);
     sdkMocks.generateBundleId.mockReturnValue({ toString: () => BUNDLE_ID });
+    runtimeMock.paykitSetupUrl = 'https://paykit.example.com/setup';
+    // Err factories log; keep expected refusal logs out of the test output.
+    vi.spyOn(Logger, 'error').mockImplementation(() => {});
   });
 
   it('generates bundle ids through the vendored SDK and initializes the WASM module once', async () => {
@@ -222,5 +228,39 @@ describe('LocksGatewayService', () => {
     ).toBe(
       'https://paykit.example.com/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state',
     );
+  });
+
+  describe('buildPaykitSetupUrl secure-origin choke (W1.8b N1)', () => {
+    it('refuses an http:// non-loopback setup URL with paykit_origin_insecure', () => {
+      runtimeMock.paykitSetupUrl = 'http://paykit.example.com/setup';
+
+      expect(() =>
+        LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/marketplace/settings', 'opaque-state'),
+      ).toThrow(
+        expect.objectContaining({
+          message:
+            'The Paykit server address is not a secure HTTPS origin, so Shop refused to send your approval to it. Contact the operator.',
+          context: { reason: 'paykit_origin_insecure' },
+        }),
+      );
+    });
+
+    it('accepts the loopback dev origin http://localhost:3102/setup', () => {
+      runtimeMock.paykitSetupUrl = 'http://localhost:3102/setup';
+
+      expect(
+        LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/marketplace/settings', 'opaque-state'),
+      ).toBe(
+        'http://localhost:3102/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state',
+      );
+    });
+
+    it('accepts an https:// setup URL', () => {
+      runtimeMock.paykitSetupUrl = 'https://paykit.example.com/setup';
+
+      expect(() =>
+        LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/marketplace/settings', 'opaque-state'),
+      ).not.toThrow();
+    });
   });
 });

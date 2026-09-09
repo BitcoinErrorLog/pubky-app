@@ -5,6 +5,8 @@ import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
+import { PAYKIT_ORIGIN_INSECURE_MESSAGE } from '@/services/marketplace/paykit-origin';
+import { assertSecurePaykitOrigin } from '@/services/marketplace/paykit-origin-assert';
 
 /**
  * The exact capability grant paykit-server requires on a manual claim token
@@ -113,35 +115,20 @@ const CLAIM_FAILURE_MESSAGES: Record<PaykitClaimErrorReason, string> = {
   invalid_capabilities: 'The signer approval carried the wrong permissions. Start the claim again.',
   rate_limited: 'Too many claim attempts. Wait a moment and try again.',
   session_unavailable: 'The Paykit server could not reach your homeserver to verify the approval. Try again shortly.',
-  paykit_origin_insecure:
-    'The Paykit server address is not a secure HTTPS origin, so Shop refused to send your approval to it. Contact the operator.',
+  paykit_origin_insecure: PAYKIT_ORIGIN_INSECURE_MESSAGE,
   unavailable: 'The Paykit server is unavailable. Try again shortly.',
 };
 
 /**
- * Loopback hosts a dev deployment may reach over plain `http:` (the schema
- * default is `http://localhost:3102/setup`). Every other paykit origin must
- * be HTTPS: the claim POST sends `auth_token` in the body and the status GET
- * sends `Authorization: Bearer <AuthToken>` — a claim credential must never
- * travel to a cleartext origin (W1.8 F1).
- */
-const PAYKIT_INSECURE_ALLOWED_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
-
-/**
  * The single choke point every paykit call builds its URL from. Fails
  * closed — before any token is built or byte is sent — on a non-HTTPS origin
- * that is not loopback, with the static `paykit_origin_insecure` copy (the
- * same fail-closed shape as `bitcoin_network_unconfigured`).
+ * that is not loopback, via the shared `assertSecurePaykitOrigin` guard
+ * (the same guard the setup-navigation builder in `services/locks/locks.ts`
+ * runs, so the two can never diverge — W1.8b N1).
  */
 function paykitServerOrigin(): string {
   const url = new URL(getPaykitSetupUrl());
-  if (url.protocol !== 'https:' && !PAYKIT_INSECURE_ALLOWED_HOSTNAMES.has(url.hostname)) {
-    throw Err.client(ClientErrorCode.BAD_REQUEST, CLAIM_FAILURE_MESSAGES.paykit_origin_insecure, {
-      service: ErrorService.Paykit,
-      operation: 'paykitServerOrigin',
-      context: { reason: 'paykit_origin_insecure' },
-    });
-  }
+  assertSecurePaykitOrigin(url, 'paykitServerOrigin');
   return url.origin;
 }
 
