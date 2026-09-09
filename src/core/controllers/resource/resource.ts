@@ -5,8 +5,8 @@ import type {
   NexusResourceTagsResponse,
   TResourceByIdParams,
   TResourceByUriParams,
-  TResourceStreamParams,
   TResourcesByTagParams,
+  TResourceStreamParams,
 } from '@/services/nexus/resource/resource.types';
 
 export class ResourceController {

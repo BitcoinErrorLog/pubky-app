@@ -2,8 +2,8 @@ import { buildUrlWithQuery, encodePathSegment } from '@/services/nexus/nexus.uti
 import type {
   TResourceByIdParams,
   TResourceByUriParams,
-  TResourceStreamParams,
   TResourcesByTagParams,
+  TResourceStreamParams,
 } from './resource.types';
 
 const PREFIX = 'v0/resource';

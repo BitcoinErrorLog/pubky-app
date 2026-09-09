@@ -109,9 +109,15 @@ export async function fetchNexusNoContent({ url, method }: Pick<TFetchNexusParam
  * @returns Parsed response data
  * @throws {NexusError} When response is not ok after all retries
  */
-export async function queryNexus<T>({ url, method = HttpMethod.GET, body = null }: TQueryNexusParams): Promise<T> {
+export async function queryNexus<T>({
+  url,
+  method = HttpMethod.GET,
+  body = null,
+  retry,
+}: TQueryNexusParams): Promise<T> {
   return nexusQueryClient.fetchQuery({
     queryKey: ['nexus', url, method, body],
     queryFn: () => fetchNexus<T>({ url, method, body }),
+    ...(retry === undefined ? {} : { retry }),
   });
 }

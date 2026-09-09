@@ -8,8 +8,8 @@ import type {
   NexusResourceTagsResponse,
   TResourceByIdParams,
   TResourceByUriParams,
-  TResourceStreamParams,
   TResourcesByTagParams,
+  TResourceStreamParams,
 } from './resource.types';
 
 export class NexusResourceService {
@@ -22,12 +22,14 @@ export class NexusResourceService {
   static async fetchById(params: TResourceByIdParams): Promise<NexusResourceTagsResponse> {
     return await queryNexus<NexusResourceTagsResponse>({
       url: resourceApi.byId({ ...params, limit_tags: RESOURCE_TAGS_LIMIT, skip_tags: 0 }),
+      retry: false,
     });
   }
 
   static async fetchByUri(params: TResourceByUriParams): Promise<NexusResourceTagsResponse> {
     return await queryNexus<NexusResourceTagsResponse>({
       url: resourceApi.byUri({ ...params, limit_tags: RESOURCE_TAGS_LIMIT, skip_tags: 0 }),
+      retry: false,
     });
   }
 

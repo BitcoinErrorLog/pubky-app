@@ -8,11 +8,19 @@ import { ErrorService } from '@/libs/error/error.types';
 import type { NexusResource } from '@/services/nexus/resource/resource.types';
 import { ResourceDiscovery } from './ResourceDiscovery';
 
+vi.mock('next/navigation', () => ({
+  useRouter: (() => {
+    const router = { push: vi.fn(), replace: vi.fn() };
+    return () => router;
+  })(),
+}));
+
 vi.mock('@/controllers/resource/resource', () => ({
   ResourceController: {
     fetchByTag: vi.fn(),
     fetchById: vi.fn(),
     fetchByUri: vi.fn(),
+    fetchStreamPage: vi.fn(),
   },
 }));
 
@@ -45,6 +53,7 @@ describe('ResourceDiscovery', () => {
     vi.mocked(ResourceController.fetchByTag).mockReset();
     vi.mocked(ResourceController.fetchById).mockReset();
     vi.mocked(ResourceController.fetchByUri).mockReset();
+    vi.mocked(ResourceController.fetchStreamPage).mockReset();
   });
 
   it('renders the production loading skeleton', () => {
@@ -53,6 +62,31 @@ describe('ResourceDiscovery', () => {
     render(<ResourceDiscovery tag="docs" />);
 
     expect(screen.getByTestId('resource-discovery-skeleton')).toBeInTheDocument();
+  });
+
+  it('renders the index with frequency-derived tags and sort control', async () => {
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({
+      resources: [resourceWithLabels('resource-index', 'https://example.com/index', ['docs', 'bitcoin', 'docs'])],
+      lastScore: null,
+    });
+
+    render(<ResourceDiscovery />);
+
+    expect(await screen.findByRole('button', { name: 'docs' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sort: recent/i })).toBeInTheDocument();
+  });
+
+  it('renders the inline no-tags state for an unknown URI', async () => {
+    vi.mocked(ResourceController.fetchByUri).mockRejectedValueOnce(
+      Err.client(ClientErrorCode.NOT_FOUND, 'Not Found', {
+        service: ErrorService.Nexus,
+        operation: 'fetchNexus',
+      }),
+    );
+
+    render(<ResourceDiscovery id="https://example.com/unknown" />);
+
+    expect(await screen.findByText('No tags yet for this link')).toBeInTheDocument();
   });
 
   it('renders two tagged resources with safe hrefs', async () => {
@@ -107,7 +141,7 @@ describe('ResourceDiscovery', () => {
 
     render(<ResourceDiscovery id="https://example.com/missing" />);
 
-    expect(await screen.findByText('Resource not found')).toBeInTheDocument();
+    expect(await screen.findByText('No tags yet for this link')).toBeInTheDocument();
   });
 
   it('renders an error state when the fetch fails', async () => {

@@ -48,4 +48,5 @@ export type TQueryNexusParams = {
   method?: HttpMethod;
   /** Request body as JSON string */
   body?: string | null;
+  retry?: boolean;
 };
