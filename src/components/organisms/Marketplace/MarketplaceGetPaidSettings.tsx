@@ -133,18 +133,15 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const payments = useMarketplaceSellerPaymentConfig();
 
-  const [bitcoinEnabled, setBitcoinEnabled] = useState(false);
   const [stripePaymentLink, setStripePaymentLink] = useState('');
   const [stripeRestrictedKey, setStripeRestrictedKey] = useState('');
   const [paypalMerchantEmail, setPaypalMerchantEmail] = useState('');
-  const [xpubInput, setXpubInput] = useState('');
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
   const [fileImportError, setFileImportError] = useState<string | null>(null);
   const accountKeyFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!payments.config) return;
-    setBitcoinEnabled(payments.config.bitcoinEnabled);
     setStripePaymentLink(payments.config.stripePaymentLink ?? '');
     setPaypalMerchantEmail(payments.config.paypalMerchantEmail ?? '');
   }, [payments.config]);
@@ -154,13 +151,13 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   }, [payments.claimStatus]);
 
   const onSave = async () => {
-    const saved = await payments.save({ bitcoinEnabled, stripePaymentLink, stripeRestrictedKey, paypalMerchantEmail });
+    const saved = await payments.save({ stripePaymentLink, stripeRestrictedKey, paypalMerchantEmail });
     if (saved) setStripeRestrictedKey('');
   };
 
   const onStartClaim = () => {
     setClaimDialogOpen(true);
-    payments.startClaim(xpubInput);
+    payments.startClaim(payments.xpubInput);
   };
 
   /**
@@ -192,7 +189,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
       return;
     }
     setFileImportError(null);
-    setXpubInput(result.xpub);
+    payments.setXpubInput(result.xpub);
   };
 
   const onCloseClaimDialog = (open: boolean) => {
@@ -452,11 +449,17 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
                 <Typography as="p" className="text-sm text-muted-foreground">
                   Buyers see bitcoin as a payment option on your orders.
                 </Typography>
+                {payments.bitcoinEnableBlockedReason && (
+                  <Typography as="p" className="mt-1 text-sm text-amber-300" data-testid="bitcoin-enable-blocked-reason">
+                    {payments.bitcoinEnableBlockedReason}
+                  </Typography>
+                )}
               </div>
               <Switch
                 id="get-paid-bitcoin"
-                checked={bitcoinEnabled}
-                onCheckedChange={setBitcoinEnabled}
+                checked={payments.bitcoinEnabled}
+                onCheckedChange={payments.setBitcoinEnabled}
+                disabled={!payments.canEnableBitcoin}
                 aria-label="Accept bitcoin"
               />
             </div>
@@ -490,8 +493,8 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
                     </Typography>
                     <div className="flex flex-wrap items-center gap-2">
                       <Input
-                        value={xpubInput}
-                        onChange={(event) => setXpubInput(event.target.value)}
+                        value={payments.xpubInput}
+                        onChange={(event) => payments.setXpubInput(event.target.value)}
                         placeholder="Account xpub (zpub/vpub/xpub/tpub…)"
                         autoComplete="off"
                         spellCheck={false}
@@ -501,7 +504,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
                       <Button
                         variant="secondary"
                         className="rounded-full"
-                        disabled={!xpubInput.trim()}
+                        disabled={!payments.xpubInput.trim()}
                         onClick={onStartClaim}
                       >
                         Claim with signer

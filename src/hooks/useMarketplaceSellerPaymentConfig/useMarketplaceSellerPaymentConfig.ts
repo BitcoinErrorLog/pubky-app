@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getBitcoinNetwork } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
+  accountIndexFromBytes,
   type ClaimVerificationRejectionReason,
   deriveBip84P2wpkhAddress,
   verifyClaimedAccount,
@@ -81,10 +82,32 @@ export const CLAIM_VERIFICATION_COPY: Record<ClaimVerificationRejectionReason, s
 };
 
 /**
+ * Static copy explaining why the Accept-bitcoin toggle is disabled. The
+ * toggle stays off until a verified claim exists for the CURRENT normalized
+ * key (design §B.6) — a pasted key without a completed claim, a key that
+ * changed after the claim, or an unreportable claim state all block it.
+ */
+export const BITCOIN_ENABLE_BLOCKED_COPY = {
+  claim_required:
+    'Bitcoin can only be enabled after a watch-only account claim is verified — claim with the signer below, or through Bitkit.',
+  key_changed:
+    'The account key changed, so the verified claim no longer matches it. Claim this key before enabling bitcoin.',
+  claim_unknown: 'Shop could not confirm your watch-only account right now, so bitcoin cannot be enabled.',
+} as const;
+
+/**
  * The seller's "Get paid" configuration: stored rails (loaded from the
  * durable service), the save action, and the manual watch-only claim flow.
  * Claim state (`accountClaimed`) is read from paykit-server, so it reflects
  * the Bitkit-driven setup and the manual claim alike.
+ *
+ * The `bitcoinEnabled` invariant lives HERE, not in any component (F1):
+ * the toggle state can only turn on while a verified claim exists — a claim
+ * whose fingerprint, first address, and stack id all matched the normalized
+ * bytes this session (`verifiedClaim`), or a claim paykit-server already
+ * reports for this identity. Editing the key text or importing a different
+ * file breaks the match and forces the toggle back off, so a second surface
+ * using this hook cannot bypass the claim gate.
  */
 export function useMarketplaceSellerPaymentConfig() {
   const [isLoading, setIsLoading] = useState(true);
@@ -98,9 +121,44 @@ export function useMarketplaceSellerPaymentConfig() {
   const [claimError, setClaimError] = useState<string | null>(null);
   /** Preview address at 0/0 derived from the exact normalized bytes being POSTed. */
   const [claimPreviewAddress, setClaimPreviewAddress] = useState<string | null>(null);
-  /** The verified watched account from the claim response (this session only). */
-  const [watchedAccount, setWatchedAccount] = useState<WatchedAccount | null>(null);
+  /** The verified claim (this session only), bound to the normalized xpub it verified. */
+  const [verifiedClaim, setVerifiedClaim] = useState<{ xpub: string; account: WatchedAccount } | null>(null);
+  /** The account-key text the claim flow and the enable gate both read. */
+  const [xpubInput, setXpubInput] = useState('');
+  /**
+   * The Accept-bitcoin toggle. Owned by the hook so the claim gate below is
+   * the ONLY way it turns on within a session (a stored `true` loads from
+   * the saved config, which was itself gated when it was saved).
+   */
+  const [bitcoinEnabled, setBitcoinEnabledState] = useState(false);
   const activeClaimRef = useRef<ClaimFlow | null>(null);
+
+  // The enable gate: once a claim verified this session, the toggle is only
+  // available while the CURRENT key text still normalizes to the claimed
+  // xpub; with no session claim, a server-reported claim (Bitkit setup or an
+  // earlier session) gates it. Unknown claim state never enables.
+  const network = parseBitcoinNetwork(getBitcoinNetwork());
+  const normalizedInput = xpubInput.trim() ? normalizeAccountXpub(xpubInput, network) : null;
+  const verifiedClaimMatchesKey =
+    verifiedClaim !== null && normalizedInput !== null && normalizedInput.ok && normalizedInput.xpub === verifiedClaim.xpub;
+  const canEnableBitcoin = verifiedClaim ? verifiedClaimMatchesKey : accountClaimed === true;
+  const bitcoinEnableBlockedReason = canEnableBitcoin
+    ? null
+    : verifiedClaim
+      ? BITCOIN_ENABLE_BLOCKED_COPY.key_changed
+      : accountClaimed === false
+        ? BITCOIN_ENABLE_BLOCKED_COPY.claim_required
+        : BITCOIN_ENABLE_BLOCKED_COPY.claim_unknown;
+
+  // Key invalidation turns the toggle off; it never turns itself back on.
+  useEffect(() => {
+    if (verifiedClaim && !verifiedClaimMatchesKey) setBitcoinEnabledState(false);
+  }, [verifiedClaim, verifiedClaimMatchesKey]);
+
+  /** The guarded toggle setter: `true` is refused unless the claim gate is open. */
+  const setBitcoinEnabled = (enabled: boolean) => {
+    setBitcoinEnabledState(enabled && canEnableBitcoin);
+  };
 
   useEffect(() => {
     let active = true;
@@ -114,6 +172,7 @@ export function useMarketplaceSellerPaymentConfig() {
       if (!active) return;
       if (configResult.status === 'fulfilled') {
         setConfig(configResult.value);
+        setBitcoinEnabledState(configResult.value?.bitcoinEnabled ?? false);
       } else {
         Logger.error('Failed to load the payment configuration', { error: configResult.reason });
         setLoadError(getErrorMessage(configResult.reason));
@@ -131,7 +190,6 @@ export function useMarketplaceSellerPaymentConfig() {
 
   const save = useCallback(
     async (input: {
-      bitcoinEnabled: boolean;
       stripePaymentLink: string;
       stripeRestrictedKey: string;
       paypalMerchantEmail: string;
@@ -157,7 +215,9 @@ export function useMarketplaceSellerPaymentConfig() {
       setIsSaving(true);
       try {
         const saved = await CommerceController.putMyPaymentConfig({
-          bitcoinEnabled: input.bitcoinEnabled,
+          // The hook's gated state, never a caller-supplied value: the
+          // payload cannot carry `bitcoinEnabled: true` past the claim gate.
+          bitcoinEnabled,
           stripePaymentLink: stripePaymentLink || null,
           // Omit to preserve the stored key; the empty string clears it only
           // when a key exists to clear (an explicit user action in the form).
@@ -175,7 +235,7 @@ export function useMarketplaceSellerPaymentConfig() {
         setIsSaving(false);
       }
     },
-    [],
+    [bitcoinEnabled],
   );
 
   const clearStripeKey = useCallback(async (): Promise<boolean> => {
@@ -226,9 +286,13 @@ export function useMarketplaceSellerPaymentConfig() {
     if (previous) previous.cancel();
     setClaimError(null);
 
+    // The account index the key itself declares: the hardened child number
+    // at offset 9..13 of the normalized 78 bytes, hardened bit cleared (the
+    // hardened structure check already ran inside normalizeAccountXpub).
+    const accountIndex = accountIndexFromBytes(normalized.bytes);
     let flow: ClaimFlow;
     try {
-      flow = CommerceController.beginPaykitClaimFlow(normalized.xpub);
+      flow = CommerceController.beginPaykitClaimFlow(normalized.xpub, accountIndex);
     } catch (error) {
       Logger.error('Failed to start the watch-only claim flow', { error });
       setClaimError(getErrorMessage(error));
@@ -255,14 +319,24 @@ export function useMarketplaceSellerPaymentConfig() {
           setClaimAuthorizationUrl('');
           setClaimError(CLAIM_VERIFICATION_COPY[verification.reason]);
           setClaimStatus('error');
+          // A failed verification never leaves bitcoinEnabled on — no
+          // verified claim is recorded, so the gate slams shut here too.
+          setVerifiedClaim(null);
+          setBitcoinEnabledState(false);
           return;
         }
         activeClaimRef.current = null;
         setClaimAuthorizationUrl('');
-        setWatchedAccount({
-          accountIndex: result.accountIndex,
-          firstDerivedAddress: result.firstDerivedAddress!,
-          nextChildIndex: result.nextChildIndex!,
+        // The verified claim is bound to the exact normalized xpub: editing
+        // the key text or importing a different file breaks this match and
+        // the enable gate closes (see verifiedClaimMatchesKey above).
+        setVerifiedClaim({
+          xpub: normalized.xpub,
+          account: {
+            accountIndex: result.accountIndex,
+            firstDerivedAddress: result.firstDerivedAddress!,
+            nextChildIndex: result.nextChildIndex!,
+          },
         });
         setClaimStatus('claimed');
         setAccountClaimed(true);
@@ -298,7 +372,13 @@ export function useMarketplaceSellerPaymentConfig() {
     claimAuthorizationUrl,
     claimError,
     claimPreviewAddress,
-    watchedAccount,
+    watchedAccount: verifiedClaim?.account ?? null,
+    bitcoinEnabled,
+    setBitcoinEnabled,
+    canEnableBitcoin,
+    bitcoinEnableBlockedReason,
+    xpubInput,
+    setXpubInput,
     startClaim,
     cancelClaim,
   };

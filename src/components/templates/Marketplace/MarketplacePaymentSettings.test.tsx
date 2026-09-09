@@ -236,6 +236,9 @@ describe('MarketplacePaymentSettings', () => {
   });
 
   it('saves the Stripe and PayPal rails with the unchanged payload shape', async () => {
+    // A server-reported claim (e.g. completed through Bitkit) opens the
+    // Accept-bitcoin gate, so the toggle is interactive here.
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
     const user = userEvent.setup();
     await renderSettings();
 
@@ -287,7 +290,7 @@ describe('MarketplacePaymentSettings', () => {
 
     // The pasted zpub is normalized to the canonical xpub before anything is sent.
     expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
-    expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledWith(NORMALIZED_XPUB);
+    expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledWith(NORMALIZED_XPUB, 0);
   });
 
   it('refuses the claim with a named reason when no Bitcoin network is configured', async () => {
@@ -423,6 +426,76 @@ describe('MarketplacePaymentSettings', () => {
 
     await screen.findAllByText(CLAIM_VERIFICATION_COPY.server_address_mismatch);
     expect(screen.getByRole('switch', { name: 'Accept bitcoin', hidden: true })).not.toBeChecked();
+  });
+
+  it('negative (F1): a key entered with NO claim cannot enable bitcoin — the save payload stays false', async () => {
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Technical details' }));
+    await user.type(screen.getByLabelText('Account xpub'), PASTED_ZPUB);
+
+    // The toggle refuses the attempt (disabled — see the dedicated test
+    // above for the disabled state and its reason copy).
+    await user.click(screen.getByRole('switch', { name: 'Accept bitcoin' }));
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(expect.objectContaining({ bitcoinEnabled: false }));
+    // The save did not skip the claim gate.
+    expect(mockedController.beginPaykitClaimFlow).not.toHaveBeenCalled();
+  });
+
+  it('negative (F1): a mismatching server fingerprint keeps the toggle off and the save payload false', async () => {
+    const tamperedFingerprint = VERIFIED_CLAIM_RESULT.keyFingerprint.endsWith('0')
+      ? `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}1`
+      : `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}0`;
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, keyFingerprint: tamperedFingerprint }),
+      cancel: vi.fn(),
+    });
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+    await screen.findAllByText(CLAIM_VERIFICATION_COPY.server_fingerprint_mismatch);
+    // Close the dialog to reach the toggle behind it.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await user.click(screen.getByRole('switch', { name: 'Accept bitcoin' }));
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(expect.objectContaining({ bitcoinEnabled: false }));
+  });
+
+  it('disables the Accept bitcoin toggle with the reason until a verified claim, then enables it', async () => {
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => VERIFIED_CLAIM_RESULT,
+      cancel: vi.fn(),
+    });
+    const user = userEvent.setup();
+    await renderSettings();
+
+    // Before any claim: disabled, with the reason shown.
+    const toggle = screen.getByRole('switch', { name: 'Accept bitcoin' });
+    expect(toggle).toBeDisabled();
+    expect(screen.getByTestId('bitcoin-enable-blocked-reason')).toHaveTextContent(/verified/);
+
+    await openClaimDialog(user);
+    await screen.findByText(/Watch-only account claimed/);
+
+    // After the verified claim the gate opens: the toggle works and the
+    // save payload may carry true.
+    expect(toggle).toBeEnabled();
+    expect(screen.queryByTestId('bitcoin-enable-blocked-reason')).not.toBeInTheDocument();
+    await user.click(toggle);
+    expect(toggle).toBeChecked();
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
+    expect(mockedController.putMyPaymentConfig).toHaveBeenCalledWith(expect.objectContaining({ bitcoinEnabled: true }));
   });
 
   describe('file import (§C.10)', () => {
