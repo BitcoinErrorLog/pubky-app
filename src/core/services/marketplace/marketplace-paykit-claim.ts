@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { getPaykitSetupUrl } from '@/config/commerce';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -48,6 +49,49 @@ export interface PaykitClaimFlow {
   authorizationUrl: string;
   /** Resolves once the signer approves and paykit-server accepts the claim. */
   awaitClaim: () => Promise<PaykitClaimResult>;
+  cancel: () => void;
+}
+
+/**
+ * The authenticated status body (design §B.8.6), parsed with a Zod schema:
+ * unknown extra fields are ignored, and a body missing any REQUIRED field
+ * is a refusal — the gate fails closed rather than trusting a partial
+ * answer. `allocation_mode`, `key_fingerprint` and `first_derived_address`
+ * are required; `claim_channel` and `downgrade_reason` are present but
+ * nullable on the server.
+ */
+const ownClaimStatusBodySchema = z.object({
+  allocation_mode: z.string(),
+  claim_channel: z.string().nullable(),
+  downgrade_reason: z.string().nullable(),
+  key_fingerprint: z.string(),
+  first_derived_address: z.string(),
+});
+
+/** The seller's own claim status as the authenticated status read reports it. */
+export interface PaykitOwnClaimStatus {
+  allocationMode: string;
+  claimChannel: string | null;
+  downgradeReason: string | null;
+  keyFingerprint: string;
+  firstDerivedAddress: string;
+}
+
+/**
+ * The outcome of the authenticated status probe. `not_deployed` is the 404
+ * case: the server predates W1.13 (or nothing is claimed) — the gate shuts
+ * either way, and the UI adds the not-available line. `refused` covers
+ * 401/403/5xx, network failures, and schema rejections.
+ */
+export type FetchOwnClaimStatusResult =
+  | { ok: true; status: PaykitOwnClaimStatus }
+  | { ok: false; reason: 'not_deployed' | 'refused' };
+
+export interface PaykitClaimStatusFlow {
+  /** `pubkyauth://` URL for the seller's signer (QR / deeplink). */
+  authorizationUrl: string;
+  /** Resolves once the signer approves and the status read completes. */
+  awaitStatus: () => Promise<FetchOwnClaimStatusResult>;
   cancel: () => void;
 }
 
@@ -131,6 +175,70 @@ export class MarketplacePaykitClaimService {
     }
     const body = (await response.json()) as { claimed?: boolean };
     return body.claimed === true;
+  }
+
+  /**
+   * `GET /v0/accounts/{creator}/status` with `Authorization: Bearer
+   * <base64url(AuthToken)>` — the AUTHENTICATED seller-status read (design
+   * §B.8.6). The token is the same capability-scoped Pubky AuthToken the
+   * claim POST sends (`verify_claim_token` on the server is shared by both
+   * paths), obtained through the Ring approval flow. Unlike the public
+   * existence lookup above — which is display-only and may never open the
+   * `bitcoinEnabled` gate — a 200 here binds the claim to THIS session and
+   * THIS identity, so it is one of the two paths allowed to record a
+   * verified claim.
+   *
+   * Fail-closed on every outcome short of a well-formed 200: `not_deployed`
+   * when the server answers 404 (a deployment predating W1.13 has no such
+   * route; a W1.13 server also 404s when nothing is claimed — both shut the
+   * gate identically), `refused` on 401/403/5xx, a network failure, or a
+   * body that fails the schema (missing required fields, wrong types).
+   */
+  static async fetchOwnClaimStatus(pubky: string, authTokenBytes: Uint8Array): Promise<FetchOwnClaimStatusResult> {
+    const url = `${paykitServerOrigin()}/v0/accounts/${encodeURIComponent(`pubky${pubky}`)}/status`;
+    let response: Response;
+    try {
+      response = await safeFetch(
+        url,
+        { method: 'GET', headers: { authorization: `Bearer ${toBase64UrlNoPad(authTokenBytes)}` } },
+        ErrorService.Paykit,
+        'fetchOwnClaimStatus',
+      );
+    } catch {
+      // safeFetch already logged the network-level failure; the probe fails
+      // closed without double-logging.
+      return { ok: false, reason: 'refused' };
+    }
+    if (response.status === 404) return { ok: false, reason: 'not_deployed' };
+    if (!response.ok) return { ok: false, reason: 'refused' };
+    const parsed = ownClaimStatusBodySchema.safeParse(await response.json().catch(() => null));
+    if (!parsed.success) return { ok: false, reason: 'refused' };
+    return {
+      ok: true,
+      status: {
+        allocationMode: parsed.data.allocation_mode,
+        claimChannel: parsed.data.claim_channel,
+        downgradeReason: parsed.data.downgrade_reason,
+        keyFingerprint: parsed.data.key_fingerprint,
+        firstDerivedAddress: parsed.data.first_derived_address,
+      },
+    };
+  }
+
+  /**
+   * The Ring-approved status verification ("Verify with Ring"): the seller
+   * approves the exact claim capability grant on their signer, and the
+   * resulting token authenticates one `fetchOwnClaimStatus` read. Same
+   * token type the claim POST sends — the server verifies the capability
+   * set offline and answers 403 for any identity but the addressed seller.
+   */
+  static beginClaimStatusFlow(pubky: string): PaykitClaimStatusFlow {
+    const flow = HomeserverService.generateAuthTokenFlow(PAYKIT_CLAIM_CAPABILITIES);
+    const awaitStatus = async () => {
+      const authToken = await flow.awaitToken();
+      return await this.fetchOwnClaimStatus(pubky, authToken.toBytes());
+    };
+    return { authorizationUrl: flow.authorizationUrl, awaitStatus, cancel: flow.cancelAuthFlow };
   }
 
   private static async submitClaim(

@@ -104,4 +104,80 @@ describe('MarketplacePaykitClaimService', () => {
       message: 'This key is already claimed by another seller on this stack.',
     });
   });
+
+  describe('fetchOwnClaimStatus (authenticated status read)', () => {
+    const PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
+
+    const STATUS_BODY = {
+      creator: `pubky${PUBKY}`,
+      allocation_mode: 'shared_manual',
+      claim_channel: 'manual',
+      downgrade_reason: null,
+      key_fingerprint: 'deadbeefdeadbeef',
+      first_derived_address: 'bc1qexample',
+      evidence: [],
+    };
+
+    function statusResponse(status: number, body: unknown): Response {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    it('sends the claim-scoped token as a Bearer credential and parses the 200 body', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, STATUS_BODY));
+      const flow = MarketplacePaykitClaimService.beginClaimStatusFlow(PUBKY);
+      const result = await flow.awaitStatus();
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`http://localhost:3102/v0/accounts/pubky${PUBKY}/status`);
+      // base64url-no-pad of the fixture token bytes [1,2,3,4].
+      expect((init.headers as Record<string, string>).authorization).toBe('Bearer AQIDBA');
+      expect(result).toEqual({
+        ok: true,
+        status: {
+          allocationMode: 'shared_manual',
+          claimChannel: 'manual',
+          downgradeReason: null,
+          keyFingerprint: 'deadbeefdeadbeef',
+          firstDerivedAddress: 'bc1qexample',
+        },
+      });
+    });
+
+    it('ignores unknown extra fields in the 200 body', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        statusResponse(200, { ...STATUS_BODY, future_field: { nested: true }, another: 42 }),
+      );
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toMatchObject({ ok: true });
+    });
+
+    it('refuses a 200 body missing a required field (fail closed on parse)', async () => {
+      const { key_fingerprint: _omitted, ...missingFingerprint } = STATUS_BODY;
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, missingFingerprint));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
+    it.each([401, 403, 500, 503])('fails closed with refused on a %i response', async (status) => {
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(status, { error: { code: 'x', message: 'y' } }));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
+    it('maps 404 to not_deployed (a server predating W1.13 has no such route)', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(404, { error: { code: 'not_found', message: 'y' } }));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'not_deployed' });
+    });
+
+    it('fails closed with refused on a network failure', async () => {
+      vi.mocked(fetch).mockRejectedValueOnce(new TypeError('fetch failed'));
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+  });
 });
