@@ -24,7 +24,9 @@ describe('NexusResourceService', () => {
     vi.mocked(queryNexus).mockResolvedValueOnce([resource]);
 
     await expect(NexusResourceService.fetchByTag({ tag: 'docs', limit: 20 })).resolves.toEqual([resource]);
-    expect(queryNexus).toHaveBeenCalledOnce();
+    expect(queryNexus).toHaveBeenCalledWith({
+      url: 'https://nexus.staging.pubky.app/v0/stream/resources?tags=docs&limit=20&limit_tags=5',
+    });
   });
 
   it('fetches resource details and tags by id', async () => {
@@ -32,7 +34,10 @@ describe('NexusResourceService', () => {
     vi.mocked(queryNexus).mockResolvedValueOnce(response);
 
     await expect(NexusResourceService.fetchById({ id: '1' })).resolves.toEqual(response);
-    expect(queryNexus).toHaveBeenCalledWith(expect.objectContaining({ retry: false }));
+    expect(queryNexus).toHaveBeenCalledWith({
+      url: 'https://nexus.staging.pubky.app/v0/resource/1/tags?limit_tags=20&skip_tags=0',
+      retry: false,
+    });
   });
 
   it('looks up a resource by its raw URI without hashing it', async () => {
@@ -40,7 +45,10 @@ describe('NexusResourceService', () => {
 
     await NexusResourceService.fetchByUri({ uri: 'https://Example.com/path' });
 
-    expect(queryNexus).toHaveBeenCalledWith(expect.objectContaining({ retry: false }));
+    expect(queryNexus).toHaveBeenCalledWith({
+      url: 'https://nexus.staging.pubky.app/v0/resource/by-uri?uri=https%3A%2F%2FExample.com%2Fpath&limit_tags=20&skip_tags=0',
+      retry: false,
+    });
   });
 
   it('fetches a resource page directly from the full stream endpoint', async () => {
@@ -61,6 +69,9 @@ describe('NexusResourceService', () => {
         },
       ],
       nextSkip: null,
+    });
+    expect(queryNexus).toHaveBeenCalledWith({
+      url: 'https://nexus.staging.pubky.app/v0/stream/resources?app=jeb.pubky.app&limit=20&limit_tags=5',
     });
   });
 });

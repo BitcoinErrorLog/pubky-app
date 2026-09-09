@@ -1,5 +1,6 @@
 'use client';
 
+import NextLink from 'next/link';
 import { getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
 import { Image } from '@/atoms/Image/Image';
@@ -49,12 +50,9 @@ export function ResourceCard({
       </Link>
       <Container overrideDefaults className="flex flex-wrap items-center gap-2">
         {resource.tags.map((tag) => (
-          <PostTag
-            key={tag.label}
-            label={tag.label}
-            count={tag.taggers_count}
-            onClick={() => window.location.assign(getResourceTagRoute(tag.label))}
-          />
+          <NextLink key={tag.label} href={getResourceTagRoute(tag.label)}>
+            <PostTag label={tag.label} count={tag.taggers_count} />
+          </NextLink>
         ))}
         {showDetailsLink && resource.tags.length === RESOURCE_STREAM_TAGS_PREVIEW ? (
           <Typography size="sm" className="self-center text-muted-foreground">

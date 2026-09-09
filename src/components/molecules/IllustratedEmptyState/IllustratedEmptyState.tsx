@@ -6,8 +6,8 @@ import { Container } from '@/atoms/Container/Container';
 import { Typography } from '@/atoms/Typography/Typography';
 
 interface IllustratedEmptyStateProps {
-  imageSrc: string;
-  imageAlt: string;
+  imageSrc?: string;
+  imageAlt?: string;
   icon: LucideIcon;
   title: string;
   subtitle: string | React.ReactNode;
@@ -24,14 +24,15 @@ export function IllustratedEmptyState({
 }: IllustratedEmptyStateProps) {
   return (
     <Container className="relative flex flex-col items-center justify-center gap-6 p-6">
-      {/* Background image */}
-      <Image
-        src={imageSrc}
-        alt={imageAlt}
-        fill
-        className="pointer-events-none object-contain object-center"
-        aria-hidden="true"
-      />
+      {imageSrc ? (
+        <Image
+          src={imageSrc}
+          alt={imageAlt ?? ''}
+          fill
+          className="pointer-events-none object-contain object-center"
+          aria-hidden="true"
+        />
+      ) : null}
 
       {/* Icon */}
       <Container

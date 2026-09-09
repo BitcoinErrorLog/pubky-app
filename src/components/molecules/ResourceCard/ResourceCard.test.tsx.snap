@@ -32,196 +32,216 @@ exports[`ResourceCard - Snapshots > matches the five-tag card snapshot 1`] = `
     class="flex flex-wrap items-center gap-2"
     data-testid="container"
   >
-    <button
-      aria-label="one tag (1 posts)"
-      aria-pressed="false"
-      class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
-      data-cy="post-tag"
-      data-state="off"
-      data-tag-label="one"
-      style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(0, 102, 255) 0%, rgb(0, 102, 255) 100%);"
-      type="button"
+    <a
+      href="/resources/tag/one"
     >
-      <div
-        class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
-        data-cy="tag"
-        data-testid="tag"
-        style="background-color: transparent; border: medium; box-shadow: none;"
-        title="one"
+      <button
+        aria-label="one tag (1 posts)"
+        aria-pressed="false"
+        class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
+        data-cy="post-tag"
+        data-state="off"
+        data-tag-label="one"
+        style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(0, 102, 255) 0%, rgb(0, 102, 255) 100%);"
+        type="button"
       >
-        <p
-          class="text-sm text-foreground truncate font-bold"
-          data-cy="tag-name"
-          data-testid="tag-name"
+        <div
+          class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
+          data-cy="tag"
+          data-testid="tag"
+          style="background-color: transparent; border: medium; box-shadow: none;"
+          title="one"
         >
-          one
-        </p>
-        <p
-          class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
-          data-cy="post-tag-count"
-          data-testid="tag-count"
-        >
-          1
-        </p>
-      </div>
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
-        style="box-shadow: inset 0px 0px 8px 0px #0066FF;"
-      />
-    </button>
-    <button
-      aria-label="two tag (1 posts)"
-      aria-pressed="false"
-      class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
-      data-cy="post-tag"
-      data-state="off"
-      data-tag-label="two"
-      style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(0, 76, 255) 0%, rgb(0, 76, 255) 100%);"
-      type="button"
+          <p
+            class="text-sm text-foreground truncate font-bold"
+            data-cy="tag-name"
+            data-testid="tag-name"
+          >
+            one
+          </p>
+          <p
+            class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
+            data-cy="post-tag-count"
+            data-testid="tag-count"
+          >
+            1
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
+          style="box-shadow: inset 0px 0px 8px 0px #0066FF;"
+        />
+      </button>
+    </a>
+    <a
+      href="/resources/tag/two"
     >
-      <div
-        class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
-        data-cy="tag"
-        data-testid="tag"
-        style="background-color: transparent; border: medium; box-shadow: none;"
-        title="two"
+      <button
+        aria-label="two tag (1 posts)"
+        aria-pressed="false"
+        class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
+        data-cy="post-tag"
+        data-state="off"
+        data-tag-label="two"
+        style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(0, 76, 255) 0%, rgb(0, 76, 255) 100%);"
+        type="button"
       >
-        <p
-          class="text-sm text-foreground truncate font-bold"
-          data-cy="tag-name"
-          data-testid="tag-name"
+        <div
+          class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
+          data-cy="tag"
+          data-testid="tag"
+          style="background-color: transparent; border: medium; box-shadow: none;"
+          title="two"
         >
-          two
-        </p>
-        <p
-          class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
-          data-cy="post-tag-count"
-          data-testid="tag-count"
-        >
-          1
-        </p>
-      </div>
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
-        style="box-shadow: inset 0px 0px 8px 0px #004cFF;"
-      />
-    </button>
-    <button
-      aria-label="three tag (1 posts)"
-      aria-pressed="false"
-      class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
-      data-cy="post-tag"
-      data-state="off"
-      data-tag-label="three"
-      style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(158, 255, 0) 0%, rgb(158, 255, 0) 100%);"
-      type="button"
+          <p
+            class="text-sm text-foreground truncate font-bold"
+            data-cy="tag-name"
+            data-testid="tag-name"
+          >
+            two
+          </p>
+          <p
+            class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
+            data-cy="post-tag-count"
+            data-testid="tag-count"
+          >
+            1
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
+          style="box-shadow: inset 0px 0px 8px 0px #004cFF;"
+        />
+      </button>
+    </a>
+    <a
+      href="/resources/tag/three"
     >
-      <div
-        class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
-        data-cy="tag"
-        data-testid="tag"
-        style="background-color: transparent; border: medium; box-shadow: none;"
-        title="three"
+      <button
+        aria-label="three tag (1 posts)"
+        aria-pressed="false"
+        class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
+        data-cy="post-tag"
+        data-state="off"
+        data-tag-label="three"
+        style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(158, 255, 0) 0%, rgb(158, 255, 0) 100%);"
+        type="button"
       >
-        <p
-          class="text-sm text-foreground truncate font-bold"
-          data-cy="tag-name"
-          data-testid="tag-name"
+        <div
+          class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
+          data-cy="tag"
+          data-testid="tag"
+          style="background-color: transparent; border: medium; box-shadow: none;"
+          title="three"
         >
-          three
-        </p>
-        <p
-          class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
-          data-cy="post-tag-count"
-          data-testid="tag-count"
-        >
-          1
-        </p>
-      </div>
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
-        style="box-shadow: inset 0px 0px 8px 0px #9eFF00;"
-      />
-    </button>
-    <button
-      aria-label="four tag (1 posts)"
-      aria-pressed="false"
-      class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
-      data-cy="post-tag"
-      data-state="off"
-      data-tag-label="four"
-      style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(255, 0, 38) 0%, rgb(255, 0, 38) 100%);"
-      type="button"
+          <p
+            class="text-sm text-foreground truncate font-bold"
+            data-cy="tag-name"
+            data-testid="tag-name"
+          >
+            three
+          </p>
+          <p
+            class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
+            data-cy="post-tag-count"
+            data-testid="tag-count"
+          >
+            1
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
+          style="box-shadow: inset 0px 0px 8px 0px #9eFF00;"
+        />
+      </button>
+    </a>
+    <a
+      href="/resources/tag/four"
     >
-      <div
-        class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
-        data-cy="tag"
-        data-testid="tag"
-        style="background-color: transparent; border: medium; box-shadow: none;"
-        title="four"
+      <button
+        aria-label="four tag (1 posts)"
+        aria-pressed="false"
+        class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
+        data-cy="post-tag"
+        data-state="off"
+        data-tag-label="four"
+        style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(255, 0, 38) 0%, rgb(255, 0, 38) 100%);"
+        type="button"
       >
-        <p
-          class="text-sm text-foreground truncate font-bold"
-          data-cy="tag-name"
-          data-testid="tag-name"
+        <div
+          class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
+          data-cy="tag"
+          data-testid="tag"
+          style="background-color: transparent; border: medium; box-shadow: none;"
+          title="four"
         >
-          four
-        </p>
-        <p
-          class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
-          data-cy="post-tag-count"
-          data-testid="tag-count"
-        >
-          1
-        </p>
-      </div>
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
-        style="box-shadow: inset 0px 0px 8px 0px #FF0026;"
-      />
-    </button>
-    <button
-      aria-label="five tag (1 posts)"
-      aria-pressed="false"
-      class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
-      data-cy="post-tag"
-      data-state="off"
-      data-tag-label="five"
-      style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(255, 0, 178) 0%, rgb(255, 0, 178) 100%);"
-      type="button"
+          <p
+            class="text-sm text-foreground truncate font-bold"
+            data-cy="tag-name"
+            data-testid="tag-name"
+          >
+            four
+          </p>
+          <p
+            class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
+            data-cy="post-tag-count"
+            data-testid="tag-count"
+          >
+            1
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
+          style="box-shadow: inset 0px 0px 8px 0px #FF0026;"
+        />
+      </button>
+    </a>
+    <a
+      href="/resources/tag/five"
     >
-      <div
-        class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
-        data-cy="tag"
-        data-testid="tag"
-        style="background-color: transparent; border: medium; box-shadow: none;"
-        title="five"
+      <button
+        aria-label="five tag (1 posts)"
+        aria-pressed="false"
+        class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
+        data-cy="post-tag"
+        data-state="off"
+        data-tag-label="five"
+        style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(255, 0, 178) 0%, rgb(255, 0, 178) 100%);"
+        type="button"
       >
-        <p
-          class="text-sm text-foreground truncate font-bold"
-          data-cy="tag-name"
-          data-testid="tag-name"
+        <div
+          class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
+          data-cy="tag"
+          data-testid="tag"
+          style="background-color: transparent; border: medium; box-shadow: none;"
+          title="five"
         >
-          five
-        </p>
-        <p
-          class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
-          data-cy="post-tag-count"
-          data-testid="tag-count"
-        >
-          1
-        </p>
-      </div>
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
-        style="box-shadow: inset 0px 0px 8px 0px #FF00b2;"
-      />
-    </button>
+          <p
+            class="text-sm text-foreground truncate font-bold"
+            data-cy="tag-name"
+            data-testid="tag-name"
+          >
+            five
+          </p>
+          <p
+            class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
+            data-cy="post-tag-count"
+            data-testid="tag-count"
+          >
+            1
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
+          style="box-shadow: inset 0px 0px 8px 0px #FF00b2;"
+        />
+      </button>
+    </a>
     <p
       class="text-sm font-medium self-center text-muted-foreground"
       data-testid="typography"
@@ -272,44 +292,48 @@ exports[`ResourceCard - Snapshots > matches the metadata card snapshot 1`] = `
     class="flex flex-wrap items-center gap-2"
     data-testid="container"
   >
-    <button
-      aria-label="docs tag (1 posts)"
-      aria-pressed="false"
-      class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
-      data-cy="post-tag"
-      data-state="off"
-      data-tag-label="docs"
-      style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(0, 255, 59) 0%, rgb(0, 255, 59) 100%);"
-      type="button"
+    <a
+      href="/resources/tag/docs"
     >
-      <div
-        class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
-        data-cy="tag"
-        data-testid="tag"
-        style="background-color: transparent; border: medium; box-shadow: none;"
-        title="docs"
+      <button
+        aria-label="docs tag (1 posts)"
+        aria-pressed="false"
+        class="cursor-pointer inline-flex items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 min-w-9 group/tag relative h-8 max-w-full gap-1 rounded-md px-3 backdrop-blur-lg border-0 text-sm leading-5 font-bold text-white subpixel-antialiased transition-all duration-200 hover:bg-transparent hover:text-white data-[state=on]:border data-[state=on]:border-solid data-[state=on]:bg-transparent data-[state=on]:text-white"
+        data-cy="post-tag"
+        data-state="off"
+        data-tag-label="docs"
+        style="background-image: linear-gradient(90deg, rgba(5, 5, 10, 0.7) 0%, rgba(5, 5, 10, 0.7) 100%), linear-gradient(90deg, rgb(0, 255, 59) 0%, rgb(0, 255, 59) 100%);"
+        type="button"
       >
-        <p
-          class="text-sm text-foreground truncate font-bold"
-          data-cy="tag-name"
-          data-testid="tag-name"
+        <div
+          class="flex h-8 w-fit max-w-full min-w-0 cursor-pointer items-center justify-between rounded-md transition-all duration-200 px-0"
+          data-cy="tag"
+          data-testid="tag"
+          style="background-color: transparent; border: medium; box-shadow: none;"
+          title="docs"
         >
-          docs
-        </p>
-        <p
-          class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
-          data-cy="post-tag-count"
-          data-testid="tag-count"
-        >
-          1
-        </p>
-      </div>
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
-        style="box-shadow: inset 0px 0px 8px 0px #00FF3b;"
-      />
-    </button>
+          <p
+            class="text-sm text-foreground truncate font-bold"
+            data-cy="tag-name"
+            data-testid="tag-name"
+          >
+            docs
+          </p>
+          <p
+            class="text-sm ml-1.5 shrink-0 font-medium text-foreground/50"
+            data-cy="post-tag-count"
+            data-testid="tag-count"
+          >
+            1
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 rounded-md opacity-0 transition-opacity group-hover/tag:opacity-100"
+          style="box-shadow: inset 0px 0px 8px 0px #00FF3b;"
+        />
+      </button>
+    </a>
   </div>
   <a
     class="cursor-pointer hover:text-brand/80 transition-colors text-sm text-brand"

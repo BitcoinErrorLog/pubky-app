@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { getResourceRoute } from '@/app/routes';
+import { getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import type { NexusResource } from '@/services/nexus/resource/resource.types';
 import { ResourceCard } from './ResourceCard';
 
@@ -68,6 +68,12 @@ describe('ResourceCard', () => {
     expect(screen.getAllByTestId('tag')[0]).toHaveTextContent('one1');
     expect(screen.getByRole('link', { name: 'example.com/resource' })).toHaveAttribute('href', resource.details.uri);
     expect(screen.getByText('More tags')).toBeInTheDocument();
+  });
+
+  it('links each tag chip to the resource tag route', () => {
+    render(<ResourceCard resource={resourceWithUri('https://example.com/resource', ['docs'])} />);
+
+    expect(screen.getByRole('link', { name: 'docs 1' })).toHaveAttribute('href', getResourceTagRoute('docs'));
   });
 
   it('does not hint at more tags below the stream preview limit', () => {
