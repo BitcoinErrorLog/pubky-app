@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getBitcoinNetwork } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
+  type ClaimVerificationRejectionReason,
+  deriveBip84P2wpkhAddress,
+  verifyClaimedAccount,
+} from '@/libs/commerce/bip84-preview';
+import {
   type AccountXpubRejectionReason,
   isStripePaymentLink,
   isStripeRestrictedKey,
@@ -18,6 +23,13 @@ import { toast } from '@/molecules/Toaster/use-toast';
 type ClaimStatus = 'idle' | 'awaiting' | 'claimed' | 'error';
 
 type ClaimFlow = ReturnType<typeof CommerceController.beginPaykitClaimFlow>;
+
+/** The watched account as the verified claim response reported it. */
+export interface WatchedAccount {
+  accountIndex: number;
+  firstDerivedAddress: string;
+  nextChildIndex: number;
+}
 
 /**
  * Static seller-facing copy for each named xpub rejection. Never interpolate
@@ -46,6 +58,29 @@ export const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason, string> = 
 };
 
 /**
+ * The §C.10 disclosure sentence, rendered verbatim on the manual claim
+ * screen before the irreversible submit. Static copy, no interpolation —
+ * asserted in the payment-settings tests so it cannot be dropped in a later
+ * copy pass.
+ */
+export const CLAIM_DISCLOSURE_SENTENCE =
+  'If any other wallet also receives payments on this account, a Shop order can be marked paid when nobody paid it — and you will ship the item for free. We recommend a dedicated account used only by Shop; tapping "Use Bitkit" creates one for you.';
+
+/**
+ * Static copy for the post-claim verification gate (design §B.6): the client
+ * recomputes the key fingerprint and first address from the exact normalized
+ * bytes it POSTed and refuses to enable bitcoin on any disagreement.
+ */
+export const CLAIM_VERIFICATION_COPY: Record<ClaimVerificationRejectionReason, string> = {
+  server_fingerprint_missing:
+    'The Paykit server did not return the key details Shop needs to verify the claim. The server must be updated before claiming works here — nothing was enabled.',
+  server_fingerprint_mismatch:
+    'The Paykit server reported a different key than the one you submitted, so bitcoin payments were not enabled. Do not use this account for Shop; contact the operator.',
+  server_address_mismatch:
+    'The Paykit server derived a different first address than this app computed from your key, so bitcoin payments were not enabled. Contact the operator.',
+};
+
+/**
  * The seller's "Get paid" configuration: stored rails (loaded from the
  * durable service), the save action, and the manual watch-only claim flow.
  * Claim state (`accountClaimed`) is read from paykit-server, so it reflects
@@ -61,6 +96,10 @@ export function useMarketplaceSellerPaymentConfig() {
   const [claimStatus, setClaimStatus] = useState<ClaimStatus>('idle');
   const [claimAuthorizationUrl, setClaimAuthorizationUrl] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
+  /** Preview address at 0/0 derived from the exact normalized bytes being POSTed. */
+  const [claimPreviewAddress, setClaimPreviewAddress] = useState<string | null>(null);
+  /** The verified watched account from the claim response (this session only). */
+  const [watchedAccount, setWatchedAccount] = useState<WatchedAccount | null>(null);
   const activeClaimRef = useRef<ClaimFlow | null>(null);
 
   useEffect(() => {
@@ -168,13 +207,15 @@ export function useMarketplaceSellerPaymentConfig() {
     setClaimStatus('idle');
     setClaimAuthorizationUrl('');
     setClaimError(null);
+    setClaimPreviewAddress(null);
   }, []);
 
   const startClaim = useCallback((accountXpub: string) => {
     // Validate against the configured network and normalize (zpub→xpub /
     // vpub→tpub) BEFORE anything is sent: the claim submits the normalized
     // xpub, never the raw paste. Unset/unrecognised network refuses the claim.
-    const normalized = normalizeAccountXpub(accountXpub, parseBitcoinNetwork(getBitcoinNetwork()));
+    const network = parseBitcoinNetwork(getBitcoinNetwork());
+    const normalized = normalizeAccountXpub(accountXpub, network);
     if (!normalized.ok) {
       setClaimError(CLAIM_REJECTION_COPY[normalized.reason]);
       setClaimStatus('error');
@@ -195,15 +236,34 @@ export function useMarketplaceSellerPaymentConfig() {
       return;
     }
     activeClaimRef.current = flow;
+    // The preview derives from the exact normalized 78 bytes about to be
+    // POSTed — never from the pasted string (design §B.6).
+    setClaimPreviewAddress(deriveBip84P2wpkhAddress(normalized.bytes, network!, 0));
     setClaimAuthorizationUrl(flow.authorizationUrl);
     setClaimStatus('awaiting');
 
     flow
       .awaitClaim()
-      .then(() => {
+      .then((result) => {
         if (activeClaimRef.current !== flow) return;
+        // The confirmation gate (design §B.6): the server must prove it stored
+        // exactly the key that was POSTed. On any mismatch, missing
+        // fingerprint, or disagreeing first address, bitcoin stays disabled.
+        const verification = verifyClaimedAccount(normalized.bytes, network!, result);
+        if (!verification.ok) {
+          activeClaimRef.current = null;
+          setClaimAuthorizationUrl('');
+          setClaimError(CLAIM_VERIFICATION_COPY[verification.reason]);
+          setClaimStatus('error');
+          return;
+        }
         activeClaimRef.current = null;
         setClaimAuthorizationUrl('');
+        setWatchedAccount({
+          accountIndex: result.accountIndex,
+          firstDerivedAddress: result.firstDerivedAddress!,
+          nextChildIndex: result.nextChildIndex!,
+        });
         setClaimStatus('claimed');
         setAccountClaimed(true);
         toast({ title: 'Watch-only account claimed', description: 'Bitcoin payment requests now use this account.' });
@@ -237,6 +297,8 @@ export function useMarketplaceSellerPaymentConfig() {
     claimStatus,
     claimAuthorizationUrl,
     claimError,
+    claimPreviewAddress,
+    watchedAccount,
     startClaim,
     cancelClaim,
   };

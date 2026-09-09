@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { CLAIM_VERIFICATION_COPY } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
+import { accountKeyFingerprint, deriveBip84P2wpkhAddress } from '@/libs/commerce/bip84-preview';
 import { encodeBase58Check, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -65,6 +67,19 @@ const PASTED_ZPUB = encodeBase58Check(
 );
 const NORMALIZED_XPUB = encodeBase58Check(DERIVED_ACCOUNT.payload);
 
+/**
+ * A W1.3 claim response that verifies against the normalized bytes of
+ * DERIVED_ACCOUNT — the honest-server case the confirmation gate accepts.
+ */
+const VERIFIED_CLAIM_RESULT = {
+  creator: 'pubkygy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+  accountIndex: 0,
+  keyFingerprint: accountKeyFingerprint(DERIVED_ACCOUNT.payload),
+  firstDerivedAddress: deriveBip84P2wpkhAddress(DERIVED_ACCOUNT.payload, 'mainnet', 0),
+  nextChildIndex: 0,
+  stackId: 'proof:3f6f4b2a-7c5d-4e1f-8a2b-000000000000',
+};
+
 const BITCOIN_NETWORK_ENV = 'PUBKY_RUNTIME_BITCOIN_NETWORK';
 
 beforeEach(() => {
@@ -84,7 +99,7 @@ beforeEach(() => {
   }));
   mockedController.beginPaykitClaimFlow.mockReset().mockReturnValue({
     authorizationUrl: 'https://auth.example/claim',
-    awaitClaim: () => new Promise<{ creator: string; accountIndex: number }>(() => {}),
+    awaitClaim: () => new Promise<typeof VERIFIED_CLAIM_RESULT>(() => {}),
     cancel: vi.fn(),
   });
   // A marketplace session makes the stored-rail forms render; the page is the
@@ -296,5 +311,93 @@ describe('MarketplacePaymentSettings', () => {
 
     expect(mockedController.beginPaykitClaimFlow).not.toHaveBeenCalled();
     expect(screen.getAllByText(/publicly known test key/).length).toBeGreaterThan(0);
+  });
+
+  async function openClaimDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'Technical details' }));
+    await user.type(screen.getByLabelText('Account xpub'), PASTED_ZPUB);
+    await user.click(screen.getByRole('button', { name: 'Claim with signer' }));
+  }
+
+  it('shows the preview address derived from the exact normalized bytes, not the paste', async () => {
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+
+    // The pasted key is the zpub form; the preview derives from the
+    // normalized 78 bytes that are POSTed (the canonical xpub payload).
+    expect(screen.getByTestId('claim-preview-address')).toHaveTextContent(
+      deriveBip84P2wpkhAddress(DERIVED_ACCOUNT.payload, 'mainnet', 0),
+    );
+  });
+
+  it('enables the claim only after the server fingerprint and first address verify', async () => {
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => VERIFIED_CLAIM_RESULT,
+      cancel: vi.fn(),
+    });
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+
+    await screen.findByText(/Watch-only account claimed/);
+  });
+
+  it('negative (ii): a fingerprint off by one hex digit keeps bitcoinEnabled off', async () => {
+    const tamperedFingerprint = VERIFIED_CLAIM_RESULT.keyFingerprint.endsWith('0')
+      ? `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}1`
+      : `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}0`;
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, keyFingerprint: tamperedFingerprint }),
+      cancel: vi.fn(),
+    });
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+
+    await screen.findAllByText(CLAIM_VERIFICATION_COPY.server_fingerprint_mismatch);
+    // The gate failed closed: bitcoin is not enabled and no claim is shown.
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin', hidden: true })).not.toBeChecked();
+    expect(screen.queryByText(/Shop is watching account/)).not.toBeInTheDocument();
+    expect(mockedController.putMyPaymentConfig).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with server_fingerprint_missing when the server predates W1.3', async () => {
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, keyFingerprint: null }),
+      cancel: vi.fn(),
+    });
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+
+    await screen.findAllByText(CLAIM_VERIFICATION_COPY.server_fingerprint_missing);
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin', hidden: true })).not.toBeChecked();
+  });
+
+  it('refuses with server_address_mismatch when the server derives a different first address', async () => {
+    const otherAccount = deriveBip84Account(NON_DENY_LISTED_MNEMONIC, 0, 1);
+    mockedController.beginPaykitClaimFlow.mockReturnValue({
+      authorizationUrl: 'https://auth.example/claim',
+      awaitClaim: async () => ({
+        ...VERIFIED_CLAIM_RESULT,
+        firstDerivedAddress: deriveBip84P2wpkhAddress(otherAccount.payload, 'mainnet', 0),
+      }),
+      cancel: vi.fn(),
+    });
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await openClaimDialog(user);
+
+    await screen.findAllByText(CLAIM_VERIFICATION_COPY.server_address_mismatch);
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin', hidden: true })).not.toBeChecked();
   });
 });

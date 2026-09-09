@@ -464,6 +464,16 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
             Approving on your signer registers the pasted account xpub with the Paykit server — exactly what
             Bitkit&rsquo;s setup does. The approval is scoped to the Paykit receiver path and grants nothing else.
           </Typography>
+          {payments.claimPreviewAddress && (
+            <div className="grid gap-1 rounded-xl border p-3 text-sm">
+              <Typography as="p" className="text-muted-foreground">
+                First receiving address on this account — check it appears in your own wallet before approving:
+              </Typography>
+              <code className="break-all font-mono text-xs" data-testid="claim-preview-address">
+                {payments.claimPreviewAddress}
+              </code>
+            </div>
+          )}
           {payments.claimStatus === 'error' ? (
             <div className="grid gap-3">
               <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">

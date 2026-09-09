@@ -25,11 +25,27 @@ export type PaykitClaimErrorReason =
   | 'session_unavailable'
   | 'unavailable';
 
+/**
+ * A successful claim, as paykit-server reports it. The four W1.3 fields
+ * (`key_fingerprint`, `first_derived_address`, `next_child_index`,
+ * `stack_id`) are what the client verifies the claim against before anything
+ * is enabled; they are `null` when the server predates W1.3, and the claim
+ * hook fails closed on that case (`server_fingerprint_missing`).
+ */
+export interface PaykitClaimResult {
+  creator: string;
+  accountIndex: number;
+  keyFingerprint: string | null;
+  firstDerivedAddress: string | null;
+  nextChildIndex: number | null;
+  stackId: string | null;
+}
+
 export interface PaykitClaimFlow {
   /** `pubkyauth://` URL for the seller's signer (QR / deeplink). */
   authorizationUrl: string;
   /** Resolves once the signer approves and paykit-server accepts the claim. */
-  awaitClaim: () => Promise<{ creator: string; accountIndex: number }>;
+  awaitClaim: () => Promise<PaykitClaimResult>;
   cancel: () => void;
 }
 
@@ -106,10 +122,7 @@ export class MarketplacePaykitClaimService {
     return body.claimed === true;
   }
 
-  private static async submitClaim(
-    authTokenBytes: Uint8Array,
-    accountXpub: string,
-  ): Promise<{ creator: string; accountIndex: number }> {
+  private static async submitClaim(authTokenBytes: Uint8Array, accountXpub: string): Promise<PaykitClaimResult> {
     const url = `${paykitServerOrigin()}/v0/accounts/claim`;
     const response = await safeFetch(
       url,
@@ -129,6 +142,10 @@ export class MarketplacePaykitClaimService {
       status?: string;
       creator?: string;
       account_index?: number;
+      key_fingerprint?: string;
+      first_derived_address?: string;
+      next_child_index?: number;
+      stack_id?: string;
       error?: { code?: string; message?: string };
     };
     if (!response.ok || body.status !== 'claimed' || !body.creator) {
@@ -143,6 +160,13 @@ export class MarketplacePaykitClaimService {
         },
       );
     }
-    return { creator: body.creator, accountIndex: body.account_index ?? 0 };
+    return {
+      creator: body.creator,
+      accountIndex: body.account_index ?? 0,
+      keyFingerprint: typeof body.key_fingerprint === 'string' ? body.key_fingerprint : null,
+      firstDerivedAddress: typeof body.first_derived_address === 'string' ? body.first_derived_address : null,
+      nextChildIndex: typeof body.next_child_index === 'number' ? body.next_child_index : null,
+      stackId: typeof body.stack_id === 'string' ? body.stack_id : null,
+    };
   }
 }

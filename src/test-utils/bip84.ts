@@ -1,8 +1,14 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hmac } from '@noble/hashes/hmac.js';
-import { ripemd160 } from '@noble/hashes/legacy.js';
-import { sha256, sha512 } from '@noble/hashes/sha2.js';
+import { sha512 } from '@noble/hashes/sha2.js';
 import * as bip39 from 'bip39';
+import {
+  accountNodeFromBytes,
+  bech32EncodeWitnessV0,
+  derivePublicChild,
+  hash160,
+  type HdPublicNode,
+} from '@/libs/commerce/bip84-preview';
 
 /**
  * Test-only BIP32/BIP84 derivation used to recompute deny-list entries and
@@ -10,6 +16,10 @@ import * as bip39 from 'bip39';
  * handling — the app's identity code is Ed25519; this exists so the
  * payment-methods tests can derive BIP84 account keys and P2WPKH addresses
  * from a mnemonic and assert them against the published BIP84 literals.
+ * Public derivation (CKDpub) and bech32 encoding are REUSED from the
+ * production preview module (`@/libs/commerce/bip84-preview`) so the tests
+ * and the shipped claim gate can never drift apart; only the private
+ * derivation from the mnemonic is test-only.
  */
 
 const HARDENED_OFFSET = 0x80000000;
@@ -47,10 +57,6 @@ function bytesToBigInt(bytes: Uint8Array): bigint {
   return value;
 }
 
-function hash160(data: Uint8Array): Uint8Array {
-  return ripemd160(sha256(data));
-}
-
 interface HdPrivateNode {
   privateKey: bigint;
   publicKey: Uint8Array;
@@ -82,22 +88,6 @@ function deriveHardenedChild(parent: HdPrivateNode, index: number): HdPrivateNod
   const tweak = bytesToBigInt(digest.subarray(0, 32));
   const privateKey = (tweak + parent.privateKey) % CURVE_ORDER;
   return { privateKey, publicKey: secp256k1.getPublicKey(ser256(privateKey), true), chainCode: digest.subarray(32) };
-}
-
-interface HdPublicNode {
-  publicKey: Uint8Array;
-  chainCode: Uint8Array;
-}
-
-/** BIP32 CKDpub for a non-hardened child index. */
-function derivePublicChild(parent: HdPublicNode, index: number): HdPublicNode {
-  const data = new Uint8Array(33 + 4);
-  data.set(parent.publicKey, 0);
-  data.set(ser32(index), 33);
-  const digest = hmac(sha512, parent.chainCode, data);
-  const tweak = bytesToBigInt(digest.subarray(0, 32));
-  const childPoint = secp256k1.Point.fromBytes(parent.publicKey).add(secp256k1.Point.BASE.multiply(tweak));
-  return { publicKey: childPoint.toBytes(true), chainCode: digest.subarray(32) };
 }
 
 function fingerprint(publicKey: Uint8Array): Uint8Array {
@@ -136,61 +126,23 @@ export function deriveBip84Account(mnemonic: string, coinType: Bip84CoinType, ac
 }
 
 // ---------------------------------------------------------------------------
-// BIP173 bech32 (witness v0 only — enough for P2WPKH first-address fixtures)
+// Address fixtures — reuse the production preview derivation, so the test
+// vectors and the shipped claim gate are asserted against one code path.
 // ---------------------------------------------------------------------------
 
-const BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-
-function bech32Polymod(values: number[]): number {
-  const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-  let checksum = 1;
-  for (const value of values) {
-    const top = checksum >>> 25;
-    checksum = ((checksum & 0x1ffffff) << 5) ^ value;
-    for (let i = 0; i < 5; i++) {
-      if ((top >>> i) & 1) checksum ^= generators[i];
-    }
-  }
-  return checksum;
-}
-
-function bech32HrpExpand(hrp: string): number[] {
-  const expanded: number[] = [];
-  for (const char of hrp) expanded.push(char.charCodeAt(0) >> 5);
-  expanded.push(0);
-  for (const char of hrp) expanded.push(char.charCodeAt(0) & 31);
-  return expanded;
-}
-
-function convertBits(data: Uint8Array, fromBits: number, toBits: number, pad: boolean): number[] {
-  let accumulator = 0;
-  let bits = 0;
-  const result: number[] = [];
-  const maxValue = (1 << toBits) - 1;
-  for (const byte of data) {
-    accumulator = (accumulator << fromBits) | byte;
-    bits += fromBits;
-    while (bits >= toBits) {
-      bits -= toBits;
-      result.push((accumulator >> bits) & maxValue);
-    }
-  }
-  if (pad && bits > 0) result.push((accumulator << (toBits - bits)) & maxValue);
-  return result;
-}
-
-function bech32Encode(hrp: string, witnessVersion: number, witnessProgram: Uint8Array): string {
-  const data = [witnessVersion, ...convertBits(witnessProgram, 8, 5, true)];
-  const values = [...bech32HrpExpand(hrp), ...data];
-  const polymod = bech32Polymod([...values, 0, 0, 0, 0, 0, 0]) ^ 1;
-  const checksum: number[] = [];
-  for (let i = 0; i < 6; i++) checksum.push((polymod >>> (5 * (5 - i))) & 31);
-  return hrp + '1' + [...data, ...checksum].map((value) => BECH32_CHARSET[value]).join('');
+/** Derive the BIP84 receiving address at 0/<index> (P2WPKH bech32). */
+export function deriveBip84AddressAtIndex(account: Bip84AccountKey, hrp: 'bc' | 'tb', index: number): string {
+  const external = derivePublicChild({ publicKey: account.publicKey, chainCode: account.chainCode }, 0);
+  const leaf = derivePublicChild(external, index);
+  return bech32EncodeWitnessV0(hrp, hash160(leaf.publicKey));
 }
 
 /** Derive the BIP84 first receiving address (m/84'/c'/a'/0/0, P2WPKH bech32). */
 export function deriveBip84FirstAddress(account: Bip84AccountKey, hrp: 'bc' | 'tb'): string {
-  const external = derivePublicChild({ publicKey: account.publicKey, chainCode: account.chainCode }, 0);
-  const first = derivePublicChild(external, 0);
-  return bech32Encode(hrp, 0, hash160(first.publicKey));
+  return deriveBip84AddressAtIndex(account, hrp, 0);
+}
+
+/** The public node (chain code + public key) of a derived account, for cross-checks. */
+export function accountPublicNode(account: Bip84AccountKey): HdPublicNode {
+  return accountNodeFromBytes(account.payload);
 }
