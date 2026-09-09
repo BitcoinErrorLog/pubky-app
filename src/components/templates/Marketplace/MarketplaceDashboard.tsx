@@ -162,6 +162,15 @@ export function MarketplaceDashboard() {
 
         {dashboard.isLoading ? (
           <Skeleton className="h-48 w-full" />
+        ) : dashboard.error ? (
+          <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-6">
+            <Heading level={3} size="md">
+              Listings could not be loaded
+            </Heading>
+            <Typography as="p" className="mt-2 text-muted-foreground">
+              {dashboard.error}
+            </Typography>
+          </div>
         ) : (
           <>
             {/* A seller with published listings but no shop record dead-ends
