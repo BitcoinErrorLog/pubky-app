@@ -63,6 +63,7 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 
 - Static toast copy rule shipped in production 2026-09-09 as part of merge `4607a692c` on `marketplace/pr25-ux`. Opus round 1 was FIX-FIRST because three tests still asserted the old raw-message behavior; drop refusals were not classified. Round 2 was SHIP. The non-gating cleanup batch centralized the static fallback in `src/libs/commerce/failure-messages.ts`, removed dead `generic`, added real AppError sentinels, and added preservation tests (`148db15ed`, `91e041c9c`, deployed after the `4607a692c` build); parent proof recorded TSC 0, ESLint 0, and 806 unit tests. Deploys: `pubky-marketplace-production-ccat1hufk` / `shop.pubky.app`; staging `pubky-marketplace-staging-k7uzbc06f`.
 - DM `sent_at` wire format shipped 2026-09-09 as `c694b192` on `pr25-ux`. The Kimi audit was SHIP with four non-gating findings, all fixed in `c694b192`: VRT fixture drift, a tightened emit-schema maximum, legacy ISO rows normalized on read, and a Paykit test asserting the normalized value. Production deploy was `pubky-marketplace-production-371i2l41j`, staging `gm8z9ndvp`; it was then superseded by the `4607a692c` deploy above.
+- Shop shipped two UX fixes on 2026-09-09 at `e6ffcf6e` on `marketplace/pr25-ux`: `/` now redirects to `/marketplace` (production `pubky-marketplace-production-fg6z17e36`, alias `shop.pubky.app`; staging `pubky-marketplace-staging-1iabskwrx`), and Bitcoin auto-hides unless both `bitcoin_available` and `bitcoin_offer_available` are true. The auto-hide is hop 3 of a 3-hop contract: paykit-server publication on `/health/ready` is in progress (hop 1), while marketplace-service consumption/caching and payment-config `503` avoidance during Paykit outages is implemented but under review (hop 2); both are undeployed, so an omitted field defaults to `true` and behavior is unchanged. Fixture commit `71c2ece6` was necessary because VRT mocks bypass the Zod default; run the marketplace VRT subset when touching the payment schema.
 
 **Known gaps**
 
@@ -243,4 +244,4 @@ Reusable packet for reviewing Shop as a Vibes experiment. Fill with repository o
 - `docs/adr/0026-marketplace-drops.md`
 - `docs/adr/0028-indexer-contract.md`
 - `docs/adr/0029-vibe-session-consumer.md`
-- `/Users/johncarvalho/.cursor/plans/vibes-first_marketplace_master_plan_d8646c7a.plan.md`
+- `.cursor/plans/vibes-first_marketplace_master_plan_d8646c7a.plan.md`
