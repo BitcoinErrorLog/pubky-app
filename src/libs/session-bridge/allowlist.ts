@@ -3,9 +3,9 @@
  * Used by the client handler, Env schema, and next.config headers.
  */
 
-/** Production board hosts plus first-party exact origins. Add team-operated hosts via PR, never `*.pubky.app`. */
+/** Production board hosts plus explicit flat first-party vibe subdomains. Add trusted vibes via PR, never `*.pubky.app`. */
 export const SESSION_BRIDGE_PROD_DEFAULT_ORIGINS =
-  'https://vibes.pubky.app,https://*.vibes.pubky.app,https://shop.pubky.app';
+  'https://vibes.pubky.app,https://*.vibes.pubky.app,https://shop.pubky.app,https://bots.pubky.app,https://day.pubky.app,https://arena.pubky.app';
 
 /** Staging board hosts. Appended only outside production; production staging deploys must set env explicitly. */
 export const SESSION_BRIDGE_STAGING_DEFAULT_ORIGINS =

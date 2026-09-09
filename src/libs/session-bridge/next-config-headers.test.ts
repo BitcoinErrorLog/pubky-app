@@ -17,6 +17,9 @@ describe('next.config session-bridge headers', () => {
     expect(csp?.value).toBe(`frame-ancestors ${buildSessionBridgeFrameAncestors(allowlist)}`);
     expect(csp?.value).toContain('https://vibes.pubky.app');
     expect(csp?.value).toContain('https://shop.pubky.app');
+    expect(csp?.value).toContain('https://bots.pubky.app');
+    expect(csp?.value).toContain('https://day.pubky.app');
+    expect(csp?.value).toContain('https://arena.pubky.app');
     expect(bridge!.headers.map((header) => header.key)).toEqual([
       'Content-Security-Policy',
       'Referrer-Policy',

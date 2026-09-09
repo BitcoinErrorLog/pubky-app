@@ -23,14 +23,23 @@ describe('defaultSessionBridgeAllowedOrigins', () => {
       'https://vibes.pubky.app',
       'https://*.vibes.pubky.app',
       'https://shop.pubky.app',
+      'https://bots.pubky.app',
+      'https://day.pubky.app',
+      'https://arena.pubky.app',
     ]);
     expect(defaultSessionBridgeAllowedOrigins('production')).not.toContain('localhost');
     expect(defaultSessionBridgeAllowedOrigins('production')).not.toContain('vibes.staging.pubky.app');
   });
 
-  it('includes the first-party shop origin in production and non-production', () => {
+  it('includes the first-party vibe origins in production and non-production', () => {
     expect(defaultSessionBridgeAllowedOrigins('production').split(',')).toContain('https://shop.pubky.app');
+    expect(defaultSessionBridgeAllowedOrigins('production').split(',')).toContain('https://bots.pubky.app');
+    expect(defaultSessionBridgeAllowedOrigins('production').split(',')).toContain('https://day.pubky.app');
+    expect(defaultSessionBridgeAllowedOrigins('production').split(',')).toContain('https://arena.pubky.app');
     expect(defaultSessionBridgeAllowedOrigins('development').split(',')).toContain('https://shop.pubky.app');
+    expect(defaultSessionBridgeAllowedOrigins('development').split(',')).toContain('https://bots.pubky.app');
+    expect(defaultSessionBridgeAllowedOrigins('development').split(',')).toContain('https://day.pubky.app');
+    expect(defaultSessionBridgeAllowedOrigins('development').split(',')).toContain('https://arena.pubky.app');
     expect(SESSION_BRIDGE_PROD_DEFAULT_ORIGINS.split(',')).toContain('https://shop.pubky.app');
     expect(SESSION_BRIDGE_PROD_DEFAULT_ORIGINS).not.toContain('https://*.pubky.app');
   });
@@ -43,6 +52,9 @@ describe('defaultSessionBridgeAllowedOrigins', () => {
       'https://vibes.pubky.app',
       'https://*.vibes.pubky.app',
       'https://shop.pubky.app',
+      'https://bots.pubky.app',
+      'https://day.pubky.app',
+      'https://arena.pubky.app',
       'https://vibes.staging.pubky.app',
       'https://*.vibes.staging.pubky.app',
       'http://localhost:3000',
@@ -175,6 +187,18 @@ describe('isAllowedBridgeOrigin', () => {
     expect(isAllowedBridgeOrigin('https://shop.pubky.app', allowlist)).toBe(true);
   });
 
+  it('allows the first-party bots origin by exact default entry', () => {
+    expect(isAllowedBridgeOrigin('https://bots.pubky.app', allowlist)).toBe(true);
+  });
+
+  it('allows the first-party day origin by exact default entry', () => {
+    expect(isAllowedBridgeOrigin('https://day.pubky.app', allowlist)).toBe(true);
+  });
+
+  it('allows the first-party arena origin by exact default entry', () => {
+    expect(isAllowedBridgeOrigin('https://arena.pubky.app', allowlist)).toBe(true);
+  });
+
   it('rejects other pubky.app hosts that are not listed', () => {
     expect(isAllowedBridgeOrigin('https://evil.pubky.app', allowlist)).toBe(false);
   });
@@ -225,7 +249,7 @@ describe('isAllowedBridgeOrigin', () => {
 describe('buildSessionBridgeFrameAncestors', () => {
   it('joins allowlist entries with spaces for CSP frame-ancestors', () => {
     expect(buildSessionBridgeFrameAncestors(allowlist)).toBe(
-      'https://vibes.pubky.app https://*.vibes.pubky.app https://shop.pubky.app https://vibes.staging.pubky.app https://*.vibes.staging.pubky.app http://localhost:3000',
+      'https://vibes.pubky.app https://*.vibes.pubky.app https://shop.pubky.app https://bots.pubky.app https://day.pubky.app https://arena.pubky.app https://vibes.staging.pubky.app https://*.vibes.staging.pubky.app http://localhost:3000',
     );
   });
 
@@ -233,6 +257,9 @@ describe('buildSessionBridgeFrameAncestors', () => {
     const frameAncestors = buildSessionBridgeFrameAncestors(allowlist);
     expect(frameAncestors.split(' ')).toContain('https://vibes.pubky.app');
     expect(frameAncestors.split(' ')).toContain('https://shop.pubky.app');
+    expect(frameAncestors.split(' ')).toContain('https://bots.pubky.app');
+    expect(frameAncestors.split(' ')).toContain('https://day.pubky.app');
+    expect(frameAncestors.split(' ')).toContain('https://arena.pubky.app');
     expect(frameAncestors).not.toContain('https://*.pubky.app');
   });
 
@@ -263,10 +290,20 @@ describe('buildSessionBridgeRouteHeaders', () => {
     const parsed = parseSessionBridgeAllowlist(undefined, 'production');
     const routes = buildSessionBridgeRouteHeaders(SESSION_BRIDGE_PROD_DEFAULT_ORIGINS);
     const csp = routes[0].headers.find((header) => header.key === 'Content-Security-Policy');
-    expect(parsed).toEqual(['https://vibes.pubky.app', 'https://*.vibes.pubky.app', 'https://shop.pubky.app']);
+    expect(parsed).toEqual([
+      'https://vibes.pubky.app',
+      'https://*.vibes.pubky.app',
+      'https://shop.pubky.app',
+      'https://bots.pubky.app',
+      'https://day.pubky.app',
+      'https://arena.pubky.app',
+    ]);
     expect(csp?.value).toBe(`frame-ancestors ${buildSessionBridgeFrameAncestors(parsed)}`);
     expect(csp?.value).toContain('https://vibes.pubky.app');
     expect(csp?.value).toContain('https://shop.pubky.app');
+    expect(csp?.value).toContain('https://bots.pubky.app');
+    expect(csp?.value).toContain('https://day.pubky.app');
+    expect(csp?.value).toContain('https://arena.pubky.app');
     expect(csp?.value).not.toContain('vibes.staging.pubky.app');
     expect(csp?.value).not.toContain('https://*.pubky.app');
   });

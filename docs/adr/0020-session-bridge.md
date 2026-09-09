@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — 2026-09-04
+Accepted — 2026-09-09
 
 > **Note**: Update status when the decision changes. Include the date of status change.
 >
@@ -15,9 +15,9 @@ Proposed — 2026-09-04
 
 A Pubky web session is a cookie the homeserver sets on its own host (`HttpOnly`, `Secure`, `SameSite=None`). The browser attaches that cookie to homeserver requests. pubky-app does not store the secret. It persists only `sessionExport` — `session.export()`, a base64 encoding of public `SessionInfo` (pubky + capabilities) — in the Zustand auth store under localStorage key `auth-store`. `restoreSession(sessionExport)` re-validates with the homeserver using the cookie the browser already holds.
 
-The vibes board (`vibes.pubky.app`) and approved vibes served from `<id>.vibes.pubky.app` are same-site with the homeserver (`pubky.app`), so the cookie is already present. They need the public `sessionExport` to construct a session handle without asking the user to sign in again. First-party team-operated hosts on `pubky.app` (currently the Marketplace at `https://shop.pubky.app`) are the same class of same-site consumer.
+The vibes board (`vibes.pubky.app`) and trusted vibes served from explicit flat first-party subdomains (`https://shop.pubky.app`, `https://bots.pubky.app`, `https://day.pubky.app`, and `https://arena.pubky.app`) are same-site with the homeserver (`pubky.app`), so the cookie is already present. They need the public `sessionExport` to construct a session handle without asking the user to sign in again. A trusted vibe is added by PR and receives an explicit DNS record; extra Ring approval is required only when it needs extra scope such as Paykit or private messages.
 
-Those hostnames are not self-service. Each approved vibe receives an explicit DNS record granted by us. There is no wildcard DNS and no user-generated `*.pubky.app` name. A vibe without that record is an ordinary off-site app with its own sign-in. First-party team-operated hosts are added to the default allowlist by exact origin via PR, never by a `*.pubky.app` wildcard.
+`*.vibes.pubky.app` remains the vibes-board/legacy entry. These hostnames are not self-service: there is no wildcard DNS and no user-generated `*.pubky.app` name. Hypercolor (`hypercolor.app`) remains a separate off-site app, while Uploadky and Switchboard are untrusted and do not use the bridge.
 
 Internal design write-up (title only): **Vibes: one sign-in across the board and every vibe**.
 
@@ -48,7 +48,7 @@ Allowlist entries are exact `https` origins or single-label wildcards (`https://
 
 This asymmetry is intentional and must not be "fixed" later: CSP `frame-ancestors` wildcards are multi-label (`*.vibes.pubky.app` may allow `a.b.vibes.pubky.app` to frame the page), while `isAllowedBridgeOrigin` is the authoritative single-label gate for data. Deep subdomains can load an inert frame but never receive `sessionExport`.
 
-The default allowlist when `NODE_ENV=production` is `https://vibes.pubky.app`, `https://*.vibes.pubky.app`, and first-party team-operated hosts listed by exact origin (currently `https://shop.pubky.app`). First-party team-operated hosts are added to the default by exact origin via PR, never by a `*.pubky.app` wildcard. Staging board hosts (`https://vibes.staging.pubky.app`, `https://*.vibes.staging.pubky.app`) and `http://localhost:3000` are appended only outside production. Staging deployments of pubky.app use `NODE_ENV=production` builds, so they must set `NEXT_PUBLIC_SESSION_BRIDGE_ALLOWED_ORIGINS` explicitly to the staging board origins. Production loopback also requires an explicit env opt-in. Entries are validated at build; invalid values fail both Env parsing and `next.config.ts` `headers()`.
+The default allowlist when `NODE_ENV=production` is `https://vibes.pubky.app`, `https://*.vibes.pubky.app`, and the explicit flat first-party vibe origins `https://shop.pubky.app`, `https://bots.pubky.app`, `https://day.pubky.app`, and `https://arena.pubky.app`. Trusted vibes are added to the default by exact origin via PR, never by a `*.pubky.app` wildcard. Staging board hosts (`https://vibes.staging.pubky.app`, `https://*.vibes.staging.pubky.app`) and `http://localhost:3000` are appended only outside production. Staging deployments of pubky.app use `NODE_ENV=production` builds, so they must set `NEXT_PUBLIC_SESSION_BRIDGE_ALLOWED_ORIGINS` explicitly to the staging board origins. Production loopback also requires an explicit env opt-in. Entries are validated at build; invalid values fail both Env parsing and `next.config.ts` `headers()`.
 
 ## Consequences
 
@@ -61,13 +61,13 @@ The default allowlist when `NODE_ENV=production` is `https://vibes.pubky.app`, `
 ### Negative ❌
 
 - XSS on any allowlisted vibe can drive the shared session (authenticated homeserver calls), though it cannot read the HttpOnly cookie.
-- Every approved `*.vibes.pubky.app` vibe can learn a visitor's pubky and capabilities silently on visit. This is bounded by per-vibe approval plus explicit DNS records (no wildcard DNS, no self-service hostnames).
+- Every approved flat first-party vibe and `*.vibes.pubky.app` board/legacy entry can learn a visitor's pubky and capabilities silently on visit. This is bounded by explicit DNS records and PR approval (no wildcard DNS, no self-service hostnames); extra Ring approval is reserved for extra scope.
 - Framing and origin policy must be redeployed (build-time env) when the allowlist changes.
 
 ### Neutral ⚠️
 
 - Staging board hostname is assumed to be `vibes.staging.pubky.app` to match other `*.staging.pubky.app` defaults; confirm with DevOps if the live staging board differs. Staging pubky.app deployments must set `NEXT_PUBLIC_SESSION_BRIDGE_ALLOWED_ORIGINS` explicitly because they are production builds.
-- Off-site vibes remain on per-app sign-in until a bearer/JWT homeserver session exists.
+- Hypercolor remains off-site, and Uploadky/Switchboard remain untrusted; they stay on per-app sign-in until a bearer/JWT homeserver session exists.
 
 ## Alternatives Considered
 
