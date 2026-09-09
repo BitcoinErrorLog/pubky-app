@@ -313,13 +313,17 @@ export function MarketplaceCart() {
                         </SelectContent>
                       </Select>
                       <Typography as="p" className="text-xs text-muted-foreground">
-                        Saved on this device only — never published, and shared only with the transaction service when you
-                        place the order.
+                        Your delivery address is not sent to the marketplace service. Share it with the seller in the
+                        encrypted order conversation after checkout.
                       </Typography>
                     </div>
                   )}
                   {checkout.requiresDeliveryAddress && (
                     <>
+                      <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+                        Your delivery address is not sent to the marketplace service. Share it with the seller in the
+                        encrypted order conversation after checkout.
+                      </Typography>
                       <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
                       <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
                       <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
@@ -443,6 +447,11 @@ export function MarketplaceCart() {
                   {checkout.orderCount > 1 && (
                     <Typography as="p" className="text-xs text-muted-foreground">
                       This places {checkout.orderCount} orders — one per seller and delivery method.
+                    </Typography>
+                  )}
+                  {!isSandbox && (
+                    <Typography as="p" role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                      Real money. Payments are final and go directly to the seller.
                     </Typography>
                   )}
                   <Button

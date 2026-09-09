@@ -25,6 +25,22 @@ describe('MarketplaceFilters', () => {
     expect(screen.getByText('8 items')).toHaveAttribute('aria-live', 'polite');
   });
 
+  it('keeps filter labels readable with a wrapping content-width trigger row', () => {
+    render(<MarketplaceFilters resultCount={8} />);
+
+    expect(screen.getByText('All formats')).toBeInTheDocument();
+    expect(screen.getByText('Anywhere')).toBeInTheDocument();
+    expect(screen.getByText('Recommended')).toBeInTheDocument();
+
+    const triggers = screen.getAllByRole('combobox');
+    expect(triggers).toHaveLength(3);
+    for (const trigger of triggers) {
+      expect(trigger).toHaveClass('min-w-32', 'shrink-0', 'whitespace-nowrap');
+      expect(trigger).not.toHaveClass('truncate');
+    }
+    expect(triggers[0].parentElement).toHaveClass('flex-wrap');
+  });
+
   it('exposes the active category and layout as pressed toggles', async () => {
     const user = userEvent.setup();
     render(<MarketplaceFilters resultCount={8} />);

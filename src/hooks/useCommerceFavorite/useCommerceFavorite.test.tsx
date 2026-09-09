@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useCommerceFavorite } from './useCommerceFavorite';
 
 const state = vi.hoisted(() => ({
@@ -47,6 +48,9 @@ describe('useCommerceFavorite', () => {
 
     await act(() => result.current.toggle());
     expect(CommerceController.commitCreateFavorite).toHaveBeenCalledOnce();
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Added to your watchlist', action: expect.anything() }),
+    );
 
     state.favorite = true;
     rerender();
@@ -54,6 +58,9 @@ describe('useCommerceFavorite', () => {
 
     await act(() => result.current.toggle());
     expect(CommerceController.commitDeleteFavorite).toHaveBeenCalledOnce();
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Removed from your watchlist', action: expect.anything() }),
+    );
   });
 
   it('does not mutate when signed out', async () => {

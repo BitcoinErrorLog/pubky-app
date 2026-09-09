@@ -19,6 +19,7 @@ const navCounts = vi.hoisted(() => ({ cart: 0, activity: 0 }));
 const catalogState = vi.hoisted(() => ({
   listings: [] as Array<{ id: string; title: string }>,
   isLoading: false,
+  adapterMode: 'sandbox' as 'sandbox' | 'transaction-service' | 'locks-paykit' | 'unavailable',
 }));
 
 vi.mock('next/navigation', () => ({
@@ -38,7 +39,7 @@ vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', () => ({
     facetPool: catalogState.isLoading && initialListings.length > 0 ? initialListings : catalogState.listings,
     shopsBySeller: new Map(initialShops.map((shop) => [shop.ownerPubky, shop])),
     isLoading: catalogState.isLoading,
-    adapterMode: 'sandbox',
+    adapterMode: catalogState.adapterMode,
   }),
 }));
 
@@ -93,6 +94,7 @@ describe('Marketplace', () => {
     navCounts.activity = 0;
     catalogState.listings = [];
     catalogState.isLoading = false;
+    catalogState.adapterMode = 'sandbox';
     window.localStorage.clear();
   });
 
@@ -105,6 +107,19 @@ describe('Marketplace', () => {
     expect(html).toMatch(/class="[^"]*hidden[^"]*md:flex[^"]*"/);
     expect(html).toContain('My marketplace');
     expect(html).toContain('Seller studio');
+  });
+
+  it('shows the staging disclosure only for sandbox mode', () => {
+    const { rerender } = render(<Marketplace />);
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Staging · test funds — nothing here is real money',
+    );
+    expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+
+    catalogState.adapterMode = 'transaction-service';
+    rerender(<Marketplace />);
+    expect(screen.queryByText('Staging · test funds — nothing here is real money')).not.toBeInTheDocument();
   });
 
   it('renders guest catalog cards from server listings while the local cache hydrates', () => {

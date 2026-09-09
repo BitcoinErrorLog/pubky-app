@@ -17,4 +17,20 @@ describe('MarketplaceSellerIdentity', () => {
     expect(screen.queryByText(/Shop opened/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Seller-stated/)).not.toBeInTheDocument();
   });
+
+  it('preserves the full seller name in the owner card layout contract', () => {
+    render(
+      <div className="w-40">
+        <MarketplaceSellerIdentity
+          sellerPubky={'s'.repeat(52)}
+          displayName="Northwind Vintage Goods"
+          reputation={{ status: 'new_seller' }}
+        />
+      </div>,
+    );
+
+    const identity = screen.getByText('Northwind Vintage Goods').closest('div')?.parentElement;
+    expect(identity).toHaveClass('min-w-[12rem]', 'shrink-0');
+    expect(screen.getByText('Northwind Vintage Goods')).toHaveClass('break-words');
+  });
 });

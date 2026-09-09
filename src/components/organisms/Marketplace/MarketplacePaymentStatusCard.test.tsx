@@ -39,6 +39,42 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 describe('MarketplacePaymentStatusCard', () => {
+  it.each(['transaction-service', 'locks-paykit', 'unavailable'] as const)(
+    'shows the non-dismissible real-money notice in %s mode',
+    (adapterMode) => {
+      render(
+        <MarketplacePaymentStatusCard
+          order={createOrderFixture('pending_payment')}
+          payment={createPaymentFixture('awaiting_entitlement')}
+          isBuyer
+          adapterMode={adapterMode}
+          advancePayment={async () => false}
+          onPaymentChanged={() => {}}
+        />,
+      );
+
+      const notice = screen.getByRole('note');
+      expect(notice).toHaveTextContent('Real money. Payments are final and go directly to the seller.');
+      expect(notice.querySelector('button')).not.toBeInTheDocument();
+    },
+  );
+
+  it('shows the sandbox badge without the real-money notice', () => {
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment')}
+        payment={createPaymentFixture('awaiting_entitlement')}
+        isBuyer
+        adapterMode="sandbox"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Sandbox · simulated payment · no real funds')).toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
   it('explains that PayPal buyer self-reporting does not confirm marketplace payment', () => {
     const payment = createPaymentFixture('awaiting_entitlement');
     const order = createOrderFixture('pending_payment', {

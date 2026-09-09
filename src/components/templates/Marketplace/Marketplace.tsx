@@ -100,16 +100,16 @@ export function Marketplace({
       classNameWrapperContent="max-w-7xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-5 px-4 sm:gap-8 sm:px-6 lg:px-8">
+        {adapterMode === 'sandbox' && (
+          <div role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            Staging · test funds — nothing here is real money
+          </div>
+        )}
         <section aria-label="Marketplace tools" className="flex flex-col gap-4 rounded-2xl border bg-card p-3 sm:p-5">
           <div className="flex flex-wrap items-center gap-3">
             <Heading level={1} size="lg" className="text-2xl">
               Marketplace
             </Heading>
-            {adapterMode === 'sandbox' && (
-              <Badge variant="outline" className="border-amber-500/50 bg-amber-500/10 text-amber-300">
-                Sandbox · no real funds
-              </Badge>
-            )}
           </div>
           <div className="flex flex-wrap gap-2 sm:gap-3">
             <Button className="rounded-full" onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.SELL))}>

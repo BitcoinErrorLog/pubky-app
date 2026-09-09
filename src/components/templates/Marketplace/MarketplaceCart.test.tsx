@@ -219,6 +219,36 @@ describe('MarketplaceCart', () => {
     expect(screen.queryByText('Accept the guarantee terms.')).not.toBeInTheDocument();
   });
 
+  it.each(['transaction-service', 'locks-paykit', 'unavailable'] as const)(
+    'shows the fail-closed real-money notice in %s mode and the interim address copy',
+    (adapterMode) => {
+      seededCart();
+      view.adapterMode = adapterMode;
+      view.hasMarketplaceSession = true;
+
+      render(<MarketplaceCart />);
+
+      expect(screen.getAllByRole('note')).toHaveLength(1);
+      expect(screen.getByRole('note')).toHaveTextContent(
+        'Real money. Payments are final and go directly to the seller.',
+      );
+      expect(
+        screen.getByText(
+          'Your delivery address is not sent to the marketplace service. Share it with the seller in the encrypted order conversation after checkout.',
+        ),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('does not show the real-money notice in sandbox mode', () => {
+    seededCart();
+    view.adapterMode = 'sandbox';
+
+    render(<MarketplaceCart />);
+
+    expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+  });
+
   it('enables Place order after session plus a valid form', async () => {
     const user = userEvent.setup();
     seededCart();

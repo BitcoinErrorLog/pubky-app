@@ -285,8 +285,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             </div>
 
             <Card className="gap-4 border py-5">
-              <CardContent className="flex flex-col gap-4 px-5 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
+              <CardContent className="flex flex-col gap-4 px-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1 sm:min-w-[12rem]">
                   <MarketplaceSellerIdentity
                     sellerPubky={sellerPubky}
                     displayName={sellerDisplayName}

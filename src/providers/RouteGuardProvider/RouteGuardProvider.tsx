@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { isDynamicPublicRoute, matchesAllowedRoute, PUBLIC_ROUTES } from '@/app/routes';
+import { isDynamicPublicRoute, MARKETPLACE_ROUTES, matchesAllowedRoute, PUBLIC_ROUTES } from '@/app/routes';
 import { Spinner } from '@/atoms/Spinner/Spinner';
 import { AuthController } from '@/controllers/auth/auth';
 import { MigrationController } from '@/controllers/migration/migration';
@@ -227,6 +227,13 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
         isRouteGuardReturnToAllowed(pathname, authenticatedRouteAccess.allowedRoutes)
       ) {
         storeRouteGuardReturnTo(pathname);
+        if (
+          pathname === MARKETPLACE_ROUTES.CART ||
+          pathname === MARKETPLACE_ROUTES.SELL ||
+          pathname === MARKETPLACE_ROUTES.OFFERS
+        ) {
+          toast({ variant: 'info', description: 'Sign in to open that page.' });
+        }
       }
       router.push(redirectTo);
     }

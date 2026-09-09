@@ -52,6 +52,11 @@ vi.mock('@/hooks/useAuthStatus/useAuthStatus', () => ({
 
 // Mock @/app
 vi.mock('@/app/routes', () => ({
+  MARKETPLACE_ROUTES: {
+    CART: '/marketplace/cart',
+    SELL: '/marketplace/sell',
+    OFFERS: '/marketplace/offers',
+  },
   PUBLIC_ROUTES: ['/landing'],
   isDynamicPublicRoute: (path: string) => {
     const segments = path.split('/').filter(Boolean);
@@ -542,6 +547,42 @@ describe('RouteGuardProvider — return path', () => {
 
     expect(mocks.mockRouterPush).toHaveBeenCalledWith('/marketplace/orders');
     expect(window.sessionStorage.getItem('pubky.routeGuard.returnTo')).toBeNull();
+  });
+
+  it.each(['/marketplace/cart', '/marketplace/sell', '/marketplace/offers'])(
+    'notifies and stores return-to for unauthenticated %s',
+    (pathname) => {
+      mocks.pathname = pathname;
+
+      render(
+        <RouteGuardProvider>
+          <div>Marketplace</div>
+        </RouteGuardProvider>,
+      );
+
+      expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
+      expect(mocks.mockToast).toHaveBeenCalledWith({
+        variant: 'info',
+        description: 'Sign in to open that page.',
+      });
+      expect(window.sessionStorage.getItem('pubky.routeGuard.returnTo')).toBe(pathname);
+    },
+  );
+
+  it('does not notify an authenticated marketplace route', () => {
+    mocks.status = 'AUTHENTICATED';
+    mocks.currentUserPubky = 'test-pubky-z32';
+    mocks.session = {};
+    mocks.pathname = '/marketplace/cart';
+
+    render(
+      <RouteGuardProvider>
+        <div>Marketplace</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(mocks.mockRouterPush).not.toHaveBeenCalled();
+    expect(mocks.mockToast).not.toHaveBeenCalled();
   });
 
   it('does not navigate to the stored marketplace route on a second sign-in', () => {

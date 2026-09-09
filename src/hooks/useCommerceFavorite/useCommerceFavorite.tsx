@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { ToastAction } from '@/atoms/Toast/Toast';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -25,6 +27,14 @@ export function useCommerceFavorite(listingCompositeId: string) {
         } else {
           await CommerceController.commitCreateFavorite(listingCompositeId);
         }
+        toast({
+          title: favorite ? 'Removed from your watchlist' : 'Added to your watchlist',
+          action: (
+            <ToastAction altText="Open watchlist" onClick={() => window.location.assign(MARKETPLACE_ROUTES.WATCHLIST)}>
+              Watchlist
+            </ToastAction>
+          ),
+        });
       } catch {
         toast({ variant: 'error', description: 'Could not update this favorite.' });
       } finally {

@@ -98,9 +98,9 @@ export function MarketplaceFilters({
           />
         </label>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={saleFormat} onValueChange={(value) => setSaleFormat(value as CommerceSaleFormatFilter)}>
-            <SelectTrigger aria-label="Sale format" className="h-11 min-w-32 rounded-full border px-4">
+            <SelectTrigger aria-label="Sale format" className="h-11 min-w-32 shrink-0 whitespace-nowrap rounded-full border px-4">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -114,7 +114,7 @@ export function MarketplaceFilters({
             value={countryCode ?? 'anywhere'}
             onValueChange={(value) => setCountryCode(value === 'anywhere' ? null : value)}
           >
-            <SelectTrigger aria-label="Item location" className="h-11 min-w-32 rounded-full border px-4">
+            <SelectTrigger aria-label="Item location" className="h-11 min-w-32 shrink-0 whitespace-nowrap rounded-full border px-4">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -128,7 +128,7 @@ export function MarketplaceFilters({
           </Select>
 
           <Select value={sort} onValueChange={(value) => setSort(value as CommerceSort)}>
-            <SelectTrigger aria-label="Sort marketplace" className="h-11 min-w-32 rounded-full border px-4">
+            <SelectTrigger aria-label="Sort marketplace" className="h-11 min-w-32 shrink-0 whitespace-nowrap rounded-full border px-4">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
