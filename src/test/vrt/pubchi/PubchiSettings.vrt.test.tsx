@@ -39,6 +39,7 @@ const enrollment = {
     | undefined,
   config: undefined as
     | {
+        display_name: string;
         tier: 'read-only' | 'assisted' | 'autonomous';
         brain: {
           execution: 'synonym-hosted';
@@ -52,12 +53,17 @@ const enrollment = {
       }
     | undefined,
   saveConfig: vi.fn(),
+  acceptSavedConfig: vi.fn(),
   devices: [] as Array<{
-    id: string;
     owner: string;
     signer: string;
+    bot: string;
+    purposes: Array<'ask' | 'who-tagged-me' | 'build-feed'>;
     created_at: number;
     expires_at: number;
+    schema: 'pubchi-device-delegation';
+    signature: string;
+    version: 1;
   }>,
   currentSigner: THIS_SIGNER as string | undefined,
   loading: false,
@@ -96,18 +102,26 @@ function bindWithDevices() {
   };
   enrollment.devices = [
     {
-      id: `${OWNER}:${THIS_SIGNER}`,
       owner: OWNER,
       signer: THIS_SIGNER,
+      bot: BOT,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'],
       created_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) - 86_400,
       expires_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) + 30 * 86_400,
+      schema: 'pubchi-device-delegation',
+      signature: 'a'.repeat(128),
+      version: 1,
     },
     {
-      id: `${OWNER}:${OTHER_SIGNER}`,
       owner: OWNER,
       signer: OTHER_SIGNER,
+      bot: BOT,
+      purposes: ['ask'],
       created_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) - 2 * 86_400,
       expires_at: Math.floor(VRT_FROZEN_NOW_MS / 1000) + 20 * 86_400,
+      schema: 'pubchi-device-delegation',
+      signature: 'b'.repeat(128),
+      version: 1,
     },
   ];
   enrollment.currentSigner = THIS_SIGNER;
@@ -123,6 +137,7 @@ function botWithPanels() {
     verified: true,
   };
   enrollment.config = {
+    display_name: 'Pubchi',
     tier: 'assisted',
     brain: {
       adapter: 'vercel-ai',

@@ -7,7 +7,6 @@ import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
-import { getCurrentDeviceKey } from '@/libs/pubchi/device-key';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
@@ -33,6 +32,8 @@ function pubchiErrorMessage(code: string): string {
 export function usePubchiQuery() {
   const owner = useAuthStore((state) => state.currentUserPubky);
   const [signingAvailable, setSigningAvailable] = useState(false);
+  const [pubchiAvailable, setPubchiAvailable] = useState<boolean | undefined>(undefined);
+  const [setupLoading, setSetupLoading] = useState(false);
   const [result, setResult] = useState<PubchiQuerySuccess | undefined>(undefined);
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
@@ -43,9 +44,30 @@ export function usePubchiQuery() {
     defaultValues: pubchiQueryFormDefaults,
   });
 
+  const setupDevice = async (): Promise<boolean> => {
+    setSetupLoading(true);
+    try {
+      const pubchi = await PubchiController.loadPubchi();
+      const available = Boolean(pubchi?.verified);
+      setPubchiAvailable(available);
+      if (!available) {
+        setSigningAvailable(false);
+        return false;
+      }
+      const ready = await PubchiController.ensureDeviceReady();
+      setSigningAvailable(ready);
+      return ready;
+    } catch {
+      setSigningAvailable(false);
+      return false;
+    } finally {
+      setSetupLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!owner) return;
-    void getCurrentDeviceKey(owner).then((key) => setSigningAvailable(Boolean(key)));
+    void setupDevice();
   }, [owner]);
 
   useEffect(() => {
@@ -119,7 +141,10 @@ export function usePubchiQuery() {
     loading,
     elapsedMs,
     enabled: isPubchiPanelEnabled(),
+    pubchiAvailable,
     signingAvailable,
     signingUnavailableMessage: SIGNING_UNAVAILABLE,
+    setupDevice,
+    setupLoading,
   };
 }

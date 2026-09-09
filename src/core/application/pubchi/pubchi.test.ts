@@ -13,7 +13,14 @@ import {
   readPendingDelegationDeletes,
   rememberPendingDelegationDeletes,
 } from '@/libs/pubchi/pending-delegation-deletes';
-import { delegationUri, ERROR_CODES, type ErrorCode, parseQueryResultV1 } from '@/libs/pubchi/schemas';
+import {
+  botUri,
+  delegationUri,
+  ERROR_CODES,
+  type ErrorCode,
+  ownerBindingUri,
+  parseQueryResultV1,
+} from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import { toast } from '@/molecules/Toaster/toast';
@@ -453,6 +460,145 @@ describe('PubchiApplication', () => {
       sessionIdentity.capabilities = [capability];
       await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('PATH_FORBIDDEN');
     }
+  });
+
+  it('sets up a fresh browser once for a verified bot with root coverage', async () => {
+    sessionIdentity.capabilities = ['/:rw'];
+    const now = Math.floor(Date.now() / 1000);
+    const pointer = {
+      schema: 'pubchi-bot' as const,
+      version: 1 as const,
+      owner: OWNER,
+      bot: BOT,
+      display_name: 'Scout',
+      created_at: now - 100,
+      backup_confirmed_at: null,
+      homeserver_account: null,
+      key_generation: 1,
+    };
+    const remoteBinding = {
+      schema: 'pubchi-owner-binding' as const,
+      version: 1 as const,
+      owner: OWNER,
+      bot: BOT,
+      status: 'active' as const,
+      key_generation: 1,
+      created_at: now - 100,
+      updated_at: now - 100,
+    };
+    const device = await deviceKey.loadOrGenerateDeviceKey(OWNER, now);
+    const loadDeviceSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey').mockResolvedValue(device);
+    let delegation: unknown;
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
+      const url = String(input.url);
+      if (input.method === HttpMethod.GET && url === botUri(OWNER)) return pointer;
+      if (input.method === HttpMethod.GET && url === ownerBindingUri(OWNER, BOT)) return remoteBinding;
+      if (input.method === HttpMethod.GET && url === delegationUri(OWNER, device.signer)) {
+        if (delegation) return delegation;
+        throw notFoundError();
+      }
+      if (input.method === HttpMethod.PUT && url === delegationUri(OWNER, device.signer)) {
+        delegation = input.bodyJson;
+        return undefined;
+      }
+      return undefined;
+    });
+
+    await expect(
+      Promise.all([PubchiApplication.ensureDeviceReady(OWNER), PubchiApplication.ensureDeviceReady(OWNER)]),
+    ).resolves.toEqual([true, true]);
+    expect(loadDeviceSpy).toHaveBeenCalledOnce();
+    await expect(PubchiApplication.ensureDeviceReady(OWNER)).resolves.toBe(true);
+
+    const delegationPuts = requestSpy.mock.calls.filter(
+      ([input]) => input.method === HttpMethod.PUT && String(input.url) === delegationUri(OWNER, device.signer),
+    );
+    expect(delegationPuts).toHaveLength(1);
+    expect(delegationPuts[0]?.[0].bodyJson).toMatchObject({
+      bot: BOT,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'],
+    });
+    expect(requestSpy.mock.calls).toContainEqual([
+      expect.objectContaining({ method: HttpMethod.GET, url: delegationUri(OWNER, device.signer) }),
+    ]);
+    expect(LocalPubchiBindingService.replaceActive).toHaveBeenCalledWith(
+      expect.objectContaining({ owner: OWNER, bot: BOT, status: 'active' }),
+    );
+  });
+
+  it('does not mint or publish when the session does not cover Pubchi', async () => {
+    sessionIdentity.capabilities = ['/pub/pubky.app/:rw'];
+    const now = Math.floor(Date.now() / 1000);
+    const mintSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey');
+    vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
+      if (String(input.url) === botUri(OWNER)) {
+        return {
+          schema: 'pubchi-bot',
+          version: 1,
+          owner: OWNER,
+          bot: BOT,
+          display_name: 'Scout',
+          created_at: now - 100,
+          backup_confirmed_at: null,
+          homeserver_account: null,
+          key_generation: 1,
+        };
+      }
+      return {
+        schema: 'pubchi-owner-binding',
+        version: 1,
+        owner: OWNER,
+        bot: BOT,
+        status: 'active',
+        key_generation: 1,
+        created_at: now - 100,
+        updated_at: now - 100,
+      };
+    });
+
+    await expect(PubchiApplication.ensureDeviceReady(OWNER)).resolves.toBe(false);
+
+    expect(mintSpy).not.toHaveBeenCalled();
+    expect(HomeserverService.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.PUT }));
+  });
+
+  it('does not mint when the owner has no bot pointer', async () => {
+    const mintSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey');
+    vi.spyOn(HomeserverService, 'request').mockRejectedValue(notFoundError());
+
+    await expect(PubchiApplication.ensureDeviceReady(OWNER)).resolves.toBe(false);
+
+    expect(mintSpy).not.toHaveBeenCalled();
+  });
+
+  it('lists remote device delegations and durably revokes a non-local signer', async () => {
+    const signer = Keypair.random().publicKey.z32();
+    const delegation = {
+      schema: 'pubchi-device-delegation' as const,
+      version: 1 as const,
+      owner: OWNER,
+      signer,
+      bot: BOT,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'] as const,
+      created_at: 1,
+      expires_at: 2_000_000,
+      signature: 'a'.repeat(128),
+    };
+    vi.spyOn(HomeserverService, 'listAll').mockResolvedValue([delegationUri(OWNER, signer)]);
+    const requestSpy = vi.spyOn(HomeserverService, 'request').mockImplementation(async (input) => {
+      if (input.method === HttpMethod.DELETE) return undefined;
+      if (input.method === HttpMethod.GET && readPendingDelegationDeletes().length) throw notFoundError();
+      return delegation;
+    });
+    const deleteLocalSpy = vi.spyOn(deviceKey, 'deleteDeviceKey').mockResolvedValue(undefined);
+
+    await expect(PubchiApplication.listDeviceDelegations(OWNER)).resolves.toEqual([delegation]);
+    await expect(PubchiApplication.revokeDevice(OWNER, signer)).resolves.toBeUndefined();
+
+    expect(requestSpy).toHaveBeenCalledWith({ method: HttpMethod.DELETE, url: delegationUri(OWNER, signer) });
+    expect(requestSpy).toHaveBeenCalledWith({ method: HttpMethod.GET, url: delegationUri(OWNER, signer) });
+    expect(deleteLocalSpy).toHaveBeenCalledWith(OWNER, signer);
+    expect(readPendingDelegationDeletes()).toEqual([]);
   });
 
   it('rejects a request whose signer is not the stored device key', () => {

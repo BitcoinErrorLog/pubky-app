@@ -25,8 +25,10 @@ export type PubchiPanelProps = {
 };
 
 export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
-  const { form, submit, applyFeed, result, errorCode, loading, elapsedMs, enabled, signingAvailable, signingUnavailableMessage } =
-    usePubchiQuery();
+  const {
+    form, submit, applyFeed, result, errorCode, loading, elapsedMs, enabled, pubchiAvailable,
+    signingAvailable, signingUnavailableMessage, setupDevice, setupLoading,
+  } = usePubchiQuery();
   const {
     needsReapproval,
     reapprove,
@@ -39,7 +41,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     return null;
   }
 
-  const actionsDisabled = loading || !signingAvailable;
+  const actionsDisabled = loading || setupLoading || !signingAvailable;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -62,10 +64,24 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </div>
           ) : null}
 
-          {!signingAvailable ? (
-            <Typography data-testid="pubchi-signing-unavailable" size="sm">
-              {signingUnavailableMessage}
+          {pubchiAvailable === false ? (
+            <Typography data-testid="pubchi-not-enrolled" size="sm">
+              Create a Pubchi in Settings to start asking.
             </Typography>
+          ) : null}
+
+          {!needsReapproval && pubchiAvailable !== false && !signingAvailable ? (
+            <div className="flex flex-col gap-3" data-testid="pubchi-signing-unavailable">
+              <Typography size="sm">{signingUnavailableMessage}</Typography>
+              <Button
+                type="button"
+                data-testid="pubchi-setup-device"
+                disabled={setupLoading}
+                onClick={() => void setupDevice()}
+              >
+                {setupLoading ? 'Setting up…' : 'Set up this browser'}
+              </Button>
+            </div>
           ) : null}
 
           <form

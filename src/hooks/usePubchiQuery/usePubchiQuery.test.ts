@@ -38,7 +38,8 @@ const mocks = vi.hoisted(() => ({
   fetchPubchiQuery: vi.fn(),
   commitCreate: vi.fn(),
   toast: vi.fn(),
-  signingAvailable: true,
+  ensureDeviceReady: vi.fn(),
+  loadPubchi: vi.fn(),
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -48,6 +49,8 @@ vi.mock('@/libs/pubchi/flags', () => ({
 vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
     fetchPubchiQuery: (...args: unknown[]) => mocks.fetchPubchiQuery(...args),
+    ensureDeviceReady: (...args: unknown[]) => mocks.ensureDeviceReady(...args),
+    loadPubchi: (...args: unknown[]) => mocks.loadPubchi(...args),
   },
 }));
 
@@ -59,10 +62,6 @@ vi.mock('@/controllers/feed/feed', () => ({
 
 vi.mock('@/molecules/Toaster/toast', () => ({
   toast: (...args: unknown[]) => mocks.toast(...args),
-}));
-
-vi.mock('@/libs/pubchi/device-key', () => ({
-  getCurrentDeviceKey: () => Promise.resolve(mocks.signingAvailable ? {} : undefined),
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -77,7 +76,8 @@ describe('usePubchiQuery', () => {
     mocks.toast.mockReset();
     mocks.fetchPubchiQuery.mockResolvedValue(FEED_SUCCESS);
     mocks.commitCreate.mockResolvedValue({ id: 'feed-1' });
-    mocks.signingAvailable = true;
+    mocks.ensureDeviceReady.mockReset().mockResolvedValue(true);
+    mocks.loadPubchi.mockReset().mockResolvedValue({ verified: true });
   });
 
   afterEach(() => {
@@ -117,8 +117,9 @@ describe('usePubchiQuery', () => {
   });
 
   it('does not toast SIGNATURE_INVALID when no device key is available', async () => {
-    mocks.signingAvailable = false;
+    mocks.ensureDeviceReady.mockResolvedValue(false);
     const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(mocks.ensureDeviceReady).toHaveBeenCalledOnce());
 
     await act(async () => {
       result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'who tagged me?');
@@ -132,6 +133,16 @@ describe('usePubchiQuery', () => {
       "This browser isn't set up for Pubchi yet. Set it up to start asking.",
     );
     expect(result.current.errorCode).toBe("This browser isn't set up for Pubchi yet. Set it up to start asking.");
+  });
+
+  it('does not set up a device when the owner has no Pubchi', async () => {
+    mocks.loadPubchi.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePubchiQuery());
+
+    await waitFor(() => expect(result.current.pubchiAvailable).toBe(false));
+
+    expect(mocks.ensureDeviceReady).not.toHaveBeenCalled();
+    expect(result.current.signingAvailable).toBe(false);
   });
 
   it('surfaces the schema message when a question is missing', async () => {

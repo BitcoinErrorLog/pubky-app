@@ -41,6 +41,7 @@ export function PubchiSettings() {
     pubchi,
     config,
     saveConfig,
+    acceptSavedConfig,
     creating,
     backupOpen,
     backupPositions,
@@ -83,7 +84,7 @@ export function PubchiSettings() {
               <>
                 <PubchiProfileCard
                   bot={pubchi.bot}
-                  displayName={pubchi.displayName}
+                  displayName={config?.display_name ?? pubchi.displayName}
                   createdAt={pubchi.createdAt}
                   verified={pubchi.verified}
                   backupConfirmed={Boolean(pubchi.backupConfirmedAt)}
@@ -130,7 +131,7 @@ export function PubchiSettings() {
                       : undefined
                   }
                 /> : null}
-                {config !== undefined ? <PubchiPreferencesForm /> : null}
+                {config !== undefined ? <PubchiPreferencesForm onSaved={acceptSavedConfig} /> : null}
               </>
             ) : (
               <>
@@ -230,6 +231,7 @@ export function PubchiSettings() {
                     Created {new Date(device.created_at * 1000).toLocaleDateString()} · Expires{' '}
                     {new Date(device.expires_at * 1000).toLocaleDateString()}
                   </span>
+                  <span className="block text-xs opacity-70">Purposes: {device.purposes.join(', ')}</span>
                 </Typography>
                 <Button
                   type="button"

@@ -17,8 +17,11 @@ vi.mock('@/libs/pubchi/flags', () => ({
 vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
     fetchPubchiQuery: (...args: unknown[]) => mocks.fetchPubchiQuery(...args),
+    loadPubchi: vi.fn().mockResolvedValue({ verified: true }),
+    ensureDeviceReady: vi.fn().mockResolvedValue(true),
     reconcileActiveBinding: vi.fn().mockResolvedValue(undefined),
     listDeviceKeys: vi.fn().mockResolvedValue([]),
+    loadPubchiConfig: vi.fn().mockResolvedValue(null),
     getCapabilityApprovalUrl: vi.fn(),
     adoptCapabilityApproval: vi.fn(),
   },

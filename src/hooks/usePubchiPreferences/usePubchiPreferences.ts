@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
+import type { PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
 import {
   type PubchiPreferencesFormData,
@@ -11,7 +12,7 @@ import {
   pubchiPreferencesFormSchema,
 } from './usePubchiPreferences.types';
 
-export function usePubchiPreferences() {
+export function usePubchiPreferences(onSaved?: (config: PubchiConfigV1) => void) {
   const form = useForm<PubchiPreferencesFormData>({
     resolver: zodResolver(pubchiPreferencesFormSchema),
     defaultValues: pubchiPreferencesFormDefaults,
@@ -62,7 +63,7 @@ export function usePubchiPreferences() {
       setLoading(true);
       setSaved(false);
       try {
-        await PubchiController.savePubchiConfig({
+        const next = await PubchiController.savePubchiConfig({
           display_name: values.display_name,
           language: values.language,
           summary: {
@@ -78,6 +79,7 @@ export function usePubchiPreferences() {
           },
           follower_history_opt_in: values.follower_history_opt_in,
         });
+        onSaved?.(next);
         form.reset(values);
         setSaved(true);
         toast({ variant: 'default', title: 'Preferences saved', dismissButton: true });

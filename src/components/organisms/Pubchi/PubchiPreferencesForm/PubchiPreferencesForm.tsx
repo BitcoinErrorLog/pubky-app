@@ -12,7 +12,7 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { usePubchiPreferences } from '@/hooks/usePubchiPreferences/usePubchiPreferences';
 import type { PubchiPreferencesFormData } from '@/hooks/usePubchiPreferences/usePubchiPreferences.types';
-import { scanForbiddenPublicState } from '@/libs/pubchi/schemas';
+import { type PubchiConfigV1,scanForbiddenPublicState } from '@/libs/pubchi/schemas';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 
 export const PUBCHI_PREFERENCES_SURFACE = 'pubchi-preferences';
@@ -25,8 +25,8 @@ const languages = [
   ['pt', 'Portuguese'],
 ] as const;
 
-export function PubchiPreferencesForm() {
-  const { form, submit, loading } = usePubchiPreferences();
+export function PubchiPreferencesForm({ onSaved }: { onSaved?: (config: PubchiConfigV1) => void }) {
+  const { form, submit, loading } = usePubchiPreferences(onSaved);
   const [topicInput, setTopicInput] = useState('');
   const [excludedInput, setExcludedInput] = useState('');
   const [topicError, setTopicError] = useState('');

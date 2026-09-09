@@ -71,9 +71,18 @@ export function usePubchiEnrollment() {
       try {
         const nextPubchi =
           typeof PubchiController.loadPubchi === 'function' ? await PubchiController.loadPubchi() : undefined;
+        if (typeof PubchiController.ensureDeviceReady === 'function') {
+          try {
+            await PubchiController.ensureDeviceReady();
+          } catch {
+            toast({ variant: 'error', title: 'Could not set up this browser', dismissButton: true });
+          }
+        }
         const nextBinding = await PubchiController.reconcileActiveBinding();
         const [nextDevices, nextConfig] = await Promise.all([
-          typeof PubchiController.listDeviceKeys === 'function' ? PubchiController.listDeviceKeys() : Promise.resolve([]),
+          typeof PubchiController.listDeviceKeys === 'function'
+            ? PubchiController.listDeviceKeys()
+            : Promise.resolve([]),
           typeof PubchiController.loadPubchiConfig === 'function'
             ? PubchiController.loadPubchiConfig()
             : Promise.resolve(null),
@@ -102,6 +111,11 @@ export function usePubchiEnrollment() {
     return next;
   };
 
+  const acceptSavedConfig = (next: PubchiConfigV1): void => {
+    setConfig(next);
+    setPubchi((current) => (current ? { ...current, displayName: next.display_name } : current));
+  };
+
   const submit = async (): Promise<boolean> => {
     let ok = false;
     await form.handleSubmit(
@@ -114,11 +128,14 @@ export function usePubchiEnrollment() {
           });
           backupController.set(next.phrase);
           if (phraseTimerRef.current) clearTimeout(phraseTimerRef.current);
-          phraseTimerRef.current = setTimeout(() => {
-            backupController.clear();
-            setBackupOpen(false);
-            backupForm.reset(backupConfirmationDefaults);
-          }, 5 * 60 * 1000);
+          phraseTimerRef.current = setTimeout(
+            () => {
+              backupController.clear();
+              setBackupOpen(false);
+              backupForm.reset(backupConfirmationDefaults);
+            },
+            5 * 60 * 1000,
+          );
           setPubchi({
             bot: next.bot,
             displayName: next.displayName,
@@ -286,6 +303,12 @@ export function usePubchiEnrollment() {
       try {
         const approved = await awaitApproval;
         await PubchiController.adoptCapabilityApproval(approved);
+        await PubchiController.ensureDeviceReady();
+        setDevices(await PubchiController.listDeviceKeys());
+        if (owner) {
+          const key = await getCurrentDeviceKey(owner);
+          setCurrentSigner(key?.signer);
+        }
         return true;
       } finally {
         cancelAuthFlow();
@@ -315,6 +338,7 @@ export function usePubchiEnrollment() {
     pubchi,
     config,
     saveConfig,
+    acceptSavedConfig,
     creating,
     backupOpen,
     backupPositions,

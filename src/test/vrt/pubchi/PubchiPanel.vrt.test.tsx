@@ -21,14 +21,25 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
     errorCode: undefined,
     loading: false,
     enabled: true,
+    pubchiAvailable: true,
     signingAvailable: mockQuery.signingAvailable,
     signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
+    setupDevice: vi.fn(),
+    setupLoading: false,
   }),
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiPanelEnabled: () => true,
   isPubchiEnabled: () => true,
+}));
+
+vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
+  usePubchiEnrollment: () => ({
+    needsReapproval: false,
+    reapprove: vi.fn(),
+    loading: false,
+  }),
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({

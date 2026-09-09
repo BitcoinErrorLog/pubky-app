@@ -3,11 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PubchiApplication } from '@/application/pubchi/pubchi';
 import { AuthController } from '@/controllers/auth/auth';
 import { AuthErrorCode } from '@/libs/error/error.codes';
-import * as deviceKey from '@/libs/pubchi/device-key';
-import {
-  PENDING_DELEGATION_DELETES_KEY,
-  readPendingDelegationDeletes,
-} from '@/libs/pubchi/pending-delegation-deletes';
+import { PENDING_DELEGATION_DELETES_KEY, readPendingDelegationDeletes } from '@/libs/pubchi/pending-delegation-deletes';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import type { Pubky } from '@/models/models.types';
@@ -133,32 +129,21 @@ describe('PubchiController', () => {
 
   it('does not DELETE a UI-supplied path-injection signer', async () => {
     setPubchiEnv('true', 'https://pubchi.example.com');
+    const revokeSpy = vi.spyOn(PubchiApplication, 'revokeDevice');
     const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
     await expect(PubchiController.revokeDevice('../bots/x')).rejects.toThrow('INVALID_PUBKY');
     await expect(PubchiController.revokeDevice('../../pubky.app/profile')).rejects.toThrow('INVALID_PUBKY');
+    expect(revokeSpy).not.toHaveBeenCalled();
     expect(requestSpy).not.toHaveBeenCalled();
   });
 
-  it('deletes a Dexie-planted invalid signer that cannot be revoked remotely', async () => {
+  it('delegates revoking all devices to the application layer', async () => {
     setPubchiEnv('true', 'https://pubchi.example.com');
-    const planted = '../../pubky.app/profile';
-    vi.spyOn(deviceKey, 'getDeviceKeys').mockResolvedValue([
-      {
-        id: `${OWNER}:${planted}`,
-        owner: OWNER,
-        signer: planted,
-        key: {} as CryptoKey,
-        created_at: 1,
-        expires_at: 2_000_000_000,
-      },
-    ]);
-    const deleteSpy = vi.spyOn(deviceKey, 'deleteDeviceKey').mockResolvedValue(undefined);
-    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    const revokeAllSpy = vi.spyOn(PubchiApplication, 'revokeAllDevices').mockResolvedValue(undefined);
 
     await PubchiController.revokeAllDevices();
 
-    expect(requestSpy).not.toHaveBeenCalled();
-    expect(deleteSpy).toHaveBeenCalledWith(OWNER, planted);
+    expect(revokeAllSpy).toHaveBeenCalledWith(OWNER);
   });
 
   it('returns the auth-url triple so the caller can cancel and await approval', async () => {

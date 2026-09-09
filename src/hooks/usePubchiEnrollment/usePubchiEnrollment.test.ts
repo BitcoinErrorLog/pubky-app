@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import type { OwnerBindingV1 } from '@/libs/pubchi/schemas';
+import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { usePubchiEnrollment } from './usePubchiEnrollment';
 import { ENROLL_FORM_FIELDS } from './usePubchiEnrollment.types';
 
@@ -19,6 +19,30 @@ const ACTIVE: OwnerBindingV1 = {
   updated_at: 1,
 };
 
+const CONFIG: PubchiConfigV1 = {
+  schema: 'pubchi-config',
+  version: 1,
+  owner: OWNER,
+  bot: OWNER,
+  updated_at: 1,
+  display_name: 'Scout',
+  tier: 'assisted',
+  language: 'en',
+  summary: { length: 'medium', include_sources: true, include_disagreement: true },
+  interests: { topics: [], excluded_topics: [] },
+  proactive: { enabled: false, max_suggestions_per_day: 1, quiet_hours_utc: { start: 22, end: 7 } },
+  follower_history_opt_in: false,
+  brain: {
+    adapter: 'vercel-ai',
+    execution: 'synonym-hosted',
+    provider_id: 'moonshot',
+    model_id: 'kimi-k3',
+    endpoint: null,
+    send_public_graph_context: true,
+    send_public_web_context: false,
+  },
+};
+
 const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   load: vi.fn(),
@@ -26,6 +50,8 @@ const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   remove: vi.fn(),
   devices: vi.fn(),
+  ensureDeviceReady: vi.fn(),
+  revokeDevice: vi.fn(),
   toast: vi.fn(),
   getUrl: vi.fn(),
   adopt: vi.fn(),
@@ -45,7 +71,8 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     confirmBackup: (...args: unknown[]) => mocks.confirm(...args),
     commitDeleteBinding: (...args: unknown[]) => mocks.remove(...args),
     listDeviceKeys: (...args: unknown[]) => mocks.devices(...args),
-    revokeDevice: vi.fn(),
+    ensureDeviceReady: (...args: unknown[]) => mocks.ensureDeviceReady(...args),
+    revokeDevice: (...args: unknown[]) => mocks.revokeDevice(...args),
     revokeAllDevices: vi.fn(),
     getCapabilityApprovalUrl: (...args: unknown[]) => mocks.getUrl(...args),
     adoptCapabilityApproval: (...args: unknown[]) => mocks.adopt(...args),
@@ -78,6 +105,8 @@ describe('usePubchiEnrollment', () => {
     mocks.confirm.mockReset();
     mocks.remove.mockReset();
     mocks.devices.mockReset().mockResolvedValue([]);
+    mocks.ensureDeviceReady.mockReset().mockResolvedValue(true);
+    mocks.revokeDevice.mockReset().mockResolvedValue(undefined);
     mocks.toast.mockReset();
     mocks.getUrl.mockReset();
     mocks.adopt.mockReset();
@@ -95,6 +124,51 @@ describe('usePubchiEnrollment', () => {
       expect(result.current.binding).toEqual(ACTIVE);
     });
     expect(mocks.reconcile).toHaveBeenCalledOnce();
+    expect(mocks.ensureDeviceReady).toHaveBeenCalledOnce();
+  });
+
+  it('renders remote device signers and revokes a non-local signer', async () => {
+    const remoteSigner = 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy';
+    const remoteDevice = {
+      schema: 'pubchi-device-delegation',
+      version: 1,
+      owner: OWNER,
+      signer: remoteSigner,
+      bot: OWNER,
+      purposes: ['ask', 'who-tagged-me', 'build-feed'],
+      created_at: 1,
+      expires_at: 2_000_000_000,
+      signature: 'a'.repeat(128),
+    };
+    mocks.devices.mockResolvedValue([remoteDevice]);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(result.current.devices).toEqual([remoteDevice]));
+
+    await act(async () => {
+      await expect(result.current.revokeDevice(remoteSigner)).resolves.toBe(true);
+    });
+
+    expect(mocks.revokeDevice).toHaveBeenCalledWith(remoteSigner);
+    expect(mocks.devices).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates the loaded profile name from the saved controller result', async () => {
+    mocks.load.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Scout',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+    });
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(result.current.pubchi?.displayName).toBe('Scout'));
+
+    act(() => {
+      result.current.acceptSavedConfig({ ...CONFIG, display_name: 'Scout II' });
+    });
+
+    expect(result.current.pubchi?.displayName).toBe('Scout II');
+    expect(result.current.config?.display_name).toBe('Scout II');
   });
 
   it('loads the pointer before reconciling the local binding', async () => {
@@ -164,7 +238,9 @@ describe('usePubchiEnrollment', () => {
     });
 
     expect(mocks.remove).toHaveBeenCalledWith({ bot: OWNER });
-    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Pubchi bot removed', variant: 'default' }));
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Pubchi bot removed', variant: 'default' }),
+    );
   });
 
   it('does not show removal success when no bot can be resolved', async () => {

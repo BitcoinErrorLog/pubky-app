@@ -5,6 +5,7 @@ import { PUBCHI_PANEL_SURFACE, PubchiPanel } from './PubchiPanel';
 const submit = vi.fn();
 const applyFeed = vi.fn();
 const reapprove = vi.fn();
+const setupDevice = vi.fn();
 const hookState = {
   form: {
     control: {},
@@ -18,8 +19,11 @@ const hookState = {
   errorCode: undefined,
   loading: false,
   enabled: true,
+  pubchiAvailable: true as boolean | undefined,
   signingAvailable: true,
-    signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
+  signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
+  setupDevice,
+  setupLoading: false,
 };
 const enrollmentState = {
   needsReapproval: false,
@@ -53,6 +57,9 @@ describe('PubchiPanel', () => {
   beforeEach(() => {
     enrollmentState.needsReapproval = false;
     reapprove.mockReset();
+    setupDevice.mockReset();
+    hookState.pubchiAvailable = true;
+    hookState.setupLoading = false;
   });
 
   it('mounts the production panel surface', () => {
@@ -73,6 +80,19 @@ describe('PubchiPanel', () => {
     );
     expect(screen.getByTestId('pubchi-ask')).toBeDisabled();
     expect(screen.getByTestId('pubchi-build-feed')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('pubchi-setup-device'));
+    expect(setupDevice).toHaveBeenCalledOnce();
+    hookState.signingAvailable = true;
+  });
+
+  it('shows the create prompt when the owner has no Pubchi', () => {
+    hookState.pubchiAvailable = false;
+    hookState.signingAvailable = false;
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-not-enrolled')).toHaveTextContent('Create a Pubchi in Settings');
+    expect(screen.queryByTestId('pubchi-setup-device')).not.toBeInTheDocument();
     hookState.signingAvailable = true;
   });
 

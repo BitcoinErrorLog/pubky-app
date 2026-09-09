@@ -113,7 +113,41 @@ function randomNonce(): string {
 }
 
 export class PubchiApplication {
+  private static readonly deviceReadiness = new Map<string, Promise<boolean>>();
+
   private constructor() {}
+
+  static ensureDeviceReady(owner: string): Promise<boolean> {
+    const inFlight = this.deviceReadiness.get(owner);
+    if (inFlight) return inFlight;
+    let readiness!: Promise<boolean>;
+    readiness = (async () => {
+      try {
+        return await this.ensureDeviceReadyOnce(owner);
+      } finally {
+        if (this.deviceReadiness.get(owner) === readiness) {
+          this.deviceReadiness.delete(owner);
+        }
+      }
+    })();
+    this.deviceReadiness.set(owner, readiness);
+    return readiness;
+  }
+
+  private static async ensureDeviceReadyOnce(owner: string): Promise<boolean> {
+    if (!isPubchiEnabled()) return false;
+    const pointer = await readBotIfPresent(owner);
+    if (!pointer) return false;
+    const binding = await readOwnerBindingIfPresent(owner, pointer.bot);
+    if (!binding || binding.owner !== owner || binding.bot !== pointer.bot || binding.status !== 'active') {
+      return false;
+    }
+    await replaceLocalActiveBinding(binding);
+    if (!sessionCanWritePubchi(owner)) return false;
+    const device = await loadTrustedDeviceKey(owner, Math.floor(Date.now() / 1000));
+    await publishDeviceDelegation(owner, binding.bot, device);
+    return true;
+  }
 
   static async loadPubchiConfig(owner: string, refreshDelegation = true): Promise<PubchiConfigV1 | null> {
     const url = pubchiConfigUri(owner);
@@ -177,6 +211,56 @@ export class PubchiApplication {
       });
     }
     return LocalPubchiBindingService.readActive(owner);
+  }
+
+  static async listDeviceDelegations(owner: string): Promise<DeviceDelegationV1[]> {
+    if (!isPubchiEnabled()) return [];
+    const files = await HomeserverService.listAll({ baseDirectory: devicesUri(owner) });
+    const devices = await Promise.all(
+      files.map(async (file) => {
+        const signer = file.match(/\/devices\/([^/]+)\.json$/)?.[1];
+        if (!signer || !isPubkyId(signer)) return undefined;
+        const parsed = parseDeviceDelegationV1(
+          await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: delegationUri(owner, signer) }),
+        );
+        if (!parsed.ok || parsed.value.owner !== owner || parsed.value.signer !== signer) return undefined;
+        return parsed.value;
+      }),
+    );
+    return devices.filter((device): device is DeviceDelegationV1 => device !== undefined);
+  }
+
+  static async revokeDevice(owner: string, signer: string): Promise<void> {
+    if (!isPubkyId(owner) || !isPubkyId(signer)) {
+      throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'INVALID_PUBKY', {
+        service: ErrorService.Pubchi,
+        operation: 'revokeDevice',
+      });
+    }
+    const pending = { owner, signer };
+    rememberPendingDelegationDeletes([pending]);
+    await deleteAndVerifyMissing(delegationUri(owner, signer), 'revokeDevice');
+    replacePendingDelegationDeletesForOwner(
+      owner,
+      ownerPending(owner).filter((item) => item.signer !== signer),
+    );
+    await deleteDeviceKey(owner, signer);
+  }
+
+  static async revokeAllDevices(owner: string): Promise<void> {
+    const [remote, local] = await Promise.all([this.listDeviceDelegations(owner), getDeviceKeys(owner)]);
+    for (const device of local) {
+      if (!isPubkyId(device.signer)) {
+        await deleteDeviceKey(owner, device.signer);
+      }
+    }
+    const signers = new Set([
+      ...remote.map((device) => device.signer),
+      ...local.filter((device) => isPubkyId(device.signer)).map((device) => device.signer),
+    ]);
+    const results = await Promise.allSettled([...signers].map((signer) => this.revokeDevice(owner, signer)));
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failed) throw failed.reason;
   }
 
   static async createPubchi(params: CreatePubchiParams): Promise<CreatedPubchi> {
@@ -960,6 +1044,10 @@ function pubchiConfigUri(owner: string): string {
   return `pubky://${owner}/pub/pubchi.app/config.json`;
 }
 
+function devicesUri(owner: string): string {
+  return `pubky://${owner}/pub/pubchi.app/devices/`;
+}
+
 function defaultPubchiConfig(owner: string, bot: string, now: number): PubchiConfigV1 {
   return {
     schema: 'pubchi-config',
@@ -995,6 +1083,15 @@ export async function refreshPublishedDelegation(owner: string): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const device = await getCurrentDeviceKey(owner, now);
   if (!device) return;
+  await publishDeviceDelegation(owner, binding.bot, device, now);
+}
+
+async function publishDeviceDelegation(
+  owner: string,
+  bot: string,
+  device: Awaited<ReturnType<typeof loadOrGenerateDeviceKey>>,
+  now = Math.floor(Date.now() / 1000),
+): Promise<void> {
   const url = delegationUri(owner, device.signer);
   let current: ReturnType<typeof parseDeviceDelegationV1>;
   try {
@@ -1009,7 +1106,7 @@ export async function refreshPublishedDelegation(owner: string): Promise<void> {
     current.ok &&
     current.value.owner === owner &&
     current.value.signer === device.signer &&
-    current.value.bot === binding.bot &&
+    current.value.bot === bot &&
     SERVED_DELEGATION_PURPOSES.every((purpose) => current.value.purposes.includes(purpose)) &&
     current.value.expires_at - now > DEVICE_DELEGATION_REFRESH_SECONDS
   ) {
@@ -1020,7 +1117,7 @@ export async function refreshPublishedDelegation(owner: string): Promise<void> {
     version: 1,
     owner,
     signer: device.signer,
-    bot: binding.bot,
+    bot,
     purposes: [...SERVED_DELEGATION_PURPOSES],
     created_at: device.created_at,
     expires_at: device.expires_at,

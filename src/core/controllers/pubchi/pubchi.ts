@@ -9,13 +9,11 @@ import type {
 import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { HttpMethod } from '@/libs/http/http.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
-import { deleteDeviceKey, getDeviceKeys } from '@/libs/pubchi/device-key';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
-import { delegationUri, isPubkyId, type PubchiConfigV1 } from '@/libs/pubchi/schemas';
+import { isPubkyId, type PubchiConfigV1 } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -130,9 +128,14 @@ export class PubchiController {
     return PubchiApplication.reconcileActiveBinding(owner);
   }
 
+  static async ensureDeviceReady(): Promise<boolean> {
+    if (!isPubchiEnabled()) return false;
+    return PubchiApplication.ensureDeviceReady(useAuthStore.getState().selectCurrentUserPubky());
+  }
+
   static async listDeviceKeys() {
     if (!isPubchiEnabled()) return [];
-    return await getDeviceKeys(useAuthStore.getState().selectCurrentUserPubky());
+    return PubchiApplication.listDeviceDelegations(useAuthStore.getState().selectCurrentUserPubky());
   }
 
   static async loadPubchiConfig(): Promise<PubchiConfigV1 | null> {
@@ -201,8 +204,7 @@ export class PubchiController {
         operation: 'revokeDevice',
       });
     }
-    await HomeserverService.request({ method: HttpMethod.DELETE, url: delegationUri(owner, signer) });
-    await deleteDeviceKey(owner, signer);
+    await PubchiApplication.revokeDevice(owner, signer);
   }
 
   static async revokeAllDevices(): Promise<void> {
@@ -213,14 +215,6 @@ export class PubchiController {
         operation: 'revokeAllDevices',
       });
     }
-    const devices = await getDeviceKeys(owner);
-    for (const device of devices) {
-      if (!isPubkyId(device.signer)) {
-        await deleteDeviceKey(owner, device.signer);
-        continue;
-      }
-      await HomeserverService.request({ method: HttpMethod.DELETE, url: delegationUri(owner, device.signer) });
-      await deleteDeviceKey(owner, device.signer);
-    }
+    await PubchiApplication.revokeAllDevices(owner);
   }
 }
