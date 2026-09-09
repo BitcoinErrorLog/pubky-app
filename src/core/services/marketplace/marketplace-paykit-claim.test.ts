@@ -310,6 +310,9 @@ describe('MarketplacePaykitClaimService', () => {
       // The URL parser normalizes the scheme; https is secure regardless of userinfo.
       { input: 'HTTPS://Host', secure: true },
       { input: 'https://user:pw@evil/', secure: true },
+      // W1.8b N3: the loopback exemption is http:-only — other schemes are refused even on loopback.
+      { input: 'ws://localhost:1', secure: false },
+      { input: 'file://localhost/x', secure: false },
     ];
 
     it.each(ORIGIN_TABLE)('$input → secure=$secure for BOTH callers', ({ input, secure }) => {
@@ -327,9 +330,7 @@ describe('MarketplacePaykitClaimService', () => {
         // Token flow refuses before any token is built; navigation builder
         // refuses before any URL is produced — with the same reason.
         expect(() => MarketplacePaykitClaimService.beginClaimFlow(tpub, 1)).toThrow(refusal);
-        expect(() => LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/back', 'state')).toThrow(
-          refusal,
-        );
+        expect(() => LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/back', 'state')).toThrow(refusal);
         expect(tokenFlowCalls.count).toBe(0);
         expect(fetch).not.toHaveBeenCalled();
       }

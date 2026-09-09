@@ -36,7 +36,13 @@ export const PAYKIT_ORIGIN_INSECURE_MESSAGE =
  */
 const PAYKIT_INSECURE_ALLOWED_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
-/** `true` when a paykit URL is safe to send claim credentials to. */
+/**
+ * `true` when a paykit URL is safe to send claim credentials to. The
+ * loopback exemption is `http:`-ONLY (W1.8b N3): every non-loopback URL
+ * must be `https:`, and non-HTTP(S) schemes (`ws:`, `file:`, …) are refused
+ * even on loopback instead of passing the check and failing later in
+ * `fetch`.
+ */
 export function isSecurePaykitOrigin(url: URL): boolean {
-  return url.protocol === 'https:' || PAYKIT_INSECURE_ALLOWED_HOSTNAMES.has(url.hostname);
+  return url.protocol === 'https:' || (url.protocol === 'http:' && PAYKIT_INSECURE_ALLOWED_HOSTNAMES.has(url.hostname));
 }
