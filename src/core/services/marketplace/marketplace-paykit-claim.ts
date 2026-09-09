@@ -19,6 +19,8 @@ const CLAIM_FLOW_TIMEOUT_MS = 120_000;
 export type PaykitClaimErrorReason =
   | 'invalid_xpub'
   | 'account_mismatch'
+  | 'account_index_out_of_range'
+  | 'key_claimed_by_other_seller'
   | 'invalid_token'
   | 'invalid_capabilities'
   | 'rate_limited'
@@ -63,6 +65,8 @@ const CLAIM_FAILURE_MESSAGES: Record<PaykitClaimErrorReason, string> = {
   invalid_xpub: 'The Paykit server rejected the pasted key. Export the BIP84 account xpub for the right network.',
   account_mismatch:
     'A different watch-only account is already claimed for this identity. Existing payment requests watch its addresses, so it cannot be replaced from here.',
+  account_index_out_of_range: 'This account index is outside the range Shop accepts (0–99).',
+  key_claimed_by_other_seller: 'This key is already claimed by another seller on this stack.',
   invalid_token: 'The signer approval could not be verified. Start the claim again.',
   invalid_capabilities: 'The signer approval carried the wrong permissions. Start the claim again.',
   rate_limited: 'Too many claim attempts. Wait a moment and try again.',
@@ -81,7 +85,14 @@ const CLAIM_FAILURE_MESSAGES: Record<PaykitClaimErrorReason, string> = {
 export class MarketplacePaykitClaimService {
   private constructor() {}
 
-  static beginClaimFlow(accountXpub: string): PaykitClaimFlow {
+  /**
+   * `accountIndex` is the hardened account index the key itself declares
+   * (child number at offset 9..13 of the normalized 78 bytes, hardened bit
+   * cleared — derived by the caller via `accountIndexFromBytes`). The server
+   * cross-checks it against the submitted xpub and accepts 0–99; there is no
+   * client-side default.
+   */
+  static beginClaimFlow(accountXpub: string, accountIndex: number): PaykitClaimFlow {
     const flow = HomeserverService.generateAuthTokenFlow(PAYKIT_CLAIM_CAPABILITIES);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const awaitClaim = async () => {
@@ -99,7 +110,7 @@ export class MarketplacePaykitClaimService {
       });
       try {
         const authToken = await Promise.race([flow.awaitToken(), timeout]);
-        return await this.submitClaim(authToken.toBytes(), accountXpub);
+        return await this.submitClaim(authToken.toBytes(), accountXpub, accountIndex);
       } finally {
         clearTimeout(timer);
       }
@@ -122,7 +133,11 @@ export class MarketplacePaykitClaimService {
     return body.claimed === true;
   }
 
-  private static async submitClaim(authTokenBytes: Uint8Array, accountXpub: string): Promise<PaykitClaimResult> {
+  private static async submitClaim(
+    authTokenBytes: Uint8Array,
+    accountXpub: string,
+    accountIndex: number,
+  ): Promise<PaykitClaimResult> {
     const url = `${paykitServerOrigin()}/v0/accounts/claim`;
     const response = await safeFetch(
       url,
@@ -132,7 +147,7 @@ export class MarketplacePaykitClaimService {
         body: JSON.stringify({
           auth_token: toBase64UrlNoPad(authTokenBytes),
           account_xpub: accountXpub.trim(),
-          account_index: 0,
+          account_index: accountIndex,
         }),
       },
       ErrorService.Paykit,
@@ -162,7 +177,7 @@ export class MarketplacePaykitClaimService {
     }
     return {
       creator: body.creator,
-      accountIndex: body.account_index ?? 0,
+      accountIndex: body.account_index ?? accountIndex,
       keyFingerprint: typeof body.key_fingerprint === 'string' ? body.key_fingerprint : null,
       firstDerivedAddress: typeof body.first_derived_address === 'string' ? body.first_derived_address : null,
       nextChildIndex: typeof body.next_child_index === 'number' ? body.next_child_index : null,

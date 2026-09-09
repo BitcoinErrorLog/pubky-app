@@ -419,8 +419,8 @@ export class CommerceController {
   }
 
   /** Manual watch-only xpub claim flow against paykit-server. */
-  static beginPaykitClaimFlow(accountXpub: string) {
-    return CommerceApplication.beginPaykitClaimFlow(accountXpub);
+  static beginPaykitClaimFlow(accountXpub: string, accountIndex: number) {
+    return CommerceApplication.beginPaykitClaimFlow(accountXpub, accountIndex);
   }
 
   /** Whether the current user already has a claimed watch-only account. */

@@ -804,8 +804,8 @@ export class CommerceApplication {
    * registration Bitkit performs, driven by a pasted xpub plus a
    * claim-scoped signer approval. The identity secret never enters the app.
    */
-  static beginPaykitClaimFlow(accountXpub: string) {
-    return MarketplacePaykitClaimService.beginClaimFlow(accountXpub);
+  static beginPaykitClaimFlow(accountXpub: string, accountIndex: number) {
+    return MarketplacePaykitClaimService.beginClaimFlow(accountXpub, accountIndex);
   }
 
   static async isPaykitAccountClaimed(pubky: string) {
