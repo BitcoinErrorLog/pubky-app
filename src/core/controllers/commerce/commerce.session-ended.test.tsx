@@ -42,17 +42,22 @@ vi.mock('@/services/homeserver/homeserver', () => ({
   },
 }));
 
-vi.mock('@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig', () => ({
-  useMarketplaceSellerPaymentConfig: () => ({
-    config: null,
-    isLoading: false,
-    loadError: null,
-    claimStatus: 'idle',
-    save: vi.fn(),
-    claimBitcoinAccount: vi.fn(),
-    removeBitcoinAccount: vi.fn(),
-  }),
-}));
+vi.mock('@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig')>();
+  return {
+    ...actual,
+    useMarketplaceSellerPaymentConfig: () => ({
+      config: null,
+      isLoading: false,
+      loadError: null,
+      claimStatus: 'idle',
+      save: vi.fn(),
+      claimBitcoinAccount: vi.fn(),
+      removeBitcoinAccount: vi.fn(),
+    }),
+  };
+});
 
 vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
   MarketplaceSessionConnectDialog: () => <button type="button">Approve in Pubky Ring</button>,
