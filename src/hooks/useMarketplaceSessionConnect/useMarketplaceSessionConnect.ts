@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isSingleApprovalSignInEnabled } from '@/config/app';
 import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { getErrorMessage } from '@/libs/error/error.utils';
+import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
@@ -82,9 +82,11 @@ export function useMarketplaceSessionConnect(
         ? AuthController.beginBridgedCommerceSessionFlow()
         : CommerceController.beginMarketplaceSessionConnect();
     } catch (error) {
-      Logger.error('Failed to start the marketplace session flow', { error });
+      Logger.error('Failed to start the marketplace session flow');
       setAuthorizationUrl('');
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage(
+        marketplaceFailureMessage(marketplaceErrorCode(error), 'Could not start the marketplace session.'),
+      );
       setStatus('error');
       return;
     }
@@ -132,9 +134,11 @@ export function useMarketplaceSessionConnect(
           setStatus('idle');
           return;
         }
-        Logger.error('Marketplace session flow failed', { error });
+        Logger.error('Marketplace session flow failed');
         setAuthorizationUrl('');
-        setErrorMessage(getErrorMessage(error));
+        setErrorMessage(
+          marketplaceFailureMessage(marketplaceErrorCode(error), 'The marketplace session could not be connected.'),
+        );
         setStatus('error');
       });
   }, [detachActiveFlow, removeVisibilityHandler, requestsFullGrant]);
@@ -178,5 +182,15 @@ export function useMarketplaceSessionConnect(
     };
   }, [detachActiveFlow, removeVisibilityHandler]);
 
-  return { status, authorizationUrl, errorMessage, requestsFullGrant, start, cancel, copyAuthUrl, openInRing, isOpeningRing };
+  return {
+    status,
+    authorizationUrl,
+    errorMessage,
+    requestsFullGrant,
+    start,
+    cancel,
+    copyAuthUrl,
+    openInRing,
+    isOpeningRing,
+  };
 }

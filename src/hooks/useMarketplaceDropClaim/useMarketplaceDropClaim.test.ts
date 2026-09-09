@@ -103,7 +103,7 @@ describe('useMarketplaceDropClaim', () => {
     expect(result.current.failure).toBeNull();
   });
 
-  it("surfaces the service's pinned refusal copy VERBATIM", async () => {
+  it('maps service refusal messages to static client copy', async () => {
     for (const pinned of [
       'The drop has not started.',
       'The drop has ended.',
@@ -113,7 +113,7 @@ describe('useMarketplaceDropClaim', () => {
     ]) {
       vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
         ok: false,
-        error: { code: 'DROP_RULE', message: pinned },
+        error: { code: 'DROP_RULE', message: `${pinned} SENTINEL-14-Oak-Lane` },
       } as never);
       const { result } = renderHook(() => useMarketplaceDropClaim());
       await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
@@ -121,7 +121,8 @@ describe('useMarketplaceDropClaim', () => {
       await act(async () => {
         await result.current.claim(SELLER, 'listing1');
       });
-      expect(result.current.failure).toBe(pinned);
+      expect(result.current.failure).toBe('The drop claim could not be completed.');
+      expect(result.current.failure).not.toContain('SENTINEL-14-Oak-Lane');
     }
   });
 

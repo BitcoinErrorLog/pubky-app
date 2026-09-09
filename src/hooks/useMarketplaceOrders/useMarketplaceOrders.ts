@@ -3,6 +3,11 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { getCommerceAdapterMode, getCommercePollIntervalMs, isTransactionalCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
 import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
 import {
@@ -94,7 +99,10 @@ export function useMarketplaceOrders() {
           });
           return false;
         }
-        toast({ variant: 'error', description: response.error.message });
+        toast({
+          variant: 'error',
+          description: marketplaceFailureMessage(response.error.code, 'Could not advance the sandbox payment.'),
+        });
         return false;
       }
       await refresh();
@@ -104,8 +112,8 @@ export function useMarketplaceOrders() {
         // Expiry mid-action must surface the reconnect affordance, not a
         // generic failure: the surface swaps to the session-required card.
         setNeedsSession(true);
-        setError(actionError.message);
-        toast({ variant: 'error', description: actionError.message });
+        setError(MARKETPLACE_FAILURE_MESSAGES.session);
+        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
         return false;
       }
       toast({ variant: 'error', description: 'Could not advance the sandbox payment.' });
@@ -145,7 +153,7 @@ export function useMarketplaceOrders() {
           description:
             pickupRefusal || isPickupCommand
               ? pickupRefusalFailureMessage(pickupRefusal)
-              : response.error.message,
+              : marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.order),
         });
         return false;
       }
@@ -157,8 +165,8 @@ export function useMarketplaceOrders() {
     } catch (actionError) {
       if (isMarketplaceSessionRequiredError(actionError)) {
         setNeedsSession(true);
-        setError(actionError.message);
-        toast({ variant: 'error', description: actionError.message });
+        setError(MARKETPLACE_FAILURE_MESSAGES.session);
+        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
         return false;
       }
       toast({ variant: 'error', description: 'Could not update this order.' });
@@ -229,11 +237,7 @@ async function loadOrders(
     // A missing/expired marketplace session is not a dead end: flag it so the
     // surface renders the session-connect affordance with the real guidance.
     setNeedsSession(isMarketplaceSessionRequiredError(loadError));
-    setError(
-      loadError instanceof Error && loadError.name === 'AppError'
-        ? loadError.message
-        : 'Marketplace orders are unavailable.',
-    );
+    setError(marketplaceFailureMessage(marketplaceErrorCode(loadError), 'Marketplace orders are unavailable.'));
   } finally {
     setIsLoading(false);
   }

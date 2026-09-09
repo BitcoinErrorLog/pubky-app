@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { dropClockOffsetMs } from '@/libs/commerce/drop-clock';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import type { CommerceDropRecord } from '@/libs/commerce/marketplace-records';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import type { DropState } from '@/libs/commerce/transaction-contracts';
@@ -138,15 +143,16 @@ export function useOwnDrop(dropId: string): UseOwnDropResult {
           message: 'The drop changed since you loaded it. Fresh state is shown — review it and confirm again.',
         };
       }
-      return { ok: false, conflict: false, message: response.error.message };
+      return {
+        ok: false,
+        conflict: false,
+        message: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.drop),
+      };
     } catch (commandError) {
       return {
         ok: false,
         conflict: false,
-        message:
-          commandError instanceof Error && commandError.name === 'AppError'
-            ? commandError.message
-            : 'The transaction service could not be reached.',
+        message: marketplaceFailureMessage(marketplaceErrorCode(commandError), MARKETPLACE_FAILURE_MESSAGES.drop),
       };
     } finally {
       setIsActing(false);

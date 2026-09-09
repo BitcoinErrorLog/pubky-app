@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import type { SellerShippingConfig, ShipFromAddress } from '@/libs/commerce/shipping';
-import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -53,8 +53,14 @@ export function useMarketplaceShippingIntegration() {
       toast({ description: 'Shipping integration settings saved.' });
       return true;
     } catch (error) {
-      Logger.error('Failed to save the shipping integration configuration', { error });
-      toast({ title: 'Could not save shipping settings', description: getErrorMessage(error) });
+      Logger.error('Failed to save the shipping integration configuration');
+      toast({
+        title: 'Could not save shipping settings',
+        description: marketplaceFailureMessage(
+          marketplaceErrorCode(error),
+          'The shipping settings could not be saved.',
+        ),
+      });
       return false;
     } finally {
       setIsSaving(false);

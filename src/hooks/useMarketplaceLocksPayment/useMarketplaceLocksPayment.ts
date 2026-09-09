@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCommerceAdapterMode, getCommercePollIntervalMs, isLocksPaykitCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import type { CommerceLocksCorrelationModelSchema } from '@/models/commerce/commerce.schema';
@@ -145,7 +146,7 @@ export function useMarketplaceLocksPayment({
           });
           return false;
         }
-        setError(response.error.message);
+        setError(marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.locksPayment));
         return false;
       }
       await onPaymentChanged();

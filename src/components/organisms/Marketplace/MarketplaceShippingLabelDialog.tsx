@@ -11,8 +11,8 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import type { ShippingLabel, ShippoRate } from '@/libs/commerce/shipping';
-import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
@@ -73,8 +73,11 @@ export function MarketplaceShippingLabelDialog({
     try {
       setRates(await CommerceController.quoteShippingRates(order.id, body));
     } catch (error) {
-      Logger.error('Failed to quote shipping rates', { error });
-      toast({ title: 'Could not quote rates', description: getErrorMessage(error) });
+      Logger.error('Failed to quote shipping rates');
+      toast({
+        title: 'Could not quote rates',
+        description: marketplaceFailureMessage(marketplaceErrorCode(error), 'Shipping rates are unavailable.'),
+      });
     } finally {
       setPending(null);
     }
@@ -88,8 +91,14 @@ export function MarketplaceShippingLabelDialog({
       setRates(null);
       toast({ description: `Label purchased: ${purchased.carrier} ${purchased.servicelevel}.` });
     } catch (error) {
-      Logger.error('Failed to purchase the shipping label', { error });
-      toast({ title: 'Label purchase failed', description: getErrorMessage(error) });
+      Logger.error('Failed to purchase the shipping label');
+      toast({
+        title: 'Label purchase failed',
+        description: marketplaceFailureMessage(
+          marketplaceErrorCode(error),
+          'The shipping label could not be purchased.',
+        ),
+      });
     } finally {
       setPending(null);
     }

@@ -8,6 +8,7 @@ import {
   getCommerceAdapterMode,
 } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import { Logger } from '@/libs/logger/logger';
 import type { CommerceSavedSearchModelSchema, CommerceSavedSearchParams } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -146,8 +147,7 @@ export function useMarketplaceSavedSearches() {
     } catch (error) {
       toast({
         variant: 'error',
-        description:
-          error instanceof Error && error.name === 'AppError' ? error.message : 'Could not save this search.',
+        description: marketplaceFailureMessage(marketplaceErrorCode(error), 'Could not save this search.'),
       });
       return false;
     }

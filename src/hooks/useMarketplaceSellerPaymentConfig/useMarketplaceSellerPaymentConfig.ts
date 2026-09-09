@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import {
   isPlausibleAccountXpub,
   isStripePaymentLink,
   isStripeRestrictedKey,
   type SellerPaymentConfigOwnView,
 } from '@/libs/commerce/payment-methods';
-import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -47,8 +47,10 @@ export function useMarketplaceSellerPaymentConfig() {
       if (configResult.status === 'fulfilled') {
         setConfig(configResult.value);
       } else {
-        Logger.error('Failed to load the payment configuration', { error: configResult.reason });
-        setLoadError(getErrorMessage(configResult.reason));
+        Logger.error('Failed to load the payment configuration');
+        setLoadError(
+          marketplaceFailureMessage(marketplaceErrorCode(configResult.reason), 'Payment settings are unavailable.'),
+        );
       }
       // A paykit outage must not block the fiat form: claim state renders
       // as unknown instead.
@@ -100,8 +102,14 @@ export function useMarketplaceSellerPaymentConfig() {
         toast({ title: 'Payment settings saved' });
         return true;
       } catch (error) {
-        Logger.error('Failed to save the payment configuration', { error });
-        toast({ title: 'Saving payment settings failed', description: getErrorMessage(error) });
+        Logger.error('Failed to save the payment configuration');
+        toast({
+          title: 'Saving payment settings failed',
+          description: marketplaceFailureMessage(
+            marketplaceErrorCode(error),
+            'The payment settings could not be saved.',
+          ),
+        });
         return false;
       } finally {
         setIsSaving(false);
@@ -124,8 +132,11 @@ export function useMarketplaceSellerPaymentConfig() {
       toast({ title: 'Stripe key removed' });
       return true;
     } catch (error) {
-      Logger.error('Failed to remove the Stripe key', { error });
-      toast({ title: 'Removing the Stripe key failed', description: getErrorMessage(error) });
+      Logger.error('Failed to remove the Stripe key');
+      toast({
+        title: 'Removing the Stripe key failed',
+        description: marketplaceFailureMessage(marketplaceErrorCode(error), 'The Stripe key could not be removed.'),
+      });
       return false;
     } finally {
       setIsSaving(false);
@@ -157,8 +168,10 @@ export function useMarketplaceSellerPaymentConfig() {
     try {
       flow = CommerceController.beginPaykitClaimFlow(trimmed);
     } catch (error) {
-      Logger.error('Failed to start the watch-only claim flow', { error });
-      setClaimError(getErrorMessage(error));
+      Logger.error('Failed to start the watch-only claim flow');
+      setClaimError(
+        marketplaceFailureMessage(marketplaceErrorCode(error), 'The watch-only claim could not be started.'),
+      );
       setClaimStatus('error');
       return;
     }
@@ -179,9 +192,11 @@ export function useMarketplaceSellerPaymentConfig() {
       .catch((error: unknown) => {
         if (activeClaimRef.current !== flow) return;
         activeClaimRef.current = null;
-        Logger.error('Watch-only claim failed', { error });
+        Logger.error('Watch-only claim failed');
         setClaimAuthorizationUrl('');
-        setClaimError(getErrorMessage(error));
+        setClaimError(
+          marketplaceFailureMessage(marketplaceErrorCode(error), 'The watch-only claim could not be completed.'),
+        );
         setClaimStatus('error');
       });
   }, []);

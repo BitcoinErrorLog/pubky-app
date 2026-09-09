@@ -6,9 +6,10 @@ import { useForm } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { marketplaceErrorCode, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
-import { getErrorMessage, HOMESERVER_WRITE_SCOPE_REMEDY, isHomeserverWriteScopeError } from '@/libs/error/error.utils';
+import { HOMESERVER_WRITE_SCOPE_REMEDY, isHomeserverWriteScopeError } from '@/libs/error/error.utils';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -218,7 +219,10 @@ export function useMarketplaceShopSettings() {
           variant: 'error',
           description: isHomeserverWriteScopeError(uploadError)
             ? HOMESERVER_WRITE_SCOPE_REMEDY
-            : `Could not upload the shop avatar image (${getErrorMessage(uploadError)}). Nothing was saved.`,
+            : marketplaceFailureMessage(
+                marketplaceErrorCode(uploadError),
+                'Could not upload the shop avatar image. Nothing was saved.',
+              ),
         });
         return;
       }
@@ -229,7 +233,10 @@ export function useMarketplaceShopSettings() {
           variant: 'error',
           description: isHomeserverWriteScopeError(uploadError)
             ? HOMESERVER_WRITE_SCOPE_REMEDY
-            : `Could not upload the shop banner image (${getErrorMessage(uploadError)}). Nothing was saved.`,
+            : marketplaceFailureMessage(
+                marketplaceErrorCode(uploadError),
+                'Could not upload the shop banner image. Nothing was saved.',
+              ),
         });
         return;
       }

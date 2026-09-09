@@ -6,6 +6,7 @@ import { useForm, type UseFormReturn } from 'react-hook-form';
 import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMessageAttachmentPicker } from '@/hooks/useMessageAttachmentPicker/useMessageAttachmentPicker';
+import { MARKETPLACE_FAILURE_MESSAGES, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
@@ -101,7 +102,10 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
           },
         });
         if (!response.ok) {
-          toast({ variant: 'error', description: response.error.message });
+          toast({
+            variant: 'error',
+            description: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.message),
+          });
           return;
         }
         succeeded = true;

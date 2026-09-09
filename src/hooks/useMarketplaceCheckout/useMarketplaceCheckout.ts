@@ -7,6 +7,11 @@ import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
@@ -204,10 +209,7 @@ export function useMarketplaceCheckout(
     const published = commerceListingFulfillmentMethods(item.listing.record.fulfillmentMethods);
     const allowed = pickupAvailable === false ? published.filter((method) => method !== 'pickup') : published;
     const existing = optionsBySeller.get(sellerPubky);
-    optionsBySeller.set(
-      sellerPubky,
-      existing ? existing.filter((method) => allowed.includes(method)) : [...allowed],
-    );
+    optionsBySeller.set(sellerPubky, existing ? existing.filter((method) => allowed.includes(method)) : [...allowed]);
   }
   const fulfillmentOptionsForSeller = (sellerPubky: string) => optionsBySeller.get(sellerPubky) ?? [];
   const fulfillmentForSeller = (sellerPubky: string): MarketplaceFulfillmentMethod | undefined => {
@@ -364,7 +366,7 @@ export function useMarketplaceCheckout(
             variant: 'error',
             description: pickupRefusal
               ? pickupRefusalFailureMessage(pickupRefusal)
-              : response.error.message,
+              : marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.checkout),
           });
           return;
         }
@@ -389,14 +391,18 @@ export function useMarketplaceCheckout(
           // durable session; surface the reconnect affordance instead of a
           // generic failure toast. The controller already cleared store+service.
           setNeedsSession(true);
-          setSessionError(checkoutError.message);
-          toast({ variant: 'error', description: checkoutError.message });
+          setSessionError(MARKETPLACE_FAILURE_MESSAGES.session);
+          toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
           return;
         }
         if (checkoutError instanceof AppError) {
-          // Typed validation refusals (e.g. a group choosing a fulfillment
-          // its listing does not publish, §A2) carry user-facing copy.
-          toast({ variant: 'error', description: checkoutError.message });
+          toast({
+            variant: 'error',
+            description: marketplaceFailureMessage(
+              marketplaceErrorCode(checkoutError),
+              MARKETPLACE_FAILURE_MESSAGES.checkout,
+            ),
+          });
           return;
         }
         toast({ variant: 'error', description: 'Checkout could not be completed.' });

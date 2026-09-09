@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import {
   buildMarketplaceCheckoutAggregateId,
   isMarketplaceRevisionConflict,
@@ -23,8 +24,7 @@ export interface UseMarketplaceDropClaimResult {
   /** Listings this session claimed successfully (composite `seller:listingId`). */
   claimedListingIds: ReadonlySet<string>;
   /**
-   * The last claim refusal, VERBATIM from the transaction service — the
-   * pinned copy ("The drop is sold out." etc.), never rewritten.
+   * The last claim refusal, mapped to client-owned static copy.
    */
   failure: string | null;
   needsSession: boolean;
@@ -121,7 +121,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         setFailure(
           isMarketplaceRevisionConflict(response)
             ? 'The listing changed while you were claiming. Refresh and try again.'
-            : response.error.message,
+            : marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.claim),
         );
         return false;
       }
@@ -135,7 +135,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
     } catch (claimError) {
       if (isMarketplaceSessionRequiredError(claimError)) {
         setNeedsSession(true);
-        setSessionError(claimError.message);
+        setSessionError(MARKETPLACE_FAILURE_MESSAGES.session);
         return false;
       }
       setFailure('The claim could not be submitted. Check your connection and try again.');

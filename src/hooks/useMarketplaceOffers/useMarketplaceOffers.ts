@@ -10,6 +10,11 @@ import {
   marketplaceOfferDefaults,
   marketplaceOfferSchema,
 } from '@/hooks/useMarketplaceOffer/useMarketplaceOffer.types';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import { amountInputSchemaForAsset, amountInputToMoney } from '@/libs/commerce/pricing';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
@@ -71,7 +76,10 @@ export function useMarketplaceOffers() {
           });
           return false;
         }
-        toast({ variant: 'error', description: response.error.message });
+        toast({
+          variant: 'error',
+          description: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.offer),
+        });
         return false;
       }
       await refresh();
@@ -81,8 +89,8 @@ export function useMarketplaceOffers() {
         // Expiry mid-action must surface the reconnect affordance, not a
         // generic failure: the surface swaps to the session-required card.
         setNeedsSession(true);
-        setError(actionError.message);
-        toast({ variant: 'error', description: actionError.message });
+        setError(MARKETPLACE_FAILURE_MESSAGES.session);
+        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
         return false;
       }
       toast({ variant: 'error', description: 'Could not update this offer.' });
@@ -125,7 +133,10 @@ export function useMarketplaceOffers() {
             });
             return;
           }
-          toast({ variant: 'error', description: response.error.message });
+          toast({
+            variant: 'error',
+            description: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.counterOffer),
+          });
           return;
         }
         succeeded = true;
@@ -134,8 +145,8 @@ export function useMarketplaceOffers() {
       } catch (actionError) {
         if (isMarketplaceSessionRequiredError(actionError)) {
           setNeedsSession(true);
-          setError(actionError.message);
-          toast({ variant: 'error', description: actionError.message });
+          setError(MARKETPLACE_FAILURE_MESSAGES.session);
+          toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
           return;
         }
         toast({ variant: 'error', description: 'Could not send this counteroffer.' });
@@ -163,11 +174,7 @@ async function loadOffers(
     // A missing/expired marketplace session is not a dead end: flag it so the
     // surface renders the session-connect affordance with the real guidance.
     setNeedsSession(isMarketplaceSessionRequiredError(loadError));
-    setError(
-      loadError instanceof Error && loadError.name === 'AppError'
-        ? loadError.message
-        : 'Marketplace offers are unavailable.',
-    );
+    setError(marketplaceFailureMessage(marketplaceErrorCode(loadError), 'Marketplace offers are unavailable.'));
   } finally {
     setIsLoading(false);
   }

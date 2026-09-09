@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
 import { amountInputSchemaForAsset, amountInputToMoney, type CommerceAsset } from '@/libs/commerce/pricing';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -68,7 +69,10 @@ export function useMarketplaceOffer(
             });
             return;
           }
-          toast({ variant: 'error', description: response.error.message });
+          toast({
+            variant: 'error',
+            description: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.sendOffer),
+          });
           return;
         }
         succeeded = true;

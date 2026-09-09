@@ -3,6 +3,11 @@
 import { useEffect, useState } from 'react';
 import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceErrorCode,
+  marketplaceFailureMessage,
+} from '@/libs/commerce/failure-messages';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceNotification, MarketplaceNotificationPreferences } from '@/services/marketplace/marketplace';
@@ -55,9 +60,7 @@ export function useMarketplaceNotifications() {
           // so the surface renders the session-connect affordance.
           setNeedsSession(isMarketplaceSessionRequiredError(loadError));
           setError(
-            loadError instanceof Error && loadError.name === 'AppError'
-              ? loadError.message
-              : 'Commerce notifications are unavailable.',
+            marketplaceFailureMessage(marketplaceErrorCode(loadError), 'Commerce notifications are unavailable.'),
           );
         }
       } finally {
@@ -96,7 +99,10 @@ export function useMarketplaceNotifications() {
       );
       const failed = results.find((result) => !result.ok);
       if (failed && !failed.ok) {
-        toast({ variant: 'error', description: failed.error.message });
+        toast({
+          variant: 'error',
+          description: marketplaceFailureMessage(failed.error.code, MARKETPLACE_FAILURE_MESSAGES.notifications),
+        });
         return;
       }
       setNotifications((current) =>
@@ -139,7 +145,10 @@ export function useMarketplaceNotifications() {
         payload: changes,
       });
       if (!response.ok) {
-        toast({ variant: 'error', description: response.error.message });
+        toast({
+          variant: 'error',
+          description: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.notifications),
+        });
         return false;
       }
       setPreferences({
