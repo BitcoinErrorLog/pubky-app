@@ -23,7 +23,7 @@ type ClaimFlow = ReturnType<typeof CommerceController.beginPaykitClaimFlow>;
  * Static seller-facing copy for each named xpub rejection. Never interpolate
  * the pasted key into these strings (or anywhere else in the claim UI).
  */
-const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason, string> = {
+export const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason, string> = {
   bitcoin_network_unconfigured:
     'This deployment has no Bitcoin network configured, so a watch-only account cannot be claimed. Contact the operator.',
   not_base58check: 'That does not look like an account xpub. Export the BIP84 account key from your wallet.',
@@ -35,6 +35,12 @@ const CLAIM_REJECTION_COPY: Record<AccountXpubRejectionReason, string> = {
     'That is a test-network key, but this deployment settles on Bitcoin mainnet. Export the mainnet account key.',
   mainnet_key_on_test_network:
     'That is a mainnet key, but this deployment settles on a test network. Export the test-network account key.',
+  master_key: 'That is a master key, not an account key. Export the BIP84 account xpub from your wallet.',
+  non_account_depth:
+    'That key is not an account-level key. Export the BIP84 account xpub (depth 3, m/84’/coin’/account’) from your wallet.',
+  unhardened_account_child:
+    'That key is not a hardened account key. Export the BIP84 account xpub from your wallet, not a derived address key.',
+  invalid_public_key: 'That key carries an invalid public key. Export the BIP84 account xpub from your wallet again.',
   deny_listed_key:
     'That key is a publicly known test key — anyone can spend from it. Export your own account key from your wallet.',
 };

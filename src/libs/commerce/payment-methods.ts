@@ -1,3 +1,4 @@
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
@@ -107,6 +108,10 @@ export type AccountXpubRejectionReason =
   | 'unrecognized_version_bytes'
   | 'test_network_key_on_mainnet'
   | 'mainnet_key_on_test_network'
+  | 'master_key'
+  | 'non_account_depth'
+  | 'unhardened_account_child'
+  | 'invalid_public_key'
   | 'deny_listed_key';
 
 export type NormalizedAccountXpub =
@@ -122,6 +127,30 @@ const VERSION_VPUB = 0x045f1cf6;
 /** Serialized extended key: 78-byte payload + 4-byte base58check checksum. */
 const EXTENDED_KEY_PAYLOAD_LENGTH = 78;
 const BASE58CHECK_CHECKSUM_LENGTH = 4;
+
+/** BIP32 hardened-derivation offset; an account child number sits above it. */
+const HARDENED_OFFSET = 0x80000000;
+
+/** Byte offsets inside the 78-byte extended-key serialization. */
+const DEPTH_OFFSET = 4;
+const CHILD_NUMBER_OFFSET = 9;
+const PUBLIC_KEY_OFFSET = 45;
+
+/**
+ * A compressed secp256k1 public key is 33 bytes starting 0x02/0x03 AND must
+ * decode to a point on the curve — a well-formed prefix over a garbage
+ * x-coordinate is not a key (Terra P2).
+ */
+function isValidCompressedPublicKey(publicKey: Uint8Array): boolean {
+  if (publicKey.length !== 33) return false;
+  if (publicKey[0] !== 0x02 && publicKey[0] !== 0x03) return false;
+  try {
+    secp256k1.Point.fromBytes(publicKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const BASE58_DIGITS = new Map([...BASE58_ALPHABET].map((char, index) => [char, BigInt(index)]));
@@ -262,6 +291,23 @@ export function normalizeAccountXpub(pasted: string, network: BitcoinNetwork | u
   const slip132Version = isMainnet ? VERSION_ZPUB : VERSION_VPUB;
   if (version !== canonicalVersion && version !== slip132Version) {
     return { ok: false, reason: 'unrecognized_version_bytes' };
+  }
+
+  // Structure of an account key (Terra P2): a checksum-valid serialization
+  // with recognized version bytes is not yet an account key. A BIP84 account
+  // xpub sits at depth 3 (m/84'/coin'/account') with a hardened child number,
+  // and carries a valid compressed public key. The server enforces the same
+  // on every claim; refusing here keeps malformed keys from leaving the
+  // browser at all.
+  const payloadView = new DataView(payload.buffer, payload.byteOffset);
+  const depth = payload[DEPTH_OFFSET];
+  if (depth === 0) return { ok: false, reason: 'master_key' };
+  if (depth !== 3) return { ok: false, reason: 'non_account_depth' };
+  if (payloadView.getUint32(CHILD_NUMBER_OFFSET, false) < HARDENED_OFFSET) {
+    return { ok: false, reason: 'unhardened_account_child' };
+  }
+  if (!isValidCompressedPublicKey(payload.subarray(PUBLIC_KEY_OFFSET))) {
+    return { ok: false, reason: 'invalid_public_key' };
   }
 
   // SLIP-132 rewrite: only the version bytes change; the 74 remaining bytes —

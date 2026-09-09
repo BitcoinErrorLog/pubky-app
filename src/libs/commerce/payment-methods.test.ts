@@ -204,6 +204,69 @@ describe('payment-methods', () => {
     });
   });
 
+  describe('account-key structure (Terra P2)', () => {
+    /** Re-encode a real account payload with one field rewritten, checksum intact. */
+    function encodeMutatedPayload(mutate: (payload: Uint8Array, view: DataView) => void): string {
+      const account = deriveBip84Account(OTHER_MNEMONIC, 0, 0);
+      const payload = new Uint8Array(account.payload);
+      mutate(payload, new DataView(payload.buffer));
+      return encodeBase58Check(payload);
+    }
+
+    it('refuses a checksum-valid key at depth 2 (the Terra case) with non_account_depth', () => {
+      // Depth 2 with the hardened child number left in place: valid base58check,
+      // valid version bytes, valid public key — but not an account key.
+      const depth2Xpub = encodeMutatedPayload((payload) => {
+        payload[4] = 2;
+      });
+      expect(normalizeAccountXpub(depth2Xpub, 'mainnet')).toEqual({ ok: false, reason: 'non_account_depth' });
+    });
+
+    it('refuses a key at any non-account depth, and depth 0 as master_key specifically', () => {
+      for (const depth of [1, 2, 4, 5, 255]) {
+        const key = encodeMutatedPayload((payload) => {
+          payload[4] = depth;
+        });
+        expect(normalizeAccountXpub(key, 'mainnet')).toEqual({ ok: false, reason: 'non_account_depth' });
+      }
+      const master = encodeMutatedPayload((payload) => {
+        payload[4] = 0;
+      });
+      expect(normalizeAccountXpub(master, 'mainnet')).toEqual({ ok: false, reason: 'master_key' });
+    });
+
+    it('refuses a depth-3 key whose child number is not hardened', () => {
+      const unhardened = encodeMutatedPayload((_payload, view) => {
+        view.setUint32(9, 5, false); // a plain child index, below the hardened offset
+      });
+      expect(normalizeAccountXpub(unhardened, 'mainnet')).toEqual({ ok: false, reason: 'unhardened_account_child' });
+    });
+
+    it('refuses a 33-byte key that does not start 0x02/0x03', () => {
+      const uncompressed = encodeMutatedPayload((payload) => {
+        payload[45] = 0x04; // uncompressed-point prefix in a 33-byte slot
+      });
+      expect(normalizeAccountXpub(uncompressed, 'mainnet')).toEqual({ ok: false, reason: 'invalid_public_key' });
+    });
+
+    it('refuses a well-prefixed key whose x-coordinate is not on the curve', () => {
+      const offCurve = encodeMutatedPayload((payload) => {
+        payload.fill(0xff, 46); // x = 2^256 - 1 exceeds the field prime
+      });
+      expect(normalizeAccountXpub(offCurve, 'mainnet')).toEqual({ ok: false, reason: 'invalid_public_key' });
+    });
+
+    it('applies the structure checks on test networks too', () => {
+      const account = deriveBip84Account(OTHER_MNEMONIC, 1, 0);
+      const payload = new Uint8Array(account.payload);
+      payload[4] = 2;
+      expect(normalizeAccountXpub(encodeBase58Check(payload), 'testnet')).toEqual({
+        ok: false,
+        reason: 'non_account_depth',
+      });
+    });
+  });
+
   describe('deny-list (known public test-vector keys)', () => {
     it('rejects the published BIP84 test-vector key in both xpub and zpub encodings', () => {
       const { canonical, slip132 } = accountEncodings(0, 0);
