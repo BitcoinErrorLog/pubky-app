@@ -13,7 +13,7 @@ Accepted — 2026-09-04
 
 ## Context
 
-Approved vibes are pubky-app forks served from `<slug>.vibes.pubky.app`. They are same-site with `pubky.app` and the homeserver, so the browser already attaches the homeserver `HttpOnly` cookie. Those forks still need the public `sessionExport` (`session.export()` — base64 `SessionInfo`: pubky + capabilities) to call `restoreSession` without a second grant.
+Approved vibes are pubky-app forks served from explicit flat first-party subdomains such as `shop.pubky.app`, `bots.pubky.app`, `day.pubky.app`, and `arena.pubky.app`. They are same-site with `pubky.app` and the homeserver, so the browser already attaches the homeserver `HttpOnly` cookie. Those forks still need the public `sessionExport` (`session.export()` — base64 `SessionInfo`: pubky + capabilities) to call `restoreSession` without a second grant. `*.vibes.pubky.app` remains the vibes-board/legacy entry; extra Ring approval is required only when a vibe needs extra scope.
 
 Canonical pubky-app (on `feat/session-bridge`) hosts `/session-bridge`, which answers an allowlisted iframe with that export. This ADR is the **consumer** half: a vibe fork obtains the export and runs the existing restore path.
 
@@ -21,7 +21,7 @@ A board can also hand the export in the URL fragment (`#s=<export>`). That value
 
 ## Decision
 
-Vibe consumer mode is a **build-time** switch on the fork artifact:
+Vibe consumer mode is a **build-time** switch on the fork artifact. The primary trusted-vibe model is explicit flat first-party subdomains added by PR; Hypercolor is off-site, and Uploadky/Switchboard are untrusted:
 
 - `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` — exact `https://` origin of the bridge host, or `http://localhost:<port>` only when `NODE_ENV !== 'production'`. Invalid values fail env parse. Consumer mode is active **only** when this is set.
 - `NEXT_PUBLIC_VIBE_ID` — optional slug. Informational.
@@ -92,7 +92,7 @@ RouteGuard and auth-store rehydrate both call `shouldAttemptSessionRestore` (`sr
 
 - Sign-out in pubky-app does not push live to an already-open vibe; reload (or another restore) observes it.
 - Sign-out **on a vibe** does sign out the shared homeserver session (pubky.app is signed out too). That tab stays suppressed from bridge auto-restore until a successful sign-in or restore (`authStore.init`). A `#s=` hand-off in the same tab still attempts fragment restore; if that fails, it does not fall back to the bridge. A new tab has no flag and may.
-- Off-site vibes remain on per-app sign-in until bearer/JWT homeserver sessions exist.
+- `*.vibes.pubky.app` remains the board/legacy entry, while Hypercolor stays off-site and Uploadky/Switchboard remain untrusted. They remain on per-app sign-in until bearer/JWT homeserver sessions exist.
 
 ## Alternatives Considered
 
@@ -138,7 +138,7 @@ RouteGuard and auth-store rehydrate both call `shouldAttemptSessionRestore` (`sr
 
 - Users will not complete a grant per vibe
 
-**Why not chosen**: Approved same-site vibes need silent reuse of the existing web session.
+**Why not chosen**: Approved flat first-party same-site vibes need silent reuse of the existing web session; the board/legacy `*.vibes.pubky.app` entry uses the same bridge contract.
 
 ## Implementation Notes
 
@@ -154,7 +154,7 @@ RouteGuard and auth-store rehydrate both call `shouldAttemptSessionRestore` (`sr
 
 ## Related Decisions
 
-- Depends on: session-bridge message contract (pubky-app `/session-bridge`, ADR 0017 on the bridge branch)
+- Depends on: session-bridge message contract (pubky-app `/session-bridge`, ADR 0020 on the bridge branch)
 - Does not change: layering rules in [ADR-0004](./0004-layering-and-dependency-rules.md)
 - Distinct from: [ADR 0017 runtime-config injection](./0017-runtime-config-injection.md) and [ADR 0018 runtime Sentry](./0018-runtime-sentry-and-decoupled-source-maps.md) on this branch (those numbers were already taken)
 
