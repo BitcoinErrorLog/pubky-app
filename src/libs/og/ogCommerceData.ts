@@ -1,4 +1,4 @@
-import { Client, Pubky, resolvePubky } from '@synonymdev/pubky';
+import { Client, resolvePubky } from '@synonymdev/pubky';
 import {
   type CommerceListingRecord,
   commerceListingRecordSchema,
@@ -51,9 +51,6 @@ const metadataClient = new Client({
     requestTimeout: 4_000,
   },
 });
-
-// `resolvePubky` has no instance API; this singleton is the only server resolver client.
-Pubky.withClient(metadataClient);
 
 function buildRecordUrl(ownerPubky: string, recordPath: string): string {
   return resolvePubky(`pubky://${ownerPubky}${MARKETPLACE_RECORD_BASE_PATH}/${recordPath}`);

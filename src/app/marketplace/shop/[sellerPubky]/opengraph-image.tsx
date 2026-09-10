@@ -6,9 +6,8 @@ export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
 export const alt = 'Pubky Marketplace shop preview';
 
-// Segment config must be a statically-analyzable literal — Next won't resolve an
-// imported constant here — kept in sync with OG_COMMERCE_REVALIDATE.
-export const revalidate = 300;
+// Dynamic responses let Cache-Control decide whether found or fallback images cache.
+export const dynamic = 'force-dynamic';
 
 export default async function Image({ params }: { params: Promise<{ sellerPubky: string }> }) {
   const { sellerPubky } = await params;

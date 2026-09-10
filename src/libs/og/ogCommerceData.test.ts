@@ -11,7 +11,6 @@ vi.mock('@synonymdev/pubky', () => ({
   Client: class {
     fetch = fetchMock;
   },
-  Pubky: { withClient: vi.fn() },
   resolvePubky: resolvePubkyMock,
 }));
 
@@ -58,6 +57,24 @@ describe('fetchListingForMetadata', () => {
     fetchMock.mockResolvedValue(new Response('Not Found', { status: 404 }));
 
     await expect(fetchListingForMetadata(seller, 'missing')).resolves.toEqual({ kind: 'not_found' });
+  });
+
+  it('returns unavailable for a seller homeserver 5xx response', async () => {
+    fetchMock.mockResolvedValue(new Response('upstream failure', { status: 503 }));
+
+    await expect(fetchListingForMetadata(seller, 'server-error')).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'http_503',
+    });
+  });
+
+  it('returns unavailable when a successful response is not JSON', async () => {
+    fetchMock.mockResolvedValue(new Response('not json', { status: 200 }));
+
+    await expect(fetchListingForMetadata(seller, 'not-json')).resolves.toMatchObject({
+      kind: 'unavailable',
+      reason: expect.any(String),
+    });
   });
 
   it('returns unavailable on a transient timeout instead of not-found', async () => {

@@ -1,5 +1,7 @@
 import { getDefaultUrl, getPreviewImage } from '@/config/metadata';
 
+const DEFAULT_PREVIEW_URL = 'https://shop.pubky.app/marketplace/opengraph-image';
+
 /**
  * Fallback used whenever the data needed for a richer OG card is missing or an
  * error is thrown. Redirects to the app's configured default preview image
@@ -13,6 +15,10 @@ import { getDefaultUrl, getPreviewImage } from '@/config/metadata';
  */
 export function renderFallbackOg(): Response {
   const preview = getPreviewImage();
-  const url = /^https?:\/\//.test(preview) ? preview : new URL(preview, getDefaultUrl()).toString();
-  return Response.redirect(url, 307);
+  try {
+    const url = /^https?:\/\//.test(preview) ? preview : new URL(preview, getDefaultUrl()).toString();
+    return Response.redirect(url, 307);
+  } catch {
+    return Response.redirect(DEFAULT_PREVIEW_URL, 307);
+  }
 }
