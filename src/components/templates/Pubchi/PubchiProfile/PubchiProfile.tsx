@@ -10,6 +10,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { PubchiCapabilities } from '@/components/organisms/Pubchi/PubchiCapabilities/PubchiCapabilities';
 import { PubchiProfileCard } from '@/components/organisms/Pubchi/PubchiProfileCard/PubchiProfileCard';
 import { FeedController } from '@/controllers/feed/feed';
+import { subscribeToPubchiSync } from '@/controllers/pubchi/pubchi-sync';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
 import { listPubchiFeedProvenance } from '@/libs/pubchi/feed-provenance';
@@ -51,6 +52,15 @@ export function PubchiProfile() {
       cancelled = true;
     };
   }, [owner, pubchiBot, reload]);
+
+  useEffect(() => {
+    if (!owner) return;
+    return subscribeToPubchiSync((message) => {
+      if (message.owner === owner && (message.kind === 'created' || message.kind === 'removed')) {
+        setReload((value) => value + 1);
+      }
+    });
+  }, [owner]);
 
   if (!pubchi) {
     return (

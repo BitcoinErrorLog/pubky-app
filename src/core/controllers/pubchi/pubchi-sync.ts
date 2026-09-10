@@ -1,3 +1,4 @@
+import { isPubkyId } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
 export const PUBCHI_SYNC_CHANNEL = 'pubchi';
@@ -55,12 +56,16 @@ function handleSubscriptionMessage(event: MessageEvent<unknown>): void {
   const message = event.data;
   if (!message || typeof message !== 'object') return;
   const candidate = message as Partial<PubchiSyncMessage>;
+  const now = Date.now();
   if (
     typeof candidate.owner !== 'string' ||
+    !isPubkyId(candidate.owner) ||
     typeof candidate.kind !== 'string' ||
     typeof candidate.at !== 'number' ||
-    !PUBCHI_SYNC_KINDS.has(candidate.kind as PubchiSyncKind) ||
-    Date.now() - candidate.at > PUBCHI_SYNC_MAX_AGE_MS
+    !Number.isFinite(candidate.at) ||
+    candidate.at > now + 5_000 ||
+    now - candidate.at > PUBCHI_SYNC_MAX_AGE_MS ||
+    !PUBCHI_SYNC_KINDS.has(candidate.kind as PubchiSyncKind)
   ) {
     return;
   }

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getList: vi.fn(),
   listPubchiFeedProvenance: vi.fn(),
   owner: 'owner-pubky',
+  onSync: undefined as ((message: { owner: string; kind: string }) => void) | undefined,
 }));
 
 vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
@@ -22,6 +23,15 @@ vi.mock('@/controllers/feed/feed', () => ({
   FeedController: { getList: (...args: unknown[]) => mocks.getList(...args) },
 }));
 
+vi.mock('@/controllers/pubchi/pubchi-sync', () => ({
+  subscribeToPubchiSync: (onMessage: (message: { owner: string; kind: string }) => void) => {
+    mocks.onSync = onMessage;
+    return () => {
+      mocks.onSync = undefined;
+    };
+  },
+}));
+
 vi.mock('@/libs/pubchi/feed-provenance', () => ({
   listPubchiFeedProvenance: (...args: unknown[]) => mocks.listPubchiFeedProvenance(...args),
 }));
@@ -35,6 +45,7 @@ describe('PubchiProfile', () => {
   beforeEach(() => {
     mocks.getList.mockReset();
     mocks.listPubchiFeedProvenance.mockReset();
+    mocks.onSync = undefined;
     mocks.getList.mockResolvedValue([
       {
         id: 'pubchi-feed',
@@ -83,5 +94,25 @@ describe('PubchiProfile', () => {
     expect(mocks.listPubchiFeedProvenance).toHaveBeenCalledWith('owner-pubky');
     expect(mocks.getList).toHaveBeenCalledTimes(1);
     expect(mocks.listPubchiFeedProvenance).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the listing for a created message from the current owner', async () => {
+    render(<PubchiProfile />);
+
+    await waitFor(() => expect(mocks.getList).toHaveBeenCalledTimes(1));
+    mocks.onSync?.({ owner: mocks.owner, kind: 'created' });
+
+    await waitFor(() => expect(mocks.getList).toHaveBeenCalledTimes(2));
+    expect(mocks.listPubchiFeedProvenance).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reload the listing for a foreign owner message', async () => {
+    render(<PubchiProfile />);
+
+    await waitFor(() => expect(mocks.getList).toHaveBeenCalledTimes(1));
+    mocks.onSync?.({ owner: 'foreign-owner', kind: 'created' });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.getList).toHaveBeenCalledTimes(1);
   });
 });
