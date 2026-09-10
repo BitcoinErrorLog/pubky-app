@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { Logger } from '@/libs/logger/logger';
+import { DatabaseContext } from '@/providers/DatabaseProvider/DatabaseProvider';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   applyMarketplaceAttributeFilters,
@@ -18,6 +19,7 @@ export function useMarketplaceCatalog(
   initialListings: MarketplaceCatalogItem[] = [],
   initialShops: CommerceShopRecord[] = [],
 ) {
+  const { isReady: isDatabaseReady } = useContext(DatabaseContext);
   const query = useCommerceStore((state) => state.query);
   const categoryId = useCommerceStore((state) => state.categoryId);
   const attributeFilters = useCommerceStore((state) => state.attributeFilters);
@@ -34,7 +36,7 @@ export function useMarketplaceCatalog(
   const [isRefreshing, setIsRefreshing] = useState(adapterMode !== 'sandbox');
 
   useEffect(() => {
-    if (adapterMode === 'sandbox') return;
+    if (adapterMode === 'sandbox' || !isDatabaseReady) return;
 
     let active = true;
     setIsRefreshing(true);
@@ -51,14 +53,23 @@ export function useMarketplaceCatalog(
     return () => {
       active = false;
     };
-  }, [adapterMode, saleFormat, conditions, sort, countryCode]);
+  }, [adapterMode, isDatabaseReady, saleFormat, conditions, sort, countryCode]);
 
   // The grid renders from both catalog sources: index projections cached by
   // discovery (no homeserver round-trips) and canonical records that are
   // already local (opened listings, own listings, sandbox seeds).
-  const localListings = useLiveQuery(() => CommerceController.getAllListings(), []);
-  const catalogEntries = useLiveQuery(() => CommerceController.getAllCatalogEntries(), []);
-  const localShops = useLiveQuery(() => CommerceController.getAllShops(), []);
+  const localListings = useLiveQuery(
+    () => (isDatabaseReady ? CommerceController.getAllListings() : undefined),
+    [isDatabaseReady],
+  );
+  const catalogEntries = useLiveQuery(
+    () => (isDatabaseReady ? CommerceController.getAllCatalogEntries() : undefined),
+    [isDatabaseReady],
+  );
+  const localShops = useLiveQuery(
+    () => (isDatabaseReady ? CommerceController.getAllShops() : undefined),
+    [isDatabaseReady],
+  );
   // While a refresh is in flight over an empty cache, stay in the loading
   // state so the skeleton shows instead of flashing "No listings match"
   // before the first discovery results land.
@@ -66,11 +77,10 @@ export function useMarketplaceCatalog(
   const isCacheEmpty =
     localListings !== undefined && catalogEntries !== undefined && localListings.length + catalogEntries.length === 0;
   const isLoading = isCacheUnresolved || (isCacheEmpty && isRefreshing);
-  // SSR and the first client paint have no Dexie snapshot yet. Keep the
-  // server-fetched catalog mounted so the card grid is in the HTML and
-  // hydration does not replace it with a skeleton.
+  // Keep the server-fetched catalog mounted until the client cache has rows,
+  // so an empty refresh or unresolved Dexie snapshot cannot erase the grid.
   const sourceItems =
-    isLoading && initialListings.length > 0
+    initialListings.length > 0 && (isLoading || isCacheEmpty)
       ? initialListings
       : buildMarketplaceCatalogItems(localListings ?? [], catalogEntries ?? []);
   // The facet pool matches every filter EXCEPT the attribute filters, so the

@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import { DatabaseContext } from '@/providers/DatabaseProvider/DatabaseProvider';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   createCommerceCatalogEntryFixture,
@@ -43,6 +45,12 @@ function toShopModel(record: CommerceShopRecord) {
   return { id: record.ownerPubky, owner_id: record.ownerPubky, record };
 }
 
+const readyWrapper = ({ children }: { children: ReactNode }) => (
+  <DatabaseContext.Provider value={{ isReady: true, error: null, retry: async () => {} }}>
+    {children}
+  </DatabaseContext.Provider>
+);
+
 describe('useMarketplaceCatalog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,9 +68,33 @@ describe('useMarketplaceCatalog', () => {
     mockGetAllShops.mockReturnValue(undefined);
     const seed = catalogItemFromListingModel(toCommerceListingModel(createCommerceListingFixture()));
 
-    const { result } = renderHook(() => useMarketplaceCatalog([seed]));
+    const { result } = renderHook(() => useMarketplaceCatalog([seed]), { wrapper: readyWrapper });
 
     expect(result.current.isLoading).toBe(true);
+    expect(result.current.listings).toEqual([seed]);
+  });
+
+  it('does not refresh or replace SSR listings before the database is ready', () => {
+    const seed = catalogItemFromListingModel(toCommerceListingModel(createCommerceListingFixture()));
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DatabaseContext.Provider value={{ isReady: false, error: null, retry: async () => {} }}>
+        {children}
+      </DatabaseContext.Provider>
+    );
+
+    const { result } = renderHook(() => useMarketplaceCatalog([seed]), { wrapper });
+
+    expect(mockFetchCatalogListings).not.toHaveBeenCalled();
+    expect(result.current.listings).toEqual([seed]);
+  });
+
+  it('keeps SSR listings visible when the refresh leaves the local catalog empty', async () => {
+    const seed = catalogItemFromListingModel(toCommerceListingModel(createCommerceListingFixture()));
+
+    const { result } = renderHook(() => useMarketplaceCatalog([seed]), { wrapper: readyWrapper });
+
+    await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.listings).toEqual([seed]);
   });
 
@@ -72,7 +104,7 @@ describe('useMarketplaceCatalog', () => {
     mockGetAllShops.mockReturnValue([toShopModel(createCommerceShopFixture())]);
     mockFetchCatalogListings.mockReturnValue(new Promise(() => {}));
 
-    const { result } = renderHook(() => useMarketplaceCatalog());
+    const { result } = renderHook(() => useMarketplaceCatalog(), { wrapper: readyWrapper });
 
     expect(result.current.isLoading).toBe(false);
     expect(result.current.listings).toEqual([catalogItemFromListingModel(cached)]);
@@ -91,7 +123,7 @@ describe('useMarketplaceCatalog', () => {
     mockGetAllShops.mockReturnValue(undefined);
     const shop = createCommerceShopFixture({ name: 'Satoshi Vintage' });
 
-    const { result } = renderHook(() => useMarketplaceCatalog([], [shop]));
+    const { result } = renderHook(() => useMarketplaceCatalog([], [shop]), { wrapper: readyWrapper });
 
     expect(result.current.shopsBySeller.get(shop.ownerPubky)?.name).toBe('Satoshi Vintage');
   });
@@ -100,7 +132,7 @@ describe('useMarketplaceCatalog', () => {
     const entry = createCommerceCatalogEntryFixture();
     mockGetAllCatalogEntries.mockReturnValue([entry]);
 
-    const { result } = renderHook(() => useMarketplaceCatalog());
+    const { result } = renderHook(() => useMarketplaceCatalog(), { wrapper: readyWrapper });
 
     expect(result.current.isLoading).toBe(false);
     expect(result.current.listings).toEqual([catalogItemFromCatalogEntry(entry)]);
@@ -114,7 +146,7 @@ describe('useMarketplaceCatalog', () => {
       }),
     );
 
-    const { result } = renderHook(() => useMarketplaceCatalog());
+    const { result } = renderHook(() => useMarketplaceCatalog(), { wrapper: readyWrapper });
 
     expect(result.current.isLoading).toBe(true);
 
@@ -129,7 +161,7 @@ describe('useMarketplaceCatalog', () => {
     mockGetAllListings.mockReturnValue([cached]);
     mockFetchCatalogListings.mockRejectedValue(new Error('nexus unreachable'));
 
-    const { result } = renderHook(() => useMarketplaceCatalog());
+    const { result } = renderHook(() => useMarketplaceCatalog(), { wrapper: readyWrapper });
 
     await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalled());
     expect(result.current.isLoading).toBe(false);
@@ -141,7 +173,7 @@ describe('useMarketplaceCatalog', () => {
     const cached = toCommerceListingModel(createCommerceListingFixture());
     mockGetAllListings.mockReturnValue([cached]);
 
-    const { result } = renderHook(() => useMarketplaceCatalog());
+    const { result } = renderHook(() => useMarketplaceCatalog(), { wrapper: readyWrapper });
 
     expect(mockFetchCatalogListings).not.toHaveBeenCalled();
     expect(result.current.isLoading).toBe(false);
@@ -150,7 +182,7 @@ describe('useMarketplaceCatalog', () => {
   });
 
   it('refetches from Nexus when server-side filters change', async () => {
-    renderHook(() => useMarketplaceCatalog());
+    renderHook(() => useMarketplaceCatalog(), { wrapper: readyWrapper });
 
     await waitFor(() =>
       expect(mockFetchCatalogListings).toHaveBeenCalledWith({
@@ -175,7 +207,7 @@ describe('useMarketplaceCatalog', () => {
   });
 
   it('refetches from Nexus when the sort switches to ending soon', async () => {
-    renderHook(() => useMarketplaceCatalog());
+    renderHook(() => useMarketplaceCatalog(), { wrapper: readyWrapper });
 
     await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalledTimes(1));
 

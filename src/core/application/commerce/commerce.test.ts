@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import * as commerceConfig from '@/config/commerce';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -818,6 +821,9 @@ describe('CommerceApplication', () => {
   describe('fetchCatalogListings', () => {
     const SELLER_B = 'b'.repeat(52);
     const SELLER_B_SHOP_URL = `pubky://${SELLER_B}/pub/pubky.app/marketplace/v1/shop.json`;
+    const liveListingStream = JSON.parse(
+      readFileSync(resolve(__dirname, '../../../test/fixtures/commerce/live/marketplace-listings.json'), 'utf8'),
+    );
 
     it('never reads from Nexus in sandbox mode', async () => {
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
@@ -950,6 +956,27 @@ describe('CommerceApplication', () => {
       await expect(CommerceApplication.fetchCatalogListings()).rejects.toThrow('nexus unreachable');
       expect(bulkUpsert).not.toHaveBeenCalled();
       expect(upsertShop).not.toHaveBeenCalled();
+    });
+
+    it('persists the live Nexus stream into the catalog cache', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+      await CommerceCatalogEntryModel.table.clear();
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify(liveListingStream), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      vi.spyOn(CommerceApplication, 'getOrFetchShop').mockResolvedValue(createCommerceShopFixture());
+
+      await CommerceController.fetchCatalogListings({
+        saleFormat: 'all',
+        conditions: [],
+        sort: 'recommended',
+        countryCode: null,
+      });
+
+      expect(await CommerceCatalogEntryModel.table.count()).toBeGreaterThan(0);
     });
 
     it('rejects an invalid stream payload before caching anything', async () => {
