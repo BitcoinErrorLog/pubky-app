@@ -92,4 +92,50 @@ describe('PubchiAnswerCard', () => {
     render(<PubchiAnswerCard answer={{ ...answer, evidence: [], summary: '' }} currentUserPubky={owner} />);
     expect(screen.getByText('No evidence was found for this question.')).toBeInTheDocument();
   });
+
+  it('renders the service-provided scope line for an owner network', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          scope: {
+            time: {
+              since_ms: Date.parse('2026-09-03T00:00:00Z'),
+              until_ms: Date.parse('2026-09-10T00:00:00Z'),
+              label: 'last 7 days',
+              source: 'default',
+            },
+            graph: { kind: 'owner_network', hops: 2 },
+            filters: [],
+            complete: true,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('pubchi-answer-scope')).toHaveTextContent(
+      'Scope: last 7 days (Sep 3–10 UTC) · your network (2 hops)',
+    );
+  });
+
+  it('renders no graph lookup without inventing a time scope', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          scope: {
+            time: null,
+            graph: { kind: 'none' },
+            filters: [],
+            complete: true,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('pubchi-answer-scope')).toHaveTextContent('No graph lookup');
+  });
+
+  it('renders nothing when older answers have no scope', () => {
+    render(<PubchiAnswerCard answer={answer} />);
+    expect(screen.queryByTestId('pubchi-answer-scope')).not.toBeInTheDocument();
+  });
 });

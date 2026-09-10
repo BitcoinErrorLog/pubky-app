@@ -117,4 +117,29 @@ describe('PubchiAnswerCard — visual regression', () => {
 
     await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-c4-summary-desktop');
   });
+
+  it('captures a scoped graph answer', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          summary: 'The graph contains no matching evidence.',
+          scope: {
+            time: {
+              since_ms: Date.parse('2026-09-03T00:00:00Z'),
+              until_ms: Date.parse('2026-09-10T00:00:00Z'),
+              label: 'last 7 days',
+              source: 'default',
+            },
+            graph: { kind: 'owner_network', hops: 2 },
+            filters: [],
+            complete: true,
+          },
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-scoped-network-desktop');
+  });
 });
