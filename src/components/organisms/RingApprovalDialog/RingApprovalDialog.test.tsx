@@ -45,6 +45,62 @@ describe('RingApprovalDialog', () => {
     await waitFor(() => expect(onApproved).toHaveBeenCalledWith(session));
   });
 
+  it('displays and encodes caller-provided capabilities', async () => {
+    const capabilities = '/pub/example.app/:rw';
+    vi.mocked(PubchiController.getCapabilityApprovalUrl).mockResolvedValue({
+      authorizationUrl: 'pubkyauth://approve?token=custom',
+      awaitApproval: new Promise<Session>(() => {}),
+      cancelAuthFlow: vi.fn(),
+    });
+
+    render(<RingApprovalDialog open onOpenChange={vi.fn()} onApproved={vi.fn()} capabilities={capabilities} />);
+
+    await waitFor(() => expect(screen.getByText(capabilities)).toBeInTheDocument());
+    expect(PubchiController.getCapabilityApprovalUrl).toHaveBeenCalledWith(capabilities);
+  });
+
+  it('adopts approval after closing and stays open when adoption fails', async () => {
+    let resolveApproval!: (session: Session) => void;
+    const approval = new Promise<Session>((resolve) => {
+      resolveApproval = resolve;
+    });
+    vi.mocked(PubchiController.getCapabilityApprovalUrl).mockResolvedValue({
+      authorizationUrl: 'pubkyauth://approve?token=close',
+      awaitApproval: approval,
+      cancelAuthFlow: vi.fn(),
+    });
+    const onApproved = vi.fn().mockRejectedValue(new Error('adoption failed'));
+    const onOpenChange = vi.fn();
+    const { rerender } = render(<RingApprovalDialog open onOpenChange={onOpenChange} onApproved={onApproved} />);
+
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Open in Pubky Ring' })).toBeInTheDocument());
+    rerender(<RingApprovalDialog open={false} onOpenChange={onOpenChange} onApproved={onApproved} />);
+    resolveApproval(asOpaque<Session>({ pubky: 'owner' }));
+
+    await waitFor(() => expect(onApproved).toHaveBeenCalled());
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(screen.queryByText(/Could not apply the Ring approval/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the dialog open and shows adoption errors', async () => {
+    vi.mocked(PubchiController.getCapabilityApprovalUrl).mockResolvedValue({
+      authorizationUrl: 'pubkyauth://approve?token=error',
+      awaitApproval: Promise.resolve(asOpaque<Session>({ pubky: 'owner' })),
+      cancelAuthFlow: vi.fn(),
+    });
+    const onOpenChange = vi.fn();
+    render(
+      <RingApprovalDialog
+        open
+        onOpenChange={onOpenChange}
+        onApproved={vi.fn().mockRejectedValue(new Error('adoption failed'))}
+      />,
+    );
+
+    expect(await screen.findByText(/Could not apply the Ring approval/)).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
   it('shows timeout copy when Ring approval expires', async () => {
     vi.mocked(PubchiController.getCapabilityApprovalUrl).mockResolvedValue({
       authorizationUrl: 'pubkyauth://approve?token=expired',

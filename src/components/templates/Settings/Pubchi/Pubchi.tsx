@@ -139,6 +139,7 @@ export function PubchiSettings() {
                   contextEditable={contextEditable}
                   onSaveContext={saveContext}
                   onReapprove={reapprove}
+                  onRequestReapprove={() => setApprovalOpen(true)}
                   onChange={(brain) => {
                     setPreviousBrain(toBrainChoice(config?.brain));
                     void saveBrain(brain, config, saveConfig);

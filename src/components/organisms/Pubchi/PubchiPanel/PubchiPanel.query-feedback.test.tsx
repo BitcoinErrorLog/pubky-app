@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   signingAvailable: true,
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiPanelEnabled: () => true,
   isPubchiEnabled: () => true,

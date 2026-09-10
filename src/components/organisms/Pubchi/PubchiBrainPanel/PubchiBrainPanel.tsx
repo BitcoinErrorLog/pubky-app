@@ -35,6 +35,7 @@ export type PubchiBrainPanelProps = {
   contextEditable?: boolean;
   onSaveContext?: (context: Pick<PubchiOwnerContextV1, 'about' | 'instructions'>) => void | Promise<unknown>;
   onReapprove?: () => void | Promise<unknown>;
+  onRequestReapprove?: () => void;
 };
 
 const API_KEY_QUERY_PATTERN = /^(?:api[-_]?key|access[-_]?key|token|secret|password|authorization|key)$/i;
@@ -59,6 +60,7 @@ export function PubchiBrainPanel({
   contextEditable = true,
   onSaveContext,
   onReapprove,
+  onRequestReapprove,
 }: PubchiBrainPanelProps) {
   const [draft, setDraft] = useState<PubchiBrainChoice>(value);
   const [endpointError, setEndpointError] = useState(false);
@@ -202,6 +204,7 @@ export function PubchiBrainPanel({
             saving={saving}
             onSaveContext={onSaveContext}
             onReapprove={onReapprove}
+            onRequestReapprove={onRequestReapprove}
           />
         </div>
 

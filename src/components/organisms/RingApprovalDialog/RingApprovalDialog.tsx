@@ -10,6 +10,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
+import { toast } from '@/molecules/Toaster/toast';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 
 export const PUBCHI_RING_CAPABILITIES = PUBCHI_SIGNIN_CAPABILITIES;
@@ -30,6 +31,7 @@ export function RingApprovalDialog({
   const [approval, setApproval] = useState<TGenerateAuthUrlResult>();
   const [loading, setLoading] = useState(false);
   const [expired, setExpired] = useState(false);
+  const [adoptionError, setAdoptionError] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -37,8 +39,9 @@ export function RingApprovalDialog({
     let currentApproval: TGenerateAuthUrlResult | undefined;
     setLoading(true);
     setExpired(false);
+    setAdoptionError(false);
     setApproval(undefined);
-    void PubchiController.getCapabilityApprovalUrl()
+    void PubchiController.getCapabilityApprovalUrl(capabilities)
       .then((nextApproval) => {
         currentApproval = nextApproval;
         if (!active) {
@@ -48,15 +51,20 @@ export function RingApprovalDialog({
         setApproval(nextApproval);
         nextApproval.awaitApproval
           .then(async (session) => {
-            if (!active) return;
-            await onApproved(session);
-            if (active) onOpenChange(false);
+            try {
+              const result = await onApproved(session);
+              if (result === false) throw new Error('Ring approval adoption failed');
+              toast({ variant: 'default', title: 'Ring approval applied', dismissButton: true });
+              if (active) onOpenChange(false);
+            } catch {
+              setAdoptionError(true);
+            }
           })
           .catch(() => {
-            if (active) setExpired(true);
+            setExpired(true);
           })
           .finally(() => {
-            if (active) setLoading(false);
+            setLoading(false);
           });
       })
       .catch(() => {
@@ -69,7 +77,7 @@ export function RingApprovalDialog({
       active = false;
       currentApproval?.cancelAuthFlow();
     };
-  }, [onApproved, onOpenChange, open]);
+  }, [capabilities, onApproved, onOpenChange, open]);
 
   const reload = () => {
     onOpenChange(false);
@@ -103,6 +111,10 @@ export function RingApprovalDialog({
           {loading ? (
             <Typography size="sm" className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Waiting for approval…
+            </Typography>
+          ) : adoptionError ? (
+            <Typography size="sm" className="text-center text-destructive">
+              Could not apply the Ring approval. Keep this dialog open and try again.
             </Typography>
           ) : expired ? (
             <Button type="button" variant="secondary" onClick={reload}>

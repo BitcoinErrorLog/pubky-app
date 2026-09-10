@@ -19,7 +19,15 @@ const hookState = vi.hoisted(() => ({
   reapprove: vi.fn(),
   needsReapproval: false,
   binding: undefined,
-  pubchi: undefined,
+  pubchi: undefined as
+    | {
+        bot: string;
+        displayName: string;
+        createdAt: number;
+        verified: boolean;
+        backupConfirmedAt: number | null;
+      }
+    | undefined,
   creating: false,
   backupOpen: false,
   backupPositions: [],
@@ -39,6 +47,15 @@ const hookState = vi.hoisted(() => ({
   currentSigner: undefined as string | undefined,
   loading: false,
   enabled: true,
+  context: null,
+  contextEditable: true,
+  config: undefined as
+    | {
+        display_name: string;
+        tier: 'read-only' | 'assisted' | 'autonomous';
+        brain: { execution: 'synonym-hosted' };
+      }
+    | undefined,
 }));
 
 vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
@@ -55,6 +72,10 @@ vi.mock('@/molecules/ControlledInputField/ControlledInputField', () => ({
   ),
 }));
 
+vi.mock('@/organisms/Pubchi/PubchiPreferencesForm/PubchiPreferencesForm', () => ({
+  PubchiPreferencesForm: () => null,
+}));
+
 describe('PubchiSettings', () => {
   beforeEach(() => {
     hookState.needsReapproval = false;
@@ -63,6 +84,10 @@ describe('PubchiSettings', () => {
     hookState.devices = [];
     hookState.pendingRevocations = [];
     hookState.currentSigner = undefined;
+    hookState.context = null;
+    hookState.contextEditable = true;
+    hookState.config = undefined;
+    hookState.pubchi = undefined;
   });
 
   it('mounts the production settings surface', () => {
@@ -85,6 +110,30 @@ describe('PubchiSettings', () => {
     expect(screen.getByTestId('pubchi-create')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
     expect(screen.getByTestId('ring-approval-dialog')).toBeInTheDocument();
+  });
+
+  it('uses one approval dialog host for both reapproval triggers', () => {
+    hookState.needsReapproval = true;
+    hookState.contextEditable = false;
+    hookState.pubchi = {
+      bot: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      displayName: 'Pubchi',
+      createdAt: 1,
+      verified: true,
+      backupConfirmedAt: null,
+    };
+    hookState.config = {
+      display_name: 'Pubchi',
+      tier: 'read-only',
+      brain: { execution: 'synonym-hosted' },
+    };
+
+    render(<PubchiSettings />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
+    expect(screen.getAllByTestId('ring-approval-dialog')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Re-approve in Ring' }));
+    expect(screen.getAllByTestId('ring-approval-dialog')).toHaveLength(1);
   });
 
   it('keeps the default public web context disabled on the first brain save', async () => {

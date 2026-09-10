@@ -1,4 +1,4 @@
-import { Session } from '@synonymdev/pubky';
+import { type Capabilities,Session } from '@synonymdev/pubky';
 import { PubchiApplication } from '@/application/pubchi/pubchi';
 import type {
   CreatedPubchi,
@@ -237,8 +237,8 @@ export class PubchiController {
     return config;
   }
 
-  static async getCapabilityApprovalUrl(): Promise<TGenerateAuthUrlResult> {
-    return HomeserverService.generateAuthUrl(PUBCHI_SIGNIN_CAPABILITIES);
+  static async getCapabilityApprovalUrl(capabilities = PUBCHI_SIGNIN_CAPABILITIES): Promise<TGenerateAuthUrlResult> {
+    return HomeserverService.generateAuthUrl(capabilities as Capabilities);
   }
 
   /**

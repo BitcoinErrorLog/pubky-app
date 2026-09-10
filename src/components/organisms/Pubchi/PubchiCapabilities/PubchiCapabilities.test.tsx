@@ -1,6 +1,21 @@
+import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { PubchiCapabilities } from './PubchiCapabilities';
+
+function ControlledCompactCapabilities() {
+  const [open, setOpen] = useState(false);
+  return (
+    <PubchiCapabilities
+      compact
+      tier="read-only"
+      onSelect={() => {}}
+      onBuildFeed={() => {}}
+      quickQuestionsOpen={open}
+      onQuickQuestionsOpenChange={setOpen}
+    />
+  );
+}
 
 describe('PubchiCapabilities', () => {
   it('submits the canonical question for most followed users', () => {
@@ -31,8 +46,10 @@ describe('PubchiCapabilities', () => {
   });
 
   it('wraps every compact quick question without a horizontal scroll container', () => {
-    render(<PubchiCapabilities compact tier="read-only" onSelect={() => {}} onBuildFeed={() => {}} />);
+    render(<ControlledCompactCapabilities />);
 
+    expect(screen.getByRole('button', { name: 'What did I miss?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Quick questions' }));
     expect(screen.getByRole('button', { name: 'Who tagged me?' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Most followed users' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Most tagged users' })).toBeInTheDocument();

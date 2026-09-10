@@ -19,6 +19,7 @@ type PubchiBrainEditorProps = {
   saving?: boolean;
   onSaveContext?: (context: Pick<PubchiOwnerContextV1, 'about' | 'instructions'>) => void | Promise<unknown>;
   onReapprove?: (session?: Session) => void | Promise<unknown>;
+  onRequestReapprove?: () => void;
 };
 
 export function PubchiBrainEditor({
@@ -27,6 +28,7 @@ export function PubchiBrainEditor({
   saving = false,
   onSaveContext,
   onReapprove,
+  onRequestReapprove,
 }: PubchiBrainEditorProps) {
   const [draft, setDraft] = useState({ about: context?.about ?? '', instructions: context?.instructions ?? '' });
   const [contextError, setContextError] = useState(false);
@@ -73,7 +75,12 @@ export function PubchiBrainEditor({
           <Typography size="sm">
             Your current sign-in doesn&apos;t include the private Pubchi folder; re-approve in Ring once to unlock editing.
           </Typography>
-          <Button type="button" variant="outline" disabled={saving || !onReapprove} onClick={() => setApprovalOpen(true)}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={saving || (!onReapprove && !onRequestReapprove)}
+            onClick={() => (onRequestReapprove ? onRequestReapprove() : setApprovalOpen(true))}
+          >
             Re-approve in Ring
           </Button>
         </div>
@@ -124,7 +131,7 @@ export function PubchiBrainEditor({
           </Button>
         ) : null}
       </div>
-      {onReapprove ? (
+      {onReapprove && !onRequestReapprove ? (
         <RingApprovalDialog
           open={approvalOpen}
           onOpenChange={setApprovalOpen}
