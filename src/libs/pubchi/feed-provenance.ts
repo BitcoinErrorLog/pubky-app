@@ -6,8 +6,13 @@ import { HttpMethod } from '@/libs/http/http.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import type { FeedProposalV1, FeedProposalV2 } from '@/libs/pubchi/schemas';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
-import { parsePubchiFeedProvenanceV1, type PubchiFeedProvenanceV1 } from '@/libs/pubchi/schemas/feed-provenance';
+import {
+  parsePubchiFeedProvenanceV1,
+  type PubchiFeedProvenanceV1,
+  PubchiFeedProvenanceV1Schema,
+} from '@/libs/pubchi/schemas/feed-provenance';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
+import { toast } from '@/molecules/Toaster/toast';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 
 export async function recordPubchiBuiltFeed(
@@ -17,16 +22,31 @@ export async function recordPubchiBuiltFeed(
   provenanceFeedId = feed.id,
 ): Promise<void> {
   const url = provenanceUri(owner, provenanceFeedId);
-  let existing: PubchiFeedProvenanceV1 | undefined;
+  let existing: (PubchiFeedProvenanceV1 & Record<string, unknown>) | undefined;
   try {
-    const parsedExisting = parsePubchiFeedProvenanceV1(
-      await HomeserverService.request<unknown>({ method: HttpMethod.GET, url }),
-    );
-    if (parsedExisting.ok) existing = parsedExisting.value;
+    const rawExisting = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
+    const parsedExisting = parsePubchiFeedProvenanceV1(rawExisting);
+    if (parsedExisting.ok) {
+      existing = parsedExisting.value as PubchiFeedProvenanceV1 & Record<string, unknown>;
+    } else {
+      const lenientExisting = PubchiFeedProvenanceV1Schema.passthrough().safeParse(rawExisting);
+      if (!lenientExisting.success) {
+        toast({ variant: 'warning', title: "Couldn't update the feed record; the feed itself was saved" });
+        return;
+      }
+      existing = lenientExisting.data;
+    }
   } catch (error) {
-    if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) throw error;
+    if (error instanceof SyntaxError) {
+      toast({ variant: 'warning', title: "Couldn't update the feed record; the feed itself was saved" });
+      return;
+    }
+    if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) {
+      throw error;
+    }
   }
-  const record: PubchiFeedProvenanceV1 = {
+  const record: PubchiFeedProvenanceV1 & Record<string, unknown> = {
+    ...existing,
     schema: 'pubchi-feed-provenance',
     version: 1,
     feed_id: feed.id,
@@ -35,7 +55,15 @@ export async function recordPubchiBuiltFeed(
     proposal_hash: await sha256Hex(canonicalJson(proposal)),
     bot: proposal.bot,
   };
-  const parsed = parsePubchiFeedProvenanceV1(record);
+  const parsed = parsePubchiFeedProvenanceV1({
+    schema: record.schema,
+    version: record.version,
+    feed_id: record.feed_id,
+    created_at: record.created_at,
+    ...(record.updated_at !== undefined ? { updated_at: record.updated_at } : {}),
+    proposal_hash: record.proposal_hash,
+    bot: record.bot,
+  });
   if (!parsed.ok) {
     throw Err.validation(ValidationErrorCode.TYPE_ERROR, parsed.code, {
       service: ErrorService.Pubchi,
@@ -45,7 +73,7 @@ export async function recordPubchiBuiltFeed(
   await HomeserverService.request({
     method: HttpMethod.PUT,
     url,
-    bodyJson: parsed.value,
+    bodyJson: record,
   });
 }
 

@@ -42,6 +42,7 @@ vi.mock('@/services/homeserver/homeserver', () => ({
     listAll: vi.fn(),
   },
 }));
+vi.mock('@/molecules/Toaster/toast', () => ({ toast: vi.fn() }));
 
 describe('Pubchi feed provenance', () => {
   beforeEach(() => {
@@ -49,7 +50,14 @@ describe('Pubchi feed provenance', () => {
   });
 
   it('writes a strict homeserver record', async () => {
-    vi.mocked(HomeserverService.request).mockResolvedValue(undefined);
+    vi.mocked(HomeserverService.request).mockResolvedValue({
+      schema: 'pubchi-feed-provenance',
+      version: 1,
+      feed_id: FEED.id,
+      created_at: 1_700_000_000,
+      proposal_hash: 'a'.repeat(64),
+      bot: BOT,
+    });
 
     await recordPubchiBuiltFeed(OWNER, PROPOSAL, FEED);
 
@@ -63,6 +71,42 @@ describe('Pubchi feed provenance', () => {
         bot: BOT,
         proposal_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
       }),
+    });
+  });
+
+  it('preserves unknown fields when merging an existing provenance record', async () => {
+    const existing = {
+      schema: 'pubchi-feed-provenance',
+      version: 1,
+      feed_id: FEED.id,
+      created_at: 1_700_000_000,
+      proposal_hash: 'a'.repeat(64),
+      bot: BOT,
+      future_field: { retained: true },
+    };
+    vi.mocked(HomeserverService.request)
+      .mockResolvedValueOnce(existing)
+      .mockResolvedValueOnce(undefined);
+
+    await recordPubchiBuiltFeed(OWNER, PROPOSAL, FEED);
+
+    expect(HomeserverService.request).toHaveBeenLastCalledWith({
+      method: HttpMethod.PUT,
+      url: `pubky://${OWNER}/pub/pubchi.app/feeds/${FEED.id}.json`,
+      bodyJson: expect.objectContaining({ future_field: existing.future_field }),
+    });
+  });
+
+  it('does not overwrite malformed provenance and reports a soft error', async () => {
+    const { toast } = await import('@/molecules/Toaster/toast');
+    vi.mocked(HomeserverService.request).mockResolvedValueOnce('malformed json');
+
+    await recordPubchiBuiltFeed(OWNER, PROPOSAL, FEED);
+
+    expect(HomeserverService.request).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'warning',
+      title: "Couldn't update the feed record; the feed itself was saved",
     });
   });
 

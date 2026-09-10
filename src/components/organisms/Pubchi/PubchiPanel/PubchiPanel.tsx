@@ -65,7 +65,10 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     if (!open) return;
     const nextPrefill = PubchiController.consumePrefill(currentUserPubky);
     if (!nextPrefill) return;
-    if (nextPrefill.feedId) void FeedController.get({ feedId: nextPrefill.feedId }).then(setEditFeed);
+    setEditFeed(undefined);
+    if (nextPrefill.feedId) {
+      void FeedController.get({ feedId: nextPrefill.feedId }).then((feed) => setEditFeed(feed));
+    }
     form.setValue(QUERY_FORM_FIELDS.QUESTION, nextPrefill.question, { shouldValidate: true });
     document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
   }, [currentUserPubky, form, open, prefill]);
@@ -85,6 +88,13 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     ceiling: 'assisted',
     sessionCoversPubchi: !needsReapproval,
   });
+  const submitQuestion = async (
+    purpose: Parameters<typeof submit>[0],
+    requestOptions?: Parameters<typeof submit>[1],
+  ): Promise<boolean> => {
+    if (!requestOptions?.targetFeedId) setEditFeed(undefined);
+    return submit(purpose, requestOptions);
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -137,7 +147,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             className="flex flex-col gap-3"
             onSubmit={(event) => {
               event.preventDefault();
-              void submit('ask');
+              void submitQuestion('ask');
             }}
           >
             <ControlledTextareaField
@@ -155,10 +165,10 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               disabled={actionsDisabled}
               onSelect={(nextQuestion, purpose) => {
                 form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
-                void submit(purpose);
+                void submitQuestion(purpose);
               }}
               onBuildFeed={() => {
-                void submit('build-feed');
+                void submitQuestion('build-feed');
               }}
             />
             {postReference ? (
@@ -171,7 +181,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                   form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${postReference.uri}`, {
                     shouldValidate: true,
                   });
-                  void submit('ask');
+                  void submitQuestion('ask');
                 }}
               >
                 Summarize thread
@@ -268,8 +278,12 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
                 await submit('build-feed', {
                   proposalVersion: 2,
-                  targetFeedId: editFeed?.id ?? result.result.target_feed_id ?? undefined,
-                  currentFeed: editFeed ?? result.result.feed,
+                  ...(editFeed
+                    ? {
+                        targetFeedId: editFeed.id,
+                        currentFeed: editFeed,
+                      }
+                    : {}),
                 });
               }}
             />

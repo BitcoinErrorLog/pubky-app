@@ -8,7 +8,8 @@ const submit = vi.fn();
 const applyFeed = vi.fn();
 const reapprove = vi.fn();
 const setupDevice = vi.fn();
-const { consumePrefill } = vi.hoisted(() => ({ consumePrefill: vi.fn() }));
+const { consumePrefill, getFeed } = vi.hoisted(() => ({ consumePrefill: vi.fn(), getFeed: vi.fn() }));
+const builderProps = vi.hoisted(() => ({ current: undefined as Record<string, unknown> | undefined }));
 const hookState = {
   form: {
     control: {},
@@ -55,6 +56,25 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
   },
 }));
 
+vi.mock('@/controllers/feed/feed', () => ({
+  FeedController: {
+    get: getFeed,
+  },
+}));
+
+vi.mock('../PubchiFeedBuilder/PubchiFeedBuilder', () => ({
+  PubchiFeedBuilder: (props: Record<string, unknown>) => {
+    builderProps.current = props;
+    return (
+      <div data-testid="pubchi-feed-builder">
+        <button type="button" onClick={() => void (props.onInterpret as (question: string) => Promise<void>)('make it wider')}>
+          Interpret
+        </button>
+      </div>
+    );
+  },
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' }),
@@ -67,6 +87,7 @@ vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
 describe('PubchiPanel', () => {
   beforeEach(() => {
     enrollmentState.needsReapproval = false;
+    submit.mockReset();
     reapprove.mockReset();
     setupDevice.mockReset();
     hookState.pubchiAvailable = true;
@@ -77,6 +98,8 @@ describe('PubchiPanel', () => {
     hookState.errorCode = undefined;
     hookState.form.setValue.mockReset();
     consumePrefill.mockReset();
+    getFeed.mockReset();
+    builderProps.current = undefined;
     usePubchiStore.getState().clear();
   });
 
@@ -107,6 +130,68 @@ describe('PubchiPanel', () => {
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
+  });
+
+  it('sends no model-controlled target when interpreting a create proposal', async () => {
+    hookState.result = {
+      kind: 'feed-v2',
+      applyAllowed: false,
+      result: {
+        schema: 'pubchi-feed-proposal',
+        version: 2,
+        bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        generated_at: 1,
+        mode: 'create',
+        target_feed_id: 'model-controlled-target',
+        feed: { name: 'Builders', icon: '', feed: { reach: 'all', sort: 'recent', layout: 'columns' } },
+        mapping: { status: 'exact', unmapped: [] },
+        warnings: [],
+        installed_user_feed_id: null,
+      },
+    } as PubchiQuerySuccess;
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Interpret' }));
+    await vi.waitFor(() => expect(submit).toHaveBeenCalled());
+
+    expect(submit).toHaveBeenCalledWith('build-feed', {
+      proposalVersion: 2,
+    });
+  });
+
+  it('clears the edited feed before submitting a new create question', async () => {
+    const feed = { id: 'feed-a', name: 'Feed A' };
+    getFeed.mockResolvedValue(feed);
+    consumePrefill.mockReturnValue({
+      question: 'Update feed A',
+      feedId: 'feed-a',
+      source: 'feed-menu',
+    });
+    hookState.result = {
+      kind: 'feed-v2',
+      applyAllowed: false,
+      result: {
+        schema: 'pubchi-feed-proposal',
+        version: 2,
+        bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        generated_at: 1,
+        mode: 'update',
+        target_feed_id: 'feed-a',
+        feed: { name: 'Feed A', icon: '', feed: { reach: 'all', sort: 'recent', layout: 'columns' } },
+        mapping: { status: 'exact', unmapped: [] },
+        warnings: [],
+        installed_user_feed_id: 'feed-a',
+      },
+    } as PubchiQuerySuccess;
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+    await vi.waitFor(() => expect(builderProps.current?.existingFeed).toBe(feed));
+
+    fireEvent.click(screen.getByTestId('pubchi-ask'));
+    await vi.waitFor(() => expect(builderProps.current?.existingFeed).toBeUndefined());
+    expect(submit).toHaveBeenCalledWith('ask', undefined);
   });
 
   it('mounts the production panel surface', () => {
