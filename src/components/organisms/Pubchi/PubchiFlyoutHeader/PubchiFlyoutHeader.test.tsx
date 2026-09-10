@@ -18,4 +18,10 @@ describe('PubchiFlyoutHeader', () => {
     expect(screen.queryByText('Scout')).not.toBeInTheDocument();
     expect(screen.getByText('Scout III')).toBeInTheDocument();
   });
+
+  it('links the profile flyout action to the brain editor', () => {
+    render(<PubchiFlyoutHeader pubchi={pubchi} />);
+
+    expect(screen.getByRole('link', { name: /edit brain/i })).toHaveAttribute('href', '/pubchi/brain');
+  });
 });

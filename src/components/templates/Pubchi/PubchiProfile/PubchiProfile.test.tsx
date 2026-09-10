@@ -14,6 +14,13 @@ vi.mock('@/hooks/usePubchiEnrollment/usePubchiEnrollment', () => ({
   usePubchiEnrollment: () => ({
     pubchi: { bot: 'bot', displayName: 'Pubchi', createdAt: 1, verified: true },
     config: { tier: 'assisted', brain: { execution: 'synonym-hosted' } },
+    context: {
+      schema: 'pubchi-owner-context',
+      version: 1,
+      about: 'Bitcoin developer in Lisbon',
+      instructions: 'Two sentences max',
+      updated_at: 1,
+    },
     devices: [],
     needsReapproval: false,
   }),
@@ -88,6 +95,8 @@ describe('PubchiProfile', () => {
     render(<PubchiProfile />);
 
     await waitFor(() => expect(screen.getByTestId('pubchi-built-feeds')).toHaveTextContent('Builders'));
+    expect(screen.getByTestId('pubchi-brain-card')).toHaveTextContent('Bitcoin developer in Lisbon');
+    expect(screen.getByRole('link', { name: /edit brain/i })).toHaveAttribute('href', '/pubchi/brain');
     expect(screen.getByTestId('pubchi-built-feeds')).toHaveTextContent('builders');
     expect(screen.queryByText('user')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open/i })).toHaveAttribute('href', '/feed/pubchi-feed');
