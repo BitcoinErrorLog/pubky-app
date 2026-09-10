@@ -68,10 +68,6 @@ function answer(overrides: Partial<{ owner: string; complete: boolean; until: st
 
 const mocks = vi.hoisted(() => ({
   fetchPubchiQuery: vi.fn(),
-  commitCreate: vi.fn(),
-  commitDelete: vi.fn(),
-  recordPubchiBuiltFeed: vi.fn(),
-  publishPubchiSync: vi.fn(),
   toast: vi.fn(),
   ensureDeviceReady: vi.fn(),
   loadPubchi: vi.fn(),
@@ -94,21 +90,6 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
   },
 }));
 
-vi.mock('@/controllers/feed/feed', () => ({
-  FeedController: {
-    commitCreate: (...args: unknown[]) => mocks.commitCreate(...args),
-    commitDelete: (...args: unknown[]) => mocks.commitDelete(...args),
-  },
-}));
-
-vi.mock('@/libs/pubchi/feed-provenance', () => ({
-  recordPubchiBuiltFeed: (...args: unknown[]) => mocks.recordPubchiBuiltFeed(...args),
-}));
-
-vi.mock('@/controllers/pubchi/pubchi-sync', () => ({
-  publishPubchiSync: (...args: unknown[]) => mocks.publishPubchiSync(...args),
-}));
-
 vi.mock('@/molecules/Toaster/toast', () => ({
   toast: (...args: unknown[]) => mocks.toast(...args),
 }));
@@ -128,14 +109,8 @@ vi.mock('@/stores/auth/auth.store', () => ({
 describe('usePubchiQuery', () => {
   beforeEach(() => {
     mocks.fetchPubchiQuery.mockReset();
-    mocks.commitCreate.mockReset();
-    mocks.commitDelete.mockReset();
-    mocks.recordPubchiBuiltFeed.mockReset();
-    mocks.publishPubchiSync.mockReset();
     mocks.toast.mockReset();
     mocks.fetchPubchiQuery.mockResolvedValue(FEED_SUCCESS);
-    mocks.commitCreate.mockResolvedValue({ id: 'feed-1' });
-    mocks.commitDelete.mockResolvedValue(undefined);
     mocks.ensureDeviceReady.mockReset().mockResolvedValue(true);
     mocks.loadPubchi.mockReset().mockResolvedValue({ verified: true });
     mocks.loadPubchiCursor.mockReset().mockResolvedValue(null);
@@ -161,25 +136,10 @@ describe('usePubchiQuery', () => {
     expect(mocks.fetchPubchiQuery).toHaveBeenCalledWith({
       question: 'build a feed of builders',
       purpose: 'build-feed',
+      proposalVersion: 2,
     });
     expect(result.current.result).toEqual(FEED_SUCCESS);
     expect(result.current.errorCode).toBeUndefined();
-
-    await act(async () => {
-      await expect(result.current.applyFeed()).resolves.toBe(true);
-    });
-
-    expect(mocks.commitCreate).toHaveBeenCalledOnce();
-    expect(mocks.recordPubchiBuiltFeed).toHaveBeenCalledWith('a'.repeat(52), FEED_PROPOSAL, { id: 'feed-1' });
-    expect(mocks.publishPubchiSync).toHaveBeenCalledWith('a'.repeat(52), 'created');
-    const params = mocks.commitCreate.mock.calls[0][0];
-    expect(params.name).toBe('Builders');
-    expect(params.tags).toEqual(['builder']);
-    expect(mocks.toast).toHaveBeenCalledWith({
-      variant: 'default',
-      title: 'Feed applied',
-      dismissButton: true,
-    });
   });
 
   it('does not toast SIGNATURE_INVALID when no device key is available', async () => {
@@ -199,28 +159,6 @@ describe('usePubchiQuery', () => {
       "This browser isn't set up for Pubchi yet. Set it up to start asking.",
     );
     expect(result.current.errorCode).toBe("This browser isn't set up for Pubchi yet. Set it up to start asking.");
-  });
-
-  it('rolls back the feed when provenance cannot be recorded', async () => {
-    const { result } = renderHook(() => usePubchiQuery());
-    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
-
-    await act(async () => {
-      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'build a feed of builders');
-      await result.current.submit('build-feed');
-    });
-    expect(result.current.result).toEqual(FEED_SUCCESS);
-    mocks.recordPubchiBuiltFeed.mockRejectedValue(new Error('homeserver unavailable'));
-    await act(async () => {
-      await expect(result.current.applyFeed()).resolves.toBe(false);
-    });
-
-    expect(mocks.commitDelete).toHaveBeenCalledWith({ feedId: 'feed-1' });
-    expect(mocks.toast).toHaveBeenCalledWith({
-      variant: 'error',
-      title: "I couldn't turn that into a feed. Feeds show posts filtered by tags, reach (following, friends, web of trust, everyone) and sort. Try: 'a feed of posts tagged bitcoin or synonym from everyone, newest first'.",
-      dismissButton: true,
-    });
   });
 
   it('does not set up a device when the owner has no Pubchi', async () => {

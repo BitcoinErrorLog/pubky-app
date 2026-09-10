@@ -13,7 +13,6 @@ vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
 }));
 
 const submit = vi.fn();
-const applyFeed = vi.fn();
 const reapprove = vi.fn();
 const setupDevice = vi.fn();
 const { consumePrefill, getFeed } = vi.hoisted(() => ({ consumePrefill: vi.fn(), getFeed: vi.fn() }));
@@ -27,7 +26,6 @@ const hookState = {
     setValue: vi.fn(),
   },
   submit,
-  applyFeed,
   result: undefined as PubchiQuerySuccess | undefined,
   errorCode: undefined as string | undefined,
   loading: false,
