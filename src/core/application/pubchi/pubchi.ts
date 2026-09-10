@@ -52,6 +52,7 @@ import {
   parseFeedProposal,
   parseOwnerBindingV1,
   parsePubchiAnswerV1,
+  parseConversation,
   parsePubchiBotV1,
   parsePubchiConfigV1,
   parsePubchiOwnerContextV1,
@@ -287,7 +288,11 @@ export class PubchiApplication {
   static async savePubchiCursor(owner: string, cursor: string): Promise<void> {
     const session = useAuthStore.getState().selectSession();
     const sessionPubky = session?.info?.publicKey?.z32?.();
-    if (!session || sessionPubky !== owner || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) {
+    if (
+      !session ||
+      sessionPubky !== owner ||
+      !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)
+    ) {
       throw pubchiValidationError('PATH_FORBIDDEN', 'savePubchiCursor');
     }
     const nextTime = Date.parse(cursor);
@@ -886,10 +891,15 @@ export class PubchiApplication {
 
     const body: PubchiAskBody = {
       question,
+      ...(servedPurpose === 'ask' && params.conversation ? { conversation: params.conversation } : {}),
       ...(params.proposalVersion ? { proposal_version: params.proposalVersion } : {}),
       ...(params.targetFeedId ? { target_feed_id: params.targetFeedId } : {}),
       ...(params.currentFeed ? { current_feed: params.currentFeed } : {}),
     };
+    if (body.conversation) {
+      const parsedConversation = parseConversation(body.conversation);
+      if (!parsedConversation.ok) throw pubchiValidationError(parsedConversation.code, 'query');
+    }
     const issuedAt = params.nowSeconds ?? Math.floor(Date.now() / 1000);
     const unsigned: UnsignedRequestObjectV2 = {
       schema: 'pubchi-request-object-v2',

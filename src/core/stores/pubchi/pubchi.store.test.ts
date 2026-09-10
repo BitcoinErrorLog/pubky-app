@@ -47,13 +47,46 @@ describe('PubchiStore', () => {
   });
 
   it('clears flyout state with the signed-out Pubchi state', () => {
-    usePubchiStore.getState().openFlyout({
-      question: 'Summarize this thread',
-      source: 'post-menu',
-    }, OWNER);
+    usePubchiStore.getState().openFlyout(
+      {
+        question: 'Summarize this thread',
+        source: 'post-menu',
+      },
+      OWNER,
+    );
 
     usePubchiStore.getState().clear();
 
     expect(usePubchiStore.getState().flyout).toEqual({ open: false });
+  });
+
+  it('keeps alternating turns within the owner-scoped window', () => {
+    usePubchiStore.getState().setConfig(null, OWNER);
+    for (let index = 0; index < 6; index += 1) {
+      usePubchiStore
+        .getState()
+        .addConversationTurn({ role: index % 2 === 0 ? 'user' : 'assistant', text: `turn-${index}` }, OWNER);
+    }
+    expect(usePubchiStore.getState().conversation.turns.map((turn) => turn.text)).toEqual([
+      'turn-0',
+      'turn-1',
+      'turn-2',
+      'turn-3',
+      'turn-4',
+      'turn-5',
+    ]);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'new' }, OWNER);
+    expect(usePubchiStore.getState().conversation.turns[0]?.role).toBe('user');
+    expect(usePubchiStore.getState().conversation.turns).toHaveLength(7);
+  });
+
+  it('isolates owners and clears on owner change', () => {
+    usePubchiStore.getState().setConfig(null, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'private' }, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'answer' }, OWNER);
+    usePubchiStore.getState().setConfig(null, 'different-owner' as never);
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'ignored' }, OWNER);
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
   });
 });

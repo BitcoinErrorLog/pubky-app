@@ -7,12 +7,14 @@ import type {
   PubchiAnswerV1,
   PubchiBotV1,
   PubchiOwnerContextV1,
+  Conversation,
   QueryResultV1,
 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
 export type PubchiAskBody = {
   question: string;
+  conversation?: Conversation;
   proposal_version?: 2;
   target_feed_id?: string;
   current_feed?: unknown;
@@ -27,6 +29,7 @@ export type PubchiQueryApplicationParams = {
   proposalVersion?: 2;
   targetFeedId?: string;
   currentFeed?: unknown;
+  conversation?: Conversation;
 };
 
 export type PubchiQuerySuccess =
