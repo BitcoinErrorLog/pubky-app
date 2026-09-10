@@ -8,6 +8,7 @@ import type { PostTagProps } from './PostTag.types';
 export function PostTag({
   label,
   count,
+  countLabel = 'posts',
   showClose = false,
   selected = false,
   onClick,
@@ -52,7 +53,7 @@ export function PostTag({
         backgroundImage: backgroundGradient,
         boxShadow: selected ? `inset 0 0 0 1px ${tagColor}` : undefined,
       }}
-      aria-label={count !== undefined ? `${label} tag (${count} posts)` : `${label} tag`}
+      aria-label={count !== undefined ? `${label} tag (${count} ${countLabel})` : `${label} tag`}
     >
       <Tag
         name={label}

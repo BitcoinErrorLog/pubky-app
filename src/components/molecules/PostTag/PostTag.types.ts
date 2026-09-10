@@ -3,8 +3,10 @@ import type { ButtonHTMLAttributes, MouseEvent } from 'react';
 export interface PostTagProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'color'> {
   /** Tag label text */
   label: string;
-  /** Number of posts with this tag (optional) */
+  /** Number associated with this tag (optional) */
   count?: number;
+  /** Label used for the count in the accessible name */
+  countLabel?: string;
   /** Show the close/remove button */
   showClose?: boolean;
   /** Selected state */

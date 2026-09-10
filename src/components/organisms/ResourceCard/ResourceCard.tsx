@@ -98,6 +98,7 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
             <PostTag
               label={tag.label}
               count={tag.taggers_count}
+              countLabel="taggers"
               selected={tag.relationship}
               onClick={() => router.push(`/search?tags=${encodeURIComponent(tag.label)}`)}
             />

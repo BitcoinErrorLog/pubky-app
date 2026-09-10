@@ -67,6 +67,7 @@ describe('ResourceCard', () => {
     render(<ResourceCard resource={resource} />);
 
     expect(screen.getByText('Bitcoin resources')).toBeInTheDocument();
+    expect(screen.getByLabelText('bitcoin tag (1 taggers)')).toBeInTheDocument();
     expect(screen.getByLabelText('Suggested by Jeb')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open original/i })).toHaveAttribute('href', 'https://example.com/bitcoin');
   });
