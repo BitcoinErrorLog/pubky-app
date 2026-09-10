@@ -376,12 +376,17 @@ export function useMarketplaceSellerPaymentConfig() {
     setClaimPreviewAddress(null);
   };
 
-  /** Persists the gate state; only the two verification paths call this. */
-  const persistVerifiedClaim = (claim: VerifiedPaykitClaim) => {
-    CommerceController.commitSaveVerifiedPaykitClaim(claim).catch((error: unknown) => {
-      Logger.error('Failed to persist the verified watch-only claim', { error });
-    });
-  };
+  /**
+   * Persists the gate state; only the two verification paths call this, and
+   * they AWAIT it before any state mutation (W1.8c P1-B): the write carries
+   * `actorPubky`, the identity the flow was STARTED under, and the
+   * controller refuses it when the signed-in account changed while the
+   * approval was pending. The caller catches the rejection and treats it as
+   * a refusal, so none of the success-path setters (verified claim, watched
+   * account, `bitcoinEnabled`) ever run — no write, no open gate.
+   */
+  const persistVerifiedClaim = (claim: VerifiedPaykitClaim, actorPubky: string) =>
+    CommerceController.commitSaveVerifiedPaykitClaim(claim, actorPubky);
 
   const startClaim = (accountXpub: string) => {
     // Validate against the configured network and normalize (zpub→xpub /
@@ -430,7 +435,7 @@ export function useMarketplaceSellerPaymentConfig() {
 
     flow
       .awaitClaim()
-      .then((result) => {
+      .then(async (result) => {
         if (activeClaimRef.current !== flow) return;
         // The confirmation gate (design §B.6): the server must prove it stored
         // exactly the key that was POSTed. On any mismatch, missing
@@ -447,8 +452,6 @@ export function useMarketplaceSellerPaymentConfig() {
           setBitcoinEnabledState(false);
           return;
         }
-        activeClaimRef.current = null;
-        setClaimAuthorizationUrl('');
         // The verified claim is bound to the exact normalized xpub: editing
         // the key text or importing a different file breaks this match and
         // the enable gate closes (see verifiedClaimMatchesKey above).
@@ -466,13 +469,30 @@ export function useMarketplaceSellerPaymentConfig() {
           claimChannel: result.claimChannel,
           downgradeReason: result.downgradeReason,
         };
+        // Persist BEFORE any state mutation (W1.8c P1-B): the write is
+        // refused when the signed-in account changed while the approval was
+        // pending, and the refusal skips every setter below — no verified
+        // claim, no watched account, no bitcoinEnabled.
+        try {
+          await persistVerifiedClaim(verified, flow.actorPubky);
+        } catch (error) {
+          activeClaimRef.current = null;
+          setClaimAuthorizationUrl('');
+          Logger.error('Failed to persist the verified watch-only claim', { error });
+          setClaimError(getErrorMessage(error));
+          setClaimStatus('error');
+          setVerifiedClaim(null);
+          setBitcoinEnabledState(false);
+          return;
+        }
+        activeClaimRef.current = null;
+        setClaimAuthorizationUrl('');
         setVerifiedClaim(verified);
         setWatchedAccount({
           accountIndex: result.accountIndex,
           firstDerivedAddress: result.firstDerivedAddress!,
           nextChildIndex: result.nextChildIndex!,
         });
-        persistVerifiedClaim(verified);
         setClaimStatus('claimed');
         setAccountClaimed(true);
         toast({ title: 'Watch-only account claimed', description: 'Bitcoin payment requests now use this account.' });
@@ -532,7 +552,7 @@ export function useMarketplaceSellerPaymentConfig() {
 
     flow
       .awaitStatus()
-      .then((outcome) => {
+      .then(async (outcome) => {
         if (activeVerifyRef.current !== flow) return;
         activeVerifyRef.current = null;
         setVerifyAuthorizationUrl('');
@@ -599,12 +619,23 @@ export function useMarketplaceSellerPaymentConfig() {
           claimChannel: status.claimChannel,
           downgradeReason: status.downgradeReason,
         };
+        // Persist BEFORE any state mutation (W1.8c P1-B), under the
+        // flow-start identity: an account switch while the approval was
+        // pending refuses the write and skips every setter below.
+        try {
+          await persistVerifiedClaim(verified, flow.actorPubky);
+        } catch (error) {
+          Logger.error('Failed to persist the verified watch-only claim', { error });
+          setVerifyError(getErrorMessage(error));
+          setVerifyStatus('error');
+          setBitcoinEnabledState(false);
+          return;
+        }
         setVerifiedClaim(verified);
         if (verified.xpub) {
           const xpub = verified.xpub;
           setXpubInput((current) => (current.trim() ? current : xpub));
         }
-        persistVerifiedClaim(verified);
         setAccountClaimed(true);
         setVerifyStatus('verified');
         toast({ title: 'Watch-only account verified', description: 'The claim is confirmed for this identity.' });

@@ -39,6 +39,8 @@ const EMPTY_CONFIG: SellerPaymentConfigOwnView = {
 };
 
 const MNEMONIC = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+/** The seller the claim/verify flows are started as (the flow-start identity). */
+const SELLER_PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
 const ACCOUNT = deriveBip84Account(MNEMONIC, 0, 0);
 const ACCOUNT_1 = deriveBip84Account(MNEMONIC, 0, 1);
 const ACCOUNT_99 = deriveBip84Account(MNEMONIC, 0, 99);
@@ -143,11 +145,13 @@ describe('useMarketplaceSellerPaymentConfig', () => {
       updatedAt: '2026-08-22T12:30:00.000Z',
     }));
     mockedController.beginPaykitClaimFlow.mockReset().mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: () => new Promise<typeof VERIFIED_CLAIM_RESULT>(() => {}),
       cancel: vi.fn(),
     });
     mockedController.beginPaykitClaimStatusFlow.mockReset().mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/verify',
       awaitStatus: () => new Promise<ReturnType<typeof matchingStatusOutcome>>(() => {}),
       cancel: vi.fn(),
@@ -222,6 +226,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
   it('P1-A regression (cont.): a successful verification flips the stale config on and saves true', async () => {
     mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => VERIFIED_CLAIM_RESULT,
       cancel: vi.fn(),
@@ -236,6 +241,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     // The verified claim was recorded (session_claim source) and the gate opened.
     expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
       expect.objectContaining({ xpub: NORMALIZED_XPUB, source: 'session_claim', accountIndex: 0 }),
+      SELLER_PUBKY,
     );
     expect(result.current.canEnableBitcoin).toBe(true);
     act(() => result.current.setBitcoinEnabled(true));
@@ -305,6 +311,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
   it('a verified claim opens the gate for the CURRENT key; changing the key text invalidates it and forces the toggle off', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => VERIFIED_CLAIM_RESULT,
       cancel: vi.fn(),
@@ -344,6 +351,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
       ? `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}1`
       : `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}0`;
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, keyFingerprint: tamperedFingerprint }),
       cancel: vi.fn(),
@@ -369,6 +377,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
   it('W1.8 F2: a server echoing account index 1 for an account-0 key is refused, and nothing is persisted', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, accountIndex: 1 }),
       cancel: vi.fn(),
@@ -387,6 +396,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
   it('a verified session claim persists the W1.13 r3 fields (first_child_index, allocation_mode, claim_channel)', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => VERIFIED_CLAIM_RESULT,
       cancel: vi.fn(),
@@ -404,11 +414,13 @@ describe('useMarketplaceSellerPaymentConfig', () => {
         claimChannel: 'manual',
         downgradeReason: null,
       }),
+      SELLER_PUBKY,
     );
   });
 
   it('W1.13 r3: a claim response with next_child_index != first_child_index is refused (server_cursor_mismatch)', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, nextChildIndex: 7 }),
       cancel: vi.fn(),
@@ -427,6 +439,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
   it('W1.13 r3: a claim response missing first_child_index is refused (server_first_index_missing)', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: SELLER_PUBKY,
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, firstChildIndex: null }),
       cancel: vi.fn(),
@@ -440,6 +453,63 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     expect(result.current.claimError).toBe(CLAIM_VERIFICATION_COPY.server_first_index_missing);
     expect(mockedController.commitSaveVerifiedPaykitClaim).not.toHaveBeenCalled();
     expect(result.current.bitcoinEnabled).toBe(false);
+  });
+
+  describe('account switch during a pending approval (W1.8c P1-B)', () => {
+    /** The static copy the controller's refusal carries (Err factory message). */
+    const ACCOUNT_SWITCHED_MESSAGE =
+      'The signed-in account changed while the approval was pending, so the verified claim was not saved.';
+
+    it('claim path: a refused flow-start-identity write mutates nothing — the gate stays closed', async () => {
+      mockedController.beginPaykitClaimFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
+        authorizationUrl: 'https://auth.example/claim',
+        awaitClaim: async () => VERIFIED_CLAIM_RESULT,
+        cancel: vi.fn(),
+      });
+      // The controller refuses the write: the signed-in account changed
+      // while the Ring approval was pending (the real guard and the Dexie
+      // no-row assertion live in the CommerceController tests).
+      mockedController.commitSaveVerifiedPaykitClaim.mockRejectedValue(new Error(ACCOUNT_SWITCHED_MESSAGE));
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(PASTED_ZPUB));
+      act(() => result.current.startClaim(PASTED_ZPUB));
+      await waitFor(() => expect(result.current.claimStatus).toBe('error'));
+
+      // No verified claim, no watched account, no bitcoinEnabled: the
+      // success-path setters never ran, and the refusal surfaces as the
+      // generic static error copy.
+      expect(result.current.claimError).toBe(ACCOUNT_SWITCHED_MESSAGE);
+      expect(result.current.verifiedClaim).toBeNull();
+      expect(result.current.watchedAccount).toBeNull();
+      expect(result.current.canEnableBitcoin).toBe(false);
+      expect(result.current.bitcoinEnabled).toBe(false);
+      act(() => result.current.setBitcoinEnabled(true));
+      expect(result.current.bitcoinEnabled).toBe(false);
+    });
+
+    it('Ring verify path: a refused flow-start-identity write mutates nothing — the gate stays closed', async () => {
+      mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
+        authorizationUrl: 'https://auth.example/verify',
+        awaitStatus: async () => matchingStatusOutcome(),
+        cancel: vi.fn(),
+      });
+      mockedController.commitSaveVerifiedPaykitClaim.mockRejectedValue(new Error(ACCOUNT_SWITCHED_MESSAGE));
+      const { result } = await renderPaymentConfig();
+
+      act(() => result.current.setXpubInput(PASTED_ZPUB));
+      act(() => result.current.verifyWithRing());
+      await waitFor(() => expect(result.current.verifyStatus).toBe('error'));
+
+      expect(result.current.verifyError).toBe(ACCOUNT_SWITCHED_MESSAGE);
+      expect(result.current.verifiedClaim).toBeNull();
+      expect(result.current.canEnableBitcoin).toBe(false);
+      expect(result.current.bitcoinEnabled).toBe(false);
+      act(() => result.current.setBitcoinEnabled(true));
+      expect(result.current.bitcoinEnabled).toBe(false);
+    });
   });
 
   describe('account-index regression gate (P2)', () => {
@@ -489,6 +559,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
   describe('Verify with Ring (authenticated status)', () => {
     it('a 200 with a fingerprint matching the local key opens the gate and records authenticated_status', async () => {
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => matchingStatusOutcome(),
         cancel: vi.fn(),
@@ -503,6 +574,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
       expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
         expect.objectContaining({ xpub: NORMALIZED_XPUB, source: 'authenticated_status' }),
+        SELLER_PUBKY,
       );
       expect(result.current.canEnableBitcoin).toBe(true);
       act(() => result.current.setBitcoinEnabled(true));
@@ -514,6 +586,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
       // moved to 7 while the immutable first address stays derived at 5.
       // The status read compares the address at first_child_index ONLY.
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => matchingStatusOutcome(ACCOUNT, { firstChildIndex: 5, nextChildIndex: 7 }),
         cancel: vi.fn(),
@@ -530,12 +603,14 @@ describe('useMarketplaceSellerPaymentConfig', () => {
           firstChildIndex: 5,
           firstDerivedAddress: deriveBip84P2wpkhAddress(ACCOUNT.payload, 'mainnet', 5),
         }),
+        SELLER_PUBKY,
       );
       expect(result.current.canEnableBitcoin).toBe(true);
     });
 
     it('a 200 whose account_index disagrees with the local key refuses with account_index_mismatch and records nothing', async () => {
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => {
           const outcome = matchingStatusOutcome();
@@ -557,6 +632,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
     it('a 200 whose first_derived_address does not re-derive at first_child_index refuses with address_mismatch', async () => {
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => {
           const outcome = matchingStatusOutcome();
@@ -586,6 +662,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
     it('a 200 with a mismatching fingerprint refuses with key_changed and records nothing', async () => {
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => matchingStatusOutcome(deriveBip84Account(MNEMONIC, 0, 7)),
         cancel: vi.fn(),
@@ -604,6 +681,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
     it('a refused status read (401/403/5xx/network/parse) shuts the gate with claim_unknown', async () => {
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => ({ ok: false as const, reason: 'refused' as const }),
         cancel: vi.fn(),
@@ -621,6 +699,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
 
     it('a 404 shuts the gate and raises the not-available line', async () => {
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => ({ ok: false as const, reason: 'not_deployed' as const }),
         cancel: vi.fn(),
@@ -638,6 +717,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     it('with no local key the server fingerprint and first address are recorded as the identity being enabled', async () => {
       const serverAccount = deriveBip84Account(MNEMONIC, 0, 7);
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: SELLER_PUBKY,
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => matchingStatusOutcome(serverAccount),
         cancel: vi.fn(),
@@ -657,6 +737,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
       });
       expect(mockedController.commitSaveVerifiedPaykitClaim).toHaveBeenCalledWith(
         expect.objectContaining({ xpub: null, source: 'authenticated_status' }),
+        SELLER_PUBKY,
       );
       // The identity was just shown to the seller: the gate opens for it.
       expect(result.current.canEnableBitcoin).toBe(true);

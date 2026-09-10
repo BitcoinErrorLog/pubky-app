@@ -13,6 +13,8 @@ const BIP84_TEST_MNEMONIC =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
 const PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
+/** A well-formed z-base-32 pubky that is NOT the seller the flows run as. */
+const OTHER_PUBKY = 'y'.repeat(52);
 
 /** The full W1.13 r3 claim success body. */
 const CLAIMED_BODY = {
@@ -31,7 +33,10 @@ const CLAIMED_BODY = {
 
 /** Mutable paykit setup URL the config mock serves (reset per test). */
 const runtimeMock = vi.hoisted(() => ({ paykitSetupUrl: 'http://localhost:3102/setup' }));
-vi.mock('@/config/commerce', () => ({
+vi.mock('@/config/commerce', async (importOriginal) => ({
+  // The real module for everything else (the pubky creator schema pulls
+  // COMMERCE_CONTRACT_VERSION through transaction-contracts).
+  ...(await importOriginal<typeof import('@/config/commerce')>()),
   getPaykitSetupUrl: () => runtimeMock.paykitSetupUrl,
 }));
 
@@ -180,7 +185,7 @@ describe('MarketplacePaykitClaimService', () => {
   it('refuses with creator_mismatch when the echoed creator is not the seller the flow was begun for', async () => {
     const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ ...CLAIMED_BODY, creator: 'pubky0000000000000000000000000000000000000000000000000000' }), {
+      new Response(JSON.stringify({ ...CLAIMED_BODY, creator: `pubky${OTHER_PUBKY}` }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
@@ -191,6 +196,43 @@ describe('MarketplacePaykitClaimService', () => {
       message:
         'The Paykit server confirmed the claim for a different identity than the one you approved with, so nothing was enabled. Start the claim again.',
       context: { reason: 'creator_mismatch' },
+    });
+  });
+
+  it('refuses a claim body missing account_index — the echo is required, never a client default (W1.8c P1-A)', async () => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    const { account_index: _omitted, ...missingAccountIndex } = CLAIMED_BODY;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify(missingAccountIndex), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
+    // The schema-failure error path, NOT a silent pass with the submitted 1.
+    await expect(flow.awaitClaim()).rejects.toMatchObject({
+      message: 'The Paykit server is unavailable. Try again shortly.',
+      context: { reason: 'unavailable' },
+    });
+  });
+
+  it.each([
+    ['51-char creator', `pubky${'y'.repeat(51)}`],
+    ['non-z32 creator', `pubky${'0'.repeat(52)}`],
+  ])('refuses a claim body with a %s (W1.8c P2 creator schema)', async (_label, creator) => {
+    const tpub = encodeBase58Check(deriveBip84Account(MNEMONIC, 1, 1).payload);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...CLAIMED_BODY, creator }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const flow = MarketplacePaykitClaimService.beginClaimFlow(PUBKY, tpub, 1);
+    await expect(flow.awaitClaim()).rejects.toMatchObject({
+      message: 'The Paykit server is unavailable. Try again shortly.',
+      context: { reason: 'unavailable' },
     });
   });
 
@@ -388,8 +430,17 @@ describe('MarketplacePaykitClaimService', () => {
 
     it('refuses a 200 whose echoed creator is not the authenticated seller', async () => {
       vi.mocked(fetch).mockResolvedValueOnce(
-        statusResponse(200, { ...STATUS_BODY, creator: 'pubky0000000000000000000000000000000000000000000000000000' }),
+        statusResponse(200, { ...STATUS_BODY, creator: `pubky${OTHER_PUBKY}` }),
       );
+      const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
+      expect(result).toEqual({ ok: false, reason: 'refused' });
+    });
+
+    it.each([
+      ['51-char creator', `pubky${'y'.repeat(51)}`],
+      ['non-z32 creator', `pubky${'0'.repeat(52)}`],
+    ])('refuses a 200 with a %s (W1.8c P2 creator schema)', async (_label, creator) => {
+      vi.mocked(fetch).mockResolvedValueOnce(statusResponse(200, { ...STATUS_BODY, creator }));
       const result = await MarketplacePaykitClaimService.fetchOwnClaimStatus(PUBKY, new Uint8Array([1, 2, 3, 4]));
       expect(result).toEqual({ ok: false, reason: 'refused' });
     });

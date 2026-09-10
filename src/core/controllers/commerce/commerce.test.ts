@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import type { CommerceAdapterMode } from '@/config/commerce';
+import { db } from '@/database/franky/franky';
+import { CommercePaymentClaimModel } from '@/models/commerce/commerce.models';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
@@ -434,6 +436,81 @@ describe('CommerceController', () => {
 
       flow.cancel();
       expect(cancel).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('paykit claim persistence identity guard (W1.8c P1-B)', () => {
+    const VERIFIED_CLAIM = {
+      xpub: 'xpub6BosfCnifzxcFwrSzQiqu2DBVTshkCXacvNsWGYJVVhhawA7d4R5WSWGFNbi8Aw6ZRc1brxMyWMzG3DSSSSoekkudhUd9yLb6qx39T9nMdj',
+      keyFingerprintHex: 'deadbeefdeadbeef',
+      accountIndex: 0,
+      firstDerivedAddress: 'bc1qexample',
+      verifiedAt: 1_756_000_000_000,
+      source: 'session_claim' as const,
+      firstChildIndex: 0,
+      allocationMode: 'shared_manual',
+      claimChannel: 'manual',
+      downgradeReason: null,
+    };
+
+    const PENDING_CLAIM_FLOW = {
+      authorizationUrl: 'pubkyauth:///?caps=test',
+      awaitClaim: () => new Promise<never>(() => {}),
+      cancel: vi.fn(),
+    };
+
+    beforeEach(async () => {
+      await db.initialize();
+      await CommercePaymentClaimModel.table.clear();
+    });
+
+    it('binds both flows to the identity they were started under', () => {
+      const beginClaim = vi.spyOn(CommerceApplication, 'beginPaykitClaimFlow').mockReturnValue(PENDING_CLAIM_FLOW);
+      const beginStatus = vi
+        .spyOn(CommerceApplication, 'beginPaykitClaimStatusFlow')
+        .mockReturnValue({
+          authorizationUrl: 'pubkyauth:///?caps=test',
+          awaitStatus: vi.fn(),
+          cancel: vi.fn(),
+        });
+
+      const claimFlow = CommerceController.beginPaykitClaimFlow('xpub', 0);
+      const statusFlow = CommerceController.beginPaykitClaimStatusFlow();
+
+      expect(claimFlow.actorPubky).toBe(COMMERCE_FIXTURE_SELLER);
+      expect(statusFlow.actorPubky).toBe(COMMERCE_FIXTURE_SELLER);
+      expect(beginClaim).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, 'xpub', 0);
+      expect(beginStatus).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER);
+    });
+
+    it('an account switch while the approval is pending refuses the write — no claim row for either account', async () => {
+      vi.spyOn(CommerceApplication, 'beginPaykitClaimFlow').mockReturnValue(PENDING_CLAIM_FLOW);
+      // The flow starts as the seller (A)...
+      const flow = CommerceController.beginPaykitClaimFlow('xpub', 0);
+      // ...the signed-in account switches to the buyer (B) before the Ring
+      // approval resolves...
+      useAuthStore.setState({ currentUserPubky: COMMERCE_FIXTURE_BUYER });
+      // ...and the resolution attempts the persistence under the flow-start
+      // identity. The guard refuses BEFORE any Dexie write.
+      await expect(
+        CommerceController.commitSaveVerifiedPaykitClaim(VERIFIED_CLAIM, flow.actorPubky),
+      ).rejects.toMatchObject({ name: 'AppError', code: 'INVALID_INPUT', category: 'validation' });
+
+      // No commerce_payment_claims row exists for A or B: the gate stays
+      // closed for both accounts.
+      expect(await CommercePaymentClaimModel.findById(COMMERCE_FIXTURE_SELLER)).toBeNull();
+      expect(await CommercePaymentClaimModel.findById(COMMERCE_FIXTURE_BUYER)).toBeNull();
+    });
+
+    it('persists under the flow-start identity while the same account is still signed in', async () => {
+      vi.spyOn(CommerceApplication, 'beginPaykitClaimFlow').mockReturnValue(PENDING_CLAIM_FLOW);
+      const flow = CommerceController.beginPaykitClaimFlow('xpub', 0);
+
+      await CommerceController.commitSaveVerifiedPaykitClaim(VERIFIED_CLAIM, flow.actorPubky);
+
+      const row = await CommercePaymentClaimModel.findById(COMMERCE_FIXTURE_SELLER);
+      expect(row).toMatchObject({ owner_id: COMMERCE_FIXTURE_SELLER, source: 'session_claim' });
+      expect(await CommercePaymentClaimModel.findById(COMMERCE_FIXTURE_BUYER)).toBeNull();
     });
   });
 });

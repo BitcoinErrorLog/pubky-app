@@ -418,9 +418,16 @@ export class CommerceController {
     return await CommerceApplication.confirmFiatReceived(this.getCurrentUserPubky(), orderId);
   }
 
-  /** Manual watch-only xpub claim flow against paykit-server. */
+  /**
+   * Manual watch-only xpub claim flow against paykit-server. The returned
+   * flow carries `actorPubky` — the identity the flow was STARTED under
+   * (W1.8c P1-B). The caller threads that value into
+   * `commitSaveVerifiedPaykitClaim` so an approval that resolves after an
+   * account switch can never persist under the wrong owner.
+   */
   static beginPaykitClaimFlow(accountXpub: string, accountIndex: number) {
-    return CommerceApplication.beginPaykitClaimFlow(this.getCurrentUserPubky(), accountXpub, accountIndex);
+    const actorPubky = this.getCurrentUserPubky();
+    return { actorPubky, ...CommerceApplication.beginPaykitClaimFlow(actorPubky, accountXpub, accountIndex) };
   }
 
   /** Whether the current user already has a claimed watch-only account. */
@@ -430,10 +437,13 @@ export class CommerceController {
 
   /**
    * The Ring-approved authenticated status read ("Verify with Ring") —
-   * proves the seller's claim for THIS session and identity.
+   * proves the seller's claim for THIS session and identity. Like the claim
+   * flow, the returned flow carries the flow-start `actorPubky` for the
+   * persistence guard (W1.8c P1-B).
    */
   static beginPaykitClaimStatusFlow() {
-    return CommerceApplication.beginPaykitClaimStatusFlow(this.getCurrentUserPubky());
+    const actorPubky = this.getCurrentUserPubky();
+    return { actorPubky, ...CommerceApplication.beginPaykitClaimStatusFlow(actorPubky) };
   }
 
   /** The seller's device-local verified claim (the `bitcoinEnabled` gate state). */
@@ -441,10 +451,28 @@ export class CommerceController {
     return await CommerceApplication.getMyVerifiedPaykitClaim(this.getCurrentUserPubky());
   }
 
-  /** Persists a verified claim; called only from the two verification paths. */
-  static async commitSaveVerifiedPaykitClaim(input: unknown): Promise<void> {
+  /**
+   * Persists a verified claim; called only from the two verification paths.
+   * `actorPubky` is the identity the claim/verify flow was STARTED under,
+   * captured at flow start. Immediately before the write, the flow-start
+   * identity is compared with the currently signed-in user: on a mismatch
+   * (the account switched while the signer approval was pending) the write
+   * is refused — nothing is recorded for either account (W1.8c P1-B).
+   */
+  static async commitSaveVerifiedPaykitClaim(input: unknown, actorPubky: string): Promise<void> {
+    if (this.getCurrentUserPubky() !== actorPubky) {
+      throw Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        'The signed-in account changed while the approval was pending, so the verified claim was not saved.',
+        {
+          service: ErrorService.Local,
+          operation: 'commitSaveVerifiedPaykitClaim',
+          context: { actorMatches: false },
+        },
+      );
+    }
     await CommerceApplication.commitSaveVerifiedPaykitClaim(
-      this.getCurrentUserPubky(),
+      actorPubky,
       CommerceRecordNormalizer.verifiedPaykitClaim(input),
     );
   }

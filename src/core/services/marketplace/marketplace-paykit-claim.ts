@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getPaykitSetupUrl } from '@/config/commerce';
+import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
@@ -68,6 +69,15 @@ export interface PaykitClaimFlow {
 }
 
 /**
+ * The `creator` echo every paykit body carries: the literal `pubky` prefix
+ * followed by the seller's 52-character z-base-32 pubky, validated with the
+ * shared commerce pubky schema (W1.8c P2). A creator of any other shape —
+ * wrong length, characters outside the z-base-32 alphabet — fails the parse,
+ * so the caller refuses instead of comparing a malformed string.
+ */
+const pubkyCreatorSchema = z.templateLiteral(['pubky', commercePubkySchema]);
+
+/**
  * The authenticated status body (design §B.8.6), parsed with a Zod schema:
  * unknown extra fields are ignored, and a body missing any REQUIRED field
  * is a refusal — the gate fails closed rather than trusting a partial
@@ -80,7 +90,7 @@ export interface PaykitClaimFlow {
  * is a refusal.
  */
 const ownClaimStatusBodySchema = z.object({
-  creator: z.string(),
+  creator: pubkyCreatorSchema,
   allocation_mode: z.string(),
   claim_channel: z.string().nullish(),
   downgrade_reason: z.string().nullish(),
@@ -151,14 +161,18 @@ const CLAIM_FAILURE_MESSAGES: Record<PaykitClaimErrorReason, string> = {
 /**
  * The W1.13 r3 claim success body. `status` must be `claimed` and `creator`
  * must echo the seller the flow was begun for — both verified by the caller.
- * The verification fields stay `.nullish()` so a pre-W1.13 server parses; the
- * post-claim verification (`verifyClaimedAccount`) fails closed on the
- * missing values instead of the parse.
+ * `account_index` is REQUIRED (W1.8c P1-A): the server must echo the index
+ * the claim was accepted under, and a body that omits it fails the parse and
+ * is refused — the client never falls back to the value it submitted, or the
+ * echo check could be bypassed by omission. The remaining verification
+ * fields stay `.nullish()` so a pre-W1.13 server parses; the post-claim
+ * verification (`verifyClaimedAccount`) fails closed on the missing values
+ * instead of the parse.
  */
 const claimResponseBodySchema = z.object({
   status: z.literal('claimed'),
-  creator: z.string(),
-  account_index: z.number().int().nonnegative().nullish(),
+  creator: pubkyCreatorSchema,
+  account_index: z.number().int().nonnegative(),
   allocation_mode: z.string().nullish(),
   claim_channel: z.string().nullish(),
   downgrade_reason: z.string().nullish(),
@@ -386,7 +400,9 @@ export class MarketplacePaykitClaimService {
     }
     return {
       creator: body.creator,
-      accountIndex: body.account_index ?? accountIndex,
+      // The server's required echo, never the submitted value (W1.8c P1-A) —
+      // a missing echo already failed the schema above.
+      accountIndex: body.account_index,
       keyFingerprint: body.key_fingerprint ?? null,
       firstDerivedAddress: body.first_derived_address ?? null,
       firstChildIndex: body.first_child_index ?? null,

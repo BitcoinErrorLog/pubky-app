@@ -255,9 +255,11 @@ with it on `key_fingerprint`, `account_index`, and the re-derived
 `first_derived_address`, or the client refuses and records nothing.
 
 The bearer is the same capability-scoped Pubky AuthToken the claim POST
-sends. Per the pubky SDK that mints it, the token is **single-use and
-time-bounded** (a signed, expiring proof of key ownership verified offline
-with `pubky-common`): the client relies on exactly that — it requests a fresh
+sends. Server-side `verify_claim_token` makes it **single-use by claimed-key
+uniqueness** — once the key is claimed, the token is spent — but it is **NOT
+time-bounded**: there is no expiry check (W1.3/W1.13 audits), so a captured
+token replays until the key is claimed. Treat it as a bearer secret in
+transit. Accordingly the client does not rely on expiry: it requests a fresh
 Ring approval for every status read, never stores or reuses a token, and
 treats the approval ceremony itself as the proof that THIS session and THIS
 identity stand behind the read.

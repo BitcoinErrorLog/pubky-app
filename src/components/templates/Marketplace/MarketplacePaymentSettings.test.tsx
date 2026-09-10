@@ -150,11 +150,13 @@ beforeEach(() => {
     updatedAt: '2026-08-22T12:30:00.000Z',
   }));
   mockedController.beginPaykitClaimFlow.mockReset().mockReturnValue({
+    actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
     authorizationUrl: 'https://auth.example/claim',
     awaitClaim: () => new Promise<typeof VERIFIED_CLAIM_RESULT>(() => {}),
     cancel: vi.fn(),
   });
   mockedController.beginPaykitClaimStatusFlow.mockReset().mockReturnValue({
+    actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
     authorizationUrl: 'https://auth.example/verify',
     awaitStatus: () => new Promise<never>(() => {}),
     cancel: vi.fn(),
@@ -443,6 +445,7 @@ describe('MarketplacePaymentSettings', () => {
 
   it('enables the claim only after the server fingerprint and first address verify', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => VERIFIED_CLAIM_RESULT,
       cancel: vi.fn(),
@@ -466,6 +469,7 @@ describe('MarketplacePaymentSettings', () => {
       ? `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}1`
       : `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}0`;
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, keyFingerprint: tamperedFingerprint }),
       cancel: vi.fn(),
@@ -485,6 +489,7 @@ describe('MarketplacePaymentSettings', () => {
   it('refuses with server_account_index_mismatch when the server echoes a different index than the key declares', async () => {
     // An account-0 key; the server echoes account_index 1 (W1.8 F2).
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, accountIndex: 1 }),
       cancel: vi.fn(),
@@ -501,6 +506,7 @@ describe('MarketplacePaymentSettings', () => {
 
   it('fails closed with server_fingerprint_missing when the server predates W1.3', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, keyFingerprint: null }),
       cancel: vi.fn(),
@@ -516,6 +522,7 @@ describe('MarketplacePaymentSettings', () => {
 
   it('refuses with server_address_mismatch when the server derives a different first address', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({
         ...VERIFIED_CLAIM_RESULT,
@@ -555,6 +562,7 @@ describe('MarketplacePaymentSettings', () => {
       ? `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}1`
       : `${VERIFIED_CLAIM_RESULT.keyFingerprint.slice(0, -1)}0`;
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => ({ ...VERIFIED_CLAIM_RESULT, keyFingerprint: tamperedFingerprint }),
       cancel: vi.fn(),
@@ -576,6 +584,7 @@ describe('MarketplacePaymentSettings', () => {
 
   it('disables the Accept bitcoin toggle with the reason until a verified claim, then enables it', async () => {
     mockedController.beginPaykitClaimFlow.mockReturnValue({
+      actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       authorizationUrl: 'https://auth.example/claim',
       awaitClaim: async () => VERIFIED_CLAIM_RESULT,
       cancel: vi.fn(),
@@ -610,6 +619,7 @@ describe('MarketplacePaymentSettings', () => {
       // the 200 fingerprint matches the pasted key and the gate opens.
       mockedController.isOwnPaykitAccountClaimed.mockRejectedValue(new Error('paykit unreachable'));
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => ({
           ok: true as const,
@@ -649,6 +659,7 @@ describe('MarketplacePaymentSettings', () => {
     it('a 404 on the status read keeps the toggle off and shows the not-available line', async () => {
       mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
       mockedController.beginPaykitClaimStatusFlow.mockReturnValue({
+        actorPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
         authorizationUrl: 'https://auth.example/verify',
         awaitStatus: async () => ({ ok: false as const, reason: 'not_deployed' as const }),
         cancel: vi.fn(),
