@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   commitCreate: vi.fn(),
   commitDelete: vi.fn(),
   recordPubchiBuiltFeed: vi.fn(),
+  publishPubchiSync: vi.fn(),
   toast: vi.fn(),
   ensureDeviceReady: vi.fn(),
   loadPubchi: vi.fn(),
@@ -67,6 +68,10 @@ vi.mock('@/libs/pubchi/feed-provenance', () => ({
   recordPubchiBuiltFeed: (...args: unknown[]) => mocks.recordPubchiBuiltFeed(...args),
 }));
 
+vi.mock('@/controllers/pubchi/pubchi-sync', () => ({
+  publishPubchiSync: (...args: unknown[]) => mocks.publishPubchiSync(...args),
+}));
+
 vi.mock('@/molecules/Toaster/toast', () => ({
   toast: (...args: unknown[]) => mocks.toast(...args),
 }));
@@ -84,6 +89,7 @@ describe('usePubchiQuery', () => {
     mocks.commitCreate.mockReset();
     mocks.commitDelete.mockReset();
     mocks.recordPubchiBuiltFeed.mockReset();
+    mocks.publishPubchiSync.mockReset();
     mocks.toast.mockReset();
     mocks.fetchPubchiQuery.mockResolvedValue(FEED_SUCCESS);
     mocks.commitCreate.mockResolvedValue({ id: 'feed-1' });
@@ -119,6 +125,7 @@ describe('usePubchiQuery', () => {
 
     expect(mocks.commitCreate).toHaveBeenCalledOnce();
     expect(mocks.recordPubchiBuiltFeed).toHaveBeenCalledWith('a'.repeat(52), FEED_PROPOSAL, { id: 'feed-1' });
+    expect(mocks.publishPubchiSync).toHaveBeenCalledWith('a'.repeat(52), 'created');
     const params = mocks.commitCreate.mock.calls[0][0];
     expect(params.name).toBe('Builders');
     expect(params.tags).toEqual(['builder']);

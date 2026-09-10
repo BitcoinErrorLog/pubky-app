@@ -612,6 +612,7 @@ export class PubchiApplication {
         await rollbackBindingWrite(params, existing);
       } catch (rollbackFailure) {
         rollbackError = rollbackFailure;
+        Logger.error('[PubchiApplication.commitCreateBinding] Failed to rollback local binding write', rollbackFailure);
       }
       await HomeserverService.request({
         method: HttpMethod.DELETE,

@@ -1,10 +1,11 @@
-import { getPubchiDatabase } from '@/database/pubchi/pubchi';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import type { FeedProposalV1 } from '@/libs/pubchi/schemas';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
 import { parsePubchiFeedProvenanceV1, type PubchiFeedProvenanceV1 } from '@/libs/pubchi/schemas/feed-provenance';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
-import { pubchiFeedProvenanceId } from '@/models/pubchi/feed-provenance.schema';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 
 export async function recordPubchiBuiltFeed(
@@ -21,23 +22,21 @@ export async function recordPubchiBuiltFeed(
     bot: proposal.bot,
   };
   const parsed = parsePubchiFeedProvenanceV1(record);
-  if (!parsed.ok) throw new Error(parsed.code);
+  if (!parsed.ok) {
+    throw Err.validation(ValidationErrorCode.TYPE_ERROR, parsed.code, {
+      service: ErrorService.Pubchi,
+      operation: 'recordPubchiBuiltFeed',
+    });
+  }
   await HomeserverService.request({
     method: HttpMethod.PUT,
     url: provenanceUri(owner, feed.id),
     bodyJson: parsed.value,
   });
-  await getPubchiDatabase().feedProvenance.put({
-    id: pubchiFeedProvenanceId(owner, feed.id),
-    owner,
-    feedId: feed.id,
-    createdAt: record.created_at,
-  });
 }
 
 export async function deletePubchiFeedProvenance(owner: string, feedId: string): Promise<void> {
   await HomeserverService.deleteIdempotent(provenanceUri(owner, feedId));
-  await getPubchiDatabase().feedProvenance.delete(pubchiFeedProvenanceId(owner, feedId));
 }
 
 export async function listPubchiFeedProvenance(owner: string): Promise<PubchiFeedProvenanceV1[]> {

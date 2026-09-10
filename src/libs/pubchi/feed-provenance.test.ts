@@ -43,16 +43,12 @@ vi.mock('@/services/homeserver/homeserver', () => ({
   },
 }));
 
-vi.mock('@/database/pubchi/pubchi', () => ({
-  getPubchiDatabase: () => ({ feedProvenance: { put: vi.fn() } }),
-}));
-
 describe('Pubchi feed provenance', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('writes a strict homeserver record and caches it through', async () => {
+  it('writes a strict homeserver record', async () => {
     vi.mocked(HomeserverService.request).mockResolvedValue(undefined);
 
     await recordPubchiBuiltFeed(OWNER, PROPOSAL, FEED);

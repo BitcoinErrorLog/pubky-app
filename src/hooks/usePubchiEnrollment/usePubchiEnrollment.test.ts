@@ -235,6 +235,34 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.pubchi).toBeUndefined();
   });
 
+  it('ignores unknown and stale sync messages', async () => {
+    renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    act(() => {
+      const channel = new BroadcastChannel('pubchi');
+      channel.postMessage({ owner: OWNER, kind: 'unknown', at: Date.now() });
+      channel.postMessage({ owner: OWNER, kind: 'config-saved', at: Date.now() - 15_001 });
+      channel.close();
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mocks.load).toHaveBeenCalledOnce();
+  });
+
+  it('does not reload from a foreign-owner sign-out message after signing out', async () => {
+    const { rerender } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    mocks.owner = null;
+    rerender();
+    act(() => postSyncMessage('a'.repeat(52), 'signed-out'));
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mocks.load).toHaveBeenCalledOnce();
+    expect(usePubchiStore.getState().ownerPubky).toBeNull();
+  });
+
   it('reloads once after stale visibility regain and debounces rapid toggles', async () => {
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
@@ -535,6 +563,46 @@ describe('usePubchiEnrollment', () => {
     });
 
     expect(result.current.binding).toEqual(ACTIVE);
+  });
+
+  it('does not write the store when enrollment finishes for a stale owner', async () => {
+    let resolveCreate!: (value: {
+      bot: string;
+      displayName: string;
+      createdAt: number;
+      backupConfirmedAt: null;
+      verified: boolean;
+      phrase: string;
+    }) => void;
+    mocks.create.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    const { result, rerender } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+    act(() => {
+      result.current.form.setValue(ENROLL_FORM_FIELDS.DISPLAY_NAME, 'Pubchi');
+    });
+    const submission = result.current.submit();
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+
+    mocks.owner = null;
+    rerender();
+    await act(async () => {
+      resolveCreate({
+        bot: OWNER,
+        displayName: 'Stale',
+        createdAt: 1,
+        backupConfirmedAt: null,
+        verified: true,
+        phrase: 'phrase',
+      });
+      await submission;
+    });
+
+    expect(usePubchiStore.getState().ownerPubky).toBeNull();
+    expect(usePubchiStore.getState().pubchi).toBeUndefined();
   });
 
   it('passes the discovered binding bot through remove before showing success', async () => {

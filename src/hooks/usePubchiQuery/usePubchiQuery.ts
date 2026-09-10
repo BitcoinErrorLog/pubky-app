@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
+import { publishPubchiSync } from '@/controllers/pubchi/pubchi-sync';
 import { AppError } from '@/libs/error/error';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
@@ -122,6 +123,7 @@ export function usePubchiQuery() {
       const feed = await FeedController.commitCreate(feedProposalToCreateParams(result.result));
       feedId = feed.id;
       await recordPubchiBuiltFeed(owner, result.result, feed);
+      publishPubchiSync(owner, 'created');
       toast({ variant: 'default', title: 'Feed applied', dismissButton: true });
       return true;
     } catch (error) {
