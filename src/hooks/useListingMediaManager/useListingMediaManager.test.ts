@@ -5,6 +5,10 @@ import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { useListingMediaManager } from './useListingMediaManager';
 
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
+
 vi.mock('@/libs/image/stripImageMetadata', () => ({
   stripImageMetadata: vi.fn((file: File) => file),
 }));

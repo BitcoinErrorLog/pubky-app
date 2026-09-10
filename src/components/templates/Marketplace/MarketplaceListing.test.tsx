@@ -110,10 +110,9 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
   useIndicativeBtcRate: () => null,
 }));
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: () => null,
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,

@@ -20,7 +20,7 @@ import {
 } from '@/hooks/useMarketplaceDrop/drop-display';
 import { useMarketplaceDrop } from '@/hooks/useMarketplaceDrop/useMarketplaceDrop';
 import { useMarketplaceDropClaim } from '@/hooks/useMarketplaceDropClaim/useMarketplaceDropClaim';
-import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
+import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropClaimPanel } from '@/organisms/Marketplace/DropClaimPanel';
 import { DropCountdown } from '@/organisms/Marketplace/DropCountdown';
@@ -59,6 +59,7 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
   const claim = useMarketplaceDropClaim(drop.refresh);
   const shopFollow = useCommerceShopFollow(sellerPubky);
   const [shopName, setShopName] = useState<string | null>(null);
+  const teaserUrl = useMarketplaceFirstMediaUrl(drop.record?.media ?? []);
 
   useEffect(() => {
     let active = true;
@@ -108,7 +109,6 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
   const record = drop.record;
   const projection = drop.projection;
   const state = drop.displayState;
-  const teaserUrl = resolveFirstMarketplaceMediaUrl(record.media);
   const stateBadge = DISPLAY_STATE_BADGES[state];
   const isEnded = state === 'ended_sold_out' || state === 'ended_closed' || state === 'ended_cancelled';
   const dropUrl =

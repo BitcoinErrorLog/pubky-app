@@ -17,7 +17,7 @@ import {
   buildMarketplaceCatalogItems,
   type MarketplaceCatalogItem,
 } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
+import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceCommunityTags } from '@/organisms/Marketplace/MarketplaceCommunityTags';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
@@ -66,10 +66,8 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
 
   // A media URI that resolves but whose bytes 404 (e.g. a seller on another
   // homeserver) must not leave a broken image; fall back like the cards do.
-  const [bannerFailed, setBannerFailed] = useState(false);
-  const [avatarFailed, setAvatarFailed] = useState(false);
-  const bannerUrl = !bannerFailed && shop?.record.bannerUrl ? resolveMarketplaceMediaUrl(shop.record.bannerUrl) : null;
-  const avatarUrl = !avatarFailed && shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(shop.record.avatarUrl) : null;
+  const bannerUrl = useMarketplaceMediaUrl(shop?.record.bannerUrl);
+  const avatarUrl = useMarketplaceMediaUrl(shop?.record.avatarUrl);
 
   return (
     <ContentLayout
@@ -104,13 +102,8 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
               vacation={shop.record.vacationMode}
               bannerAlt={`${shop.record.name} banner`}
               avatarAlt={`${shop.record.name} avatar`}
-              onBannerError={() => setBannerFailed(true)}
-              onAvatarError={() => setAvatarFailed(true)}
               locationExtras={
-                <MarketplaceCommunityTags
-                  target={{ kind: TagKind.SHOP, ownerPubky: sellerPubky }}
-                  variant="inline"
-                />
+                <MarketplaceCommunityTags target={{ kind: TagKind.SHOP, ownerPubky: sellerPubky }} variant="inline" />
               }
               afterLocation={<MarketplaceReputationHeader sellerPubky={sellerPubky} variant="full" className="mt-3" />}
               aside={

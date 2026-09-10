@@ -33,6 +33,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => router,
 }));
 
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
+
 vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
   useIsMobile: () => viewport.isMobile,
 }));

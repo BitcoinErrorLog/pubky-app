@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { Controller, useWatch } from 'react-hook-form';
@@ -23,9 +22,12 @@ import {
 } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { marketplaceCheckoutSchema } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types';
+import {
+  useMarketplaceFirstMediaUrls,
+  useMarketplaceMediaUrl,
+} from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import { resolveFirstMarketplaceMediaUrl, resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
@@ -37,6 +39,10 @@ import { MarketplaceCartSkeleton } from './MarketplaceCart.skeleton';
 export function MarketplaceCart() {
   const router = useRouter();
   const cart = useMarketplaceCart();
+  const cartMediaUris = cart.items.map((item) =>
+    item.listing.record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
+  );
+  const cartMediaUrls = useMarketplaceFirstMediaUrls(cartMediaUris);
   const checkout = useMarketplaceCheckout(cart.items, cart.clear);
   const adapterMode = getCommerceAdapterMode();
   const isSandbox = adapterMode === 'sandbox';
@@ -110,135 +116,142 @@ export function MarketplaceCart() {
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
                 const isPickupGroup = fulfillment === 'pickup';
                 return (
-                <section
-                  key={group.sellerPubky}
-                  className="grid gap-3"
-                  aria-label={`Cart items from ${group.sellerPubky}`}
-                  data-surface={isPickupGroup ? 'cart-pickup-group' : undefined}
-                >
-                  {cart.groups.length > 1 && <MarketplaceCartSellerHeader group={group} />}
-                  {fulfillmentOptions.length > 1 && fulfillment && (
-                    <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
-                      <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
-                      <Select
-                        value={fulfillment}
-                        onValueChange={(value) => {
-                          if (value === 'shipping' || value === 'pickup') {
-                            checkout.setFulfillmentChoice(group.sellerPubky, value);
-                          }
-                        }}
-                      >
-                        <SelectTrigger
-                          id={`fulfillment-${group.sellerPubky}`}
-                          className="h-11 w-56 rounded-md border px-3"
-                          aria-label={`Fulfillment for items from ${group.sellerPubky}`}
+                  <section
+                    key={group.sellerPubky}
+                    className="grid gap-3"
+                    aria-label={`Cart items from ${group.sellerPubky}`}
+                    data-surface={isPickupGroup ? 'cart-pickup-group' : undefined}
+                  >
+                    {cart.groups.length > 1 && <MarketplaceCartSellerHeader group={group} />}
+                    {fulfillmentOptions.length > 1 && fulfillment && (
+                      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
+                        <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
+                        <Select
+                          value={fulfillment}
+                          onValueChange={(value) => {
+                            if (value === 'shipping' || value === 'pickup') {
+                              checkout.setFulfillmentChoice(group.sellerPubky, value);
+                            }
+                          }}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {fulfillmentOptions.includes('shipping') && <SelectItem value="shipping">Ship it</SelectItem>}
-                          {fulfillmentOptions.includes('pickup') && (
-                            <SelectItem value="pickup">Local pickup</SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {isPickupGroup && (
-                    <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-                      Local pickup — no delivery address or shipping for these items. The meeting point is revealed on
-                      the order as soon as your payment confirms.
-                    </Typography>
-                  )}
-                  {fulfillmentOptions.length === 0 && (
-                    <Typography as="p" role="alert" className="rounded-xl border border-destructive/40 px-4 py-3 text-sm">
-                      These items can&apos;t be checked out together: they don&apos;t share a fulfillment method this
-                      deployment supports (one ships while another is pickup-only). Remove one to continue.
-                    </Typography>
-                  )}
-                  {group.items.map((item) => {
-                    const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-                    const price =
-                      variant?.priceOverride ??
-                      (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
-                    // The record's media order is authoritative: the first image
-                    // is the cover here just as on cards and the detail gallery.
-                    const coverUrl = resolveFirstMarketplaceMediaUrl(
-                      item.listing.record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
-                    );
-                    const listingRoute = getMarketplaceListingRoute(
-                      item.listing.record.ownerPubky,
-                      item.listing.listing_id,
-                    );
-                    return (
-                      <Card key={item.id} className="border py-4">
-                        <CardContent className="flex items-center gap-4 px-4">
-                          <Link href={listingRoute} overrideDefaults aria-label={`View ${item.listing.record.title}`}>
-                            <div className="relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand/15">
-                              <ShoppingCart className="size-7 text-brand" />
-                              {coverUrl && (
-                                <Image
-                                  src={coverUrl}
-                                  alt={item.listing.record.title}
-                                  fill
-                                  sizes="80px"
-                                  className="absolute inset-0 object-cover"
-                                />
+                          <SelectTrigger
+                            id={`fulfillment-${group.sellerPubky}`}
+                            className="h-11 w-56 rounded-md border px-3"
+                            aria-label={`Fulfillment for items from ${group.sellerPubky}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {fulfillmentOptions.includes('shipping') && (
+                              <SelectItem value="shipping">Ship it</SelectItem>
+                            )}
+                            {fulfillmentOptions.includes('pickup') && (
+                              <SelectItem value="pickup">Local pickup</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {isPickupGroup && (
+                      <Typography
+                        as="p"
+                        className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
+                      >
+                        Local pickup — no delivery address or shipping for these items. The meeting point is revealed on
+                        the order as soon as your payment confirms.
+                      </Typography>
+                    )}
+                    {fulfillmentOptions.length === 0 && (
+                      <Typography
+                        as="p"
+                        role="alert"
+                        className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
+                      >
+                        These items can&apos;t be checked out together: they don&apos;t share a fulfillment method this
+                        deployment supports (one ships while another is pickup-only). Remove one to continue.
+                      </Typography>
+                    )}
+                    {group.items.map((item) => {
+                      const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+                      const price =
+                        variant?.priceOverride ??
+                        (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+                      // The record's media order is authoritative: the first image
+                      // is the cover here just as on cards and the detail gallery.
+                      const coverUrl = cartMediaUrls[cart.items.findIndex(({ id }) => id === item.id)] ?? null;
+                      const listingRoute = getMarketplaceListingRoute(
+                        item.listing.record.ownerPubky,
+                        item.listing.listing_id,
+                      );
+                      return (
+                        <Card key={item.id} className="border py-4">
+                          <CardContent className="flex items-center gap-4 px-4">
+                            <Link href={listingRoute} overrideDefaults aria-label={`View ${item.listing.record.title}`}>
+                              <div className="relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand/15">
+                                <ShoppingCart className="size-7 text-brand" />
+                                {coverUrl && (
+                                  <Image
+                                    src={coverUrl}
+                                    alt={item.listing.record.title}
+                                    fill
+                                    sizes="80px"
+                                    className="absolute inset-0 object-cover"
+                                  />
+                                )}
+                              </div>
+                            </Link>
+                            <div className="min-w-0 flex-1">
+                              <Typography as="h2" className="truncate font-semibold">
+                                <Link href={listingRoute} overrideDefaults className="hover:text-brand hover:underline">
+                                  {item.listing.record.title}
+                                </Link>
+                              </Typography>
+                              <Typography as="p" className="text-sm text-muted-foreground">
+                                {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'}
+                              </Typography>
+                              {price && (
+                                <Typography as="p" className="mt-1 font-bold text-brand">
+                                  {formatCommerceMoney(price)}{' '}
+                                  <MarketplaceIndicativePrice money={price} className="font-normal" />
+                                </Typography>
                               )}
                             </div>
-                          </Link>
-                          <div className="min-w-0 flex-1">
-                            <Typography as="h2" className="truncate font-semibold">
-                              <Link href={listingRoute} overrideDefaults className="hover:text-brand hover:underline">
-                                {item.listing.record.title}
-                              </Link>
-                            </Typography>
-                            <Typography as="p" className="text-sm text-muted-foreground">
-                              {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'}
-                            </Typography>
-                            {price && (
-                              <Typography as="p" className="mt-1 font-bold text-brand">
-                                {formatCommerceMoney(price)}{' '}
-                                <MarketplaceIndicativePrice money={price} className="font-normal" />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label={`Decrease ${item.listing.record.title} quantity`}
+                                disabled={item.quantity <= 1}
+                                onClick={() => void cart.update(item.listingId, item.variantId, item.quantity - 1)}
+                              >
+                                <Minus className="size-4" />
+                              </Button>
+                              <Typography as="span" className="min-w-8 text-center">
+                                {item.quantity}
                               </Typography>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              aria-label={`Decrease ${item.listing.record.title} quantity`}
-                              disabled={item.quantity <= 1}
-                              onClick={() => void cart.update(item.listingId, item.variantId, item.quantity - 1)}
-                            >
-                              <Minus className="size-4" />
-                            </Button>
-                            <Typography as="span" className="min-w-8 text-center">
-                              {item.quantity}
-                            </Typography>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              aria-label={`Increase ${item.listing.record.title} quantity`}
-                              disabled={!variant || item.quantity >= variant.quantity}
-                              onClick={() => void cart.update(item.listingId, item.variantId, item.quantity + 1)}
-                            >
-                              <Plus className="size-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              aria-label={`Remove ${item.listing.record.title}`}
-                              onClick={() => void cart.remove(item.listingId, item.variantId)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </section>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label={`Increase ${item.listing.record.title} quantity`}
+                                disabled={!variant || item.quantity >= variant.quantity}
+                                onClick={() => void cart.update(item.listingId, item.variantId, item.quantity + 1)}
+                              >
+                                <Plus className="size-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label={`Remove ${item.listing.record.title}`}
+                                onClick={() => void cart.remove(item.listingId, item.variantId)}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </section>
                 );
               })}
             </div>
@@ -318,7 +331,10 @@ export function MarketplaceCart() {
                   )}
                   {checkout.requiresDeliveryAddress && (
                     <>
-                      <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+                      <Typography
+                        as="p"
+                        className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
+                      >
                         Your delivery address is sent with your order and shown only to the seller of that order.
                         Encrypting it to the seller&apos;s key is scheduled.
                       </Typography>
@@ -438,7 +454,7 @@ export function MarketplaceCart() {
                         ? 'Shipping is shown from each seller’s configured flat or free option.'
                         : checkout.requiresDeliveryAddress
                           ? 'Shipping is calculated authoritatively at checkout for the items that ship.'
-                      : 'No shipping — pickup is arranged with the seller after payment.'}
+                          : 'No shipping — pickup is arranged with the seller after payment.'}
                   </Typography>
                   {/* The (seller, fulfillment) split, stated plainly before
                       submit (§A2): one order per seller group. */}
@@ -448,11 +464,19 @@ export function MarketplaceCart() {
                     </Typography>
                   )}
                   {isStaging ? (
-                    <Typography as="p" role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                    <Typography
+                      as="p"
+                      role="note"
+                      className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+                    >
                       Staging environment — test rails, no real funds move
                     </Typography>
                   ) : (
-                    <Typography as="p" role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                    <Typography
+                      as="p"
+                      role="note"
+                      className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+                    >
                       Real money. Payments are final and go directly to the seller.
                     </Typography>
                   )}
@@ -499,9 +523,8 @@ export function MarketplaceCart() {
 }
 
 function MarketplaceCartSellerHeader({ group }: { group: MarketplaceCartGroup }) {
-  const [avatarFailed, setAvatarFailed] = useState(false);
   const seller = useMarketplaceSellerSummary(group.sellerPubky, { includeReputation: false });
-  const avatarUrl = !avatarFailed && seller.shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(seller.shop.record.avatarUrl) : null;
+  const avatarUrl = useMarketplaceMediaUrl(seller.shop?.record.avatarUrl);
 
   return (
     <Card className="border py-4">
@@ -512,7 +535,6 @@ function MarketplaceCartSellerHeader({ group }: { group: MarketplaceCartGroup })
           avatarUrl={avatarUrl}
           avatarAlt={`${seller.shop?.record.name ?? 'Shop'} avatar`}
           reputation={seller.reputation}
-          onAvatarError={() => setAvatarFailed(true)}
         />
         <div className="flex flex-col gap-1 sm:items-end">
           <Typography as="p" className="text-sm text-muted-foreground">

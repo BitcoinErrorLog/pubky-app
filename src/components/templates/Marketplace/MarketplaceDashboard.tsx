@@ -37,9 +37,9 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
+import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -520,7 +520,7 @@ function dashboardKpis(metrics: DashboardMetrics) {
 
 function ListingThumbnail({ mediaUrls, title }: { mediaUrls: readonly string[]; title: string }) {
   const [failed, setFailed] = useState(false);
-  const mediaUrl = resolveFirstMarketplaceMediaUrl(mediaUrls);
+  const mediaUrl = useMarketplaceFirstMediaUrl(mediaUrls);
 
   if (mediaUrl !== null && !failed) {
     return (

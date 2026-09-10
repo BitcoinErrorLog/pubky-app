@@ -5,6 +5,13 @@ const PUBKY_Z32_LENGTH = 52;
 const PUBKY_Z32_PATTERN = /^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/;
 const PUB_PATH_PREFIX = '/pub/';
 
+export function getMarketplaceMediaOwner(uri: string): string | null {
+  if (!uri.startsWith(PUBKY_PROTOCOL)) return null;
+  const rest = uri.slice(PUBKY_PROTOCOL.length);
+  const owner = rest.slice(0, PUBKY_Z32_LENGTH);
+  return PUBKY_Z32_PATTERN.test(owner) ? owner : null;
+}
+
 /**
  * Resolves a marketplace media URI to a URL the browser can load directly.
  *
@@ -18,25 +25,21 @@ const PUB_PATH_PREFIX = '/pub/';
  * an `<img src>`). Verified against the live staging homeserver:
  * `GET https://homeserver.staging.pubky.app/pub/...?pubky-host=<z32>` → 200.
  *
- * Honest limitation: this resolves against the DEPLOYMENT'S configured
- * homeserver (`PUBKY_RUNTIME_HOMESERVER_URL`). A seller hosted on a different
- * homeserver would need pkarr resolution, which a plain image element cannot
- * do — such media 404s and the UI falls back to its media-less rendering.
- *
  * @param uri - A `pubky://<z32>/pub/...` media URI (record `media[].url` or an
  *   index `media_urls` entry). Plain http(s) URLs pass through unchanged.
+ * @param homeserverBase - The verified homeserver URL for the URI owner.
  * @returns A fetchable URL, or null when the URI has no browser-loadable form.
  */
-export function resolveMarketplaceMediaUrl(uri: string): string | null {
+export function resolveMarketplaceMediaUrl(uri: string, homeserverBase = getHomeserverUrl()): string | null {
   if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
   if (!uri.startsWith(PUBKY_PROTOCOL)) return null;
 
   const rest = uri.slice(PUBKY_PROTOCOL.length);
-  const owner = rest.slice(0, PUBKY_Z32_LENGTH);
+  const owner = getMarketplaceMediaOwner(uri);
   const path = rest.slice(PUBKY_Z32_LENGTH);
-  if (!PUBKY_Z32_PATTERN.test(owner) || !path.startsWith(PUB_PATH_PREFIX)) return null;
+  if (!owner || !path.startsWith(PUB_PATH_PREFIX)) return null;
 
-  const base = getHomeserverUrl().replace(/\/$/, '');
+  const base = homeserverBase.replace(/\/$/, '');
   return `${base}${path}?pubky-host=${owner}`;
 }
 

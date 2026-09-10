@@ -6,7 +6,7 @@ import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useDropStudioCountdown } from '@/hooks/useDropStudio/useDropStudioCountdown';
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
+import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 
 export interface DropStudioPreviewCardProps {
   title: string;
@@ -35,7 +35,7 @@ export function DropStudioPreviewCard({
 }: DropStudioPreviewCardProps) {
   const countdown = useDropStudioCountdown(startsAtIso, endsAtIso, 0);
   const [mediaFailed, setMediaFailed] = useState(false);
-  const mediaUrl = mediaUri === null ? null : resolveMarketplaceMediaUrl(mediaUri);
+  const mediaUrl = useMarketplaceMediaUrl(mediaUri);
   const showMedia = mediaUrl !== null && !mediaFailed;
 
   return (

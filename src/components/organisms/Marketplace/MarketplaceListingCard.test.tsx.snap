@@ -45,7 +45,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
         data-nimg="fill"
         decoding="async"
         loading="lazy"
-        src="http://localhost:6286/pub/pubky.app/marketplace/v1/media/image_01?pubky-host=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+        src="https://homeserver.example/pub/pubky.app/marketplace/v1/media/image_01?pubky-host=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
         style="position: absolute; height: 100%; width: 100%; left: 0px; top: 0px; right: 0px; bottom: 0px; color: transparent;"
       />
       <div
@@ -220,7 +220,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
         data-nimg="fill"
         decoding="async"
         loading="lazy"
-        src="http://localhost:6286/pub/pubky.app/marketplace/v1/media/leather_boots_image?pubky-host=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+        src="https://homeserver.example/pub/pubky.app/marketplace/v1/media/leather_boots_image?pubky-host=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
         style="position: absolute; height: 100%; width: 100%; left: 0px; top: 0px; right: 0px; bottom: 0px; color: transparent;"
       />
       <div

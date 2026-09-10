@@ -18,9 +18,17 @@ import { MarketplaceListingCard } from './MarketplaceListingCard';
 // durable backend), which matches how the card renders in every prior test.
 const liveBid = vi.hoisted(() => ({ bid: null as MarketplaceLiveBid | null }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
   useMarketplaceLiveBid: () => ({ ref: () => {}, bid: liveBid.bid }),
 }));
+
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
 
 function catalogItem(index = 0): MarketplaceCatalogItem {
   const record = createCommerceSandboxCatalog().listings[index];

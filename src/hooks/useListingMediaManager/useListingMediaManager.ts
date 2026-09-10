@@ -5,8 +5,8 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { COMMERCE_LISTING_STUDIO_MAX_PHOTOS } from '@/config/commerce';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
+import { resolveMarketplaceMediaUrlAsync } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { type CommerceListingRecord, commerceMediaSchema } from '@/libs/commerce/marketplace-records';
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 
@@ -136,13 +136,24 @@ export function useListingMediaManager(maxSize = IMAGE_MAX_RAW_SIZE): UseListing
       for (const item of current) {
         if (item.kind === 'new') URL.revokeObjectURL(item.previewUrl);
       }
-      return records.map((record) => ({
+      const next = records.map((record) => ({
         key: record.id,
         kind: 'existing' as const,
         record,
-        previewUrl: record.type === 'image' ? resolveMarketplaceMediaUrl(record.url) : null,
+        previewUrl: null,
         altText: record.altText,
       }));
+      for (const record of records) {
+        if (record.type !== 'image') continue;
+        void resolveMarketplaceMediaUrlAsync(record.url).then((previewUrl) => {
+          setItems((current) =>
+            current.map((item) =>
+              item.key === record.id && item.kind === 'existing' ? { ...item, previewUrl } : item,
+            ),
+          );
+        });
+      }
+      return next;
     });
     setError(null);
   }, []);

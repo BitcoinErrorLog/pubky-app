@@ -4,9 +4,9 @@ import { useState } from 'react';
 import { Film, Gavel, PackageCheck } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Image } from '@/atoms/Image/Image';
+import { useMarketplaceMediaUrls } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import type { AuctionPhase } from '@/libs/commerce/auction-phase';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { cn } from '@/libs/utils/utils';
 
 export interface MarketplaceMediaGalleryProps {
@@ -29,9 +29,10 @@ export interface MarketplaceMediaGalleryProps {
 export function MarketplaceMediaGallery({ media, saleFormat, auctionPhase = 'live' }: MarketplaceMediaGalleryProps) {
   const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const urls = useMarketplaceMediaUrls(media.map(({ url }) => url));
 
   const viewable = media
-    .map((item) => ({ item, url: resolveMarketplaceMediaUrl(item.url) }))
+    .map((item, index) => ({ item, url: urls[index] }))
     .filter((entry): entry is { item: (typeof media)[number]; url: string } => {
       return entry.url !== null && !failedIds.has(entry.item.id);
     });

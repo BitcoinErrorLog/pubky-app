@@ -1,8 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { COMMERCE_FIXTURE_SELLER } from '@/test/fixtures/commerce/commerce';
 import { MarketplaceMediaGallery } from './MarketplaceMediaGallery';
+
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
 
 function imageMedia(id: string, altText: string): CommerceListingRecord['media'][number] {
   return {

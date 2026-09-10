@@ -23,6 +23,15 @@ describe('resolveMarketplaceMediaUrl', () => {
     expect(resolveMarketplaceMediaUrl('http://localhost:8787/media/1.jpg')).toBe('http://localhost:8787/media/1.jpg');
   });
 
+  it('uses the verified owner homeserver when one is supplied', () => {
+    expect(
+      resolveMarketplaceMediaUrl(
+        `pubky://${SELLER}/pub/pubky.app/marketplace/v1/media/image_01`,
+        'https://homeserver.other.example/',
+      ),
+    ).toBe(`https://homeserver.other.example/pub/pubky.app/marketplace/v1/media/image_01?pubky-host=${SELLER}`);
+  });
+
   it('returns null for URIs with no browser-loadable form', () => {
     expect(resolveMarketplaceMediaUrl('')).toBeNull();
     expect(resolveMarketplaceMediaUrl('data:image/png;base64,AAAA')).toBeNull();

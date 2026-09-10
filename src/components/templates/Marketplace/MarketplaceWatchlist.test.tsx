@@ -17,6 +17,10 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/watchlist',
 }));
 
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
+
 vi.mock('@/hooks/useMarketplaceWatchlist/useMarketplaceWatchlist', () => ({
   useMarketplaceWatchlist: () => ({
     entries: view.entries,

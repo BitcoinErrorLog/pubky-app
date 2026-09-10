@@ -12,8 +12,8 @@ import { commerceAttributeValueLabel, commerceCardAttributeKeys } from '@/config
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
+import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
-import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { cn } from '@/libs/utils/utils';
 import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
 import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
@@ -63,7 +63,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
   // loading state; a failed load unmounts the image instead of showing a
   // broken-image icon.
   const [mediaFailed, setMediaFailed] = useState(false);
-  const mediaUrl = resolveFirstMarketplaceMediaUrl(listing.mediaUrls);
+  const mediaUrl = useMarketplaceFirstMediaUrl(listing.mediaUrls);
   const showMedia = mediaUrl !== null && !mediaFailed;
 
   return (

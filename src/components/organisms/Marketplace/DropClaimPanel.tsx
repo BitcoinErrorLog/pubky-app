@@ -9,9 +9,9 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { UseMarketplaceDropClaimResult } from '@/hooks/useMarketplaceDropClaim/useMarketplaceDropClaim';
+import { useMarketplaceFirstMediaUrls } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceDropRecord, CommerceListingRecord } from '@/libs/commerce/marketplace-records';
-import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { MarketplaceIndicativePrice } from './MarketplaceIndicativePrice';
 import { MarketplaceSessionRequiredCard } from './MarketplaceSessionRequiredCard';
 
@@ -59,6 +59,9 @@ export function DropClaimPanel({
       active = false;
     };
   }, [record.ownerPubky, record.listingIds]);
+  const mediaUrls = useMarketplaceFirstMediaUrls(
+    (listings ?? []).map(({ record: listing }) => (listing ? listing.media.map(({ url }) => url) : [])),
+  );
 
   return (
     <section aria-label="Claim" className="flex flex-col gap-3 rounded-xl border border-brand/40 bg-brand/5 p-4">
@@ -75,11 +78,11 @@ export function DropClaimPanel({
       ) : (
         <ul className="flex flex-col gap-3">
           {(listings ?? record.listingIds.map((listingId) => ({ listingId, record: null }))).map(
-            ({ listingId, record: listing }) => {
+            ({ listingId, record: listing }, index) => {
               const compositeId = `${record.ownerPubky}:${listingId}`;
               const isSubmitting = claim.submittingListingId === compositeId;
               const isClaimed = claim.claimedListingIds.has(compositeId);
-              const mediaUrl = listing ? resolveFirstMarketplaceMediaUrl(listing.media.map(({ url }) => url)) : null;
+              const mediaUrl = mediaUrls[index] ?? null;
               const price = listing?.sale.format === 'fixed_price' ? listing.sale.unitPrice : null;
               return (
                 <li key={listingId} className="flex items-center gap-3 rounded-lg border bg-card p-3">

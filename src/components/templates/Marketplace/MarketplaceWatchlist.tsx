@@ -15,6 +15,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
+import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceNotificationFeed } from '@/hooks/useMarketplaceNotificationFeed/useMarketplaceNotificationFeed';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
@@ -25,7 +26,6 @@ import {
 } from '@/hooks/useMarketplaceWatchlist/useMarketplaceWatchlist';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
@@ -116,12 +116,15 @@ export function MarketplaceWatchlist() {
                 Sync across devices needs a fresh sign-in approval
               </Typography>
               <Typography as="p" className="text-sm text-muted-foreground">
-                Your watchlist keeps working on this device. To sync it privately through your homeserver, sign in
-                again and approve the private-storage permission — sessions approved before that permission existed
-                cannot write it.
+                Your watchlist keeps working on this device. To sync it privately through your homeserver, sign in again
+                and approve the private-storage permission — sessions approved before that permission existed cannot
+                write it.
               </Typography>
               <div className="mt-2">
-                <MarketplaceReauthDialog triggerLabel="Sign in again to enable sync" onReauthenticated={syncWatchlist} />
+                <MarketplaceReauthDialog
+                  triggerLabel="Sign in again to enable sync"
+                  onReauthenticated={syncWatchlist}
+                />
               </div>
             </CardContent>
           </Card>
@@ -260,7 +263,7 @@ function WatchlistItemRow({ entry }: { entry: MarketplaceWatchlistEntry }) {
 
   const hasLiveBid = bid !== null && bid.bidCount > 0;
   const title = item?.title ?? snapshot?.title ?? rawListingId;
-  const mediaUrl = item ? resolveFirstMarketplaceMediaUrl(item.mediaUrls) : null;
+  const mediaUrl = useMarketplaceFirstMediaUrl(item?.mediaUrls ?? []);
   const endsAt = item?.auction?.endsAt ?? snapshot?.auction_ends_at ?? null;
   const state = deriveWatchlistState(entry);
 

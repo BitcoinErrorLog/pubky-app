@@ -6,13 +6,13 @@ import { useForm } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION } from '@/config/commerce';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
   marketplaceErrorCode,
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { HOMESERVER_WRITE_SCOPE_REMEDY, isHomeserverWriteScopeError } from '@/libs/error/error.utils';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -64,6 +64,7 @@ function useShopImageSlot(maxSize: number): ShopImageSlotInternal {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<ShopImageSlotState>({ kind: 'empty' });
   const [error, setError] = useState<ShopImageSlotError | null>(null);
+  const existingPreviewUrl = useMarketplaceMediaUrl(state.kind === 'existing' ? state.url : null);
   const stateRef = useRef(state);
 
   useEffect(() => {
@@ -130,12 +131,7 @@ function useShopImageSlot(maxSize: number): ShopImageSlotInternal {
 
   return {
     slot: {
-      previewUrl:
-        state.kind === 'pending'
-          ? state.previewUrl
-          : state.kind === 'existing'
-            ? resolveMarketplaceMediaUrl(state.url)
-            : null,
+      previewUrl: state.kind === 'pending' ? state.previewUrl : state.kind === 'existing' ? existingPreviewUrl : null,
       hasImage: state.kind !== 'empty',
       error,
       inputRef,

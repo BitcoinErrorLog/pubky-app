@@ -6,7 +6,7 @@ import { Badge } from '@/atoms/Badge/Badge';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import type { DropStreamBucket, NexusDropStreamEntry } from '@/hooks/useMarketplaceDrops/drops-stream';
-import { resolveFirstMarketplaceMediaUrl } from '@/libs/commerce/media-url';
+import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { DropCountdown } from './DropCountdown';
 
 const BUCKET_BADGES: Record<DropStreamBucket, string> = {
@@ -23,7 +23,7 @@ const BUCKET_BADGES: Record<DropStreamBucket, string> = {
  * projection first.
  */
 export function DropCard({ entry, bucket }: { entry: NexusDropStreamEntry; bucket: DropStreamBucket }) {
-  const mediaUrl = resolveFirstMarketplaceMediaUrl(entry.media_urls);
+  const mediaUrl = useMarketplaceFirstMediaUrl(entry.media_urls);
   return (
     <Link
       href={getMarketplaceDropRoute(entry.owner_id, entry.id)}

@@ -17,6 +17,7 @@ import { getCommerceAdapterMode, isTransactionalCommerceMode } from '@/config/co
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
+import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
@@ -27,7 +28,6 @@ import {
   type CommerceListingRecord,
   type CommerceShippingOption,
 } from '@/libs/commerce/marketplace-records';
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { formatPackageDimensions, formatWeight } from '@/libs/commerce/units';
 import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
@@ -62,7 +62,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const [isFetchSettled, setIsFetchSettled] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [showSessionRequired, setShowSessionRequired] = useState(false);
-  const [shopAvatarFailed, setShopAvatarFailed] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
@@ -104,8 +103,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     listing?.record.sale.format === 'auction'
       ? getAuctionPhase(listing.record.sale.startsAt, auctionEndsAt ?? listing.record.sale.endsAt, nowMs, auctionStatus)
       : null;
-  const shopAvatarUrl =
-    !shopAvatarFailed && shop?.record.avatarUrl ? resolveMarketplaceMediaUrl(shop.record.avatarUrl) : null;
+  const shopAvatarUrl = useMarketplaceMediaUrl(shop?.record.avatarUrl);
 
   useEffect(() => {
     const firstVariant = listing?.record.variants[0]?.id;
@@ -293,7 +291,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     avatarUrl={shopAvatarUrl}
                     avatarAlt={`${shop?.record.name ?? 'Shop'} avatar`}
                     reputation={sellerReputation}
-                    onAvatarError={() => setShopAvatarFailed(true)}
                   />
                   {isOwner && !shop && (
                     <Typography as="p" className="mt-2 text-sm text-muted-foreground">

@@ -32,9 +32,9 @@ vi.mock('@/libs/image/stripImageMetadata', () => ({
   stripImageMetadata: vi.fn((file: File) => file),
 }));
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: (uri: string) => `https://homeserver.example/resolved${uri.slice(uri.lastIndexOf('/'))}`,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
 
 const publishedShop = {
   schemaVersion: 1 as const,
@@ -191,8 +191,12 @@ describe('useMarketplaceShopSettings', () => {
 
     const { result } = renderHook(() => useMarketplaceShopSettings());
     await waitFor(() => expect(result.current.hasShop).toBe(true));
-    expect(result.current.avatar.previewUrl).toBe('https://homeserver.example/resolved/avatar_media_id');
-    expect(result.current.banner.previewUrl).toBe('https://homeserver.example/resolved/banner_media_id');
+    expect(result.current.avatar.previewUrl).toBe(
+      `https://homeserver.example/pub/pubky.app/marketplace/v1/media/avatar_media_id?pubky-host=${OWNER}`,
+    );
+    expect(result.current.banner.previewUrl).toBe(
+      `https://homeserver.example/pub/pubky.app/marketplace/v1/media/banner_media_id?pubky-host=${OWNER}`,
+    );
 
     await act(() => result.current.submit());
 
