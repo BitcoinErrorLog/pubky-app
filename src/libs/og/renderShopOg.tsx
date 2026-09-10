@@ -2,7 +2,7 @@ import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildShopDescription } from '@/libs/commerce/seo';
 import { Logger } from '@/libs/logger/logger';
 import { truncateByGraphemes } from '@/libs/utils/truncate';
-import { fetchShopForMetadata, OG_COMMERCE_CACHE_HEADERS } from './ogCommerceData';
+import { fetchShopForMetadata, OG_COMMERCE_CACHE_HEADERS, OG_NO_STORE_CACHE_HEADERS } from './ogCommerceData';
 import { OgAvatar, OgFrame } from './OgComponents';
 import { OG_TOKENS, OG_TRUNCATE } from './ogConstants';
 import { fetchImageAsDataUri } from './ogData';
@@ -18,16 +18,24 @@ import { OgMarketplaceFooter, renderMarketplaceOg } from './renderMarketplaceOg'
  * degrade to the card without that asset.
  */
 export async function renderShopOg({ sellerPubky }: { sellerPubky: string }): Promise<Response> {
-  try {
-    const shop = await fetchShopForMetadata(sellerPubky);
-    if (!shop) return renderMarketplaceOg();
+  const result = await fetchShopForMetadata(sellerPubky);
+  if (result.kind === 'not_found') return renderMarketplaceOg();
+  if (result.kind === 'unavailable') {
+    Logger.warn('[renderShopOg] Shop metadata unavailable', { reason: result.reason });
+    return renderMarketplaceOg(OG_NO_STORE_CACHE_HEADERS);
+  }
 
+  try {
     const [avatarSrc, bannerSrc] = await Promise.all([
-      shop.avatarUrl ? fetchImageAsDataUri(resolveMarketplaceMediaUrl(shop.avatarUrl)) : Promise.resolve(null),
-      shop.bannerUrl ? fetchImageAsDataUri(resolveMarketplaceMediaUrl(shop.bannerUrl)) : Promise.resolve(null),
+      result.record.avatarUrl
+        ? fetchImageAsDataUri(resolveMarketplaceMediaUrl(result.record.avatarUrl))
+        : Promise.resolve(null),
+      result.record.bannerUrl
+        ? fetchImageAsDataUri(resolveMarketplaceMediaUrl(result.record.bannerUrl))
+        : Promise.resolve(null),
     ]);
 
-    const bio = truncateByGraphemes(buildShopDescription(shop), OG_TRUNCATE.bio);
+    const bio = truncateByGraphemes(buildShopDescription(result.record), OG_TRUNCATE.bio);
 
     return ogImageResponse(
       <OgFrame style={{ position: 'relative', justifyContent: 'space-between' }}>
@@ -95,7 +103,7 @@ export async function renderShopOg({ sellerPubky }: { sellerPubky: string }): Pr
                 textOverflow: 'ellipsis',
               }}
             >
-              {shop.name}
+              {result.record.name}
             </div>
             {bio ? (
               <div

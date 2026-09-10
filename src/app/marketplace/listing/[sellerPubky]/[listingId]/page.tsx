@@ -41,11 +41,11 @@ export async function generateMetadata({ params }: MarketplaceListingPageProps):
     };
   };
 
-  const listing = await fetchListingForMetadata(sellerPubky, listingId);
-  if (!listing) return fallback();
+  const result = await fetchListingForMetadata(sellerPubky, listingId);
+  if (result.kind !== 'found') return fallback();
 
-  const title = buildListingTitle(listing);
-  const description = buildListingDescription(listing);
+  const title = buildListingTitle(result.record);
+  const description = buildListingDescription(result.record);
   const { openGraph, twitter, alternates } = Metadata({ title, description, url: canonical, omitImages: true });
 
   return { title, description, openGraph, twitter, alternates };

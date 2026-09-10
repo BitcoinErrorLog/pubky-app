@@ -42,18 +42,14 @@ export async function generateMetadata({ params }: MarketplaceShopPageProps): Pr
     };
   };
 
-  try {
-    const shop = await fetchShopForMetadata(sellerPubky);
-    if (!shop) return fallback();
+  const result = await fetchShopForMetadata(sellerPubky);
+  if (result.kind !== 'found') return fallback();
 
-    const title = buildShopTitle(shop);
-    const description = buildShopDescription(shop);
-    const { openGraph, twitter, alternates } = Metadata({ title, description, url: canonical, omitImages: true });
+  const title = buildShopTitle(result.record);
+  const description = buildShopDescription(result.record);
+  const { openGraph, twitter, alternates } = Metadata({ title, description, url: canonical, omitImages: true });
 
-    return { title, description: description || null, openGraph, twitter, alternates };
-  } catch {
-    return fallback();
-  }
+  return { title, description: description || null, openGraph, twitter, alternates };
 }
 
 export default async function MarketplaceShopPage({ params }: MarketplaceShopPageProps) {

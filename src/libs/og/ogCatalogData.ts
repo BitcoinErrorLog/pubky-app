@@ -8,7 +8,7 @@ import { NEXUS_STREAM_LISTINGS_ROUTE } from '@/libs/commerce/nexus-routes';
 import { Logger } from '@/libs/logger/logger';
 import { getCommerceAdapterMode, getMarketplaceNexusUrl } from '@/libs/runtime-config/runtime-config';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
-import { fetchShopForMetadata, OG_COMMERCE_REVALIDATE } from './ogCommerceData';
+import { fetchShopForMetadata, type MetadataFetchResult, OG_COMMERCE_REVALIDATE } from './ogCommerceData';
 
 export interface MarketplaceCatalogSsrPayload {
   listings: MarketplaceCatalogItem[];
@@ -55,13 +55,13 @@ const SHOP_FETCH_CONCURRENCY = 6;
 
 async function fetchShopsForCatalogSellers(listings: MarketplaceCatalogItem[]): Promise<CommerceShopRecord[]> {
   const sellers = [...new Set(listings.map((listing) => listing.sellerId))];
-  const settled: PromiseSettledResult<CommerceShopRecord | null>[] = [];
+  const settled: PromiseSettledResult<MetadataFetchResult<CommerceShopRecord>>[] = [];
   for (let offset = 0; offset < sellers.length; offset += SHOP_FETCH_CONCURRENCY) {
     const chunk = sellers.slice(offset, offset + SHOP_FETCH_CONCURRENCY);
     settled.push(...(await Promise.allSettled(chunk.map((seller) => fetchShopForMetadata(seller)))));
   }
   return settled.flatMap((result) => {
-    if (result.status !== 'fulfilled' || result.value === null) return [];
-    return [result.value];
+    if (result.status !== 'fulfilled' || result.value.kind !== 'found') return [];
+    return [result.value.record];
   });
 }

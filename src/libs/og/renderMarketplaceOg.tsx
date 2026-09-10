@@ -46,7 +46,9 @@ export function OgMarketplaceFooter({ withMark = true }: { withMark?: boolean })
  * auth-gated marketplace routes inherit) and as the generic fallback whenever a
  * listing/shop record cannot back a richer card.
  */
-export async function renderMarketplaceOg(): Promise<Response> {
+export async function renderMarketplaceOg(
+  headers: Record<string, string> = OG_COMMERCE_CACHE_HEADERS,
+): Promise<Response> {
   try {
     return ogImageResponse(
       <OgFrame style={{ justifyContent: 'space-between' }}>
@@ -83,7 +85,7 @@ export async function renderMarketplaceOg(): Promise<Response> {
         </div>
         <OgMarketplaceFooter withMark={false} />
       </OgFrame>,
-      { ...OG_COMMERCE_CACHE_HEADERS },
+      headers,
     );
   } catch (error) {
     Logger.warn('[renderMarketplaceOg] Failed to render marketplace OG image', { error });

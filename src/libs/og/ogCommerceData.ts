@@ -39,33 +39,59 @@ export const OG_COMMERCE_CACHE_HEADERS = {
   'cache-control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=86400',
 } as const;
 
+export const OG_NO_STORE_CACHE_HEADERS = {
+  'cache-control': 'no-store',
+} as const;
+
 const MARKETPLACE_RECORD_BASE_PATH = '/pub/pubky.app/marketplace/v1';
 
 const metadataClient = new Client({
   pkarr: {
     relays: getPkarrRelays(),
-    requestTimeout: 10_000,
+    requestTimeout: 4_000,
   },
 });
 
+// `resolvePubky` has no instance API; this singleton is the only server resolver client.
 Pubky.withClient(metadataClient);
 
 function buildRecordUrl(ownerPubky: string, recordPath: string): string {
   return resolvePubky(`pubky://${ownerPubky}${MARKETPLACE_RECORD_BASE_PATH}/${recordPath}`);
 }
 
-async function fetchRecordJson(url: string, operation: string): Promise<unknown | null> {
-  const res = await metadataClient.fetch(url, {
-    credentials: 'include',
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const error = new Error(`HTTP ${res.status} while fetching marketplace metadata`);
-    Logger.warn(`[ogCommerceData] ${operation} failed`, { status: res.status, error });
-    throw error;
+export type MetadataFetchResult<T> =
+  | { kind: 'found'; record: T }
+  | { kind: 'not_found' }
+  | { kind: 'unavailable'; reason: string };
+
+type RecordFetchResult = { kind: 'found'; value: unknown } | Exclude<MetadataFetchResult<never>, { kind: 'found' }>;
+
+function reasonForError(error: unknown): string {
+  if (error instanceof DOMException && error.name === 'TimeoutError') return 'timeout';
+  if (error instanceof Error && error.name === 'AbortError') return 'timeout';
+  if (error instanceof Error && error.message) return error.message;
+  return 'request_failed';
+}
+
+async function fetchRecordJson(url: string, operation: string): Promise<RecordFetchResult> {
+  try {
+    const res = await metadataClient.fetch(url, {
+      credentials: 'include',
+      // Four seconds bounds PKARR resolution plus the record fetch for SSR.
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (res.status === 404) return { kind: 'not_found' };
+    if (!res.ok) {
+      const reason = `http_${res.status}`;
+      Logger.warn(`[ogCommerceData] ${operation} unavailable`, { status: res.status, reason });
+      return { kind: 'unavailable', reason };
+    }
+    return { kind: 'found', value: await res.json() };
+  } catch (error) {
+    const reason = reasonForError(error);
+    Logger.warn(`[ogCommerceData] ${operation} unavailable`, { reason });
+    return { kind: 'unavailable', reason };
   }
-  return res.json();
 }
 
 /**
@@ -73,50 +99,70 @@ async function fetchRecordJson(url: string, operation: string): Promise<unknown 
  * generation. Returns `null` — the callers' cue to fall back to the generic
  * marketplace card — when the seller/listing params are malformed, the record
  * is missing, or the listing is in the `removed` state (a removed listing must
- * never be advertised in a preview). Fetch and validation failures are thrown
- * so transient failures and contract regressions are not masked as not-found.
+ * never be advertised in a preview). Network and validation failures return an
+ * unavailable result so callers can preserve the page and avoid caching a
+ * generic OG fallback.
  */
 export async function fetchListingForMetadata(
   sellerPubky: string,
   listingId: string,
-): Promise<CommerceListingRecord | null> {
+): Promise<MetadataFetchResult<CommerceListingRecord>> {
   const seller = commercePubkySchema.safeParse(sellerPubky);
   const id = commerceEntityIdSchema.safeParse(listingId);
-  if (!seller.success || !id.success) return null;
+  if (!seller.success || !id.success) return { kind: 'not_found' };
 
-  const json = await fetchRecordJson(buildRecordUrl(seller.data, `listings/${id.data}`), 'fetchListingRecord');
-  if (json === null) return null;
+  let url: string;
+  try {
+    url = buildRecordUrl(seller.data, `listings/${id.data}`);
+  } catch (error) {
+    const reason = reasonForError(error);
+    Logger.warn('[ogCommerceData] fetchListingRecord unavailable', { reason });
+    return { kind: 'unavailable', reason };
+  }
+  const fetched = await fetchRecordJson(url, 'fetchListingRecord');
+  if (fetched.kind !== 'found') return fetched;
 
-  const record = commerceListingRecordSchema.safeParse(json);
+  const record = commerceListingRecordSchema.safeParse(fetched.value);
   if (!record.success) {
+    const reason = 'validation';
     Logger.warn('[ogCommerceData] Listing record failed validation', {
       issueCount: record.error.issues.length,
+      reason,
     });
-    throw new Error('Marketplace listing record failed validation');
+    return { kind: 'unavailable', reason };
   }
-  if (record.data.state === 'removed') return null;
-  return record.data;
+  if (record.data.state === 'removed') return { kind: 'not_found' };
+  return { kind: 'found', record: record.data };
 }
 
 /**
  * Fetches and validates the canonical shop record (`shop.json`) for metadata /
- * OG image generation. Returns `null` on malformed params or a missing record.
- * Fetch and validation failures are thrown so callers do not mistake them for
- * not-found.
+ * OG image generation. Returns `not_found` on malformed params or a missing
+ * record, and `unavailable` for fetch or validation failures.
  */
-export async function fetchShopForMetadata(sellerPubky: string): Promise<CommerceShopRecord | null> {
+export async function fetchShopForMetadata(sellerPubky: string): Promise<MetadataFetchResult<CommerceShopRecord>> {
   const seller = commercePubkySchema.safeParse(sellerPubky);
-  if (!seller.success) return null;
+  if (!seller.success) return { kind: 'not_found' };
 
-  const json = await fetchRecordJson(buildRecordUrl(seller.data, 'shop.json'), 'fetchShopRecord');
-  if (json === null) return null;
+  let url: string;
+  try {
+    url = buildRecordUrl(seller.data, 'shop.json');
+  } catch (error) {
+    const reason = reasonForError(error);
+    Logger.warn('[ogCommerceData] fetchShopRecord unavailable', { reason });
+    return { kind: 'unavailable', reason };
+  }
+  const fetched = await fetchRecordJson(url, 'fetchShopRecord');
+  if (fetched.kind !== 'found') return fetched;
 
-  const record = commerceShopRecordSchema.safeParse(json);
+  const record = commerceShopRecordSchema.safeParse(fetched.value);
   if (!record.success) {
+    const reason = 'validation';
     Logger.warn('[ogCommerceData] Shop record failed validation', {
       issueCount: record.error.issues.length,
+      reason,
     });
-    throw new Error('Marketplace shop record failed validation');
+    return { kind: 'unavailable', reason };
   }
-  return record.data;
+  return { kind: 'found', record: record.data };
 }

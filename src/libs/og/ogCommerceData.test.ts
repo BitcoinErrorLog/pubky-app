@@ -33,32 +33,50 @@ describe('fetchListingForMetadata', () => {
       }));
       fetchMock.mockResolvedValue(new Response(JSON.stringify(fixture), { status: 200 }));
 
-      await expect(fetchListingForMetadata(seller, listingId)).resolves.toMatchObject({ listingId });
+      await expect(fetchListingForMetadata(seller, listingId)).resolves.toMatchObject({
+        kind: 'found',
+        record: { listingId },
+      });
       expect(resolvePubkyMock).toHaveBeenCalledWith(
         `pubky://${seller}/pub/pubky.app/marketplace/v1/listings/${listingId}`,
       );
     },
   );
 
-  it('throws on a record validation failure instead of using the generic card', async () => {
+  it('returns unavailable on a record validation failure instead of not-found', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ recordType: 'listing', listingId: 'broken' }), { status: 200 }),
     );
 
-    await expect(fetchListingForMetadata(seller, 'broken')).rejects.toThrow(
-      'Marketplace listing record failed validation',
-    );
+    await expect(fetchListingForMetadata(seller, 'broken')).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'validation',
+    });
   });
 
   it('uses the generic card cue only for a genuine not-found response', async () => {
     fetchMock.mockResolvedValue(new Response('Not Found', { status: 404 }));
 
-    await expect(fetchListingForMetadata(seller, 'missing')).resolves.toBeNull();
+    await expect(fetchListingForMetadata(seller, 'missing')).resolves.toEqual({ kind: 'not_found' });
   });
 
-  it('throws on a transient timeout instead of using the generic card', async () => {
+  it('returns unavailable on a transient timeout instead of not-found', async () => {
     fetchMock.mockRejectedValue(new DOMException('The operation timed out', 'TimeoutError'));
 
-    await expect(fetchListingForMetadata(seller, 'slow')).rejects.toThrow('The operation timed out');
+    await expect(fetchListingForMetadata(seller, 'slow')).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'timeout',
+    });
+  });
+
+  it('returns not-found for a removed listing', async () => {
+    const fixture = createCommerceListingFixture({ ownerPubky: seller, state: 'removed' });
+    fixture.media = fixture.media.map((media) => ({
+      ...media,
+      url: media.url.replace('y'.repeat(52), seller),
+    }));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(fixture), { status: 200 }));
+
+    await expect(fetchListingForMetadata(seller, fixture.listingId)).resolves.toEqual({ kind: 'not_found' });
   });
 });

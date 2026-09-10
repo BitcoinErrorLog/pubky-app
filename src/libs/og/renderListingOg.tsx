@@ -7,7 +7,7 @@ import {
 } from '@/libs/commerce/seo';
 import { Logger } from '@/libs/logger/logger';
 import { truncateByGraphemes } from '@/libs/utils/truncate';
-import { fetchListingForMetadata, OG_COMMERCE_CACHE_HEADERS } from './ogCommerceData';
+import { fetchListingForMetadata, OG_COMMERCE_CACHE_HEADERS, OG_NO_STORE_CACHE_HEADERS } from './ogCommerceData';
 import { OgFrame } from './OgComponents';
 import { OG_TOKENS } from './ogConstants';
 import { fetchImageAsDataUri } from './ogData';
@@ -62,15 +62,19 @@ export async function renderListingOg({
   sellerPubky: string;
   listingId: string;
 }): Promise<Response> {
-  const listing = await fetchListingForMetadata(sellerPubky, listingId);
-  if (!listing) return renderMarketplaceOg();
+  const result = await fetchListingForMetadata(sellerPubky, listingId);
+  if (result.kind === 'not_found') return renderMarketplaceOg();
+  if (result.kind === 'unavailable') {
+    Logger.warn('[renderListingOg] Listing metadata unavailable', { reason: result.reason });
+    return renderMarketplaceOg(OG_NO_STORE_CACHE_HEADERS);
+  }
 
   try {
-    const coverUri = resolveListingOgCoverUri(listing);
+    const coverUri = resolveListingOgCoverUri(result.record);
     const coverSrc = coverUri ? await fetchImageAsDataUri(resolveMarketplaceMediaUrl(coverUri)) : null;
 
-    const title = truncateByGraphemes(listing.title, OG_LISTING_TITLE_MAX_GRAPHEMES);
-    const stateNotice = listingStateNotice(listing);
+    const title = truncateByGraphemes(result.record.title, OG_LISTING_TITLE_MAX_GRAPHEMES);
+    const stateNotice = listingStateNotice(result.record);
 
     return ogImageResponse(
       <OgFrame style={{ flexDirection: 'row' }}>
@@ -123,10 +127,10 @@ export async function renderListingOg({
               {title}
             </div>
             <div style={{ display: 'flex', fontSize: 56, fontWeight: 700, color: OG_TOKENS.brand }}>
-              {listingPriceLabel(listing)}
+              {listingPriceLabel(result.record)}
             </div>
             <div style={{ display: 'flex', gap: 20 }}>
-              <Badge label={listingConditionLabel(listing)} />
+              <Badge label={listingConditionLabel(result.record)} />
               {stateNotice ? <Badge label={stateNotice} emphasized /> : null}
             </div>
           </div>
