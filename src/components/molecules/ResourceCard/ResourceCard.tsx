@@ -1,7 +1,7 @@
 'use client';
 
-import type { NexusResource } from '@/services/nexus/resource/resource.types';
 import { ResourceCard as ResourceCardOrganism } from '@/organisms/ResourceCard/ResourceCard';
+import type { NexusResource } from '@/services/nexus/resource/resource.types';
 
 export function ResourceCard({
   resource,
