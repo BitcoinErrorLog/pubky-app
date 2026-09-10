@@ -95,19 +95,32 @@ export function usePubchiQuery() {
         setErrorCode(undefined);
         try {
           const rawQuestion = values[QUERY_FORM_FIELDS.QUESTION];
-          const remoteCursor = owner && rawQuestion === 'What did I miss?' && sessionCovers(
-            useAuthStore.getState().selectSession()?.info.capabilities ?? [],
-            PUBCHI_PRIVATE_DIRECTORY,
-          ) ? await PubchiController.loadPubchiCursor() : null;
+          const remoteCursorAvailable = Boolean(
+            owner &&
+              rawQuestion === 'What did I miss?' &&
+              sessionCovers(
+                useAuthStore.getState().selectSession()?.info.capabilities ?? [],
+                PUBCHI_PRIVATE_DIRECTORY,
+              ),
+          );
+          const requestOwner = owner;
+          const remoteCursor = remoteCursorAvailable ? await PubchiController.loadPubchiCursor() : null;
           const cursor = remoteCursor ?? (owner && rawQuestion === 'What did I miss?' ? readLocalCursor(owner) : null);
-          setCursorSource(remoteCursor ? 'remote' : cursor ? 'device' : 'none');
+          setCursorSource(remoteCursorAvailable && remoteCursor ? 'remote' : cursor ? 'device' : 'none');
           const next = await PubchiController.fetchPubchiQuery({
             question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
           });
-          if (owner && next.kind === 'answer' && rawQuestion === 'What did I miss?' && next.result.continuation?.complete) {
-            if (remoteCursor) await PubchiController.savePubchiCursor(next.result.continuation.until);
-            else writeLocalCursor(owner, next.result.continuation.until);
+          if (
+            requestOwner &&
+            next.kind === 'answer' &&
+            next.result.owner === requestOwner &&
+            rawQuestion === 'What did I miss?' &&
+            next.result.continuation?.complete &&
+            next.result.continuation.until > (cursor ?? '')
+          ) {
+            if (remoteCursorAvailable) await PubchiController.savePubchiCursor(next.result.continuation.until);
+            else writeLocalCursor(requestOwner, next.result.continuation.until);
           }
           setResult(next);
           ok = true;

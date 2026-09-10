@@ -21,6 +21,7 @@ import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PubchiAnswerCard } from '../PubchiAnswerCard/PubchiAnswerCard';
 import { PubchiCapabilities } from '../PubchiCapabilities/PubchiCapabilities';
 import { PubchiFlyoutHeader } from '../PubchiFlyoutHeader/PubchiFlyoutHeader';
@@ -45,16 +46,17 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     config,
   } = usePubchiEnrollment();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const prefill = usePubchiStore((state) => state.flyout.prefill);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
 
   useEffect(() => {
     if (!open) return;
-    const prefill = PubchiController.consumePrefill();
-    if (!prefill) return;
-    form.setValue(QUERY_FORM_FIELDS.QUESTION, prefill.question, { shouldValidate: true });
+    const nextPrefill = PubchiController.consumePrefill();
+    if (!nextPrefill) return;
+    form.setValue(QUERY_FORM_FIELDS.QUESTION, nextPrefill.question, { shouldValidate: true });
     document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
-  }, [form, open]);
+  }, [form, open, prefill]);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;

@@ -23,6 +23,7 @@ import { isAppError, isWrongEnvironmentHomeserverError, toAppError } from '@/lib
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { clearMuteSyncCursorSessionStorage } from '@/libs/mute-sync/clear-cursor-session-storage';
+import { clearLocalCursors } from '@/libs/pubchi/capabilities-v1';
 import { clearAllQueryClients } from '@/libs/query-client/query-client.factory';
 import { clearCookies, sleep } from '@/libs/utils/utils';
 import type { Pubky } from '@/models/models.types';
@@ -246,6 +247,7 @@ export class AuthController {
       this.cancelActiveAuthFlow();
       const pubky = Identity.z32FromSession({ session });
 
+      if (authStore.currentUserPubky && authStore.currentUserPubky !== pubky) clearLocalCursors();
       authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
 
       try {
@@ -357,6 +359,7 @@ export class AuthController {
    */
   private static async cleanupLocalState() {
     this.cancelModerationFollow();
+    clearLocalCursors();
     // Capture pubky before resetting auth store; used to scope marker cleanup.
     const pubky = useAuthStore.getState().currentUserPubky;
     if (pubky) {
