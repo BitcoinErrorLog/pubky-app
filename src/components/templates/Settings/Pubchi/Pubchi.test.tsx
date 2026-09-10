@@ -2,6 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PUBCHI_SETTINGS_SURFACE, PubchiSettings, saveBrain } from './Pubchi';
 
+vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
+  RingApprovalDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="ring-approval-dialog" /> : null),
+}));
+
 const hookState = vi.hoisted(() => ({
   form: { control: {} },
   backupForm: { control: {} },
@@ -80,7 +84,7 @@ describe('PubchiSettings', () => {
     );
     expect(screen.getByTestId('pubchi-create')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
-    expect(hookState.reapprove).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('ring-approval-dialog')).toBeInTheDocument();
   });
 
   it('keeps the default public web context disabled on the first brain save', async () => {
@@ -135,6 +139,6 @@ describe('PubchiSettings', () => {
       'Revoked on this device — homeserver revocation pending re-approval.',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve to finish revocation' }));
-    expect(hookState.reapprove).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('ring-approval-dialog')).toBeInTheDocument();
   });
 });

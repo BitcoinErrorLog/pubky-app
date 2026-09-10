@@ -20,11 +20,13 @@ import { DEFAULT_SEND_PUBLIC_WEB_CONTEXT, type PubchiConfigV1 } from '@/libs/pub
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { SettingsSectionCard } from '@/molecules/Settings/SettingsSectionCard/SettingsSectionCard';
 import { toast } from '@/molecules/Toaster/toast';
+import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
 
 export const PUBCHI_SETTINGS_SURFACE = 'pubchi-settings';
 
 export function PubchiSettings() {
   const [previousBrain, setPreviousBrain] = useState<PubchiBrainChoice | undefined>();
+  const [approvalOpen, setApprovalOpen] = useState(false);
   const {
     form,
     backupForm,
@@ -72,7 +74,7 @@ export function PubchiSettings() {
         {needsReapproval ? (
           <div className="flex flex-col gap-3 px-6" data-testid="pubchi-degraded-session">
             <Typography size="sm">{PUBCHI_DEGRADED_SESSION_MESSAGE}</Typography>
-            <Button type="button" disabled={loading} onClick={() => void reapprove()}>
+            <Button type="button" disabled={loading} onClick={() => setApprovalOpen(true)}>
               Re-approve
             </Button>
           </div>
@@ -82,7 +84,7 @@ export function PubchiSettings() {
             <Typography size="sm">
               Revoked on this device — homeserver revocation pending re-approval.
             </Typography>
-            <Button type="button" disabled={loading} onClick={() => void reapprove()}>
+            <Button type="button" disabled={loading} onClick={() => setApprovalOpen(true)}>
               Re-approve to finish revocation
             </Button>
           </div>
@@ -278,6 +280,13 @@ export function PubchiSettings() {
           </div>
         ) : null}
       </SettingsSectionCard>
+      <RingApprovalDialog
+        open={approvalOpen}
+        onOpenChange={setApprovalOpen}
+        onApproved={async (session) => {
+          await reapprove(session);
+        }}
+      />
     </div>
   );
 }

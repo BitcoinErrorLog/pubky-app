@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
+import type { Session } from '@synonymdev/pubky';
 import { useForm } from 'react-hook-form';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import {
@@ -470,15 +471,17 @@ export function usePubchiEnrollment() {
     }
   };
 
-  const reapprove = async (): Promise<boolean> => {
+  const reapprove = async (approvedSession?: Session): Promise<boolean> => {
     if (approvalFlowRef.current) return approvalFlowRef.current;
     const generation = approvalGenerationRef.current;
     let flow!: Promise<boolean>;
     flow = (async (): Promise<boolean> => {
       try {
-        const { authorizationUrl, awaitApproval, cancelAuthFlow } = await PubchiController.getCapabilityApprovalUrl();
+        const { authorizationUrl, awaitApproval, cancelAuthFlow } = approvedSession
+          ? { authorizationUrl: '', awaitApproval: Promise.resolve(approvedSession), cancelAuthFlow: () => {} }
+          : await PubchiController.getCapabilityApprovalUrl();
         approvalCancelRef.current = cancelAuthFlow;
-        window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+        if (authorizationUrl) window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
         try {
           const approved = await awaitApproval;
           if (approvalGenerationRef.current !== generation || approvalFlowRef.current !== flow) return false;

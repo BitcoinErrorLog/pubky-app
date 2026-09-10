@@ -2,6 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { PUBCHI_BRAIN_EDITOR_SURFACE, PubchiBrainEditor } from './PubchiBrainEditor';
 
+vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
+  RingApprovalDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="ring-approval-dialog" /> : null),
+}));
+
 describe('PubchiBrainEditor', () => {
   it('explains private brain context and previews typed rules', () => {
     render(
@@ -33,6 +37,7 @@ describe('PubchiBrainEditor', () => {
     expect(screen.getByLabelText('About you')).toHaveValue('Existing context');
     expect(screen.getByLabelText('About you')).toHaveAttribute('readonly');
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve in Ring' }));
-    expect(onReapprove).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('ring-approval-dialog')).toBeInTheDocument();
+    expect(onReapprove).not.toHaveBeenCalled();
   });
 });

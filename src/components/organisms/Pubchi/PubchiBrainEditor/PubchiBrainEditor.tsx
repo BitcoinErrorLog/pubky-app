@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { Session } from '@synonymdev/pubky';
 import { Brain, Lock } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Label } from '@/atoms/Label/Label';
@@ -8,6 +9,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import type { PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import { scanForbiddenPublicState } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
+import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
 
 export const PUBCHI_BRAIN_EDITOR_SURFACE = 'pubchi-brain-editor';
 
@@ -16,7 +18,7 @@ type PubchiBrainEditorProps = {
   contextEditable?: boolean;
   saving?: boolean;
   onSaveContext?: (context: Pick<PubchiOwnerContextV1, 'about' | 'instructions'>) => void | Promise<unknown>;
-  onReapprove?: () => void | Promise<unknown>;
+  onReapprove?: (session?: Session) => void | Promise<unknown>;
 };
 
 export function PubchiBrainEditor({
@@ -28,6 +30,7 @@ export function PubchiBrainEditor({
 }: PubchiBrainEditorProps) {
   const [draft, setDraft] = useState({ about: context?.about ?? '', instructions: context?.instructions ?? '' });
   const [contextError, setContextError] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   useEffect(() => {
     setDraft({ about: context?.about ?? '', instructions: context?.instructions ?? '' });
@@ -70,7 +73,7 @@ export function PubchiBrainEditor({
           <Typography size="sm">
             Your current sign-in doesn&apos;t include the private Pubchi folder; re-approve in Ring once to unlock editing.
           </Typography>
-          <Button type="button" variant="outline" disabled={saving || !onReapprove} onClick={() => void onReapprove?.()}>
+          <Button type="button" variant="outline" disabled={saving || !onReapprove} onClick={() => setApprovalOpen(true)}>
             Re-approve in Ring
           </Button>
         </div>
@@ -121,6 +124,13 @@ export function PubchiBrainEditor({
           </Button>
         ) : null}
       </div>
+      {onReapprove ? (
+        <RingApprovalDialog
+          open={approvalOpen}
+          onOpenChange={setApprovalOpen}
+          onApproved={(session) => onReapprove(session)}
+        />
+      ) : null}
       <div className="rounded-lg border border-border p-4" data-testid="pubchi-brain-preview">
         <Typography className="font-medium">How your Pubchi will answer</Typography>
         <Typography size="sm" className="mt-1 text-muted-foreground">
