@@ -1,6 +1,13 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PubchiFlyoutHeader } from './PubchiFlyoutHeader';
+
+const push = vi.fn();
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push }),
+}));
 
 const pubchi = {
   bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
@@ -9,6 +16,11 @@ const pubchi = {
 };
 
 describe('PubchiFlyoutHeader', () => {
+  beforeEach(() => {
+    push.mockReset();
+    usePubchiStore.getState().openFlyout();
+  });
+
   it('re-renders the updated display name without remounting', () => {
     const { rerender } = render(<PubchiFlyoutHeader pubchi={pubchi} />);
 
@@ -22,6 +34,10 @@ describe('PubchiFlyoutHeader', () => {
   it('links the profile flyout action to the brain editor', () => {
     render(<PubchiFlyoutHeader pubchi={pubchi} />);
 
-    expect(screen.getByRole('link', { name: /edit brain/i })).toHaveAttribute('href', '/pubchi/brain');
+    const link = screen.getByRole('link', { name: /edit brain/i });
+    expect(link).toHaveAttribute('href', '/pubchi/brain');
+    fireEvent.click(link);
+    expect(usePubchiStore.getState().flyout.open).toBe(false);
+    expect(push).toHaveBeenCalledWith('/pubchi/brain');
   });
 });

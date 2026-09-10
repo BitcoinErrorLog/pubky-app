@@ -1,6 +1,8 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { Brain, Check, Clipboard, KeyRound } from 'lucide-react';
+import type { MouseEvent } from 'react';
 import { APP_ROUTES } from '@/app/routes';
 import { Avatar, AvatarFallback } from '@/atoms/Avatar/Avatar';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -10,6 +12,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard/useCopyToClipboard';
 import { formatPublicKey } from '@/libs/utils/utils';
 import { FacehashAvatar } from '@/molecules/FacehashAvatar/FacehashAvatar';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 
 type PubchiSummary = {
   bot: string;
@@ -26,6 +29,13 @@ export type PubchiFlyoutHeaderProps = {
 
 export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'Hosted Kimi' }: PubchiFlyoutHeaderProps) {
   const { copyToClipboard } = useCopyToClipboard();
+  const router = useRouter();
+  const closeFlyout = usePubchiStore((state) => state.closeFlyout);
+  const navigateFromFlyout = (event: MouseEvent, href: string) => {
+    event.preventDefault();
+    closeFlyout();
+    router.push(href);
+  };
 
   if (!pubchi?.bot) {
     return (
@@ -48,7 +58,11 @@ export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'H
   return (
     <Card className="border-border transition-colors hover:border-brand" data-testid="pubchi-flyout-header">
       <CardContent className="flex items-center gap-3 p-4">
-        <Link href={APP_ROUTES.PUBCHI} className="flex min-w-0 flex-1 items-center gap-3">
+        <Link
+          href={APP_ROUTES.PUBCHI}
+          className="flex min-w-0 flex-1 items-center gap-3"
+          onClick={(event) => navigateFromFlyout(event, APP_ROUTES.PUBCHI)}
+        >
           <Avatar size="lg" className="shrink-0">
             <AvatarFallback className="overflow-hidden border-none">
               <FacehashAvatar seed={pubchi.bot} initial={displayName.slice(0, 1).toUpperCase()} />
@@ -79,7 +93,11 @@ export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'H
             </button>
           </div>
         </Link>
-        <Link href={APP_ROUTES.PUBCHI_BRAIN} className="inline-flex shrink-0 items-center gap-1 text-sm font-medium hover:text-brand">
+        <Link
+          href={APP_ROUTES.PUBCHI_BRAIN}
+          className="inline-flex shrink-0 items-center gap-1 text-sm font-medium hover:text-brand"
+          onClick={(event) => navigateFromFlyout(event, APP_ROUTES.PUBCHI_BRAIN)}
+        >
           <Brain aria-hidden="true" className="size-4" />
           <span className="sr-only sm:not-sr-only">Edit brain</span>
         </Link>
