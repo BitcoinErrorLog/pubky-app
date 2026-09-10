@@ -278,15 +278,17 @@ describe('fetchImageAsDataUri', () => {
     );
     await expect(fetchImageAsDataUri('https://cdn.test/exact-stream.png')).resolves.toMatch(/^data:image\/png;base64,/);
 
+    const sharpCallsBeforeOverCap = vi.mocked(sharp).mock.calls.length;
+    const warningsBeforeOverCap = loggerWarn.mock.calls.length;
     const cancel = vi.fn(async () => undefined);
     fetchMock.mockResolvedValueOnce(makeResponse(OG_IMAGE_MAX_BYTES + 1, cancel));
     await expect(fetchImageAsDataUri('https://cdn.test/over-stream.png')).resolves.toBeNull();
-    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledTimes(warningsBeforeOverCap + 1);
     expect(loggerWarn).toHaveBeenCalledWith(
       '[ogData] Rejected oversized image body for OG',
       expect.objectContaining({ maxBytes: OG_IMAGE_MAX_BYTES }),
     );
-    expect(vi.mocked(sharp)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sharp)).toHaveBeenCalledTimes(sharpCallsBeforeOverCap);
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
