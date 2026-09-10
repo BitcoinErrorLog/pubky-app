@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { toast } from '@/molecules/Toaster/toast';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { usePostMenuActions } from './usePostMenuActions';
 import { POST_MENU_ACTION_IDS } from './usePostMenuActions.constants';
@@ -124,6 +125,7 @@ describe('usePostMenuActions', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useAuthStore.setState({ currentUserPubky: defaultMocks.currentUserPubky });
     usePubchiStore.getState().clear();
     mockIsAppError.mockReturnValue(false);
     defaultMocks.isMuted.mockReturnValue(false);
@@ -200,8 +202,37 @@ describe('usePostMenuActions', () => {
       prefill: {
         question: 'Summarize this thread pubky://author123/pub/pubky.app/posts/post456',
         source: 'post-menu',
+        ownerPubky: mockCurrentUserId,
       },
     });
+  });
+
+  it.each([
+    ['signed out', null],
+    ['a foreign owner', 'different-owner'],
+  ])('does not offer a Pubchi prefill for %s', (_, ownerPubky) => {
+    const pubchiOwner = ownerPubky ?? mockCurrentUserId;
+    usePubchiStore.getState().setPubchi(
+      {
+        bot: mockAuthorId,
+        displayName: 'Pubchi',
+        createdAt: 1,
+        backupConfirmedAt: 1,
+        verified: true,
+      },
+      pubchiOwner,
+    );
+    if (ownerPubky === null) {
+      mockUseCurrentUserProfile.mockReturnValue({ currentUserPubky: null });
+    }
+
+    const { result } = renderHook(() =>
+      usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+    );
+    const item = result.current.menuItems.find((entry) => entry.id === POST_MENU_ACTION_IDS.SUMMARIZE_WITH_PUBCHI);
+
+    expect(item).toBeUndefined();
+    expect(usePubchiStore.getState().flyout.prefill).toBeUndefined();
   });
 
   describe('Menu items for other user posts', () => {
