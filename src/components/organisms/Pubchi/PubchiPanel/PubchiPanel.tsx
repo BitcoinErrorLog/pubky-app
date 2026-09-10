@@ -12,6 +12,7 @@ import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnroll
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
 import { QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
 import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
+import { parsePostReference } from '@/libs/pubchi/capabilities-v1';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
@@ -32,7 +33,7 @@ export type PubchiPanelProps = {
 export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const {
     form, submit, applyFeed, result, errorCode, loading, elapsedMs, enabled, pubchiAvailable,
-    signingAvailable, signingUnavailableMessage, setupDevice, setupLoading,
+    signingAvailable, signingUnavailableMessage, setupDevice, setupLoading, cursorSource,
   } = usePubchiQuery();
   const {
     needsReapproval,
@@ -43,6 +44,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   } = usePubchiEnrollment();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
+  const postReference = parsePostReference(question);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;
@@ -131,6 +133,20 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 void submit('build-feed');
               }}
             />
+            {postReference ? (
+              <Button
+                type="button"
+                variant="secondary"
+                data-testid="pubchi-summarize-thread"
+                disabled={actionsDisabled}
+                onClick={() => {
+                  form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${postReference.uri}`, { shouldValidate: true });
+                  void submit('ask');
+                }}
+              >
+                Summarize thread
+              </Button>
+            ) : null}
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="submit" data-testid="pubchi-ask" disabled={actionsDisabled}>
                 Ask {loading ? <span data-testid="pubchi-ask-timer">({elapsedMs} ms)</span> : null}
@@ -155,7 +171,17 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           ) : null}
 
           {loading ? <PubchiAnswerSkeleton elapsedMs={elapsedMs} /> : null}
-          {!loading && result?.kind === 'answer' ? <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} /> : null}
+          {!loading && result?.kind === 'answer' ? (
+            <>
+              <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} />
+              {result.result.continuation ? (
+                <Typography data-testid="pubchi-cursor-status" size="xs" className="text-muted-foreground">
+                  Since {new Date(result.result.continuation.since).toLocaleString()} · {result.result.continuation.complete ? 'complete' : 'partial — cursor kept'}
+                  {cursorSource === 'device' ? ' · cursor kept on this device' : ''}
+                </Typography>
+              ) : null}
+            </>
+          ) : null}
 
           {!loading && result?.kind === 'query' ? (
             <div className="flex flex-col gap-3" data-testid="pubchi-evidence">

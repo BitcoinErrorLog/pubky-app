@@ -8,6 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Col
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { UserController } from '@/controllers/user/user';
+import { linkifyPubkys } from '@/libs/pubchi/capabilities-v1';
 import type { PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 
@@ -46,16 +47,27 @@ export function PubchiAnswerCard({ answer, currentUserPubky }: PubchiAnswerCardP
   return (
     <div data-surface="pubchi-answer" data-testid="pubchi-answer" className="flex flex-col gap-3">
       {answer.evidence.length > 0 ? (
-        <div className="flex flex-col gap-2" data-testid="pubchi-answer-evidence">
-          {answer.evidence.map((item) => (
-            <EvidenceItem
-              key={`${item.uri}-${item.label}`}
-              item={item}
-              names={names}
-              tools={answer.tool_trace_summary.tools}
-              currentUserPubky={currentUserPubky}
-            />
-          ))}
+        <div className="flex flex-col gap-3" data-testid="pubchi-answer-evidence">
+          {(['post', 'claim', 'tag', 'user'] as const).map((kind) => {
+            const items = answer.evidence.filter((item) => item.kind === kind);
+            if (items.length === 0) return null;
+            return (
+              <section key={kind} data-testid={`pubchi-evidence-section-${kind}`}>
+                <Typography size="sm" className="mb-1 font-medium capitalize">{kind}s</Typography>
+                <div className="flex flex-col gap-2">
+                  {items.map((item) => (
+                    <EvidenceItem
+                      key={`${item.uri}-${item.label}`}
+                      item={item}
+                      names={names}
+                      tools={answer.tool_trace_summary.tools}
+                      currentUserPubky={currentUserPubky}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       ) : null}
 
@@ -64,7 +76,15 @@ export function PubchiAnswerCard({ answer, currentUserPubky }: PubchiAnswerCardP
           <CardTitle>{hasDeterministicRoute(answer.tool_trace_summary.tools) ? 'What the graph shows' : "Pubchi's reading of the evidence"}</CardTitle>
         </CardHeader>
         <CardContent>
-          <Typography size="sm">{answer.summary || 'No evidence was found for this question.'}</Typography>
+          <Typography size="sm">
+            {answer.summary ? linkifyPubkys(answer.summary).map((part, index) => (
+              typeof part === 'string' ? part : (
+                <Link key={`${part.pubky}-${index}`} href={getUserProfileUrl(part.pubky, currentUserPubky)} className="underline">
+                  pubky:{part.pubky}
+                </Link>
+              )
+            )) : 'No evidence was found for this question.'}
+          </Typography>
         </CardContent>
       </Card>
 
