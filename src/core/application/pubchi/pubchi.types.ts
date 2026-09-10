@@ -1,5 +1,7 @@
 import type {
+  ExecutionScope,
   FeedProposalV1,
+  FeedProposalV2,
   OwnerBindingV1,
   Phase0Purpose,
   PubchiAnswerV1,
@@ -25,7 +27,10 @@ export type PubchiQuerySuccess =
   | { kind: 'query'; result: QueryResultV1 }
   | { kind: 'answer'; result: PubchiAnswerV1 }
   | { kind: 'feed'; result: FeedProposalV1; applyAllowed: true }
+  | { kind: 'feed-v2'; result: FeedProposalV2; applyAllowed: false }
   | { kind: 'feed-unsupported'; code: 'FEED_UNSUPPORTED_LIKES' | 'FEED_UNSUPPORTED_REACH' | 'FEED_SPECS_INVALID' };
+
+export type PubchiExecutionScope = ExecutionScope;
 
 export type PubchiBindingWriteParams = {
   owner: Pubky;

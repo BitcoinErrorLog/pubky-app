@@ -4,7 +4,7 @@ import type { TFeedCreateParams } from '@/controllers/feed/feed.types';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import type { FeedProposalV1 } from '@/libs/pubchi/schemas';
+import type { FeedMappingV2, FeedProposalV1, FeedProposalV2 } from '@/libs/pubchi/schemas';
 
 const REACH: Record<string, PubkyAppFeedReach> = {
   following: PubkyAppFeedReach.Following,
@@ -12,6 +12,7 @@ const REACH: Record<string, PubkyAppFeedReach> = {
   all: PubkyAppFeedReach.All,
   wot: PubkyAppFeedReach.Wot,
   me: PubkyAppFeedReach.Me,
+  followers: PubkyAppFeedReach.Followers,
 };
 
 const SORT: Record<string, PubkyAppFeedSort> = {
@@ -36,6 +37,16 @@ const CONTENT: Record<string, PubkyAppPostKind> = {
   collection: PubkyAppPostKind.Collection,
 };
 
+export type FeedProposalV2ApplyReason = 'followers_not_authorable' | 'unmapped' | 'unsupported_mapping';
+
+export type FeedProposalV2MapResult = {
+  params: TFeedCreateParams;
+  mapping: FeedMappingV2;
+  warnings: string[];
+  canApply: boolean;
+  reasons: FeedProposalV2ApplyReason[];
+};
+
 export function feedProposalToCreateParams(proposal: FeedProposalV1): TFeedCreateParams {
   const config = proposal.feed.feed;
   const reach = REACH[config.reach];
@@ -57,5 +68,30 @@ export function feedProposalToCreateParams(proposal: FeedProposalV1): TFeedCreat
     sort,
     content,
     layout,
+  };
+}
+
+export function feedProposalV2ToCreateParams(proposal: FeedProposalV2): FeedProposalV2MapResult {
+  const config = proposal.feed.feed;
+  const params: TFeedCreateParams = {
+    name: proposal.feed.name,
+    icon: proposal.feed.icon,
+    tags: config.tags ?? [],
+    domain_tags: config.domain_tags ?? [],
+    reach: REACH[config.reach],
+    sort: SORT[config.sort],
+    content: config.content ? (CONTENT[config.content] ?? null) : null,
+    layout: LAYOUT[config.layout],
+  };
+  const reasons: FeedProposalV2ApplyReason[] = [];
+  if (config.reach === 'followers') reasons.push('followers_not_authorable');
+  if (proposal.mapping.unmapped.length > 0) reasons.push('unmapped');
+  if (proposal.mapping.status === 'unsupported') reasons.push('unsupported_mapping');
+  return {
+    params,
+    mapping: proposal.mapping,
+    warnings: proposal.warnings,
+    canApply: reasons.length === 0,
+    reasons,
   };
 }

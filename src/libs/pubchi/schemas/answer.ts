@@ -26,6 +26,30 @@ const ContinuationSchema = z
   })
   .strict();
 
+export const ExecutionScopeSchema = z
+  .object({
+    time: z
+      .object({
+        since_ms: z.number().int().nonnegative(),
+        until_ms: z.number().int().nonnegative(),
+        label: z.string().max(80),
+        source: z.enum(['explicit', 'default', 'tool']),
+      })
+      .strict()
+      .nullable(),
+    graph: z
+      .object({
+        kind: z.enum(['whole_graph', 'owner_network', 'none']),
+        hops: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+      })
+      .strict(),
+    filters: z.array(z.string().max(60)).max(10),
+    complete: z.boolean(),
+  })
+  .strict();
+
+export type ExecutionScope = z.infer<typeof ExecutionScopeSchema>;
+
 export const PubchiEvidenceV1Schema = z
   .object({
     kind: z.enum(['user', 'post', 'tag', 'claim']),
@@ -53,6 +77,7 @@ export const PubchiAnswerV1Schema = z
     tool_trace_summary: ToolTraceSummaryV1Schema,
     policy_version: z.literal(1),
     continuation: ContinuationSchema.optional(),
+    scope: ExecutionScopeSchema.optional(),
   })
   .strict();
 

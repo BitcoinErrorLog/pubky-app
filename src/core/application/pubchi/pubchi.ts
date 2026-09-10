@@ -49,7 +49,7 @@ import {
   ownerBindingUri,
   type OwnerBindingV1,
   parseDeviceDelegationV1,
-  parseFeedProposalV1,
+  parseFeedProposal,
   parseOwnerBindingV1,
   parsePubchiAnswerV1,
   parsePubchiBotV1,
@@ -1153,16 +1153,19 @@ function interpretQueryResponse(response: unknown): PubchiQuerySuccess {
     throw pubchiValidationError(query.code, 'query');
   }
   if (schema === 'pubchi-feed-proposal') {
-    const feed = parseFeedProposalV1(response);
-    if (feed.ok) return { kind: 'feed', result: feed.value, applyAllowed: true };
-    if (
-      feed.code === 'FEED_UNSUPPORTED_LIKES' ||
-      feed.code === 'FEED_UNSUPPORTED_REACH' ||
-      feed.code === 'FEED_SPECS_INVALID'
-    ) {
-      return { kind: 'feed-unsupported', code: feed.code };
+    const feed = parseFeedProposal(response);
+    if (!feed.ok) {
+      if (
+        feed.code === 'FEED_UNSUPPORTED_LIKES' ||
+        feed.code === 'FEED_UNSUPPORTED_REACH' ||
+        feed.code === 'FEED_SPECS_INVALID'
+      ) {
+        return { kind: 'feed-unsupported', code: feed.code };
+      }
+      throw pubchiValidationError(feed.code, 'query');
     }
-    throw pubchiValidationError(feed.code, 'query');
+    if (feed.value.version === 2) return { kind: 'feed-v2', result: feed.value, applyAllowed: false };
+    return { kind: 'feed', result: feed.value, applyAllowed: true };
   }
 
   const code = extractPubchiErrorCode(response) ?? 'SCHEMA_INVALID';
