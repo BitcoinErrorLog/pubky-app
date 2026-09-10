@@ -4,14 +4,20 @@ import { useEffect, useState } from 'react';
 import { ResourceController } from '@/controllers/resource/resource';
 import type { NexusResource } from '@/services/nexus/resource/resource.types';
 
-export function useResourceTagSearch(tag: string | null) {
+export function useResourceTagSearch(tags: string[]) {
   const [resources, setResources] = useState<NexusResource[]>([]);
-  const [isLoading, setIsLoading] = useState(Boolean(tag));
+  const [isLoading, setIsLoading] = useState(tags.length > 0);
   const [error, setError] = useState<unknown>(null);
+  const tagsKey = tags.join('\0');
 
   useEffect(() => {
     let active = true;
-    if (!tag) {
+    const labels = tagsKey
+      .split('\0')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    if (labels.length === 0) {
       setResources([]);
       setIsLoading(false);
       return;
@@ -19,15 +25,31 @@ export function useResourceTagSearch(tag: string | null) {
 
     setIsLoading(true);
     setError(null);
-    void ResourceController.fetchByTag({
-      tag,
-      limit: 20,
-      limit_tags: 50,
-      limit_taggers: 50,
-      sorting: 'taggers_count',
-    })
-      .then((result) => {
-        if (active) setResources(result);
+    void Promise.all(
+      labels.map((singleTag) =>
+        ResourceController.fetchByTag({
+          tag: singleTag,
+          limit: 20,
+          limit_tags: 50,
+          limit_taggers: 50,
+          sorting: 'taggers_count',
+        }),
+      ),
+    )
+      .then((results) => {
+        const resourcesById = new Map<string, NexusResource>();
+        results.flat().forEach((resource) => {
+          const existing = resourcesById.get(resource.details.id);
+          if (!existing || (resource.taggers_count ?? 0) > (existing.taggers_count ?? 0)) {
+            resourcesById.set(resource.details.id, resource);
+          }
+        });
+        const merged = [...resourcesById.values()].sort(
+          (left, right) =>
+            (right.taggers_count ?? 0) - (left.taggers_count ?? 0) ||
+            right.details.indexed_at - left.details.indexed_at,
+        );
+        if (active) setResources(merged);
       })
       .catch((cause: unknown) => {
         if (active) setError(cause);
@@ -39,7 +61,7 @@ export function useResourceTagSearch(tag: string | null) {
     return () => {
       active = false;
     };
-  }, [tag]);
+  }, [tagsKey]);
 
   return { resources, isLoading, error };
 }

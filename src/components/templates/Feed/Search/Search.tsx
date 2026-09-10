@@ -92,7 +92,7 @@ export function Search() {
                   {feed}
                 </>
               ) : (
-                <ResourceSearchLinks tag={criteria.tags.join(',')} />
+                <ResourceSearchLinks tags={criteria.tags} />
               )}
             </Container>
           </Container>

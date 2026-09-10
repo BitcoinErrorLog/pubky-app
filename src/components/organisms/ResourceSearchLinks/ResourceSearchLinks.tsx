@@ -6,10 +6,10 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useResourceTagSearch } from '@/hooks/useResourceTagSearch/useResourceTagSearch';
 import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
 
-export function ResourceSearchLinks({ tag }: { tag: string | null }) {
-  const { resources, isLoading, error } = useResourceTagSearch(tag);
+export function ResourceSearchLinks({ tags }: { tags: string[] }) {
+  const { resources, isLoading, error } = useResourceTagSearch(tags);
 
-  if (!tag) return null;
+  if (tags.length === 0) return null;
   if (isLoading) return <Typography className="text-muted-foreground">Loading links…</Typography>;
   if (error) return <Typography role="alert">Could not load links.</Typography>;
 

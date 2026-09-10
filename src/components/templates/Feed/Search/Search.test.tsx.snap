@@ -31,6 +31,35 @@ exports[`Search - Mobile Snapshots > matches snapshot on mobile viewport 1`] = `
       class="flex w-full flex-col gap-4"
       data-testid="container"
     >
+      <div
+        aria-label="Search content type"
+        class="flex gap-2"
+        data-testid="container"
+        role="tablist"
+      >
+        <button
+          aria-selected="true"
+          class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer rounded-full border shadow-xs bg-brand text-background border-brand hover:bg-brand/90 h-8 gap-1.5 px-3 has-[>svg]:px-3.5"
+          data-size="sm"
+          data-slot="button"
+          data-variant="brand"
+          role="tab"
+          type="button"
+        >
+          Posts
+        </button>
+        <button
+          aria-selected="false"
+          class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer rounded-full border shadow-xs hover:text-accent-foreground bg-input/30 border-input hover:bg-input/50 h-8 gap-1.5 px-3 has-[>svg]:px-3.5"
+          data-size="sm"
+          data-slot="button"
+          data-variant="outline"
+          role="tab"
+          type="button"
+        >
+          Links
+        </button>
+      </div>
       <h2
         class="text-2xl font-light text-muted-foreground"
         data-testid="heading-2"
@@ -170,6 +199,35 @@ exports[`Search - Snapshots > matches snapshot with tags present 1`] = `
       class="flex w-full flex-col gap-4"
       data-testid="container"
     >
+      <div
+        aria-label="Search content type"
+        class="flex gap-2"
+        data-testid="container"
+        role="tablist"
+      >
+        <button
+          aria-selected="true"
+          class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer rounded-full border shadow-xs bg-brand text-background border-brand hover:bg-brand/90 h-8 gap-1.5 px-3 has-[>svg]:px-3.5"
+          data-size="sm"
+          data-slot="button"
+          data-variant="brand"
+          role="tab"
+          type="button"
+        >
+          Posts
+        </button>
+        <button
+          aria-selected="false"
+          class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer rounded-full border shadow-xs hover:text-accent-foreground bg-input/30 border-input hover:bg-input/50 h-8 gap-1.5 px-3 has-[>svg]:px-3.5"
+          data-size="sm"
+          data-slot="button"
+          data-variant="outline"
+          role="tab"
+          type="button"
+        >
+          Links
+        </button>
+      </div>
       <h2
         class="text-2xl font-light text-muted-foreground"
         data-testid="heading-2"
