@@ -50,4 +50,14 @@ describe('fetchOgMediaAsDataUri', () => {
     await expect(fetchOgMediaAsDataUri(sellerMediaUri)).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(resolvedUrl, expect.any(Object));
   });
+
+  it.each([
+    'ftp://example.com/image.png',
+    'not-a-media-uri',
+    'pubky://not-z32/pub/pubky.app/marketplace/v1/media/image',
+  ])('rejects malformed media URI %s without fetching', async (uri) => {
+    await expect(fetchOgMediaAsDataUri(uri)).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(resolvePubkyMock).not.toHaveBeenCalled();
+  });
 });

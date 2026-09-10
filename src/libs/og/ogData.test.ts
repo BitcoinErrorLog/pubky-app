@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FileVariant } from '@/services/nexus/file/file.types';
+import { asOpaque } from '@/test-utils/type-assertions';
 
 vi.mock('@/services/nexus/file/file.api', () => ({
   filesApi: {
@@ -14,8 +15,14 @@ vi.mock('@/services/nexus/file/file.api', () => ({
   },
 }));
 
-const { buildAvatarUrl, fetchImageAsDataUri, fetchPostTags, fetchProfileForMetadata, resolvePostAttachmentUrl } =
-  await import('./ogData');
+const {
+  buildAvatarUrl,
+  fetchImageAsDataUri,
+  fetchPostTags,
+  fetchProfileForMetadata,
+  OG_IMAGE_MAX_BYTES,
+  resolvePostAttachmentUrl,
+} = await import('./ogData');
 
 const jsonResponse = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -166,6 +173,69 @@ describe('fetchImageAsDataUri', () => {
   it('returns null when the fetch throws', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
     expect(await fetchImageAsDataUri('https://cdn.test/a.webp')).toBeNull();
+  });
+
+  it('rejects an oversized declared body without reading it', async () => {
+    const getReader = vi.fn(() => {
+      throw new Error('body must not be read');
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      asOpaque<Response>({
+        ok: true,
+        headers: new Headers({
+          'Content-Type': 'image/png',
+          'Content-Length': String(OG_IMAGE_MAX_BYTES + 1),
+        }),
+        body: { getReader },
+      }),
+    );
+
+    await expect(fetchImageAsDataUri('https://cdn.test/oversized.png')).resolves.toBeNull();
+    expect(getReader).not.toHaveBeenCalled();
+  });
+
+  it('stops reading an oversized chunked body without a content length', async () => {
+    let readCount = 0;
+    let cancelled = false;
+    const reader = {
+      read: vi.fn(async () => {
+        readCount += 1;
+        return readCount === 1
+          ? { done: false, value: new Uint8Array(OG_IMAGE_MAX_BYTES + 1) }
+          : { done: true, value: undefined };
+      }),
+      cancel: vi.fn(async () => {
+        cancelled = true;
+      }),
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      asOpaque<Response>({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'image/png' }),
+        body: { getReader: () => reader },
+      }),
+    );
+
+    await expect(fetchImageAsDataUri('https://cdn.test/chunked.png')).resolves.toBeNull();
+    expect(readCount).toBe(1);
+    expect(reader.read).toHaveBeenCalledTimes(1);
+    expect(cancelled).toBe(true);
+  });
+
+  it('accepts a body whose declared length is exactly at the cap', async () => {
+    const png = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 200, g: 0, b: 0 } },
+    })
+      .png()
+      .toBuffer();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array(png), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png', 'Content-Length': String(OG_IMAGE_MAX_BYTES) },
+      }),
+    );
+
+    await expect(fetchImageAsDataUri('https://cdn.test/exact.png')).resolves.toMatch(/^data:image\/png;base64,/);
   });
 
   it('transcodes a fetched image to a base64 PNG data URI', async () => {

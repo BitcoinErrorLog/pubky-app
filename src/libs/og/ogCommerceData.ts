@@ -4,6 +4,7 @@ import {
   commerceListingRecordSchema,
   type CommerceShopRecord,
   commerceShopRecordSchema,
+  marketplacePublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
 import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { Logger } from '@/libs/logger/logger';
@@ -102,9 +103,11 @@ export async function fetchOgMediaAsDataUri(uri: string | null | undefined): Pro
   if (!uri) return null;
   if (uri.startsWith('http://') || uri.startsWith('https://')) return fetchImageAsDataUri(uri);
   if (!uri.startsWith(PUBKY_PROTOCOL)) return null;
+  const parsedUri = marketplacePublicUriSchema.safeParse(uri);
+  if (!parsedUri.success) return null;
 
   try {
-    const url = resolvePubky(uri);
+    const url = resolvePubky(parsedUri.data);
     return fetchImageAsDataUri(url, (_input, init) =>
       metadataClient.fetch(url, {
         ...init,

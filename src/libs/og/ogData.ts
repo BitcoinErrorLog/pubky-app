@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import { Logger } from '@/libs/logger/logger';
 import { fetchWithValidation } from '@/libs/post/postMetadata';
 import { stripPubkyPrefix } from '@/libs/utils/utils';
@@ -124,6 +125,41 @@ export function buildAvatarUrl(user: Pick<NexusUserDetails, 'id' | 'image' | 'in
 
 /** Longest-edge cap (px) applied when transcoding so the embedded PNG stays small. */
 const OG_IMAGE_MAX_EDGE = 1200;
+export const OG_IMAGE_MAX_BYTES = IMAGE_MAX_UPLOAD_SIZE;
+
+type ImageBodyResult = { buffer: Buffer } | { overCap: true };
+
+async function readImageBody(res: Response): Promise<ImageBodyResult | null> {
+  const contentLength = res.headers.get('content-length');
+  if (contentLength !== null && Number.parseInt(contentLength, 10) > OG_IMAGE_MAX_BYTES) {
+    return { overCap: true };
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) return null;
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return { buffer: Buffer.concat(chunks) };
+      totalBytes += value.byteLength;
+      if (totalBytes > OG_IMAGE_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return { overCap: true };
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // The original read error is the useful failure.
+    }
+    throw error;
+  }
+}
 
 /**
  * Fetches a remote image, transcodes it to PNG, and returns it as a base64
@@ -150,7 +186,14 @@ export async function fetchImageAsDataUri(
     const contentType = res.headers.get('content-type') ?? '';
     if (!contentType.startsWith('image/')) return null;
 
-    const input = Buffer.from(await res.arrayBuffer());
+    const body = await readImageBody(res);
+    if (!body) return null;
+    if ('overCap' in body) {
+      Logger.warn('[ogData] Rejected oversized image body for OG', { url, maxBytes: OG_IMAGE_MAX_BYTES });
+      return null;
+    }
+
+    const input = body.buffer;
     const png = await sharp(input)
       .resize({ width: OG_IMAGE_MAX_EDGE, height: OG_IMAGE_MAX_EDGE, fit: 'inside', withoutEnlargement: true })
       .png()
