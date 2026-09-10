@@ -14,6 +14,7 @@ import { AuthController } from './auth';
 
 vi.mock('@/database/franky/franky.helpers', () => ({
   clearDatabase: vi.fn(),
+  clearPrivateData: vi.fn(),
 }));
 
 vi.mock('pubky-app-specs', () => ({

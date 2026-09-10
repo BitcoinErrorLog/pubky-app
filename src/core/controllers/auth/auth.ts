@@ -22,7 +22,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
-import { clearDatabase } from '@/database/franky/franky.helpers';
+import { clearDatabase, clearPrivateData } from '@/database/franky/franky.helpers';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -226,12 +226,18 @@ export class AuthController {
       if (hadPersistedIdentity) {
         await this.cleanupLocalState();
         cleanedUp = true;
+      } else {
+        await clearPrivateData();
       }
       return { status: 'signed-out' };
     } catch (error) {
       const appError = toAppError(error, ErrorService.Local, 'restorePersistedSession');
-      if (!cleanedUp && hadPersistedIdentity) {
-        await this.cleanupLocalState();
+      if (!cleanedUp) {
+        if (hadPersistedIdentity) {
+          await this.cleanupLocalState();
+        } else {
+          await clearPrivateData();
+        }
       }
       if (isWrongEnvironmentHomeserverError(appError)) {
         throw appError;

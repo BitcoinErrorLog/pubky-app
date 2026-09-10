@@ -83,6 +83,7 @@ vi.mock('pubky-app-specs', () => ({
 
 vi.mock('@/database/franky/franky.helpers', () => ({
   clearDatabase: vi.fn().mockResolvedValue(undefined),
+  clearPrivateData: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({

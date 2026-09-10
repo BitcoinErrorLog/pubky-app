@@ -10,7 +10,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
-import { clearDatabase } from '@/database/franky/franky.helpers';
+import { clearDatabase, clearPrivateData } from '@/database/franky/franky.helpers';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -145,9 +145,11 @@ vi.mock('pubky-app-specs', () => ({
 
 vi.mock('@/database/franky/franky.helpers', () => ({
   clearDatabase: vi.fn(),
+  clearPrivateData: vi.fn(),
 }));
 
 const mockClearDatabase = vi.mocked(clearDatabase);
+const mockClearPrivateData = vi.mocked(clearPrivateData);
 
 const storeMocks = vi.hoisted(() => {
   const resetAuthStore = vi.fn();
@@ -1286,9 +1288,32 @@ describe('AuthController', () => {
         await expect(AuthController.restorePersistedSession()).resolves.toEqual({ status: 'signed-out' });
         expect(await CommerceCatalogEntryModel.table.count()).toBe(1);
         expect(mockClearDatabase).not.toHaveBeenCalled();
+        expect(mockClearPrivateData).toHaveBeenCalledOnce();
       } finally {
         await CommerceCatalogEntryModel.table.clear();
       }
+    });
+
+    it('clears private data when a no-identity restore throws', async () => {
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        hasHydrated: true,
+        session: null,
+        sessionExport: null,
+        currentUserPubky: null,
+        isRestoringSession: false,
+        setIsRestoringSession: vi.fn(),
+        init: vi.fn(),
+      });
+
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockRejectedValue(new Error('bridge failed'));
+      mockClearPrivateData.mockResolvedValue(undefined);
+
+      await expect(AuthController.restorePersistedSession()).resolves.toEqual({ status: 'signed-out' });
+
+      expect(mockClearPrivateData).toHaveBeenCalledOnce();
+      expect(mockClearDatabase).not.toHaveBeenCalled();
     });
 
     it('should cleanup then rethrow when restore throws wrong-environment homeserver error', async () => {

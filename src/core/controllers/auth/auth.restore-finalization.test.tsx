@@ -13,6 +13,7 @@ import { mockSession } from '@/test-utils/pubky';
 
 vi.mock('@/database/franky/franky.helpers', () => ({
   clearDatabase: vi.fn().mockResolvedValue(undefined),
+  clearPrivateData: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/libs/query-client/query-client.factory', async (importOriginal) => {
