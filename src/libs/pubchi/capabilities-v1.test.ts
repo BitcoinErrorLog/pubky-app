@@ -9,11 +9,19 @@ describe('Pubchi capability helpers', () => {
     `https://pubky.app/post/${pubky}/post-1`,
     `https://bots.pubky.app/post/${pubky}/post-1`,
   ])('parses %s', (reference) => {
-    expect(parsePostReference(reference)).toMatchObject({ pubky, postId: 'post-1' });
+    expect(parsePostReference(reference)).toEqual({
+      pubky,
+      postId: 'post-1',
+      uri: `pubky://${pubky}/pub/pubky.app/posts/post-1`,
+    });
   });
 
-  it('rejects invalid post references', () => {
-    expect(parsePostReference(`https://pubky.app/post/${pubky.slice(1)}/post-1`)).toBeNull();
+  it.each([
+    `https://pubky.app/post/${pubky.slice(1)}/post-1`,
+    `https://pubky.app/post/${pubky}/post-1 trailing text`,
+    `https://pubky.app/post/${pubky}/bad/id`,
+  ])('rejects invalid post references: %s', (reference) => {
+    expect(parsePostReference(reference)).toBeNull();
   });
 
   it('linkifies only exact pubkys and leaves text escaped by React', () => {

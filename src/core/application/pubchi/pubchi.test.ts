@@ -274,6 +274,19 @@ describe('PubchiApplication', () => {
     });
   });
 
+  it('writes a first-use private cursor remotely after a 404', async () => {
+    sessionIdentity.capabilities = ['/priv/pubchi.app/:rw'];
+    vi.mocked(HomeserverService.request).mockRejectedValueOnce(notFoundError()).mockResolvedValueOnce(undefined);
+
+    await expect(PubchiApplication.savePubchiCursor(OWNER, '2026-09-10T07:00:00Z')).resolves.toBeUndefined();
+
+    expect(HomeserverService.request).toHaveBeenNthCalledWith(2, {
+      method: HttpMethod.PUT,
+      url: `pubky://${OWNER}/priv/pubchi.app/cursor.json`,
+      bodyJson: { cursor: '2026-09-10T07:00:00Z' },
+    });
+  });
+
   it('treats private context authorization failures as an absent context', async () => {
     vi.mocked(HomeserverService.request).mockRejectedValueOnce({
       context: { statusCode: HttpStatusCode.FORBIDDEN },

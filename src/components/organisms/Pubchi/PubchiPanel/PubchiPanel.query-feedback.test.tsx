@@ -14,18 +14,24 @@ vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiEnabled: () => true,
 }));
 
-vi.mock('@/controllers/pubchi/pubchi', () => ({
-  PubchiController: {
-    fetchPubchiQuery: (...args: unknown[]) => mocks.fetchPubchiQuery(...args),
-    loadPubchi: vi.fn().mockResolvedValue({ verified: true }),
-    ensureDeviceReady: vi.fn().mockResolvedValue(true),
-    reconcileActiveBinding: vi.fn().mockResolvedValue(undefined),
-    listDeviceKeys: vi.fn().mockResolvedValue([]),
-    loadPubchiConfig: vi.fn().mockResolvedValue(null),
-    getCapabilityApprovalUrl: vi.fn(),
-    adoptCapabilityApproval: vi.fn(),
-  },
-}));
+vi.mock('@/controllers/pubchi/pubchi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/controllers/pubchi/pubchi')>();
+  return {
+    ...original,
+    PubchiController: {
+      ...original.PubchiController,
+      consumePrefill: original.PubchiController.consumePrefill,
+      fetchPubchiQuery: (...args: unknown[]) => mocks.fetchPubchiQuery(...args),
+      loadPubchi: vi.fn().mockResolvedValue({ verified: true }),
+      ensureDeviceReady: vi.fn().mockResolvedValue(true),
+      reconcileActiveBinding: vi.fn().mockResolvedValue(undefined),
+      listDeviceKeys: vi.fn().mockResolvedValue([]),
+      loadPubchiConfig: vi.fn().mockResolvedValue(null),
+      getCapabilityApprovalUrl: vi.fn(),
+      adoptCapabilityApproval: vi.fn(),
+    },
+  };
+});
 
 vi.mock('@/controllers/feed/feed', () => ({
   FeedController: { commitCreate: vi.fn() },

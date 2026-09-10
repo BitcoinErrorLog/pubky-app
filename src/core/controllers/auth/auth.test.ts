@@ -1714,6 +1714,8 @@ describe('AuthController', () => {
 
       const muteSyncCursorKey = `${MUTE_SYNC_CURSOR_STORAGE_PREFIX}test-pubky`;
       sessionStorage.setItem(muteSyncCursorKey, 'cursor-value');
+      localStorage.setItem('pubchi-cursor:owner-a', 'cursor-a');
+      localStorage.setItem('pubchi-cursor:owner-b', 'cursor-b');
 
       await AuthController.logout();
 
@@ -1744,6 +1746,8 @@ describe('AuthController', () => {
       expect(searchStore.reset).toHaveBeenCalledOnce();
       expect(notificationStore.reset).toHaveBeenCalledOnce();
       expect(settingsStore.reset).toHaveBeenCalledOnce();
+      expect(localStorage.getItem('pubchi-cursor:owner-a')).toBeNull();
+      expect(localStorage.getItem('pubchi-cursor:owner-b')).toBeNull();
 
       // Query clients
       expect(clearAllQueryClientsSpy).toHaveBeenCalledOnce();

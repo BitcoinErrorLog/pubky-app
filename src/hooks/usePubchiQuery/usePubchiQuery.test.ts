@@ -34,6 +34,38 @@ const FEED_SUCCESS: PubchiQuerySuccess = {
   applyAllowed: true,
 };
 
+function answer(overrides: Partial<{ owner: string; complete: boolean; until: string; continuation: boolean }> = {}): PubchiQuerySuccess {
+  const { owner = 'a'.repeat(52), complete = true, until = '2026-09-10T07:00:00Z', continuation = true } = overrides;
+  return {
+    kind: 'answer',
+    result: {
+      schema: 'pubchi-answer',
+      version: 1,
+      bot: OWNER,
+      owner,
+      generated_at: 10,
+      run_id: 'answer-1',
+      purpose: 'ask',
+      question: 'What did I miss?',
+      summary: 'Nothing.',
+      evidence: [],
+      sources: [],
+      tool_trace_summary: { tools: [], call_count: 0, truncated: false },
+      policy_version: 1,
+      ...(continuation
+        ? {
+            continuation: {
+              since: '2026-09-10T06:00:00Z',
+              until,
+              complete,
+              skipped: 0,
+            },
+          }
+        : {}),
+    },
+  } as PubchiQuerySuccess;
+}
+
 const mocks = vi.hoisted(() => ({
   fetchPubchiQuery: vi.fn(),
   commitCreate: vi.fn(),
@@ -43,6 +75,9 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   ensureDeviceReady: vi.fn(),
   loadPubchi: vi.fn(),
+  loadPubchiCursor: vi.fn(),
+  savePubchiCursor: vi.fn(),
+  sessionCapabilities: [] as string[],
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -54,6 +89,8 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     fetchPubchiQuery: (...args: unknown[]) => mocks.fetchPubchiQuery(...args),
     ensureDeviceReady: (...args: unknown[]) => mocks.ensureDeviceReady(...args),
     loadPubchi: (...args: unknown[]) => mocks.loadPubchi(...args),
+    loadPubchiCursor: (...args: unknown[]) => mocks.loadPubchiCursor(...args),
+    savePubchiCursor: (...args: unknown[]) => mocks.savePubchiCursor(...args),
   },
 }));
 
@@ -79,7 +116,12 @@ vi.mock('@/molecules/Toaster/toast', () => ({
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: Object.assign(
     (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: 'a'.repeat(52) }),
-    { getState: () => ({ currentUserPubky: 'a'.repeat(52) }) },
+    {
+      getState: () => ({
+        currentUserPubky: 'a'.repeat(52),
+        selectSession: () => ({ info: { capabilities: mocks.sessionCapabilities } }),
+      }),
+    },
   ),
 }));
 
@@ -96,6 +138,10 @@ describe('usePubchiQuery', () => {
     mocks.commitDelete.mockResolvedValue(undefined);
     mocks.ensureDeviceReady.mockReset().mockResolvedValue(true);
     mocks.loadPubchi.mockReset().mockResolvedValue({ verified: true });
+    mocks.loadPubchiCursor.mockReset().mockResolvedValue(null);
+    mocks.savePubchiCursor.mockReset().mockResolvedValue(undefined);
+    mocks.sessionCapabilities = [];
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -199,5 +245,94 @@ describe('usePubchiQuery', () => {
 
     expect(mocks.fetchPubchiQuery).not.toHaveBeenCalled();
     expect(result.current.form.formState.errors[QUERY_FORM_FIELDS.QUESTION]?.message).toBe('Enter a question.');
+  });
+
+  it('advances the local cursor only for a complete answer', async () => {
+    mocks.fetchPubchiQuery.mockResolvedValue(answer());
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+      await result.current.submit('ask');
+    });
+
+    expect(localStorage.getItem(`pubchi-cursor:${'a'.repeat(52)}`)).toBe('2026-09-10T07:00:00Z');
+  });
+
+  it.each([
+    ['a partial answer', answer({ complete: false })],
+    ['an answer without continuation', answer({ continuation: false })],
+  ])('does not advance the cursor for %s', async (_label, response) => {
+    mocks.fetchPubchiQuery.mockResolvedValue(response);
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+      await result.current.submit('ask');
+    });
+
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('does not advance the cursor for a different question', async () => {
+    mocks.fetchPubchiQuery.mockResolvedValue(answer());
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What changed?');
+      await result.current.submit('ask');
+    });
+
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('does not advance the cursor when the query errors', async () => {
+    mocks.fetchPubchiQuery.mockRejectedValue(new Error('failed'));
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+      await result.current.submit('ask');
+    });
+
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('does not advance for a foreign-owner answer or regress an older cursor', async () => {
+    localStorage.setItem(`pubchi-cursor:${'a'.repeat(52)}`, '2026-09-10T08:00:00Z');
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    mocks.fetchPubchiQuery.mockResolvedValue(answer({ owner: 'b'.repeat(52), until: '2026-09-10T09:00:00Z' }));
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+      await result.current.submit('ask');
+    });
+    expect(localStorage.getItem(`pubchi-cursor:${'a'.repeat(52)}`)).toBe('2026-09-10T08:00:00Z');
+
+    mocks.fetchPubchiQuery.mockResolvedValue(answer({ until: '2026-09-10T07:00:00Z' }));
+    await act(async () => {
+      await result.current.submit('ask');
+    });
+    expect(localStorage.getItem(`pubchi-cursor:${'a'.repeat(52)}`)).toBe('2026-09-10T08:00:00Z');
+  });
+
+  it('writes the cursor remotely when the session covers the private directory', async () => {
+    mocks.sessionCapabilities = ['/priv/pubchi.app/:rw'];
+    mocks.fetchPubchiQuery.mockResolvedValue(answer());
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+      await result.current.submit('ask');
+    });
+
+    expect(mocks.savePubchiCursor).toHaveBeenCalledWith('2026-09-10T07:00:00Z');
+    expect(localStorage.length).toBe(0);
   });
 });

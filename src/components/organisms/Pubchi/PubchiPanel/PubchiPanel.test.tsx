@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PUBCHI_PANEL_SURFACE, PubchiPanel } from './PubchiPanel';
 
 const submit = vi.fn();
@@ -76,6 +77,7 @@ describe('PubchiPanel', () => {
     hookState.errorCode = undefined;
     hookState.form.setValue.mockReset();
     consumePrefill.mockReset();
+    usePubchiStore.getState().clear();
   });
 
   it('consumes flyout prefill without submitting a query', () => {
@@ -92,6 +94,19 @@ describe('PubchiPanel', () => {
       { shouldValidate: true },
     );
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('consumes a prefill that arrives while the flyout is already open', () => {
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+    const prefill = {
+      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      source: 'post-menu' as const,
+    };
+    consumePrefill.mockReturnValue(prefill);
+    usePubchiStore.getState().openFlyout(prefill);
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
   });
 
   it('mounts the production panel surface', () => {
