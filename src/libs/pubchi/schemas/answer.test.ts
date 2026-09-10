@@ -22,15 +22,43 @@ describe('pubchi answer schema', () => {
   });
 
   it('parses a strict continuation', () => {
-    expect(parsePubchiAnswerV1({
-      ...fixture,
-      continuation: {
-        since: '2026-09-10T06:00:00Z',
-        until: '2026-09-10T07:00:00Z',
-        complete: true,
-        skipped: 0,
-      },
-    }).ok).toBe(true);
+    expect(
+      parsePubchiAnswerV1({
+        ...fixture,
+        continuation: {
+          since: '2026-09-10T06:00:00Z',
+          until: '2026-09-10T07:00:00Z',
+          complete: true,
+          skipped: 0,
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('parses knowledge citations and rejects model citations', () => {
+    const citation = {
+      kind: 'knowledge' as const,
+      title: 'Pubky docs',
+      url: 'https://docs.pubky.org/guide',
+      corpus_version: '2026-09',
+      snippet: 'Public documentation',
+    };
+    expect(
+      parsePubchiAnswerV1({
+        ...fixture,
+        basis: 'knowledge',
+        scope: { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+        citations: [citation],
+      }).ok,
+    ).toBe(true);
+    expect(
+      parsePubchiAnswerV1({
+        ...fixture,
+        basis: 'model',
+        scope: { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+        citations: [citation],
+      }).ok,
+    ).toBe(false);
   });
 
   it('allows an omitted evidence section and parses C3 sections', () => {
@@ -47,12 +75,39 @@ describe('pubchi answer schema', () => {
   it.each([
     ['extra key', { ...fixture, verdict: 'high' }],
     ['forbidden verdict', { ...fixture, evidence: fixture.evidence.map((item) => ({ ...item, verdict: 'high' })) }],
-    ['too many items', { ...fixture, evidence: Array.from({ length: 51 }, (_, index) => ({ ...fixture.evidence[0], label: `item-${index}` })) }],
+    [
+      'too many items',
+      {
+        ...fixture,
+        evidence: Array.from({ length: 51 }, (_, index) => ({ ...fixture.evidence[0], label: `item-${index}` })),
+      },
+    ],
     ['long summary', { ...fixture, summary: 'x'.repeat(1201) }],
     ['bad uri', { ...fixture, sources: ['https://example.com'] }],
-    ['continuation extra key', { ...fixture, continuation: { since: '2026-09-10T06:00:00Z', until: '2026-09-10T07:00:00Z', complete: true, skipped: 0, extra: true } }],
-    ['continuation non-ISO', { ...fixture, continuation: { since: 'yesterday', until: '2026-09-10T07:00:00Z', complete: true, skipped: 0 } }],
-    ['continuation complete string', { ...fixture, continuation: { since: '2026-09-10T06:00:00Z', until: '2026-09-10T07:00:00Z', complete: 'true', skipped: 0 } }],
+    [
+      'continuation extra key',
+      {
+        ...fixture,
+        continuation: {
+          since: '2026-09-10T06:00:00Z',
+          until: '2026-09-10T07:00:00Z',
+          complete: true,
+          skipped: 0,
+          extra: true,
+        },
+      },
+    ],
+    [
+      'continuation non-ISO',
+      { ...fixture, continuation: { since: 'yesterday', until: '2026-09-10T07:00:00Z', complete: true, skipped: 0 } },
+    ],
+    [
+      'continuation complete string',
+      {
+        ...fixture,
+        continuation: { since: '2026-09-10T06:00:00Z', until: '2026-09-10T07:00:00Z', complete: 'true', skipped: 0 },
+      },
+    ],
     ['scope extra key', invalidScopeFixture],
     ['unknown evidence section', invalidSectionFixture],
   ])('rejects %s', (_, input) => {

@@ -15,10 +15,17 @@ export {
   PubchiEvidenceV1Schema,
 } from './answer';
 export {
-  parsePubchiBotV1,
-  type PubchiBotV1,
-  PubchiBotV1Schema,
-} from './bot';
+  MAX_CONVERSATION_CODE_POINTS,
+  MAX_CONVERSATION_TURNS,
+  MAX_CONVERSATION_TURN_CODE_POINTS,
+  ConversationSchema,
+  ConversationTurnSchema,
+  parseConversation,
+  type Conversation,
+  type ConversationBasis,
+  type ConversationTurn,
+} from './ask-body';
+export { parsePubchiBotV1, type PubchiBotV1, PubchiBotV1Schema } from './bot';
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
 export { err, ERROR_CODES, type ErrorCode, ok, type ParseErr, type ParseOk, type ParseResult } from './codes';
 export {
@@ -27,7 +34,12 @@ export {
   type PubchiConfigV1,
   PubchiConfigV1Schema,
 } from './config';
-export { contextForRequest, parsePubchiOwnerContextV1, type PubchiOwnerContextV1,PubchiOwnerContextV1Schema } from './context';
+export {
+  contextForRequest,
+  parsePubchiOwnerContextV1,
+  type PubchiOwnerContextV1,
+  PubchiOwnerContextV1Schema,
+} from './context';
 export {
   delegationPath,
   delegationUri,
