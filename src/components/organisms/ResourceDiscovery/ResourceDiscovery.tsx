@@ -1,10 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search } from 'lucide-react';
-import type { FormEvent } from 'react';
-import { getResourceLookupRoute, getResourceRoute, getResourceTagRoute } from '@/app/routes';
+import { getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
@@ -12,11 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CONTENT_GUTTER_CLASS } from '@/config/layoutClasses';
 import { RESOURCE_DISCOVERY_LIMIT } from '@/config/nexus';
 import { ResourceController } from '@/controllers/resource/resource';
-import { useResourceLookupForm } from '@/hooks/useResourceLookupForm/useResourceLookupForm';
-import type { ResourceLookupFormData } from '@/hooks/useResourceLookupForm/useResourceLookupForm.types';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { cn } from '@/libs/utils/utils';
-import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ResourceEmpty } from '@/molecules/ResourceEmpty/ResourceEmpty';
 import { ResourceCanonShelf } from '@/organisms/ResourceCanonShelf/ResourceCanonShelf';
 import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
@@ -25,6 +20,10 @@ import { ResourceDiscoverySkeleton } from './ResourceDiscovery.skeleton';
 
 export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   const router = useRouter();
+  const routerRef = useRef(router);
+  useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
   const [resources, setResources] = useState<NexusResource[]>([]);
   const [resource, setResource] = useState<NexusResource | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,8 +34,6 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   const [nextSkip, setNextSkip] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState(false);
-  const lookup = useResourceLookupForm((value) => router.push(getResourceLookupRoute(value)));
-
   useEffect(() => {
     let active = true;
     setIsLoading(true);
@@ -70,7 +67,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
             details: result.resource,
             tags: result.tags,
           });
-          if (id?.includes('://')) router.replace(getResourceRoute(result.resource.id));
+          if (id?.includes('://')) routerRef.current.replace(getResourceRoute(result.resource.id));
         }
       })
       .catch((error: unknown) => {
@@ -86,7 +83,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     return () => {
       active = false;
     };
-  }, [id, router, sort, tag]);
+  }, [id, sort, tag]);
 
   async function loadMore() {
     if (loadingMore || nextSkip === null) return;
@@ -106,11 +103,6 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     }
   }
 
-  async function submitLookup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await lookup.submit();
-  }
-
   if (isLoading) return <ResourceDiscoverySkeleton />;
   if (!tag && !id) {
     return (
@@ -126,18 +118,6 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
           <Heading level={1} size="xl">
             Resource discovery
           </Heading>
-          <form className="flex gap-2" onSubmit={submitLookup}>
-            <ControlledInputField<ResourceLookupFormData>
-              name="uri"
-              control={lookup.form.control}
-              placeholder="Paste a URL"
-              ariaLabel="Resource URL"
-            />
-            <Button type="submit" variant={ButtonVariant.BRAND} aria-label="Look up resource">
-              <Search aria-hidden="true" />
-              Look up
-            </Button>
-          </form>
           <Container overrideDefaults className="flex flex-wrap items-center gap-2">
             <Container overrideDefaults className="flex flex-1 flex-wrap items-center gap-2">
               {tagLabels.map((label) => (

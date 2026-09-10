@@ -4,6 +4,10 @@ import fixture from '@/test/fixtures/resources/stream.json';
 import { matchVrtFrameScreenshot, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
 vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
   useOgMetadata: () => ({
     metadata: { title: 'Bitcoin.org', description: 'Bitcoin resources', image: null },

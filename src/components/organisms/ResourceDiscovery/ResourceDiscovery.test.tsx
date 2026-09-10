@@ -9,10 +9,7 @@ import type { NexusResource } from '@/services/nexus/resource/resource.types';
 import { ResourceDiscovery } from './ResourceDiscovery';
 
 vi.mock('next/navigation', () => ({
-  useRouter: (() => {
-    const router = { push: vi.fn(), replace: vi.fn() };
-    return () => router;
-  })(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
 vi.mock('@/controllers/resource/resource', () => ({
@@ -49,6 +46,7 @@ function resourceWithLabels(id: string, uri: string, labels: string[]): NexusRes
 describe('ResourceDiscovery', () => {
   beforeEach(() => {
     vi.mocked(ResourceController.fetchByTag).mockReset();
+    vi.mocked(ResourceController.fetchByTag).mockResolvedValue([]);
     vi.mocked(ResourceController.fetchById).mockReset();
     vi.mocked(ResourceController.fetchByUri).mockReset();
     vi.mocked(ResourceController.fetchStreamPage).mockReset();
@@ -74,16 +72,26 @@ describe('ResourceDiscovery', () => {
     expect(screen.getByRole('combobox', { name: 'Sort resources' })).toHaveTextContent('Recent');
   });
 
-  it('shows the lookup validation message without calling the URI controller', async () => {
+  it('does not refetch when the router object changes between renders', async () => {
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValue({
+      resources: [],
+      nextSkip: null,
+    });
+
+    const { rerender } = render(<ResourceDiscovery />);
+    await screen.findByText('No resources yet');
+    rerender(<ResourceDiscovery />);
+
+    await waitFor(() => expect(ResourceController.fetchStreamPage).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps URL lookup out of the browse index', async () => {
     vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({ resources: [], nextSkip: null });
 
     render(<ResourceDiscovery />);
 
-    const input = await screen.findByRole('textbox', { name: 'Resource URL' });
-    fireEvent.change(input, { target: { value: 'example.com' } });
-    fireEvent.submit(input.closest('form')!);
-
-    expect(await screen.findByText('Enter a valid HTTP or HTTPS URL')).toBeInTheDocument();
+    await screen.findByText('No resources yet');
+    expect(screen.queryByRole('textbox', { name: 'Resource URL' })).not.toBeInTheDocument();
     expect(ResourceController.fetchByUri).not.toHaveBeenCalled();
   });
 
@@ -123,9 +131,10 @@ describe('ResourceDiscovery', () => {
     const { container } = render(<ResourceDiscovery tag="docs" />);
 
     await waitFor(() => expect(container.querySelectorAll('[data-surface="resource-card"]')).toHaveLength(2));
-    expect(
-      screen.getAllByRole('link', { name: /example.com\/(one|two)/i }).map((link) => link.getAttribute('href')),
-    ).toEqual(['https://example.com/one', 'https://example.com/two']);
+    expect(screen.getAllByRole('link', { name: 'Open original' }).map((link) => link.getAttribute('href'))).toEqual([
+      'https://example.com/one',
+      'https://example.com/two',
+    ]);
     expect(screen.getAllByRole('link', { name: 'Preview' }).map((link) => link.getAttribute('href'))).toEqual([
       getResourceRoute('resource-1'),
       getResourceRoute('resource-2'),

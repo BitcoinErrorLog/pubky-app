@@ -58,7 +58,11 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
             {new Date(resource.details.indexed_at * 1000).toLocaleDateString()}
           </Typography>
         </Container>
-        {isPubkyPost ? (
+        {!safeUrl && !isPubkyPost ? (
+          <Typography as="h2" size={variant === 'inline' ? 'md' : 'lg'} className="font-medium">
+            Unsupported link
+          </Typography>
+        ) : isPubkyPost ? (
           <PostPreviewCard postId={toCompositePostId(resource.details.uri)} interactiveActions={false} />
         ) : (
           <Link href={detailsHref} className="block rounded-md">
@@ -111,12 +115,14 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
         ) : null}
       </Container>
       <Container overrideDefaults className="flex flex-wrap items-center gap-2">
-        <Button asChild size="sm" variant={ButtonVariant.OUTLINE}>
-          <Link href={resource.details.uri}>
-            <ExternalLink aria-hidden="true" />
-            Open original
-          </Link>
-        </Button>
+        {safeUrl ? (
+          <Button asChild size="sm" variant={ButtonVariant.OUTLINE}>
+            <Link href={safeUrl}>
+              <ExternalLink aria-hidden="true" />
+              Open original
+            </Link>
+          </Button>
+        ) : null}
         <Button type="button" size="sm" variant={ButtonVariant.OUTLINE} onClick={() => void shareResource()}>
           <Share2 aria-hidden="true" />
           Share

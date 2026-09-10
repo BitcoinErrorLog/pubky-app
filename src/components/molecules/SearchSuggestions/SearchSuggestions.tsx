@@ -27,6 +27,8 @@ interface SearchSuggestionsProps {
   hotTags: HotTag[];
   /** Whether input has content */
   hasInput: boolean;
+  /** Current search field text. */
+  inputValue: string;
   /** True while autocomplete lookups for the current input are in flight */
   isLoading?: boolean;
   /** Autocomplete tag suggestions */
@@ -47,6 +49,8 @@ interface SearchSuggestionsProps {
   onQueryClick: (query: string) => void;
   /** Runs a full-text content search for the current input. */
   onShowAllResults: () => void;
+  /** Looks up an absolute HTTP(S) URL as a universal resource. */
+  onResourceLookup?: () => void;
   /** Callback to clear all recent searches */
   onClearRecentSearches?: () => void;
 }
@@ -56,6 +60,7 @@ export function SearchSuggestions({
   'aria-label': ariaLabel,
   hotTags,
   hasInput,
+  inputValue,
   isLoading = false,
   autocompleteTags = [],
   autocompleteUsers = [],
@@ -66,6 +71,7 @@ export function SearchSuggestions({
   onUserClick,
   onQueryClick,
   onShowAllResults,
+  onResourceLookup,
   onClearRecentSearches,
 }: SearchSuggestionsProps) {
   // Limit recent items to display
@@ -86,6 +92,7 @@ export function SearchSuggestions({
   // query is being refined the previous suggestions stay on screen (the hook
   // keeps them until fresh results land), so nothing flickers per keystroke.
   const showAutocompleteSkeleton = hasInput && isLoading && !hasAutocompleteTags && !hasAutocompleteUsers;
+  const isUrlLookup = hasInput && isAbsoluteHttpUrl(inputValue);
 
   const renderAutocompleteContent = () => {
     if (!hasInput) return null;
@@ -137,18 +144,41 @@ export function SearchSuggestions({
         {renderAutocompleteContent()}
         {renderRecentContent()}
         {hasInput && (
-          <Button
-            type="button"
-            variant={ButtonVariant.SECONDARY}
-            size="sm"
-            className="self-start"
-            onClick={onShowAllResults}
-          >
-            <Search aria-hidden="true" />
-            Show all results
-          </Button>
+          <>
+            {isUrlLookup && onResourceLookup ? (
+              <Button
+                type="button"
+                variant={ButtonVariant.SECONDARY}
+                size="sm"
+                className="self-start"
+                onClick={onResourceLookup}
+              >
+                <Search aria-hidden="true" />
+                Look up this link
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant={ButtonVariant.SECONDARY}
+              size="sm"
+              className="self-start"
+              onClick={onShowAllResults}
+            >
+              <Search aria-hidden="true" />
+              Show all results
+            </Button>
+          </>
         )}
       </Container>
     </Container>
   );
+}
+
+function isAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }

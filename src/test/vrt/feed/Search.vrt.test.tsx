@@ -16,14 +16,16 @@ import { Search } from '@/templates/Feed/Search/Search';
 // no synchronous require(), so each factory loads its fixture via async import
 // the first time the mocked module is consumed.
 const fixtures = vi.hoisted(async () => {
-  const [postsModule, profilesModule, whoToFollowModule, navModule, collectionsModule, mockApp] = await Promise.all([
-    import('@/test/fixtures/feed/posts'),
-    import('@/test/fixtures/feed/profiles'),
-    import('@/test/fixtures/feed/whoToFollow'),
-    import('@/test/fixtures/feed/feedNavigation'),
-    import('@/test/fixtures/feed/collections'),
-    import('@/test/mocks/feedApplication'),
-  ]);
+  const [postsModule, profilesModule, whoToFollowModule, navModule, collectionsModule, resourcesModule, mockApp] =
+    await Promise.all([
+      import('@/test/fixtures/feed/posts'),
+      import('@/test/fixtures/feed/profiles'),
+      import('@/test/fixtures/feed/whoToFollow'),
+      import('@/test/fixtures/feed/feedNavigation'),
+      import('@/test/fixtures/feed/collections'),
+      import('@/test/fixtures/resources/stream.json'),
+      import('@/test/mocks/feedApplication'),
+    ]);
   // Tagged-results case renders the SearchCollections section: 5 fixtures give
   // a deterministic preview-of-4 plus a visible "See all" pill.
   const searchCollections = [
@@ -97,6 +99,7 @@ const fixtures = vi.hoisted(async () => {
     homeFilters: navModule.VRT_HOME_FILTERS,
     mockFeedApplication: mockApp.mockFeedApplication,
     autocompleteUsers,
+    resources: resourcesModule.default.slice(0, 2),
   };
 });
 
@@ -591,6 +594,29 @@ vi.mock('@/application/feed/feed', async () => {
   return { FeedApplication: f.mockFeedApplication };
 });
 
+vi.mock('@/controllers/resource/resource', async () => {
+  const f = await fixtures;
+  return {
+    ResourceController: {
+      fetchByTag: async () => f.resources,
+      getOrFetchByUri: async () => null,
+    },
+  };
+});
+
+vi.mock('@/hooks/useResourceTagSearch/useResourceTagSearch', async () => {
+  const f = await fixtures;
+  return {
+    useResourceTagSearch: () => ({ resources: f.resources, isLoading: false, error: null }),
+  };
+});
+
+vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
+  useOgMetadata: () => ({
+    metadata: { title: 'Resource fixture', description: 'A deterministic resource fixture', image: null },
+  }),
+}));
+
 vi.mock('@/controllers/file/file', async () => {
   const f = await fixtures;
   return {
@@ -679,6 +705,20 @@ describe('Search (tagged results) — visual regression', () => {
   it('renders tagged search results at mobile viewport', async () => {
     await renderTaggedSearch(VRT_VIEWPORT_MOBILE);
     await matchVrtFrameScreenshot('search-tagged-mobile');
+  });
+});
+
+describe('Search (tagged links) — visual regression', () => {
+  beforeEach(() => {
+    setSearchTags(['bitcoin']);
+  });
+
+  it('renders the production Links section with resource fixtures', async () => {
+    const screen = await renderTaggedSearch(VRT_VIEWPORT_DESKTOP);
+    await screen.getByRole('tab', { name: 'Links' }).click();
+    await expect.element(screen.getByRole('heading', { name: 'Links' })).toBeVisible();
+    await expect.element(screen.getByTestId('resource-search-links')).toBeVisible();
+    await matchVrtFrameScreenshot('search-tagged-links-desktop');
   });
 });
 

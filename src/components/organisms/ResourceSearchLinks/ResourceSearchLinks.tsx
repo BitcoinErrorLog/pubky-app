@@ -14,7 +14,12 @@ export function ResourceSearchLinks({ tag }: { tag: string | null }) {
   if (error) return <Typography role="alert">Could not load links.</Typography>;
 
   return (
-    <Container overrideDefaults className="flex w-full flex-col gap-4">
+    <Container
+      overrideDefaults
+      data-surface="resource-search-links"
+      data-testid="resource-search-links"
+      className="flex w-full flex-col gap-4"
+    >
       <Heading level={2} size="lg" className="font-light text-muted-foreground">
         Links
       </Heading>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { APP_ROUTES, getContentSearchUrl, getUserProfileUrl } from '@/app/routes';
+import { APP_ROUTES, getContentSearchUrl, getResourceLookupRoute, getUserProfileUrl } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
 import { CLICKABLE_TAGS_DEFAULT_MAX_LENGTH } from '@/config/tags';
 import { useHotTags } from '@/hooks/useHotTags/useHotTags';
@@ -60,6 +60,11 @@ export function SearchInput({ autoFocus = false }: SearchInputProps) {
     setInputValue,
     setFocus,
   } = useSearchInput({ onEnter: submitContentSearch });
+
+  const lookupResource = (): void => {
+    router.push(getResourceLookupRoute(inputValue.trim()));
+    setFocus(false);
+  };
 
   // Sync tag chips and input text with the URL: chips exist only for tag
   // searches; an active (or invalid shared) query is shown in the input for
@@ -153,6 +158,7 @@ export function SearchInput({ autoFocus = false }: SearchInputProps) {
           aria-label="Search suggestions"
           hotTags={hotTags}
           hasInput={hasInput}
+          inputValue={inputValue}
           isLoading={isAutocompleteLoading}
           autocompleteTags={autocompleteTags}
           autocompleteUsers={autocompleteUserData}
@@ -163,6 +169,7 @@ export function SearchInput({ autoFocus = false }: SearchInputProps) {
           onUserClick={handleUserClick}
           onQueryClick={submitContentSearch}
           onShowAllResults={() => submitContentSearch(inputValue)}
+          onResourceLookup={lookupResource}
           onClearRecentSearches={clearRecentSearches}
         />
       )}

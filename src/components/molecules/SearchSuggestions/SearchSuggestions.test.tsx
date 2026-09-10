@@ -65,6 +65,7 @@ describe('SearchSuggestions', () => {
   const defaultProps = {
     hotTags,
     hasInput: false,
+    inputValue: '',
     onTagClick: vi.fn(),
     onUserClick: vi.fn(),
     onQueryClick: vi.fn(),
@@ -103,6 +104,22 @@ describe('SearchSuggestions', () => {
 
     rerender(<SearchSuggestions {...defaultProps} hasInput={false} onShowAllResults={onShowAllResults} />);
     expect(screen.queryByRole('button', { name: 'Show all results' })).not.toBeInTheDocument();
+  });
+
+  it('offers resource lookup for an absolute HTTP URL', () => {
+    const onResourceLookup = vi.fn();
+    render(
+      <SearchSuggestions
+        {...defaultProps}
+        hasInput
+        inputValue="https://example.com/article"
+        onResourceLookup={onResourceLookup}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Look up this link' }));
+
+    expect(onResourceLookup).toHaveBeenCalledOnce();
   });
 
   it('renders recent queries inside the recent section when input is empty', () => {
