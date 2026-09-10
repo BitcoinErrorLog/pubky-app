@@ -1,4 +1,4 @@
-import type { Phase0Purpose } from '@/libs/pubchi/schemas';
+import type { Conversation, Phase0Purpose } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
 export type TCreatePubchiParams = {
@@ -13,6 +13,7 @@ export type TConfirmPubchiBackupParams = {
 export type TPubchiQueryParams = {
   question: string;
   purpose: Phase0Purpose;
+  conversation?: Conversation;
   proposalVersion?: 2;
   targetFeedId?: string;
   currentFeed?: unknown;

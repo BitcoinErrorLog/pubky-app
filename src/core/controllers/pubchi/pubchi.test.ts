@@ -204,6 +204,27 @@ describe('PubchiController', () => {
     });
   });
 
+  it('fetchPubchiQuery forwards a non-empty conversation window for ask and drops an empty one', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    const success = { kind: 'answer' as const, result: { schema: 'pubchi-answer' } };
+    const querySpy = vi.spyOn(PubchiApplication, 'query').mockResolvedValue(success as never);
+    const conversation = {
+      turns: [
+        { role: 'user' as const, text: 'Who are the most tagged users this week?' },
+        { role: 'assistant' as const, text: 'Happy-Wolf-Flame received 3 tags.' },
+      ],
+    };
+    await PubchiController.fetchPubchiQuery({ question: 'and what about last month?', purpose: 'ask', conversation });
+    expect(querySpy).toHaveBeenLastCalledWith({
+      owner: OWNER,
+      question: 'and what about last month?',
+      purpose: 'ask',
+      conversation,
+    });
+    await PubchiController.fetchPubchiQuery({ question: 'how are you?', purpose: 'ask', conversation: { turns: [] } });
+    expect(querySpy).toHaveBeenLastCalledWith({ owner: OWNER, question: 'how are you?', purpose: 'ask' });
+  });
+
   it('commitCreateBinding rejects an invalid bot pubky before writing', async () => {
     setPubchiEnv('true', 'https://pubchi.example.com');
     const createSpy = vi.spyOn(PubchiApplication, 'commitCreateBinding');
