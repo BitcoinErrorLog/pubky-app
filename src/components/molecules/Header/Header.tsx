@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Bot, Flame, Home, Library, Settings, UserRoundPlus } from 'lucide-react';
 import { APP_ROUTES, isCoreExploreRoute, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
@@ -12,6 +11,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getGithubLink, getTelegramLink, getTwitterGetpubkyLink } from '@/config/externalLinks';
+import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Github2, Telegram, XTwitter } from '@/icons';
@@ -22,6 +22,7 @@ import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFal
 import { PubchiPanel } from '@/organisms/Pubchi/PubchiPanel/PubchiPanel';
 import { SearchInput } from '@/organisms/SearchInput/SearchInput';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { ProgressSteps } from '../ProgressSteps/ProgressSteps';
 
 export interface HeaderContainerProps {
@@ -211,7 +212,7 @@ export function HeaderNavigationButtons({
   includePubchi = false,
 }: HeaderNavigationButtonsProps) {
   const pathname = usePathname();
-  const [pubchiOpen, setPubchiOpen] = useState(false);
+  const pubchiOpen = usePubchiStore((state) => state.flyout.open);
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
   const counterString = counter > 21 ? '21+' : counter.toString();
   return (
@@ -240,9 +241,9 @@ export function HeaderNavigationButtons({
             label="Pubchi"
             isActive={pubchiOpen}
             dataCy="header-pubchi-btn"
-            onClick={() => setPubchiOpen(true)}
+            onClick={() => PubchiController.openFlyout()}
           />
-          {pubchiOpen ? <PubchiPanel open={pubchiOpen} onOpenChange={setPubchiOpen} /> : null}
+          {pubchiOpen ? <PubchiPanel open={pubchiOpen} onOpenChange={(open) => (open ? PubchiController.openFlyout() : PubchiController.closeFlyout())} /> : null}
         </>
       ) : null}
 

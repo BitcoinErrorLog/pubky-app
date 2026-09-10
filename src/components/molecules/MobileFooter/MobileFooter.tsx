@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Bot, Flame, Home, Library, Search, Settings, UserRoundPlus } from 'lucide-react';
@@ -10,6 +9,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Typography } from '@/atoms/Typography/Typography';
 import { FileController } from '@/controllers/file/file';
+import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
@@ -18,10 +18,10 @@ import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
-import { PubchiPanel } from '@/organisms/Pubchi/PubchiPanel/PubchiPanel';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 
 export interface MobileFooterProps {
   className?: string;
@@ -34,7 +34,7 @@ export interface MobileFooterProps {
  * following pubky-app pattern.
  */
 export function MobileFooter({ className }: MobileFooterProps) {
-  const [pubchiOpen, setPubchiOpen] = useState(false);
+  const pubchiOpen = usePubchiStore((state) => state.flyout.open);
   const pathname = usePathname();
   const isAuthenticated = useAuthStore((state) => Boolean(state.currentUserPubky));
   const setShowSignInDialog = useAuthStore((state) => state.setShowSignInDialog);
@@ -165,11 +165,10 @@ export function MobileFooter({ className }: MobileFooterProps) {
                 'size-12 rounded-full',
                 pubchiOpen ? 'bg-secondary' : 'border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10',
               )}
-              onClick={() => setPubchiOpen(true)}
+              onClick={() => PubchiController.openFlyout()}
             >
               <Bot className="size-6" />
             </Button>
-            {pubchiOpen ? <PubchiPanel open={pubchiOpen} onOpenChange={setPubchiOpen} /> : null}
           </>
         ) : null}
         {isAuthenticated ? (

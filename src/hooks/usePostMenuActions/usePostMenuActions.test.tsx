@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { toast } from '@/molecules/Toaster/toast';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { usePostMenuActions } from './usePostMenuActions';
 import { POST_MENU_ACTION_IDS } from './usePostMenuActions.constants';
 
@@ -68,6 +69,11 @@ vi.mock('@/hooks/useCopyToClipboard/useCopyToClipboard', () => ({
   useCopyToClipboard: mockUseCopyToClipboard,
 }));
 
+vi.mock('@/libs/pubchi/flags', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/libs/pubchi/flags')>()),
+  isPubchiEnabled: () => true,
+}));
+
 // Mock Molecules
 vi.mock('@/molecules/Toaster/toast');
 
@@ -118,6 +124,7 @@ describe('usePostMenuActions', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    usePubchiStore.getState().clear();
     mockIsAppError.mockReturnValue(false);
     defaultMocks.isMuted.mockReturnValue(false);
 
@@ -166,6 +173,34 @@ describe('usePostMenuActions', () => {
 
     mockUseCopyToClipboard.mockReturnValue({
       copyToClipboard: defaultMocks.copyToClipboard,
+    });
+  });
+
+  it('offers summarization only for a verified Pubchi', async () => {
+    usePubchiStore.getState().setPubchi(
+      {
+        bot: mockAuthorId,
+        displayName: 'Pubchi',
+        createdAt: 1,
+        backupConfirmedAt: 1,
+        verified: true,
+      },
+      mockCurrentUserId,
+    );
+
+    const { result } = renderHook(() =>
+      usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+    );
+    const item = result.current.menuItems.find((entry) => entry.id === POST_MENU_ACTION_IDS.SUMMARIZE_WITH_PUBCHI);
+
+    expect(item?.label).toBe('Summarize with Pubchi');
+    await act(async () => item?.onClick());
+    expect(usePubchiStore.getState().flyout).toEqual({
+      open: true,
+      prefill: {
+        question: 'Summarize this thread pubky://author123/pub/pubky.app/posts/post456',
+        source: 'post-menu',
+      },
     });
   });
 

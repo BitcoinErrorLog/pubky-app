@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { Bot } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
@@ -8,6 +9,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/atoms/Sheet/Sheet';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
 import { QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
@@ -45,6 +47,14 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
+
+  useEffect(() => {
+    if (!open) return;
+    const prefill = PubchiController.consumePrefill();
+    if (!prefill) return;
+    form.setValue(QUERY_FORM_FIELDS.QUESTION, prefill.question, { shouldValidate: true });
+    document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
+  }, [form, open]);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;

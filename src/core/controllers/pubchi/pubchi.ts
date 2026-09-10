@@ -17,12 +17,24 @@ import { isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/lib
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
+import { type PubchiFlyoutPrefill, usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import type { TConfirmPubchiBackupParams, TCreatePubchiParams, TPubchiQueryParams } from './pubchi.types';
 import { publishPubchiSync } from './pubchi-sync';
 
 export class PubchiController {
   private constructor() {}
+
+  static openFlyout(prefill?: PubchiFlyoutPrefill): void {
+    usePubchiStore.getState().openFlyout(prefill);
+  }
+
+  static closeFlyout(): void {
+    usePubchiStore.getState().closeFlyout();
+  }
+
+  static consumePrefill(): PubchiFlyoutPrefill | undefined {
+    return usePubchiStore.getState().consumePrefill();
+  }
 
   static async getActiveBinding(): Promise<PubchiBindingRecordResult | undefined> {
     if (!isPubchiEnabled()) return undefined;

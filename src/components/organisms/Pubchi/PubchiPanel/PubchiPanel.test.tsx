@@ -7,12 +7,14 @@ const submit = vi.fn();
 const applyFeed = vi.fn();
 const reapprove = vi.fn();
 const setupDevice = vi.fn();
+const { consumePrefill } = vi.hoisted(() => ({ consumePrefill: vi.fn() }));
 const hookState = {
   form: {
     control: {},
     getValues: () => ({ question: '' }),
     watch: () => '',
     trigger: async () => true,
+    setValue: vi.fn(),
   },
   submit,
   applyFeed,
@@ -46,6 +48,12 @@ vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiEnabled: () => true,
 }));
 
+vi.mock('@/controllers/pubchi/pubchi', () => ({
+  PubchiController: {
+    consumePrefill,
+  },
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' }),
@@ -66,6 +74,24 @@ describe('PubchiPanel', () => {
     hookState.elapsedMs = 0;
     hookState.result = undefined;
     hookState.errorCode = undefined;
+    hookState.form.setValue.mockReset();
+    consumePrefill.mockReset();
+  });
+
+  it('consumes flyout prefill without submitting a query', () => {
+    consumePrefill.mockReturnValue({
+      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      source: 'post-menu',
+    });
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(hookState.form.setValue).toHaveBeenCalledWith(
+      'question',
+      'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      { shouldValidate: true },
+    );
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('mounts the production panel surface', () => {
