@@ -1,7 +1,16 @@
 import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Logger } from '@/libs/logger/logger';
 import { FileVariant } from '@/services/nexus/file/file.types';
 import { asOpaque } from '@/test-utils/type-assertions';
+
+vi.mock('sharp', () => ({
+  default: vi.fn(() => ({
+    resize: vi.fn().mockReturnThis(),
+    png: vi.fn().mockReturnThis(),
+    toBuffer: vi.fn().mockResolvedValue(Buffer.from('png')),
+  })),
+}));
 
 vi.mock('@/services/nexus/file/file.api', () => ({
   filesApi: {
@@ -147,6 +156,7 @@ describe('fetchPostTags', () => {
 
 describe('fetchImageAsDataUri', () => {
   afterEach(() => {
+    vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
@@ -220,6 +230,166 @@ describe('fetchImageAsDataUri', () => {
     expect(readCount).toBe(1);
     expect(reader.read).toHaveBeenCalledTimes(1);
     expect(cancelled).toBe(true);
+  });
+
+  it.each(['garbage', '-1'])('streams a body when content length is %s', async (contentLength) => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.close();
+      },
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(stream, { status: 200, headers: { 'Content-Type': 'image/png', 'Content-Length': contentLength } }),
+    );
+
+    await expect(fetchImageAsDataUri('https://cdn.test/streamed.png')).resolves.toMatch(/^data:image\/png;base64,/);
+    expect(vi.mocked(sharp)).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts exactly the streamed cap and rejects one byte over it', async () => {
+    const makeResponse = (totalBytes: number, cancel: () => Promise<void>) => {
+      const chunkSize = 1024 * 1024;
+      let emitted = 0;
+      const stream = new ReadableStream({
+        pull(controller) {
+          const chunk = Math.min(chunkSize, totalBytes - emitted);
+          emitted += chunk;
+          controller.enqueue(new Uint8Array(chunk));
+          if (emitted === totalBytes) controller.close();
+        },
+      });
+      const reader = stream.getReader();
+      vi.spyOn(reader, 'cancel').mockImplementation(cancel);
+      return asOpaque<Response>({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'image/png' }),
+        body: { getReader: () => reader },
+      });
+    };
+    const loggerWarn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    fetchMock.mockResolvedValueOnce(
+      makeResponse(
+        OG_IMAGE_MAX_BYTES,
+        vi.fn(async () => undefined),
+      ),
+    );
+    await expect(fetchImageAsDataUri('https://cdn.test/exact-stream.png')).resolves.toMatch(/^data:image\/png;base64,/);
+
+    const cancel = vi.fn(async () => undefined);
+    fetchMock.mockResolvedValueOnce(makeResponse(OG_IMAGE_MAX_BYTES + 1, cancel));
+    await expect(fetchImageAsDataUri('https://cdn.test/over-stream.png')).resolves.toBeNull();
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledWith(
+      '[ogData] Rejected oversized image body for OG',
+      expect.objectContaining({ maxBytes: OG_IMAGE_MAX_BYTES }),
+    );
+    expect(vi.mocked(sharp)).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('swallows a rejecting cancel on the over-cap path', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1024 * 1024));
+        controller.enqueue(new Uint8Array(1024 * 1024));
+        controller.enqueue(new Uint8Array(1024 * 1024));
+        controller.enqueue(new Uint8Array(1024 * 1024));
+        controller.enqueue(new Uint8Array(1024 * 1024));
+        controller.enqueue(new Uint8Array(1));
+        controller.close();
+      },
+    });
+    const reader = stream.getReader();
+    const rejection = Promise.reject(new Error('cancel failed'));
+    const rejectionCatch = vi.spyOn(rejection, 'catch');
+    rejection.then(undefined, () => undefined);
+    const cancel = vi.spyOn(reader, 'cancel').mockImplementation(() => rejection);
+    const loggerWarn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandledRejection);
+    try {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        asOpaque<Response>({
+          ok: true,
+          headers: new Headers({ 'Content-Type': 'image/png' }),
+          body: { getReader: () => reader },
+        }),
+      );
+
+      await expect(fetchImageAsDataUri('https://cdn.test/rejecting-cancel.png')).resolves.toBeNull();
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(rejectionCatch).toHaveBeenCalledTimes(1);
+      expect(loggerWarn).toHaveBeenCalledTimes(1);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+  });
+
+  it('returns null and cancels once when reading the body fails', async () => {
+    let pullCount = 0;
+    const stream = new ReadableStream({
+      pull(controller) {
+        pullCount += 1;
+        if (pullCount === 1) {
+          controller.enqueue(new Uint8Array([1, 2, 3]));
+          return;
+        }
+        throw new Error('read failed');
+      },
+    });
+    const reader = stream.getReader();
+    const cancel = vi.spyOn(reader, 'cancel');
+    const loggerWarn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      asOpaque<Response>({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'image/png' }),
+        body: { getReader: () => reader },
+      }),
+    );
+
+    await expect(fetchImageAsDataUri('https://cdn.test/read-error.png')).resolves.toBeNull();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).not.toHaveBeenCalledWith('[ogData] Rejected oversized image body for OG', expect.anything());
+  });
+
+  it('rejects an oversized declared body without touching the response body', async () => {
+    let bodyAccessed = false;
+    let getReaderCalled = false;
+    const loggerWarn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    const response = asOpaque<Response>({
+      ok: true,
+      headers: new Headers({
+        'Content-Type': 'image/png',
+        'Content-Length': String(OG_IMAGE_MAX_BYTES + 1),
+      }),
+      get body() {
+        bodyAccessed = true;
+        return {
+          getReader: () => {
+            getReaderCalled = true;
+            throw new Error('body must not be read');
+          },
+        };
+      },
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+
+    await expect(fetchImageAsDataUri('https://cdn.test/header-only.png')).resolves.toBeNull();
+    expect(bodyAccessed).toBe(false);
+    expect(getReaderCalled).toBe(false);
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledWith(
+      '[ogData] Rejected oversized image body for OG',
+      expect.objectContaining({ maxBytes: OG_IMAGE_MAX_BYTES }),
+    );
   });
 
   it('accepts a body whose declared length is exactly at the cap', async () => {
