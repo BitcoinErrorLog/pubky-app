@@ -6,6 +6,8 @@
  */
 
 export {
+  type ExecutionScope,
+  ExecutionScopeSchema,
   parsePubchiAnswerV1,
   type PubchiAnswerV1,
   PubchiAnswerV1Schema,
@@ -48,13 +50,21 @@ export {
   type SchemaName,
 } from './envelope';
 export {
+  APP_FEED_CONTENT,
+  APP_FEED_REACH,
   APP_SUPPORTED_CONTENT,
   APP_SUPPORTED_LAYOUT,
   APP_SUPPORTED_REACH,
   APP_SUPPORTED_SORT,
+  type FeedDraftV2,
+  type FeedMappingV2,
   type FeedProposalV1,
   FeedProposalV1Schema,
+  type FeedProposalV2,
+  FeedProposalV2Schema,
+  parseFeedProposal,
   parseFeedProposalV1,
+  parseFeedProposalV2,
 } from './feed';
 export { FORBIDDEN_CATEGORIES, scanForbidden, scanForbiddenPublicState } from './forbidden';
 export { type ManifestV1, ManifestV1Schema, parseManifestV1 } from './manifest';

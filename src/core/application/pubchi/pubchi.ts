@@ -49,7 +49,7 @@ import {
   ownerBindingUri,
   type OwnerBindingV1,
   parseDeviceDelegationV1,
-  parseFeedProposalV1,
+  parseFeedProposal,
   parseOwnerBindingV1,
   parsePubchiAnswerV1,
   parsePubchiBotV1,
@@ -275,7 +275,8 @@ export class PubchiApplication {
     if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) return null;
     try {
       const value = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: pubchiCursorUri(owner) });
-      if (!value || typeof value !== 'object' || typeof (value as { cursor?: unknown }).cursor !== 'string') return null;
+      if (!value || typeof value !== 'object' || typeof (value as { cursor?: unknown }).cursor !== 'string')
+        return null;
       return (value as { cursor: string }).cursor;
     } catch (error) {
       if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
@@ -344,7 +345,9 @@ export class PubchiApplication {
       }
       return [];
     });
-    return results.flatMap((result) => (result.status === 'fulfilled' && result.value.device ? [result.value.device] : []));
+    return results.flatMap((result) =>
+      result.status === 'fulfilled' && result.value.device ? [result.value.device] : [],
+    );
   }
 
   static hadDeviceListingFailures(): boolean {
@@ -654,12 +657,16 @@ export class PubchiApplication {
         rememberPendingDelegationDeletes([{ owner: params.owner, signer: device.signer }]);
       });
       await deleteDeviceKey(params.owner, device.signer).catch(() => undefined);
-      throw Err.server(ServerErrorCode.INTERNAL_ERROR, error instanceof Error ? error.message : 'PUBCHI_BINDING_WRITE_FAILED', {
-        service: ErrorService.Pubchi,
-        operation: 'commitCreateBinding',
-        cause: error,
-        context: { rollbackError },
-      });
+      throw Err.server(
+        ServerErrorCode.INTERNAL_ERROR,
+        error instanceof Error ? error.message : 'PUBCHI_BINDING_WRITE_FAILED',
+        {
+          service: ErrorService.Pubchi,
+          operation: 'commitCreateBinding',
+          cause: error,
+          context: { rollbackError },
+        },
+      );
     }
 
     return parsed.value;
@@ -877,7 +884,12 @@ export class PubchiApplication {
     }
     const servedPurpose = purpose as 'ask' | 'who-tagged-me' | 'build-feed';
 
-    const body: PubchiAskBody = { question };
+    const body: PubchiAskBody = {
+      question,
+      ...(params.proposalVersion ? { proposal_version: params.proposalVersion } : {}),
+      ...(params.targetFeedId ? { target_feed_id: params.targetFeedId } : {}),
+      ...(params.currentFeed ? { current_feed: params.currentFeed } : {}),
+    };
     const issuedAt = params.nowSeconds ?? Math.floor(Date.now() / 1000);
     const unsigned: UnsignedRequestObjectV2 = {
       schema: 'pubchi-request-object-v2',
@@ -1160,16 +1172,19 @@ function interpretQueryResponse(response: unknown): PubchiQuerySuccess {
     throw pubchiValidationError(query.code, 'query');
   }
   if (schema === 'pubchi-feed-proposal') {
-    const feed = parseFeedProposalV1(response);
-    if (feed.ok) return { kind: 'feed', result: feed.value, applyAllowed: true };
-    if (
-      feed.code === 'FEED_UNSUPPORTED_LIKES' ||
-      feed.code === 'FEED_UNSUPPORTED_REACH' ||
-      feed.code === 'FEED_SPECS_INVALID'
-    ) {
-      return { kind: 'feed-unsupported', code: feed.code };
+    const feed = parseFeedProposal(response);
+    if (!feed.ok) {
+      if (
+        feed.code === 'FEED_UNSUPPORTED_LIKES' ||
+        feed.code === 'FEED_UNSUPPORTED_REACH' ||
+        feed.code === 'FEED_SPECS_INVALID'
+      ) {
+        return { kind: 'feed-unsupported', code: feed.code };
+      }
+      throw pubchiValidationError(feed.code, 'query');
     }
-    throw pubchiValidationError(feed.code, 'query');
+    if (feed.value.version === 2) return { kind: 'feed-v2', result: feed.value, applyAllowed: false };
+    return { kind: 'feed', result: feed.value, applyAllowed: true };
   }
 
   const code = extractPubchiErrorCode(response) ?? 'SCHEMA_INVALID';

@@ -1,8 +1,10 @@
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpMethod } from '@/libs/http/http.types';
-import type { FeedProposalV1 } from '@/libs/pubchi/schemas';
+import { HttpStatusCode } from '@/libs/http/http.types';
+import type { FeedProposalV1, FeedProposalV2 } from '@/libs/pubchi/schemas';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
 import { parsePubchiFeedProvenanceV1, type PubchiFeedProvenanceV1 } from '@/libs/pubchi/schemas/feed-provenance';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
@@ -10,14 +12,26 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
 
 export async function recordPubchiBuiltFeed(
   owner: string,
-  proposal: FeedProposalV1,
+  proposal: FeedProposalV1 | FeedProposalV2,
   feed: FeedModelSchema,
+  provenanceFeedId = feed.id,
 ): Promise<void> {
+  const url = provenanceUri(owner, provenanceFeedId);
+  let existing: PubchiFeedProvenanceV1 | undefined;
+  try {
+    const parsedExisting = parsePubchiFeedProvenanceV1(
+      await HomeserverService.request<unknown>({ method: HttpMethod.GET, url }),
+    );
+    if (parsedExisting.ok) existing = parsedExisting.value;
+  } catch (error) {
+    if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) throw error;
+  }
   const record: PubchiFeedProvenanceV1 = {
     schema: 'pubchi-feed-provenance',
     version: 1,
     feed_id: feed.id,
     created_at: Math.floor(Date.now() / 1000),
+    ...(existing ? { created_at: existing.created_at, updated_at: Math.floor(Date.now() / 1000) } : {}),
     proposal_hash: await sha256Hex(canonicalJson(proposal)),
     bot: proposal.bot,
   };
@@ -30,7 +44,7 @@ export async function recordPubchiBuiltFeed(
   }
   await HomeserverService.request({
     method: HttpMethod.PUT,
-    url: provenanceUri(owner, feed.id),
+    url,
     bodyJson: parsed.value,
   });
 }

@@ -9,7 +9,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { UserController } from '@/controllers/user/user';
 import { linkifyPubkys } from '@/libs/pubchi/capabilities-v1';
-import type { PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pubchi/schemas';
+import type { ExecutionScope, PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 
 type PubchiAnswerCardProps = {
@@ -77,6 +77,11 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
           <CardTitle>{hasDeterministicRoute(answer.tool_trace_summary.tools) ? 'What the graph shows' : "Pubchi's reading of the evidence"}</CardTitle>
         </CardHeader>
         <CardContent>
+          {answer.scope ? (
+            <Typography data-testid="pubchi-answer-scope" size="xs" className="mb-2 text-muted-foreground">
+              {formatScopeLine(answer.scope)}
+            </Typography>
+          ) : null}
           <Typography size="sm">
             {answer.summary ? linkifyPubkys(answer.summary).map((part, index) => (
               typeof part === 'string' ? part : (
@@ -126,6 +131,46 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
       </Collapsible>
     </div>
   );
+}
+
+function formatScopeLine(scope: ExecutionScope): string {
+  if (scope.graph.kind === 'none') return 'No graph lookup';
+
+  const graph = scope.graph.kind === 'whole_graph'
+    ? 'whole graph'
+    : `your network${scope.graph.hops ? ` (${scope.graph.hops} hops)` : ''}`;
+  if (scope.time === null) return `Scope: current indexed graph (no time filter) · ${graph}`;
+
+  const since = formatUtcDate(scope.time.since_ms);
+  const until = formatUtcDate(scope.time.until_ms, scope.time.since_ms);
+  return `Scope: ${scope.time.label} (${since}–${until} UTC) · ${graph}`;
+}
+
+function formatUtcDate(timestamp: number, rangeStart?: number): string {
+  if (rangeStart !== undefined) {
+    const startParts = utcDateParts(rangeStart);
+    const endParts = utcDateParts(timestamp);
+    if (startParts.month === endParts.month && startParts.year === endParts.year) return String(endParts.day);
+  }
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(timestamp);
+}
+
+function utcDateParts(timestamp: number): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).formatToParts(timestamp);
+  return {
+    year: Number(parts.find((part) => part.type === 'year')?.value),
+    month: Number(parts.find((part) => part.type === 'month')?.value),
+    day: Number(parts.find((part) => part.type === 'day')?.value),
+  };
 }
 
 function EvidenceItem({

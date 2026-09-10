@@ -79,7 +79,10 @@ export function usePubchiQuery() {
     return () => window.clearInterval(timer);
   }, [loading]);
 
-  const submit = async (purpose: Phase0Purpose): Promise<boolean> => {
+  const submit = async (
+    purpose: Phase0Purpose,
+    requestOptions: { proposalVersion?: 2; targetFeedId?: string; currentFeed?: unknown } = {},
+  ): Promise<boolean> => {
     if (!isPubchiPanelEnabled()) {
       setErrorCode('PUBCHI_DISABLED');
       toast({ variant: 'error', title: 'PUBCHI_DISABLED', dismissButton: true });
@@ -98,11 +101,8 @@ export function usePubchiQuery() {
           const rawQuestion = values[QUERY_FORM_FIELDS.QUESTION];
           const remoteCursorAvailable = Boolean(
             owner &&
-              rawQuestion === 'What did I miss?' &&
-              sessionCovers(
-                useAuthStore.getState().selectSession()?.info.capabilities ?? [],
-                PUBCHI_PRIVATE_DIRECTORY,
-              ),
+            rawQuestion === 'What did I miss?' &&
+            sessionCovers(useAuthStore.getState().selectSession()?.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY),
           );
           const requestOwner = owner;
           const remoteCursor = remoteCursorAvailable ? await PubchiController.loadPubchiCursor() : null;
@@ -111,6 +111,7 @@ export function usePubchiQuery() {
           const next = await PubchiController.fetchPubchiQuery({
             question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
+            ...requestOptions,
           });
           const nextUntil = next.kind === 'answer' ? next.result.continuation?.until : undefined;
           const cursorTime = cursor ? Date.parse(cursor) : Number.NaN;

@@ -8,6 +8,7 @@ type NoPhrase<T> = T & { phrase?: never };
 export type PubchiFlyoutPrefill = {
   question: string;
   source: 'post-menu' | 'chip';
+  feedId?: string;
 };
 type StoredPubchiFlyoutPrefill = PubchiFlyoutPrefill & { ownerPubky: Pubky };
 export type PubchiFlyoutState = {

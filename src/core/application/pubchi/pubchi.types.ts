@@ -1,5 +1,7 @@
 import type {
+  ExecutionScope,
   FeedProposalV1,
+  FeedProposalV2,
   OwnerBindingV1,
   Phase0Purpose,
   PubchiAnswerV1,
@@ -11,6 +13,9 @@ import type { Pubky } from '@/models/models.types';
 
 export type PubchiAskBody = {
   question: string;
+  proposal_version?: 2;
+  target_feed_id?: string;
+  current_feed?: unknown;
 };
 
 export type PubchiQueryApplicationParams = {
@@ -19,13 +24,19 @@ export type PubchiQueryApplicationParams = {
   purpose: Phase0Purpose;
   nowSeconds?: number;
   context?: PubchiOwnerContextV1 | null;
+  proposalVersion?: 2;
+  targetFeedId?: string;
+  currentFeed?: unknown;
 };
 
 export type PubchiQuerySuccess =
   | { kind: 'query'; result: QueryResultV1 }
   | { kind: 'answer'; result: PubchiAnswerV1 }
   | { kind: 'feed'; result: FeedProposalV1; applyAllowed: true }
+  | { kind: 'feed-v2'; result: FeedProposalV2; applyAllowed: false }
   | { kind: 'feed-unsupported'; code: 'FEED_UNSUPPORTED_LIKES' | 'FEED_UNSUPPORTED_REACH' | 'FEED_SPECS_INVALID' };
+
+export type PubchiExecutionScope = ExecutionScope;
 
 export type PubchiBindingWriteParams = {
   owner: Pubky;
