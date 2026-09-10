@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { RingApprovalDialog } from './RingApprovalDialog';
 
 vi.mock('@/controllers/pubchi/pubchi', () => ({
@@ -39,7 +40,7 @@ describe('RingApprovalDialog', () => {
       );
     });
 
-    const session = { pubky: 'owner' } as unknown as Session;
+    const session = asOpaque<Session>({ pubky: 'owner' });
     resolveApproval(session);
     await waitFor(() => expect(onApproved).toHaveBeenCalledWith(session));
   });

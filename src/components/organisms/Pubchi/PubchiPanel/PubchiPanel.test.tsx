@@ -4,6 +4,14 @@ import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PUBCHI_PANEL_SURFACE, PubchiPanel } from './PubchiPanel';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
+  RingApprovalDialog: () => null,
+}));
+
 const submit = vi.fn();
 const applyFeed = vi.fn();
 const reapprove = vi.fn();
@@ -202,6 +210,18 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-ask')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-build-feed')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Quick questions' })).toBeInTheDocument();
+    expect(screen.queryByTestId('pubchi-who-tagged-me')).not.toBeInTheDocument();
+  });
+
+  it('remembers the quick questions toggle in the Pubchi store', () => {
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quick questions' }));
+    expect(screen.getByTestId('pubchi-who-tagged-me')).toBeInTheDocument();
+
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(screen.getByTestId('pubchi-who-tagged-me')).toBeInTheDocument();
   });
 
   it('disables Ask and Build feed when signing is unavailable', () => {

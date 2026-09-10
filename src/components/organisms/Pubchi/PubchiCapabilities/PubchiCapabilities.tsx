@@ -1,9 +1,10 @@
 'use client';
 
-import { Bot, CircleHelp, Rss, Search, Sparkles, Users } from 'lucide-react';
+import { Bot, ChevronDown, CircleHelp, Rss, Search, Sparkles, Users } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Collapsible/Collapsible';
 import { Typography } from '@/atoms/Typography/Typography';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 
@@ -13,6 +14,9 @@ export type PubchiCapabilitiesProps = {
   disabled?: boolean;
   onSelect: (question: string, purpose: Phase0Purpose) => void;
   onBuildFeed: () => void;
+  onAsk?: () => void;
+  quickQuestionsOpen?: boolean;
+  onQuickQuestionsOpenChange?: (open: boolean) => void;
 };
 
 const quickQuestions: Array<{ label: string; question: string; purpose: Phase0Purpose; icon: typeof Search }> = [
@@ -27,11 +31,46 @@ const quickQuestions: Array<{ label: string; question: string; purpose: Phase0Pu
   { label: 'Quiet follows', question: 'Which accounts I follow have gone quiet?', purpose: 'ask', icon: CircleHelp },
 ];
 
-export function PubchiCapabilities({ tier, compact = false, disabled = false, onSelect, onBuildFeed }: PubchiCapabilitiesProps) {
+export function PubchiCapabilities({
+  tier,
+  compact = false,
+  disabled = false,
+  onSelect,
+  onBuildFeed,
+  onAsk,
+  quickQuestionsOpen = false,
+  onQuickQuestionsOpenChange,
+}: PubchiCapabilitiesProps) {
+  const [dailyQuestion, ...otherQuestions] = quickQuestions;
+  const DailyQuestionIcon = dailyQuestion?.icon;
   const content = (
     <>
       <div className={compact ? 'flex w-full flex-wrap gap-2 pb-1' : 'grid gap-2 sm:grid-cols-2'}>
-        {quickQuestions.map(({ label, question, purpose, icon: Icon }) => (
+        {compact && dailyQuestion ? (
+          <Button
+            type="button"
+            variant="ghost"
+            data-testid="pubchi-daily-question"
+            className="shrink-0"
+            disabled={disabled}
+            onClick={() => onSelect(dailyQuestion.question, dailyQuestion.purpose)}
+          >
+            {DailyQuestionIcon ? <DailyQuestionIcon aria-hidden="true" /> : null}
+            {dailyQuestion.label}
+          </Button>
+        ) : null}
+        {compact && onAsk ? (
+          <Button type="button" data-testid="pubchi-ask" disabled={disabled} onClick={onAsk}>
+            Ask
+          </Button>
+        ) : null}
+        {compact ? (
+          <Button type="button" data-testid="pubchi-build-feed" variant="secondary" disabled={disabled} onClick={onBuildFeed}>
+            <Rss aria-hidden="true" />
+            Build feed
+          </Button>
+        ) : null}
+        {!compact ? quickQuestions.map(({ label, question, purpose, icon: Icon }) => (
           <Button
             key={question}
             data-testid={purpose === 'who-tagged-me' ? 'pubchi-who-tagged-me' : undefined}
@@ -44,12 +83,38 @@ export function PubchiCapabilities({ tier, compact = false, disabled = false, on
             <Icon aria-hidden="true" />
             {label}
           </Button>
-        ))}
-        <Button type="button" data-testid="pubchi-build-feed" variant="secondary" className={compact ? 'shrink-0' : 'justify-start'} disabled={disabled} onClick={onBuildFeed}>
+        )) : null}
+        {!compact ? <Button type="button" data-testid="pubchi-build-feed" variant="secondary" className="justify-start" disabled={disabled} onClick={onBuildFeed}>
           <Rss aria-hidden="true" />
           Build feed
-        </Button>
+        </Button> : null}
       </div>
+      {compact ? (
+        <Collapsible open={quickQuestionsOpen} onOpenChange={onQuickQuestionsOpenChange}>
+          <CollapsibleTrigger asChild>
+            <Button type="button" variant="ghost" className="w-full justify-between">
+              Quick questions
+              <ChevronDown className="size-4" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-wrap gap-2 pt-2">
+            {otherQuestions.map(({ label, question, purpose, icon: Icon }) => (
+              <Button
+                key={question}
+                data-testid={purpose === 'who-tagged-me' ? 'pubchi-who-tagged-me' : undefined}
+                type="button"
+                variant="secondary"
+                className="shrink-0"
+                disabled={disabled}
+                onClick={() => onSelect(question, purpose)}
+              >
+                <Icon aria-hidden="true" />
+                {label}
+              </Button>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
       {!compact ? (
         <div className="rounded-lg border border-dashed border-border p-3 opacity-60" aria-disabled="true">
           <div className="flex items-center gap-2">

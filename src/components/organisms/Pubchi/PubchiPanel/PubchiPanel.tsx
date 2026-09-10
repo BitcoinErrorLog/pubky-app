@@ -56,6 +56,8 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const { needsReapproval, reapprove, loading: reapprovalLoading, pubchi, config } = usePubchiEnrollment();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const prefill = usePubchiStore((state) => state.flyout.prefill);
+  const quickQuestionsOpen = usePubchiStore((state) => state.quickQuestionsOpen);
+  const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
   const [feedBuilderOpen, setFeedBuilderOpen] = useState(false);
@@ -167,6 +169,9 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
                 void submitQuestion(purpose);
               }}
+              onAsk={() => void submitQuestion('ask')}
+              quickQuestionsOpen={quickQuestionsOpen}
+              onQuickQuestionsOpenChange={setQuickQuestionsOpen}
               onBuildFeed={() => {
                 void submitQuestion('build-feed');
               }}
@@ -187,11 +192,6 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 Summarize thread
               </Button>
             ) : null}
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button type="submit" data-testid="pubchi-ask" disabled={actionsDisabled}>
-                Ask {loading ? <span data-testid="pubchi-ask-timer">({elapsedMs} ms)</span> : null}
-              </Button>
-            </div>
           </form>
 
           {errorCode ? (

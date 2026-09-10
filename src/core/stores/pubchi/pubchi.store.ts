@@ -23,11 +23,13 @@ export interface PubchiStore {
   ownerPubky: Pubky | null;
   lastUpdatedAt: number | null;
   flyout: PubchiFlyoutState;
+  quickQuestionsOpen: boolean;
   setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
   setConfig: (config: PubchiConfigV1 | null, ownerPubky: Pubky | null) => void;
   setContext: (context: PubchiOwnerContextV1 | null, ownerPubky: Pubky | null) => void;
   openFlyout: (prefill?: PubchiFlyoutPrefill, ownerPubky?: Pubky | null) => void;
   closeFlyout: () => void;
+  setQuickQuestionsOpen: (open: boolean) => void;
   consumePrefill: (ownerPubky?: Pubky | null) => PubchiFlyoutPrefill | undefined;
   clear: () => void;
 }
@@ -39,6 +41,7 @@ const initialState = {
   ownerPubky: null,
   lastUpdatedAt: null,
   flyout: { open: false },
+  quickQuestionsOpen: false,
 };
 
 export const usePubchiStore = create<PubchiStore>((set, get) => ({
@@ -59,6 +62,7 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
       },
     }),
   closeFlyout: () => set({ flyout: { open: false } }),
+  setQuickQuestionsOpen: (quickQuestionsOpen) => set({ quickQuestionsOpen }),
   consumePrefill: (ownerPubky): PubchiFlyoutPrefill | undefined => {
     const prefill = get().flyout.prefill;
     if (prefill) {
