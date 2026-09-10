@@ -172,3 +172,15 @@ committed by hand. The first run after adopting this workflow regenerates every
 baseline (locally-made baselines never match the runners) — merge that one large
 PR to make the runners the baseline owner. Subsequent runs then only touch
 surfaces that genuinely changed.
+
+**webkit-darwin baselines are always CI-authored.** Measured 2026-09-10 on
+`macos-latest` (macOS 26.6.2, Playwright 1.60.0): chromium and firefox darwin
+PNGs made on a local Mac match the runner at 0 px, but webkit rasterises the
+pinned `JetBrains Mono` glyphs (`vrt.setup.ts`) differently from a local Safari
+WebKit — 93 to 801 px of drift confined to price/mono text on 46 marketplace
+scenes, with no code change involved. Do not commit a locally generated
+`*-webkit-darwin.png` for any scene that renders the mono font: take it from the
+VRT Update Baselines run (or the failure artifact of a `vrt.yml` run, whose
+actual image is byte-identical to the last Update Baselines output). A local
+webkit failure on those scenes is not a regression signal; the `macos-latest`
+job is.
