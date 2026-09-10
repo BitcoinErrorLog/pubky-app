@@ -13,7 +13,12 @@ import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
-import { isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
+import {
+  type FeedProposalV2,
+  isPubkyId,
+  type PubchiConfigV1,
+  type PubchiOwnerContextV1,
+} from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -30,6 +35,14 @@ export class PubchiController {
 
   static closeFlyout(): void {
     usePubchiStore.getState().closeFlyout();
+  }
+
+  static openFeedBuilder(proposal?: FeedProposalV2): void {
+    usePubchiStore.getState().openFeedBuilder(proposal);
+  }
+
+  static closeFeedBuilder(): void {
+    usePubchiStore.getState().closeFeedBuilder();
   }
 
   static consumePrefill(ownerPubky = useAuthStore.getState().currentUserPubky): PubchiFlyoutPrefill | undefined {

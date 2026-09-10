@@ -2,8 +2,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { describe, expect, it, vi } from 'vitest';
+import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { HeaderButtonSignIn } from '../HeaderButtonSignIn/HeaderButtonSignIn';
 import { HeaderHome } from '../HeaderHome/HeaderHome';
 import { HeaderSignIn } from '../HeaderSignIn/HeaderSignIn';
@@ -44,6 +46,7 @@ vi.mock('@/stores/notification/notification.store', () => ({
 }));
 vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiPanelEnabled: () => true,
+  isPubchiEnabled: () => false,
 }));
 vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => ({
   useCollectionsNavDiscovery: () => ({
@@ -424,6 +427,21 @@ describe('Header Components', () => {
   });
 
   describe('HeaderNavigationButtons', () => {
+    it('does not mount PubchiPanel or load enrollment while the Pubchi flyout is closed', () => {
+      usePubchiStore.getState().clear();
+      const loadPubchi = vi.spyOn(PubchiController, 'loadPubchi');
+      const ensureDeviceReady = vi.spyOn(PubchiController, 'ensureDeviceReady');
+
+      render(<HeaderNavigationButtons includePubchi avatarName="TU" />);
+
+      expect(screen.queryByTestId('pubchi-panel')).not.toBeInTheDocument();
+      expect(loadPubchi).not.toHaveBeenCalled();
+      expect(ensureDeviceReady).not.toHaveBeenCalled();
+
+      loadPubchi.mockRestore();
+      ensureDeviceReady.mockRestore();
+    });
+
     it('renders the Pubchi navigation button when enabled', () => {
       render(<HeaderNavigationButtons includePubchi avatarName="TU" />);
 

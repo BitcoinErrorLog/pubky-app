@@ -213,6 +213,7 @@ export function HeaderNavigationButtons({
 }: HeaderNavigationButtonsProps) {
   const pathname = usePathname();
   const pubchiOpen = usePubchiStore((state) => state.flyout.open);
+  const feedBuilderOpen = usePubchiStore((state) => state.feedBuilder.open);
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
   const counterString = counter > 21 ? '21+' : counter.toString();
   return (
@@ -243,7 +244,12 @@ export function HeaderNavigationButtons({
             dataCy="header-pubchi-btn"
             onClick={() => PubchiController.openFlyout()}
           />
-          {pubchiOpen ? <PubchiPanel open={pubchiOpen} onOpenChange={(open) => (open ? PubchiController.openFlyout() : PubchiController.closeFlyout())} /> : null}
+          {pubchiOpen || feedBuilderOpen ? (
+            <PubchiPanel
+              open={pubchiOpen}
+              onOpenChange={(open) => (open ? PubchiController.openFlyout() : PubchiController.closeFlyout())}
+            />
+          ) : null}
         </>
       ) : null}
 

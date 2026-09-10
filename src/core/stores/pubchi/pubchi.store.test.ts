@@ -37,6 +37,18 @@ describe('PubchiStore', () => {
     expect(usePubchiStore.getState().flyout).toEqual({ open: false });
   });
 
+  it('keeps feed builder intent after closing the flyout', () => {
+    usePubchiStore.getState().openFlyout();
+    usePubchiStore.getState().openFeedBuilder();
+    usePubchiStore.getState().closeFlyout();
+
+    expect(usePubchiStore.getState().flyout.open).toBe(false);
+    expect(usePubchiStore.getState().feedBuilder.open).toBe(true);
+
+    usePubchiStore.getState().closeFeedBuilder();
+    expect(usePubchiStore.getState().feedBuilder).toEqual({ open: false });
+  });
+
   it('does not consume a prefill belonging to another owner', () => {
     const prefill = { question: 'Summarize this thread', source: 'post-menu' as const };
 

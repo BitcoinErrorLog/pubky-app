@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import type { LoadedPubchi } from '@/application/pubchi/pubchi.types';
-import type { Conversation, ConversationTurn, PubchiConfigV1, PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
+import type {
+  Conversation,
+  ConversationTurn,
+  FeedProposalV2,
+  PubchiConfigV1,
+  PubchiOwnerContextV1,
+} from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
 type StoredPubchi = Omit<LoadedPubchi, 'phrase'>;
@@ -15,6 +21,10 @@ export type PubchiFlyoutState = {
   open: boolean;
   prefill?: StoredPubchiFlyoutPrefill;
 };
+export type PubchiFeedBuilderState = {
+  open: boolean;
+  proposal?: FeedProposalV2;
+};
 
 export interface PubchiStore {
   pubchi: StoredPubchi | undefined;
@@ -25,6 +35,7 @@ export interface PubchiStore {
   syncReloadCount: number;
   databaseBlocked: boolean;
   flyout: PubchiFlyoutState;
+  feedBuilder: PubchiFeedBuilderState;
   quickQuestionsOpen: boolean;
   conversation: Conversation;
   setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
@@ -32,6 +43,8 @@ export interface PubchiStore {
   setContext: (context: PubchiOwnerContextV1 | null, ownerPubky: Pubky | null) => void;
   openFlyout: (prefill?: PubchiFlyoutPrefill, ownerPubky?: Pubky | null) => void;
   closeFlyout: () => void;
+  openFeedBuilder: (proposal?: FeedProposalV2) => void;
+  closeFeedBuilder: () => void;
   setQuickQuestionsOpen: (open: boolean) => void;
   addConversationTurn: (turn: ConversationTurn, ownerPubky: Pubky) => void;
   clearConversation: () => void;
@@ -50,6 +63,7 @@ const initialState = {
   syncReloadCount: 0,
   databaseBlocked: false,
   flyout: { open: false },
+  feedBuilder: { open: false },
   quickQuestionsOpen: false,
   conversation: { turns: [] },
 };
@@ -89,6 +103,14 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
       },
     }),
   closeFlyout: () => set({ flyout: { open: false } }),
+  openFeedBuilder: (proposal) =>
+    set({
+      feedBuilder: {
+        open: true,
+        ...(proposal ? { proposal } : {}),
+      },
+    }),
+  closeFeedBuilder: () => set({ feedBuilder: { open: false } }),
   setQuickQuestionsOpen: (quickQuestionsOpen) => set({ quickQuestionsOpen }),
   addConversationTurn: (turn, ownerPubky) => {
     if (get().ownerPubky !== ownerPubky) return;

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
@@ -15,7 +16,13 @@ vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
 const submit = vi.fn();
 const reapprove = vi.fn();
 const setupDevice = vi.fn();
-const { consumePrefill, getFeed } = vi.hoisted(() => ({ consumePrefill: vi.fn(), getFeed: vi.fn() }));
+const { consumePrefill, getFeed, openFeedBuilder, closeFeedBuilder, closeFlyout } = vi.hoisted(() => ({
+  consumePrefill: vi.fn(),
+  getFeed: vi.fn(),
+  openFeedBuilder: vi.fn(),
+  closeFeedBuilder: vi.fn(),
+  closeFlyout: vi.fn(),
+}));
 const builderProps = vi.hoisted(() => ({ current: undefined as Record<string, unknown> | undefined }));
 const hookState = {
   form: {
@@ -41,6 +48,8 @@ const enrollmentState = {
   needsReapproval: false,
   reapprove,
   loading: false,
+  pubchi: undefined as { bot: string; displayName: string; verified: boolean } | undefined,
+  config: undefined as { tier: 'read-only' | 'assisted' | 'autonomous'; brain: { execution: string } } | undefined,
 };
 
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
@@ -59,6 +68,9 @@ vi.mock('@/libs/pubchi/flags', () => ({
 vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
     consumePrefill,
+    closeFlyout: () => closeFlyout(),
+    openFeedBuilder: (...args: Parameters<typeof openFeedBuilder>) => openFeedBuilder(...args),
+    closeFeedBuilder: () => closeFeedBuilder(),
   },
 }));
 
@@ -73,8 +85,14 @@ vi.mock('../PubchiFeedBuilder/PubchiFeedBuilder', () => ({
     builderProps.current = props;
     return (
       <div data-testid="pubchi-feed-builder">
-        <button type="button" onClick={() => void (props.onInterpret as (question: string) => Promise<void>)('make it wider')}>
+        <button
+          type="button"
+          onClick={() => void (props.onInterpret as (question: string) => Promise<void>)('make it wider')}
+        >
           Interpret
+        </button>
+        <button type="button" onClick={() => (props.onOpenChange as (open: boolean) => void)(false)}>
+          Close feed builder
         </button>
       </div>
     );
@@ -93,6 +111,8 @@ vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
 describe('PubchiPanel', () => {
   beforeEach(() => {
     enrollmentState.needsReapproval = false;
+    enrollmentState.pubchi = undefined;
+    enrollmentState.config = undefined;
     submit.mockReset();
     reapprove.mockReset();
     setupDevice.mockReset();
@@ -105,6 +125,12 @@ describe('PubchiPanel', () => {
     hookState.form.setValue.mockReset();
     consumePrefill.mockReset();
     getFeed.mockReset();
+    openFeedBuilder.mockReset();
+    closeFeedBuilder.mockReset();
+    closeFlyout.mockReset();
+    openFeedBuilder.mockImplementation((proposal) => usePubchiStore.getState().openFeedBuilder(proposal));
+    closeFeedBuilder.mockImplementation(() => usePubchiStore.getState().closeFeedBuilder());
+    closeFlyout.mockImplementation(() => usePubchiStore.getState().closeFlyout());
     builderProps.current = undefined;
     usePubchiStore.getState().clear();
   });
@@ -158,7 +184,7 @@ describe('PubchiPanel', () => {
     } as PubchiQuerySuccess;
 
     render(<PubchiPanel open onOpenChange={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Interpret' }));
+    fireEvent.click(screen.getByText('Interpret'));
     await vi.waitFor(() => expect(submit).toHaveBeenCalled());
 
     expect(submit).toHaveBeenCalledWith('build-feed', {
@@ -210,6 +236,59 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
     expect(screen.getByRole('button', { name: 'Quick questions' })).toBeInTheDocument();
     expect(screen.queryByTestId('pubchi-who-tagged-me')).not.toBeInTheDocument();
+  });
+
+  it('closes the flyout while keeping the create feed dialog open', () => {
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return <PubchiPanel open={open} onOpenChange={setOpen} />;
+    }
+
+    render(<Harness />);
+
+    fireEvent.click(screen.getByTestId('pubchi-build-feed'));
+
+    expect(usePubchiStore.getState().flyout.open).toBe(false);
+    expect(screen.queryByTestId(PUBCHI_PANEL_SURFACE)).not.toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-feed-builder')).toBeInTheDocument();
+  });
+
+  it('unmounts the panel when the closed feed builder closes', () => {
+    usePubchiStore.getState().openFlyout();
+
+    function Harness() {
+      const flyoutOpen = usePubchiStore((state) => state.flyout.open);
+      const builderOpen = usePubchiStore((state) => state.feedBuilder.open);
+      const [open, setOpen] = useState(flyoutOpen);
+      return flyoutOpen || builderOpen ? <PubchiPanel open={open} onOpenChange={setOpen} /> : null;
+    }
+
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId('pubchi-build-feed'));
+    expect(screen.getByTestId('pubchi-feed-builder')).toBeInTheDocument();
+    expect(screen.queryByTestId(PUBCHI_PANEL_SURFACE)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close feed builder' }));
+
+    expect(screen.queryByTestId(PUBCHI_PANEL_SURFACE)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pubchi-feed-builder')).not.toBeInTheDocument();
+  });
+
+  it('keeps the last known tier while enrollment config reloads', () => {
+    enrollmentState.pubchi = {
+      bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+      displayName: 'Scout II',
+      verified: true,
+    };
+    enrollmentState.config = { tier: 'assisted', brain: { execution: 'synonym-hosted' } };
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-flyout-header')).toHaveTextContent('Assisted');
+
+    enrollmentState.config = undefined;
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-flyout-header')).toHaveTextContent('Assisted');
   });
 
   it('remembers the quick questions toggle in the Pubchi store', () => {

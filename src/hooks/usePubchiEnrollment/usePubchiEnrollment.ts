@@ -56,8 +56,8 @@ export function usePubchiEnrollment() {
   const [pendingRevocations, setPendingRevocations] = useState<string[]>([]);
   const [deviceListingHadFailures, setDeviceListingHadFailures] = useState(false);
   const [currentSigner, setCurrentSigner] = useState<string | undefined>(undefined);
-  const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info.capabilities ?? []);
-  const contextEditable = sessionCovers(session?.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY);
+  const needsReapproval = !capabilitiesCoverPubchiWrite(session?.info?.capabilities ?? []);
+  const contextEditable = sessionCovers(session?.info?.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY);
   const approvalCancelRef = useRef<(() => void) | null>(null);
   const approvalFlowRef = useRef<Promise<boolean> | null>(null);
   const approvalGenerationRef = useRef(0);
