@@ -158,6 +158,9 @@ export class PubchiController {
       owner,
       question: params.question,
       purpose: params.purpose,
+      ...(params.proposalVersion ? { proposalVersion: params.proposalVersion } : {}),
+      ...(params.targetFeedId ? { targetFeedId: params.targetFeedId } : {}),
+      ...(params.currentFeed ? { currentFeed: params.currentFeed } : {}),
       ...(context ? { context } : {}),
     });
   }

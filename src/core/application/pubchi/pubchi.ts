@@ -275,7 +275,8 @@ export class PubchiApplication {
     if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) return null;
     try {
       const value = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: pubchiCursorUri(owner) });
-      if (!value || typeof value !== 'object' || typeof (value as { cursor?: unknown }).cursor !== 'string') return null;
+      if (!value || typeof value !== 'object' || typeof (value as { cursor?: unknown }).cursor !== 'string')
+        return null;
       return (value as { cursor: string }).cursor;
     } catch (error) {
       if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
@@ -337,7 +338,9 @@ export class PubchiApplication {
       }
       return [];
     });
-    return results.flatMap((result) => (result.status === 'fulfilled' && result.value.device ? [result.value.device] : []));
+    return results.flatMap((result) =>
+      result.status === 'fulfilled' && result.value.device ? [result.value.device] : [],
+    );
   }
 
   static hadDeviceListingFailures(): boolean {
@@ -647,12 +650,16 @@ export class PubchiApplication {
         rememberPendingDelegationDeletes([{ owner: params.owner, signer: device.signer }]);
       });
       await deleteDeviceKey(params.owner, device.signer).catch(() => undefined);
-      throw Err.server(ServerErrorCode.INTERNAL_ERROR, error instanceof Error ? error.message : 'PUBCHI_BINDING_WRITE_FAILED', {
-        service: ErrorService.Pubchi,
-        operation: 'commitCreateBinding',
-        cause: error,
-        context: { rollbackError },
-      });
+      throw Err.server(
+        ServerErrorCode.INTERNAL_ERROR,
+        error instanceof Error ? error.message : 'PUBCHI_BINDING_WRITE_FAILED',
+        {
+          service: ErrorService.Pubchi,
+          operation: 'commitCreateBinding',
+          cause: error,
+          context: { rollbackError },
+        },
+      );
     }
 
     return parsed.value;
@@ -870,7 +877,12 @@ export class PubchiApplication {
     }
     const servedPurpose = purpose as 'ask' | 'who-tagged-me' | 'build-feed';
 
-    const body: PubchiAskBody = { question };
+    const body: PubchiAskBody = {
+      question,
+      ...(params.proposalVersion ? { proposal_version: params.proposalVersion } : {}),
+      ...(params.targetFeedId ? { target_feed_id: params.targetFeedId } : {}),
+      ...(params.currentFeed ? { current_feed: params.currentFeed } : {}),
+    };
     const issuedAt = params.nowSeconds ?? Math.floor(Date.now() / 1000);
     const unsigned: UnsignedRequestObjectV2 = {
       schema: 'pubchi-request-object-v2',
