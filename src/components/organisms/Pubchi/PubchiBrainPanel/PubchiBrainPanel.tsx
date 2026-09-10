@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Lock, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
@@ -10,9 +10,8 @@ import { Label } from '@/atoms/Label/Label';
 import { RadioGroup, RadioGroupItem } from '@/atoms/RadioGroup/RadioGroup';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
+import { PubchiBrainEditor } from '@/components/organisms/Pubchi/PubchiBrainEditor/PubchiBrainEditor';
 import type { PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
-import { scanForbiddenPublicState } from '@/libs/pubchi/schemas';
-import { toast } from '@/molecules/Toaster/toast';
 
 export const PUBCHI_BRAIN_PANEL_SURFACE = 'pubchi-brain-panel';
 export const PUBCHI_HOSTED_BRAIN: PubchiBrainChoice = {
@@ -63,25 +62,12 @@ export function PubchiBrainPanel({
 }: PubchiBrainPanelProps) {
   const [draft, setDraft] = useState<PubchiBrainChoice>(value);
   const [endpointError, setEndpointError] = useState(false);
-  const [contextDraft, setContextDraft] = useState({ about: context?.about ?? '', instructions: context?.instructions ?? '' });
-  const [contextError, setContextError] = useState(false);
   const isSelfHosted = draft.execution === 'self-hosted';
 
   useEffect(() => {
     setDraft(value);
     setEndpointError(false);
   }, [value]);
-
-  useEffect(() => {
-    setContextDraft({ about: context?.about ?? '', instructions: context?.instructions ?? '' });
-  }, [context]);
-
-  function changeContext(field: 'about' | 'instructions', next: string) {
-    const candidate = { ...contextDraft, [field]: next };
-    const safe = scanForbiddenPublicState(candidate).ok;
-    setContextError(!safe);
-    if (safe) setContextDraft(candidate);
-  }
 
   function selectExecution(execution: string) {
     if (saving) return;
@@ -209,59 +195,14 @@ export function PubchiBrainPanel({
           </Button>
         ) : null}
 
-        <div className="flex flex-col gap-3 border-t pt-5" data-testid="pubchi-private-context">
-          <div className="flex items-center gap-2">
-            <Lock aria-hidden="true" className="size-4" />
-            <Typography className="font-medium">Private context</Typography>
-          </div>
-          <Typography size="sm" className="text-muted-foreground">
-            Private: stored in your homeserver&apos;s private area and sent only inside your signed questions. Never public.
-          </Typography>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="pubchi-context-about">About you</Label>
-            <textarea
-              id="pubchi-context-about"
-              value={contextDraft.about}
-              onChange={(event) => changeContext('about', event.target.value)}
-              maxLength={1500}
-              readOnly={!contextEditable}
-              className="min-h-24 rounded-md border bg-background p-3 text-sm"
-            />
-            <Typography size="xs" className="text-muted-foreground">{Array.from(contextDraft.about).length}/1500</Typography>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="pubchi-context-instructions">How to answer</Label>
-            <textarea
-              id="pubchi-context-instructions"
-              value={contextDraft.instructions}
-              onChange={(event) => changeContext('instructions', event.target.value)}
-              maxLength={1000}
-              readOnly={!contextEditable}
-              className="min-h-24 rounded-md border bg-background p-3 text-sm"
-            />
-            <Typography size="xs" className="text-muted-foreground">{Array.from(contextDraft.instructions).length}/1000</Typography>
-          </div>
-          {contextError ? <Typography size="sm" className="text-destructive">That value looks like a secret or key and cannot be saved.</Typography> : null}
-          {contextEditable ? (
-            <Button
-              type="button"
-              disabled={saving || contextError || !onSaveContext}
-              onClick={() =>
-                void Promise.resolve(onSaveContext?.(contextDraft)).catch(() => {
-                  toast({ variant: 'error', title: 'Could not save private context', dismissButton: true });
-                })
-              }
-            >
-              Save private context
-            </Button>
-          ) : (
-            <>
-              <Typography size="sm">Re-approve in Ring to edit your private context.</Typography>
-              <Button type="button" variant="outline" disabled={saving || !onReapprove} onClick={() => void onReapprove?.()}>
-                Re-approve in Ring
-              </Button>
-            </>
-          )}
+        <div className="border-t pt-5" data-testid="pubchi-private-context">
+          <PubchiBrainEditor
+            context={context}
+            contextEditable={contextEditable}
+            saving={saving}
+            onSaveContext={onSaveContext}
+            onReapprove={onReapprove}
+          />
         </div>
 
         <Typography className="rounded-lg bg-muted/30 p-3 text-sm">

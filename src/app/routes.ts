@@ -25,6 +25,7 @@ export enum APP_ROUTES {
   COLLECTIONS = '/collections',
   SETTINGS = '/settings',
   PUBCHI = '/pubchi',
+  PUBCHI_BRAIN = '/pubchi/brain',
   PROFILE = '/profile',
   WHO_TO_FOLLOW = '/who-to-follow',
   SHARE = '/share',

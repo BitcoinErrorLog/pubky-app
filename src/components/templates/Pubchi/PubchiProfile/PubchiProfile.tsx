@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowRight, Settings, Smartphone } from 'lucide-react';
+import { ArrowRight, Brain, Settings, Smartphone } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
@@ -18,7 +18,7 @@ import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function PubchiProfile() {
-  const { pubchi, config, devices, needsReapproval } = usePubchiEnrollment();
+  const { pubchi, config, context, devices, needsReapproval } = usePubchiEnrollment();
   const owner = useAuthStore((state) => state.currentUserPubky);
   const pubchiBot = pubchi?.bot;
   const [builtFeeds, setBuiltFeeds] = useState<Array<{ feed: FeedModelSchema; createdAt: number }>>([]);
@@ -111,6 +111,24 @@ export function PubchiProfile() {
         tier={tier}
         brainLabel={config?.brain.execution === 'self-hosted' ? 'Own endpoint' : 'Hosted Kimi'}
       />
+      <Card data-testid="pubchi-brain-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain aria-hidden="true" /> Brain
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <Typography size="sm">
+            <span className="font-medium">About you:</span> {truncateBrainValue(context?.about)}
+          </Typography>
+          <Typography size="sm">
+            <span className="font-medium">How to answer:</span> {truncateBrainValue(context?.instructions)}
+          </Typography>
+          <Link href={APP_ROUTES.PUBCHI_BRAIN} className="inline-flex items-center gap-2 self-start">
+            Edit brain <ArrowRight aria-hidden="true" />
+          </Link>
+        </CardContent>
+      </Card>
       <PubchiCapabilities tier={tier} onSelect={() => undefined} onBuildFeed={() => undefined} />
       <Card data-testid="pubchi-built-feeds">
         <CardHeader>
@@ -190,4 +208,9 @@ export function PubchiProfile() {
       </Card>
     </main>
   );
+}
+
+function truncateBrainValue(value: string | undefined): string {
+  if (!value) return 'Not set';
+  return value.length > 120 ? `${value.slice(0, 117)}…` : value;
 }

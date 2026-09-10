@@ -1,6 +1,7 @@
 'use client';
 
-import { Check, Clipboard, KeyRound } from 'lucide-react';
+import { Brain, Check, Clipboard, KeyRound } from 'lucide-react';
+import { APP_ROUTES } from '@/app/routes';
 import { Avatar, AvatarFallback } from '@/atoms/Avatar/Avatar';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -45,9 +46,9 @@ export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'H
   const tierLabel = tier === 'assisted' ? 'Assisted' : tier === 'autonomous' ? 'Autonomous' : 'Read-only';
   const displayName = pubchi.displayName || 'Pubchi';
   return (
-    <Link href="/pubchi" className="block" data-testid="pubchi-flyout-header">
-      <Card className="border-border transition-colors hover:border-brand">
-        <CardContent className="flex items-center gap-3 p-4">
+    <Card className="border-border transition-colors hover:border-brand" data-testid="pubchi-flyout-header">
+      <CardContent className="flex items-center gap-3 p-4">
+        <Link href={APP_ROUTES.PUBCHI} className="flex min-w-0 flex-1 items-center gap-3">
           <Avatar size="lg" className="shrink-0">
             <AvatarFallback className="overflow-hidden border-none">
               <FacehashAvatar seed={pubchi.bot} initial={displayName.slice(0, 1).toUpperCase()} />
@@ -77,8 +78,12 @@ export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'H
               <Clipboard aria-hidden="true" className="size-3 shrink-0" />
             </button>
           </div>
-        </CardContent>
-      </Card>
-    </Link>
+        </Link>
+        <Link href={APP_ROUTES.PUBCHI_BRAIN} className="inline-flex shrink-0 items-center gap-1 text-sm font-medium hover:text-brand">
+          <Brain aria-hidden="true" className="size-4" />
+          <span className="sr-only sm:not-sr-only">Edit brain</span>
+        </Link>
+      </CardContent>
+    </Card>
   );
 }
