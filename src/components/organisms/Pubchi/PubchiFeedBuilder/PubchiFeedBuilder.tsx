@@ -141,20 +141,19 @@ export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret, e
       onOpenChange={onOpenChange}
       initialValues={initialValues(proposal)}
       onSubmitOverride={save}
+      canSave={mapped.canApply}
+      surfaceId="pubchi-feed-builder"
       onValuesChange={setDraft}
       saveLabel={mapped.canApply ? (existingFeed ? 'Update feed' : 'Apply feed') : 'Choose supported settings'}
       extraContent={
-        <div
-          className="flex flex-col gap-3 rounded-md border border-dashed p-3"
-          data-surface="pubchi-feed-builder"
-          data-testid="pubchi-feed-builder"
-        >
+        <div className="flex flex-col gap-3 rounded-md border border-dashed p-3">
           <div>
             <Typography className="font-medium">Explain this feed</Typography>
             <Typography size="xs" className="text-muted-foreground">
               Every setting is editable. Preview uses posts cached on this device; the installed feed may differ.
             </Typography>
           </div>
+          {notices}
           <textarea
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
@@ -186,7 +185,6 @@ export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret, e
               Followers was requested but is not available in this App — choose another reach.
             </Typography>
           ) : null}
-          {notices}
           <Typography size="xs" className="text-muted-foreground">
             Preview from this device — the installed feed may differ
           </Typography>

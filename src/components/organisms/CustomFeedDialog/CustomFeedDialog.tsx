@@ -60,6 +60,8 @@ interface CustomFeedDialogSharedProps {
   extraContent?: ReactNode;
   saveLabel?: string;
   onValuesChange?: (data: CustomFeedFormData) => void;
+  canSave?: boolean;
+  surfaceId?: string;
 }
 
 type CustomFeedDialogProps =
@@ -317,7 +319,8 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
         }}
         onCloseAutoFocus={(e) => e.preventDefault()}
         className="w-xl"
-        data-testid="custom-feed-dialog-content"
+        data-testid={props.surfaceId ?? 'custom-feed-dialog-content'}
+        {...(props.surfaceId ? { 'data-surface': props.surfaceId } : {})}
       >
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'Create Feed' : 'Edit Feed'}</DialogTitle>
@@ -617,7 +620,7 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
             variant="secondary"
             size="lg"
             onClick={handleSaveFeed}
-            disabled={loading || !form.formState.isValid}
+            disabled={loading || !form.formState.isValid || props.canSave === false}
             className="h-15 w-full"
             data-testid="save-feed-button"
           >
