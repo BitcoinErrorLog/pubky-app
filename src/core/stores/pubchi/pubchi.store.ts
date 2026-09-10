@@ -22,6 +22,8 @@ export interface PubchiStore {
   context: PubchiOwnerContextV1 | null;
   ownerPubky: Pubky | null;
   lastUpdatedAt: number | null;
+  syncReloadCount: number;
+  databaseBlocked: boolean;
   flyout: PubchiFlyoutState;
   quickQuestionsOpen: boolean;
   conversation: Conversation;
@@ -34,6 +36,8 @@ export interface PubchiStore {
   addConversationTurn: (turn: ConversationTurn, ownerPubky: Pubky) => void;
   clearConversation: () => void;
   consumePrefill: (ownerPubky?: Pubky | null) => PubchiFlyoutPrefill | undefined;
+  recordSyncReload: () => void;
+  setDatabaseBlocked: (blocked: boolean) => void;
   clear: () => void;
 }
 
@@ -43,6 +47,8 @@ const initialState = {
   context: null,
   ownerPubky: null,
   lastUpdatedAt: null,
+  syncReloadCount: 0,
+  databaseBlocked: false,
   flyout: { open: false },
   quickQuestionsOpen: false,
   conversation: { turns: [] },
@@ -96,6 +102,8 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
     set({ conversation: { turns: trimmed } });
   },
   clearConversation: () => set({ conversation: { turns: [] } }),
+  recordSyncReload: () => set((state) => ({ syncReloadCount: state.syncReloadCount + 1 })),
+  setDatabaseBlocked: (databaseBlocked) => set({ databaseBlocked }),
   consumePrefill: (ownerPubky): PubchiFlyoutPrefill | undefined => {
     const prefill = get().flyout.prefill;
     if (prefill) {

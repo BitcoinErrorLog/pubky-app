@@ -58,12 +58,14 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const prefill = usePubchiStore((state) => state.flyout.prefill);
   const quickQuestionsOpen = usePubchiStore((state) => state.quickQuestionsOpen);
   const conversation = usePubchiStore((state) => state.conversation);
+  const databaseBlocked = usePubchiStore((state) => state.databaseBlocked);
   const clearConversation = usePubchiStore((state) => state.clearConversation);
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
   const [feedBuilderOpen, setFeedBuilderOpen] = useState(false);
   const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
+  const [showDatabaseBlockedNotice, setShowDatabaseBlockedNotice] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -80,6 +82,15 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   useEffect(() => {
     if (result?.kind === 'feed-v2') setFeedBuilderOpen(true);
   }, [result]);
+
+  useEffect(() => {
+    if (!databaseBlocked) {
+      setShowDatabaseBlockedNotice(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowDatabaseBlockedNotice(true), 5_000);
+    return () => clearTimeout(timer);
+  }, [databaseBlocked]);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;
@@ -111,6 +122,12 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </SheetTitle>
             <SheetDescription>Read-only questions. The service never receives your session or key.</SheetDescription>
           </SheetHeader>
+
+          {showDatabaseBlockedNotice ? (
+            <Typography role="status" size="sm">
+              Pubchi is updating in another tab — close it or reload.
+            </Typography>
+          ) : null}
 
           <PubchiFlyoutHeader
             pubchi={pubchi}

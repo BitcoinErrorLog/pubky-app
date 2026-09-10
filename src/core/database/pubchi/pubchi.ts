@@ -2,10 +2,12 @@ import Dexie, { type Table } from 'dexie';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { Logger } from '@/libs/logger/logger';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { type PubchiBindingRecord, pubchiBindingTableSchema } from '@/models/pubchi/binding.schema';
 import { type PubchiDeviceKeyRecord, pubchiDeviceKeyTableSchema } from '@/models/pubchi/device-key.schema';
 import { pubchiFeedProvenanceTableSchema } from '@/models/pubchi/feed-provenance.schema';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 
 /**
  * Isolated IndexedDB for Phase 0 Pubchi bindings. Separate from franky so the
@@ -31,6 +33,36 @@ class PubchiDatabase extends Dexie {
       deviceKeys: pubchiDeviceKeyTableSchema,
       feedProvenance: null,
     });
+
+    let blockedRetryTimer: ReturnType<typeof setTimeout> | undefined;
+    let blockedLogged = false;
+    const clearBlockedState = () => {
+      if (blockedRetryTimer) clearTimeout(blockedRetryTimer);
+      blockedRetryTimer = undefined;
+      blockedLogged = false;
+      usePubchiStore.getState().setDatabaseBlocked(false);
+    };
+    const retryOpen = () => {
+      if (this.isOpen()) {
+        clearBlockedState();
+        return;
+      }
+      void this.open().then(clearBlockedState).catch(() => {
+        blockedRetryTimer = setTimeout(retryOpen, 1_000);
+      });
+    };
+    this.on('versionchange', () => {
+      this.close();
+    });
+    this.on('ready', clearBlockedState);
+    this.on('blocked', () => {
+      if (!blockedLogged) {
+        blockedLogged = true;
+        Logger.warn('Pubchi database upgrade is blocked by another tab');
+      }
+      usePubchiStore.getState().setDatabaseBlocked(true);
+      if (!blockedRetryTimer) blockedRetryTimer = setTimeout(retryOpen, 1_000);
+    });
   }
 }
 
@@ -51,6 +83,7 @@ export function getPubchiDatabase(): PubchiDatabase {
 
 export function resetPubchiDatabaseForTests(): void {
   instance = null;
+  usePubchiStore.getState().setDatabaseBlocked(false);
 }
 
 /**

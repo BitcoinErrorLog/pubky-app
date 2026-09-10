@@ -32,6 +32,9 @@ import {
   enrollPubchiFormSchema,
 } from './usePubchiEnrollment.types';
 
+const PUBCHI_SYNC_RELOAD_LIMIT = 5;
+const PUBCHI_SYNC_RELOAD_WINDOW_MS = 60_000;
+
 export function usePubchiEnrollment() {
   const owner = useAuthStore((state) => state.currentUserPubky);
   const session = useAuthStore((state) => state.session);
@@ -58,6 +61,7 @@ export function usePubchiEnrollment() {
   const approvalCancelRef = useRef<(() => void) | null>(null);
   const approvalFlowRef = useRef<Promise<boolean> | null>(null);
   const approvalGenerationRef = useRef(0);
+  const reloadTimestampsByOwnerRef = useRef(new Map<Pubky, number[]>());
 
   const cancelReapproval = () => {
     approvalGenerationRef.current += 1;
@@ -159,10 +163,33 @@ export function usePubchiEnrollment() {
     if (!owner) return;
 
     let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+    let rateLimitTimer: ReturnType<typeof setTimeout> | undefined;
     let reloadInFlight = false;
+    let reloadPending = false;
+    const reloadTimestamps = reloadTimestampsByOwnerRef.current.get(owner) ?? [];
+    reloadTimestampsByOwnerRef.current.set(owner, reloadTimestamps);
     const reload = async (): Promise<void> => {
-      if (reloadInFlight || readCurrentOwner(owner) !== owner) return;
+      if (reloadInFlight || readCurrentOwner(owner) !== owner) {
+        reloadPending = true;
+        return;
+      }
+      const now = Date.now();
+      while (reloadTimestamps[0] !== undefined && now - reloadTimestamps[0] >= PUBCHI_SYNC_RELOAD_WINDOW_MS) {
+        reloadTimestamps.shift();
+      }
+      if (reloadTimestamps.length >= PUBCHI_SYNC_RELOAD_LIMIT) {
+        reloadPending = true;
+        if (!rateLimitTimer) {
+          rateLimitTimer = setTimeout(() => {
+            rateLimitTimer = undefined;
+            scheduleReload();
+          }, PUBCHI_SYNC_RELOAD_WINDOW_MS - (now - reloadTimestamps[0]!));
+        }
+        return;
+      }
       reloadInFlight = true;
+      reloadTimestamps.push(now);
+      usePubchiStore.getState().recordSyncReload();
       try {
         const [nextPubchi, nextConfig, nextContext] = await Promise.all([
           PubchiController.loadPubchi(),
@@ -183,9 +210,14 @@ export function usePubchiEnrollment() {
         }
       } finally {
         reloadInFlight = false;
+        if (reloadPending) {
+          reloadPending = false;
+          scheduleReload();
+        }
       }
     };
     const scheduleReload = () => {
+      if (rateLimitTimer) return;
       if (reloadTimer) clearTimeout(reloadTimer);
       reloadTimer = setTimeout(() => {
         reloadTimer = undefined;
@@ -209,6 +241,7 @@ export function usePubchiEnrollment() {
     return () => {
       unsubscribe();
       if (reloadTimer) clearTimeout(reloadTimer);
+      if (rateLimitTimer) clearTimeout(rateLimitTimer);
       document.removeEventListener('visibilitychange', refreshIfStale);
       window.removeEventListener('focus', refreshIfStale);
     };

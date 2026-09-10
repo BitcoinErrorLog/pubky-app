@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { indexedDB } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Logger } from '@/libs/logger/logger';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import { pubchiBindingTableSchema } from '@/models/pubchi/binding.schema';
@@ -77,10 +78,32 @@ describe('deletePubchiDatabase', () => {
     const db = getPubchiDatabase();
     await db.open();
 
+    expect(legacy.isOpen()).toBe(false);
     expect(db.tables.map((table) => table.name)).not.toContain('feedProvenance');
     await expect(db.bindings.get('owner:bot')).resolves.toMatchObject({ owner: 'owner', bot: 'bot' });
     await expect(db.deviceKeys.get('owner:signer')).resolves.toMatchObject({ owner: 'owner', signer: 'signer' });
     await deletePubchiDatabase();
     expect(indexedDB).toBeDefined();
+  });
+
+  it('logs and recovers when another tab blocks the v4 upgrade', async () => {
+    await deletePubchiDatabase();
+    const legacy = new LegacyPubchiDatabase();
+    await legacy.open();
+    legacy.on('versionchange', () => false);
+
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const warn = vi.spyOn(Logger, 'warn');
+    const db = getPubchiDatabase();
+    const opening = db.open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    legacy.close();
+
+    await opening;
+
+    expect(warn).toHaveBeenCalledWith('Pubchi database upgrade is blocked by another tab');
+    expect(db.isOpen()).toBe(true);
+    await deletePubchiDatabase();
   });
 });

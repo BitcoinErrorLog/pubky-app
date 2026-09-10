@@ -222,6 +222,21 @@ describe('usePubchiEnrollment', () => {
     expect(result.current.pubchi?.displayName).toBe('Scout III');
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(mocks.load).toHaveBeenCalledTimes(2);
+    expect(usePubchiStore.getState().syncReloadCount).toBe(1);
+  });
+
+  it('limits a one-second burst of fifty sync messages to five reloads', async () => {
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+
+    for (let index = 0; index < 50; index += 1) {
+      act(() => postSyncMessage(OWNER, 'config-saved'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+    expect(usePubchiStore.getState().syncReloadCount).toBeLessThanOrEqual(5);
+    expect(result.current.pubchi).toBeUndefined();
   });
 
   it('ignores messages for a different owner without reloading', async () => {
