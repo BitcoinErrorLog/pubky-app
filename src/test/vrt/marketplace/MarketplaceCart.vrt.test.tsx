@@ -103,6 +103,7 @@ const view = vi.hoisted(() => ({
   items: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
+  deployEnv: 'staging' as 'production' | 'staging' | undefined,
   hasMarketplaceSession: false,
   addresses: [] as unknown[],
   selectedAddressId: null as string | null,
@@ -156,6 +157,15 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/config/commerce', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/config/commerce')>();
   return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
+});
+
+// The checkout money notice is gated on the deploy environment, not the
+// adapter mode. Each scene names its environment explicitly: staging (test
+// rails, no real funds) is the default; the locks-paykit scene runs on
+// production, where real payment rails are live.
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => view.deployEnv };
 });
 
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
@@ -232,6 +242,7 @@ beforeEach(async () => {
   useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
   view.hasMarketplaceSession = false;
   view.adapterMode = 'sandbox';
+  view.deployEnv = 'staging';
   view.addresses = [];
   view.selectedAddressId = null;
   view.isLoading = false;
@@ -342,15 +353,19 @@ describe('Marketplace cart — visual regression', () => {
 
   // locks-paykit mode: real payment rails are live, so the guarantee copy must
   // NOT claim "no real funds move" — it states where the funds actually go.
+  // The scene is framed as the production deploy, so the money notice is the
+  // real-money one.
   it('renders the locks-paykit checkout labels at desktop viewport', async () => {
     const { singleSeller } = await fixtures;
     view.items = singleSeller;
     view.isLoading = false;
     view.adapterMode = 'locks-paykit';
+    view.deployEnv = 'production';
 
     const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-locks-paykit-desktop');
     view.adapterMode = 'sandbox';
+    view.deployEnv = 'staging';
   });
 
   // Durable mode with no marketplace session: step 1 shows the Ring approval

@@ -26,6 +26,7 @@ const fixtures = vi.hoisted(async () => {
 });
 
 const view = vi.hoisted(() => ({
+  deployEnv: 'production' as 'production' | 'staging' | undefined,
   locks: {
     enabled: true,
     correlation: null as unknown,
@@ -51,6 +52,15 @@ vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => (
     resumePolling: vi.fn(),
   }),
 }));
+
+// The money notice is gated on the deploy environment. Each scene names its
+// environment: locks-paykit scenes run on production (real rails — the
+// real-money notice is truthful there); transaction-service scenes run on
+// staging (test rails — no real funds move). Sandbox scenes render no notice.
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => view.deployEnv };
+});
 
 vi.mock('@/controllers/commerce/commerce', async () => {
   const { ORDER_FIXTURE_SELLER } = await import('@/test/fixtures/commerce/orders');
@@ -106,9 +116,11 @@ async function renderCard(
     orderOverrides?: Record<string, unknown>;
     isBuyer?: boolean;
     viewport?: object;
+    deployEnv?: 'production' | 'staging';
   } = {},
 ) {
   const { createOrderFixture, createPaymentFixture } = await fixtures;
+  view.deployEnv = options.deployEnv ?? 'production';
   const payment = createPaymentFixture(paymentState, {
     adapter: options.adapter ?? 'sandbox',
     locksBundleId: undefined,
@@ -222,7 +234,7 @@ describe('Marketplace payment status card — visual regression', () => {
 
   it('renders the payment method picker with the seller-configured rails at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
-    const screen = await renderCard('awaiting_entitlement', 'transaction-service');
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', { deployEnv: 'staging' });
     await expect.element(screen.getByText('₿ Bitcoin')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-picker-desktop');
     view.locks.enabled = true;
@@ -237,7 +249,7 @@ describe('Marketplace payment status card — visual regression', () => {
       stripePaymentLink: null,
       paypalMerchantEmail: null,
     };
-    const screen = await renderCard('awaiting_entitlement', 'transaction-service');
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', { deployEnv: 'staging' });
     await expect.element(screen.getByText(/has not set up any payment methods/)).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-none-desktop');
     view.sellerConfig = previous;
@@ -247,6 +259,7 @@ describe('Marketplace payment status card — visual regression', () => {
   it('renders the bound bitcoin wait state at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
       orderOverrides: { paymentMethod: 'bitcoin', paykitRequestState: 'pending' },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-bitcoin-desktop');
@@ -256,6 +269,7 @@ describe('Marketplace payment status card — visual regression', () => {
   it('renders the bound stripe checkout and verify affordances at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
       orderOverrides: {
         paymentMethod: 'stripe',
         fiatCheckoutUrl: 'https://buy.stripe.com/test_fixture?client_reference_id=order-1',
@@ -269,6 +283,7 @@ describe('Marketplace payment status card — visual regression', () => {
   it('renders the buyer paypal report affordances at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
       orderOverrides: {
         paymentMethod: 'paypal',
         fiatCheckoutUrl: 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=seller%40example.com',
@@ -282,6 +297,7 @@ describe('Marketplace payment status card — visual regression', () => {
   it('renders the buyer paypal reported state at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
       orderOverrides: {
         paymentMethod: 'paypal',
         fiatCheckoutUrl: 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=seller%40example.com',
@@ -299,6 +315,7 @@ describe('Marketplace payment status card — visual regression', () => {
   it('renders the seller paypal receipt confirmation at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
       isBuyer: false,
       orderOverrides: {
         paymentMethod: 'paypal',

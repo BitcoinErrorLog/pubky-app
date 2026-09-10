@@ -43,6 +43,14 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
 }));
 
+// Same staging-deploy framing as Marketplace.vrt: the staging environment
+// banner is part of the nav surface on staging, so these baselines name the
+// environment explicitly.
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => 'staging' };
+});
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: VRT_USER_PUBKY }),

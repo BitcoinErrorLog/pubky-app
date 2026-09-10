@@ -38,6 +38,14 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
 }));
 
+// These scenes represent the staging deploy: the staging environment banner
+// is part of the home surface there, so the baselines name the environment
+// explicitly instead of inheriting whatever the VRT browser resolves.
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => 'staging' };
+});
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: VRT_USER_PUBKY }),

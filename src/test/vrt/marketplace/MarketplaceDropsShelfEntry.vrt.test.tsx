@@ -42,6 +42,15 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
 }));
 
+// These scenes are framed as the production deploy: the home environment
+// banner is a staging-only element, so neither baseline carries it. The
+// sandbox scene's old baseline coupled the banner to the adapter mode; the
+// named production environment keeps that coupling out of the fixture.
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => 'production' };
+});
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: VRT_USER_PUBKY }),
