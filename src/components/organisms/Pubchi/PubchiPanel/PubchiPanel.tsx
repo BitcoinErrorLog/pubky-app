@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
+import { Card, CardContent, CardTitle } from '@/atoms/Card/Card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Collapsible/Collapsible';
 import { Link } from '@/atoms/Link/Link';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/atoms/Sheet/Sheet';
@@ -19,6 +19,7 @@ import { parsePostReference } from '@/libs/pubchi/capabilities-v1';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
+import type { FeedProposalV2 } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -40,7 +41,6 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const {
     form,
     submit,
-    applyFeed,
     result,
     errorCode,
     loading,
@@ -64,6 +64,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
   const [feedBuilderOpen, setFeedBuilderOpen] = useState(false);
+  const [feedBuilderProposal, setFeedBuilderProposal] = useState<FeedProposalV2 | undefined>();
   const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
   const [showDatabaseBlockedNotice, setShowDatabaseBlockedNotice] = useState(false);
 
@@ -80,7 +81,9 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   }, [currentUserPubky, form, open, prefill]);
 
   useEffect(() => {
-    if (result?.kind === 'feed-v2') setFeedBuilderOpen(true);
+    if (result?.kind !== 'feed-v2') return;
+    setFeedBuilderProposal(result.result);
+    setFeedBuilderOpen(true);
   }, [result]);
 
   useEffect(() => {
@@ -109,6 +112,38 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   ): Promise<boolean> => {
     if (!requestOptions?.targetFeedId) setEditFeed(undefined);
     return submit(purpose, requestOptions);
+  };
+  const openFeedBuilder = () => {
+    const initialQuestion = question.trim();
+    const owner = currentUserPubky ?? 'a'.repeat(52);
+    setFeedBuilderProposal({
+      schema: 'pubchi-feed-proposal',
+      version: 2,
+      bot: 'b'.repeat(52),
+      owner,
+      generated_at: Math.floor(Date.now() / 1000),
+      mode: 'create',
+      target_feed_id: null,
+      feed: {
+        name: 'New feed',
+        icon: 'rss',
+        feed: {
+          reach: 'following',
+          sort: 'recent',
+          layout: 'columns',
+          content: undefined,
+          tags: [],
+          domain_tags: [],
+        },
+      },
+      mapping: { status: 'exact', unmapped: [] },
+      warnings: [],
+      installed_user_feed_id: null,
+    });
+    setFeedBuilderOpen(true);
+    if (initialQuestion) {
+      void submitQuestion('build-feed', { proposalVersion: 2 });
+    }
   };
 
   return (
@@ -218,10 +253,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               onAsk={() => void submitQuestion('ask')}
               quickQuestionsOpen={quickQuestionsOpen}
               onQuickQuestionsOpenChange={setQuickQuestionsOpen}
-              onBuildFeed={() => {
-                void submitQuestion('build-feed');
-              }}
+              onBuildFeed={openFeedBuilder}
             />
+            <Typography size="xs" className="text-muted-foreground">
+              Build feed opens the feed builder — pick filters or describe the feed.
+            </Typography>
             {postReference ? (
               <Button
                 type="button"
@@ -314,12 +350,13 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </div>
           ) : null}
 
-          {!loading && result?.kind === 'feed-v2' ? (
+          {!loading && feedBuilderProposal ? (
             <PubchiFeedBuilder
-              proposal={result.result}
+              proposal={feedBuilderProposal}
               open={feedBuilderOpen}
               onOpenChange={setFeedBuilderOpen}
               existingFeed={editFeed}
+              initialQuestion={question.trim()}
               onInterpret={async (nextQuestion) => {
                 form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
                 await submit('build-feed', {
@@ -333,27 +370,6 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 });
               }}
             />
-          ) : null}
-
-          {!loading && result?.kind === 'feed' ? (
-            <Card data-testid="pubchi-feed-preview">
-              <CardHeader>
-                <CardTitle>{result.result.feed.name}</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2">
-                <Typography size="sm">Reach: {result.result.feed.feed.reach}</Typography>
-                <Typography size="sm">Tags: {(result.result.feed.feed.tags ?? []).join(', ') || 'none'}</Typography>
-                <Button
-                  type="button"
-                  data-testid="pubchi-apply-feed"
-                  onClick={() => {
-                    void applyFeed();
-                  }}
-                >
-                  Apply
-                </Button>
-              </CardContent>
-            </Card>
           ) : null}
 
           {!loading && result?.kind === 'feed-unsupported' ? (

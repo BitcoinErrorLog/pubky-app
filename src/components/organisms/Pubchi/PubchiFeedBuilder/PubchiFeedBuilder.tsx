@@ -24,6 +24,7 @@ export type PubchiFeedBuilderProps = {
   onOpenChange: (open: boolean) => void;
   onInterpret: (question: string, replaceAll: boolean) => Promise<void>;
   existingFeed?: FeedModelSchema;
+  initialQuestion?: string;
 };
 
 const reachValues: Record<string, PubkyAppFeedReach> = {
@@ -70,8 +71,15 @@ function initialValues(proposal: FeedProposalV2): CustomFeedFormData {
   };
 }
 
-export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret, existingFeed }: PubchiFeedBuilderProps) {
-  const [question, setQuestion] = useState('');
+export function PubchiFeedBuilder({
+  proposal,
+  open,
+  onOpenChange,
+  onInterpret,
+  existingFeed,
+  initialQuestion = '',
+}: PubchiFeedBuilderProps) {
+  const [question, setQuestion] = useState(initialQuestion);
   const [replaceAll, setReplaceAll] = useState(false);
   const mapped = feedProposalV2ToCreateParams(proposal);
   const owner = useAuthStore((state) => state.currentUserPubky);
@@ -130,7 +138,11 @@ export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret, e
 
   const notices = proposal.mapping.unmapped.map((entry) => (
     <Typography key={`${entry.request}-${entry.reason}`} size="xs" className="text-muted-foreground">
-      {entry.suggestion ?? entry.request}
+      {entry.reason === 'likes_unavailable'
+        ? "Feeds can't filter by likes because Pubky doesn't model likes; closest: Popularity or Recent"
+        : entry.reason === 'followers_not_authorable'
+          ? 'Followers reach is not available in this App'
+          : entry.suggestion ?? entry.request}
     </Typography>
   ));
 
@@ -150,8 +162,14 @@ export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret, e
           <div>
             <Typography className="font-medium">Explain this feed</Typography>
             <Typography size="xs" className="text-muted-foreground">
-              Every setting is editable. Preview uses posts cached on this device; the installed feed may differ.
+              Set the filters below, or describe the feed and let Pubchi fill them in.
             </Typography>
+          </div>
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <Typography size="xs">Reach: Following = people you follow; Friends = mutual follows; All = everyone; WoT = within two hops of your follows; Me = only you; Followers = not available in this App.</Typography>
+            <Typography size="xs">Sort: Recent or Popularity (bookmarks, reposts, replies).</Typography>
+            <Typography size="xs">Layout: Columns, Wide, Visual, or List.</Typography>
+            <Typography size="xs">Content: All, Short, Long, Image, Video, Link, File, or Collection.</Typography>
           </div>
           {notices}
           <textarea

@@ -4,16 +4,12 @@ import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
-import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
-import { publishPubchiSync } from '@/controllers/pubchi/pubchi-sync';
 import { AppError } from '@/libs/error/error';
 import { Logger } from '@/libs/logger/logger';
 import { PUBCHI_PRIVATE_DIRECTORY, sessionCovers } from '@/libs/pubchi/capabilities';
 import { readLocalCursor, writeLocalCursor } from '@/libs/pubchi/capabilities-v1';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
-import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
-import { recordPubchiBuiltFeed } from '@/libs/pubchi/feed-provenance';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
@@ -115,7 +111,8 @@ export function usePubchiQuery() {
             question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
             ...(purpose === 'ask' ? { conversation } : {}),
-            ...requestOptions,
+        ...(purpose === 'build-feed' ? { proposalVersion: 2 as const } : {}),
+        ...requestOptions,
           });
           const nextUntil = next.kind === 'answer' ? next.result.continuation?.until : undefined;
           const cursorTime = cursor ? Date.parse(cursor) : Number.NaN;
@@ -175,32 +172,9 @@ export function usePubchiQuery() {
     return ok;
   };
 
-  const applyFeed = async (): Promise<boolean> => {
-    if (!result || result.kind !== 'feed' || !result.applyAllowed) return false;
-    const owner = useAuthStore.getState().currentUserPubky;
-    if (!owner) return false;
-    let feedId: string | undefined;
-    try {
-      const feed = await FeedController.commitCreate(feedProposalToCreateParams(result.result));
-      feedId = feed.id;
-      await recordPubchiBuiltFeed(owner, result.result, feed);
-      publishPubchiSync(owner, 'created');
-      toast({ variant: 'default', title: 'Feed applied', dismissButton: true });
-      return true;
-    } catch (error) {
-      if (feedId) {
-        await FeedController.commitDelete({ feedId }).catch(() => undefined);
-      }
-      const code = error instanceof AppError ? error.message : 'FEED_SPECS_INVALID';
-      toast({ variant: 'error', title: pubchiErrorCopy(code).message, dismissButton: true });
-      return false;
-    }
-  };
-
   return {
     form,
     submit,
-    applyFeed,
     result,
     errorCode,
     loading,
