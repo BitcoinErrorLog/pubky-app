@@ -54,7 +54,8 @@ vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
   }),
 }));
 
-vi.mock('@/libs/pubchi/flags', () => ({
+vi.mock('@/libs/pubchi/flags', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/libs/pubchi/flags')>()),
   isPubchiPanelEnabled: () => true,
   isPubchiEnabled: () => true,
 }));
