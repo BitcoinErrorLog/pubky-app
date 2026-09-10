@@ -186,7 +186,7 @@ describe('Marketplace review attestation surfaces — visual regression', () => 
   it('renders the service-only own-review state at desktop viewport', async () => {
     const screen = await renderStatusScenario(null);
     await vi.waitFor(() => {
-      if (!document.body.textContent?.includes('No public record was published')) {
+      if (!document.body.textContent?.includes('public publication status will appear')) {
         throw new Error('Service-only status has not rendered yet.');
       }
     });
