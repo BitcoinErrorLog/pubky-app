@@ -49,6 +49,9 @@ export function isValidMarketplaceMediaUri(uri: string): boolean {
   const owner = rest.slice(0, PUBKY_Z32_LENGTH);
   const path = rest.slice(PUBKY_Z32_LENGTH);
   if (!PUBKY_Z32_PATTERN.test(owner) || !path.startsWith('/')) return false;
+  if ([...path].some((character) => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f)) {
+    return false;
+  }
   if (/[?#\\]/.test(path) || /%(?:2e|2f|5c)/i.test(path)) return false;
 
   const segments = path.split('/');

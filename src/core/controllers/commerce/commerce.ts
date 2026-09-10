@@ -1219,14 +1219,6 @@ export class CommerceController {
     return await CommerceApplication.fetchMarketplaceMedia(uri);
   }
 
-  static getConfiguredMarketplaceHomeserver(): string {
-    return CommerceApplication.getConfiguredMarketplaceHomeserver();
-  }
-
-  static getConfiguredMarketplaceHomeserverUrl(): string {
-    return CommerceApplication.getConfiguredMarketplaceHomeserverUrl();
-  }
-
   private static assertCurrentUserOwns(ownerPubky: string): void {
     const currentUserPubky = this.getCurrentUserPubky();
     if (currentUserPubky !== ownerPubky) {

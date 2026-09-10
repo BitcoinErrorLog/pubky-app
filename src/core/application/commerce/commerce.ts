@@ -2491,14 +2491,6 @@ export class CommerceApplication {
     return await MarketplaceMediaService.fetchMedia(uri);
   }
 
-  static getConfiguredMarketplaceHomeserver(): string {
-    return MarketplaceMediaService.getConfiguredHomeserver();
-  }
-
-  static getConfiguredMarketplaceHomeserverUrl(): string {
-    return MarketplaceMediaService.getConfiguredHomeserverUrl();
-  }
-
   private static async registerListing(listing: CommerceListingRecord): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);

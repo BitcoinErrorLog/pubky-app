@@ -48,6 +48,10 @@ describe('resolveMarketplaceMediaUrl', () => {
     ['/pub/pubky.app/marketplace/ok.jpg#f', 'fragment'],
     ['/pub//x', 'empty segment'],
     ['/pub/pubky.app/other/x', 'outside marketplace prefix'],
+    ['/pub/pubky.app/marketplace/ok\n.jpg', 'newline'],
+    ['/pub/pubky.app/marketplace/ok\t.jpg', 'tab'],
+    ['/pub/pubky.app/marketplace/ok\0.jpg', 'NUL'],
+    ['/pub/pubky.app/marketplace/ok\x7f.jpg', 'DEL'],
   ])('rejects %s (%s)', (path) => {
     expect(resolveMarketplaceMediaUrl(`pubky://${SELLER}${path}`)).toBeNull();
   });

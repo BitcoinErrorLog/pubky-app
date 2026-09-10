@@ -21,14 +21,6 @@ const ownerRequests = new Map<string, Promise<string | null>>();
 const mediaCache = new Map<string, CacheEntry>();
 const mediaRequests = new Map<string, Promise<string | null>>();
 
-function getConfiguredMarketplaceHomeserver(): string {
-  return CommerceController.getConfiguredMarketplaceHomeserver?.() ?? getHomeserver();
-}
-
-function getConfiguredMarketplaceHomeserverUrl(): string {
-  return CommerceController.getConfiguredMarketplaceHomeserverUrl?.() ?? getHomeserverUrl();
-}
-
 function useLatest<T>(value: T): MutableRefObject<T> {
   const ref = useRef(value);
   useEffect(() => {
@@ -75,7 +67,10 @@ async function getOwnerHomeserver(owner: string): Promise<string | null> {
 
   const request = CommerceController.getMarketplaceMediaOwnerHomeserver(owner)
     .then((homeserver) => {
-      ownerCache.set(owner, { value: homeserver, expiresAt: Date.now() + OWNER_CACHE_TTL_MS });
+      ownerCache.set(owner, {
+        value: homeserver,
+        expiresAt: Date.now() + (homeserver === null ? NEGATIVE_MEDIA_CACHE_TTL_MS : OWNER_CACHE_TTL_MS),
+      });
       while (ownerCache.size > OWNER_CACHE_LIMIT) {
         const oldestOwner = ownerCache.keys().next().value;
         if (!oldestOwner) break;
@@ -108,8 +103,8 @@ export async function resolveMarketplaceMediaUrlAsync(uri: string): Promise<stri
         return null;
       }
 
-      if (ownerHomeserver === getConfiguredMarketplaceHomeserver()) {
-        const url = resolveMarketplaceMediaUrl(uri, getConfiguredMarketplaceHomeserverUrl());
+      if (ownerHomeserver === getHomeserver()) {
+        const url = resolveMarketplaceMediaUrl(uri, getHomeserverUrl());
         cacheMedia(uri, url);
         return url;
       }
@@ -234,8 +229,8 @@ function getSynchronousMediaUrl(uri: string): string | null {
   if (!owner) return null;
   if (!isValidMarketplaceMediaUri(uri)) return null;
   const ownerHomeserver = getCached(ownerCache, owner);
-  if (ownerHomeserver !== getConfiguredMarketplaceHomeserver()) return null;
-  return resolveMarketplaceMediaUrl(uri, getConfiguredMarketplaceHomeserverUrl());
+  if (ownerHomeserver !== getHomeserver()) return null;
+  return resolveMarketplaceMediaUrl(uri, getHomeserverUrl());
 }
 
 export function clearMarketplaceMediaCache(): void {

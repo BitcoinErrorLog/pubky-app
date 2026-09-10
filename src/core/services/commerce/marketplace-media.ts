@@ -1,5 +1,5 @@
 import { Client, Pubky, PublicKey, resolvePubky } from '@synonymdev/pubky';
-import { getHomeserver, getHomeserverUrl, getPkarrRelays } from '@/config/network';
+import { getPkarrRelays } from '@/config/network';
 import { isValidMarketplaceMediaUri } from '@/libs/commerce/media-url';
 import { ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -32,13 +32,5 @@ export class MarketplaceMediaService {
       });
     }
     return await response.blob();
-  }
-
-  static getConfiguredHomeserver(): string {
-    return getHomeserver();
-  }
-
-  static getConfiguredHomeserverUrl(): string {
-    return getHomeserverUrl();
   }
 }

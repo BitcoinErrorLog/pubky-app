@@ -11,6 +11,11 @@ vi.mock('@/core/services/commerce/marketplace-media', () => ({
   },
 }));
 
+vi.mock('@/config/network', () => ({
+  getHomeserver: vi.fn(() => 'configured-homeserver'),
+  getHomeserverUrl: vi.fn(() => 'https://configured.example'),
+}));
+
 const owner = 'y'.repeat(52);
 const otherOwner = 'b'.repeat(52);
 const mediaUri = `pubky://${owner}/pub/pubky.app/marketplace/v1/media/image`;
@@ -45,6 +50,26 @@ describe('marketplace media resolution', () => {
     vi.mocked(MarketplaceMediaService.getOwnerHomeserver).mockResolvedValue(null);
 
     await expect(resolveMarketplaceMediaUrlAsync(otherMediaUri)).resolves.toBeNull();
+  });
+
+  it('re-resolves a missing owner after the negative owner-cache TTL but keeps positive entries', async () => {
+    vi.useFakeTimers();
+    vi.mocked(MarketplaceMediaService.getOwnerHomeserver)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue('configured-homeserver');
+
+    await expect(resolveMarketplaceMediaUrlAsync(otherMediaUri)).resolves.toBeNull();
+    vi.advanceTimersByTime(30 * 1000 + 1);
+    await expect(resolveMarketplaceMediaUrlAsync(otherMediaUri)).resolves.toContain(`pubky-host=${otherOwner}`);
+    expect(MarketplaceMediaService.getOwnerHomeserver).toHaveBeenCalledTimes(2);
+
+    clearMarketplaceMediaCache();
+    vi.mocked(MarketplaceMediaService.getOwnerHomeserver).mockResolvedValue('configured-homeserver');
+    await resolveMarketplaceMediaUrlAsync(otherMediaUri);
+    vi.advanceTimersByTime(30 * 1000 + 1);
+    await resolveMarketplaceMediaUrlAsync(otherMediaUri);
+    expect(MarketplaceMediaService.getOwnerHomeserver).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
   });
 
   it('deduplicates concurrent SDK requests', async () => {
