@@ -57,6 +57,8 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const prefill = usePubchiStore((state) => state.flyout.prefill);
   const quickQuestionsOpen = usePubchiStore((state) => state.quickQuestionsOpen);
+  const conversation = usePubchiStore((state) => state.conversation);
+  const clearConversation = usePubchiStore((state) => state.clearConversation);
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
@@ -142,6 +144,33 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               >
                 {setupLoading ? 'Setting up…' : 'Set up this browser'}
               </Button>
+            </div>
+          ) : null}
+
+          {conversation.turns.length > 0 ? (
+            <div className="flex flex-col gap-2" data-testid="pubchi-conversation">
+              <div className="flex items-center justify-between">
+                <Typography size="sm" className="font-medium">
+                  Conversation
+                </Typography>
+                <Button type="button" variant="ghost" size="sm" onClick={clearConversation}>
+                  New conversation
+                </Button>
+              </div>
+              {conversation.turns.map((turn, index) => (
+                <Card key={`${turn.role}-${index}`}>
+                  <CardContent className="flex flex-col gap-1 pt-4">
+                    <Typography size="xs" className="text-muted-foreground">
+                      {turn.role === 'user'
+                        ? 'You'
+                        : turn.basis && turn.basis !== 'graph'
+                          ? 'From what I know'
+                          : 'Pubchi'}
+                    </Typography>
+                    <Typography size="sm">{turn.text}</Typography>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : null}
 

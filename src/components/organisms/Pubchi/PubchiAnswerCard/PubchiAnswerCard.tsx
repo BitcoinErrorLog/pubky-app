@@ -43,7 +43,9 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
 
   useEffect(() => {
     let active = true;
-    const claimantIds = [...new Set(answer.evidence.filter((item) => item.kind !== 'user').flatMap((item) => item.claimants))];
+    const claimantIds = [
+      ...new Set(answer.evidence.filter((item) => item.kind !== 'user').flatMap((item) => item.claimants)),
+    ];
     if (claimantIds.length === 0) return;
     void Promise.all(
       claimantIds.map(async (userId) => {
@@ -92,28 +94,65 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
 
       <Card>
         <CardHeader>
-          <CardTitle>{hasDeterministicRoute(answer.tool_trace_summary.tools) ? 'What the graph shows' : "Pubchi's reading of the evidence"}</CardTitle>
+          <CardTitle>
+            {answer.basis && answer.basis !== 'graph'
+              ? 'From what I know'
+              : hasDeterministicRoute(answer.tool_trace_summary.tools)
+                ? 'What the graph shows'
+                : "Pubchi's reading of the evidence"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          {answer.scope ? (
+          {answer.scope && (answer.basis === undefined || answer.basis === 'graph' || answer.basis === 'mixed') ? (
             <Typography data-testid="pubchi-answer-scope" size="xs" className="mb-2 text-muted-foreground">
               {formatScopeLine(answer.scope)}
             </Typography>
           ) : null}
           <Typography size="sm">
-            {answer.summary ? linkifyPubkys(answer.summary).map((part, index) => (
-              typeof part === 'string' ? part : (
-                <Link key={`${part.pubky}-${index}`} href={getUserProfileUrl(part.pubky, currentUserPubky)} className="underline">
-                  pubky:{part.pubky}
-                </Link>
-              )
-            )) : 'No evidence was found for this question.'}
+            {answer.summary && (answer.basis === undefined || answer.basis === 'graph' || answer.basis === 'mixed')
+              ? linkifyPubkys(answer.summary).map((part, index) =>
+                  typeof part === 'string' ? (
+                    part
+                  ) : (
+                    <Link
+                      key={`${part.pubky}-${index}`}
+                      href={getUserProfileUrl(part.pubky, currentUserPubky)}
+                      className="underline"
+                    >
+                      pubky:{part.pubky}
+                    </Link>
+                  ),
+                )
+              : answer.summary || 'No evidence was found for this question.'}
           </Typography>
         </CardContent>
       </Card>
+      {answer.citations?.length ? (
+        <Card data-testid="pubchi-answer-citations">
+          <CardHeader>
+            <CardTitle>Sources</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {answer.citations.map((citation) => (
+              <div key={citation.url} className="flex flex-col gap-1">
+                <a href={citation.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">
+                  {citation.title}
+                </a>
+                {citation.snippet ? <Typography size="sm">{citation.snippet}</Typography> : null}
+                {citation.corpus_version ? (
+                  <Typography size="xs" className="text-muted-foreground">
+                    Corpus version: {citation.corpus_version}
+                  </Typography>
+                ) : null}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
       {answer.continuation ? (
         <Typography data-testid="pubchi-cursor-status" size="xs" className="text-muted-foreground">
-          Since {new Date(answer.continuation.since).toLocaleString()} · {answer.continuation.complete ? 'complete' : 'partial — cursor kept'}
+          Since {new Date(answer.continuation.since).toLocaleString()} ·{' '}
+          {answer.continuation.complete ? 'complete' : 'partial — cursor kept'}
           {cursorSource === 'device' ? ' · cursor kept on this device' : ''}
         </Typography>
       ) : null}
@@ -125,7 +164,7 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
             {answer.sources.map((source) => {
               const href = pubkyUriToAppHref(source, currentUserPubky);
               return href ? (
-                <Link key={source} href={href} className="break-all text-sm underline">
+                <Link key={source} href={href} className="text-sm break-all underline">
                   {source}
                 </Link>
               ) : (
@@ -183,9 +222,10 @@ function moreEvidenceCount(answer: PubchiAnswerV1, itemCount: number): number {
 function formatScopeLine(scope: ExecutionScope): string {
   if (scope.graph.kind === 'none') return 'No graph lookup';
 
-  const graph = scope.graph.kind === 'whole_graph'
-    ? 'whole graph'
-    : `your network${scope.graph.hops ? ` (${scope.graph.hops} hops)` : ''}`;
+  const graph =
+    scope.graph.kind === 'whole_graph'
+      ? 'whole graph'
+      : `your network${scope.graph.hops ? ` (${scope.graph.hops} hops)` : ''}`;
   if (scope.time === null) return `Scope: current indexed graph (no time filter) · ${graph}`;
 
   const since = formatUtcDate(scope.time.since_ms);
@@ -253,7 +293,10 @@ function EvidenceItem({
           <div className="flex flex-wrap gap-2">
             {item.claimants.slice(0, 3).map((claimant) => (
               <Link key={claimant} href={getUserProfileUrl(claimant, currentUserPubky)} className="text-sm underline">
-                <span className="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs" aria-hidden="true">
+                <span
+                  className="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs"
+                  aria-hidden="true"
+                >
                   {(names.get(claimant) ?? claimant).slice(0, 1).toUpperCase()}
                 </span>
                 {names.get(claimant) ?? claimant}
@@ -285,11 +328,13 @@ function hasDeterministicRoute(tools: string[]): boolean {
 }
 
 function countLabel(tools: string[]): string {
-  if (tools.some((tool) => tool === 'nexus_user_tags' || tool === 'get_tag_landscape' || tool === 'tag_landscape')) return 'Tagged by';
+  if (tools.some((tool) => tool === 'nexus_user_tags' || tool === 'get_tag_landscape' || tool === 'tag_landscape'))
+    return 'Tagged by';
   if (tools.some((tool) => tool === 'nexus_influencer' || tool === 'rank_users')) return 'Followers';
   if (tools.some((tool) => tool === 'rank_tags_recv')) return 'Tags received';
   if (tools.some((tool) => tool === 'rank_tags_apply')) return 'Tags applied';
   if (tools.includes('top_posts')) return 'Replies';
-  if (tools.some((tool) => tool === 'recommend_follows' || tool === 'recommend' || tool === 'stale_follows')) return 'Count';
+  if (tools.some((tool) => tool === 'recommend_follows' || tool === 'recommend' || tool === 'stale_follows'))
+    return 'Count';
   return 'Claimants';
 }

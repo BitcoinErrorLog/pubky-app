@@ -18,6 +18,7 @@ import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import {
   type PubchiQueryFormData,
   pubchiQueryFormDefaults,
@@ -29,6 +30,8 @@ const SIGNING_UNAVAILABLE = "This browser isn't set up for Pubchi yet. Set it up
 
 export function usePubchiQuery() {
   const owner = useAuthStore((state) => state.currentUserPubky);
+  const conversation = usePubchiStore((state) => state.conversation);
+  const addConversationTurn = usePubchiStore((state) => state.addConversationTurn);
   const [signingAvailable, setSigningAvailable] = useState(false);
   const [pubchiAvailable, setPubchiAvailable] = useState<boolean | undefined>(undefined);
   const [setupLoading, setSetupLoading] = useState(false);
@@ -111,6 +114,7 @@ export function usePubchiQuery() {
           const next = await PubchiController.fetchPubchiQuery({
             question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
+            ...(purpose === 'ask' ? { conversation } : {}),
             ...requestOptions,
           });
           const nextUntil = next.kind === 'answer' ? next.result.continuation?.until : undefined;
@@ -141,6 +145,18 @@ export function usePubchiQuery() {
             return;
           }
           setResult(next);
+          if (purpose === 'ask' && requestOwner && next.kind === 'answer') {
+            addConversationTurn({ role: 'user', text: rawQuestion }, requestOwner);
+            addConversationTurn(
+              {
+                role: 'assistant',
+                text: next.result.summary,
+                ...(next.result.basis ? { basis: next.result.basis } : {}),
+                ...(next.result.citations ? { citations: next.result.citations } : {}),
+              },
+              requestOwner,
+            );
+          }
           ok = true;
         } catch (error) {
           const code = error instanceof AppError ? error.message : 'SCHEMA_INVALID';

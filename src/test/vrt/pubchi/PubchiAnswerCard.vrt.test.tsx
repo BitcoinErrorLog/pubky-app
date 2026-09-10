@@ -38,10 +38,10 @@ function answer(overrides: Partial<PubchiAnswerV1>): PubchiAnswerV1 {
 
 describe('PubchiAnswerCard — visual regression', () => {
   it('guards the production answer surface marker', async () => {
-    const screen = await renderForVRT(
-      <PubchiAnswerCard answer={baseAnswer} currentUserPubky={owner} />,
-      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
-    );
+    const screen = await renderForVRT(<PubchiAnswerCard answer={baseAnswer} currentUserPubky={owner} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      freezeMotion: true,
+    });
 
     const surface = screen.getByTestId('pubchi-answer');
     await expect.element(surface).toHaveAttribute('data-surface', 'pubchi-answer');
@@ -141,5 +141,59 @@ describe('PubchiAnswerCard — visual regression', () => {
     );
 
     await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-scoped-network-desktop');
+  });
+
+  it('captures a knowledge answer with citations', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          basis: 'knowledge',
+          summary: 'Pubky uses public homeservers.',
+          scope: { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+          citations: [
+            {
+              kind: 'knowledge',
+              title: 'Pubky documentation',
+              url: 'https://docs.pubky.org/guide',
+              snippet: 'Public source',
+              corpus_version: '2026-09',
+            },
+          ],
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-knowledge-citations-desktop');
+  });
+
+  it('captures a model answer without citations', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          basis: 'model',
+          summary: 'From what I know, Pubky is a public-key social protocol.',
+          scope: { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-model-desktop');
+  });
+
+  it('captures a mixed graph and knowledge answer', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          basis: 'mixed',
+          scope: { time: null, graph: { kind: 'whole_graph' }, filters: [], complete: true },
+          citations: [{ kind: 'web', title: 'Current source', url: 'https://example.com/source' }],
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-mixed-desktop');
   });
 });

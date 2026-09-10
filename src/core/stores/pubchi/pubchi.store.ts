@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { LoadedPubchi } from '@/application/pubchi/pubchi.types';
-import type { PubchiConfigV1, PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
+import type { Conversation, ConversationTurn, PubchiConfigV1, PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
 type StoredPubchi = Omit<LoadedPubchi, 'phrase'>;
@@ -24,12 +24,15 @@ export interface PubchiStore {
   lastUpdatedAt: number | null;
   flyout: PubchiFlyoutState;
   quickQuestionsOpen: boolean;
+  conversation: Conversation;
   setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
   setConfig: (config: PubchiConfigV1 | null, ownerPubky: Pubky | null) => void;
   setContext: (context: PubchiOwnerContextV1 | null, ownerPubky: Pubky | null) => void;
   openFlyout: (prefill?: PubchiFlyoutPrefill, ownerPubky?: Pubky | null) => void;
   closeFlyout: () => void;
   setQuickQuestionsOpen: (open: boolean) => void;
+  addConversationTurn: (turn: ConversationTurn, ownerPubky: Pubky) => void;
+  clearConversation: () => void;
   consumePrefill: (ownerPubky?: Pubky | null) => PubchiFlyoutPrefill | undefined;
   clear: () => void;
 }
@@ -42,6 +45,7 @@ const initialState = {
   lastUpdatedAt: null,
   flyout: { open: false },
   quickQuestionsOpen: false,
+  conversation: { turns: [] },
 };
 
 export const usePubchiStore = create<PubchiStore>((set, get) => ({
@@ -50,10 +54,27 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
     if (pubchi && Object.prototype.hasOwnProperty.call(pubchi, 'phrase')) {
       throw new Error('Pubchi recovery phrase cannot be stored');
     }
-    set({ pubchi, ownerPubky, lastUpdatedAt: Date.now() });
+    set({
+      pubchi,
+      ownerPubky,
+      lastUpdatedAt: Date.now(),
+      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),
+    });
   },
-  setConfig: (config, ownerPubky) => set({ config, ownerPubky, lastUpdatedAt: Date.now() }),
-  setContext: (context, ownerPubky) => set({ context, ownerPubky, lastUpdatedAt: Date.now() }),
+  setConfig: (config, ownerPubky) =>
+    set({
+      config,
+      ownerPubky,
+      lastUpdatedAt: Date.now(),
+      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),
+    }),
+  setContext: (context, ownerPubky) =>
+    set({
+      context,
+      ownerPubky,
+      lastUpdatedAt: Date.now(),
+      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),
+    }),
   openFlyout: (prefill, ownerPubky) =>
     set({
       flyout: {
@@ -63,6 +84,18 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
     }),
   closeFlyout: () => set({ flyout: { open: false } }),
   setQuickQuestionsOpen: (quickQuestionsOpen) => set({ quickQuestionsOpen }),
+  addConversationTurn: (turn, ownerPubky) => {
+    if (get().ownerPubky !== ownerPubky) return;
+    const turns = [...get().conversation.turns, turn];
+    const trimmed = turns.length % 2 === 0 ? turns.slice(-8) : turns.slice(-7);
+    let total = trimmed.reduce((sum, item) => sum + Array.from(item.text).length, 0);
+    while (total > 4_800 && trimmed.length >= 2) {
+      const removed = trimmed.splice(0, 2);
+      total -= removed.reduce((sum, item) => sum + Array.from(item.text).length, 0);
+    }
+    set({ conversation: { turns: trimmed } });
+  },
+  clearConversation: () => set({ conversation: { turns: [] } }),
   consumePrefill: (ownerPubky): PubchiFlyoutPrefill | undefined => {
     const prefill = get().flyout.prefill;
     if (prefill) {

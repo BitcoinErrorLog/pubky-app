@@ -225,6 +225,31 @@ describe('PubchiApplication', () => {
     expect(querySpy.mock.calls[1][0].request.context).toBeUndefined();
   });
 
+  it('captures the signed ask body with its bounded conversation window', async () => {
+    const querySpy = vi.spyOn(PubchiService, 'query').mockResolvedValue(QUERY_RESULT);
+    await PubchiApplication.query({
+      owner: OWNER,
+      question: 'What about last month?',
+      purpose: 'ask',
+      conversation: {
+        turns: [
+          { role: 'user', text: 'Who is active?' },
+          { role: 'assistant', text: 'From what I know, Alice is active.', basis: 'model' },
+        ],
+      },
+      nowSeconds: 100,
+    });
+    expect(querySpy.mock.calls[0][0].body).toEqual({
+      question: 'What about last month?',
+      conversation: {
+        turns: [
+          { role: 'user', text: 'Who is active?' },
+          { role: 'assistant', text: 'From what I know, Alice is active.', basis: 'model' },
+        ],
+      },
+    });
+  });
+
   it('loads private context through the authenticated homeserver path', async () => {
     sessionIdentity.capabilities = ['/pub/pubchi.app/:rw', '/priv/pubchi.app/:rw'];
     const context = {
@@ -489,9 +514,7 @@ describe('PubchiApplication', () => {
     vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(undefined);
     vi.spyOn(LocalPubchiBindingService, 'delete').mockRejectedValue(new Error('rollback failed'));
     const original = new Error('homeserver down');
-    vi.spyOn(HomeserverService, 'request')
-      .mockRejectedValueOnce(notFoundError())
-      .mockRejectedValue(original);
+    vi.spyOn(HomeserverService, 'request').mockRejectedValueOnce(notFoundError()).mockRejectedValue(original);
 
     const error = await PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT }).catch((value) => value);
 
@@ -892,9 +915,7 @@ describe('PubchiApplication', () => {
 
     const result = await PubchiApplication.revokeAllDevices(OWNER);
     expect(result).toEqual({ revoked: [goodSigner], failed: [badSigner], unlisted: 1 });
-    expect(readPendingDelegationDeletes()).toEqual(
-      expect.arrayContaining([{ owner: OWNER, signer: badSigner }]),
-    );
+    expect(readPendingDelegationDeletes()).toEqual(expect.arrayContaining([{ owner: OWNER, signer: badSigner }]));
   });
 
   it('rejects a request whose signer is not the stored device key', () => {

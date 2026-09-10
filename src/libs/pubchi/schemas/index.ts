@@ -15,10 +15,17 @@ export {
   PubchiEvidenceV1Schema,
 } from './answer';
 export {
-  parsePubchiBotV1,
-  type PubchiBotV1,
-  PubchiBotV1Schema,
-} from './bot';
+  type Conversation,
+  type ConversationBasis,
+  ConversationSchema,
+  type ConversationTurn,
+  ConversationTurnSchema,
+  MAX_CONVERSATION_CODE_POINTS,
+  MAX_CONVERSATION_TURN_CODE_POINTS,
+  MAX_CONVERSATION_TURNS,
+  parseConversation,
+} from './ask-body';
+export { parsePubchiBotV1, type PubchiBotV1, PubchiBotV1Schema } from './bot';
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
 export { err, ERROR_CODES, type ErrorCode, ok, type ParseErr, type ParseOk, type ParseResult } from './codes';
 export {
@@ -27,7 +34,12 @@ export {
   type PubchiConfigV1,
   PubchiConfigV1Schema,
 } from './config';
-export { contextForRequest, parsePubchiOwnerContextV1, type PubchiOwnerContextV1,PubchiOwnerContextV1Schema } from './context';
+export {
+  contextForRequest,
+  parsePubchiOwnerContextV1,
+  type PubchiOwnerContextV1,
+  PubchiOwnerContextV1Schema,
+} from './context';
 export {
   delegationPath,
   delegationUri,
@@ -66,6 +78,7 @@ export {
   parseFeedProposalV1,
   parseFeedProposalV2,
 } from './feed';
+export { FEED_CATALOG, type FeedCatalog } from './feed-catalog';
 export { FORBIDDEN_CATEGORIES, scanForbidden, scanForbiddenPublicState } from './forbidden';
 export { type ManifestV1, ManifestV1Schema, parseManifestV1 } from './manifest';
 export { MemoryNonceStore, type NonceStore } from './nonce';
