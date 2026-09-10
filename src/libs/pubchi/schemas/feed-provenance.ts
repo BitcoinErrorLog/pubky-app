@@ -8,6 +8,7 @@ export const PubchiFeedProvenanceV1Schema = z
     version: zVersion1,
     feed_id: z.string().min(1),
     created_at: zUnix,
+    updated_at: zUnix.optional(),
     proposal_hash: zSha256,
     bot: zPubky,
   })

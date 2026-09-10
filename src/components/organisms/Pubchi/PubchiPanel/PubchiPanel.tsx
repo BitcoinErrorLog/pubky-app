@@ -9,6 +9,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/atoms/Sheet/Sheet';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
@@ -19,6 +20,7 @@ import { effectiveTier } from '@/libs/pubchi/effective-tier';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
+import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
@@ -57,11 +59,13 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
   const [feedBuilderOpen, setFeedBuilderOpen] = useState(false);
+  const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
 
   useEffect(() => {
     if (!open) return;
     const nextPrefill = PubchiController.consumePrefill();
     if (!nextPrefill) return;
+    if (nextPrefill.feedId) void FeedController.get({ feedId: nextPrefill.feedId }).then(setEditFeed);
     form.setValue(QUERY_FORM_FIELDS.QUESTION, nextPrefill.question, { shouldValidate: true });
     document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
   }, [form, open, prefill]);
@@ -259,12 +263,13 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               proposal={result.result}
               open={feedBuilderOpen}
               onOpenChange={setFeedBuilderOpen}
+              existingFeed={editFeed}
               onInterpret={async (nextQuestion) => {
                 form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
                 await submit('build-feed', {
                   proposalVersion: 2,
-                  targetFeedId: result.result.target_feed_id ?? undefined,
-                  currentFeed: result.result.feed,
+                  targetFeedId: editFeed?.id ?? result.result.target_feed_id ?? undefined,
+                  currentFeed: editFeed ?? result.result.feed,
                 });
               }}
             />

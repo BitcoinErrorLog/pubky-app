@@ -153,7 +153,11 @@ export function PubchiProfile() {
                     type="button"
                     className="text-sm underline"
                     onClick={() =>
-                      PubchiController.openFlyout({ question: `Update my feed ${feed.name}`, source: 'chip' })
+                      PubchiController.openFlyout({
+                        question: `Update my feed ${feed.name}`,
+                        source: 'chip',
+                        feedId: feed.id,
+                      })
                     }
                   >
                     Edit with Pubchi

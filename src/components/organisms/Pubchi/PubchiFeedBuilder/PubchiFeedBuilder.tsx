@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort, PubkyAppPostKind } from 'pubky-app-specs';
+import { PostStreamApplication } from '@/application/stream/posts/post';
 import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
 import { TAGGED_AS_FILTER_KEY } from '@/config/feed';
@@ -11,6 +12,8 @@ import { CUSTOM_FEED_CONTENT_ALL, type CustomFeedFormData } from '@/hooks/useCus
 import { feedProposalV2ToCreateParams } from '@/libs/pubchi/feed-map';
 import { recordPubchiBuiltFeed } from '@/libs/pubchi/feed-provenance';
 import type { FeedProposalV2 } from '@/libs/pubchi/schemas';
+import { buildFeedStreamId } from '@/models/feed/feed.helpers';
+import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { toast } from '@/molecules/Toaster/toast';
 import { CustomFeedDialog } from '@/organisms/CustomFeedDialog/CustomFeedDialog';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -20,6 +23,7 @@ export type PubchiFeedBuilderProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onInterpret: (question: string, replaceAll: boolean) => Promise<void>;
+  existingFeed?: FeedModelSchema;
 };
 
 const reachValues: Record<string, PubkyAppFeedReach> = {
@@ -66,12 +70,41 @@ function initialValues(proposal: FeedProposalV2): CustomFeedFormData {
   };
 }
 
-export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret }: PubchiFeedBuilderProps) {
+export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret, existingFeed }: PubchiFeedBuilderProps) {
   const [question, setQuestion] = useState('');
   const [replaceAll, setReplaceAll] = useState(false);
   const mapped = feedProposalV2ToCreateParams(proposal);
   const owner = useAuthStore((state) => state.currentUserPubky);
   const hasFollowers = proposal.feed.feed.reach === 'followers';
+  const [draft, setDraft] = useState<CustomFeedFormData>(() => initialValues(proposal));
+  const [preview, setPreview] = useState<{ ids: string[]; error: boolean }>({ ids: [], error: false });
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!owner) {
+        setPreview({ ids: [], error: true });
+        return;
+      }
+      const feed = {
+        id: existingFeed?.id ?? 'pubchi-preview',
+        ...draft,
+        reach: draft.reach === TAGGED_AS_FILTER_KEY ? PubkyAppFeedReach.Wot : draft.reach,
+        content: draft.content === CUSTOM_FEED_CONTENT_ALL ? null : draft.content,
+        created_at: 0,
+        updated_at: 0,
+      } as FeedModelSchema;
+      void (async () => {
+        try {
+          const streamId = buildFeedStreamId(feed, owner);
+          const cached = await PostStreamApplication.getLocalStream({ streamId });
+          setPreview({ ids: (cached?.stream ?? []).slice(0, 5), error: false });
+        } catch {
+          setPreview({ ids: [], error: true });
+        }
+      })();
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [draft, existingFeed?.id, owner]);
 
   const save = async (data: CustomFeedFormData): Promise<boolean> => {
     if (!mapped.canApply || !owner) return false;
@@ -81,8 +114,10 @@ export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret }:
         reach: data.reach === TAGGED_AS_FILTER_KEY ? PubkyAppFeedReach.Wot : data.reach,
         content: data.content === CUSTOM_FEED_CONTENT_ALL ? null : data.content,
       };
-      const feed = await FeedController.commitCreate(changes);
-      await recordPubchiBuiltFeed(owner, proposal, feed);
+      const feed = existingFeed
+        ? await FeedController.commitUpdate({ feedId: existingFeed.id, changes })
+        : await FeedController.commitCreate(changes);
+      await recordPubchiBuiltFeed(owner, proposal, feed, existingFeed?.id);
       publishPubchiSync(owner, 'created');
       toast({ title: 'Feed applied' });
       onOpenChange(false);
@@ -101,14 +136,19 @@ export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret }:
 
   return (
     <CustomFeedDialog
-      mode="create"
+      {...(existingFeed ? { mode: 'edit' as const, feed: existingFeed } : { mode: 'create' as const })}
       open={open}
       onOpenChange={onOpenChange}
       initialValues={initialValues(proposal)}
       onSubmitOverride={save}
-      saveLabel={mapped.canApply ? 'Apply feed' : 'Choose supported settings'}
+      onValuesChange={setDraft}
+      saveLabel={mapped.canApply ? (existingFeed ? 'Update feed' : 'Apply feed') : 'Choose supported settings'}
       extraContent={
-        <div className="flex flex-col gap-3 rounded-md border border-dashed p-3" data-testid="pubchi-feed-builder">
+        <div
+          className="flex flex-col gap-3 rounded-md border border-dashed p-3"
+          data-surface="pubchi-feed-builder"
+          data-testid="pubchi-feed-builder"
+        >
           <div>
             <Typography className="font-medium">Explain this feed</Typography>
             <Typography size="xs" className="text-muted-foreground">
@@ -148,8 +188,25 @@ export function PubchiFeedBuilder({ proposal, open, onOpenChange, onInterpret }:
           ) : null}
           {notices}
           <Typography size="xs" className="text-muted-foreground">
-            Preview from this device — no matching cached posts yet. This does not block saving.
+            Preview from this device — the installed feed may differ
           </Typography>
+          {preview.error ? (
+            <Typography size="xs" role="status">
+              Preview unavailable; your settings are still editable
+            </Typography>
+          ) : preview.ids.length === 0 ? (
+            <Typography size="xs" role="status">
+              No cached posts match yet
+            </Typography>
+          ) : (
+            <ul data-testid="pubchi-feed-preview-results" className="flex flex-col gap-1">
+              {preview.ids.map((id) => (
+                <li key={id} className="truncate text-xs">
+                  {id}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       }
     />

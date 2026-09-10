@@ -103,7 +103,7 @@ type UseCustomFeedFormBaseParams = {
 export type UseCustomFeedFormParams = UseCustomFeedFormBaseParams &
   (
     | { mode: 'create'; feed?: never; initialValues?: CustomFeedFormData }
-    | { mode: 'edit'; feed: FeedModelSchema; initialValues?: never }
+    | { mode: 'edit'; feed: FeedModelSchema; initialValues?: CustomFeedFormData }
   );
 
 export type CustomFeedSubmitOverride = (data: CustomFeedFormData) => Promise<boolean>;

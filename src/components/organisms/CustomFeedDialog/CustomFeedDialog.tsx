@@ -1,6 +1,6 @@
 'use client';
 
-import { type ComponentType, type ReactNode, useEffect } from 'react';
+import { type ComponentType, type ReactNode, useEffect, useRef } from 'react';
 import {
   Check,
   CirclePlay,
@@ -36,6 +36,7 @@ import {
   CUSTOM_FEED_CONTENT_ALL,
   CUSTOM_FEED_FORM_FIELDS,
   type CustomFeedFormContent,
+  type CustomFeedFormData,
   type CustomFeedFormReach,
 } from '@/hooks/useCustomFeedForm/useCustomFeedForm.types';
 import { getMaxStreamTags } from '@/libs/runtime-config/runtime-config';
@@ -58,6 +59,7 @@ interface CustomFeedDialogSharedProps {
   ) => Promise<boolean>;
   extraContent?: ReactNode;
   saveLabel?: string;
+  onValuesChange?: (data: CustomFeedFormData) => void;
 }
 
 type CustomFeedDialogProps =
@@ -69,7 +71,7 @@ type CustomFeedDialogProps =
   | (CustomFeedDialogSharedProps & {
       mode: 'edit';
       feed: FeedModelSchema;
-      initialValues?: never;
+      initialValues?: import('@/hooks/useCustomFeedForm/useCustomFeedForm.types').CustomFeedFormData;
     });
 
 function isVisualCustomFeedContentSupported(content?: CustomFeedFormContent): boolean {
@@ -96,6 +98,7 @@ const REACH_OPTION_VALUES: CustomFeedFormReach[] = [
 
 export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
   const { mode, children } = props;
+  const { onValuesChange } = props;
   const { value: open, setValue: setOpen } = useControlledState<boolean>({
     value: props.open,
     defaultValue: false,
@@ -105,11 +108,25 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
   // `feed` to `mode`, and destructuring erases that link for TS.
   const { form, loading, submit, deleteFeed } = useCustomFeedForm(
     props.mode === 'edit'
-      ? { mode: 'edit', feed: props.feed, open }
+      ? {
+          mode: 'edit',
+          feed: props.feed,
+          open,
+          initialValues: props.initialValues,
+          onSubmitOverride: props.onSubmitOverride,
+        }
       : { mode: 'create', open, initialValues: props.initialValues, onSubmitOverride: props.onSubmitOverride },
   );
 
   const { control } = form;
+  const values = useWatch({ control });
+  const lastValuesRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const serialized = JSON.stringify(values);
+    if (serialized === lastValuesRef.current) return;
+    lastValuesRef.current = serialized;
+    onValuesChange?.(values as CustomFeedFormData);
+  }, [onValuesChange, values]);
   const layout = useWatch({ control, name: CUSTOM_FEED_FORM_FIELDS.LAYOUT });
   const content = useWatch({ control, name: CUSTOM_FEED_FORM_FIELDS.CONTENT });
   const reach = useWatch({ control, name: CUSTOM_FEED_FORM_FIELDS.REACH });
