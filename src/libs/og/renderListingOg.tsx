@@ -1,4 +1,3 @@
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import {
   listingConditionLabel,
   listingPriceLabel,
@@ -7,10 +6,14 @@ import {
 } from '@/libs/commerce/seo';
 import { Logger } from '@/libs/logger/logger';
 import { truncateByGraphemes } from '@/libs/utils/truncate';
-import { fetchListingForMetadata, OG_COMMERCE_CACHE_HEADERS, OG_NO_STORE_CACHE_HEADERS } from './ogCommerceData';
+import {
+  fetchListingForMetadata,
+  fetchOgMediaAsDataUri,
+  OG_COMMERCE_CACHE_HEADERS,
+  OG_NO_STORE_CACHE_HEADERS,
+} from './ogCommerceData';
 import { OgFrame } from './OgComponents';
 import { OG_TOKENS } from './ogConstants';
-import { fetchImageAsDataUri } from './ogData';
 import { ogImageResponse } from './ogImageResponse';
 import { OgMarketplaceFooter, renderMarketplaceOg } from './renderMarketplaceOg';
 
@@ -71,7 +74,7 @@ export async function renderListingOg({
 
   try {
     const coverUri = resolveListingOgCoverUri(result.record);
-    const coverSrc = coverUri ? await fetchImageAsDataUri(resolveMarketplaceMediaUrl(coverUri)) : null;
+    const coverSrc = coverUri ? await fetchOgMediaAsDataUri(coverUri) : null;
 
     const title = truncateByGraphemes(result.record.title, OG_LISTING_TITLE_MAX_GRAPHEMES);
     const stateNotice = listingStateNotice(result.record);

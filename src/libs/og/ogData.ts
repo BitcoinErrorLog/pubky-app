@@ -139,10 +139,13 @@ const OG_IMAGE_MAX_EDGE = 1200;
  *      iterable"). sharp transcodes WebP/JPEG/PNG → PNG (preserving alpha for
  *      avatars) and downscales to bound the payload.
  */
-export async function fetchImageAsDataUri(url: string | null | undefined): Promise<string | null> {
+export async function fetchImageAsDataUri(
+  url: string | null | undefined,
+  fetcher: (input: string, init?: RequestInit) => Promise<Response> = fetch,
+): Promise<string | null> {
   if (!url) return null;
   try {
-    const res = await fetch(url, { next: { revalidate: OG_REVALIDATE } });
+    const res = await fetcher(url, { next: { revalidate: OG_REVALIDATE } });
     if (!res.ok) return null;
     const contentType = res.headers.get('content-type') ?? '';
     if (!contentType.startsWith('image/')) return null;

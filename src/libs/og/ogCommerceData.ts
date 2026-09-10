@@ -8,6 +8,7 @@ import {
 import { commerceEntityIdSchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { Logger } from '@/libs/logger/logger';
 import { getPkarrRelays } from '@/libs/runtime-config/runtime-config';
+import { fetchImageAsDataUri } from './ogData';
 
 /**
  * Server-only fetchers for canonical marketplace records, used by
@@ -52,6 +53,8 @@ const metadataClient = new Client({
   },
 });
 
+const PUBKY_PROTOCOL = 'pubky://';
+
 function buildRecordUrl(ownerPubky: string, recordPath: string): string {
   return resolvePubky(`pubky://${ownerPubky}${MARKETPLACE_RECORD_BASE_PATH}/${recordPath}`);
 }
@@ -88,6 +91,31 @@ async function fetchRecordJson(url: string, operation: string): Promise<RecordFe
     const reason = reasonForError(error);
     Logger.warn(`[ogCommerceData] ${operation} unavailable`, { reason });
     return { kind: 'unavailable', reason };
+  }
+}
+
+/**
+ * Fetches marketplace media through the homeserver resolved from the media
+ * owner's PKARR record. Plain HTTP(S) media keeps the shared OG fetch path.
+ */
+export async function fetchOgMediaAsDataUri(uri: string | null | undefined): Promise<string | null> {
+  if (!uri) return null;
+  if (uri.startsWith('http://') || uri.startsWith('https://')) return fetchImageAsDataUri(uri);
+  if (!uri.startsWith(PUBKY_PROTOCOL)) return null;
+
+  try {
+    const url = resolvePubky(uri);
+    return fetchImageAsDataUri(url, (_input, init) =>
+      metadataClient.fetch(url, {
+        ...init,
+        credentials: 'include',
+        signal: AbortSignal.timeout(4_000),
+      }),
+    );
+  } catch (error) {
+    const reason = reasonForError(error);
+    Logger.warn('[ogCommerceData] Marketplace media unavailable', { uri, reason });
+    return null;
   }
 }
 

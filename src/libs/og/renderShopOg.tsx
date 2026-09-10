@@ -1,11 +1,14 @@
-import { resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
 import { buildShopDescription } from '@/libs/commerce/seo';
 import { Logger } from '@/libs/logger/logger';
 import { truncateByGraphemes } from '@/libs/utils/truncate';
-import { fetchShopForMetadata, OG_COMMERCE_CACHE_HEADERS, OG_NO_STORE_CACHE_HEADERS } from './ogCommerceData';
+import {
+  fetchOgMediaAsDataUri,
+  fetchShopForMetadata,
+  OG_COMMERCE_CACHE_HEADERS,
+  OG_NO_STORE_CACHE_HEADERS,
+} from './ogCommerceData';
 import { OgAvatar, OgFrame } from './OgComponents';
 import { OG_TOKENS, OG_TRUNCATE } from './ogConstants';
-import { fetchImageAsDataUri } from './ogData';
 import { ogImageResponse } from './ogImageResponse';
 import { OgMarketplaceFooter, renderMarketplaceOg } from './renderMarketplaceOg';
 
@@ -27,12 +30,8 @@ export async function renderShopOg({ sellerPubky }: { sellerPubky: string }): Pr
 
   try {
     const [avatarSrc, bannerSrc] = await Promise.all([
-      result.record.avatarUrl
-        ? fetchImageAsDataUri(resolveMarketplaceMediaUrl(result.record.avatarUrl))
-        : Promise.resolve(null),
-      result.record.bannerUrl
-        ? fetchImageAsDataUri(resolveMarketplaceMediaUrl(result.record.bannerUrl))
-        : Promise.resolve(null),
+      result.record.avatarUrl ? fetchOgMediaAsDataUri(result.record.avatarUrl) : Promise.resolve(null),
+      result.record.bannerUrl ? fetchOgMediaAsDataUri(result.record.bannerUrl) : Promise.resolve(null),
     ]);
 
     const bio = truncateByGraphemes(buildShopDescription(result.record), OG_TRUNCATE.bio);
