@@ -6,6 +6,15 @@ import { createCommerceShopFixture, createNexusListingDetailsFixture } from '@/t
 import { fetchMarketplaceCatalogForSsr } from './ogCatalogData';
 import { OG_COMMERCE_REVALIDATE } from './ogCommerceData';
 
+vi.mock('@synonymdev/pubky', () => ({
+  Client: class {
+    fetch(input: RequestInfo | URL, init?: RequestInit) {
+      return globalThis.fetch(input, init);
+    }
+  },
+  resolvePubky: (url: string) => url.replace('pubky://', 'https://'),
+}));
+
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
   return {

@@ -1,6 +1,6 @@
 import { getDefaultUrl, getPreviewImage } from '@/config/metadata';
 
-const DEFAULT_PREVIEW_URL = 'https://shop.pubky.app/marketplace/opengraph-image';
+const DEFAULT_PREVIEW_URL = 'https://shop.pubky.app/preview.webp';
 
 /**
  * Fallback used whenever the data needed for a richer OG card is missing or an
@@ -14,8 +14,8 @@ const DEFAULT_PREVIEW_URL = 'https://shop.pubky.app/marketplace/opengraph-image'
  * site URL so the emitted `Location` is always absolute.
  */
 export function renderFallbackOg(): Response {
-  const preview = getPreviewImage();
   try {
+    const preview = getPreviewImage();
     const url = /^https?:\/\//.test(preview) ? preview : new URL(preview, getDefaultUrl()).toString();
     return Response.redirect(url, 307);
   } catch {
