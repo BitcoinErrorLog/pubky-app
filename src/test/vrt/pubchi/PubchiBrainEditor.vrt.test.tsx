@@ -12,18 +12,20 @@ const context = {
 };
 
 describe('PubchiBrainEditor — visual regression', () => {
-  it('guards every production editor scene', async () => {
-    const editable = await renderForVRT(
+  it('guards the editable production editor surface', async () => {
+    const screen = await renderForVRT(
       <PubchiBrainEditor context={context} contextEditable onSaveContext={() => {}} />,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-    const gated = await renderForVRT(
+    await expect.element(screen.getByTestId('pubchi-brain-editor')).toHaveAttribute('data-surface', 'pubchi-brain-editor');
+  });
+
+  it('guards the gated production editor surface', async () => {
+    const screen = await renderForVRT(
       <PubchiBrainEditor context={context} contextEditable={false} onReapprove={() => {}} />,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-
-    await expect.element(editable.getByTestId('pubchi-brain-editor')).toHaveAttribute('data-surface', 'pubchi-brain-editor');
-    await expect.element(gated.getByTestId('pubchi-brain-editor')).toHaveAttribute('data-surface', 'pubchi-brain-editor');
+    await expect.element(screen.getByTestId('pubchi-brain-editor')).toHaveAttribute('data-surface', 'pubchi-brain-editor');
   });
 
   it('captures editable brain editor', async () => {
