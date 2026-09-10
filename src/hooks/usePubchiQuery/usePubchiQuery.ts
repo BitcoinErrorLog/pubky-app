@@ -12,6 +12,8 @@ import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { feedProposalToCreateParams } from '@/libs/pubchi/feed-map';
 import { recordPubchiBuiltFeed } from '@/libs/pubchi/feed-provenance';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
+import { readLocalCursor, writeLocalCursor } from '@/libs/pubchi/capabilities-v1';
+import { PUBCHI_PRIVATE_DIRECTORY, sessionCovers } from '@/libs/pubchi/capabilities';
 import type { Phase0Purpose } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -33,6 +35,7 @@ export function usePubchiQuery() {
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [cursorSource, setCursorSource] = useState<'device' | 'remote' | 'none'>('none');
 
   const form = useForm<PubchiQueryFormData>({
     resolver: zodResolver(pubchiQueryFormSchema),
@@ -91,10 +94,21 @@ export function usePubchiQuery() {
         setLoading(true);
         setErrorCode(undefined);
         try {
+          const rawQuestion = values[QUERY_FORM_FIELDS.QUESTION];
+          const remoteCursor = owner && rawQuestion === 'What did I miss?' && sessionCovers(
+            useAuthStore.getState().selectSession()?.info.capabilities ?? [],
+            PUBCHI_PRIVATE_DIRECTORY,
+          ) ? await PubchiController.loadPubchiCursor() : null;
+          const cursor = remoteCursor ?? (owner && rawQuestion === 'What did I miss?' ? readLocalCursor(owner) : null);
+          setCursorSource(remoteCursor ? 'remote' : cursor ? 'device' : 'none');
           const next = await PubchiController.fetchPubchiQuery({
-            question: values[QUERY_FORM_FIELDS.QUESTION],
+            question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
           });
+          if (owner && next.kind === 'answer' && rawQuestion === 'What did I miss?' && next.result.continuation?.complete) {
+            if (remoteCursor) await PubchiController.savePubchiCursor(next.result.continuation.until);
+            else writeLocalCursor(owner, next.result.continuation.until);
+          }
           setResult(next);
           ok = true;
         } catch (error) {
@@ -150,5 +164,6 @@ export function usePubchiQuery() {
     signingUnavailableMessage: SIGNING_UNAVAILABLE,
     setupDevice,
     setupLoading,
+    cursorSource,
   };
 }

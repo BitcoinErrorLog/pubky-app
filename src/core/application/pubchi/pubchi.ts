@@ -270,6 +270,32 @@ export class PubchiApplication {
     return readBack;
   }
 
+  static async loadPubchiCursor(owner: string): Promise<string | null> {
+    const session = useAuthStore.getState().selectSession();
+    if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) return null;
+    try {
+      const value = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: pubchiCursorUri(owner) });
+      if (!value || typeof value !== 'object' || typeof (value as { cursor?: unknown }).cursor !== 'string') return null;
+      return (value as { cursor: string }).cursor;
+    } catch (error) {
+      if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
+      throw error;
+    }
+  }
+
+  static async savePubchiCursor(owner: string, cursor: string): Promise<void> {
+    const session = useAuthStore.getState().selectSession();
+    if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) {
+      throw pubchiValidationError('PATH_FORBIDDEN', 'savePubchiCursor');
+    }
+    const existing = await this.loadPubchiCursor(owner);
+    await HomeserverService.request({
+      method: HttpMethod.PUT,
+      url: pubchiCursorUri(owner),
+      bodyJson: { ...(existing ? { cursor: existing } : {}), cursor },
+    });
+  }
+
   static async getActiveBinding(owner: string): Promise<PubchiBindingRecordResult | undefined> {
     if (!isPubchiEnabled()) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
@@ -1181,6 +1207,10 @@ function pubchiConfigUri(owner: string): string {
 
 function pubchiContextUri(owner: string): string {
   return `pubky://${owner}/priv/pubchi.app/context.json`;
+}
+
+function pubchiCursorUri(owner: string): string {
+  return `pubky://${owner}/priv/pubchi.app/cursor.json`;
 }
 
 function devicesUri(owner: string): string {

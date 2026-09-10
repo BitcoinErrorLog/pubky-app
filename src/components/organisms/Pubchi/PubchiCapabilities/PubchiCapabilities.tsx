@@ -16,6 +16,7 @@ export type PubchiCapabilitiesProps = {
 };
 
 const quickQuestions: Array<{ label: string; question: string; purpose: Phase0Purpose; icon: typeof Search }> = [
+  { label: 'What did I miss?', question: 'What did I miss?', purpose: 'ask', icon: CircleHelp },
   { label: 'Who tagged me?', question: 'Who tagged me?', purpose: 'who-tagged-me', icon: Users },
   { label: 'Most followed users', question: 'Who are the most followed users on Pubky?', purpose: 'ask', icon: Search },
   { label: 'Most tagged users', question: 'Who has the most tags?', purpose: 'ask', icon: Search },

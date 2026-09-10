@@ -150,6 +150,14 @@ export class PubchiController {
     });
   }
 
+  static async loadPubchiCursor(): Promise<string | null> {
+    return PubchiApplication.loadPubchiCursor(useAuthStore.getState().selectCurrentUserPubky());
+  }
+
+  static async savePubchiCursor(cursor: string): Promise<void> {
+    return PubchiApplication.savePubchiCursor(useAuthStore.getState().selectCurrentUserPubky(), cursor);
+  }
+
   static async reconcileActiveBinding(): Promise<PubchiBindingRecordResult | undefined> {
     if (!isPubchiEnabled()) return undefined;
     const owner = useAuthStore.getState().selectCurrentUserPubky();
