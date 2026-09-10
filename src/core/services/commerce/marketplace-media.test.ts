@@ -25,13 +25,17 @@ vi.mock('@/config/network', () => ({
 }));
 
 describe('MarketplaceMediaService', () => {
+  const owner = 'y'.repeat(52);
+
   beforeEach(() => {
     fetchMock.mockResolvedValue(new Response('media', { status: 200 }));
   });
 
   it('fetches public media without credentials', async () => {
-    await MarketplaceMediaService.fetchMedia('pubky://owner/pub/media');
+    await MarketplaceMediaService.fetchMedia(`pubky://${owner}/pub/pubky.app/marketplace/v1/media/image`);
 
-    expect(fetchMock).toHaveBeenCalledWith('https://resolved.example/pubky://owner/pub/media');
+    expect(fetchMock).toHaveBeenCalledWith(
+      `https://resolved.example/pubky://${owner}/pub/pubky.app/marketplace/v1/media/image`,
+    );
   });
 });

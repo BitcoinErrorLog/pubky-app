@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceMediaService } from '@/core/services/commerce/marketplace-media';
 import { clearMarketplaceMediaCache, resolveMarketplaceMediaUrlAsync } from './useMarketplaceMediaUrl';
 
@@ -20,11 +20,11 @@ describe('marketplace media resolution', () => {
   beforeEach(() => {
     clearMarketplaceMediaCache();
     vi.clearAllMocks();
-    vi.stubGlobal('URL', {
-      createObjectURL: vi.fn(() => 'blob:marketplace-media'),
-      revokeObjectURL: vi.fn(),
-    });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:marketplace-media');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   it('uses the direct URL for an owner on the configured homeserver', async () => {
     vi.mocked(MarketplaceMediaService.getOwnerHomeserver).mockResolvedValue('configured-homeserver');
@@ -54,6 +54,28 @@ describe('marketplace media resolution', () => {
     await Promise.all([resolveMarketplaceMediaUrlAsync(otherMediaUri), resolveMarketplaceMediaUrlAsync(otherMediaUri)]);
     expect(MarketplaceMediaService.getOwnerHomeserver).toHaveBeenCalledTimes(1);
     expect(MarketplaceMediaService.fetchMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry failed media fetches during the negative-cache TTL', async () => {
+    vi.mocked(MarketplaceMediaService.getOwnerHomeserver).mockResolvedValue('other-homeserver');
+    vi.mocked(MarketplaceMediaService.fetchMedia).mockRejectedValue(new Error('fetch failed'));
+
+    await expect(resolveMarketplaceMediaUrlAsync(otherMediaUri)).rejects.toThrow('fetch failed');
+    await expect(resolveMarketplaceMediaUrlAsync(otherMediaUri)).resolves.toBeNull();
+    expect(MarketplaceMediaService.fetchMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('evicts the oldest owner cache entry at the size limit', async () => {
+    vi.mocked(MarketplaceMediaService.getOwnerHomeserver).mockResolvedValue('configured-homeserver');
+    const alphabet = 'ybndrfg8ejkmcpqxot1uwisza345h769';
+
+    for (let index = 0; index < 101; index += 1) {
+      const currentOwner = `${alphabet[Math.floor(index / alphabet.length)]}${alphabet[index % alphabet.length]}${'y'.repeat(50)}`;
+      await resolveMarketplaceMediaUrlAsync(`pubky://${currentOwner}/pub/pubky.app/marketplace/v1/media/image`);
+    }
+
+    await resolveMarketplaceMediaUrlAsync(`pubky://${'yy' + 'y'.repeat(50)}/pub/pubky.app/marketplace/v1/media/image`);
+    expect(MarketplaceMediaService.getOwnerHomeserver).toHaveBeenCalledTimes(102);
   });
 
   it('expires cached owner media after the TTL', async () => {

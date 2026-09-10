@@ -22,16 +22,15 @@ const MEDIA_DATA_URL = vi.hoisted(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=',
 );
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: () => MEDIA_DATA_URL,
-  resolveFirstMarketplaceMediaUrl: (uris: readonly string[]) => (uris.length > 0 ? MEDIA_DATA_URL : null),
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks((uri) => (uri ? MEDIA_DATA_URL : null));
+});
 
 const fixtures = vi.hoisted(async () => {
   const { MaskedPickupDetails } = await import('@/libs/commerce/pickup');
-  const { createOrderFixture, createPaymentFixture, ORDER_FIXTURE_BUYER, ORDER_FIXTURE_SELLER } = await import(
-    '@/test/fixtures/commerce/orders'
-  );
+  const { createOrderFixture, createPaymentFixture, ORDER_FIXTURE_BUYER, ORDER_FIXTURE_SELLER } =
+    await import('@/test/fixtures/commerce/orders');
   const { createCommerceListingFixture } = await import('@/test/fixtures/commerce/commerce');
   const { toCommerceListingModel } = await import('@/test/fixtures/commerce/listing-models');
 
@@ -140,7 +139,13 @@ const fixtures = vi.hoisted(async () => {
       },
     ],
     pickupCartItems: [
-      { id: `${pickupListing.id}:variant_42`, listingId: pickupListing.id, variantId: 'variant_42', quantity: 1, listing: pickupListing },
+      {
+        id: `${pickupListing.id}:variant_42`,
+        listingId: pickupListing.id,
+        variantId: 'variant_42',
+        quantity: 1,
+        listing: pickupListing,
+      },
     ],
   };
 });
@@ -212,7 +217,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
         variantId: string;
         listing: {
           record: {
-            variants: Array<{ id: string; priceOverride?: { amountMinor: number; currency: string; exponent: number } }>;
+            variants: Array<{
+              id: string;
+              priceOverride?: { amountMinor: number; currency: string; exponent: number };
+            }>;
             sale: { format: string; unitPrice?: { amountMinor: number; currency: string; exponent: number } };
           };
         };
@@ -320,14 +328,18 @@ describe('Marketplace local pickup — visual regression', () => {
         throw new Error('The fulfillment choice has not hydrated yet.');
       }
     });
-    const select = screen.container.querySelector<HTMLElement>(`[aria-label="Fulfillment for items from ${sellerPubky}"]`)!;
+    const select = screen.container.querySelector<HTMLElement>(
+      `[aria-label="Fulfillment for items from ${sellerPubky}"]`,
+    )!;
     select.click();
     await vi.waitFor(() => {
       if (![...document.querySelectorAll('[role="option"]')].some((option) => option.textContent === 'Local pickup')) {
         throw new Error('The Local pickup option has not opened yet.');
       }
     });
-    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Local pickup')!.click();
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((option) => option.textContent === 'Local pickup')!
+      .click();
     await vi.waitFor(() => {
       if (!document.querySelector('[data-surface="cart-pickup-group"]')) {
         throw new Error('The pickup group has not rendered yet.');

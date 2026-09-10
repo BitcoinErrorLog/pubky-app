@@ -3,7 +3,7 @@ import { getHomeserverUrl } from '@/libs/runtime-config/runtime-config';
 const PUBKY_PROTOCOL = 'pubky://';
 const PUBKY_Z32_LENGTH = 52;
 const PUBKY_Z32_PATTERN = /^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/;
-const PUB_PATH_PREFIX = '/pub/';
+const MARKETPLACE_MEDIA_PATH_PREFIX = '/pub/pubky.app/marketplace/';
 
 export function getMarketplaceMediaOwner(uri: string): string | null {
   if (!uri.startsWith(PUBKY_PROTOCOL)) return null;
@@ -32,26 +32,29 @@ export function getMarketplaceMediaOwner(uri: string): string | null {
  */
 export function resolveMarketplaceMediaUrl(uri: string, homeserverBase = getHomeserverUrl()): string | null {
   if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
-  if (!uri.startsWith(PUBKY_PROTOCOL)) return null;
+  if (!uri.startsWith(PUBKY_PROTOCOL) || !isValidMarketplaceMediaUri(uri)) return null;
 
   const rest = uri.slice(PUBKY_PROTOCOL.length);
   const owner = getMarketplaceMediaOwner(uri);
   const path = rest.slice(PUBKY_Z32_LENGTH);
-  if (!owner || !path.startsWith(PUB_PATH_PREFIX)) return null;
+  if (!owner) return null;
 
   const base = homeserverBase.replace(/\/$/, '');
   return `${base}${path}?pubky-host=${owner}`;
 }
 
-/**
- * Resolves the first loadable URL from a listing's media URI list — what a
- * catalog card shows as its cover image. Null when nothing resolves, which is
- * the card's cue to keep its gradient fallback.
- */
-export function resolveFirstMarketplaceMediaUrl(uris: readonly string[]): string | null {
-  for (const uri of uris) {
-    const url = resolveMarketplaceMediaUrl(uri);
-    if (url) return url;
+export function isValidMarketplaceMediaUri(uri: string): boolean {
+  if (!uri.startsWith(PUBKY_PROTOCOL)) return false;
+  const rest = uri.slice(PUBKY_PROTOCOL.length);
+  const owner = rest.slice(0, PUBKY_Z32_LENGTH);
+  const path = rest.slice(PUBKY_Z32_LENGTH);
+  if (!PUBKY_Z32_PATTERN.test(owner) || !path.startsWith('/')) return false;
+  if (/[?#\\]/.test(path) || /%(?:2e|2f|5c)/i.test(path)) return false;
+
+  const segments = path.split('/');
+  if (segments.some((segment, index) => (index > 0 && segment.length === 0) || segment === '.' || segment === '..')) {
+    return false;
   }
-  return null;
+  const normalizedPath = new URL(`https://media.invalid${path}`).pathname;
+  return normalizedPath.startsWith(MARKETPLACE_MEDIA_PATH_PREFIX);
 }

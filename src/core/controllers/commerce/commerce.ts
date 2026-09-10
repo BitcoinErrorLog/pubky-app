@@ -1211,6 +1211,22 @@ export class CommerceController {
     return await CommerceApplication.commitCreateMedia(this.getCurrentUserPubky(), id, bytes);
   }
 
+  static async getMarketplaceMediaOwnerHomeserver(ownerPubky: unknown): Promise<string | null> {
+    return await CommerceApplication.getMarketplaceMediaOwnerHomeserver(CommerceRecordNormalizer.pubky(ownerPubky));
+  }
+
+  static async fetchMarketplaceMedia(uri: string): Promise<Blob> {
+    return await CommerceApplication.fetchMarketplaceMedia(uri);
+  }
+
+  static getConfiguredMarketplaceHomeserver(): string {
+    return CommerceApplication.getConfiguredMarketplaceHomeserver();
+  }
+
+  static getConfiguredMarketplaceHomeserverUrl(): string {
+    return CommerceApplication.getConfiguredMarketplaceHomeserverUrl();
+  }
+
   private static assertCurrentUserOwns(ownerPubky: string): void {
     const currentUserPubky = this.getCurrentUserPubky();
     if (currentUserPubky !== ownerPubky) {

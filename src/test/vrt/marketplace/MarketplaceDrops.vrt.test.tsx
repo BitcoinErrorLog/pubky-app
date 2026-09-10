@@ -24,10 +24,10 @@ vi.mock('@/hooks/useMarketplaceDrops/useMarketplaceDrops', () => ({
   useMarketplaceDrops: () => view.drops,
 }));
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: () => null,
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks(() => null);
+});
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,

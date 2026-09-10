@@ -94,6 +94,7 @@ import {
   type WatchObservation,
   type WatchProjectionObservation,
 } from '@/pipes/marketplaceWatch/marketplaceWatch.detector';
+import { MarketplaceMediaService } from '@/services/commerce/marketplace-media';
 import { ExchangerateService } from '@/services/exchangerate/exchangerate';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService, PRIVATE_APP_DATA_PATH } from '@/services/homeserver/homeserver';
@@ -2480,6 +2481,22 @@ export class CommerceApplication {
     const url = CommerceRecordNormalizer.mediaUri(ownerPubky, mediaId);
     await CommerceHomeserverService.putMedia(url, bytes);
     return url;
+  }
+
+  static async getMarketplaceMediaOwnerHomeserver(ownerPubky: string): Promise<string | null> {
+    return await MarketplaceMediaService.getOwnerHomeserver(ownerPubky);
+  }
+
+  static async fetchMarketplaceMedia(uri: string): Promise<Blob> {
+    return await MarketplaceMediaService.fetchMedia(uri);
+  }
+
+  static getConfiguredMarketplaceHomeserver(): string {
+    return MarketplaceMediaService.getConfiguredHomeserver();
+  }
+
+  static getConfiguredMarketplaceHomeserverUrl(): string {
+    return MarketplaceMediaService.getConfiguredHomeserverUrl();
   }
 
   private static async registerListing(listing: CommerceListingRecord): Promise<void> {

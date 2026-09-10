@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resolveFirstMarketplaceMediaUrl, resolveMarketplaceMediaUrl } from './media-url';
+import { resolveMarketplaceMediaUrl } from './media-url';
 
 const SELLER = 'y'.repeat(52);
 
@@ -40,23 +40,15 @@ describe('resolveMarketplaceMediaUrl', () => {
     expect(resolveMarketplaceMediaUrl(`pubky://${SELLER}/priv/secret.jpg`)).toBeNull();
     expect(resolveMarketplaceMediaUrl(`pubky://${SELLER}`)).toBeNull();
   });
-});
-
-describe('resolveFirstMarketplaceMediaUrl', () => {
-  it('returns the first resolvable URL, skipping unresolvable entries', () => {
-    const url = resolveFirstMarketplaceMediaUrl([
-      'not-a-uri',
-      `pubky://${SELLER}/pub/pubky.app/marketplace/v1/media/image_02`,
-      `pubky://${SELLER}/pub/pubky.app/marketplace/v1/media/image_03`,
-    ]);
-
-    expect(url).toBe(
-      `https://homeserver.staging.pubky.app/pub/pubky.app/marketplace/v1/media/image_02?pubky-host=${SELLER}`,
-    );
-  });
-
-  it('returns null when nothing resolves', () => {
-    expect(resolveFirstMarketplaceMediaUrl([])).toBeNull();
-    expect(resolveFirstMarketplaceMediaUrl(['nope'])).toBeNull();
+  it.each([
+    ['/pub/../x', 'dot-segment traversal'],
+    ['/pub/%2e%2e/x', 'encoded dot-segment traversal'],
+    ['/pub/a/..%2f..%2fx', 'encoded slash traversal'],
+    ['/pub/pubky.app/marketplace/ok.jpg?x=1', 'query'],
+    ['/pub/pubky.app/marketplace/ok.jpg#f', 'fragment'],
+    ['/pub//x', 'empty segment'],
+    ['/pub/pubky.app/other/x', 'outside marketplace prefix'],
+  ])('rejects %s (%s)', (path) => {
+    expect(resolveMarketplaceMediaUrl(`pubky://${SELLER}${path}`)).toBeNull();
   });
 });

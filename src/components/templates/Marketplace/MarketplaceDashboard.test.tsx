@@ -74,10 +74,6 @@ vi.mock('@/stores/auth/auth.store', () => ({
     selector({ currentUserPubky: COMMERCE_FIXTURE_SELLER }),
 }));
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
-
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));

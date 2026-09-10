@@ -219,10 +219,10 @@ vi.mock('@/hooks/useRelativeTime/useRelativeTime', () => {
   return { useRelativeTime: () => result };
 });
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: (uri: string) => (uri ? ROW_IMAGE_DATA_URL : null),
-  resolveFirstMarketplaceMediaUrl: (uris: readonly string[]) => (uris.length > 0 ? ROW_IMAGE_DATA_URL : null),
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks((uri) => (uri ? ROW_IMAGE_DATA_URL : null));
+});
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,

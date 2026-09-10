@@ -68,10 +68,6 @@ vi.mock('@/hooks/useRelativeTime/useRelativeTime', () => ({
   useRelativeTime: () => ({ formatRelativeTime: () => relativeTime.value }),
 }));
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
-
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));

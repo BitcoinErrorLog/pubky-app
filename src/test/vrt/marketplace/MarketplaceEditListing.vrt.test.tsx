@@ -12,10 +12,10 @@ const MEDIA_DATA_URL = vi.hoisted(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=',
 );
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: () => MEDIA_DATA_URL,
-  resolveFirstMarketplaceMediaUrl: () => MEDIA_DATA_URL,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks((uri) => (uri ? MEDIA_DATA_URL : null));
+});
 
 const fixtures = vi.hoisted(async () => {
   const { createCommerceListingFixture, COMMERCE_FIXTURE_SELLER } = await import('@/test/fixtures/commerce/commerce');

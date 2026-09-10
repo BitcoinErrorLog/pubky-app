@@ -18,10 +18,10 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
 // this suite's "could not capture a stable screenshot" timeouts). Resolve to
 // null so the card renders its deterministic gradient+icon backdrop, same as
 // `Marketplace.vrt.test.tsx`.
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: () => null,
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks(() => null);
+});
 
 const fixtures = vi.hoisted(async () => {
   const { createCommerceListingFixture, COMMERCE_FIXTURE_SELLER } = await import('@/test/fixtures/commerce/commerce');

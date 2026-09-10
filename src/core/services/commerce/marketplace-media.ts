@@ -1,5 +1,6 @@
 import { Client, Pubky, PublicKey, resolvePubky } from '@synonymdev/pubky';
 import { getHomeserver, getHomeserverUrl, getPkarrRelays } from '@/config/network';
+import { isValidMarketplaceMediaUri } from '@/libs/commerce/media-url';
 import { ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -16,6 +17,12 @@ export class MarketplaceMediaService {
   }
 
   static async fetchMedia(uri: string): Promise<Blob> {
+    if (!isValidMarketplaceMediaUri(uri)) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace media URI is not public marketplace media.', {
+        service: ErrorService.Marketplace,
+        operation: 'fetchMedia',
+      });
+    }
     const response = await mediaClient.fetch(resolvePubky(uri));
     if (!response.ok) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace media request failed.', {

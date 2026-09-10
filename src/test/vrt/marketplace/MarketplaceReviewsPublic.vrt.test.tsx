@@ -52,10 +52,10 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
   useIndicativeBtcRate: (enabled: boolean) =>
     enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
 }));
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: () => null,
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks(() => null);
+});
 vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
   useMarketplaceLiveBid: () => ({ ref: () => {}, bid: null }),
 }));

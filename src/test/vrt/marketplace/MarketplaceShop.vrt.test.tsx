@@ -153,27 +153,13 @@ vi.mock('@/hooks/useCommerceShopFollow/useCommerceShopFollow', () => ({
 
 // Fixture media URIs have no fetchable bytes in VRT; null keeps the honest
 // gradient fallback deterministic (loaded-image cards are captured in
-// MarketplaceListingCards.vrt.test.tsx via a data URI). Shop branding URIs
-// map to deterministic solid-color data URIs so the banner/avatar rendering
-// is captured without network fetches.
-const SHOP_AVATAR_DATA_URL = vi.hoisted(
-  () =>
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGMQqejBihiGlgQAPF1GAQp5eMUAAAAASUVORK5CYII=',
-);
-const SHOP_BANNER_DATA_URL = vi.hoisted(
-  () =>
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAIAAAA8r+mnAAAAEUlEQVR4nGOwMZqGFTFQTwIATn4ggS6iTnsAAAAASUVORK5CYII=',
-);
+// MarketplaceListingCards.vrt.test.tsx captures loaded-image cards via a data
+// URI; this scene keeps the honest gradient fallback.
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveMarketplaceMediaUrl: (uri: string) =>
-    uri.endsWith('/media/shop_avatar')
-      ? SHOP_AVATAR_DATA_URL
-      : uri.endsWith('/media/shop_banner')
-        ? SHOP_BANNER_DATA_URL
-        : null,
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks(() => null);
+});
 
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ isAuthenticated: true, requireAuth: (action: () => void) => action() }),

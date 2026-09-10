@@ -1,10 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { MarketplaceMediaService } from '@/core/services/commerce/marketplace-media';
-import { getMarketplaceMediaOwner, resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
+import { type MutableRefObject, useEffect, useRef, useState } from 'react';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import {
+  getMarketplaceMediaOwner,
+  isValidMarketplaceMediaUri,
+  resolveMarketplaceMediaUrl,
+} from '@/libs/commerce/media-url';
 
 const OWNER_CACHE_TTL_MS = 5 * 60 * 1000;
+const NEGATIVE_MEDIA_CACHE_TTL_MS = 30 * 1000;
+const OWNER_CACHE_LIMIT = 100;
 const MEDIA_CACHE_LIMIT = 100;
 
 type CacheEntry = { value: string | null; expiresAt: number };
@@ -13,6 +19,14 @@ const ownerCache = new Map<string, CacheEntry>();
 const ownerRequests = new Map<string, Promise<string | null>>();
 const mediaCache = new Map<string, CacheEntry>();
 const mediaRequests = new Map<string, Promise<string | null>>();
+
+function useLatest<T>(value: T): MutableRefObject<T> {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
 
 function getCached(
   cache: Map<string, CacheEntry>,
@@ -30,7 +44,10 @@ function getCached(
 }
 
 function cacheMedia(uri: string, value: string | null): void {
-  mediaCache.set(uri, { value, expiresAt: Date.now() + OWNER_CACHE_TTL_MS });
+  mediaCache.set(uri, {
+    value,
+    expiresAt: Date.now() + (value === null ? NEGATIVE_MEDIA_CACHE_TTL_MS : OWNER_CACHE_TTL_MS),
+  });
   while (mediaCache.size > MEDIA_CACHE_LIMIT) {
     const oldestUri = mediaCache.keys().next().value;
     if (!oldestUri) return;
@@ -47,9 +64,14 @@ async function getOwnerHomeserver(owner: string): Promise<string | null> {
   const existing = ownerRequests.get(owner);
   if (existing) return await existing;
 
-  const request = MarketplaceMediaService.getOwnerHomeserver(owner)
+  const request = CommerceController.getMarketplaceMediaOwnerHomeserver(owner)
     .then((homeserver) => {
       ownerCache.set(owner, { value: homeserver, expiresAt: Date.now() + OWNER_CACHE_TTL_MS });
+      while (ownerCache.size > OWNER_CACHE_LIMIT) {
+        const oldestOwner = ownerCache.keys().next().value;
+        if (!oldestOwner) break;
+        ownerCache.delete(oldestOwner);
+      }
       return homeserver;
     })
     .finally(() => ownerRequests.delete(owner));
@@ -61,7 +83,7 @@ export async function resolveMarketplaceMediaUrlAsync(uri: string): Promise<stri
   if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
   const owner = getMarketplaceMediaOwner(uri);
   if (!owner) return null;
-  if (!resolveMarketplaceMediaUrl(uri, MarketplaceMediaService.getConfiguredHomeserverUrl())) return null;
+  if (!isValidMarketplaceMediaUri(uri)) return null;
 
   const cached = getCached(mediaCache, uri, (value) => {
     if (value?.startsWith('blob:')) URL.revokeObjectURL(value);
@@ -77,16 +99,20 @@ export async function resolveMarketplaceMediaUrlAsync(uri: string): Promise<stri
         return null;
       }
 
-      if (ownerHomeserver === MarketplaceMediaService.getConfiguredHomeserver()) {
-        const url = resolveMarketplaceMediaUrl(uri, MarketplaceMediaService.getConfiguredHomeserverUrl());
+      if (ownerHomeserver === CommerceController.getConfiguredMarketplaceHomeserver()) {
+        const url = resolveMarketplaceMediaUrl(uri, CommerceController.getConfiguredMarketplaceHomeserverUrl());
         cacheMedia(uri, url);
         return url;
       }
 
-      const blob = await MarketplaceMediaService.fetchMedia(uri);
+      const blob = await CommerceController.fetchMarketplaceMedia(uri);
       const objectUrl = URL.createObjectURL(blob);
       cacheMedia(uri, objectUrl);
       return objectUrl;
+    })
+    .catch((error) => {
+      cacheMedia(uri, null);
+      throw error;
     })
     .finally(() => mediaRequests.delete(uri));
   mediaRequests.set(uri, request);
@@ -94,16 +120,18 @@ export async function resolveMarketplaceMediaUrlAsync(uri: string): Promise<stri
 }
 
 export function useMarketplaceMediaUrl(uri: string | null | undefined): string | null {
+  const uriKey = uri ?? '';
   const [url, setUrl] = useState(() => (uri ? getSynchronousMediaUrl(uri) : null));
 
   useEffect(() => {
-    if (!uri) {
+    const currentUri = uriKey || null;
+    if (!currentUri) {
       setUrl(null);
       return;
     }
 
     let active = true;
-    void resolveMarketplaceMediaUrlAsync(uri)
+    void resolveMarketplaceMediaUrlAsync(currentUri)
       .then((resolvedUrl) => {
         if (active) setUrl(resolvedUrl);
       })
@@ -114,24 +142,27 @@ export function useMarketplaceMediaUrl(uri: string | null | undefined): string |
     return () => {
       active = false;
     };
-  }, [uri]);
+  }, [uriKey]);
 
   return url;
 }
 
 export function useMarketplaceFirstMediaUrl(uris: readonly string[]): string | null {
+  const urisKey = uris.join('\u0000');
+  const urisRef = useLatest(uris);
   const [url, setUrl] = useState(
     () => uris.map(getSynchronousMediaUrl).find((url): url is string => url !== null) ?? null,
   );
 
   useEffect(() => {
+    const urisSnapshot = urisRef.current;
     let active = true;
-    if (uris.length === 0) {
+    if (urisSnapshot.length === 0) {
       setUrl(null);
       return;
     }
 
-    void Promise.all(uris.map((uri) => resolveMarketplaceMediaUrlAsync(uri)))
+    void Promise.all(urisSnapshot.map((uri) => resolveMarketplaceMediaUrlAsync(uri)))
       .then((resolvedUrls) => {
         if (active) setUrl(resolvedUrls.find((resolvedUrl) => resolvedUrl !== null) ?? null);
       })
@@ -142,28 +173,31 @@ export function useMarketplaceFirstMediaUrl(uris: readonly string[]): string | n
     return () => {
       active = false;
     };
-  }, [uris.join('\u0000')]);
+  }, [urisKey, urisRef]);
 
   return url;
 }
 
 export function useMarketplaceMediaUrls(uris: readonly string[]): readonly (string | null)[] {
+  const urisKey = uris.join('\u0000');
+  const urisRef = useLatest(uris);
   const [urls, setUrls] = useState<readonly (string | null)[]>(() => uris.map(getSynchronousMediaUrl));
 
   useEffect(() => {
+    const urisSnapshot = urisRef.current;
     let active = true;
-    void Promise.all(uris.map((uri) => resolveMarketplaceMediaUrlAsync(uri)))
+    void Promise.all(urisSnapshot.map((uri) => resolveMarketplaceMediaUrlAsync(uri)))
       .then((resolvedUrls) => {
         if (active) setUrls(resolvedUrls);
       })
       .catch(() => {
-        if (active) setUrls(uris.map(() => null));
+        if (active) setUrls(urisSnapshot.map(() => null));
       });
 
     return () => {
       active = false;
     };
-  }, [uris.join('\u0000')]);
+  }, [urisKey, urisRef]);
 
   return urls;
 }
@@ -189,9 +223,10 @@ function getSynchronousMediaUrl(uri: string): string | null {
   if (isDirectUrl(uri)) return uri;
   const owner = getMarketplaceMediaOwner(uri);
   if (!owner) return null;
+  if (!isValidMarketplaceMediaUri(uri)) return null;
   const ownerHomeserver = getCached(ownerCache, owner);
-  if (ownerHomeserver !== MarketplaceMediaService.getConfiguredHomeserver()) return null;
-  return resolveMarketplaceMediaUrl(uri, MarketplaceMediaService.getConfiguredHomeserverUrl());
+  if (ownerHomeserver !== CommerceController.getConfiguredMarketplaceHomeserver()) return null;
+  return resolveMarketplaceMediaUrl(uri, CommerceController.getConfiguredMarketplaceHomeserverUrl());
 }
 
 export function clearMarketplaceMediaCache(): void {

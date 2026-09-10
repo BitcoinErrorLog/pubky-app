@@ -65,9 +65,10 @@ vi.mock('@/stores/commerce/commerce.store', () => ({
     selector({ marketplaceSession: {} }),
 }));
 
-vi.mock('@/libs/commerce/media-url', () => ({
-  resolveFirstMarketplaceMediaUrl: () => null,
-}));
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  const { createMarketplaceMediaHooks } = await import('@/test/mocks/marketplace-media-hooks');
+  return createMarketplaceMediaHooks(() => null);
+});
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
