@@ -7,6 +7,9 @@ export const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version,
   },
+  typescript: {
+    tsconfigPath: 'tsconfig.build.json',
+  },
   reactCompiler: true,
   // Source maps are generated for every build (browser + server), but the Sentry plugin upload
   // is disabled below. Docker builds inject Debug IDs and optionally upload maps when Sentry
