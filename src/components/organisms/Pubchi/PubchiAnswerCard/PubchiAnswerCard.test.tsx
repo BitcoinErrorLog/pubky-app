@@ -87,7 +87,11 @@ describe('PubchiAnswerCard', () => {
     [['stale_follows'], 'Count'],
     [['unknown_route'], 'Claimants'],
   ])('labels %s counts as %s', (tools, label) => {
-    render(<PubchiAnswerCard answer={{ ...answer, tool_trace_summary: { ...answer.tool_trace_summary, tools }} as PubchiAnswerV1} />);
+    render(
+      <PubchiAnswerCard
+        answer={{ ...answer, tool_trace_summary: { ...answer.tool_trace_summary, tools } } as PubchiAnswerV1}
+      />,
+    );
     expect(screen.getByText(`${label}: 1`)).toBeInTheDocument();
   });
 
@@ -166,5 +170,47 @@ describe('PubchiAnswerCard', () => {
   it('renders nothing when older answers have no scope', () => {
     render(<PubchiAnswerCard answer={answer} />);
     expect(screen.queryByTestId('pubchi-answer-scope')).not.toBeInTheDocument();
+  });
+
+  it('renders knowledge provenance and outbound citations', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          basis: 'knowledge',
+          summary: 'Pubky uses public homeservers.',
+          scope: { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+          citations: [
+            {
+              kind: 'knowledge',
+              title: 'Pubky documentation',
+              url: 'https://docs.pubky.org/guide',
+              snippet: 'Public source',
+              corpus_version: '2026-09',
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText('From what I know')).toBeInTheDocument();
+    expect(screen.queryByTestId('pubchi-answer-scope')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Pubky documentation' })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByText('Corpus version: 2026-09')).toBeInTheDocument();
+  });
+
+  it('renders mixed provenance as graph evidence plus knowledge citations', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          basis: 'mixed',
+          citations: [{ kind: 'web', title: 'Current source', url: 'https://example.com/source' }],
+          scope: { time: null, graph: { kind: 'whole_graph' }, filters: [], complete: true },
+        }}
+      />,
+    );
+    expect(screen.getByText('From what I know')).toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-answer-scope')).toHaveTextContent('whole graph');
+    expect(screen.getByRole('link', { name: 'Current source' })).toBeInTheDocument();
   });
 });
