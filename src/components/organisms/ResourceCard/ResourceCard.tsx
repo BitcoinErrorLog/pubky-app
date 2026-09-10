@@ -1,7 +1,7 @@
 'use client';
 
-import { ExternalLink, Share2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { ExternalLink, Share2 } from 'lucide-react';
 import { getResourceRoute } from '@/app/routes';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -35,7 +35,9 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
   const isPubkyPost = resource.details.uri.startsWith('pubky://') && resource.details.uri.includes('/posts/');
   const detailsHref = getResourceRoute(resource.details.id);
   const displayUrl = safeUrl ? displayExternalUrl(safeUrl) : resource.details.uri;
-  const hasJebTag = resource.tags.some((tag) => tag.taggers.some((tagger) => tagger.startsWith(JEB_TAGGER_PUBKY_PREFIX)));
+  const hasJebTag = resource.tags.some((tag) =>
+    tag.taggers.some((tagger) => tagger.startsWith(JEB_TAGGER_PUBKY_PREFIX)),
+  );
 
   async function shareResource() {
     if (typeof navigator.share === 'function') {
@@ -52,7 +54,7 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
           <Typography as="span" size="sm" className="truncate text-muted-foreground">
             {safeUrl ? new URL(safeUrl).host : resource.details.scheme || 'Resource'}
           </Typography>
-          <Typography as="time" size="sm" className="text-muted-foreground">
+          <Typography as="span" size="sm" className="text-muted-foreground">
             {new Date(resource.details.indexed_at * 1000).toLocaleDateString()}
           </Typography>
         </Container>

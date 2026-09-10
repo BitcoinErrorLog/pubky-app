@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
@@ -11,10 +11,10 @@ import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useSearchCriteria } from '@/hooks/useSearchCriteria/useSearchCriteria';
 import { SearchEmptyState } from '@/molecules/SearchEmptyState/SearchEmptyState';
 import { SearchCollections } from '@/organisms/Collections/SearchCollections/SearchCollections';
+import { ResourceSearchLinks } from '@/organisms/ResourceSearchLinks/ResourceSearchLinks';
 import { SearchContentTags } from '@/organisms/SearchContentTags/SearchContentTags';
 import { SearchInput } from '@/organisms/SearchInput/SearchInput';
 import { SearchPeople } from '@/organisms/SearchPeople/SearchPeople';
-import { ResourceSearchLinks } from '@/organisms/ResourceSearchLinks/ResourceSearchLinks';
 import { TimelineFeed } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeed';
 import { useHomeStore } from '@/stores/home/home.store';
 import { CONTENT } from '@/stores/home/home.types';

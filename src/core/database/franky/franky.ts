@@ -19,6 +19,7 @@ import {
   postRelationshipsTableSchema,
 } from '@/models/post/relationships/postRelationships.schema';
 import { type PostTtlModelSchema, postTtlTableSchema } from '@/models/post/ttl/postTtl.schema';
+import { type ResourceLookupCacheModelSchema, resourceLookupCacheTableSchema } from '@/models/resource/resource.schema';
 import { type TagCollectionModelSchema, tagCollectionTableSchema } from '@/models/shared/tag/tag.schema';
 import { type PostStreamModelSchema, postStreamTableSchema } from '@/models/stream/post/postStream.schema';
 import { type TagStreamModelSchema, tagStreamTableSchema } from '@/models/stream/tag/tagStream.schema';
@@ -110,6 +111,8 @@ export class AppDatabase extends Dexie {
   feeds!: Dexie.Table<FeedModelSchema>;
   // Moderation
   moderation!: Dexie.Table<ModerationModelSchema>;
+  // Resource lookup cache
+  resource_lookup_cache!: Dexie.Table<ResourceLookupCacheModelSchema>;
 
   constructor(databaseName: string = DB_NAME) {
     super(databaseName);
@@ -145,6 +148,8 @@ export class AppDatabase extends Dexie {
         feeds: feedTableSchema,
         // Moderation
         moderation: moderationTableSchema,
+        // Resource lookup cache
+        resource_lookup_cache: resourceLookupCacheTableSchema,
       });
     } catch (error) {
       throw Err.database(DatabaseErrorCode.SCHEMA_ERROR, 'Failed to initialize database schema of indexedDB', {

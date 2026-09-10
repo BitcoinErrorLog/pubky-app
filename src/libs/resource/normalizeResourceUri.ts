@@ -5,7 +5,10 @@ export function normalizeResourceUri(uri: string): string {
   parsed.username = '';
   parsed.password = '';
 
-  if ((parsed.protocol === 'https:' && parsed.port === '443') || (parsed.protocol === 'http:' && parsed.port === '80')) {
+  if (
+    (parsed.protocol === 'https:' && parsed.port === '443') ||
+    (parsed.protocol === 'http:' && parsed.port === '80')
+  ) {
     parsed.port = '';
   }
 

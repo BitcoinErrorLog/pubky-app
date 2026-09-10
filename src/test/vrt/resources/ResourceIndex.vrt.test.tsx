@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import streamFixture from '@/test/fixtures/resources/stream.json';
 import { ResourceDiscovery } from '@/organisms/ResourceDiscovery/ResourceDiscovery';
+import streamFixture from '@/test/fixtures/resources/stream.json';
 import { matchVrtFrameScreenshot, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 

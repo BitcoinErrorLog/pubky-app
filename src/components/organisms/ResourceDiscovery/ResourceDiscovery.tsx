@@ -17,9 +17,9 @@ import type { ResourceLookupFormData } from '@/hooks/useResourceLookupForm/useRe
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { cn } from '@/libs/utils/utils';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
-import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
-import { ResourceCanonShelf } from '@/organisms/ResourceCanonShelf/ResourceCanonShelf';
 import { ResourceEmpty } from '@/molecules/ResourceEmpty/ResourceEmpty';
+import { ResourceCanonShelf } from '@/organisms/ResourceCanonShelf/ResourceCanonShelf';
+import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
 import type { NexusResource, TResourceStreamParams } from '@/services/nexus/resource/resource.types';
 import { ResourceDiscoverySkeleton } from './ResourceDiscovery.skeleton';
 

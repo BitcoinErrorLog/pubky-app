@@ -23,6 +23,10 @@ export class ResourceController {
     return await ResourceApplication.fetchByUri(params);
   }
 
+  static async getOrFetchByUri(uri: string): Promise<NexusResourceTagsResponse | null> {
+    return await ResourceApplication.getOrFetchByUri(uri);
+  }
+
   static async fetchStreamPage(params: TResourceStreamParams) {
     return await ResourceApplication.fetchStreamPage(params);
   }

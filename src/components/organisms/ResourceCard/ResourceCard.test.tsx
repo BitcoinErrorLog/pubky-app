@@ -39,10 +39,7 @@ describe('ResourceCard', () => {
 
     expect(screen.getByText('Bitcoin resources')).toBeInTheDocument();
     expect(screen.getByLabelText('Suggested by Jeb')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /open original/i })).toHaveAttribute(
-      'href',
-      'https://example.com/bitcoin',
-    );
+    expect(screen.getByRole('link', { name: /open original/i })).toHaveAttribute('href', 'https://example.com/bitcoin');
   });
 
   it('omits Jeb attribution when no pilot tagger is present', () => {

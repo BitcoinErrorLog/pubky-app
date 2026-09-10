@@ -1,7 +1,4 @@
-import {
-  RESOURCE_DISCOVERY_LIMIT,
-  RESOURCE_TAGS_LIMIT,
-} from '@/config/nexus';
+import { RESOURCE_DISCOVERY_LIMIT, RESOURCE_TAGS_LIMIT } from '@/config/nexus';
 import { queryNexus } from '@/services/nexus/nexus.utils';
 import { resourceApi } from './resource.api';
 import type {
