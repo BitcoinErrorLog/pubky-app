@@ -1,0 +1,120 @@
+import { describe, expect, it } from 'vitest';
+import type { PubchiAnswerV1 } from '@/libs/pubchi/schemas';
+import { PubchiAnswerCard } from '@/organisms/Pubchi/PubchiAnswerCard/PubchiAnswerCard';
+import { renderForVRT } from '@/test-utils/vrt';
+import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
+
+const owner = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
+const author = 'a1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+
+const baseAnswer: PubchiAnswerV1 = {
+  schema: 'pubchi-answer',
+  version: 1,
+  bot: owner,
+  owner,
+  generated_at: 1_700_000_000,
+  run_id: 'vrt-answer',
+  purpose: 'ask',
+  question: 'What did I miss?',
+  summary: 'You missed a reply from pubky:a1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo.',
+  evidence: [
+    {
+      kind: 'post',
+      label: 'A reply about Bitcoin',
+      uri: `pubky://${author}/pub/pubky.app/posts/reply-1`,
+      claimants: [author],
+      claimant_count: 1,
+      in_your_graph: true,
+    },
+  ],
+  sources: [],
+  tool_trace_summary: { tools: ['what_did_i_miss'], call_count: 1, truncated: false },
+  policy_version: 1,
+};
+
+function answer(overrides: Partial<PubchiAnswerV1>): PubchiAnswerV1 {
+  return { ...baseAnswer, ...overrides };
+}
+
+describe('PubchiAnswerCard — visual regression', () => {
+  it('guards the production answer surface marker', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard answer={baseAnswer} currentUserPubky={owner} />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+
+    const surface = screen.getByTestId('pubchi-answer');
+    await expect.element(surface).toHaveAttribute('data-surface', 'pubchi-answer');
+  });
+
+  it('captures C3 complete', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          continuation: {
+            since: '2026-09-10T06:00:00Z',
+            until: '2026-09-10T07:00:00Z',
+            complete: true,
+            skipped: 0,
+          },
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-c3-complete-desktop');
+  });
+
+  it('captures C3 partial cursor kept', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          continuation: {
+            since: '2026-09-10T06:00:00Z',
+            until: '2026-09-10T07:00:00Z',
+            complete: false,
+            skipped: 2,
+          },
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-c3-partial-desktop');
+  });
+
+  it('captures C4 thread summary with linkified citation', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          question: `Summarize this thread https://pubky.app/post/${author}/root-1`,
+          summary: `The thread discusses Bitcoin. See pubky:${author}.`,
+          evidence: [
+            {
+              kind: 'post',
+              label: 'Root post',
+              uri: `pubky://${author}/pub/pubky.app/posts/root-1`,
+              claimants: [author],
+              claimant_count: 1,
+              in_your_graph: null,
+            },
+            {
+              kind: 'post',
+              label: 'Reply',
+              uri: `pubky://${owner}/pub/pubky.app/posts/reply-2`,
+              claimants: [owner],
+              claimant_count: 1,
+              in_your_graph: null,
+            },
+          ],
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-c4-summary-desktop');
+  });
+});

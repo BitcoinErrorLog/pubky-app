@@ -173,13 +173,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           {loading ? <PubchiAnswerSkeleton elapsedMs={elapsedMs} /> : null}
           {!loading && result?.kind === 'answer' ? (
             <>
-              <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} />
-              {result.result.continuation ? (
-                <Typography data-testid="pubchi-cursor-status" size="xs" className="text-muted-foreground">
-                  Since {new Date(result.result.continuation.since).toLocaleString()} · {result.result.continuation.complete ? 'complete' : 'partial — cursor kept'}
-                  {cursorSource === 'device' ? ' · cursor kept on this device' : ''}
-                </Typography>
-              ) : null}
+              <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} cursorSource={cursorSource} />
             </>
           ) : null}
 

@@ -15,6 +15,7 @@ import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 type PubchiAnswerCardProps = {
   answer: PubchiAnswerV1;
   currentUserPubky?: string | null;
+  cursorSource?: 'device' | 'remote' | 'none';
 };
 
 const icons = {
@@ -24,7 +25,7 @@ const icons = {
   claim: '◇',
 } as const;
 
-export function PubchiAnswerCard({ answer, currentUserPubky }: PubchiAnswerCardProps) {
+export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'none' }: PubchiAnswerCardProps) {
   const [names, setNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -87,6 +88,12 @@ export function PubchiAnswerCard({ answer, currentUserPubky }: PubchiAnswerCardP
           </Typography>
         </CardContent>
       </Card>
+      {answer.continuation ? (
+        <Typography data-testid="pubchi-cursor-status" size="xs" className="text-muted-foreground">
+          Since {new Date(answer.continuation.since).toLocaleString()} · {answer.continuation.complete ? 'complete' : 'partial — cursor kept'}
+          {cursorSource === 'device' ? ' · cursor kept on this device' : ''}
+        </Typography>
+      ) : null}
 
       {answer.sources.length > 0 ? (
         <Collapsible>
