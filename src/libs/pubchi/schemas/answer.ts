@@ -17,6 +17,15 @@ const evidenceUri = z.string().refine((uri) => {
   return match !== null && isPubkyId(match[1]);
 }, { message: 'URI_FORBIDDEN' });
 
+const ContinuationSchema = z
+  .object({
+    since: z.string().datetime({ offset: true }),
+    until: z.string().datetime({ offset: true }),
+    complete: z.boolean(),
+    skipped: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const PubchiEvidenceV1Schema = z
   .object({
     kind: z.enum(['user', 'post', 'tag', 'claim']),
@@ -43,6 +52,7 @@ export const PubchiAnswerV1Schema = z
     sources: z.array(evidenceUri).max(50),
     tool_trace_summary: ToolTraceSummaryV1Schema,
     policy_version: z.literal(1),
+    continuation: ContinuationSchema.optional(),
   })
   .strict();
 
