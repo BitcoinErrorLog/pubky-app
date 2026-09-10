@@ -30,7 +30,8 @@ describe('MarketplaceSellerIdentity', () => {
     );
 
     const identity = screen.getByText('Northwind Vintage Goods').closest('div')?.parentElement;
-    expect(identity).toHaveClass('min-w-[12rem]', 'shrink-0');
+    expect(identity).toHaveClass('min-w-0');
+    expect(identity).not.toHaveClass('shrink-0');
     expect(screen.getByText('Northwind Vintage Goods')).toHaveClass('break-words');
   });
 });

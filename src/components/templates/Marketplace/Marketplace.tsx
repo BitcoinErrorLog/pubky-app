@@ -32,6 +32,7 @@ import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismiss
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBuyerToolsSheet } from '@/organisms/Marketplace/MarketplaceBuyerToolsSheet';
@@ -56,6 +57,7 @@ export function Marketplace({
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const catalog = useMarketplaceCatalog(initialListings, initialShops);
   const { shopsBySeller, adapterMode, listings, facetPool, countryFacetPool } = catalog;
+  const isStaging = getDeployEnv() === 'staging';
   const isLoading = catalog.isLoading && listings.length === 0;
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
   const [promoStorageHydrated, setPromoStorageHydrated] = useState(false);
@@ -100,9 +102,9 @@ export function Marketplace({
       classNameWrapperContent="max-w-7xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-5 px-4 sm:gap-8 sm:px-6 lg:px-8">
-        {adapterMode === 'sandbox' && (
+        {isStaging && (
           <div role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-            Staging · test funds — nothing here is real money
+            Staging environment — test rails, no real funds move
           </div>
         )}
         <section aria-label="Marketplace tools" className="flex flex-col gap-4 rounded-2xl border bg-card p-3 sm:p-5">

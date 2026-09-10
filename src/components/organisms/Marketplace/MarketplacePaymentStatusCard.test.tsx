@@ -1,8 +1,15 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
 import { createOrderFixture, createPaymentFixture } from '@/test/fixtures/commerce/orders';
 import { MarketplacePaymentStatusCard } from './MarketplacePaymentStatusCard';
+
+const runtime = vi.hoisted(() => ({ deployEnv: 'production' as 'production' | 'staging' | undefined }));
+
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => runtime.deployEnv };
+});
 
 vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => ({
   useMarketplaceLocksPayment: () => ({
@@ -39,6 +46,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 describe('MarketplacePaymentStatusCard', () => {
+  beforeEach(() => {
+    runtime.deployEnv = 'production';
+  });
+
   it.each(['transaction-service', 'locks-paykit', 'unavailable'] as const)(
     'shows the non-dismissible real-money notice in %s mode',
     (adapterMode) => {
@@ -59,7 +70,41 @@ describe('MarketplacePaymentStatusCard', () => {
     },
   );
 
-  it('shows the sandbox badge without the real-money notice', () => {
+  it('shows the staging notice instead of the real-money notice on a staging deploy', () => {
+    runtime.deployEnv = 'staging';
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment')}
+        payment={createPaymentFixture('awaiting_entitlement')}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('note')).toHaveTextContent('Staging environment — test rails, no real funds move');
+    expect(screen.queryByText(/Real money/)).not.toBeInTheDocument();
+  });
+
+  it('fails closed to the real-money notice for an unknown deploy environment', () => {
+    runtime.deployEnv = undefined;
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment')}
+        payment={createPaymentFixture('awaiting_entitlement')}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('note')).toHaveTextContent('Real money. Payments are final and go directly to the seller.');
+  });
+
+  it('shows the sandbox badge without any payment notice, even on a staging deploy', () => {
+    runtime.deployEnv = 'staging';
     render(
       <MarketplacePaymentStatusCard
         order={createOrderFixture('pending_payment')}
@@ -72,6 +117,34 @@ describe('MarketplacePaymentStatusCard', () => {
     );
 
     expect(screen.getByText('Sandbox · simulated payment · no real funds')).toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  it('does not show the payment notice for sellers or terminal orders', () => {
+    const payment = createPaymentFixture('awaiting_entitlement');
+    const seller = render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', { paymentId: payment.id })}
+        payment={payment}
+        isBuyer={false}
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+    expect(seller.queryByRole('note')).not.toBeInTheDocument();
+
+    seller.unmount();
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('completed', { paymentId: payment.id })}
+        payment={payment}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
   });
 

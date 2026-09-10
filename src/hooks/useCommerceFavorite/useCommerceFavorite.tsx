@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { ToastAction } from '@/atoms/Toast/Toast';
@@ -12,6 +13,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function useCommerceFavorite(listingCompositeId: string) {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { requireAuth } = useRequireAuth();
+  const router = useRouter();
   const [isMutating, setIsMutating] = useState(false);
   const favorite = useLiveQuery(
     () => (currentUserPubky ? CommerceController.isFavorite(listingCompositeId) : false),
@@ -30,7 +32,7 @@ export function useCommerceFavorite(listingCompositeId: string) {
         toast({
           title: favorite ? 'Removed from your watchlist' : 'Added to your watchlist',
           action: (
-            <ToastAction altText="Open watchlist" onClick={() => window.location.assign(MARKETPLACE_ROUTES.WATCHLIST)}>
+            <ToastAction altText="Open watchlist" onClick={() => router.push(MARKETPLACE_ROUTES.WATCHLIST)}>
               Watchlist
             </ToastAction>
           ),

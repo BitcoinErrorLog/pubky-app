@@ -16,6 +16,7 @@ const view = vi.hoisted(() => ({
   items: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
+  deployEnv: 'production' as 'production' | 'staging' | undefined,
   hasMarketplaceSession: false,
   needsSession: false,
   sessionError: null as string | null,
@@ -69,6 +70,11 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/config/commerce', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/config/commerce')>();
   return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
+});
+
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => view.deployEnv };
 });
 
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
@@ -188,6 +194,7 @@ describe('MarketplaceCart', () => {
     view.items = [];
     view.isLoading = false;
     view.adapterMode = 'sandbox';
+    view.deployEnv = 'production';
     view.hasMarketplaceSession = false;
     view.needsSession = false;
     view.sessionError = null;
@@ -233,20 +240,43 @@ describe('MarketplaceCart', () => {
         'Real money. Payments are final and go directly to the seller.',
       );
       expect(
-        screen.getByText(
-          'Your delivery address is not sent to the marketplace service. Share it with the seller in the encrypted order conversation after checkout.',
-        ),
+        screen.getByText(/Your delivery address is sent with your order/),
       ).toBeInTheDocument();
     },
   );
 
-  it('does not show the real-money notice in sandbox mode', () => {
+  it('fails closed to the real-money notice for an unknown deploy environment', () => {
     seededCart();
     view.adapterMode = 'sandbox';
+    view.deployEnv = undefined;
 
     render(<MarketplaceCart />);
 
+    expect(screen.getByRole('note')).toHaveTextContent('Real money. Payments are final and go directly to the seller.');
+    expect(screen.queryByText(/Staging environment/)).not.toBeInTheDocument();
+  });
+
+  it('shows the staging notice regardless of adapter mode', () => {
+    seededCart();
+    view.adapterMode = 'sandbox';
+    view.deployEnv = 'staging';
+
+    render(<MarketplaceCart />);
+
+    expect(screen.getByRole('note')).toHaveTextContent('Staging environment — test rails, no real funds move');
     expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+  });
+
+  it.each([false, true])('renders truthful address copy exactly once with saved addresses=%s', (hasSavedAddress) => {
+    seededCart();
+    view.addresses = hasSavedAddress
+      ? [{ id: 'home', label: 'Home', city: 'New York', is_default: true }]
+      : [];
+
+    render(<MarketplaceCart />);
+
+    expect(screen.getAllByText(/Your delivery address is sent with your order/)).toHaveLength(1);
+    expect(screen.queryByText(/not sent/)).not.toBeInTheDocument();
   });
 
   it('enables Place order after session plus a valid form', async () => {

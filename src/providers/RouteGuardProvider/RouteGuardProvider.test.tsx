@@ -532,6 +532,10 @@ describe('RouteGuardProvider — return path', () => {
 
     expect(screen.getByText('Redirecting...')).toBeInTheDocument();
     expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
+    expect(mocks.mockToast).toHaveBeenCalledWith({
+      variant: 'info',
+      description: 'Sign in to open that page.',
+    });
 
     mocks.mockRouterPush.mockClear();
     mocks.status = 'AUTHENTICATED';

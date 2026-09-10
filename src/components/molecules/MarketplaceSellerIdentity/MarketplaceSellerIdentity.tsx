@@ -15,7 +15,6 @@ export interface MarketplaceSellerIdentityProps {
 }
 
 export function MarketplaceSellerIdentity({
-  sellerPubky,
   displayName,
   avatarUrl,
   avatarAlt,
@@ -23,7 +22,7 @@ export function MarketplaceSellerIdentity({
   onAvatarError,
 }: MarketplaceSellerIdentityProps) {
   return (
-    <div className="flex min-w-[12rem] shrink-0 items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3">
       {avatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
         <img
@@ -44,7 +43,6 @@ export function MarketplaceSellerIdentity({
         <Typography
           as="p"
           className="break-words font-semibold"
-          title={displayName === sellerPubky ? sellerPubky : undefined}
         >
           {displayName}
         </Typography>

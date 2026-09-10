@@ -21,6 +21,7 @@ const catalogState = vi.hoisted(() => ({
   isLoading: false,
   adapterMode: 'sandbox' as 'sandbox' | 'transaction-service' | 'locks-paykit' | 'unavailable',
 }));
+const runtime = vi.hoisted(() => ({ deployEnv: 'staging' as 'production' | 'staging' | undefined }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
@@ -29,6 +30,11 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
 }));
+
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => runtime.deployEnv };
+});
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', () => ({
   useMarketplaceCatalog: (
@@ -95,6 +101,7 @@ describe('Marketplace', () => {
     catalogState.listings = [];
     catalogState.isLoading = false;
     catalogState.adapterMode = 'sandbox';
+    runtime.deployEnv = 'staging';
     window.localStorage.clear();
   });
 
@@ -109,17 +116,25 @@ describe('Marketplace', () => {
     expect(html).toContain('Seller studio');
   });
 
-  it('shows the staging disclosure only for sandbox mode', () => {
+  it('shows the staging disclosure by deploy environment', () => {
     const { rerender } = render(<Marketplace />);
 
     expect(screen.getByRole('note')).toHaveTextContent(
-      'Staging · test funds — nothing here is real money',
+      'Staging environment — test rails, no real funds move',
     );
     expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
 
+    runtime.deployEnv = 'production';
     catalogState.adapterMode = 'transaction-service';
     rerender(<Marketplace />);
-    expect(screen.queryByText('Staging · test funds — nothing here is real money')).not.toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  it('fails closed to the real-money side for an unknown deploy environment', () => {
+    runtime.deployEnv = undefined;
+    render(<Marketplace />);
+
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
   });
 
   it('renders guest catalog cards from server listings while the local cache hydrates', () => {

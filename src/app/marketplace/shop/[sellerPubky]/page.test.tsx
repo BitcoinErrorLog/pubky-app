@@ -20,6 +20,14 @@ describe('MarketplaceShopPage', () => {
     expect(rendered).not.toHaveBeenCalled();
   });
 
+  it('uses notFound for a base32-confusable seller pubky', async () => {
+    await expect(
+      MarketplaceShopPage({ params: Promise.resolve({ sellerPubky: 'l'.repeat(52) }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND');
+    expect(notFound).toHaveBeenCalled();
+    expect(rendered).not.toHaveBeenCalled();
+  });
+
   it('renders the shop template for a valid seller pubky', async () => {
     const sellerPubky = 'y'.repeat(52);
     const result = await MarketplaceShopPage({ params: Promise.resolve({ sellerPubky }) });

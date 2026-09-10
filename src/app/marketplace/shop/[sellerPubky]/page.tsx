@@ -2,8 +2,8 @@ import { notFound } from 'next/navigation';
 import type { Metadata as NextMetadata } from 'next';
 import { getMarketplaceShopRoute } from '@/app/routes';
 import { buildShopDescription, buildShopTitle, MARKETPLACE_STATIC_SEO } from '@/libs/commerce/seo';
+import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { fetchShopForMetadata } from '@/libs/og/ogCommerceData';
-import { isPubkyIdentifier } from '@/libs/utils/utils';
 import { Metadata } from '@/molecules/Metadata/Metadata';
 import { MarketplaceShop } from '@/templates/Marketplace/MarketplaceShop';
 
@@ -58,6 +58,6 @@ export async function generateMetadata({ params }: MarketplaceShopPageProps): Pr
 
 export default async function MarketplaceShopPage({ params }: MarketplaceShopPageProps) {
   const { sellerPubky } = await params;
-  if (!isPubkyIdentifier(sellerPubky)) notFound();
+  if (!commercePubkySchema.safeParse(sellerPubky).success) notFound();
   return <MarketplaceShop sellerPubky={sellerPubky} />;
 }

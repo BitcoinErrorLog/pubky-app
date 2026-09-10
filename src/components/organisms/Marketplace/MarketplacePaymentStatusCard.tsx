@@ -22,6 +22,7 @@ import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/u
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { type BuyerVisiblePaymentStatus, buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
+import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 
 /**
@@ -74,6 +75,7 @@ export function MarketplacePaymentStatusCard({
   onPaymentChanged: () => void | Promise<void>;
 }) {
   const isSandbox = adapterMode === 'sandbox';
+  const isStaging = getDeployEnv() === 'staging';
   const isLocksPaykit = isLocksPaykitCommerceMode(adapterMode);
   const [digitalLock, setDigitalLock] = useState<CommerceDigitalLock | null>(null);
 
@@ -156,9 +158,9 @@ export function MarketplacePaymentStatusCard({
         {order.fiatVerification === 'seller-attested' && <Badge variant="outline">Seller-attested</Badge>}
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
-      {!isSandbox && (
+      {!isSandbox && isBuyer && isAwaiting && (
         <Typography as="p" role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Real money. Payments are final and go directly to the seller.
+          {isStaging ? 'Staging environment — test rails, no real funds move' : 'Real money. Payments are final and go directly to the seller.'}
         </Typography>
       )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'gateway-notified' && (

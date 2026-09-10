@@ -26,6 +26,7 @@ import { marketplaceCheckoutSchema } from '@/hooks/useMarketplaceCheckout/useMar
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { resolveFirstMarketplaceMediaUrl, resolveMarketplaceMediaUrl } from '@/libs/commerce/media-url';
+import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -39,6 +40,7 @@ export function MarketplaceCart() {
   const checkout = useMarketplaceCheckout(cart.items, cart.clear);
   const adapterMode = getCommerceAdapterMode();
   const isSandbox = adapterMode === 'sandbox';
+  const isStaging = getDeployEnv() === 'staging';
   const formValues = useWatch({ control: checkout.form.control });
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
   const shipping = marketplaceCartShippingTotals(cart.groups, checkout.fulfillmentForSeller);
@@ -312,17 +314,13 @@ export function MarketplaceCart() {
                           <SelectItem value="new">New address</SelectItem>
                         </SelectContent>
                       </Select>
-                      <Typography as="p" className="text-xs text-muted-foreground">
-                        Your delivery address is not sent to the marketplace service. Share it with the seller in the
-                        encrypted order conversation after checkout.
-                      </Typography>
                     </div>
                   )}
                   {checkout.requiresDeliveryAddress && (
                     <>
                       <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-                        Your delivery address is not sent to the marketplace service. Share it with the seller in the
-                        encrypted order conversation after checkout.
+                        Your delivery address is sent with your order and shown only to the seller of that order.
+                        Encrypting it to the seller&apos;s key is scheduled.
                       </Typography>
                       <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
                       <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
@@ -449,7 +447,11 @@ export function MarketplaceCart() {
                       This places {checkout.orderCount} orders — one per seller and delivery method.
                     </Typography>
                   )}
-                  {!isSandbox && (
+                  {isStaging ? (
+                    <Typography as="p" role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                      Staging environment — test rails, no real funds move
+                    </Typography>
+                  ) : (
                     <Typography as="p" role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
                       Real money. Payments are final and go directly to the seller.
                     </Typography>
