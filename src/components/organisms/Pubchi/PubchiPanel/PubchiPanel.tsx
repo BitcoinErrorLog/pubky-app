@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
@@ -24,6 +24,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PubchiAnswerCard } from '../PubchiAnswerCard/PubchiAnswerCard';
 import { PubchiCapabilities } from '../PubchiCapabilities/PubchiCapabilities';
+import { PubchiFeedBuilder } from '../PubchiFeedBuilder/PubchiFeedBuilder';
 import { PubchiFlyoutHeader } from '../PubchiFlyoutHeader/PubchiFlyoutHeader';
 
 export const PUBCHI_PANEL_SURFACE = 'pubchi-panel';
@@ -35,20 +36,27 @@ export type PubchiPanelProps = {
 
 export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const {
-    form, submit, applyFeed, result, errorCode, loading, elapsedMs, enabled, pubchiAvailable,
-    signingAvailable, signingUnavailableMessage, setupDevice, setupLoading, cursorSource,
+    form,
+    submit,
+    applyFeed,
+    result,
+    errorCode,
+    loading,
+    elapsedMs,
+    enabled,
+    pubchiAvailable,
+    signingAvailable,
+    signingUnavailableMessage,
+    setupDevice,
+    setupLoading,
+    cursorSource,
   } = usePubchiQuery();
-  const {
-    needsReapproval,
-    reapprove,
-    loading: reapprovalLoading,
-    pubchi,
-    config,
-  } = usePubchiEnrollment();
+  const { needsReapproval, reapprove, loading: reapprovalLoading, pubchi, config } = usePubchiEnrollment();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const prefill = usePubchiStore((state) => state.flyout.prefill);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
+  const [feedBuilderOpen, setFeedBuilderOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -57,6 +65,10 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     form.setValue(QUERY_FORM_FIELDS.QUESTION, nextPrefill.question, { shouldValidate: true });
     document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
   }, [form, open, prefill]);
+
+  useEffect(() => {
+    if (result?.kind === 'feed-v2') setFeedBuilderOpen(true);
+  }, [result]);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;
@@ -135,7 +147,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             </Typography>
             <PubchiCapabilities
               compact
-            tier={tier}
+              tier={tier}
               disabled={actionsDisabled}
               onSelect={(nextQuestion, purpose) => {
                 form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
@@ -152,7 +164,9 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 data-testid="pubchi-summarize-thread"
                 disabled={actionsDisabled}
                 onClick={() => {
-                  form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${postReference.uri}`, { shouldValidate: true });
+                  form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${postReference.uri}`, {
+                    shouldValidate: true,
+                  });
                   void submit('ask');
                 }}
               >
@@ -167,7 +181,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           </form>
 
           {errorCode ? (
-            <div data-testid="pubchi-error" role="alert" className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+            <div
+              data-testid="pubchi-error"
+              role="alert"
+              className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-3"
+            >
               <Typography size="sm">{errorCopy.message}</Typography>
               {errorCopy.settingsLink ? (
                 <Link href={errorCopy.settingsLink} size="default">
@@ -185,26 +203,40 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           {loading ? <PubchiAnswerSkeleton elapsedMs={elapsedMs} /> : null}
           {!loading && result?.kind === 'answer' ? (
             <>
-              <PubchiAnswerCard answer={result.result} currentUserPubky={currentUserPubky} cursorSource={cursorSource} />
+              <PubchiAnswerCard
+                answer={result.result}
+                currentUserPubky={currentUserPubky}
+                cursorSource={cursorSource}
+              />
             </>
           ) : null}
 
           {!loading && result?.kind === 'query' ? (
             <div className="flex flex-col gap-3" data-testid="pubchi-evidence">
-              {result.result.items.length > 0 ? result.result.items.map((item) => {
-                const href = pubkyUriToAppHref(item.source_uri, currentUserPubky);
-                return (
-                  <Card key={`${item.source_uri}-${item.label}`}>
-                    <CardContent className="flex flex-col gap-1 pt-4">
-                      <CardTitle>{item.label}</CardTitle>
-                      <Typography size="sm">
-                        Tagged by {item.claimant_count} {item.claimant_count === 1 ? 'account' : 'accounts'}
-                      </Typography>
-                      {href ? <Link href={href} className="text-sm break-all underline">Tagger</Link> : null}
-                    </CardContent>
-                  </Card>
-                );
-              }) : <Typography data-testid="pubchi-empty-query" size="sm">Nobody has tagged you yet.</Typography>}
+              {result.result.items.length > 0 ? (
+                result.result.items.map((item) => {
+                  const href = pubkyUriToAppHref(item.source_uri, currentUserPubky);
+                  return (
+                    <Card key={`${item.source_uri}-${item.label}`}>
+                      <CardContent className="flex flex-col gap-1 pt-4">
+                        <CardTitle>{item.label}</CardTitle>
+                        <Typography size="sm">
+                          Tagged by {item.claimant_count} {item.claimant_count === 1 ? 'account' : 'accounts'}
+                        </Typography>
+                        {href ? (
+                          <Link href={href} className="text-sm break-all underline">
+                            Tagger
+                          </Link>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              ) : (
+                <Typography data-testid="pubchi-empty-query" size="sm">
+                  Nobody has tagged you yet.
+                </Typography>
+              )}
               <Collapsible>
                 <CollapsibleTrigger asChild>
                   <Button type="button" variant="ghost" data-testid="pubchi-tool-trace">
@@ -220,6 +252,22 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 </CollapsibleContent>
               </Collapsible>
             </div>
+          ) : null}
+
+          {!loading && result?.kind === 'feed-v2' ? (
+            <PubchiFeedBuilder
+              proposal={result.result}
+              open={feedBuilderOpen}
+              onOpenChange={setFeedBuilderOpen}
+              onInterpret={async (nextQuestion) => {
+                form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
+                await submit('build-feed', {
+                  proposalVersion: 2,
+                  targetFeedId: result.result.target_feed_id ?? undefined,
+                  currentFeed: result.result.feed,
+                });
+              }}
+            />
           ) : null}
 
           {!loading && result?.kind === 'feed' ? (
@@ -244,7 +292,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           ) : null}
 
           {!loading && result?.kind === 'feed-unsupported' ? (
-            <div data-testid="pubchi-error" role="alert" className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+            <div
+              data-testid="pubchi-error"
+              role="alert"
+              className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-3"
+            >
               <Typography size="sm">{pubchiErrorCopy(result.code).message}</Typography>
               <Typography size="xs" className="text-muted-foreground">
                 Support code: {result.code}

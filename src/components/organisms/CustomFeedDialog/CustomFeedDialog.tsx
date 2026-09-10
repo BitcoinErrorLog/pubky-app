@@ -53,16 +53,23 @@ interface CustomFeedDialogSharedProps {
   children?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onSubmitOverride?: (
+    data: import('@/hooks/useCustomFeedForm/useCustomFeedForm.types').CustomFeedFormData,
+  ) => Promise<boolean>;
+  extraContent?: ReactNode;
+  saveLabel?: string;
 }
 
 type CustomFeedDialogProps =
   | (CustomFeedDialogSharedProps & {
       mode: 'create';
       feed?: never;
+      initialValues?: import('@/hooks/useCustomFeedForm/useCustomFeedForm.types').CustomFeedFormData;
     })
   | (CustomFeedDialogSharedProps & {
       mode: 'edit';
       feed: FeedModelSchema;
+      initialValues?: never;
     });
 
 function isVisualCustomFeedContentSupported(content?: CustomFeedFormContent): boolean {
@@ -97,7 +104,9 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
   // Read `feed` off `props` rather than destructuring it: the props union ties
   // `feed` to `mode`, and destructuring erases that link for TS.
   const { form, loading, submit, deleteFeed } = useCustomFeedForm(
-    props.mode === 'edit' ? { mode: 'edit', feed: props.feed, open } : { mode: 'create', open },
+    props.mode === 'edit'
+      ? { mode: 'edit', feed: props.feed, open }
+      : { mode: 'create', open, initialValues: props.initialValues, onSubmitOverride: props.onSubmitOverride },
   );
 
   const { control } = form;
@@ -570,6 +579,8 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
           </Container>
         )}
 
+        {props.extraContent}
+
         <DialogFooter>
           {mode === 'edit' && (
             <Button
@@ -594,7 +605,7 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
             data-testid="save-feed-button"
           >
             <Check className="size-4" />
-            {'Save Feed'}
+            {props.saveLabel ?? 'Save Feed'}
           </Button>
         </DialogFooter>
       </DialogContent>
