@@ -15,15 +15,15 @@ export {
   PubchiEvidenceV1Schema,
 } from './answer';
 export {
-  MAX_CONVERSATION_CODE_POINTS,
-  MAX_CONVERSATION_TURNS,
-  MAX_CONVERSATION_TURN_CODE_POINTS,
-  ConversationSchema,
-  ConversationTurnSchema,
-  parseConversation,
   type Conversation,
   type ConversationBasis,
+  ConversationSchema,
   type ConversationTurn,
+  ConversationTurnSchema,
+  MAX_CONVERSATION_CODE_POINTS,
+  MAX_CONVERSATION_TURN_CODE_POINTS,
+  MAX_CONVERSATION_TURNS,
+  parseConversation,
 } from './ask-body';
 export { parsePubchiBotV1, type PubchiBotV1, PubchiBotV1Schema } from './bot';
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
@@ -78,6 +78,7 @@ export {
   parseFeedProposalV1,
   parseFeedProposalV2,
 } from './feed';
+export { FEED_CATALOG, type FeedCatalog } from './feed-catalog';
 export { FORBIDDEN_CATEGORIES, scanForbidden, scanForbiddenPublicState } from './forbidden';
 export { type ManifestV1, ManifestV1Schema, parseManifestV1 } from './manifest';
 export { MemoryNonceStore, type NonceStore } from './nonce';

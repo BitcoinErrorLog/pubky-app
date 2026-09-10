@@ -213,4 +213,29 @@ describe('PubchiAnswerCard', () => {
     expect(screen.getByTestId('pubchi-answer-scope')).toHaveTextContent('whole graph');
     expect(screen.getByRole('link', { name: 'Current source' })).toBeInTheDocument();
   });
+
+  it('renders the feed catalog answer as knowledge text', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          basis: 'knowledge',
+          summary:
+            'Feeds support name, icon, tags, domain_tags, reach, sort, layout, and content. Reach supports following, friends, all, wot, and me in this App.',
+          evidence: [],
+          scope: { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+          citations: [
+            {
+              kind: 'knowledge',
+              title: 'Pubchi feed catalog v2',
+              url: 'https://docs.pubky.org/pubchi/feed-catalog',
+              corpus_version: '2',
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText(/name, icon, tags, domain_tags, reach, sort, layout, and content/)).toBeInTheDocument();
+    expect(screen.getByText('From what I know')).toBeInTheDocument();
+  });
 });
