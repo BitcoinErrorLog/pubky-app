@@ -60,11 +60,16 @@ describe('AuthStore', () => {
 
     it('clears status-only Pubchi state on logout reset', () => {
       usePubchiStore.setState({ ownerPubky: 'test-owner' as never });
+      usePubchiStore.getState().openFlyout(
+        { question: 'Summarize this thread', source: 'post-menu' },
+        'test-owner' as never,
+      );
 
       useAuthStore.getState().reset();
 
       expect(usePubchiStore.getState().ownerPubky).toBeNull();
       expect(usePubchiStore.getState().context).toBeNull();
+      expect(usePubchiStore.getState().flyout).toEqual({ open: false });
     });
 
     it('clears status-only Pubchi state when init switches identity', () => {

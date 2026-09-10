@@ -38,6 +38,7 @@ import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { useMigrationStore } from '@/stores/migration/migration.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { useSearchStore } from '@/stores/search/search.store';
 import { useSettingsStore } from '@/stores/settings/settings.store';
 import type { SettingsState } from '@/stores/settings/settings.types';
@@ -395,6 +396,7 @@ export class AuthController {
     useSearchStore.getState().reset();
     useNotificationStore.getState().reset();
     useSettingsStore.getState().reset();
+    usePubchiStore.getState().clear();
 
     // Clear cookies (also drops any stale `locale` cookie from the removed language selection)
     clearCookies();

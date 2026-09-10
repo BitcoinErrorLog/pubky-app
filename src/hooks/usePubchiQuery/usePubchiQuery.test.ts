@@ -321,6 +321,20 @@ describe('usePubchiQuery', () => {
     expect(localStorage.getItem(`pubchi-cursor:${'a'.repeat(52)}`)).toBe('2026-09-10T08:00:00Z');
   });
 
+  it('compares offset cursors by instant rather than string order', async () => {
+    localStorage.setItem(`pubchi-cursor:${'a'.repeat(52)}`, '2026-09-10T08:00:00+01:00');
+    mocks.fetchPubchiQuery.mockResolvedValue(answer({ until: '2026-09-10T07:30:00Z' }));
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+      await result.current.submit('ask');
+    });
+
+    expect(localStorage.getItem(`pubchi-cursor:${'a'.repeat(52)}`)).toBe('2026-09-10T07:30:00Z');
+  });
+
   it('writes the cursor remotely when the session covers the private directory', async () => {
     mocks.sessionCapabilities = ['/priv/pubchi.app/:rw'];
     mocks.fetchPubchiQuery.mockResolvedValue(answer());
@@ -332,7 +346,28 @@ describe('usePubchiQuery', () => {
       await result.current.submit('ask');
     });
 
-    expect(mocks.savePubchiCursor).toHaveBeenCalledWith('2026-09-10T07:00:00Z');
+    expect(mocks.savePubchiCursor).toHaveBeenCalledWith('a'.repeat(52), '2026-09-10T07:00:00Z');
     expect(localStorage.length).toBe(0);
+  });
+
+  it('keeps the answer and shows one warning when saving the cursor fails', async () => {
+    mocks.sessionCapabilities = ['/priv/pubchi.app/:rw'];
+    mocks.fetchPubchiQuery.mockResolvedValue(answer());
+    mocks.savePubchiCursor.mockRejectedValue(new Error('save failed'));
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+      await result.current.submit('ask');
+    });
+
+    expect(result.current.result).toEqual(answer());
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith({
+      variant: 'warning',
+      title: "Answer shown; couldn't save your catch-up position",
+      dismissButton: true,
+    });
   });
 });

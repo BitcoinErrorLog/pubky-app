@@ -285,14 +285,21 @@ export class PubchiApplication {
 
   static async savePubchiCursor(owner: string, cursor: string): Promise<void> {
     const session = useAuthStore.getState().selectSession();
-    if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) {
+    const sessionPubky = session?.info?.publicKey?.z32?.();
+    if (!session || sessionPubky !== owner || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) {
       throw pubchiValidationError('PATH_FORBIDDEN', 'savePubchiCursor');
     }
+    const nextTime = Date.parse(cursor);
+    if (Number.isNaN(nextTime)) return;
     const existing = await this.loadPubchiCursor(owner);
+    if (existing !== null) {
+      const existingTime = Date.parse(existing);
+      if (Number.isNaN(existingTime) || nextTime <= existingTime) return;
+    }
     await HomeserverService.request({
       method: HttpMethod.PUT,
       url: pubchiCursorUri(owner),
-      bodyJson: { ...(existing ? { cursor: existing } : {}), cursor },
+      bodyJson: { cursor },
     });
   }
 

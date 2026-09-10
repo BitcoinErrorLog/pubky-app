@@ -9,9 +9,10 @@ export type PubchiFlyoutPrefill = {
   question: string;
   source: 'post-menu' | 'chip';
 };
+type StoredPubchiFlyoutPrefill = PubchiFlyoutPrefill & { ownerPubky: Pubky };
 export type PubchiFlyoutState = {
   open: boolean;
-  prefill?: PubchiFlyoutPrefill;
+  prefill?: StoredPubchiFlyoutPrefill;
 };
 
 export interface PubchiStore {
@@ -24,9 +25,9 @@ export interface PubchiStore {
   setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
   setConfig: (config: PubchiConfigV1 | null, ownerPubky: Pubky | null) => void;
   setContext: (context: PubchiOwnerContextV1 | null, ownerPubky: Pubky | null) => void;
-  openFlyout: (prefill?: PubchiFlyoutPrefill) => void;
+  openFlyout: (prefill?: PubchiFlyoutPrefill, ownerPubky?: Pubky | null) => void;
   closeFlyout: () => void;
-  consumePrefill: () => PubchiFlyoutPrefill | undefined;
+  consumePrefill: (ownerPubky?: Pubky | null) => PubchiFlyoutPrefill | undefined;
   clear: () => void;
 }
 
@@ -49,12 +50,23 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
   },
   setConfig: (config, ownerPubky) => set({ config, ownerPubky, lastUpdatedAt: Date.now() }),
   setContext: (context, ownerPubky) => set({ context, ownerPubky, lastUpdatedAt: Date.now() }),
-  openFlyout: (prefill) => set({ flyout: { open: true, ...(prefill ? { prefill } : {}) } }),
+  openFlyout: (prefill, ownerPubky) =>
+    set({
+      flyout: {
+        open: true,
+        ...(prefill && ownerPubky ? { prefill: { ...prefill, ownerPubky } } : {}),
+      },
+    }),
   closeFlyout: () => set({ flyout: { open: false } }),
-  consumePrefill: (): PubchiFlyoutPrefill | undefined => {
+  consumePrefill: (ownerPubky): PubchiFlyoutPrefill | undefined => {
     const prefill = get().flyout.prefill;
-    if (prefill) set({ flyout: { open: true } });
-    return prefill;
+    if (prefill) {
+      set({ flyout: { open: true } });
+      if (prefill.ownerPubky !== ownerPubky) return undefined;
+      const { ownerPubky: _ownerPubky, ...consumed } = prefill;
+      return consumed;
+    }
+    return undefined;
   },
   clear: () => set(initialState),
 }));

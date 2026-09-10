@@ -287,6 +287,23 @@ describe('PubchiApplication', () => {
     });
   });
 
+  it('does not overwrite a newer remote cursor', async () => {
+    sessionIdentity.capabilities = ['/priv/pubchi.app/:rw'];
+    vi.mocked(HomeserverService.request).mockResolvedValueOnce({ cursor: '2026-09-10T08:00:00Z' });
+
+    await expect(PubchiApplication.savePubchiCursor(OWNER, '2026-09-10T07:00:00+00:00')).resolves.toBeUndefined();
+
+    expect(HomeserverService.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to save a cursor for a foreign owner', async () => {
+    sessionIdentity.capabilities = ['/priv/pubchi.app/:rw'];
+
+    await expect(PubchiApplication.savePubchiCursor('f'.repeat(52), '2026-09-10T07:00:00Z')).rejects.toThrow();
+
+    expect(HomeserverService.request).not.toHaveBeenCalled();
+  });
+
   it('treats private context authorization failures as an absent context', async () => {
     vi.mocked(HomeserverService.request).mockRejectedValueOnce({
       context: { statusCode: HttpStatusCode.FORBIDDEN },

@@ -52,11 +52,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
 
   useEffect(() => {
     if (!open) return;
-    const nextPrefill = PubchiController.consumePrefill();
+    const nextPrefill = PubchiController.consumePrefill(currentUserPubky);
     if (!nextPrefill) return;
     form.setValue(QUERY_FORM_FIELDS.QUESTION, nextPrefill.question, { shouldValidate: true });
     document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
-  }, [form, open, prefill]);
+  }, [currentUserPubky, form, open, prefill]);
 
   if (!enabled || !isPubchiPanelEnabled()) {
     return null;

@@ -103,7 +103,7 @@ describe('PubchiPanel', () => {
       source: 'post-menu' as const,
     };
     consumePrefill.mockReturnValue(prefill);
-    usePubchiStore.getState().openFlyout(prefill);
+    usePubchiStore.getState().openFlyout(prefill, 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo');
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });

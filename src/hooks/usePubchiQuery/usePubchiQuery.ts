@@ -8,6 +8,7 @@ import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { publishPubchiSync } from '@/controllers/pubchi/pubchi-sync';
 import { AppError } from '@/libs/error/error';
+import { Logger } from '@/libs/logger/logger';
 import { PUBCHI_PRIVATE_DIRECTORY, sessionCovers } from '@/libs/pubchi/capabilities';
 import { readLocalCursor, writeLocalCursor } from '@/libs/pubchi/capabilities-v1';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
@@ -111,16 +112,32 @@ export function usePubchiQuery() {
             question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
           });
+          const nextUntil = next.kind === 'answer' ? next.result.continuation?.until : undefined;
+          const cursorTime = cursor ? Date.parse(cursor) : Number.NaN;
+          const nextUntilTime = nextUntil ? Date.parse(nextUntil) : Number.NaN;
           if (
             requestOwner &&
             next.kind === 'answer' &&
             next.result.owner === requestOwner &&
             rawQuestion === 'What did I miss?' &&
             next.result.continuation?.complete &&
-            next.result.continuation.until > (cursor ?? '')
+            !Number.isNaN(nextUntilTime) &&
+            (cursor === null || (!Number.isNaN(cursorTime) && nextUntilTime > cursorTime))
           ) {
-            if (remoteCursorAvailable) await PubchiController.savePubchiCursor(next.result.continuation.until);
-            else writeLocalCursor(requestOwner, next.result.continuation.until);
+            setResult(next);
+            ok = true;
+            try {
+              if (remoteCursorAvailable) await PubchiController.savePubchiCursor(requestOwner, nextUntil!);
+              else writeLocalCursor(requestOwner, nextUntil!);
+            } catch (error) {
+              Logger.warn('Failed to save Pubchi catch-up position', { error });
+              toast({
+                variant: 'warning',
+                title: "Answer shown; couldn't save your catch-up position",
+                dismissButton: true,
+              });
+            }
+            return;
           }
           setResult(next);
           ok = true;

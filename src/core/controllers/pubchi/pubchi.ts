@@ -24,16 +24,16 @@ import { publishPubchiSync } from './pubchi-sync';
 export class PubchiController {
   private constructor() {}
 
-  static openFlyout(prefill?: PubchiFlyoutPrefill): void {
-    usePubchiStore.getState().openFlyout(prefill);
+  static openFlyout(prefill?: Omit<PubchiFlyoutPrefill, 'ownerPubky'>): void {
+    usePubchiStore.getState().openFlyout(prefill, useAuthStore.getState().currentUserPubky);
   }
 
   static closeFlyout(): void {
     usePubchiStore.getState().closeFlyout();
   }
 
-  static consumePrefill(): PubchiFlyoutPrefill | undefined {
-    return usePubchiStore.getState().consumePrefill();
+  static consumePrefill(ownerPubky = useAuthStore.getState().currentUserPubky): PubchiFlyoutPrefill | undefined {
+    return usePubchiStore.getState().consumePrefill(ownerPubky);
   }
 
   static async getActiveBinding(): Promise<PubchiBindingRecordResult | undefined> {
@@ -166,8 +166,8 @@ export class PubchiController {
     return PubchiApplication.loadPubchiCursor(useAuthStore.getState().selectCurrentUserPubky());
   }
 
-  static async savePubchiCursor(cursor: string): Promise<void> {
-    return PubchiApplication.savePubchiCursor(useAuthStore.getState().selectCurrentUserPubky(), cursor);
+  static async savePubchiCursor(owner: string, cursor: string): Promise<void> {
+    return PubchiApplication.savePubchiCursor(owner, cursor);
   }
 
   static async reconcileActiveBinding(): Promise<PubchiBindingRecordResult | undefined> {
