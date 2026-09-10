@@ -19,6 +19,7 @@ import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import * as vibeSessionAutoRestore from '@/libs/vibe-session/auto-restore';
 import * as vibeSessionConfig from '@/libs/vibe-session/config';
+import { CommerceCatalogEntryModel } from '@/models/commerce/commerce.models';
 import type { Pubky } from '@/models/models.types';
 import { NotificationType } from '@/models/notification/notification.types';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
@@ -43,6 +44,7 @@ import {
   type SettingsState,
 } from '@/stores/settings/settings.types';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
+import { createCommerceCatalogEntryFixture } from '@/test/fixtures/commerce/commerce';
 import { mockSession as buildMockSession } from '@/test-utils/pubky';
 import {
   mockAuthStore,
@@ -903,9 +905,9 @@ describe('AuthController', () => {
     it('joins overlapping requests during the ceremony instead of wiping Dexie again', async () => {
       mockClearDatabase.mockResolvedValue(undefined);
       const cancelAuthFlow = vi.fn();
-      const startSpy = vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue(
-        tokenFlow('https://example.com/auth?token=A', cancelAuthFlow),
-      );
+      const startSpy = vi
+        .spyOn(AuthApplication, 'startDirectSignInFlow')
+        .mockReturnValue(tokenFlow('https://example.com/auth?token=A', cancelAuthFlow));
 
       const firstCall = AuthController.getAuthUrl();
       const secondCall = AuthController.getAuthUrl();
@@ -1010,9 +1012,7 @@ describe('AuthController', () => {
       });
       vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
 
-      await expect(AuthController.completeStepUpReauth({ session: mockSession })).rejects.toThrow(
-        'wrong environment',
-      );
+      await expect(AuthController.completeStepUpReauth({ session: mockSession })).rejects.toThrow('wrong environment');
       expect(logoutSpy).toHaveBeenCalledWith({ session: mockSession });
       expect(authStore.setSession).not.toHaveBeenCalled();
     });
@@ -1158,7 +1158,10 @@ describe('AuthController', () => {
       });
 
       vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
-      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({ status: 'restored', session: mockSession });
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({
+        status: 'restored',
+        session: mockSession,
+      });
       vi.spyOn(Identity, 'z32FromSession').mockReturnValue(mockPubky);
       const restoreSpy = vi.spyOn(CommerceApplication, 'restoreMarketplaceSession').mockReturnValue(marketplaceSession);
       const writeSpy = vi.spyOn(CommerceController, 'writeMarketplaceSessionStore');
@@ -1201,7 +1204,10 @@ describe('AuthController', () => {
       });
 
       vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
-      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({ status: 'restored', session: mockSession });
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({
+        status: 'restored',
+        session: mockSession,
+      });
       vi.spyOn(Identity, 'z32FromSession').mockReturnValue(mockPubky);
       vi.spyOn(CommerceApplication, 'restoreMarketplaceSession').mockReturnValue(olderSession);
       const writeSpy = vi.spyOn(CommerceController, 'writeMarketplaceSessionStore');
@@ -1217,7 +1223,8 @@ describe('AuthController', () => {
         ...storeMocks.getAuthState(),
         hasHydrated: true,
         session: null,
-        sessionExport: null,
+        sessionExport: 'expired-session-export',
+        currentUserPubky: TEST_PUBKY as Pubky,
         isRestoringSession: false,
         setIsRestoringSession: vi.fn(),
         init: vi.fn(),
@@ -1256,6 +1263,32 @@ describe('AuthController', () => {
       expect(cancelModerationFollowSpy.mock.invocationCallOrder[0]).toBeLessThan(
         clearDatabaseSpy.mock.invocationCallOrder[0]!,
       );
+    });
+
+    it('preserves the public catalog cache when a signed-out bridge restore fails', async () => {
+      const entry = createCommerceCatalogEntryFixture();
+      await CommerceCatalogEntryModel.create(entry);
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        hasHydrated: true,
+        session: null,
+        sessionExport: null,
+        currentUserPubky: null,
+        isRestoringSession: false,
+        setIsRestoringSession: vi.fn(),
+        init: vi.fn(),
+      });
+
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({ status: 'signed-out' });
+
+      try {
+        await expect(AuthController.restorePersistedSession()).resolves.toEqual({ status: 'signed-out' });
+        expect(await CommerceCatalogEntryModel.table.count()).toBe(1);
+        expect(mockClearDatabase).not.toHaveBeenCalled();
+      } finally {
+        await CommerceCatalogEntryModel.table.clear();
+      }
     });
 
     it('should cleanup then rethrow when restore throws wrong-environment homeserver error', async () => {

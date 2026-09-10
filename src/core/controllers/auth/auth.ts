@@ -166,6 +166,7 @@ export class AuthController {
    */
   static async restorePersistedSession(): Promise<TRestorePersistedSessionResult> {
     const authStore = useAuthStore.getState();
+    const hadPersistedIdentity = Boolean(authStore.sessionExport || authStore.currentUserPubky);
     // Captured before any await so a logout that starts while the shared
     // Application restore is in flight invalidates this invocation's
     // restored-branch finalization (compared again right before `init`).
@@ -222,12 +223,14 @@ export class AuthController {
         authStore.setSessionRestoreDeferred(true);
         return { status: 'deferred' };
       }
-      await this.cleanupLocalState();
-      cleanedUp = true;
+      if (hadPersistedIdentity) {
+        await this.cleanupLocalState();
+        cleanedUp = true;
+      }
       return { status: 'signed-out' };
     } catch (error) {
       const appError = toAppError(error, ErrorService.Local, 'restorePersistedSession');
-      if (!cleanedUp) {
+      if (!cleanedUp && hadPersistedIdentity) {
         await this.cleanupLocalState();
       }
       if (isWrongEnvironmentHomeserverError(appError)) {

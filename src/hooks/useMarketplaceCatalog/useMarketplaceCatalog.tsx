@@ -77,10 +77,11 @@ export function useMarketplaceCatalog(
   const isCacheEmpty =
     localListings !== undefined && catalogEntries !== undefined && localListings.length + catalogEntries.length === 0;
   const isLoading = isCacheUnresolved || (isCacheEmpty && isRefreshing);
-  // Keep the server-fetched catalog mounted until the client cache has rows,
-  // so an empty refresh or unresolved Dexie snapshot cannot erase the grid.
+  // SSR and the first client paint have no Dexie snapshot yet. Keep the
+  // server-fetched catalog mounted so hydration does not replace it with a
+  // skeleton.
   const sourceItems =
-    initialListings.length > 0 && (isLoading || isCacheEmpty)
+    isLoading && initialListings.length > 0
       ? initialListings
       : buildMarketplaceCatalogItems(localListings ?? [], catalogEntries ?? []);
   // The facet pool matches every filter EXCEPT the attribute filters, so the
