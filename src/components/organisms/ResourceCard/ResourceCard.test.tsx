@@ -34,6 +34,16 @@ const resource = {
 };
 
 describe('ResourceCard', () => {
+  it('formats Nexus millisecond timestamps as UTC dates', () => {
+    render(
+      <ResourceCard resource={{ ...resource, details: { ...resource.details, indexed_at: 1_788_891_705_406 } }} />,
+    );
+
+    expect(
+      screen.getByText(new Date(1_788_891_705_406).toLocaleDateString('en-US', { timeZone: 'UTC' })),
+    ).toBeInTheDocument();
+  });
+
   it('renders the web-page variant and Jeb attribution', () => {
     render(<ResourceCard resource={resource} />);
 

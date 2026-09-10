@@ -55,7 +55,7 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
             {safeUrl ? new URL(safeUrl).host : resource.details.scheme || 'Resource'}
           </Typography>
           <Typography as="span" size="sm" className="text-muted-foreground">
-            {new Date(resource.details.indexed_at * 1000).toLocaleDateString()}
+            {new Date(resource.details.indexed_at).toLocaleDateString('en-US', { timeZone: 'UTC' })}
           </Typography>
         </Container>
         {!safeUrl && !isPubkyPost ? (
