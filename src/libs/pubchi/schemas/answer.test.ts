@@ -61,6 +61,19 @@ describe('pubchi answer schema', () => {
     ).toBe(false);
   });
 
+  it('accepts graph and mixed answers whose executed scope names a graph, and rejects non-graph bases with one', () => {
+    const graphScope = {
+      time: { since_ms: 1788441249000, until_ms: 1789046049000, label: 'last 7 days (Sep 3–10 UTC)', source: 'explicit' },
+      graph: { kind: 'owner_network' },
+      filters: [],
+      complete: true,
+    };
+    expect(parsePubchiAnswerV1({ ...fixture, basis: 'graph', scope: graphScope }).ok).toBe(true);
+    expect(parsePubchiAnswerV1({ ...fixture, basis: 'mixed', scope: graphScope }).ok).toBe(true);
+    expect(parsePubchiAnswerV1({ ...fixture, basis: 'knowledge', scope: graphScope }).ok).toBe(false);
+    expect(parsePubchiAnswerV1({ ...fixture, basis: 'model', scope: graphScope }).ok).toBe(false);
+  });
+
   it('allows an omitted evidence section and parses C3 sections', () => {
     const result = parsePubchiAnswerV1({
       ...fixture,

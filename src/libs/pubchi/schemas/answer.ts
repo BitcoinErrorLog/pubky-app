@@ -114,7 +114,8 @@ export function parsePubchiAnswerV1(input: unknown): ParseResult<PubchiAnswerV1>
   if (parsed.value.owner !== parsed.value.bot && !isPubkyId(parsed.value.owner)) return err('INVALID_PUBKY');
   if (parsed.value.basis !== undefined) {
     const graphKind = parsed.value.scope?.graph.kind;
-    if (parsed.value.basis !== 'mixed' && graphKind !== 'none') return err('SCHEMA_INVALID');
+    const nonGraphBasis = parsed.value.basis === 'knowledge' || parsed.value.basis === 'model';
+    if (nonGraphBasis && graphKind !== undefined && graphKind !== 'none') return err('SCHEMA_INVALID');
     if (parsed.value.basis === 'model' && parsed.value.citations?.length) return err('SCHEMA_INVALID');
   }
   return ok(parsed.value);
