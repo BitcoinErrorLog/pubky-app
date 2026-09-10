@@ -2,7 +2,7 @@ import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
-import type { FeedProposalV1 } from '@/libs/pubchi/schemas';
+import type { FeedProposalV1, FeedProposalV2 } from '@/libs/pubchi/schemas';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
 import { parsePubchiFeedProvenanceV1, type PubchiFeedProvenanceV1 } from '@/libs/pubchi/schemas/feed-provenance';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
@@ -10,7 +10,7 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
 
 export async function recordPubchiBuiltFeed(
   owner: string,
-  proposal: FeedProposalV1,
+  proposal: FeedProposalV1 | FeedProposalV2,
   feed: FeedModelSchema,
 ): Promise<void> {
   const record: PubchiFeedProvenanceV1 = {

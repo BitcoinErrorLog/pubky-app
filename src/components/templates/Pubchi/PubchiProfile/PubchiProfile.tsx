@@ -10,6 +10,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { PubchiCapabilities } from '@/components/organisms/Pubchi/PubchiCapabilities/PubchiCapabilities';
 import { PubchiProfileCard } from '@/components/organisms/Pubchi/PubchiProfileCard/PubchiProfileCard';
 import { FeedController } from '@/controllers/feed/feed';
+import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { subscribeToPubchiSync } from '@/controllers/pubchi/pubchi-sync';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
@@ -148,6 +149,15 @@ export function PubchiProfile() {
                   <Link href={`${APP_ROUTES.FEED}/${feed.id}`} className="inline-flex items-center gap-2">
                     Open <ArrowRight aria-hidden="true" />
                   </Link>
+                  <button
+                    type="button"
+                    className="text-sm underline"
+                    onClick={() =>
+                      PubchiController.openFlyout({ question: `Update my feed ${feed.name}`, source: 'chip' })
+                    }
+                  >
+                    Edit with Pubchi
+                  </button>
                 </li>
               ))}
             </ul>
