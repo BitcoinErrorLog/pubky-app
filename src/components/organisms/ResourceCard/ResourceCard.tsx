@@ -51,11 +51,10 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
     <Container data-surface="resource-card" className="gap-3 rounded-lg border border-border/60 p-4">
       <Container overrideDefaults className="gap-2">
         <Container overrideDefaults className="flex-row items-center justify-between gap-2">
-          <Typography as="span" size="sm" className="truncate text-muted-foreground">
-            {safeUrl ? new URL(safeUrl).host : resource.details.scheme || 'Resource'}
-          </Typography>
           <Typography as="span" size="sm" className="text-muted-foreground">
-            {new Date(resource.details.indexed_at).toLocaleDateString('en-US', { timeZone: 'UTC' })}
+            <span className="truncate">{safeUrl ? new URL(safeUrl).host : resource.details.scheme || 'Resource'}</span>
+            <span aria-hidden="true"> · </span>
+            <span>{new Date(resource.details.indexed_at).toLocaleDateString('en-US', { timeZone: 'UTC' })}</span>
           </Typography>
         </Container>
         {!safeUrl && !isPubkyPost ? (

@@ -44,6 +44,25 @@ describe('ResourceCard', () => {
     ).toBeInTheDocument();
   });
 
+  it('separates the resource host and indexed date in the meta line', () => {
+    render(
+      <ResourceCard
+        resource={{
+          ...resource,
+          details: {
+            ...resource.details,
+            uri: 'https://store.blockstream.com/products/jade-plus',
+            indexed_at: 1_788_891_705_406,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText('store.blockstream.com').parentElement).toHaveTextContent(
+      'store.blockstream.com · 9/8/2026',
+    );
+  });
+
   it('renders the web-page variant and Jeb attribution', () => {
     render(<ResourceCard resource={resource} />);
 
