@@ -1,6 +1,7 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
@@ -13,6 +14,7 @@ import { SearchCollections } from '@/organisms/Collections/SearchCollections/Sea
 import { SearchContentTags } from '@/organisms/SearchContentTags/SearchContentTags';
 import { SearchInput } from '@/organisms/SearchInput/SearchInput';
 import { SearchPeople } from '@/organisms/SearchPeople/SearchPeople';
+import { ResourceSearchLinks } from '@/organisms/ResourceSearchLinks/ResourceSearchLinks';
 import { TimelineFeed } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeed';
 import { useHomeStore } from '@/stores/home/home.store';
 import { CONTENT } from '@/stores/home/home.types';
@@ -38,6 +40,7 @@ import { CONTENT } from '@/stores/home/home.types';
  */
 export function Search() {
   const criteria = useSearchCriteria();
+  const [tagContent, setTagContent] = useState<'posts' | 'links'>('posts');
   const isMobile = useIsMobile();
   const content = useHomeStore((state) => state.content);
   // Same layout resolution the search TimelineFeed uses internally, so the
@@ -59,10 +62,38 @@ export function Search() {
             <SearchPeople />
             <SearchCollections />
             <Container overrideDefaults className="flex w-full flex-col gap-4">
-              <Heading level={2} size="lg" className="font-light text-muted-foreground">
-                {'Posts'}
-              </Heading>
-              {feed}
+              <Container overrideDefaults className="flex gap-2" role="tablist" aria-label="Search content type">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={tagContent === 'posts' ? ButtonVariant.BRAND : ButtonVariant.OUTLINE}
+                  role="tab"
+                  aria-selected={tagContent === 'posts'}
+                  onClick={() => setTagContent('posts')}
+                >
+                  Posts
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={tagContent === 'links' ? ButtonVariant.BRAND : ButtonVariant.OUTLINE}
+                  role="tab"
+                  aria-selected={tagContent === 'links'}
+                  onClick={() => setTagContent('links')}
+                >
+                  Links
+                </Button>
+              </Container>
+              {tagContent === 'posts' ? (
+                <>
+                  <Heading level={2} size="lg" className="font-light text-muted-foreground">
+                    {'Posts'}
+                  </Heading>
+                  {feed}
+                </>
+              ) : (
+                <ResourceSearchLinks tag={criteria.tags.join(',')} />
+              )}
             </Container>
           </Container>
         ) : (

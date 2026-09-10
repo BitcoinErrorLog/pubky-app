@@ -32,6 +32,7 @@ export type TResourceStreamParams = {
   tags?: string;
   limit?: number;
   limit_tags?: number;
+  limit_taggers?: number;
   skip?: number;
   sorting?: 'timeline' | 'taggers_count';
   start?: number;
@@ -42,6 +43,7 @@ export type TResourcesByTagParams = {
   tag: string;
   limit?: number;
   limit_tags?: number;
+  limit_taggers?: number;
   skip?: number;
   sorting?: 'timeline' | 'taggers_count';
 };
@@ -49,11 +51,13 @@ export type TResourcesByTagParams = {
 export type TResourceByIdParams = {
   id: string;
   limit_tags?: number;
+  limit_taggers?: number;
   skip_tags?: number;
 };
 
 export type TResourceByUriParams = {
   uri: string;
   limit_tags?: number;
+  limit_taggers?: number;
   skip_tags?: number;
 };

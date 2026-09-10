@@ -17,7 +17,8 @@ import type { ResourceLookupFormData } from '@/hooks/useResourceLookupForm/useRe
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { cn } from '@/libs/utils/utils';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
-import { ResourceCard } from '@/molecules/ResourceCard/ResourceCard';
+import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
+import { ResourceCanonShelf } from '@/organisms/ResourceCanonShelf/ResourceCanonShelf';
 import { ResourceEmpty } from '@/molecules/ResourceEmpty/ResourceEmpty';
 import type { NexusResource, TResourceStreamParams } from '@/services/nexus/resource/resource.types';
 import { ResourceDiscoverySkeleton } from './ResourceDiscovery.skeleton';
@@ -162,12 +163,13 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
             </Select>
           </Container>
         </Container>
+        <ResourceCanonShelf />
         {resources.length === 0 ? (
           <ResourceEmpty error={hasError} />
         ) : (
           <Container overrideDefaults className="gap-4">
             {resources.map((item) => (
-              <ResourceCard key={item.details.id} resource={item} showDetailsLink />
+              <ResourceCard key={item.details.id} resource={item} variant="feed" showDetailsLink />
             ))}
             {nextSkip !== null ? (
               <Button type="button" variant={ButtonVariant.OUTLINE} onClick={loadMore} disabled={loadingMore}>
@@ -181,7 +183,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   }
   if (!tag) {
     return resource ? (
-      <ResourceCard resource={resource} />
+      <ResourceCard resource={resource} variant="detail" />
     ) : (
       <ResourceEmpty unknown={isNotFoundError} error={hasError} lookup={id?.includes('://')} />
     );
@@ -197,7 +199,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
       ) : (
         <Container className="gap-4">
           {resources.map((item) => (
-            <ResourceCard key={item.details.id} resource={item} showDetailsLink />
+            <ResourceCard key={item.details.id} resource={item} variant="feed" showDetailsLink />
           ))}
         </Container>
       )}

@@ -24,7 +24,7 @@ describe('NexusResourceService', () => {
 
     await expect(NexusResourceService.fetchByTag({ tag: 'docs', limit: 20 })).resolves.toEqual([resource]);
     expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/stream/resources?tags=docs&limit=20&limit_tags=5',
+      url: 'https://nexus.staging.pubky.app/v0/stream/resources?tags=docs&limit=20&limit_tags=50&limit_taggers=50',
     });
   });
 
@@ -34,7 +34,7 @@ describe('NexusResourceService', () => {
 
     await expect(NexusResourceService.fetchById({ id: '1' })).resolves.toEqual(response);
     expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/resource/1/tags?limit_tags=20&skip_tags=0',
+      url: 'https://nexus.staging.pubky.app/v0/resource/1/tags?limit_tags=50&limit_taggers=50&skip_tags=0',
       retry: false,
     });
   });
@@ -45,7 +45,7 @@ describe('NexusResourceService', () => {
     await NexusResourceService.fetchByUri({ uri: 'https://Example.com/path' });
 
     expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/resource/by-uri?uri=https%3A%2F%2FExample.com%2Fpath&limit_tags=20&skip_tags=0',
+      url: 'https://nexus.staging.pubky.app/v0/resource/by-uri?uri=https%3A%2F%2FExample.com%2Fpath&limit_tags=50&limit_taggers=50&skip_tags=0',
       retry: false,
     });
   });
@@ -68,7 +68,7 @@ describe('NexusResourceService', () => {
       nextSkip: null,
     });
     expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/stream/resources?app=jeb.pubky.app&limit=20&limit_tags=5',
+      url: 'https://nexus.staging.pubky.app/v0/stream/resources?app=jeb.pubky.app&limit=20&limit_tags=50&limit_taggers=50',
     });
   });
 });

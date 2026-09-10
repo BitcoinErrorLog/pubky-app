@@ -1,7 +1,5 @@
 import {
-  RESOURCE_DISCOVERY_APP,
   RESOURCE_DISCOVERY_LIMIT,
-  RESOURCE_STREAM_TAGS_PREVIEW,
   RESOURCE_TAGS_LIMIT,
 } from '@/config/nexus';
 import { queryNexus } from '@/services/nexus/nexus.utils';
@@ -24,21 +22,32 @@ export class NexusResourceService {
       url: resourceApi.byTag({
         ...params,
         limit: params.limit ?? RESOURCE_DISCOVERY_LIMIT,
-        limit_tags: params.limit_tags ?? RESOURCE_STREAM_TAGS_PREVIEW,
+        limit_tags: params.limit_tags ?? RESOURCE_TAGS_LIMIT,
+        limit_taggers: params.limit_taggers ?? RESOURCE_TAGS_LIMIT,
       }),
     });
   }
 
   static async fetchById(params: TResourceByIdParams): Promise<NexusResourceTagsResponse> {
     return await queryNexus<NexusResourceTagsResponse>({
-      url: resourceApi.byId({ ...params, limit_tags: RESOURCE_TAGS_LIMIT, skip_tags: 0 }),
+      url: resourceApi.byId({
+        ...params,
+        limit_tags: params.limit_tags ?? RESOURCE_TAGS_LIMIT,
+        limit_taggers: params.limit_taggers ?? RESOURCE_TAGS_LIMIT,
+        skip_tags: 0,
+      }),
       retry: false,
     });
   }
 
   static async fetchByUri(params: TResourceByUriParams): Promise<NexusResourceTagsResponse> {
     return await queryNexus<NexusResourceTagsResponse>({
-      url: resourceApi.byUri({ ...params, limit_tags: RESOURCE_TAGS_LIMIT, skip_tags: 0 }),
+      url: resourceApi.byUri({
+        ...params,
+        limit_tags: params.limit_tags ?? RESOURCE_TAGS_LIMIT,
+        limit_taggers: params.limit_taggers ?? RESOURCE_TAGS_LIMIT,
+        skip_tags: 0,
+      }),
       retry: false,
     });
   }
@@ -47,9 +56,9 @@ export class NexusResourceService {
     const resources = await queryNexus<NexusResource[]>({
       url: resourceApi.stream({
         ...params,
-        app: params.app ?? RESOURCE_DISCOVERY_APP,
         limit: params.limit ?? RESOURCE_DISCOVERY_LIMIT,
-        limit_tags: params.limit_tags ?? RESOURCE_STREAM_TAGS_PREVIEW,
+        limit_tags: params.limit_tags ?? RESOURCE_TAGS_LIMIT,
+        limit_taggers: params.limit_taggers ?? RESOURCE_TAGS_LIMIT,
       }),
     });
     const limit = params.limit ?? RESOURCE_DISCOVERY_LIMIT;
