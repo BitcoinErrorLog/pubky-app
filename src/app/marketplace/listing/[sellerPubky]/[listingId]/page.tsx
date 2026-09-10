@@ -41,18 +41,14 @@ export async function generateMetadata({ params }: MarketplaceListingPageProps):
     };
   };
 
-  try {
-    const listing = await fetchListingForMetadata(sellerPubky, listingId);
-    if (!listing) return fallback();
+  const listing = await fetchListingForMetadata(sellerPubky, listingId);
+  if (!listing) return fallback();
 
-    const title = buildListingTitle(listing);
-    const description = buildListingDescription(listing);
-    const { openGraph, twitter, alternates } = Metadata({ title, description, url: canonical, omitImages: true });
+  const title = buildListingTitle(listing);
+  const description = buildListingDescription(listing);
+  const { openGraph, twitter, alternates } = Metadata({ title, description, url: canonical, omitImages: true });
 
-    return { title, description, openGraph, twitter, alternates };
-  } catch {
-    return fallback();
-  }
+  return { title, description, openGraph, twitter, alternates };
 }
 
 export default async function MarketplaceListingPage({ params }: MarketplaceListingPageProps) {

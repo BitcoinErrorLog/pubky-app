@@ -62,10 +62,10 @@ export async function renderListingOg({
   sellerPubky: string;
   listingId: string;
 }): Promise<Response> {
-  try {
-    const listing = await fetchListingForMetadata(sellerPubky, listingId);
-    if (!listing) return renderMarketplaceOg();
+  const listing = await fetchListingForMetadata(sellerPubky, listingId);
+  if (!listing) return renderMarketplaceOg();
 
+  try {
     const coverUri = resolveListingOgCoverUri(listing);
     const coverSrc = coverUri ? await fetchImageAsDataUri(resolveMarketplaceMediaUrl(coverUri)) : null;
 

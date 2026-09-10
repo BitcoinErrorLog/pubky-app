@@ -1,0 +1,64 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
+import { fetchListingForMetadata } from './ogCommerceData';
+
+const { fetchMock, resolvePubkyMock } = vi.hoisted(() => ({
+  fetchMock: vi.fn(),
+  resolvePubkyMock: vi.fn((url: string) => `https://resolved.example/${url}`),
+}));
+
+vi.mock('@synonymdev/pubky', () => ({
+  Client: class {
+    fetch = fetchMock;
+  },
+  Pubky: { withClient: vi.fn() },
+  resolvePubky: resolvePubkyMock,
+}));
+
+const seller = '8mmmaouyode95qf7scbt4moytceiga4we5i3fwra71xapmwguwdy';
+
+describe('fetchListingForMetadata', () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    resolvePubkyMock.mockClear();
+  });
+
+  it.each(['aa540efdabb144c0babc304c5d19f1d3', '0035KEX9KTD20'])(
+    'resolves production listing id shape %s through the seller homeserver',
+    async (listingId) => {
+      const fixture = createCommerceListingFixture({ ownerPubky: seller, listingId });
+      fixture.media = fixture.media.map((media) => ({
+        ...media,
+        url: media.url.replace('y'.repeat(52), seller),
+      }));
+      fetchMock.mockResolvedValue(new Response(JSON.stringify(fixture), { status: 200 }));
+
+      await expect(fetchListingForMetadata(seller, listingId)).resolves.toMatchObject({ listingId });
+      expect(resolvePubkyMock).toHaveBeenCalledWith(
+        `pubky://${seller}/pub/pubky.app/marketplace/v1/listings/${listingId}`,
+      );
+    },
+  );
+
+  it('throws on a record validation failure instead of using the generic card', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ recordType: 'listing', listingId: 'broken' }), { status: 200 }),
+    );
+
+    await expect(fetchListingForMetadata(seller, 'broken')).rejects.toThrow(
+      'Marketplace listing record failed validation',
+    );
+  });
+
+  it('uses the generic card cue only for a genuine not-found response', async () => {
+    fetchMock.mockResolvedValue(new Response('Not Found', { status: 404 }));
+
+    await expect(fetchListingForMetadata(seller, 'missing')).resolves.toBeNull();
+  });
+
+  it('throws on a transient timeout instead of using the generic card', async () => {
+    fetchMock.mockRejectedValue(new DOMException('The operation timed out', 'TimeoutError'));
+
+    await expect(fetchListingForMetadata(seller, 'slow')).rejects.toThrow('The operation timed out');
+  });
+});
