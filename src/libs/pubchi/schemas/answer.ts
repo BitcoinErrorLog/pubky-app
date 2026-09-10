@@ -17,6 +17,8 @@ const evidenceUri = z.string().refine((uri) => {
   return match !== null && isPubkyId(match[1]);
 }, { message: 'URI_FORBIDDEN' });
 
+const EvidenceSectionSchema = z.enum(['followed_posts', 'replies_to_you', 'tags_on_you']);
+
 const ContinuationSchema = z
   .object({
     since: z.string().datetime({ offset: true }),
@@ -58,6 +60,7 @@ export const PubchiEvidenceV1Schema = z
     claimants: z.array(zPubky).max(10),
     claimant_count: z.number().int().nonnegative().max(10_000),
     in_your_graph: z.boolean().nullable(),
+    section: EvidenceSectionSchema.optional(),
   })
   .strict();
 

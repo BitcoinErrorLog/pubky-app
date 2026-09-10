@@ -25,6 +25,19 @@ const icons = {
   claim: '◇',
 } as const;
 
+const C3_SECTIONS = [
+  { id: 'followed_posts', label: 'Posts from people you follow' },
+  { id: 'replies_to_you', label: 'Replies to you' },
+  { id: 'tags_on_you', label: 'Tags on you' },
+] as const;
+
+type EvidenceGroup = {
+  id: string;
+  label: string;
+  items: PubchiEvidenceV1[];
+  more: number;
+};
+
 export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'none' }: PubchiAnswerCardProps) {
   const [names, setNames] = useState<Map<string, string>>(new Map());
 
@@ -49,14 +62,14 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
     <div data-surface="pubchi-answer" data-testid="pubchi-answer" className="flex flex-col gap-3">
       {answer.evidence.length > 0 ? (
         <div className="flex flex-col gap-3" data-testid="pubchi-answer-evidence">
-          {(['post', 'claim', 'tag', 'user'] as const).map((kind) => {
-            const items = answer.evidence.filter((item) => item.kind === kind);
-            if (items.length === 0) return null;
+          {groupEvidence(answer).map((group) => {
             return (
-              <section key={kind} data-testid={`pubchi-evidence-section-${kind}`}>
-                <Typography size="sm" className="mb-1 font-medium capitalize">{kind}s</Typography>
+              <section key={group.id} data-testid={`pubchi-evidence-section-${group.id}`}>
+                <Typography size="sm" className="mb-1 font-medium">
+                  {group.label} ({group.items.length})
+                </Typography>
                 <div className="flex flex-col gap-2">
-                  {items.map((item) => (
+                  {group.items.map((item) => (
                     <EvidenceItem
                       key={`${item.uri}-${item.label}`}
                       item={item}
@@ -66,6 +79,11 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
                     />
                   ))}
                 </div>
+                {group.more > 0 ? (
+                  <Typography size="sm" className="text-muted-foreground">
+                    and {group.more} more
+                  </Typography>
+                ) : null}
               </section>
             );
           })}
@@ -131,6 +149,35 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
       </Collapsible>
     </div>
   );
+}
+
+function groupEvidence(answer: PubchiAnswerV1): EvidenceGroup[] {
+  const hasSections = answer.evidence.some((item) => item.section !== undefined);
+  if (!hasSections) {
+    return genericEvidenceGroups(answer.evidence);
+  }
+
+  const sectionGroups = C3_SECTIONS.flatMap((section) => {
+    const items = answer.evidence.filter((item) => item.section === section.id);
+    return items.length > 0
+      ? [{ id: section.id, label: section.label, items, more: moreEvidenceCount(answer, items.length) }]
+      : [];
+  });
+  const unsectioned = answer.evidence.filter((item) => item.section === undefined);
+  return [...sectionGroups, ...genericEvidenceGroups(unsectioned)];
+}
+
+function genericEvidenceGroups(evidence: PubchiEvidenceV1[]): EvidenceGroup[] {
+  return (['post', 'claim', 'tag', 'user'] as const).flatMap((kind) => {
+    const items = evidence.filter((item) => item.kind === kind);
+    return items.length > 0 ? [{ id: kind, label: `${kind}s`, items, more: 0 }] : [];
+  });
+}
+
+function moreEvidenceCount(answer: PubchiAnswerV1, itemCount: number): number {
+  return answer.tool_trace_summary.truncated && answer.continuation?.skipped && itemCount > 0
+    ? answer.continuation.skipped
+    : 0;
 }
 
 function formatScopeLine(scope: ExecutionScope): string {

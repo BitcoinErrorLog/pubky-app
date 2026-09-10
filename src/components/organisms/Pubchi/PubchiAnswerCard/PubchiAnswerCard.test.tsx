@@ -44,6 +44,35 @@ describe('PubchiAnswerCard', () => {
     expect(screen.getByText('Claimants: 1')).toBeInTheDocument();
   });
 
+  it('groups service C3 sections before unsectioned evidence', () => {
+    const c3Answer: PubchiAnswerV1 = {
+      ...answer,
+      tool_trace_summary: { tools: ['what_did_i_miss'], call_count: 1, truncated: true },
+      continuation: {
+        since: '2026-09-10T06:00:00Z',
+        until: '2026-09-10T07:00:00Z',
+        complete: false,
+        skipped: 2,
+      },
+      evidence: [
+        { ...answer.evidence[0], kind: 'post', label: 'Followed post', section: 'followed_posts' },
+        { ...answer.evidence[0], kind: 'post', label: 'Reply', section: 'replies_to_you' },
+        { ...answer.evidence[0], kind: 'tag', label: 'bitcoin', section: 'tags_on_you' },
+        { ...answer.evidence[0], kind: 'claim', label: 'Unsectioned claim' },
+      ],
+    };
+
+    render(<PubchiAnswerCard answer={c3Answer} currentUserPubky={owner} />);
+
+    expect(screen.getByTestId('pubchi-evidence-section-followed_posts')).toHaveTextContent(
+      'Posts from people you follow (1)',
+    );
+    expect(screen.getByTestId('pubchi-evidence-section-replies_to_you')).toHaveTextContent('Replies to you (1)');
+    expect(screen.getByTestId('pubchi-evidence-section-tags_on_you')).toHaveTextContent('Tags on you (1)');
+    expect(screen.getByTestId('pubchi-evidence-section-claim')).toHaveTextContent('claims (1)');
+    expect(screen.getAllByText('and 2 more')).toHaveLength(3);
+  });
+
   it.each([
     [['nexus_influencer'], 'Followers'],
     [['rank_users'], 'Followers'],
