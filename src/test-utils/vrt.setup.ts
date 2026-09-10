@@ -26,6 +26,10 @@ import { vi } from 'vitest';
 
 import { VRT_FROZEN_NOW_MS } from './vrt.clock';
 
+vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
+  return await import('@/test/mocks/marketplace-media-hooks');
+});
+
 // ─── Time determinism (read this before touching any timestamp rendering) ───
 //
 // VRT compares pixels, so every rendered timestamp must be byte-identical
