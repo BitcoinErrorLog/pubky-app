@@ -13,6 +13,11 @@ import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListi
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/marketplace',
+}));
+
 /**
  * Pricing-currency and measurement-unit scenarios:
  *
