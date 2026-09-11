@@ -1,5 +1,7 @@
+import { PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort, PubkyAppPostKind } from 'pubky-app-specs';
 import { describe, expect, it, vi } from 'vitest';
 import type { FeedProposalV2 } from '@/libs/pubchi/schemas';
+import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { PubchiFeedBuilder } from '@/organisms/Pubchi/PubchiFeedBuilder/PubchiFeedBuilder';
 import { renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
@@ -55,6 +57,20 @@ vi.mock('@/libs/pubchi/feed-provenance', () => ({
   recordPubchiBuiltFeed: vi.fn(),
 }));
 
+const existingFeed: FeedModelSchema = {
+  id: 'feed-existing',
+  name: 'Bitcoin builders',
+  icon: 'rss',
+  tags: ['bitcoin'],
+  domain_tags: ['builders'],
+  reach: PubkyAppFeedReach.Following,
+  sort: PubkyAppFeedSort.Recent,
+  layout: PubkyAppFeedLayout.Columns,
+  content: PubkyAppPostKind.Short,
+  created_at: 1,
+  updated_at: 1,
+};
+
 describe('PubchiFeedBuilder — visual regression', () => {
   it('guards and captures a pre-filled production builder', async () => {
     const screen = await renderForVRT(
@@ -70,7 +86,38 @@ describe('PubchiFeedBuilder — visual regression', () => {
     await expect.element(surface).toHaveAttribute('data-surface', 'pubchi-feed-builder');
     await expect.element(surface).toBeVisible();
     await expect.element(screen.getByTestId('feed-name-input')).toHaveValue('Bitcoin builders');
+    const createDescription = screen.getByTestId('pubchi-feed-interpret-input');
+    await expect
+      .element(screen.getByText('Feed description', { exact: true }))
+      .toHaveAttribute('for', 'pubchi-feed-interpret-input');
+    await expect.element(createDescription).toHaveAttribute('id', 'pubchi-feed-interpret-input');
+    await expect
+      .element(screen.getByRole('textbox', { name: 'Feed description', exact: true }))
+      .toHaveAttribute('placeholder', 'Describe the feed you want to create…');
     await expect.element(surface).toMatchScreenshot('pubchi-feed-builder-prefilled');
+  });
+
+  it('uses change-oriented copy for an existing feed', async () => {
+    const screen = await renderForVRT(
+      <PubchiFeedBuilder
+        proposal={{ ...proposal('following'), mode: 'update', target_feed_id: existingFeed.id }}
+        existingFeed={existingFeed}
+        open
+        onOpenChange={() => undefined}
+        onInterpret={async () => undefined}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    const surface = screen.getByTestId('pubchi-feed-builder');
+    await expect.element(surface).toHaveAttribute('data-surface', 'pubchi-feed-builder');
+    const updateDescription = screen.getByTestId('pubchi-feed-interpret-input');
+    await expect
+      .element(screen.getByText('Changes to make', { exact: true }))
+      .toHaveAttribute('for', 'pubchi-feed-interpret-input');
+    await expect.element(updateDescription).toHaveAttribute('id', 'pubchi-feed-interpret-input');
+    await expect
+      .element(screen.getByRole('textbox', { name: 'Changes to make', exact: true }))
+      .toHaveAttribute('placeholder', 'Describe what to change…');
   });
 
   it('captures the blocked followers proposal with unmapped likes notice', async () => {

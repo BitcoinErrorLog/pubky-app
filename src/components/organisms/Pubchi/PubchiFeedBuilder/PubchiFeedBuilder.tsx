@@ -142,7 +142,7 @@ export function PubchiFeedBuilder({
         ? "Feeds can't filter by likes because Pubky doesn't model likes; closest: Popularity or Recent"
         : entry.reason === 'followers_not_authorable'
           ? 'Followers reach is not available in this App'
-          : entry.suggestion ?? entry.request}
+          : (entry.suggestion ?? entry.request)}
     </Typography>
   ));
 
@@ -166,16 +166,23 @@ export function PubchiFeedBuilder({
             </Typography>
           </div>
           <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-            <Typography size="xs">Reach: Following = people you follow; Friends = mutual follows; All = everyone; WoT = within two hops of your follows; Me = only you; Followers = not available in this App.</Typography>
+            <Typography size="xs">
+              Reach: Following = people you follow; Friends = mutual follows; All = everyone; WoT = within two hops of
+              your follows; Me = only you; Followers = not available in this App.
+            </Typography>
             <Typography size="xs">Sort: Recent or Popularity (bookmarks, reposts, replies).</Typography>
             <Typography size="xs">Layout: Columns, Wide, Visual, or List.</Typography>
             <Typography size="xs">Content: All, Short, Long, Image, Video, Link, File, or Collection.</Typography>
           </div>
           {notices}
+          <label htmlFor="pubchi-feed-interpret-input" className="text-xs font-medium">
+            {existingFeed ? 'Changes to make' : 'Feed description'}
+          </label>
           <textarea
+            id="pubchi-feed-interpret-input"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            placeholder="Describe what to change…"
+            placeholder={existingFeed ? 'Describe what to change…' : 'Describe the feed you want to create…'}
             className="min-h-20 rounded-md border bg-background p-2 text-sm"
             data-testid="pubchi-feed-interpret-input"
           />
