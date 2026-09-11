@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
 
@@ -117,6 +117,46 @@ const fixtures = vi.hoisted(async () => {
     receipt: null,
   });
 
+  const sellerAwaitingPayment = [
+    'awaiting_entitlement',
+    'detected',
+    'confirmed',
+    'manual_review',
+    'awaiting_entitlement',
+  ] as const;
+  const sellerAwaitingPaymentViews = sellerAwaitingPayment.map((paymentState, index) => {
+    const payment = createPaymentFixture(paymentState, {
+      id: `018f47d2-6a27-7c23-a49d-0000000007${10 + index}`,
+    });
+    const order = createOrderFixture('pending_payment', {
+      id: `018f47d2-6a27-7c23-a49d-0000000007${20 + index}`,
+      paymentId: payment.id,
+      buyerPubky: index === 4 ? ORDER_FIXTURE_BUYER : 's'.repeat(52),
+      sellerPubky: index === 4 ? ORDER_FIXTURE_SELLER : ORDER_FIXTURE_BUYER,
+      nextActor: index === 4 ? 'none' : 'buyer',
+      lines: [
+        {
+          listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_awaiting_${index}`,
+          listingRevision: 1,
+          contentHash: `${index}`.repeat(64),
+          title: [
+            'Seller awaiting entitlement',
+            'Seller detected payment',
+            'Seller confirmed payment',
+            'Seller manual review',
+            'Buyer awaiting payment',
+          ][index],
+          quantity: 1,
+          unitPrice: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+          subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+        },
+      ],
+      subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+      total: { amountMinor: 16_200, currency: 'USD', exponent: 2 },
+    });
+    return { order, payment, receipt: null };
+  });
+
   return {
     buyer: ORDER_FIXTURE_BUYER,
     everyOrderState: createOrderViewsForEveryState(),
@@ -126,6 +166,7 @@ const fixtures = vi.hoisted(async () => {
     reviewedOutOfWindow: [reviewedOrderView(25)],
     trackableShipped: [trackableShippedView()],
     deliveryAssumed: [deliveryAssumedView()],
+    sellerAwaitingPayment: sellerAwaitingPaymentViews,
   };
 });
 
@@ -179,8 +220,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-every-state-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-every-state-desktop');
   });
 
   it('renders every order state at mobile viewport', async () => {
@@ -189,8 +230,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-every-state-mobile');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-every-state-mobile');
   });
 
   it('renders seller orders that need attention at desktop viewport', async () => {
@@ -199,8 +240,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-needs-attention-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-needs-attention-desktop');
   });
 
   it('renders a shipped order with a carrier tracking link at desktop viewport', async () => {
@@ -209,8 +250,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-shipped-track-link-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-shipped-track-link-desktop');
   });
 
   it('renders an assumed-delivery order at desktop viewport', async () => {
@@ -219,8 +260,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-delivery-assumed-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-delivery-assumed-desktop');
   });
 
   it('renders every buyer-visible payment state at desktop viewport', async () => {
@@ -229,8 +270,47 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-payment-states-desktop');
+  });
+
+  it('renders the active seller Awaiting payment tab at desktop viewport', async () => {
+    const { sellerAwaitingPayment } = await fixtures;
+    ordersState.orders = sellerAwaitingPayment;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-payment-states-desktop');
+    await screen.getByRole('tab', { name: /Awaiting payment 2/i }).click();
+    (screen.container.querySelector('[role="tablist"]') as HTMLElement).scrollLeft = 0;
+    await expect(screen.getByRole('tab', { name: /Awaiting payment 2/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Seller awaiting entitlement')).toBeInTheDocument();
+    expect(screen.getByText('Seller detected payment')).toBeInTheDocument();
+    expect(screen.container.textContent).not.toContain('Seller confirmed payment');
+    expect(screen.container.textContent).not.toContain('Buyer awaiting payment');
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-desktop');
+  });
+
+  it('renders the active seller Awaiting payment tab at mobile viewport', async () => {
+    const { sellerAwaitingPayment } = await fixtures;
+    ordersState.orders = sellerAwaitingPayment;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
+    await screen.getByRole('tab', { name: /Awaiting payment 2/i }).click();
+    (screen.container.querySelector('[role="tablist"]') as HTMLElement).scrollLeft = 0;
+    await expect(screen.getByRole('tab', { name: /Awaiting payment 2/i })).toHaveAttribute('aria-selected', 'true');
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-mobile');
+  });
+
+  it('rejects an incorrect production surface marker', async () => {
+    ordersState.orders = [];
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    expect(() => expectVrtSurface('wrong-marketplace-orders')).toThrow(/no production \[data-surface/);
   });
 
   it('renders the loading state at desktop viewport', async () => {
@@ -238,8 +318,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = true;
     ordersState.error = null;
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-loading-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-loading-desktop');
   });
 
   it('renders the empty state at desktop viewport', async () => {
@@ -247,8 +327,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-empty-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-empty-desktop');
   });
 
   it('renders the error state at desktop viewport', async () => {
@@ -256,8 +336,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = 'Transaction service is unavailable.';
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-error-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-error-desktop');
   });
 
   // Durable transaction-service mode: no simulate-payment buttons, no cancel
@@ -269,11 +349,10 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.error = null;
     ordersState.adapterMode = 'transaction-service';
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-durable-payment-states-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-durable-payment-states-desktop');
     ordersState.adapterMode = 'sandbox';
   });
-
 
   // `review.update` is durable-only with a 24-hour window from the review's
   // creation: inside the window the reviewer gets an Edit review affordance;
@@ -286,8 +365,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.error = null;
     ordersState.adapterMode = 'transaction-service';
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-review-edit-in-window-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-review-edit-in-window-desktop');
     ordersState.adapterMode = 'sandbox';
   });
 
@@ -298,8 +377,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.error = null;
     ordersState.adapterMode = 'transaction-service';
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-review-edit-out-of-window-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-review-edit-out-of-window-desktop');
     ordersState.adapterMode = 'sandbox';
   });
 
@@ -309,8 +388,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.error = null;
     ordersState.adapterMode = 'unavailable';
 
-    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('orders-no-backend-desktop');
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-no-backend-desktop');
     ordersState.adapterMode = 'sandbox';
   });
 });

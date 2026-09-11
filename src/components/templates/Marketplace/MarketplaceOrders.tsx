@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ExternalLink, ReceiptText } from 'lucide-react';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -12,9 +12,10 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isTransactionalCommerceMode } from '@/config/commerce';
-import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
@@ -27,10 +28,11 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
-type OrdersTab = 'to_ship' | 'needs_attention' | 'in_transit' | 'completed' | 'cancelled' | 'all';
+type OrdersTab = 'to_ship' | 'awaiting_payment' | 'needs_attention' | 'in_transit' | 'completed' | 'cancelled' | 'all';
 
 const ORDER_TABS: { id: OrdersTab; label: string }[] = [
   { id: 'to_ship', label: 'To ship' },
+  { id: 'awaiting_payment', label: 'Awaiting payment' },
   { id: 'needs_attention', label: 'Needs attention' },
   { id: 'in_transit', label: 'In transit' },
   { id: 'completed', label: 'Completed' },
@@ -55,19 +57,40 @@ export function MarketplaceOrders() {
   const hasTransactionBackend = isTransactionalCommerceMode(adapterMode);
   const [activeTab, setActiveTab] = useState<OrdersTab>('all');
   const [hasSelectedTab, setHasSelectedTab] = useState(false);
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Partial<Record<OrdersTab, HTMLButtonElement | null>>>({});
   const orderCounts = getOrderTabCounts(orders, currentUserPubky);
-  const visibleOrders = orders.filter(({ order }) => isOrderInTab(order, activeTab, currentUserPubky));
+  const visibleOrders = orders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
 
   useEffect(() => {
     if (hasSelectedTab || !orders.length) return;
     setActiveTab(
       orderCounts.needs_attention > 0
         ? 'needs_attention'
-        : orders.some(({ order }) => isCurrentUserSeller(order, currentUserPubky))
-          ? 'to_ship'
-          : 'all',
+        : orderCounts.awaiting_payment > 0
+          ? 'awaiting_payment'
+          : orders.some(({ order }) => isCurrentUserSeller(order, currentUserPubky))
+            ? 'to_ship'
+            : 'all',
     );
-  }, [currentUserPubky, hasSelectedTab, orderCounts.needs_attention, orders]);
+  }, [currentUserPubky, hasSelectedTab, orderCounts.awaiting_payment, orderCounts.needs_attention, orders]);
+
+  useEffect(() => {
+    const tabList = tabListRef.current;
+    const activeTabButton = tabRefs.current[activeTab];
+    if (!tabList || !activeTabButton) return;
+
+    const isClipped =
+      activeTabButton.offsetLeft < tabList.scrollLeft ||
+      activeTabButton.offsetLeft + activeTabButton.offsetWidth > tabList.scrollLeft + tabList.clientWidth;
+    if (!isClipped) return;
+
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    tabList.scrollTo({
+      left: Math.max(0, activeTabButton.offsetLeft - (tabList.clientWidth - activeTabButton.offsetWidth) / 2),
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+    });
+  }, [activeTab]);
 
   const chooseTab = (tab: OrdersTab) => {
     setHasSelectedTab(true);
@@ -83,7 +106,7 @@ export function MarketplaceOrders() {
       className="pb-28"
       classNameWrapperContent="max-w-5xl"
     >
-      <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+      <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6" data-surface="marketplace-orders">
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults
@@ -124,7 +147,12 @@ export function MarketplaceOrders() {
           </div>
         ) : orders.length ? (
           <>
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Order filters">
+            <div
+              ref={tabListRef}
+              className="flex flex-nowrap gap-2 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-visible"
+              role="tablist"
+              aria-label="Order filters"
+            >
               {ORDER_TABS.map((tab) => (
                 <Button
                   key={tab.id}
@@ -135,6 +163,9 @@ export function MarketplaceOrders() {
                   role="tab"
                   aria-selected={activeTab === tab.id}
                   aria-label={`${tab.label} ${orderCounts[tab.id]}`}
+                  ref={(element) => {
+                    tabRefs.current[tab.id] = element;
+                  }}
                   onClick={() => chooseTab(tab.id)}
                 >
                   {tab.label}
@@ -241,8 +272,8 @@ export function MarketplaceOrders() {
                         {order.deliveryAssumed && (
                           <div className="mt-3 rounded-xl border border-brand/30 bg-brand/5 p-3">
                             <Typography as="p" className="text-sm text-foreground">
-                              Marked delivered automatically after the delivery window; tell the seller if it hasn&apos;t
-                              arrived.
+                              Marked delivered automatically after the delivery window; tell the seller if it
+                              hasn&apos;t arrived.
                             </Typography>
                             {isBuyer && (
                               <div className="mt-2 max-w-44">
@@ -313,24 +344,28 @@ export function MarketplaceOrders() {
   );
 }
 
-function getOrderTabCounts(
-  orders: { order: MarketplaceOrder }[],
-  currentUserPubky: string | null,
-): Record<OrdersTab, number> {
+function getOrderTabCounts(orders: MarketplaceOrderView[], currentUserPubky: string | null): Record<OrdersTab, number> {
   return {
-    to_ship: orders.filter(({ order }) => isOrderInTab(order, 'to_ship', currentUserPubky)).length,
-    needs_attention: orders.filter(({ order }) => isOrderInTab(order, 'needs_attention', currentUserPubky)).length,
-    in_transit: orders.filter(({ order }) => isOrderInTab(order, 'in_transit', currentUserPubky)).length,
-    completed: orders.filter(({ order }) => isOrderInTab(order, 'completed', currentUserPubky)).length,
-    cancelled: orders.filter(({ order }) => isOrderInTab(order, 'cancelled', currentUserPubky)).length,
+    to_ship: orders.filter((view) => isOrderInTab(view, 'to_ship', currentUserPubky)).length,
+    awaiting_payment: orders.filter((view) => isOrderInTab(view, 'awaiting_payment', currentUserPubky)).length,
+    needs_attention: orders.filter((view) => isOrderInTab(view, 'needs_attention', currentUserPubky)).length,
+    in_transit: orders.filter((view) => isOrderInTab(view, 'in_transit', currentUserPubky)).length,
+    completed: orders.filter((view) => isOrderInTab(view, 'completed', currentUserPubky)).length,
+    cancelled: orders.filter((view) => isOrderInTab(view, 'cancelled', currentUserPubky)).length,
     all: orders.length,
   };
 }
 
-function isOrderInTab(order: MarketplaceOrder, tab: OrdersTab, currentUserPubky: string | null): boolean {
+function isOrderInTab(
+  { order, payment }: MarketplaceOrderView,
+  tab: OrdersTab,
+  currentUserPubky: string | null,
+): boolean {
   switch (tab) {
     case 'to_ship':
       return isCurrentUserSeller(order, currentUserPubky) && order.state === 'paid';
+    case 'awaiting_payment':
+      return isSellerAwaitingPayment({ order, payment }, currentUserPubky);
     case 'needs_attention':
       return isOrderNeedingCurrentUser(order, currentUserPubky);
     case 'in_transit':
@@ -350,6 +385,19 @@ function isCurrentUserSeller(order: MarketplaceOrder, currentUserPubky: string |
 
 function isCurrentUserBuyer(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
   return currentUserPubky !== null && order.buyerPubky === currentUserPubky;
+}
+
+function isSellerAwaitingPayment(
+  { order, payment }: Pick<MarketplaceOrderView, 'order' | 'payment'>,
+  currentUserPubky: string | null,
+): boolean {
+  return (
+    isCurrentUserSeller(order, currentUserPubky) &&
+    !isCurrentUserBuyer(order, currentUserPubky) &&
+    order.state === 'pending_payment' &&
+    payment !== null &&
+    buyerVisiblePaymentStatus(payment.state) === 'awaiting_entitlement'
+  );
 }
 
 function isOrderNeedingCurrentUser(order: MarketplaceOrder, currentUserPubky: string | null): boolean {

@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createOrderFixture,
   createPaymentFixture,
@@ -52,11 +52,18 @@ vi.mock('@/organisms/Marketplace/MarketplaceMyReviews', () => ({
   MarketplaceMyReviews: () => <div data-testid="my-reviews" />,
 }));
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
 function orderView(
   state: Parameters<typeof createOrderFixture>[0],
   title: string,
   role: 'buyer' | 'seller',
   overrides: Partial<ReturnType<typeof createOrderFixture>> = {},
+  paymentState: Parameters<typeof createPaymentFixture>[0] = 'confirmed',
+  paymentOverride: ReturnType<typeof createPaymentFixture> | null | undefined = undefined,
 ) {
   const id = `test-${title.toLowerCase().replaceAll(' ', '-')}`;
   const order = createOrderFixture(state, {
@@ -79,7 +86,10 @@ function orderView(
   });
   return {
     order,
-    payment: createPaymentFixture('confirmed', { id: order.paymentId, orderId: order.id }),
+    payment:
+      paymentOverride === undefined
+        ? createPaymentFixture(paymentState, { id: order.paymentId, orderId: order.id })
+        : paymentOverride,
     receipt: null,
   };
 }
@@ -183,6 +193,156 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
   });
 
+  it('shows seller pending-payment orders in Awaiting payment through the canonical visible status', async () => {
+    const user = userEvent.setup();
+    ordersState.orders = [
+      orderView('pending_payment', 'Sold unpaid boots', 'seller', { nextActor: 'buyer' }, 'awaiting_entitlement'),
+      orderView('pending_payment', 'Bought unpaid coat', 'buyer', { nextActor: 'buyer' }, 'awaiting_entitlement'),
+      orderView('paid', 'Sold paid bag', 'seller', { nextActor: 'seller' }),
+      orderView('pending_payment', 'Sold detected hat', 'seller', { nextActor: 'buyer' }, 'detected'),
+      orderView('cancelled', 'Sold cancelled scarf', 'seller', { nextActor: 'none' }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    expect(screen.getByRole('tab', { name: /Awaiting payment 2/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /All 5/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /Awaiting payment 2/i }));
+    expect(screen.getByText(/Sold unpaid boots/)).toBeInTheDocument();
+    expect(screen.getByText(/Sold detected hat/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bought unpaid coat/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sold paid bag/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sold cancelled scarf/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /All 5/i }));
+    expect(screen.getByText(/Sold unpaid boots/)).toBeInTheDocument();
+    expect(screen.getByText(/Bought unpaid coat/)).toBeInTheDocument();
+  });
+
+  it('excludes buyer, confirmed, manual-review, null-payment, and same-party orders', async () => {
+    const user = userEvent.setup();
+    ordersState.orders = [
+      orderView('pending_payment', 'Bought unpaid coat', 'buyer', { nextActor: 'buyer' }, 'awaiting_entitlement'),
+      orderView('paid', 'Sold paid bag', 'seller', { nextActor: 'seller' }),
+      orderView('pending_payment', 'Sold confirmed bag', 'seller', { nextActor: 'buyer' }, 'confirmed'),
+      orderView('pending_payment', 'Sold manual review bag', 'seller', { nextActor: 'buyer' }, 'manual_review'),
+      orderView(
+        'pending_payment',
+        'Sold null payment bag',
+        'seller',
+        { nextActor: 'buyer' },
+        'awaiting_entitlement',
+        null,
+      ),
+      orderView(
+        'pending_payment',
+        'Same-party bag',
+        'seller',
+        { buyerPubky: CURRENT_USER, nextActor: 'buyer' },
+        'awaiting_entitlement',
+      ),
+    ];
+
+    render(<MarketplaceOrders />);
+    await user.click(screen.getByRole('tab', { name: /Awaiting payment 0/i }));
+
+    expect(() => expect(screen.getByText(/Bought unpaid coat/)).toBeInTheDocument()).toThrow();
+    expect(() => expect(screen.getByText(/Sold paid bag/)).toBeInTheDocument()).toThrow();
+    expect(() => expect(screen.getByText(/Sold confirmed bag/)).toBeInTheDocument()).toThrow();
+    expect(() => expect(screen.getByText(/Sold manual review bag/)).toBeInTheDocument()).toThrow();
+    expect(() => expect(screen.getByText(/Sold null payment bag/)).toBeInTheDocument()).toThrow();
+    expect(() => expect(screen.getByText(/Same-party bag/)).toBeInTheDocument()).toThrow();
+  });
+
+  it('keeps the active tab semantically addressable for horizontal visibility management', () => {
+    ordersState.orders = [
+      orderView('pending_payment', 'Sold unpaid boots', 'seller', { nextActor: 'buyer' }, 'detected'),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    const activeTab = screen.getByRole('tab', { name: /Awaiting payment 1/i });
+    expect(activeTab).toHaveAttribute('aria-selected', 'true');
+    expect(activeTab).toHaveAttribute('role', 'tab');
+  });
+
+  it.each([
+    { prefersReducedMotion: false, behavior: 'smooth' },
+    { prefersReducedMotion: true, behavior: 'auto' },
+  ])('scrolls a clipped active tab within the tab list ($behavior)', ({ prefersReducedMotion, behavior }) => {
+    ordersState.orders = [
+      orderView('pending_payment', 'Sold unpaid boots', 'seller', { nextActor: 'buyer' }, 'detected'),
+      orderView('return_requested', 'Sold return requested gloves', 'seller'),
+    ];
+    const tabListScrollTo = vi.fn();
+    const pageScrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({
+        matches: prefersReducedMotion,
+      }),
+    );
+
+    render(<MarketplaceOrders />);
+
+    const tabList = screen.getByRole('tablist');
+    const activeTab = screen.getByRole('tab', { name: /Awaiting payment 1/i });
+    Object.defineProperties(tabList, {
+      clientWidth: { configurable: true, value: 100 },
+      scrollLeft: { configurable: true, value: 20, writable: true },
+      scrollTo: { configurable: true, value: tabListScrollTo },
+    });
+    Object.defineProperties(activeTab, {
+      offsetLeft: { configurable: true, value: 160 },
+      offsetWidth: { configurable: true, value: 80 },
+    });
+
+    fireEvent.click(activeTab);
+
+    expect(tabListScrollTo).toHaveBeenCalledWith({ left: 150, behavior });
+    expect(tabListScrollTo).toHaveBeenCalledTimes(1);
+    expect(pageScrollTo).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('does not scroll a visible active tab or any page container', () => {
+    ordersState.orders = [
+      orderView('pending_payment', 'Sold unpaid boots', 'seller', { nextActor: 'buyer' }, 'detected'),
+      orderView('return_requested', 'Sold return requested gloves', 'seller'),
+    ];
+    const tabListScrollTo = vi.fn();
+    const pageScrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({
+        matches: false,
+      }),
+    );
+
+    render(<MarketplaceOrders />);
+
+    const tabList = screen.getByRole('tablist');
+    const activeTab = screen.getByRole('tab', { name: /Awaiting payment 1/i });
+    Object.defineProperties(tabList, {
+      clientWidth: { configurable: true, value: 240 },
+      scrollLeft: { configurable: true, value: 20, writable: true },
+      scrollTo: { configurable: true, value: tabListScrollTo },
+    });
+    Object.defineProperties(activeTab, {
+      offsetLeft: { configurable: true, value: 80 },
+      offsetWidth: { configurable: true, value: 80 },
+    });
+
+    fireEvent.click(activeTab);
+
+    expect(tabListScrollTo).not.toHaveBeenCalled();
+    expect(pageScrollTo).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+  });
+
   it('labels order direction from the signed-in user perspective', async () => {
     const user = userEvent.setup();
     ordersState.orders = [
@@ -268,14 +428,16 @@ describe('MarketplaceOrders tabs', () => {
 
     const assumedCard = screen.getByText(/Bought assumed boots/).closest('[data-slot="card"]');
     const confirmedCard = screen.getByText(/Bought confirmed coat/).closest('[data-slot="card"]');
-    expect(within(assumedCard as HTMLElement).getByText(/Marked delivered automatically after the delivery window/))
-      .toBeInTheDocument();
+    expect(
+      within(assumedCard as HTMLElement).getByText(/Marked delivered automatically after the delivery window/),
+    ).toBeInTheDocument();
     expect(within(assumedCard as HTMLElement).getByRole('link', { name: 'Message seller' })).toHaveAttribute(
       'href',
       '/marketplace/messages',
     );
-    expect(within(assumedCard as HTMLElement).getByText(/Completes automatically after the return window/))
-      .toBeInTheDocument();
+    expect(
+      within(assumedCard as HTMLElement).getByText(/Completes automatically after the return window/),
+    ).toBeInTheDocument();
     expect(
       within(confirmedCard as HTMLElement).queryByText(/Marked delivered automatically after the delivery window/),
     ).not.toBeInTheDocument();
