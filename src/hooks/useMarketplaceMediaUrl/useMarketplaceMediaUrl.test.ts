@@ -5,8 +5,6 @@ import { clearMarketplaceMediaCache, resolveMarketplaceMediaUrlAsync } from './u
 vi.mock('@/core/services/commerce/marketplace-media', () => ({
   MarketplaceMediaService: {
     getOwnerHomeserver: vi.fn(),
-    getConfiguredHomeserver: vi.fn(() => 'configured-homeserver'),
-    getConfiguredHomeserverUrl: vi.fn(() => 'https://configured.example'),
     fetchMedia: vi.fn(),
   },
 }));
