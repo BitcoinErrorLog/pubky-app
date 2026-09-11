@@ -54,11 +54,15 @@ vi.mock('@/app/routes', () => ({
     return (
       (segments[0] === 'post' && segments.length === 3) ||
       (segments[0] === 'profile' && segments.length === 2 && segments[1].length === 52) ||
-      (segments[0] === 'collections' && segments.length === 3 && segments[1] !== 'bookmarks')
+      (segments[0] === 'collections' && segments.length === 3 && segments[1] !== 'bookmarks') ||
+      (segments[0] === 'resources' &&
+        ((segments.length === 2 && segments[1].length > 0 && !['lookup', 'tag', 'manage'].includes(segments[1])) ||
+          (segments.length === 2 && segments[1] === 'lookup') ||
+          (segments.length === 3 && segments[1] === 'tag' && segments[2].length > 0)))
     );
   },
   matchesAllowedRoute: (pathname: string, route: string, options?: { restrictExploreSubRoutes?: boolean }) => {
-    const EXPLORE_ROUTES = ['/home', '/hot', '/search', '/collections'];
+    const EXPLORE_ROUTES = ['/home', '/hot', '/search', '/collections', '/resources'];
     if (pathname === route) return true;
     if (options?.restrictExploreSubRoutes && EXPLORE_ROUTES.includes(route)) return false;
     return pathname.startsWith(`${route}/`);
@@ -70,7 +74,7 @@ vi.mock('@/providers/RouteGuardProvider/RouteGuardProvider.constants', () => ({
   ROUTE_ACCESS_MAP: {
     AUTHENTICATED: { allowedRoutes: ['/feed', '/settings', '/collections'], redirectTo: '/feed' },
     UNAUTHENTICATED: {
-      allowedRoutes: ['/login', '/landing', '/home', '/hot', '/search', '/collections'],
+      allowedRoutes: ['/login', '/landing', '/home', '/hot', '/search', '/collections', '/resources'],
       redirectTo: '/login',
     },
     NEEDS_PROFILE_CREATION: { allowedRoutes: ['/create-profile'], redirectTo: '/create-profile' },
@@ -392,6 +396,42 @@ describe('RouteGuardProvider — migration resync', () => {
 
     expect(screen.getByText('Collections Content')).toBeInTheDocument();
     expect(mocks.mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it.each(['/resources', '/resources/d532410e857188ec16383d0654f4df1a', '/resources/lookup', '/resources/tag/bitcoin'])(
+    'allows unauthenticated users to render public resource route %s',
+    (pathname) => {
+      mocks.status = 'UNAUTHENTICATED';
+      mocks.isLoading = false;
+      mocks.currentUserPubky = null;
+      mocks.pathname = pathname;
+
+      render(
+        <RouteGuardProvider>
+          <div>Resource Content</div>
+        </RouteGuardProvider>,
+      );
+
+      expect(screen.getByText('Resource Content')).toBeInTheDocument();
+      expect(mocks.mockRouterPush).not.toHaveBeenCalled();
+    },
+  );
+
+  it('protects deeper resource routes for unauthenticated users', () => {
+    mocks.status = 'UNAUTHENTICATED';
+    mocks.isLoading = false;
+    mocks.currentUserPubky = null;
+    mocks.pathname = '/resources/manage/delete';
+
+    render(
+      <RouteGuardProvider>
+        <div>Protected Resource Content</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(screen.getByText('Redirecting...')).toBeInTheDocument();
+    expect(screen.queryByText('Protected Resource Content')).not.toBeInTheDocument();
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
   });
 
   it('allows unauthenticated users to render a single collection page', () => {

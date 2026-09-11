@@ -30,6 +30,13 @@ export enum APP_ROUTES {
   SHARE = '/share',
 }
 
+export const RESOURCE_ROUTES = {
+  LOOKUP: `${APP_ROUTES.RESOURCES}/lookup`,
+  TAG: `${APP_ROUTES.RESOURCES}/tag`,
+} as const;
+
+const RESOURCE_DETAIL_RESERVED_SEGMENTS = new Set(['lookup', 'tag', 'manage']);
+
 /**
  * Builds a full-text search URL (`/search?q=…`).
  *
@@ -52,7 +59,7 @@ export function getResourceTagRoute(tag: string): string {
 }
 
 export function getResourceLookupRoute(uri: string): string {
-  return `${APP_ROUTES.RESOURCES}/lookup?uri=${encodeURIComponent(uri)}`;
+  return `${RESOURCE_ROUTES.LOOKUP}?uri=${encodeURIComponent(uri)}`;
 }
 
 export enum COLLECTION_ROUTES {
@@ -94,7 +101,13 @@ export enum DEV_ROUTES {
   SENTRY_TEST = '/sentry-test',
 }
 
-export const EXPLORE_ROUTES: string[] = [APP_ROUTES.HOME, APP_ROUTES.HOT, APP_ROUTES.SEARCH, APP_ROUTES.COLLECTIONS];
+export const EXPLORE_ROUTES: string[] = [
+  APP_ROUTES.HOME,
+  APP_ROUTES.HOT,
+  APP_ROUTES.SEARCH,
+  APP_ROUTES.COLLECTIONS,
+  APP_ROUTES.RESOURCES,
+];
 
 // Public routes are accessible regardless of authentication status.
 // This includes routes that need to be accessible during auth transitions (like logout).
@@ -183,10 +196,29 @@ export function isDynamicPublicRoute(pathname: string): boolean {
     case segments[0] === 'post' && segments.length === 3:
     case segments[0] === 'profile' && segments.length === 2 && isPubkyIdentifier(segments[1]):
     case matchSingleCollectionRoute(pathname) !== null:
+    case isResourceRoute(pathname) && pathname !== APP_ROUTES.RESOURCES:
       return true;
     default:
       return false;
   }
+}
+
+/** Matches only the publicly browsable resource routes. */
+export function isResourceRoute(pathname: string): boolean {
+  const segments = pathname.split('/').filter(Boolean);
+  if (pathname === APP_ROUTES.RESOURCES) {
+    return true;
+  }
+  if (segments[0] !== 'resources') {
+    return false;
+  }
+  if (pathname === RESOURCE_ROUTES.LOOKUP) {
+    return true;
+  }
+  if (segments.length === 2) {
+    return segments[1].length > 0 && !RESOURCE_DETAIL_RESERVED_SEGMENTS.has(segments[1]);
+  }
+  return segments.length === 3 && pathname.startsWith(`${RESOURCE_ROUTES.TAG}/`) && segments[2].length > 0;
 }
 
 type MatchesAllowedRouteOptions = {
@@ -243,7 +275,7 @@ export function isCoreExploreRoute(pathname: string): boolean {
 }
 
 export function isPublicExploreRoute(pathname: string): boolean {
-  return isCoreExploreRoute(pathname) || isDynamicPublicRoute(pathname);
+  return isCoreExploreRoute(pathname) || isDynamicPublicRoute(pathname) || isResourceRoute(pathname);
 }
 
 /** Routes where the header logo links back to the landing page (`/`). */

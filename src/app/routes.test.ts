@@ -14,6 +14,7 @@ import {
   isNavItemActive,
   isPostRoute,
   isPublicExploreRoute,
+  isResourceRoute,
   LOGO_LANDING_ROUTES,
   matchesAllowedRoute,
   matchPostRoute,
@@ -167,6 +168,32 @@ describe('isDynamicPublicRoute', () => {
       expect(isDynamicPublicRoute('/onboarding')).toBe(false);
       expect(isDynamicPublicRoute('/onboarding/profile')).toBe(false);
     });
+
+    describe('resource routes', () => {
+      it('returns true for the intended public resource route shapes', () => {
+        expect(isResourceRoute('/resources')).toBe(true);
+        expect(isResourceRoute('/resources/resource-id')).toBe(true);
+        expect(isResourceRoute('/resources/lookup')).toBe(true);
+        expect(isResourceRoute('/resources/tag/bitcoin')).toBe(true);
+        expect(isDynamicPublicRoute('/resources/resource-id')).toBe(true);
+        expect(isDynamicPublicRoute('/resources/lookup')).toBe(true);
+        expect(isDynamicPublicRoute('/resources/tag/bitcoin')).toBe(true);
+      });
+
+      it('rejects malformed or deeper routes while keeping the index non-dynamic', () => {
+        expect(isResourceRoute('/resources/')).toBe(false);
+        expect(isResourceRoute('/resources/tag')).toBe(false);
+        expect(isResourceRoute('/resources/manage')).toBe(false);
+        expect(isResourceRoute('/resources/resource-id/extra')).toBe(false);
+        expect(isResourceRoute('/resources/manage/delete')).toBe(false);
+        expect(isDynamicPublicRoute('/resources')).toBe(false);
+        expect(isDynamicPublicRoute('/resources/')).toBe(false);
+        expect(isDynamicPublicRoute('/resources/resource-id/extra')).toBe(false);
+        expect(isDynamicPublicRoute('/resources/lookup/extra')).toBe(false);
+        expect(isDynamicPublicRoute('/resources/tag/bitcoin/extra')).toBe(false);
+        expect(isDynamicPublicRoute('/resources/manage/delete')).toBe(false);
+      });
+    });
   });
 });
 
@@ -212,6 +239,12 @@ describe('route access matrix', () => {
   it('blocks guests from collections bookmarks while allowing the overview', () => {
     expect(isRouteAccessible('/collections', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(true);
     expect(isRouteAccessible('/collections/bookmarks', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(false);
+  });
+
+  it('allows only the resource index through guest explore routes', () => {
+    expect(isRouteAccessible('/resources', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(true);
+    expect(isRouteAccessible('/resources/resource-id', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(false);
+    expect(isRouteAccessible('/resources/manage/delete', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(false);
   });
 
   it('allows guests to reach single collection pages via dynamic public route, not allowedRoutes prefix', () => {
@@ -417,6 +450,10 @@ describe('isPublicExploreRoute', () => {
     expect(isPublicExploreRoute(`/post/${pubky}/0034BBBDFK83G`)).toBe(true);
     expect(isPublicExploreRoute(`/profile/${pubky}`)).toBe(true);
     expect(isPublicExploreRoute(`/collections/${pubky}/0034BBBDFK83G`)).toBe(true);
+    expect(isPublicExploreRoute('/resources')).toBe(true);
+    expect(isPublicExploreRoute('/resources/resource-id')).toBe(true);
+    expect(isPublicExploreRoute('/resources/lookup')).toBe(true);
+    expect(isPublicExploreRoute('/resources/tag/bitcoin')).toBe(true);
   });
 
   it('returns false for protected routes', () => {
@@ -427,6 +464,8 @@ describe('isPublicExploreRoute', () => {
     expect(isPublicExploreRoute('/profile/posts')).toBe(false);
     expect(isPublicExploreRoute('/share')).toBe(false);
     expect(isPublicExploreRoute('/who-to-follow')).toBe(false);
+    expect(isPublicExploreRoute('/resources/resource-id/extra')).toBe(false);
+    expect(isPublicExploreRoute('/resources/manage/delete')).toBe(false);
   });
 });
 

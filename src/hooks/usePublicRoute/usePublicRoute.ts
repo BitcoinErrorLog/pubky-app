@@ -12,14 +12,14 @@ export type { UsePublicRouteResult } from './usePublicRoute.types';
 /**
  * Pathname-based route classification for explore mode and public chrome.
  *
- * Unauthenticated users may browse **core explore routes** (`/home`, `/hot`, `/search`, `/collections`)
- * and **dynamic public routes** (single post, another user's profile, single collection, invite links).
+ * Unauthenticated users may browse **core explore routes** (`/home`, `/hot`, `/search`, `/collections`, `/resources`)
+ * and **dynamic public routes** (single post, another user's profile, single collection, invite links, and resource pages).
  * `RouteGuardProvider` allows those paths via `EXPLORE_ROUTES` and `isDynamicPublicRoute()`
  * in `@/app/routes`; this hook mirrors that split for UI (header, footer, CTAs).
  *
  * Return flags (see `UsePublicRouteResult`):
  * - `isCoreExploreRoute` — app-shell feeds/search without signing in
- * - `isDynamicPublicRoute` — post/profile/invite pages with minimal chrome
+ * - `isDynamicPublicRoute` — post/profile/invite/resource pages with minimal chrome
  * - `isPublicExploreRoute` — either of the above (broad “guest can view” check)
  * - `isPublicRoute` — **legacy alias** for `isDynamicPublicRoute` only (not `/home` et al.)
  *
