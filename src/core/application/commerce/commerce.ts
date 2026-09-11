@@ -116,7 +116,11 @@ import {
   MarketplaceSessionService,
 } from '@/services/marketplace/marketplace-session';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
-import type { NexusListingCondition, NexusListingSaleFormat } from '@/services/nexus/marketplace/marketplace.types';
+import type {
+  NexusListingCondition,
+  NexusListingDetails,
+  NexusListingSaleFormat,
+} from '@/services/nexus/marketplace/marketplace.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 
 /**
@@ -234,8 +238,12 @@ function applyInventoryProjection(
   };
 }
 
+const SELLER_REFRESH_MAX_PAGES = 100;
+
 export class CommerceApplication {
   private constructor() {}
+
+  private static sellerListingsRefreshInFlight = new Map<string, Promise<void>>();
 
   static async getShop(ownerPubky: string) {
     return await LocalCommerceService.getShop(ownerPubky);
@@ -365,6 +373,66 @@ export class CommerceApplication {
     const entries = await LocalCommerceService.getCatalogEntriesBySeller(sellerPubky);
     await Promise.all(entries.map((entry) => this.getOrFetchListing(sellerPubky, entry.listing_id)));
     return await LocalCommerceService.getListingsBySeller(sellerPubky);
+  }
+
+  /**
+   * Refreshes one seller's discovery stream, then hydrates only records that
+   * are absent locally or newer than the canonical record already cached.
+   * Nexus remains discovery/revision data; the homeserver remains canonical.
+   *
+   * Concurrent dashboard mounts for the same seller share one bounded pass.
+   * Missing entries from the stream are intentionally retained locally:
+   * discovery is not the seller's durable inventory authority.
+   */
+  static async refreshListingsBySeller(sellerPubky: string): Promise<void> {
+    // Sandbox catalogs are seeded locally and stay self-contained (same
+    // invariant as fetchCatalogListings / fetchSellerCatalogListings):
+    // sandbox mode never reads from Nexus, so the refresh is a no-op and
+    // the cached rows keep rendering.
+    if (getCommerceAdapterMode() === 'sandbox') return;
+
+    const inFlight = this.sellerListingsRefreshInFlight.get(sellerPubky);
+    if (inFlight) {
+      await inFlight;
+      return;
+    }
+
+    const refresh = this.runSellerListingsRefresh(sellerPubky);
+    this.sellerListingsRefreshInFlight.set(sellerPubky, refresh);
+    try {
+      await refresh;
+    } finally {
+      if (this.sellerListingsRefreshInFlight.get(sellerPubky) === refresh) {
+        this.sellerListingsRefreshInFlight.delete(sellerPubky);
+      }
+    }
+  }
+
+  private static async runSellerListingsRefresh(sellerPubky: string): Promise<void> {
+    const entries = await this.collectSellerCatalogEntries(sellerPubky, { strictIdentity: true, paginate: true });
+    const localListings = await LocalCommerceService.getListingsBySeller(sellerPubky);
+    const localListingsById = new Map(localListings.map((listing) => [listing.listing_id, listing]));
+    const recordsToCommit: CommerceListingRecord[] = [];
+
+    for (const entry of entries) {
+      const local = localListingsById.get(entry.listing_id);
+      if (local && local.revision >= entry.revision) continue;
+      const record = await this.fetchListing(sellerPubky, entry.listing_id);
+      if (record.revision < entry.revision) {
+        throw Err.validation(
+          ValidationErrorCode.INVALID_INPUT,
+          'Canonical listing revision is older than the Nexus discovery revision.',
+          {
+            service: ErrorService.Marketplace,
+            operation: 'refreshListingsBySeller',
+            context: { canonicalRevision: record.revision, indexedRevision: entry.revision },
+          },
+        );
+      }
+      recordsToCommit.push(record);
+    }
+
+    await LocalCommerceService.commitSellerCatalogRefresh(entries, recordsToCommit);
   }
 
   static async getListingsByCategory(categoryId: string) {
@@ -1747,16 +1815,82 @@ export class CommerceApplication {
    * locally, so (as with {@link fetchCatalogListings}) sandbox mode never
    * reads from Nexus.
    */
-  static async fetchSellerCatalogListings(sellerPubky: string): Promise<void> {
+  static async fetchSellerCatalogListings(
+    sellerPubky: string,
+    options: { strictIdentity?: boolean; paginate?: boolean } = {},
+  ): Promise<void> {
     if (getCommerceAdapterMode() === 'sandbox') return;
 
-    const payload = await NexusMarketplaceService.fetchListingStream({
-      seller_id: sellerPubky,
-      state: 'active',
-      limit: NEXUS_LISTINGS_PER_PAGE,
-    });
-    const entries = CommerceRecordNormalizer.nexusListingStream(payload);
+    const entries = await this.collectSellerCatalogEntries(sellerPubky, options);
     await LocalCommerceService.bulkUpsertCatalogEntries(entries);
+  }
+
+  private static async collectSellerCatalogEntries(
+    sellerPubky: string,
+    options: { strictIdentity?: boolean; paginate?: boolean } = {},
+  ): Promise<ReturnType<typeof CommerceRecordNormalizer.nexusListingStream>[number][]> {
+    const pages: NexusListingDetails[][] = [];
+    const maxPages = options.paginate ? SELLER_REFRESH_MAX_PAGES : 1;
+    for (let page = 0; page < maxPages; page += 1) {
+      const payload = await NexusMarketplaceService.fetchListingStream({
+        seller_id: sellerPubky,
+        state: 'active',
+        limit: NEXUS_LISTINGS_PER_PAGE,
+        ...(options.paginate && page > 0 ? { skip: page * NEXUS_LISTINGS_PER_PAGE } : {}),
+      });
+      if (!Array.isArray(payload)) {
+        if (options.strictIdentity) throw this.invalidSellerCatalogIdentity();
+        break;
+      }
+      this.validateSellerCatalogPage(payload, sellerPubky, options.strictIdentity);
+      pages.push(payload);
+      if (!options.paginate || payload.length < NEXUS_LISTINGS_PER_PAGE) break;
+      if (page === maxPages - 1) {
+        throw Err.validation(
+          ValidationErrorCode.INVALID_INPUT,
+          'Seller catalog refresh exceeded its bounded page limit.',
+          {
+            service: ErrorService.Nexus,
+            operation: 'fetchSellerCatalogListings',
+            context: { maxPages },
+          },
+        );
+      }
+    }
+
+    const entriesById = new Map<string, ReturnType<typeof CommerceRecordNormalizer.nexusListingStream>[number]>();
+    for (const entry of CommerceRecordNormalizer.nexusListingStream(pages.flat())) {
+      const prior = entriesById.get(entry.id);
+      if (!prior || entry.revision > prior.revision) entriesById.set(entry.id, entry);
+    }
+    return [...entriesById.values()];
+  }
+
+  private static validateSellerCatalogPage(
+    payload: NexusListingDetails[],
+    sellerPubky: string,
+    strictIdentity = false,
+  ): void {
+    if (
+      strictIdentity &&
+      payload.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== 'object' ||
+          entry.owner_id !== sellerPubky ||
+          entry.uri !== `pubky://${sellerPubky}/pub/pubky.app/marketplace/v1/listings/${entry.id}`,
+      )
+    ) {
+      throw this.invalidSellerCatalogIdentity();
+    }
+  }
+
+  private static invalidSellerCatalogIdentity() {
+    return Err.validation(ValidationErrorCode.INVALID_INPUT, 'Seller catalog contains an invalid listing identity.', {
+      service: ErrorService.Nexus,
+      operation: 'fetchSellerCatalogListings',
+      context: { ownerMatches: false },
+    });
   }
 
   /**
@@ -1841,7 +1975,22 @@ export class CommerceApplication {
 
   static async fetchListing(ownerPubky: string, listingId: string): Promise<CommerceListingRecord> {
     const url = CommerceRecordNormalizer.listingUri(ownerPubky, listingId);
-    return CommerceRecordNormalizer.listing(await CommerceHomeserverService.fetchJson(url));
+    const record = CommerceRecordNormalizer.listing(await CommerceHomeserverService.fetchJson(url));
+    if (record.ownerPubky !== ownerPubky || record.listingId !== listingId) {
+      throw Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        'Canonical listing identity does not match the requested seller and listing.',
+        {
+          service: ErrorService.Marketplace,
+          operation: 'fetchListing',
+          context: {
+            ownerMatches: record.ownerPubky === ownerPubky,
+            listingMatches: record.listingId === listingId,
+          },
+        },
+      );
+    }
+    return record;
   }
 
   /**
@@ -1862,9 +2011,21 @@ export class CommerceApplication {
 
     try {
       const record = await this.fetchListing(ownerPubky, listingId);
+      if (indexed && record.revision < indexed.revision) {
+        throw Err.validation(
+          ValidationErrorCode.INVALID_INPUT,
+          'Canonical listing revision is older than the Nexus discovery revision.',
+          {
+            service: ErrorService.Marketplace,
+            operation: 'getOrFetchListing',
+            context: { canonicalRevision: record.revision, indexedRevision: indexed.revision },
+          },
+        );
+      }
       await LocalCommerceService.upsertListing(record, 'synced');
       return record;
     } catch (error) {
+      if (isAppError(error) && error.code === ValidationErrorCode.INVALID_INPUT) throw error;
       if (!local) throw error;
       Logger.warn('Failed to refresh a stale marketplace listing; serving the cached record', {
         listing: compositeListingId,

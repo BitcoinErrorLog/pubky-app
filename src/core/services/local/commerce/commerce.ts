@@ -429,6 +429,29 @@ export class LocalCommerceService {
     await CommerceCatalogEntryModel.bulkSave(entries);
   }
 
+  static async commitSellerCatalogRefresh(
+    entries: CommerceCatalogEntryModelSchema[],
+    records: CommerceListingRecord[],
+  ): Promise<void> {
+    const listings = records.map((record) => this.toListingModel(record, 'synced'));
+    try {
+      await db.transaction('rw', CommerceCatalogEntryModel.table, CommerceListingModel.table, async () => {
+        await CommerceCatalogEntryModel.table.bulkPut(entries);
+        await CommerceListingModel.table.bulkPut(listings);
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to commit seller catalog refresh', {
+        service: ErrorService.Local,
+        operation: 'commitSellerCatalogRefresh',
+        context: {
+          tables: [CommerceCatalogEntryModel.table.name, CommerceListingModel.table.name],
+        },
+        cause: error,
+      });
+    }
+  }
+
   static async getListingsBySeller(sellerId: string): Promise<CommerceListingModelSchema[]> {
     return await CommerceListingModel.findBySeller(sellerId);
   }

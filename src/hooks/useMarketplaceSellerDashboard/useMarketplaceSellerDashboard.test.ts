@@ -5,10 +5,13 @@ import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce'
 import { useMarketplaceSellerDashboard } from './useMarketplaceSellerDashboard';
 
 const OWNER = 'y'.repeat(52);
+const OTHER_OWNER = 'z'.repeat(52);
+let currentUserPubky = OWNER;
 let localListings: Array<{ state: 'active'; record: ReturnType<typeof createCommerceListingFixture> }> = [];
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: OWNER }),
+  useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: currentUserPubky }),
 }));
 
 vi.mock('@/hooks/useMeasurementSystem/useMeasurementSystem', () => ({
@@ -31,6 +34,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getListingsBySeller: vi.fn(async () => []),
     getOrFetchListingsBySeller: vi.fn(async () => []),
+    refreshListingsBySeller: vi.fn(async () => undefined),
     fetchSellerCatalogListings: vi.fn(async () => undefined),
     getOrFetchListing: vi.fn(),
     commitUpdateListingDraft: vi.fn(),
@@ -47,6 +51,7 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 describe('useMarketplaceSellerDashboard duplicateListing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentUserPubky = OWNER;
     localListings = [];
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([]);
     vi.mocked(CommerceController.commitUpdateListingDraft).mockResolvedValue(undefined);
@@ -54,27 +59,135 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770999');
   });
 
-  it('fetches the seller catalog when the local cache is empty', async () => {
+  it('refreshes the seller catalog after rendering an empty local cache', async () => {
     const listing = createCommerceListingFixture({ listingId: 'boots_02' });
-    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockImplementationOnce(async () => {
+    vi.mocked(CommerceController.refreshListingsBySeller).mockImplementationOnce(async () => {
       localListings = [{ state: 'active', record: listing }];
-      return localListings as never;
     });
     const { result, rerender } = renderHook(() => useMarketplaceSellerDashboard());
 
-    await waitFor(() => expect(CommerceController.getOrFetchListingsBySeller).toHaveBeenCalledWith(OWNER));
+    await waitFor(() => expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledWith(OWNER));
     rerender();
 
     expect(result.current.listings).toEqual([{ state: 'active', record: listing }]);
     expect(result.current.error).toBeNull();
   });
 
-  it('reports a catalog fetch failure instead of showing an empty state', async () => {
-    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockRejectedValueOnce(new Error('offline'));
+  it('reports a catalog refresh failure instead of hiding cached listings', async () => {
+    const listing = createCommerceListingFixture({ listingId: 'boots_02' });
+    localListings = [{ state: 'active', record: listing }];
+    vi.mocked(CommerceController.refreshListingsBySeller).mockRejectedValueOnce(new Error('offline'));
     const { result } = renderHook(() => useMarketplaceSellerDashboard());
 
     await waitFor(() => expect(result.current.error).toBe('Could not load your listings.'));
-    expect(result.current.listings).toEqual([]);
+    expect(result.current.listings).toEqual(localListings);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('starts one background refresh while rendering cached listings immediately', async () => {
+    const listing = createCommerceListingFixture({ listingId: 'boots_01' });
+    localListings = [{ state: 'active', record: listing }];
+    let resolveRefresh: (() => void) | undefined;
+    vi.mocked(CommerceController.refreshListingsBySeller).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+
+    expect(result.current.listings).toEqual(localListings);
+    expect(result.current.isLoading).toBe(false);
+    await waitFor(() => expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledWith(OWNER));
+    resolveRefresh?.();
+  });
+
+  it('ignores a refresh that resolves after unmount', async () => {
+    let resolveRefresh: (() => void) | undefined;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(CommerceController.refreshListingsBySeller).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+    const { result, unmount } = renderHook(() => useMarketplaceSellerDashboard());
+
+    await waitFor(() => expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledWith(OWNER));
+    const stateBeforeUnmount = {
+      error: result.current.error,
+      isLoading: result.current.isLoading,
+      listings: result.current.listings,
+    };
+    unmount();
+    resolveRefresh?.();
+    await act(async () => {});
+
+    expect({
+      error: result.current.error,
+      isLoading: result.current.isLoading,
+      listings: result.current.listings,
+    }).toEqual(stateBeforeUnmount);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it('does not let seller A failure overwrite seller B state', async () => {
+    let rejectA: ((error: Error) => void) | undefined;
+    let resolveB: (() => void) | undefined;
+    vi.mocked(CommerceController.refreshListingsBySeller)
+      .mockReturnValueOnce(
+        new Promise<void>((_, reject) => {
+          rejectA = reject;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          resolveB = resolve;
+        }),
+      );
+    const { result, rerender } = renderHook(() => useMarketplaceSellerDashboard());
+
+    await waitFor(() => expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledWith(OWNER));
+    currentUserPubky = OTHER_OWNER;
+    rerender();
+    await waitFor(() => expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledWith(OTHER_OWNER));
+
+    rejectA?.(new Error('seller A failed'));
+    await act(async () => {});
+    expect(result.current.error).toBeNull();
+
+    resolveB?.();
+    await waitFor(() => expect(result.current.error).toBeNull());
+  });
+
+  it('updates the cached listing count after refresh hydrates a newly discovered listing', async () => {
+    const first = createCommerceListingFixture({ listingId: 'boots_01' });
+    const second = createCommerceListingFixture({ listingId: 'boots_02' });
+    const third = createCommerceListingFixture({ listingId: 'boots_03' });
+    localListings = [
+      { state: 'active', record: first },
+      { state: 'active', record: second },
+    ];
+    let resolveRefresh: (() => void) | undefined;
+    const refresh = new Promise<void>((resolve) => {
+      resolveRefresh = () => {
+        localListings = [...localListings, { state: 'active', record: third }];
+        resolve();
+      };
+    });
+    vi.mocked(CommerceController.refreshListingsBySeller).mockReturnValueOnce(refresh);
+
+    const { result, rerender } = renderHook(() => useMarketplaceSellerDashboard());
+
+    expect(result.current.listings).toHaveLength(2);
+    await waitFor(() => expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledWith(OWNER));
+    await act(async () => {
+      resolveRefresh?.();
+      await refresh;
+    });
+    rerender();
+
+    expect(result.current.listings).toHaveLength(3);
+    expect(result.current.metrics.activeListings).toBe(3);
   });
 
   it('seeds a new create draft from a fixed-price listing and excludes ids and revision', async () => {

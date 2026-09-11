@@ -87,6 +87,10 @@ export class CommerceController {
     return await CommerceApplication.getOrFetchListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
   }
 
+  static async refreshListingsBySeller(sellerPubky: unknown): Promise<void> {
+    await CommerceApplication.refreshListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
   static async cacheMarketplaceListingProjection(projection: CommerceListingProjectionModelSchema): Promise<void> {
     await CommerceApplication.cacheMarketplaceListingProjection(projection);
   }

@@ -15,6 +15,7 @@ export function useMarketplaceSellerDashboard() {
   const [nowMs, setNowMs] = useState(0);
   const [catalogFetchState, setCatalogFetchState] = useState<'idle' | 'loading' | 'settled' | 'error'>('idle');
   const catalogFetchAttempted = useRef<string | null>(null);
+  const catalogRefreshGeneration = useRef(0);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const measurementSystem = useMeasurementSystem();
   const localListings = useLiveQuery(
@@ -22,13 +23,23 @@ export function useMarketplaceSellerDashboard() {
     [currentUserPubky],
   );
   useEffect(() => {
-    if (!currentUserPubky || localListings === undefined || localListings.length > 0) return;
+    if (!currentUserPubky || localListings === undefined) return;
     if (catalogFetchAttempted.current === currentUserPubky) return;
+    const sellerPubky = currentUserPubky;
+    const generation = ++catalogRefreshGeneration.current;
+    let active = true;
     catalogFetchAttempted.current = currentUserPubky;
     setCatalogFetchState('loading');
-    CommerceController.getOrFetchListingsBySeller(currentUserPubky)
-      .then(() => setCatalogFetchState('settled'))
-      .catch(() => setCatalogFetchState('error'));
+    CommerceController.refreshListingsBySeller(sellerPubky)
+      .then(() => {
+        if (active && catalogRefreshGeneration.current === generation) setCatalogFetchState('settled');
+      })
+      .catch(() => {
+        if (active && catalogRefreshGeneration.current === generation) setCatalogFetchState('error');
+      });
+    return () => {
+      active = false;
+    };
   }, [currentUserPubky, localListings]);
   const orders = useMarketplaceOrders();
   const offers = useMarketplaceOffers();
@@ -145,7 +156,6 @@ export function useMarketplaceSellerDashboard() {
     isLoading:
       localListings === undefined ||
       (localListings.length === 0 && (catalogFetchState === 'idle' || catalogFetchState === 'loading')) ||
-      catalogFetchState === 'loading' ||
       orders.isLoading ||
       offers.isLoading,
     error: catalogFetchState === 'error' ? 'Could not load your listings.' : null,

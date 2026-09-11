@@ -1,14 +1,17 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import * as commerceConfig from '@/config/commerce';
+import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceCatalogEntryModel, CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
+import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
@@ -16,6 +19,7 @@ import { LocalMarketplaceTagService } from '@/services/local/tag/marketplace/tag
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { NexusMarketplaceService } from '@/services/nexus/marketplace/marketplace';
+import type { NexusListingDetails } from '@/services/nexus/marketplace/marketplace.types';
 import {
   COMMERCE_FIXTURE_SELLER,
   createCommerceCatalogEntryFixture,
@@ -29,10 +33,62 @@ import { CommerceApplication } from './commerce';
 
 const SHOP_URL = `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/shop.json`;
 const LISTING_URL = `pubky://${COMMERCE_FIXTURE_SELLER}/pub/pubky.app/marketplace/v1/listings/boots_01`;
+const SELLER_REFRESH_FIXTURE = JSON.parse(
+  readFileSync(resolve(__dirname, '../../../test/fixtures/commerce/live/seller-dashboard-refresh-v23.json'), 'utf8'),
+) as {
+  nexus: NexusListingDetails[];
+  canonical: Array<{ record: unknown; provenance: { contentSha256: string; sourceUri: string } }>;
+  provenance: {
+    capturedAtUtc: string;
+    sourceManifestSha256: string;
+    nexusInventoryWholeFileSha256: string;
+    stableContentHashEncoding: string;
+    sources: Record<string, { wholeFileSha256: string; contentSha256: string }>;
+  };
+};
 
 describe('CommerceApplication', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('pins repaired fixture provenance and canonical content hashes', () => {
+    expect(SELLER_REFRESH_FIXTURE.provenance).toMatchObject({
+      capturedAtUtc: '2026-09-11T13:00:05.111Z',
+      sourceManifestSha256: '75bbbe4c5d3b4ae160589ffb25c3cbaf7df63b3ae1b07129887d891248455a42',
+      nexusInventoryWholeFileSha256: 'b899f0ca780dda0d226c7140b393818fd873f8acfb0006bd05d037d7d4ecc4b0',
+    });
+    expect(SELLER_REFRESH_FIXTURE.provenance.sources).toEqual({
+      offer: {
+        wholeFileSha256: '01bfd471185db06f79bb148df4009a946e51c09e8fa83d582e144bd4b8ae5439',
+        contentSha256: '4a200919c86eb6450f2d6cc15d5adc2e25422d39f9911a6a5e21d04a025924d0',
+      },
+      verify: {
+        wholeFileSha256: '6dc57c5fed7da1914efe30600decc9e8030c2e8ca65b44725f32d163e75fdf48',
+        contentSha256: 'be1b2a4e6d02998cc446080eadf037bfc2bb2e5cc6ddfd0b540906323a84502e',
+      },
+      casio: {
+        wholeFileSha256: '4b4d25a821683373f0717ed0cd2457696c5b630802e36f9519b08b4cda50155c',
+        contentSha256: '055c7270893b0fc45837b0b4235b82f4ed689c6a733330f059566145d0845171',
+      },
+    });
+
+    const sourceByListingId = {
+      c73b6be3ab4642539c69a797f9006dcb: 'offer',
+      '45b2aedff744407ea2d67c8069ed112e': 'verify',
+      aa2c8b308dbc47619793fe64dcefa9e8: 'casio',
+    } as const;
+    for (const { record, provenance } of SELLER_REFRESH_FIXTURE.canonical) {
+      const listingRecord = record as { listingId: keyof typeof sourceByListingId };
+      const source = SELLER_REFRESH_FIXTURE.provenance.sources[sourceByListingId[listingRecord.listingId]];
+      expect(createHash('sha256').update(JSON.stringify(record)).digest('hex')).toBe(provenance.contentSha256);
+      expect(provenance.contentSha256).toBe(source.contentSha256);
+    }
+
+    const tampered = { ...(SELLER_REFRESH_FIXTURE.canonical[0].record as Record<string, unknown>), title: 'tampered' };
+    expect(createHash('sha256').update(JSON.stringify(tampered)).digest('hex')).not.toBe(
+      SELLER_REFRESH_FIXTURE.provenance.sources.offer.contentSha256,
+    );
   });
 
   it('returns a local shop without a network request', async () => {
@@ -499,6 +555,236 @@ describe('CommerceApplication', () => {
   });
 
   describe('fetchSellerCatalogListings', () => {
+    const capturedRecords = SELLER_REFRESH_FIXTURE.canonical.map(({ record }) =>
+      CommerceRecordNormalizer.listing(record),
+    );
+    const capturedById = new Map(capturedRecords.map((record) => [record.listingId, record]));
+    const capturedSeller = capturedRecords[0].ownerPubky;
+
+    it('refreshes discovery and hydrates the missing canonical listing while retaining cached records', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      await LocalCommerceService.upsertListing(capturedById.get('c73b6be3ab4642539c69a797f9006dcb')!, 'synced');
+      await LocalCommerceService.upsertListing(capturedById.get('45b2aedff744407ea2d67c8069ed112e')!, 'synced');
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue(SELLER_REFRESH_FIXTURE.nexus);
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async (url) => {
+        const listingId = url.split('/').pop();
+        return capturedById.get(listingId!)!;
+      });
+
+      await CommerceApplication.refreshListingsBySeller(capturedSeller);
+
+      expect(await LocalCommerceService.getListingsBySeller(capturedSeller)).toHaveLength(3);
+      expect(fetchJson).toHaveBeenCalledExactlyOnceWith(
+        `pubky://${capturedSeller}/pub/pubky.app/marketplace/v1/listings/aa2c8b308dbc47619793fe64dcefa9e8`,
+      );
+    });
+
+    it('rejects an owner-mismatched Nexus row before mutating the catalog cache', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      const existing = createCommerceCatalogEntryFixture({ listing_id: 'existing' });
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceCatalogEntryModel.table.put(existing);
+      const before = await CommerceCatalogEntryModel.table.toArray();
+      const mismatched = {
+        ...(SELLER_REFRESH_FIXTURE.nexus[0] as Record<string, unknown>),
+        owner_id: 's'.repeat(52),
+        uri: `pubky://${'s'.repeat(52)}/pub/pubky.app/marketplace/v1/listings/c73b6be3ab4642539c69a797f9006dcb`,
+      } as NexusListingDetails;
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([mismatched]);
+
+      await expect(CommerceApplication.refreshListingsBySeller(COMMERCE_FIXTURE_SELLER)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+
+      expect(await CommerceCatalogEntryModel.table.toArray()).toEqual(before);
+    });
+
+    it('uses the real Dexie revision seam for missing and stale canonical hydration', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      const stale = { ...capturedById.get('45b2aedff744407ea2d67c8069ed112e')!, revision: 1 };
+      await LocalCommerceService.upsertListing(capturedById.get('c73b6be3ab4642539c69a797f9006dcb')!, 'synced');
+      await LocalCommerceService.upsertListing(stale, 'synced');
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue(SELLER_REFRESH_FIXTURE.nexus);
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async (url) => {
+        const listingId = url.split('/').pop();
+        return capturedById.get(listingId!)!;
+      });
+
+      await CommerceApplication.refreshListingsBySeller(capturedSeller);
+
+      expect(await LocalCommerceService.getListingsBySeller(capturedSeller)).toHaveLength(3);
+      expect(fetchJson.mock.calls.map(([url]) => url).sort()).toEqual([
+        `pubky://${capturedSeller}/pub/pubky.app/marketplace/v1/listings/45b2aedff744407ea2d67c8069ed112e`,
+        `pubky://${capturedSeller}/pub/pubky.app/marketplace/v1/listings/aa2c8b308dbc47619793fe64dcefa9e8`,
+      ]);
+      expect(
+        (await LocalCommerceService.getListing(`${capturedSeller}:45b2aedff744407ea2d67c8069ed112e`))?.revision,
+      ).toBe(3);
+    });
+
+    it('pages a complete seller refresh and keeps the highest duplicate revision', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      const pageOne = Array.from({ length: NEXUS_LISTINGS_PER_PAGE }, (_, index) =>
+        nexusRow(`page_${index}`, index === 0 ? 1 : 1),
+      );
+      const duplicate = nexusRow('page_0', 2);
+      const pageTwo = [duplicate, nexusRow('page_30', 1)];
+      const stream = vi
+        .spyOn(NexusMarketplaceService, 'fetchListingStream')
+        .mockResolvedValueOnce(pageOne)
+        .mockResolvedValueOnce(pageTwo);
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries').mockResolvedValue(undefined);
+
+      await CommerceApplication.fetchSellerCatalogListings(capturedSeller, {
+        strictIdentity: true,
+        paginate: true,
+      });
+
+      expect(stream.mock.calls).toEqual([
+        [{ seller_id: capturedSeller, state: 'active', limit: NEXUS_LISTINGS_PER_PAGE }],
+        [{ seller_id: capturedSeller, state: 'active', limit: NEXUS_LISTINGS_PER_PAGE, skip: NEXUS_LISTINGS_PER_PAGE }],
+      ]);
+      const entries = bulkUpsert.mock.calls[0][0];
+      expect(entries).toHaveLength(NEXUS_LISTINGS_PER_PAGE + 1);
+      expect(entries.find(({ listing_id }) => listing_id === 'page_0')?.revision).toBe(2);
+    });
+
+    it('rejects a bad later page before mutating the catalog cache', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      await CommerceCatalogEntryModel.table.put(createCommerceCatalogEntryFixture({ listing_id: 'existing' }));
+      await CommerceListingModel.table.put(
+        toCommerceListingModel(createCommerceListingFixture({ listingId: 'existing' })),
+      );
+      const beforeCatalog = await CommerceCatalogEntryModel.table.toArray();
+      const beforeListings = await CommerceListingModel.table.toArray();
+      const pageOne = Array.from({ length: NEXUS_LISTINGS_PER_PAGE }, (_, index) => nexusRow(`page_${index}`, 1));
+      const badPage = {
+        ...nexusRow('page_30', 1),
+        owner_id: 's'.repeat(52),
+        uri: `pubky://${'s'.repeat(52)}/pub/pubky.app/marketplace/v1/listings/page_30`,
+      };
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream')
+        .mockResolvedValueOnce(pageOne)
+        .mockResolvedValueOnce([badPage]);
+
+      await expect(
+        CommerceApplication.fetchSellerCatalogListings(capturedSeller, {
+          strictIdentity: true,
+          paginate: true,
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      expect(await CommerceCatalogEntryModel.table.toArray()).toEqual(beforeCatalog);
+      expect(await CommerceListingModel.table.toArray()).toEqual(beforeListings);
+    });
+
+    it('rejects a lower canonical revision without mutating either real cache table', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      const indexed = capturedById.get('45b2aedff744407ea2d67c8069ed112e')!;
+      await CommerceCatalogEntryModel.table.put(
+        createCommerceCatalogEntryFixture({
+          id: `${capturedSeller}:45b2aedff744407ea2d67c8069ed112e`,
+          seller_id: capturedSeller,
+          listing_id: indexed.listingId,
+          revision: indexed.revision,
+        }),
+      );
+      await CommerceListingModel.table.put(toCommerceListingModel({ ...indexed, revision: 1 }));
+      const beforeCatalog = await CommerceCatalogEntryModel.table.toArray();
+      const beforeListings = await CommerceListingModel.table.toArray();
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([SELLER_REFRESH_FIXTURE.nexus[1]]);
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ ...indexed, revision: 1 });
+
+      await expect(CommerceApplication.refreshListingsBySeller(capturedSeller)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+      expect(await CommerceCatalogEntryModel.table.toArray()).toEqual(beforeCatalog);
+      expect(await CommerceListingModel.table.toArray()).toEqual(beforeListings);
+    });
+
+    it('fails instead of claiming completeness when the bounded page cap is exhausted', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      const fullPage = Array.from({ length: NEXUS_LISTINGS_PER_PAGE }, (_, index) => nexusRow(`page_${index}`, 1));
+      const stream = vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue(fullPage);
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries');
+
+      await expect(
+        CommerceApplication.fetchSellerCatalogListings(capturedSeller, {
+          strictIdentity: true,
+          paginate: true,
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      expect(stream).toHaveBeenCalledTimes(100);
+      expect(bulkUpsert).not.toHaveBeenCalled();
+    });
+
+    it('retains cached listings when the seller Nexus refresh fails', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      const cached = [
+        createCommerceListingFixture({ listingId: 'boots_01' }),
+        createCommerceListingFixture({ listingId: 'boots_02' }),
+      ];
+      vi.spyOn(LocalCommerceService, 'getListingsBySeller').mockResolvedValue(
+        cached.map((record) => toCommerceListingModel(record)),
+      );
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockRejectedValue(new Error('nexus unreachable'));
+
+      await expect(CommerceApplication.refreshListingsBySeller(COMMERCE_FIXTURE_SELLER)).rejects.toThrow(
+        'nexus unreachable',
+      );
+
+      expect(await LocalCommerceService.getListingsBySeller(COMMERCE_FIXTURE_SELLER)).toHaveLength(2);
+    });
+
+    it('never queries Nexus in sandbox mode and retains the cached seller rows', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      await LocalCommerceService.upsertListing(createCommerceListingFixture({ listingId: 'boots_01' }), 'synced');
+      await LocalCommerceService.upsertListing(createCommerceListingFixture({ listingId: 'boots_02' }), 'synced');
+      const beforeCatalog = await CommerceCatalogEntryModel.table.toArray();
+      const beforeListings = await CommerceListingModel.table.toArray();
+      const stream = vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([]);
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({});
+      const commitRefresh = vi.spyOn(LocalCommerceService, 'commitSellerCatalogRefresh');
+      const bulkUpsert = vi.spyOn(LocalCommerceService, 'bulkUpsertCatalogEntries');
+
+      await expect(CommerceApplication.refreshListingsBySeller(COMMERCE_FIXTURE_SELLER)).resolves.toBeUndefined();
+
+      expect(stream).not.toHaveBeenCalled();
+      expect(fetchJson).not.toHaveBeenCalled();
+      expect(commitRefresh).not.toHaveBeenCalled();
+      expect(bulkUpsert).not.toHaveBeenCalled();
+      expect(await CommerceCatalogEntryModel.table.toArray()).toEqual(beforeCatalog);
+      expect(await CommerceListingModel.table.toArray()).toEqual(beforeListings);
+    });
+
+    it('deduplicates concurrent refreshes by seller', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(LocalCommerceService, 'getCatalogEntriesBySeller').mockResolvedValue([]);
+      let release: ((entries: NexusListingDetails[]) => void) | undefined;
+      const stream = vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+
+      const first = CommerceApplication.refreshListingsBySeller(COMMERCE_FIXTURE_SELLER);
+      const second = CommerceApplication.refreshListingsBySeller(COMMERCE_FIXTURE_SELLER);
+      release?.([]);
+      await Promise.all([first, second]);
+
+      expect(stream).toHaveBeenCalledOnce();
+    });
+
     it('returns locally cached seller listings without fetching the catalog', async () => {
       const first = createCommerceListingFixture({ listingId: 'boots_01' });
       const second = createCommerceListingFixture({ listingId: 'boots_02' });
@@ -1039,6 +1325,30 @@ describe('CommerceApplication', () => {
       expect(upsertListing).toHaveBeenCalledExactlyOnceWith(refreshedRecord, 'synced');
     });
 
+    it('rejects a canonical record older than the Nexus revision without overwriting the cache', async () => {
+      await CommerceListingModel.table.clear();
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.put(cachedListingModel(1));
+      await CommerceCatalogEntryModel.table.put(
+        createCommerceCatalogEntryFixture({
+          id: `${COMMERCE_FIXTURE_SELLER}:boots_01`,
+          seller_id: COMMERCE_FIXTURE_SELLER,
+          listing_id: 'boots_01',
+          revision: 2,
+        }),
+      );
+      const beforeListings = await CommerceListingModel.table.toArray();
+      const beforeCatalog = await CommerceCatalogEntryModel.table.toArray();
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(createCommerceListingFixture({ revision: 1 }));
+
+      await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+
+      expect(await CommerceListingModel.table.toArray()).toEqual(beforeListings);
+      expect(await CommerceCatalogEntryModel.table.toArray()).toEqual(beforeCatalog);
+    });
+
     it('serves the cached record when a staleness refresh fails', async () => {
       const cached = cachedListingModel(1);
       vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(cached);
@@ -1060,6 +1370,21 @@ describe('CommerceApplication', () => {
       await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).rejects.toThrow(
         'homeserver unreachable',
       );
+    });
+
+    it('rejects a canonical record whose identity does not match its requested path', async () => {
+      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(null);
+      vi.spyOn(LocalCommerceService, 'getCatalogEntry').mockResolvedValue(null);
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(
+        createCommerceListingFixture({ ownerPubky: 's'.repeat(52) }),
+      );
+      const upsertListing = vi.spyOn(LocalCommerceService, 'upsertListing');
+
+      await expect(CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01')).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+
+      expect(upsertListing).not.toHaveBeenCalled();
     });
   });
 
@@ -1160,3 +1485,13 @@ describe('CommerceApplication', () => {
     });
   });
 });
+
+function nexusRow(id: string, revision: number): NexusListingDetails {
+  const row = SELLER_REFRESH_FIXTURE.nexus[0];
+  return {
+    ...row,
+    id,
+    uri: `pubky://${row.owner_id}/pub/pubky.app/marketplace/v1/listings/${id}`,
+    revision,
+  };
+}
