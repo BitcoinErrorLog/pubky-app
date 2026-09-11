@@ -33,8 +33,8 @@ export function Header() {
   const isPostAuthOnboardingStep = pathname === ONBOARDING_ROUTES.PROFILE || pathname === ONBOARDING_ROUTES.TAGS;
 
   // Hide header on mobile when:
-  // - User is on a core explore route (/home, /hot, /search, /collections) — MobileHeader + MobileFooter
-  // - Any user on a dynamic public route (/post/..., /profile/[pubky], /collections/[userId]/[postId]) — page shell owns mobile chrome
+  // - User is on a core explore route (/home, /hot, /search, /collections, /resources) — MobileHeader + MobileFooter
+  // - Any user on a dynamic public route (/post/..., /profile/[pubky], /collections/[userId]/[postId], resource detail/lookup/tag) — page shell owns mobile chrome
   // - Authenticated on standard app routes — MobileHeader + MobileFooter
   const shouldHideHeaderOnMobile =
     isCoreExploreRoute || isDynamicPublicRoute || (isAuthenticated && !isOnboarding && !isDynamicPublicRoute);
@@ -51,7 +51,7 @@ export function Header() {
   // Determine which header content to show:
   // - Onboarding: HeaderOnboarding
   // - Authenticated: HeaderSignIn (navigation + avatar)
-  // - Unauthenticated on core explore or dynamic public routes (home/hot/search/collections/post/profile): explore navigation + join
+  // - Unauthenticated on core explore or dynamic public routes (home/hot/search/collections/resources/post/profile): explore navigation + join
   // - Unauthenticated on landing/other: HeaderHome (social links + sign in)
   const renderHeaderContent = () => {
     if (isOnboarding) {

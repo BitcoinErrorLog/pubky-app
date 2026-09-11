@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useHotTags } from '@/hooks/useHotTags/useHotTags';
 import { useSearchAutocomplete } from '@/hooks/useSearchAutocomplete/useSearchAutocomplete';
@@ -506,6 +506,29 @@ describe('SearchInput', () => {
       expect(setFocus).toHaveBeenCalledWith(false);
     });
 
+    it('looks up an absolute URL longer than the content-search limit', () => {
+      const inputValue = 'https://example.com/resource/with-a-long-path';
+      vi.mocked(useSearchInput).mockReturnValue({
+        inputValue,
+        isFocused: true,
+        containerRef: { current: null },
+        inputRef: { current: null },
+        handleInputChange: vi.fn(),
+        handleKeyDown: vi.fn(),
+        handleFocus: vi.fn(),
+        clearInputValue: vi.fn(),
+        setInputValue: vi.fn(),
+        setFocus: vi.fn(),
+      });
+
+      render(<SearchInput />);
+
+      const suggestions = screen.getByTestId('search-suggestions');
+      fireEvent.click(within(suggestions).getByRole('button', { name: 'Look up this link' }));
+
+      expect(mockPush).toHaveBeenCalledWith(`/resources/lookup?uri=${encodeURIComponent(inputValue)}`);
+    });
+
     it('keeps invalid full-text input open and reports the Nexus constraint', () => {
       const clearInputValue = vi.fn();
       const setFocus = vi.fn();
@@ -533,6 +556,31 @@ describe('SearchInput', () => {
       expect(mockAddQuery).not.toHaveBeenCalled();
       expect(clearInputValue).not.toHaveBeenCalled();
       expect(setFocus).not.toHaveBeenCalled();
+    });
+
+    it('keeps overlong input out of both Enter and Show all results searches', () => {
+      const inputValue = 'a'.repeat(31);
+      vi.mocked(useSearchInput).mockReturnValue({
+        inputValue,
+        isFocused: true,
+        containerRef: { current: null },
+        inputRef: { current: null },
+        handleInputChange: vi.fn(),
+        handleKeyDown: vi.fn(),
+        handleFocus: vi.fn(),
+        clearInputValue: vi.fn(),
+        setInputValue: vi.fn(),
+        setFocus: vi.fn(),
+      });
+
+      render(<SearchInput />);
+
+      vi.mocked(useSearchInput).mock.calls[0]?.[0]?.onEnter?.(inputValue);
+      fireEvent.click(screen.getByRole('button', { name: 'Show all results' }));
+
+      expect(vi.mocked(toast)).toHaveBeenCalledTimes(2);
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(mockAddQuery).not.toHaveBeenCalled();
     });
 
     it('re-runs a recent full-text query when its chip is clicked', () => {

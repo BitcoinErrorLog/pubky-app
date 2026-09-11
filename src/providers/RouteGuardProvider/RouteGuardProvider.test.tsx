@@ -46,29 +46,6 @@ vi.mock('@/hooks/useAuthStatus/useAuthStatus', () => ({
   useAuthStatus: () => ({ status: mocks.status, isLoading: mocks.isLoading }),
 }));
 
-// Mock @/app
-vi.mock('@/app/routes', () => ({
-  PUBLIC_ROUTES: ['/landing'],
-  isDynamicPublicRoute: (path: string) => {
-    const segments = path.split('/').filter(Boolean);
-    return (
-      (segments[0] === 'post' && segments.length === 3) ||
-      (segments[0] === 'profile' && segments.length === 2 && segments[1].length === 52) ||
-      (segments[0] === 'collections' && segments.length === 3 && segments[1] !== 'bookmarks') ||
-      (segments[0] === 'resources' &&
-        ((segments.length === 2 && segments[1].length > 0 && !['lookup', 'tag', 'manage'].includes(segments[1])) ||
-          (segments.length === 2 && segments[1] === 'lookup') ||
-          (segments.length === 3 && segments[1] === 'tag' && segments[2].length > 0)))
-    );
-  },
-  matchesAllowedRoute: (pathname: string, route: string, options?: { restrictExploreSubRoutes?: boolean }) => {
-    const EXPLORE_ROUTES = ['/home', '/hot', '/search', '/collections', '/resources'];
-    if (pathname === route) return true;
-    if (options?.restrictExploreSubRoutes && EXPLORE_ROUTES.includes(route)) return false;
-    return pathname.startsWith(`${route}/`);
-  },
-}));
-
 // Mock @/providers/RouteGuardProvider/RouteGuardProvider.constants
 vi.mock('@/providers/RouteGuardProvider/RouteGuardProvider.constants', () => ({
   ROUTE_ACCESS_MAP: {
@@ -417,11 +394,19 @@ describe('RouteGuardProvider — migration resync', () => {
     },
   );
 
-  it('protects deeper resource routes for unauthenticated users', () => {
+  it.each([
+    '/resources/settings',
+    '/resources/admin',
+    '/resources/manage-export',
+    '/resources/LOOKUP',
+    '/resources/%2Fmanage',
+    '/resources/d532410e857188ec16383d0654f4df1a0',
+    '/resources/manage/delete',
+  ])('protects non-canonical resource route %s for unauthenticated users', (pathname) => {
     mocks.status = 'UNAUTHENTICATED';
     mocks.isLoading = false;
     mocks.currentUserPubky = null;
-    mocks.pathname = '/resources/manage/delete';
+    mocks.pathname = pathname;
 
     render(
       <RouteGuardProvider>

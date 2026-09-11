@@ -1,4 +1,4 @@
-import { isPubkyIdentifier } from '@/libs/utils/utils';
+import { isPubkyIdentifier, isValidTagLabel } from '@/libs/utils/utils';
 
 export const ROOT_ROUTES = '/';
 
@@ -35,7 +35,8 @@ export const RESOURCE_ROUTES = {
   TAG: `${APP_ROUTES.RESOURCES}/tag`,
 } as const;
 
-const RESOURCE_DETAIL_RESERVED_SEGMENTS = new Set(['lookup', 'tag', 'manage']);
+const RESOURCE_DETAIL_PATHNAME = /^\/resources\/[0-9a-f]{32}$/;
+const RESOURCE_TAG_PATHNAME = /^\/resources\/tag\/([^/%]+)$/;
 
 /**
  * Builds a full-text search URL (`/search?q=…`).
@@ -187,6 +188,8 @@ export const HOME_ROUTES = {
  * - /post/[userId]/[postId] - viewing a single post
  * - /profile/[pubky] - viewing another user's profile
  * - /collections/[userId]/[postId] - viewing a single collection
+ * - /resources/[id] - viewing a resource with a canonical Nexus ID
+ * - /resources/lookup and /resources/tag/[tag] - browsing public resources
  */
 export function isDynamicPublicRoute(pathname: string): boolean {
   const segments = pathname.split('/').filter(Boolean);
@@ -203,22 +206,21 @@ export function isDynamicPublicRoute(pathname: string): boolean {
   }
 }
 
-/** Matches only the publicly browsable resource routes. */
+/**
+ * Matches only canonical, publicly browsable resource routes.
+ *
+ * The detail route accepts only 32-character lowercase hexadecimal Nexus IDs.
+ * Lookup is exact, and tags have one non-empty, unencoded path segment.
+ */
 export function isResourceRoute(pathname: string): boolean {
-  const segments = pathname.split('/').filter(Boolean);
   if (pathname === APP_ROUTES.RESOURCES) {
     return true;
-  }
-  if (segments[0] !== 'resources') {
-    return false;
   }
   if (pathname === RESOURCE_ROUTES.LOOKUP) {
     return true;
   }
-  if (segments.length === 2) {
-    return segments[1].length > 0 && !RESOURCE_DETAIL_RESERVED_SEGMENTS.has(segments[1]);
-  }
-  return segments.length === 3 && pathname.startsWith(`${RESOURCE_ROUTES.TAG}/`) && segments[2].length > 0;
+  const tagMatch = pathname.match(RESOURCE_TAG_PATHNAME);
+  return RESOURCE_DETAIL_PATHNAME.test(pathname) || (tagMatch !== null && isValidTagLabel(tagMatch[1]));
 }
 
 type MatchesAllowedRouteOptions = {
@@ -275,7 +277,7 @@ export function isCoreExploreRoute(pathname: string): boolean {
 }
 
 export function isPublicExploreRoute(pathname: string): boolean {
-  return isCoreExploreRoute(pathname) || isDynamicPublicRoute(pathname) || isResourceRoute(pathname);
+  return isCoreExploreRoute(pathname) || isDynamicPublicRoute(pathname);
 }
 
 /** Routes where the header logo links back to the landing page (`/`). */

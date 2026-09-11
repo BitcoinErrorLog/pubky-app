@@ -170,28 +170,47 @@ describe('isDynamicPublicRoute', () => {
     });
 
     describe('resource routes', () => {
+      const validResourceId = 'd532410e857188ec16383d0654f4df1a';
+
       it('returns true for the intended public resource route shapes', () => {
         expect(isResourceRoute('/resources')).toBe(true);
-        expect(isResourceRoute('/resources/resource-id')).toBe(true);
+        expect(isResourceRoute(`/resources/${validResourceId}`)).toBe(true);
         expect(isResourceRoute('/resources/lookup')).toBe(true);
         expect(isResourceRoute('/resources/tag/bitcoin')).toBe(true);
-        expect(isDynamicPublicRoute('/resources/resource-id')).toBe(true);
+        expect(isDynamicPublicRoute(`/resources/${validResourceId}`)).toBe(true);
         expect(isDynamicPublicRoute('/resources/lookup')).toBe(true);
         expect(isDynamicPublicRoute('/resources/tag/bitcoin')).toBe(true);
       });
 
-      it('rejects malformed or deeper routes while keeping the index non-dynamic', () => {
-        expect(isResourceRoute('/resources/')).toBe(false);
-        expect(isResourceRoute('/resources/tag')).toBe(false);
-        expect(isResourceRoute('/resources/manage')).toBe(false);
-        expect(isResourceRoute('/resources/resource-id/extra')).toBe(false);
-        expect(isResourceRoute('/resources/manage/delete')).toBe(false);
-        expect(isDynamicPublicRoute('/resources')).toBe(false);
-        expect(isDynamicPublicRoute('/resources/')).toBe(false);
-        expect(isDynamicPublicRoute('/resources/resource-id/extra')).toBe(false);
-        expect(isDynamicPublicRoute('/resources/lookup/extra')).toBe(false);
-        expect(isDynamicPublicRoute('/resources/tag/bitcoin/extra')).toBe(false);
-        expect(isDynamicPublicRoute('/resources/manage/delete')).toBe(false);
+      it.each([
+        '/resources/',
+        '/resources/settings',
+        '/resources/admin',
+        '/resources/manage-export',
+        '/resources/LOOKUP',
+        '/resources/Manage',
+        '/resources/abc123',
+        '/resources/d532410e857188ec16383d0654f4df1',
+        '/resources/d532410e857188ec16383d0654f4df1a0',
+        '/resources/D532410e857188ec16383d0654f4df1a',
+        '/resources/d532410e857188ec16383d0654f4df1g',
+        '/resources/%2Fmanage',
+        '/resources/%2E%2E',
+        '/resources//anything',
+        `/resources/${validResourceId}/`,
+        `/resources/${validResourceId}/extra`,
+        '/resources/tag',
+        '/resources/tag/',
+        '/resources/tag/bitcoin/',
+        '/resources/tag/bitcoin/extra',
+        '/resources/tag/%2E%2E',
+        '/resources/tag/one,two',
+        `/resources/tag/${'a'.repeat(21)}`,
+        '/resources/lookup/extra',
+      ])('rejects non-canonical resource route %s', (pathname) => {
+        expect(isResourceRoute(pathname)).toBe(false);
+        expect(isDynamicPublicRoute(pathname)).toBe(false);
+        expect(isPublicExploreRoute(pathname)).toBe(false);
       });
     });
   });
@@ -243,7 +262,9 @@ describe('route access matrix', () => {
 
   it('allows only the resource index through guest explore routes', () => {
     expect(isRouteAccessible('/resources', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(true);
-    expect(isRouteAccessible('/resources/resource-id', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(false);
+    expect(
+      isRouteAccessible('/resources/d532410e857188ec16383d0654f4df1a', UNAUTHENTICATED_ROUTES.allowedRoutes, true),
+    ).toBe(false);
     expect(isRouteAccessible('/resources/manage/delete', UNAUTHENTICATED_ROUTES.allowedRoutes, true)).toBe(false);
   });
 
@@ -451,7 +472,7 @@ describe('isPublicExploreRoute', () => {
     expect(isPublicExploreRoute(`/profile/${pubky}`)).toBe(true);
     expect(isPublicExploreRoute(`/collections/${pubky}/0034BBBDFK83G`)).toBe(true);
     expect(isPublicExploreRoute('/resources')).toBe(true);
-    expect(isPublicExploreRoute('/resources/resource-id')).toBe(true);
+    expect(isPublicExploreRoute('/resources/d532410e857188ec16383d0654f4df1a')).toBe(true);
     expect(isPublicExploreRoute('/resources/lookup')).toBe(true);
     expect(isPublicExploreRoute('/resources/tag/bitcoin')).toBe(true);
   });

@@ -38,6 +38,22 @@ describe('usePublicRoute', () => {
       expect(result.current.isPublicExploreRoute).toBe(true);
     });
 
+    it.each([
+      ['/resources', false, true],
+      ['/resources/d532410e857188ec16383d0654f4df1a', true, false],
+      ['/resources/lookup', true, false],
+      ['/resources/tag/bitcoin', true, false],
+    ])('classifies public resource route %s', (pathname, isDynamicPublicRoute, isCoreExploreRoute) => {
+      mockPathname.mockReturnValue(pathname);
+
+      const { result } = renderHook(() => usePublicRoute());
+
+      expect(result.current.isPublicRoute).toBe(isDynamicPublicRoute);
+      expect(result.current.isDynamicPublicRoute).toBe(isDynamicPublicRoute);
+      expect(result.current.isCoreExploreRoute).toBe(isCoreExploreRoute);
+      expect(result.current.isPublicExploreRoute).toBe(true);
+    });
+
     it('returns isPublicRoute: false for other user legacy posts URL (redirected; not public in guard)', () => {
       const pubky = 'gujx6qd8ksydh1makdphd3bxu351d9b8waqka8hfg6q7hnqkxexo';
       mockPathname.mockReturnValue(`/profile/${pubky}/posts`);
@@ -143,6 +159,25 @@ describe('usePublicRoute', () => {
 
     it('returns isPublicRoute: false for root page', () => {
       mockPathname.mockReturnValue('/');
+
+      const { result } = renderHook(() => usePublicRoute());
+
+      expect(result.current.isPublicRoute).toBe(false);
+      expect(result.current.isDynamicPublicRoute).toBe(false);
+      expect(result.current.isCoreExploreRoute).toBe(false);
+      expect(result.current.isPublicExploreRoute).toBe(false);
+    });
+
+    it.each([
+      '/resources/settings',
+      '/resources/admin',
+      '/resources/manage-export',
+      '/resources/LOOKUP',
+      '/resources/%2Fmanage',
+      '/resources/d532410e857188ec16383d0654f4df1a0',
+      '/resources/tag/bitcoin/',
+    ])('rejects non-canonical resource route %s', (pathname) => {
+      mockPathname.mockReturnValue(pathname);
 
       const { result } = renderHook(() => usePublicRoute());
 

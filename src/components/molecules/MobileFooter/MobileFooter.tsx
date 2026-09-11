@@ -27,8 +27,8 @@ export interface MobileFooterProps {
 /**
  * MobileFooter - Bottom navigation for mobile devices
  *
- * Hidden for unauthenticated users on public routes (single post, profile)
- * following pubky-app pattern.
+ * Hidden for unauthenticated users on non-explore routes; core explore and
+ * dynamic public routes, including canonical resource routes, keep this footer.
  */
 export function MobileFooter({ className }: MobileFooterProps) {
   const pathname = usePathname();
@@ -82,7 +82,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
   ];
   const protectedNavHrefs = new Set<string>([SETTINGS_ROUTES.ACCOUNT]);
   // Hide footer for guests only on non-explore routes. Core explore and dynamic public
-  // routes (/home, /post/..., /profile/...) use the public explore footer.
+  // routes (/home, /resources, /post/..., /profile/..., resource detail/lookup/tag) use the public explore footer.
   if (!isAuthenticated && !isPublicExploreRoute) {
     return null;
   }
