@@ -96,209 +96,207 @@ export function MarketplaceCart() {
         </div>
 
         {cart.isLoading ? (
-          <MarketplaceCartSkeleton />
+          <div data-surface="marketplace-cart">
+            <MarketplaceCartSkeleton />
+          </div>
         ) : cart.items.length ? (
-          <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
-            <div className="flex flex-col gap-4">
-              {/* Nothing ships on a pickup-only checkout — the shipping note
+          <div className="grid gap-6 lg:grid-cols-[1fr_420px]" data-surface="marketplace-cart">
+            <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
+              <div className="flex flex-col gap-4" data-testid="marketplace-cart-items">
+                {/* Nothing ships on a pickup-only checkout — the shipping note
                   would be a lie there (§A2). */}
-              {checkout.requiresDeliveryAddress && (
-                <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-                  Each seller ships separately; shipping is calculated at checkout.
-                </Typography>
-              )}
-              {cart.groups.map((group) => {
-                // Per-(seller, fulfillment) grouping (§A2): the choice is
-                // offered only among the methods every line in the group
-                // publishes; a pickup group carries no shipping line and no
-                // delivery-address step.
-                const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
-                const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
-                const isPickupGroup = fulfillment === 'pickup';
-                return (
-                  <section
-                    key={group.sellerPubky}
-                    className="grid gap-3"
-                    aria-label={`Cart items from ${group.sellerPubky}`}
-                    data-surface={isPickupGroup ? 'cart-pickup-group' : undefined}
-                  >
-                    {cart.groups.length > 1 && <MarketplaceCartSellerHeader group={group} />}
-                    {fulfillmentOptions.length > 1 && fulfillment && (
-                      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
-                        <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
-                        <Select
-                          value={fulfillment}
-                          onValueChange={(value) => {
-                            if (value === 'shipping' || value === 'pickup') {
-                              checkout.setFulfillmentChoice(group.sellerPubky, value);
-                            }
-                          }}
-                        >
-                          <SelectTrigger
-                            id={`fulfillment-${group.sellerPubky}`}
-                            className="h-11 w-56 rounded-md border px-3"
-                            aria-label={`Fulfillment for items from ${group.sellerPubky}`}
+                {checkout.requiresDeliveryAddress && (
+                  <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+                    Each seller ships separately; shipping is calculated at checkout.
+                  </Typography>
+                )}
+                {cart.groups.map((group) => {
+                  // Per-(seller, fulfillment) grouping (§A2): the choice is
+                  // offered only among the methods every line in the group
+                  // publishes; a pickup group carries no shipping line and no
+                  // delivery-address step.
+                  const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
+                  const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
+                  const isPickupGroup = fulfillment === 'pickup';
+                  return (
+                    <section
+                      key={group.sellerPubky}
+                      className="grid gap-3"
+                      aria-label={`Cart items from ${group.sellerPubky}`}
+                      data-surface={isPickupGroup ? 'cart-pickup-group' : undefined}
+                    >
+                      {cart.groups.length > 1 && <MarketplaceCartSellerHeader group={group} />}
+                      {fulfillmentOptions.length > 1 && fulfillment && (
+                        <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
+                          <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
+                          <Select
+                            value={fulfillment}
+                            onValueChange={(value) => {
+                              if (value === 'shipping' || value === 'pickup') {
+                                checkout.setFulfillmentChoice(group.sellerPubky, value);
+                              }
+                            }}
                           >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {fulfillmentOptions.includes('shipping') && (
-                              <SelectItem value="shipping">Ship it</SelectItem>
-                            )}
-                            {fulfillmentOptions.includes('pickup') && (
-                              <SelectItem value="pickup">Local pickup</SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    {isPickupGroup && (
-                      <Typography
-                        as="p"
-                        className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
-                      >
-                        Local pickup — no delivery address or shipping for these items. The meeting point is revealed on
-                        the order as soon as your payment confirms.
-                      </Typography>
-                    )}
-                    {fulfillmentOptions.length === 0 && (
-                      <Typography
-                        as="p"
-                        role="alert"
-                        className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
-                      >
-                        These items can&apos;t be checked out together: they don&apos;t share a fulfillment method this
-                        deployment supports (one ships while another is pickup-only). Remove one to continue.
-                      </Typography>
-                    )}
-                    {group.items.map((item) => {
-                      const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-                      const price =
-                        variant?.priceOverride ??
-                        (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
-                      // The record's media order is authoritative: the first image
-                      // is the cover here just as on cards and the detail gallery.
-                      const coverUrl = cartMediaUrls[cart.items.findIndex(({ id }) => id === item.id)] ?? null;
-                      const listingRoute = getMarketplaceListingRoute(
-                        item.listing.record.ownerPubky,
-                        item.listing.listing_id,
-                      );
-                      return (
-                        <Card key={item.id} className="border py-4">
-                          <CardContent className="flex items-center gap-4 px-4">
-                            <Link href={listingRoute} overrideDefaults aria-label={`View ${item.listing.record.title}`}>
-                              <div className="relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand/15">
-                                <ShoppingCart className="size-7 text-brand" />
-                                {coverUrl && (
-                                  <Image
-                                    src={coverUrl}
-                                    alt={item.listing.record.title}
-                                    fill
-                                    sizes="80px"
-                                    className="absolute inset-0 object-cover"
-                                  />
+                            <SelectTrigger
+                              id={`fulfillment-${group.sellerPubky}`}
+                              className="h-11 w-56 rounded-md border px-3"
+                              aria-label={`Fulfillment for items from ${group.sellerPubky}`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {fulfillmentOptions.includes('shipping') && (
+                                <SelectItem value="shipping">Ship it</SelectItem>
+                              )}
+                              {fulfillmentOptions.includes('pickup') && (
+                                <SelectItem value="pickup">Local pickup</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {isPickupGroup && (
+                        <Typography
+                          as="p"
+                          className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
+                        >
+                          Local pickup — no delivery address or shipping for these items. The meeting point is revealed
+                          on the order as soon as your payment confirms.
+                        </Typography>
+                      )}
+                      {fulfillmentOptions.length === 0 && (
+                        <Typography
+                          as="p"
+                          role="alert"
+                          className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
+                        >
+                          These items can&apos;t be checked out together: they don&apos;t share a fulfillment method
+                          this deployment supports (one ships while another is pickup-only). Remove one to continue.
+                        </Typography>
+                      )}
+                      {group.items.map((item) => {
+                        const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+                        const price =
+                          variant?.priceOverride ??
+                          (item.listing.record.sale.format === 'fixed_price'
+                            ? item.listing.record.sale.unitPrice
+                            : null);
+                        // The record's media order is authoritative: the first image
+                        // is the cover here just as on cards and the detail gallery.
+                        const coverUrl = cartMediaUrls[cart.items.findIndex(({ id }) => id === item.id)] ?? null;
+                        const listingRoute = getMarketplaceListingRoute(
+                          item.listing.record.ownerPubky,
+                          item.listing.listing_id,
+                        );
+                        return (
+                          <Card key={item.id} className="border py-4">
+                            <CardContent className="flex items-center gap-4 px-4">
+                              <Link
+                                href={listingRoute}
+                                overrideDefaults
+                                aria-label={`View ${item.listing.record.title}`}
+                              >
+                                <div className="relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand/15">
+                                  <ShoppingCart className="size-7 text-brand" />
+                                  {coverUrl && (
+                                    <Image
+                                      src={coverUrl}
+                                      alt={item.listing.record.title}
+                                      fill
+                                      sizes="80px"
+                                      className="absolute inset-0 object-cover"
+                                    />
+                                  )}
+                                </div>
+                              </Link>
+                              <div className="min-w-0 flex-1">
+                                <Typography as="h2" className="truncate font-semibold">
+                                  <Link
+                                    href={listingRoute}
+                                    overrideDefaults
+                                    className="hover:text-brand hover:underline"
+                                  >
+                                    {item.listing.record.title}
+                                  </Link>
+                                </Typography>
+                                <Typography as="p" className="text-sm text-muted-foreground">
+                                  {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'}
+                                </Typography>
+                                {price && (
+                                  <Typography as="p" className="mt-1 font-bold text-brand">
+                                    {formatCommerceMoney(price)}{' '}
+                                    <MarketplaceIndicativePrice money={price} className="font-normal" />
+                                  </Typography>
                                 )}
                               </div>
-                            </Link>
-                            <div className="min-w-0 flex-1">
-                              <Typography as="h2" className="truncate font-semibold">
-                                <Link href={listingRoute} overrideDefaults className="hover:text-brand hover:underline">
-                                  {item.listing.record.title}
-                                </Link>
-                              </Typography>
-                              <Typography as="p" className="text-sm text-muted-foreground">
-                                {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'}
-                              </Typography>
-                              {price && (
-                                <Typography as="p" className="mt-1 font-bold text-brand">
-                                  {formatCommerceMoney(price)}{' '}
-                                  <MarketplaceIndicativePrice money={price} className="font-normal" />
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label={`Decrease ${item.listing.record.title} quantity`}
+                                  disabled={item.quantity <= 1}
+                                  onClick={() => void cart.update(item.listingId, item.variantId, item.quantity - 1)}
+                                >
+                                  <Minus className="size-4" />
+                                </Button>
+                                <Typography as="span" className="min-w-8 text-center">
+                                  {item.quantity}
                                 </Typography>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                aria-label={`Decrease ${item.listing.record.title} quantity`}
-                                disabled={item.quantity <= 1}
-                                onClick={() => void cart.update(item.listingId, item.variantId, item.quantity - 1)}
-                              >
-                                <Minus className="size-4" />
-                              </Button>
-                              <Typography as="span" className="min-w-8 text-center">
-                                {item.quantity}
-                              </Typography>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                aria-label={`Increase ${item.listing.record.title} quantity`}
-                                disabled={!variant || item.quantity >= variant.quantity}
-                                onClick={() => void cart.update(item.listingId, item.variantId, item.quantity + 1)}
-                              >
-                                <Plus className="size-4" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                aria-label={`Remove ${item.listing.record.title}`}
-                                onClick={() => void cart.remove(item.listingId, item.variantId)}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label={`Increase ${item.listing.record.title} quantity`}
+                                  disabled={!variant || item.quantity >= variant.quantity}
+                                  onClick={() => void cart.update(item.listingId, item.variantId, item.quantity + 1)}
+                                >
+                                  <Plus className="size-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label={`Remove ${item.listing.record.title}`}
+                                  onClick={() => void cart.remove(item.listingId, item.variantId)}
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </section>
+                  );
+                })}
+              </div>
+
+              <Card className="h-fit border">
+                <CardContent className="grid gap-6 px-6">
+                  <section className="grid gap-3" aria-label="1 Approve in Pubky Ring">
+                    <Heading level={2} size="sm" className="text-xl font-semibold">
+                      1 Approve in Pubky Ring
+                    </Heading>
+                    {approvalNeeded ? (
+                      <MarketplaceSessionRequiredCard />
+                    ) : (
+                      <div className="flex items-start gap-3 rounded-xl border px-4 py-3">
+                        <Check className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+                        <Typography as="p" className="text-sm text-muted-foreground">
+                          {isSandbox
+                            ? 'Sandbox checkout does not need a Pubky Ring approval.'
+                            : 'Purchases approved in Pubky Ring. This session stays on this device until it expires or you sign out.'}
+                        </Typography>
+                      </div>
+                    )}
                   </section>
-                );
-              })}
-            </div>
+                </CardContent>
+              </Card>
 
-            <Card className="h-fit border">
-              <CardContent className="grid gap-6 px-6">
-                <section className="grid gap-3" aria-label="1 Approve in Pubky Ring">
+              {checkout.requiresDeliveryAddress && (
+                <section className="grid gap-4" aria-label="2 Delivery address">
                   <Heading level={2} size="sm" className="text-xl font-semibold">
-                    1 Approve in Pubky Ring
+                    2 Delivery address
                   </Heading>
-                  {approvalNeeded ? (
-                    <MarketplaceSessionRequiredCard />
-                  ) : (
-                    <div className="flex items-start gap-3 rounded-xl border px-4 py-3">
-                      <Check className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
-                      <Typography as="p" className="text-sm text-muted-foreground">
-                        {isSandbox
-                          ? 'Sandbox checkout does not need a Pubky Ring approval.'
-                          : 'Purchases approved in Pubky Ring. This session stays on this device until it expires or you sign out.'}
-                      </Typography>
-                    </div>
-                  )}
-                </section>
-
-                <section className="grid gap-4" aria-label="2 Delivery and guarantee">
-                  <Heading level={2} size="sm" className="text-xl font-semibold">
-                    2 Delivery and guarantee
-                  </Heading>
-                  {/* A pickup-only checkout sends NO delivery address (§A2 —
-                      the strictest reading of the address-privacy policy), so
-                      the whole address step collapses to the explanation. */}
-                  {/* The pickup panel concept is carried over from Igor's PR
-                      22 cart (credited prior art), rebuilt on the grouped
-                      (seller, fulfillment) cart: his single isPickupOnly
-                      branch is now the "every group is pickup" case. */}
-                  {!checkout.requiresDeliveryAddress && (
-                    <div className="rounded-xl border bg-card/60 p-4">
-                      <Typography as="p" className="text-sm font-medium">
-                        Local pickup
-                      </Typography>
-                      <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                        No delivery address is needed — every item in this cart is collected in person. The
-                        seller&apos;s meeting point is revealed on the order as soon as your payment confirms.
-                      </Typography>
-                    </div>
-                  )}
-                  {checkout.requiresDeliveryAddress && checkout.addresses.length > 0 && (
+                  {checkout.addresses.length > 0 && (
                     <div className="grid gap-2">
                       <div className="flex items-center justify-between gap-2">
                         <Label htmlFor="checkout-address-picker">Saved addresses</Label>
@@ -329,27 +327,20 @@ export function MarketplaceCart() {
                       </Select>
                     </div>
                   )}
-                  {checkout.requiresDeliveryAddress && (
-                    <>
-                      <Typography
-                        as="p"
-                        className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
-                      >
-                        Your delivery address is sent with your order and shown only to the seller of that order.
-                        Encrypting it to the seller&apos;s key is scheduled.
-                      </Typography>
-                      <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
-                      <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
-                      <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <ControlledInputField name="city" control={checkout.form.control} label="City" />
-                        <ControlledInputField name="region" control={checkout.form.control} label="Region" />
-                        <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
-                        <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
-                      </div>
-                    </>
-                  )}
-                  {checkout.requiresDeliveryAddress && checkout.selectedAddressId === null && (
+                  <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+                    Your delivery address is sent with your order and shown only to the seller of that order. Encrypting
+                    it to the seller&apos;s key is scheduled.
+                  </Typography>
+                  <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
+                  <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
+                  <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <ControlledInputField name="city" control={checkout.form.control} label="City" />
+                    <ControlledInputField name="region" control={checkout.form.control} label="Region" />
+                    <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
+                    <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
+                  </div>
+                  {checkout.selectedAddressId === null && (
                     <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
                       <Controller
                         name="saveAddress"
@@ -369,6 +360,30 @@ export function MarketplaceCart() {
                           placeholder="Home"
                         />
                       )}
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+
+            <Card
+              className="h-fit border lg:col-start-2 lg:row-start-1 lg:self-start"
+              data-testid="marketplace-cart-summary"
+            >
+              <CardContent className="grid gap-6 px-6">
+                <section className="grid gap-4" aria-label="Guarantee">
+                  <Heading level={2} size="sm" className="text-xl font-semibold">
+                    Guarantee
+                  </Heading>
+                  {!checkout.requiresDeliveryAddress && (
+                    <div className="rounded-xl border bg-card/60 p-4">
+                      <Typography as="p" className="text-sm font-medium">
+                        Local pickup
+                      </Typography>
+                      <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                        No delivery address is needed — every item in this cart is collected in person. The
+                        seller&apos;s meeting point is revealed on the order as soon as your payment confirms.
+                      </Typography>
                     </div>
                   )}
                   <Controller
@@ -502,7 +517,10 @@ export function MarketplaceCart() {
             </Card>
           </div>
         ) : (
-          <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed text-center">
+          <div
+            className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed text-center"
+            data-surface="marketplace-cart"
+          >
             <ShoppingCart className="mb-3 size-10 text-muted-foreground" />
             <Heading level={2} size="md">
               Your cart is empty

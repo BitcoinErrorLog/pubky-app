@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 
@@ -249,13 +249,58 @@ beforeEach(async () => {
 });
 
 describe('Marketplace cart — visual regression', () => {
+  it('rejects a missing production surface marker', () => {
+    expect(() => expectVrtSurface('missing-marketplace-cart')).toThrow(
+      'no production [data-surface="missing-marketplace-cart"] root is mounted',
+    );
+  });
+
+  async function captureCart(sceneName: string) {
+    const surface = expectVrtSurface('marketplace-cart');
+    await expect(surface).toMatchScreenshot(sceneName);
+  }
+
+  function expectDesktopSummaryGeometry(viewportHeight: number) {
+    const surface = document.querySelector('[data-surface="marketplace-cart"]');
+    const summary = document.querySelector('[data-testid="marketplace-cart-summary"]');
+    if (!(surface instanceof HTMLElement) || !(summary instanceof HTMLElement)) {
+      throw new Error('VRT geometry rejected: production cart surface or summary is missing');
+    }
+
+    const surfaceRect = surface.getBoundingClientRect();
+    const summaryRect = summary.getBoundingClientRect();
+    expect(summaryRect.top).toBeGreaterThanOrEqual(surfaceRect.top);
+    expect(Math.abs(summaryRect.top - surfaceRect.top)).toBeLessThanOrEqual(2);
+    expect(summaryRect.bottom).toBeLessThanOrEqual(viewportHeight);
+    expect(summaryRect.right).toBeLessThanOrEqual(document.documentElement.clientWidth);
+    expect(summaryRect.left).toBeGreaterThanOrEqual(0);
+  }
+
+  function expectMobileWorkflowGeometry() {
+    const surface = document.querySelector('[data-surface="marketplace-cart"]');
+    if (!(surface instanceof HTMLElement)) throw new Error('VRT geometry rejected: production cart surface is missing');
+
+    const labels = ['1 Approve in Pubky Ring', '2 Delivery address', 'Guarantee', '3 Place order'];
+    const regions = labels.map((label) => {
+      const region = surface.querySelector(`[aria-label="${label}"]`);
+      if (!(region instanceof HTMLElement)) throw new Error(`VRT geometry rejected: missing ${label} region`);
+      return region;
+    });
+    expect(regions.map((region) => region.getBoundingClientRect().top)).toEqual(
+      [...regions].map((region) => region.getBoundingClientRect().top).sort((left, right) => left - right),
+    );
+    expect(regions[3].getBoundingClientRect().bottom - surface.getBoundingClientRect().top).toBeLessThanOrEqual(
+      surface.scrollHeight,
+    );
+  }
+
   it('renders a single-seller cart at desktop viewport', async () => {
     const { singleSeller } = await fixtures;
     view.items = singleSeller;
     view.isLoading = false;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-single-seller-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-single-seller-desktop');
   });
 
   it('renders a single-seller cart at mobile viewport', async () => {
@@ -263,8 +308,8 @@ describe('Marketplace cart — visual regression', () => {
     view.items = singleSeller;
     view.isLoading = false;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-single-seller-mobile');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    await captureCart('cart-single-seller-mobile');
   });
 
   it('renders a multi-seller cart at desktop viewport', async () => {
@@ -272,8 +317,30 @@ describe('Marketplace cart — visual regression', () => {
     view.items = multiSeller;
     view.isLoading = false;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-multi-seller-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-multi-seller-desktop');
+  });
+
+  it('keeps the desktop summary aligned and above the fold for multi-seller carts', async () => {
+    const { multiSeller } = await fixtures;
+    view.items = multiSeller;
+    view.isLoading = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    expectDesktopSummaryGeometry(VRT_VIEWPORT_DESKTOP.height);
+  });
+
+  it('rejects the old row-coupled desktop summary geometry', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const summary = document.querySelector('[data-testid="marketplace-cart-summary"]');
+    if (!(summary instanceof HTMLElement)) throw new Error('VRT calibration rejected: production summary is missing');
+    summary.style.gridRowStart = '2';
+
+    expect(() => expectDesktopSummaryGeometry(VRT_VIEWPORT_DESKTOP.height)).toThrow();
   });
 
   it('renders a multi-seller cart at mobile viewport', async () => {
@@ -281,8 +348,17 @@ describe('Marketplace cart — visual regression', () => {
     view.items = multiSeller;
     view.isLoading = false;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-multi-seller-mobile');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    await captureCart('cart-multi-seller-mobile');
+  });
+
+  it('keeps mobile checkout regions in natural workflow order', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    expectMobileWorkflowGeometry();
   });
 
   it('renders a cart with a stale item whose variant is gone at desktop viewport', async () => {
@@ -290,8 +366,8 @@ describe('Marketplace cart — visual regression', () => {
     view.items = staleItem;
     view.isLoading = false;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-stale-item-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-stale-item-desktop');
   });
 
   // The address book picker: two saved addresses with the default applied,
@@ -303,8 +379,8 @@ describe('Marketplace cart — visual regression', () => {
     view.addresses = savedAddresses;
     view.selectedAddressId = (savedAddresses[0] as { id: string }).id;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-address-picker-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-address-picker-desktop');
     view.addresses = [];
     view.selectedAddressId = null;
   });
@@ -316,8 +392,8 @@ describe('Marketplace cart — visual regression', () => {
     view.addresses = savedAddresses;
     view.selectedAddressId = (savedAddresses[0] as { id: string }).id;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-address-picker-mobile');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    await captureCart('cart-address-picker-mobile');
     view.addresses = [];
     view.selectedAddressId = null;
   });
@@ -326,16 +402,16 @@ describe('Marketplace cart — visual regression', () => {
     view.items = [];
     view.isLoading = false;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-empty-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-empty-desktop');
   });
 
   it('renders the loading state at desktop viewport', async () => {
     view.items = [];
     view.isLoading = true;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-loading-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-loading-desktop');
   });
 
   // Durable transaction-service mode: no "sandbox" wording on the guarantee
@@ -346,8 +422,8 @@ describe('Marketplace cart — visual regression', () => {
     view.isLoading = false;
     view.adapterMode = 'transaction-service';
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-durable-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-durable-desktop');
     view.adapterMode = 'sandbox';
   });
 
@@ -362,8 +438,8 @@ describe('Marketplace cart — visual regression', () => {
     view.adapterMode = 'locks-paykit';
     view.deployEnv = 'production';
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-locks-paykit-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCart('cart-locks-paykit-desktop');
     view.adapterMode = 'sandbox';
     view.deployEnv = 'staging';
   });
@@ -378,8 +454,8 @@ describe('Marketplace cart — visual regression', () => {
     view.adapterMode = 'transaction-service';
     view.hasMarketplaceSession = false;
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: { width: 1440, height: 1600 } });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('cart-durable-unapproved-desktop');
+    await renderForVRT(<MarketplaceCart />, { viewport: { width: 1440, height: 1600 } });
+    await captureCart('cart-durable-unapproved-desktop');
     view.adapterMode = 'sandbox';
     view.hasMarketplaceSession = false;
   });
