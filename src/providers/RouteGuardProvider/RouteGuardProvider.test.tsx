@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
   const mockResync = vi.fn();
   const resetMigrationStore = vi.fn();
   const mockToast = vi.fn();
+  const mockSetShowSignInDialog = vi.fn();
   const restorePersistedSession = vi.fn().mockResolvedValue(true);
 
   return {
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => {
     mockResync,
     resetMigrationStore,
     mockToast,
+    mockSetShowSignInDialog,
     restorePersistedSession,
     consumerEnabled: false,
     autoRestoreSuppressed: false,
@@ -52,6 +54,9 @@ vi.mock('@/hooks/useAuthStatus/useAuthStatus', () => ({
 
 // Mock @/app
 vi.mock('@/app/routes', () => ({
+  APP_ROUTES: {
+    MARKETPLACE: '/marketplace',
+  },
   MARKETPLACE_ROUTES: {
     CART: '/marketplace/cart',
     SELL: '/marketplace/sell',
@@ -103,13 +108,20 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 
 // Mock auth store
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      hasHydrated: mocks.hasHydrated,
-      session: mocks.session,
-      sessionExport: mocks.sessionExport,
-      currentUserPubky: mocks.currentUserPubky,
-    }),
+  useAuthStore: Object.assign(
+    (selector: (state: Record<string, unknown>) => unknown) =>
+      selector({
+        hasHydrated: mocks.hasHydrated,
+        session: mocks.session,
+        sessionExport: mocks.sessionExport,
+        currentUserPubky: mocks.currentUserPubky,
+      }),
+    {
+      getState: () => ({
+        setShowSignInDialog: mocks.mockSetShowSignInDialog,
+      }),
+    },
+  ),
 }));
 vi.mock('@/stores/migration/migration.store', () => ({
   useMigrationStore: Object.assign(
@@ -165,6 +177,7 @@ describe('RouteGuardProvider — migration resync', () => {
     mocks.mockRouterRefresh.mockReset();
     mocks.resetMigrationStore.mockReset();
     mocks.mockToast.mockReset();
+    mocks.mockSetShowSignInDialog.mockReset();
     mocks.restorePersistedSession.mockReset();
     mocks.restorePersistedSession.mockResolvedValue({ status: 'restored' });
     mocks.consumerEnabled = false;
@@ -531,8 +544,10 @@ describe('RouteGuardProvider — return path', () => {
     );
 
     expect(screen.getByText('Redirecting...')).toBeInTheDocument();
-    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
-    expect(mocks.mockToast).toHaveBeenCalledWith({
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/marketplace');
+    expect(mocks.mockSetShowSignInDialog).toHaveBeenCalledTimes(1);
+    expect(mocks.mockSetShowSignInDialog).toHaveBeenCalledWith(true);
+    expect(mocks.mockToast).not.toHaveBeenCalledWith({
       variant: 'info',
       description: 'Sign in to open that page.',
     });
@@ -541,7 +556,7 @@ describe('RouteGuardProvider — return path', () => {
     mocks.status = 'AUTHENTICATED';
     mocks.session = {};
     mocks.currentUserPubky = 'test-pubky-z32';
-    mocks.pathname = '/login';
+    mocks.pathname = '/marketplace';
 
     rerender(
       <RouteGuardProvider>
@@ -554,24 +569,46 @@ describe('RouteGuardProvider — return path', () => {
   });
 
   it.each(['/marketplace/cart', '/marketplace/sell', '/marketplace/offers'])(
-    'notifies and stores return-to for unauthenticated %s',
+    'opens sign-in and stores return-to for unauthenticated %s',
     (pathname) => {
       mocks.pathname = pathname;
+      const protectedContent = `Protected ${pathname}`;
 
       render(
         <RouteGuardProvider>
-          <div>Marketplace</div>
+          <div>{protectedContent}</div>
         </RouteGuardProvider>,
       );
 
-      expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
-      expect(mocks.mockToast).toHaveBeenCalledWith({
+      expect(mocks.mockRouterPush).toHaveBeenCalledWith('/marketplace');
+      expect(mocks.mockSetShowSignInDialog).toHaveBeenCalledTimes(1);
+      expect(mocks.mockSetShowSignInDialog).toHaveBeenCalledWith(true);
+      expect(mocks.mockToast).not.toHaveBeenCalledWith({
         variant: 'info',
         description: 'Sign in to open that page.',
       });
       expect(window.sessionStorage.getItem('pubky.routeGuard.returnTo')).toBe(pathname);
+      expect(screen.queryByText(protectedContent)).not.toBeInTheDocument();
     },
   );
+
+  it('keeps the base redirect and toast for unauthenticated non-marketplace routes', () => {
+    mocks.pathname = '/settings';
+
+    render(
+      <RouteGuardProvider>
+        <div>Settings Content</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
+    expect(mocks.mockToast).toHaveBeenCalledWith({
+      variant: 'info',
+      description: 'Sign in to open that page.',
+    });
+    expect(mocks.mockSetShowSignInDialog).not.toHaveBeenCalled();
+    expect(screen.queryByText('Settings Content')).not.toBeInTheDocument();
+  });
 
   it('does not notify an authenticated marketplace route', () => {
     mocks.status = 'AUTHENTICATED';
