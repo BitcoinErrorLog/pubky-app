@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { isDynamicPublicRoute, matchesAllowedRoute, PUBLIC_ROUTES } from '@/app/routes';
+import { APP_ROUTES, isDynamicPublicRoute, matchesAllowedRoute, PUBLIC_ROUTES } from '@/app/routes';
 import { Spinner } from '@/atoms/Spinner/Spinner';
 import { AuthController } from '@/controllers/auth/auth';
 import { MigrationController } from '@/controllers/migration/migration';
@@ -209,10 +209,17 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
 
     // Redirect user to the appropriate default route for their authentication status
     const routeAccess = ROUTE_ACCESS_MAP[status];
-    const redirectTo = routeAccess.redirectTo;
+    const authenticatedRouteAccess = ROUTE_ACCESS_MAP[AuthStatus.AUTHENTICATED];
+    const isMarketplaceDeepLink =
+      pathname === APP_ROUTES.MARKETPLACE || pathname.startsWith(`${APP_ROUTES.MARKETPLACE}/`);
+    const shouldOpenMarketplaceSignIn =
+      status === AuthStatus.UNAUTHENTICATED &&
+      isMarketplaceDeepLink &&
+      isRouteGuardReturnToAllowed(pathname, authenticatedRouteAccess.allowedRoutes);
+    const redirectTo = shouldOpenMarketplaceSignIn ? APP_ROUTES.MARKETPLACE : routeAccess.redirectTo;
 
     // Runtime validation: ensure redirect target is actually in allowed routes
-    if (redirectTo && !routeAccess.allowedRoutes.includes(redirectTo)) {
+    if (redirectTo && !routeAccess.allowedRoutes.some((route) => matchesAllowedRoute(redirectTo, route))) {
       Logger.error(
         `RouteGuard configuration error: redirectTo "${redirectTo}" is not in allowedRoutes for status "${status}"`,
       );
@@ -221,8 +228,10 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
 
     // Only redirect if we have a target and we're not already there
     if (redirectTo && pathname !== redirectTo) {
-      const authenticatedRouteAccess = ROUTE_ACCESS_MAP[AuthStatus.AUTHENTICATED];
-      if (
+      if (shouldOpenMarketplaceSignIn) {
+        storeRouteGuardReturnTo(pathname);
+        useAuthStore.getState().setShowSignInDialog(true);
+      } else if (
         status === AuthStatus.UNAUTHENTICATED &&
         isRouteGuardReturnToAllowed(pathname, authenticatedRouteAccess.allowedRoutes)
       ) {
