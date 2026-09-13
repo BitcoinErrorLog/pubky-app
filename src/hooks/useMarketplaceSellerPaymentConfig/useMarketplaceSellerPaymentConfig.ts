@@ -15,6 +15,7 @@ import {
 } from '@/libs/commerce/payment-methods';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 type ClaimStatus = 'idle' | 'awaiting' | 'claimed' | 'error';
 
@@ -27,6 +28,7 @@ type ClaimFlow = ReturnType<typeof CommerceController.beginPaykitClaimFlow>;
  * the Bitkit-driven setup and the manual claim alike.
  */
 export function useMarketplaceSellerPaymentConfig() {
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [config, setConfig] = useState<SellerPaymentConfigOwnView | null>(null);
@@ -69,7 +71,7 @@ export function useMarketplaceSellerPaymentConfig() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [marketplaceSession]);
 
   const save = useCallback(
     async (input: {
