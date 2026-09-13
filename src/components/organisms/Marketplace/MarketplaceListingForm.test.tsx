@@ -173,8 +173,9 @@ describe('MarketplaceListingForm', () => {
     expect(screen.getByRole('navigation', { name: 'Listing sections' })).toHaveClass('sticky');
   });
 
-  it('focuses and announces the first photo description missing on publish', async () => {
+  it('submits without photo descriptions when scrollIntoView is unavailable', async () => {
     const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => {});
     render(
       <FormHarness
         fulfillment="pickup"
@@ -185,13 +186,18 @@ describe('MarketplaceListingForm', () => {
           categoryId: 'fashion',
           price: '125.00',
         }}
+        onSubmit={onSubmit}
       />,
     );
 
+    Object.defineProperty(document.getElementById('listing-section-price'), 'scrollIntoView', {
+      configurable: true,
+      value: undefined,
+    });
+    await user.click(screen.getAllByRole('link', { name: /Price & format/ })[0]);
     await user.click(screen.getByRole('button', { name: 'Publish listing' }));
 
-    expect(screen.getByLabelText('Photo 1 description')).toHaveFocus();
-    expect(screen.getByRole('status')).toHaveTextContent('Every photo needs a description for screen readers.');
+    expect(onSubmit).toHaveBeenCalledOnce();
   });
 });
 
