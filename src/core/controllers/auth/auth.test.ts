@@ -320,7 +320,7 @@ vi.mock('@synonymdev/pubky', () => ({
   PublicKey: {
     from: vi.fn(),
   },
-  resolvePubky: (identifier: string) => identifier.replace('pubky://', 'https://'),
+  resolvePubky: (identifier: string) => identifier.replace('pubky://', 'https://_pubky.'),
   createRecoveryFile: vi.fn(() => new Uint8Array([1, 2, 3, 4, 5])),
 }));
 

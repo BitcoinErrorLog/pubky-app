@@ -11,7 +11,7 @@ vi.mock('@synonymdev/pubky', () => ({
       return globalThis.fetch(input, init);
     }
   },
-  resolvePubky: (identifier: string) => identifier.replace('pubky://', 'https://'),
+  resolvePubky: (identifier: string) => identifier.replace('pubky://', 'https://_pubky.'),
 }));
 
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
@@ -54,6 +54,14 @@ describe('marketplace catalog page', () => {
     expect(metadata.openGraph?.url).toBe(APP_ROUTES.MARKETPLACE);
     expect(metadata.openGraph).not.toHaveProperty('images');
     expect(metadata.twitter).not.toHaveProperty('images');
+  });
+
+  it('keeps the Pubky resolver transport hostname shape', async () => {
+    const { resolvePubky } = await import('@synonymdev/pubky');
+
+    expect(resolvePubky('pubky://example-pubky/pub/pubky.app/shop.json')).toBe(
+      'https://_pubky.example-pubky/pub/pubky.app/shop.json',
+    );
   });
 
   it('server-renders listing cards from a fixture Nexus stream', async () => {
