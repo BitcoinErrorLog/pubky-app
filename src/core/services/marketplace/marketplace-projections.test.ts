@@ -62,4 +62,24 @@ describe('marketplace listing projection — viewer bid', () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data.viewerBid).toBeUndefined();
   });
+
+  it.each([
+    ['currency', { currency: 'EUR' }],
+    ['exponent', { exponent: 3 }],
+  ])('drops viewer_bid when its %s does not match the auction money', (_field, mismatch) => {
+    const fixture = createViewerBidAuctionProjectionFixture();
+    fixture.viewerBid = {
+      ...fixture.viewerBid!,
+      minimumNextBid: { ...fixture.viewerBid!.minimumNextBid, ...mismatch },
+    };
+
+    const parsed = marketplaceListingProjectionSchema.safeParse(fixture);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.viewerBid).toBeUndefined();
+      expect(parsed.data.auction?.currentPrice.amountMinor).toBe(4_500);
+      expect(parsed.data.auction?.minimumIncrement.amountMinor).toBe(500);
+    }
+  });
 });
