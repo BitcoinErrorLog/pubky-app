@@ -2414,7 +2414,8 @@ export class CommerceApplication {
       now,
     });
 
-    await LocalCommerceService.stageListingSync(record, publishJob, 'unregistered');
+    const registrationStatus = getCommerceAdapterMode() === 'unavailable' ? 'unavailable' : 'unregistered';
+    await LocalCommerceService.stageListingSync(record, publishJob, registrationStatus);
     await CommerceHomeserverService.putJson(url, { ...record });
     await LocalCommerceService.upsertListing(record, 'synced');
     await LocalCommerceService.completeSyncJob(publishJob.id);
@@ -2451,7 +2452,7 @@ export class CommerceApplication {
         return { registered: false };
       }
     }
-    return { registered: true };
+    return { registered: getCommerceAdapterMode() !== 'unavailable' };
   }
 
   /**

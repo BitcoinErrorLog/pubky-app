@@ -432,6 +432,7 @@ export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSche
 export type MarketplaceUnrecognizedNotification = {
   kind: 'unrecognized';
   id: string;
+  index: number;
   type: string;
   createdAt: string;
 };
@@ -480,9 +481,9 @@ export function parseMarketplaceNotificationEntries(
       marketplaceNotificationSchema.shape.createdAt.safeParse(candidate.createdAt).success
         ? candidate.createdAt
         : SAFE_QUARANTINE_TIMESTAMP;
-    const id = typeof candidate.id === 'string' ? candidate.id : String(index);
+    const id = typeof candidate.id === 'string' ? candidate.id.slice(0, MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH) : String(index);
     invalidTypes.add(type);
-    return { kind: 'unrecognized', id, type, createdAt };
+    return { kind: 'unrecognized', id, index, type, createdAt };
   });
 
   if (invalidTypes.size > 0) reportInvalidTypes?.([...invalidTypes].sort());

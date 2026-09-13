@@ -7,12 +7,12 @@ import type {
 import type { AuctionState, CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
 export type CommerceCacheStatus = 'local' | 'pending' | 'synced' | 'failed';
-export type CommerceListingRegistrationStatus = 'registered' | 'unregistered';
+export type CommerceListingRegistrationStatus = 'registered' | 'unregistered' | 'unavailable';
 
 export function isListingRegistrationPending(
   listing: Pick<CommerceListingModelSchema, 'registration_status'>,
 ): boolean {
-  return listing.registration_status !== 'registered';
+  return listing.registration_status === undefined || listing.registration_status === 'unregistered';
 }
 
 export interface CommerceShopModelSchema {

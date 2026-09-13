@@ -6,6 +6,7 @@ describe('isListingRegistrationPending', () => {
     { registration_status: undefined, expected: true },
     { registration_status: 'unregistered' as const, expected: true },
     { registration_status: 'registered' as const, expected: false },
+    { registration_status: 'unavailable' as const, expected: false },
   ])('returns $expected for $registration_status', ({ registration_status, expected }) => {
     expect(isListingRegistrationPending({ registration_status })).toBe(expected);
   });

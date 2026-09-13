@@ -18,10 +18,7 @@ import {
   CommerceWatchAlertModel,
   CommerceWatchSnapshotModel,
 } from '@/models/commerce/commerce.models';
-import type {
-  CommerceWatchAlertModelSchema,
-  CommerceWatchSnapshotModelSchema,
-} from '@/models/commerce/commerce.schema';
+import type { CommerceWatchAlertModelSchema, CommerceWatchSnapshotModelSchema } from '@/models/commerce/commerce.schema';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
@@ -166,6 +163,31 @@ describe('LocalCommerceService', () => {
     );
 
     await expect(LocalCommerceService.getListing(`${listing.ownerPubky}:${listing.listingId}`)).resolves.toMatchObject({
+      revision: refreshed.revision,
+      registration_status: 'unregistered',
+    });
+  });
+
+  it('preserves a separately scheduled registration update across an overlapping refresh', async () => {
+    const listing = createCommerceListingFixture();
+    const listingId = `${listing.ownerPubky}:${listing.listingId}`;
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    await LocalCommerceService.setListingRegistrationStatus(listingId, 'registered');
+
+    const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
+    const refreshPromise = LocalCommerceService.commitSellerCatalogRefresh(
+      [createCommerceCatalogEntryFixture({ revision: refreshed.revision })],
+      [refreshed],
+    );
+    const registrationUpdatePromise = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        LocalCommerceService.setListingRegistrationStatus(listingId, 'unregistered').then(resolve, reject);
+      }, 0);
+    });
+
+    await Promise.all([refreshPromise, registrationUpdatePromise]);
+
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
       revision: refreshed.revision,
       registration_status: 'unregistered',
     });

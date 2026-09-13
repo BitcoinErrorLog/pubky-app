@@ -433,14 +433,14 @@ export class LocalCommerceService {
     entries: CommerceCatalogEntryModelSchema[],
     records: CommerceListingRecord[],
   ): Promise<void> {
-    const currentListings = await Promise.all(
-      records.map((record) => CommerceListingModel.findById(`${record.ownerPubky}:${record.listingId}`)),
-    );
-    const listings = records.map((record, index) =>
-      this.toListingModel(record, 'synced', currentListings[index]?.registration_status),
-    );
     try {
       await db.transaction('rw', CommerceCatalogEntryModel.table, CommerceListingModel.table, async () => {
+        const currentListings = await CommerceListingModel.table.bulkGet(
+          records.map((record) => `${record.ownerPubky}:${record.listingId}`),
+        );
+        const listings = records.map((record, index) =>
+          this.toListingModel(record, 'synced', currentListings[index]?.registration_status),
+        );
         await CommerceCatalogEntryModel.table.bulkPut(entries);
         await CommerceListingModel.table.bulkPut(listings);
       });

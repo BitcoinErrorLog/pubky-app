@@ -1,6 +1,7 @@
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import type { CommerceAdapterMode } from '@/config/commerce';
 import type { MarketplaceNotification, MarketplaceNotificationEntry } from '@/services/marketplace/marketplace';
+import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH } from '@/services/marketplace/marketplace-projections';
 import type { MarketplaceFeedNotification } from './marketplaceNotification.types';
 
 export class MarketplaceNotificationNormalizer {
@@ -27,7 +28,10 @@ export class MarketplaceNotificationNormalizer {
   ): MarketplaceFeedNotification {
     if (notification.kind === 'unrecognized') {
       return {
-        id: `marketplace:unrecognized:${notification.type}:${notification.createdAt}:${notification.id}`,
+        id: `marketplace:unrecognized:${notification.type}:${notification.createdAt}:${notification.id.slice(
+          0,
+          MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH,
+        )}:${notification.index}`,
         source: 'marketplace',
         kind: 'unrecognized',
         type: notification.type,

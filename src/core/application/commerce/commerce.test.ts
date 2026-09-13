@@ -431,17 +431,18 @@ describe('CommerceApplication', () => {
 
   it('publishes a listing without registration when the marketplace adapter is unavailable', async () => {
     const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
-    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
 
-    await CommerceApplication.commitUpsertListing(record);
+    await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
 
     expect(put).toHaveBeenCalledWith(LISTING_URL, record);
     expect(execute).not.toHaveBeenCalled();
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'unavailable',
+    });
   });
 
   it('issues listing.sync as a convergent command any actor may send', async () => {

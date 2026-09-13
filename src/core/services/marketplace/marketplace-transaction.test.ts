@@ -597,6 +597,7 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(notifications[1]).toEqual({
       kind: 'unrecognized',
       id: '00000000-0000-4000-8000-000000000932',
+      index: 1,
       type: 'payment_method_bound',
       createdAt: '2026-08-20T11:01:00.000Z',
     });
@@ -624,6 +625,7 @@ describe('MarketplaceTransactionService read projections', () => {
     const [notification] = await MarketplaceTransactionService.getNotifications(ACTOR);
     expect(notification).toMatchObject({
       kind: 'unrecognized',
+      index: 0,
       type: 'x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH),
     });
     expect(JSON.stringify(loggerError.mock.calls)).toContain('x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH));
@@ -631,6 +633,21 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(MarketplaceNotificationNormalizer.toFeedNotification(notification, 'transaction-service').id).toContain(
       `marketplace:unrecognized:${'x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH)}`,
     );
+  });
+
+  it('keeps identical quarantined rows distinct with a bounded raw id', async () => {
+    await establishSession();
+    const oversizedId = 'i'.repeat(1_024);
+    const row = { ...LIVE_NOTIFICATION_ROWS[1], id: oversizedId };
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { notifications: [row, row] }));
+
+    const notifications = await MarketplaceTransactionService.getNotifications(ACTOR);
+    const first = MarketplaceNotificationNormalizer.toFeedNotification(notifications[0]!, 'transaction-service');
+    const second = MarketplaceNotificationNormalizer.toFeedNotification(notifications[1]!, 'transaction-service');
+
+    expect(first.id).not.toBe(second.id);
+    expect(first.id).toContain(`:${'i'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH)}:0`);
+    expect(first.id).not.toContain(oversizedId);
   });
 
   it('quarantines malformed notification timestamps at epoch', async () => {
@@ -644,6 +661,7 @@ describe('MarketplaceTransactionService read projections', () => {
     const [notification] = await MarketplaceTransactionService.getNotifications(ACTOR);
     expect(notification).toMatchObject({
       kind: 'unrecognized',
+      index: 0,
       createdAt: '1970-01-01T00:00:00.000Z',
     });
     expect(MarketplaceNotificationNormalizer.toFeedNotification(notification, 'transaction-service').timestamp).toBe(0);
@@ -661,6 +679,32 @@ describe('MarketplaceTransactionService read projections', () => {
     await MarketplaceTransactionService.getNotifications(ACTOR);
 
     expect(loggerError).toHaveBeenCalledOnce();
+  });
+
+  it('caps distinct invalid-type telemetry per session and re-arms after reset', async () => {
+    await establishSession();
+    const loggerError = vi.spyOn(Logger, 'error');
+    for (let index = 0; index < 33; index += 1) {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          notifications: [{ ...LIVE_NOTIFICATION_ROWS[1], type: `future_event_${index}` }],
+        }),
+      );
+      await MarketplaceTransactionService.getNotifications(ACTOR);
+    }
+
+    expect(loggerError).toHaveBeenCalledTimes(32);
+
+    MarketplaceSessionService.clearSession();
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [{ ...LIVE_NOTIFICATION_ROWS[1], type: 'future_event_after_reset' }],
+      }),
+    );
+    await MarketplaceTransactionService.getNotifications(ACTOR);
+
+    expect(loggerError).toHaveBeenCalledTimes(33);
   });
 
   it('requires a session for every projection read', async () => {
