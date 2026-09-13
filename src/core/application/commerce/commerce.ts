@@ -2714,8 +2714,9 @@ export class CommerceApplication {
       // the service charging a stale price after every edit. The sandbox has
       // no homeserver to sync from, so it keeps the skip.
       if (isDurableCommerceMode(getCommerceAdapterMode())) {
-        const response = await this.syncListingRegistration(listing.ownerPubky, listing.ownerPubky, listing.listingId);
-        if (!isSuccessfulListingRegistrationResponse(response)) {
+        const command = this.createListingSyncCommand(listing.ownerPubky, listing.listingId);
+        const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+        if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
           throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
             service: ErrorService.Marketplace,
             operation: 'registerListing',
@@ -2759,7 +2760,7 @@ export class CommerceApplication {
       },
     });
     const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
-    if (!isSuccessfulListingRegistrationResponse(response)) {
+    if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
       throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
         service: ErrorService.Marketplace,
         operation: 'registerListing',
@@ -2796,5 +2797,17 @@ export class CommerceApplication {
       created_at: now,
       updated_at: now,
     };
+  }
+
+  private static createListingSyncCommand(sellerPubky: string, listingId: string) {
+    return CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'listing.sync',
+      payload: { sellerPubky, listingId },
+    });
   }
 }

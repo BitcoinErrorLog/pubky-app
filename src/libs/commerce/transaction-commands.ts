@@ -621,8 +621,14 @@ const BENIGN_LISTING_REGISTRATION_CODES = new Set([
  * contains the canonical record. That is a successful registration outcome;
  * other refusals must remain visible to the caller.
  */
-export function isSuccessfulListingRegistrationResponse(response: MarketplaceCommandResponse): boolean {
+export function isSuccessfulListingRegistrationResponse(
+  response: MarketplaceCommandResponse,
+  expectedAggregateId: string,
+  expectedCommandId: string,
+): boolean {
   if (response.ok) {
+    if (response.aggregateId !== expectedAggregateId) return false;
+    if (response.commandId !== expectedCommandId) return false;
     return ['listing', 'unchanged', 'no_op', 'noop'].includes(response.result.kind);
   }
   return BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase());

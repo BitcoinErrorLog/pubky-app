@@ -48,6 +48,11 @@ const LISTING_REGISTERED_RESPONSE = {
   eventIds: [],
   result: { kind: 'listing' as const },
 };
+const listingRegisteredResponse = (command: { commandId: string; aggregateId: string }) => ({
+  ...LISTING_REGISTERED_RESPONSE,
+  commandId: command.commandId,
+  aggregateId: command.aggregateId,
+});
 const LIVE_SELFHEAL_FIXTURE = JSON.parse(
   readFileSync(resolve(__dirname, '../../../test/fixtures/commerce/live/shop-v32-selfheal.json'), 'utf8'),
 ) as { sync: unknown };
@@ -311,7 +316,9 @@ describe('CommerceApplication', () => {
     vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
-    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(LISTING_REGISTERED_RESPONSE);
+    const execute = vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
 
     await CommerceApplication.commitUpsertListing(record);
 
@@ -335,7 +342,9 @@ describe('CommerceApplication', () => {
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
-    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(LISTING_REGISTERED_RESPONSE);
+    vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
 
     await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: true });
 
@@ -356,7 +365,7 @@ describe('CommerceApplication', () => {
     const execute = vi
       .spyOn(MarketplaceGatewayService, 'execute')
       .mockRejectedValueOnce(new Error('registration unavailable'))
-      .mockResolvedValueOnce(LISTING_REGISTERED_RESPONSE);
+      .mockImplementationOnce(async (_actor, command) => listingRegisteredResponse(command));
 
     await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
@@ -374,14 +383,16 @@ describe('CommerceApplication', () => {
     const record = createCommerceListingFixture();
     const listingId = `${record.ownerPubky}:${record.listingId}`;
     let releaseRegistration: (() => void) | undefined;
+    let registrationCommand: { commandId: string; aggregateId: string } | undefined;
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
     const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementation(
-      () =>
+      (_actor, command) =>
         new Promise((resolve) => {
-          releaseRegistration = () => resolve(LISTING_REGISTERED_RESPONSE);
+          registrationCommand = command;
+          releaseRegistration = () => resolve(listingRegisteredResponse(registrationCommand!));
         }),
     );
 
@@ -406,7 +417,9 @@ describe('CommerceApplication', () => {
       registration_status: undefined,
     });
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
-    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(LISTING_REGISTERED_RESPONSE);
+    vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
 
     await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
@@ -420,7 +433,9 @@ describe('CommerceApplication', () => {
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
-    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(LISTING_REGISTERED_RESPONSE);
+      vi
+        .spyOn(MarketplaceGatewayService, 'execute')
+        .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
 
     await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
     await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
@@ -470,6 +485,57 @@ describe('CommerceApplication', () => {
     });
   });
 
+  it('rejects a successful listing.sync response for another aggregate', async () => {
+    const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue({ serverRevision: 3 } as never);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({
+      ...LISTING_REGISTERED_RESPONSE,
+      aggregateId: 'listing:another-seller_other-listing',
+    });
+
+    await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'unregistered',
+    });
+  });
+
+  it.each([
+    ['session rejection', () => Promise.reject(new Error('SESSION_EXPIRED'))],
+    [
+      'forbidden',
+      () =>
+        Promise.resolve({
+        ok: false as const,
+        error: { code: 'FORBIDDEN', message: 'The actor cannot register this listing.' },
+        }),
+    ],
+    [
+      'revision conflict on a real edit',
+      () =>
+        Promise.resolve({
+        ok: false as const,
+        error: { code: 'REVISION_CONFLICT', message: 'The listing revision is stale.', currentRevision: 4 },
+        }),
+    ],
+    ['5xx', () => Promise.reject(new Error('Marketplace request failed with status 503'))],
+    ['malformed/non-JSON body', () => Promise.reject(new Error('Invalid marketplace command response'))],
+  ] as const)('leaves registration unregistered after %s', async (_name, result) => {
+    const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementation(() => result());
+
+    await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'unregistered',
+    });
+  });
+
   it('skips transaction-service registration when the listing is already registered (sandbox)', async () => {
     const record = createCommerceListingFixture();
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
@@ -494,7 +560,9 @@ describe('CommerceApplication', () => {
     vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue({ serverRevision: 4 } as never);
-    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(LISTING_REGISTERED_RESPONSE);
+    const execute = vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
 
     const result = await CommerceApplication.commitUpsertListing(record);
 

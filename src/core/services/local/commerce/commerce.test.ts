@@ -193,6 +193,33 @@ describe('LocalCommerceService', () => {
     });
   });
 
+  it('stamps registration without clearing an overlapping newer staged edit or retry job', async () => {
+    const listing = createCommerceListingFixture();
+    const listingId = `${listing.ownerPubky}:${listing.listingId}`;
+    const refreshed = { ...listing, revision: listing.revision + 1, title: 'Newer staged title' };
+    const job = createCommerceSyncJobFixture({ id: '018f47d2-6a27-7c23-a49d-6b21bb770126' });
+
+    const stagePromise = LocalCommerceService.stageListingSync(refreshed, job);
+    const healPromise = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        LocalCommerceService.setListingRegistrationStatus(listingId, 'registered', listing).then(resolve, reject);
+      }, 0);
+    });
+
+    await Promise.all([stagePromise, healPromise]);
+
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      record: refreshed,
+      revision: refreshed.revision,
+      sync_status: 'pending',
+      registration_status: 'registered',
+    });
+    await expect(CommerceSyncJobModel.findById(job.id)).resolves.toMatchObject({
+      status: 'pending',
+      entity_id: listing.listingId,
+    });
+  });
+
   it('rejects a sync job scoped to a different public record', async () => {
     const listing = createCommerceListingFixture();
     const mismatchedJob = createCommerceSyncJobFixture({ entity_id: 'other_listing' });

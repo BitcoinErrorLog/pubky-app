@@ -479,13 +479,15 @@ export class LocalCommerceService {
     registrationStatus: CommerceListingModelSchema['registration_status'],
     record?: CommerceListingRecord,
   ): Promise<void> {
-    const listing = await CommerceListingModel.findById(compositeListingId);
-    if (!listing) {
-      if (!record) return;
-      await CommerceListingModel.upsert(this.toListingModel(record, 'synced', registrationStatus));
-      return;
-    }
-    await CommerceListingModel.upsert({ ...listing, registration_status: registrationStatus });
+    await db.transaction('rw', CommerceListingModel.table, async () => {
+      const listing = await CommerceListingModel.table.get(compositeListingId);
+      if (!listing) {
+        if (!record) return;
+        await CommerceListingModel.table.put(this.toListingModel(record, 'synced', registrationStatus));
+        return;
+      }
+      await CommerceListingModel.table.put({ ...listing, registration_status: registrationStatus });
+    });
   }
 
   /**
@@ -530,12 +532,12 @@ export class LocalCommerceService {
     registrationStatus?: CommerceListingModelSchema['registration_status'],
   ): Promise<void> {
     this.assertSyncJobIdentity(job, record.ownerPubky, record.listingId, 'listing');
-    const current = await CommerceListingModel.findById(`${record.ownerPubky}:${record.listingId}`);
-    const listing = this.toListingModel(record, 'pending', registrationStatus ?? current?.registration_status);
 
     try {
       await db.transaction('rw', CommerceListingModel.table, CommerceSyncJobModel.table, async () => {
-        await CommerceListingModel.upsert(listing);
+        const current = await CommerceListingModel.table.get(`${record.ownerPubky}:${record.listingId}`);
+        const listing = this.toListingModel(record, 'pending', registrationStatus ?? current?.registration_status);
+        await CommerceListingModel.table.put(listing);
         await CommerceSyncJobModel.upsert(job);
       });
     } catch (error) {
