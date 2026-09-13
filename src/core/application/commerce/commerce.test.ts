@@ -467,6 +467,63 @@ describe('CommerceApplication', () => {
     },
   );
 
+  it('rejects a benign listing.sync response for another aggregate', async () => {
+    const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    await LocalCommerceService.upsertListing(record, 'synced');
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue({ serverRevision: 3 } as never);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({
+      ok: false,
+      aggregateId: 'listing:another-seller_other-listing',
+      error: { code: 'NO_OP', message: 'Already converged.' },
+    });
+
+    await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'unregistered',
+    });
+  });
+
+  it('confirms a benign listing.register response with a fresh listing GET', async () => {
+    const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    const getListing = vi
+      .spyOn(MarketplaceGatewayService, 'getListing')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ serverRevision: 1 } as never);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({
+      ok: false,
+      error: { code: 'ALREADY_EXISTS', message: 'Already registered.' },
+    });
+
+    await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
+    expect(getListing).toHaveBeenCalledTimes(2);
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'registered',
+    });
+  });
+
+  it('refuses a benign listing.register response when the confirming listing GET is empty', async () => {
+    const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({
+      ok: false,
+      error: { code: 'NO_OP', message: 'Already converged.' },
+    });
+
+    await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'unregistered',
+    });
+  });
+
   it('keeps a legacy listing unregistered after a real listing.sync refusal', async () => {
     const record = createCommerceListingFixture();
     const listingId = `${record.ownerPubky}:${record.listingId}`;

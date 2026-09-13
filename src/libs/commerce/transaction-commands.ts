@@ -625,13 +625,32 @@ export function isSuccessfulListingRegistrationResponse(
   response: MarketplaceCommandResponse,
   expectedAggregateId: string,
   expectedCommandId: string,
+  serviceHoldsAggregate = false,
 ): boolean {
   if (response.ok) {
     if (response.aggregateId !== expectedAggregateId) return false;
     if (response.commandId !== expectedCommandId) return false;
     return ['listing', 'unchanged', 'no_op', 'noop'].includes(response.result.kind);
   }
-  return BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase());
+  const aggregateId = 'aggregateId' in response ? response.aggregateId : undefined;
+  const commandId = 'commandId' in response ? response.commandId : undefined;
+  if (aggregateId !== undefined && aggregateId !== expectedAggregateId) return false;
+  if (commandId !== undefined && commandId !== expectedCommandId) return false;
+  return serviceHoldsAggregate && BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase());
+}
+
+export function isCorrelatedBenignListingRegistrationResponse(
+  response: MarketplaceCommandResponse,
+  expectedAggregateId: string,
+  expectedCommandId: string,
+): boolean {
+  if (response.ok || !BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase())) return false;
+  const aggregateId = 'aggregateId' in response ? response.aggregateId : undefined;
+  const commandId = 'commandId' in response ? response.commandId : undefined;
+  return (
+    (aggregateId === undefined || aggregateId === expectedAggregateId) &&
+    (commandId === undefined || commandId === expectedCommandId)
+  );
 }
 
 /**

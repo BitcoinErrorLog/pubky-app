@@ -115,13 +115,39 @@ describe('listing registration response correlation', () => {
     expect(isSuccessfulListingRegistrationResponse(response, aggregateId, response.commandId)).toBe(true);
   });
 
-  it.each(['NOT_MODIFIED', 'NOOP'])('accepts benign refusal code %s', (code) => {
+  it.each(['NOT_MODIFIED', 'NOOP'])('requires service proof for benign refusal code %s', (code) => {
     expect(
       isSuccessfulListingRegistrationResponse({
         ok: false,
         error: { code, message: 'Already converged.' },
       }, aggregateId, response.commandId),
+    ).toBe(false);
+    expect(
+      isSuccessfulListingRegistrationResponse({
+        ok: false,
+        error: { code, message: 'Already converged.' },
+      }, aggregateId, response.commandId, true),
     ).toBe(true);
+  });
+
+  it('rejects a benign refusal with a mismatched aggregate', () => {
+    expect(
+      isSuccessfulListingRegistrationResponse({
+        ok: false,
+        aggregateId: 'listing:other',
+        error: { code: 'NO_OP', message: 'Already converged.' },
+      } as never, aggregateId, response.commandId, true),
+    ).toBe(false);
+  });
+
+  it('rejects a successful response missing correlation ids', () => {
+    expect(
+      isSuccessfulListingRegistrationResponse({
+        ...response,
+        aggregateId: undefined,
+        commandId: undefined,
+      } as never, aggregateId, response.commandId),
+    ).toBe(false);
   });
 });
 

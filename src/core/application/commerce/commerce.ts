@@ -50,6 +50,7 @@ import {
   buildMarketplacePaymentAggregateId,
   classifyMarketplacePickupCommandRefusal,
   type CreateMarketplaceCheckoutCommand,
+  isCorrelatedBenignListingRegistrationResponse,
   isSuccessfulListingRegistrationResponse,
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
@@ -2716,7 +2717,7 @@ export class CommerceApplication {
       if (isDurableCommerceMode(getCommerceAdapterMode())) {
         const command = this.createListingSyncCommand(listing.ownerPubky, listing.listingId);
         const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
-        if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
+        if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId, true)) {
           throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
             service: ErrorService.Marketplace,
             operation: 'registerListing',
@@ -2761,10 +2762,19 @@ export class CommerceApplication {
     });
     const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
     if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
-      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
-        service: ErrorService.Marketplace,
-        operation: 'registerListing',
-      });
+      if (!isCorrelatedBenignListingRegistrationResponse(response, aggregateId, command.commandId)) {
+        throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+          service: ErrorService.Marketplace,
+          operation: 'registerListing',
+        });
+      }
+      const confirmed = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
+      if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId, Boolean(confirmed?.serverRevision))) {
+        throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+          service: ErrorService.Marketplace,
+          operation: 'registerListing',
+        });
+      }
     }
   }
 
