@@ -37,7 +37,7 @@ function feedItem(overrides: Partial<MarketplaceFeedNotification> = {}): Marketp
     isUnread: true,
     href: '/marketplace/offers',
     ...overrides,
-  };
+  } as MarketplaceFeedNotification;
 }
 
 describe('useMarketplaceNotificationFeed', () => {

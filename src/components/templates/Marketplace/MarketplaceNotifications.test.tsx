@@ -5,6 +5,7 @@ import { MarketplaceNotifications } from './MarketplaceNotifications';
 
 const authStoreState = vi.hoisted(() => ({ session: {} as unknown }));
 const markAllSeen = vi.hoisted(() => vi.fn(async () => {}));
+const marketplaceView = vi.hoisted(() => ({ notifications: [] as unknown[] }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { session: unknown | null }) => unknown) => selector(authStoreState),
@@ -18,7 +19,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 
 vi.mock('@/hooks/useMarketplaceNotifications/useMarketplaceNotifications', () => ({
   useMarketplaceNotifications: () => ({
-    notifications: [],
+    notifications: marketplaceView.notifications,
     preferences: null,
     unreadCount: 0,
     isLoading: false,
@@ -46,6 +47,7 @@ describe('MarketplaceNotifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authStoreState.session = {};
+    marketplaceView.notifications = [];
   });
 
   it('clears the device-local read state on entry: watch alerts seen, activity checkpoint advanced', async () => {
@@ -62,5 +64,29 @@ describe('MarketplaceNotifications', () => {
 
     expect(markAllSeen).not.toHaveBeenCalled();
     expect(CommerceController.markActivityRead).not.toHaveBeenCalled();
+  });
+
+  it('renders system actors and quarantined rows without failing the history list', () => {
+    marketplaceView.notifications = [
+      {
+        id: '00000000-0000-4000-8000-000000000931',
+        recipientPubky: 'y'.repeat(52),
+        actorPubky: 'system',
+        type: 'payment_confirmed',
+        aggregateId: 'order:placeholder',
+        createdAt: '2026-08-20T11:00:00.000Z',
+        readAt: null,
+      },
+      {
+        kind: 'unrecognized',
+        type: 'payment_method_bound',
+        createdAt: '2026-08-20T11:01:00.000Z',
+      },
+    ];
+
+    const { getByText } = render(<MarketplaceNotifications />);
+
+    expect(getByText('From System')).toBeInTheDocument();
+    expect(getByText('Unrecognized marketplace event — history may be incomplete')).toBeInTheDocument();
   });
 });

@@ -139,6 +139,36 @@ describe('useMarketplaceNotifications', () => {
     expect(CommerceController.getMarketplaceNotificationPreferences).not.toHaveBeenCalled();
   });
 
+  it('does not count quarantined rows as unread or send them to mark-all-read', async () => {
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
+      {
+        kind: 'unrecognized',
+        type: 'payment_method_bound',
+        createdAt: '2026-08-19T23:00:00.000Z',
+      },
+      {
+        id: NOTIFICATION_ID,
+        revision: 1,
+        recipientPubky: OWNER,
+        actorPubky: ACTOR,
+        type: 'offer_received',
+        aggregateId: 'offer:test',
+        createdAt: '2026-08-19T23:00:00.000Z',
+        readAt: null,
+      },
+    ]);
+
+    const { result } = renderHook(() => useMarketplaceNotifications());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.unreadCount).toBe(1);
+    await act(() => result.current.markAllRead());
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledOnce();
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ aggregateId: `notification:${NOTIFICATION_ID}` }),
+    );
+  });
+
   it('refuses to mark read in transaction-service mode — the service has no read state', async () => {
     config.mode = 'transaction-service';
     const { result } = renderHook(() => useMarketplaceNotifications());

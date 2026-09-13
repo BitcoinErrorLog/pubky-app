@@ -117,7 +117,9 @@ export function NotificationsContainer() {
   const watchAlertFeed = useMarketplaceWatchAlertFeed();
 
   const socialEntries = groupNotifications(notifications);
-  const marketplaceItems = marketplaceFeed.items.filter((item) => isMarketplaceNotificationType(item.type));
+  const marketplaceItems = marketplaceFeed.items.filter(
+    (item) => item.kind === 'unrecognized' || isMarketplaceNotificationType(item.type),
+  );
   const marketplaceEntries = mergeWatchAlerts(
     mergeMarketplaceNotifications([], marketplaceItems, {
       hasMoreSocial: false,
@@ -144,6 +146,7 @@ export function NotificationsContainer() {
   const unreadMarketplaceCount =
     marketplaceFeed.items.filter((item) => item.isUnread).length +
     watchAlertFeed.items.filter((item) => item.isUnseen).length;
+  const unrecognizedMarketplaceCount = marketplaceFeed.items.filter((item) => item.kind === 'unrecognized').length;
 
   // Grouping collapses many notifications into few rows, so a page can leave the scroll
   // sentinel on screen and immediately trigger the next one. A page that merges entirely
@@ -263,6 +266,12 @@ export function NotificationsContainer() {
           </Button>
         ))}
       </div>
+      {unrecognizedMarketplaceCount > 0 && (
+        <Container role="status" overrideDefaults={true} className="rounded-md border border-amber-500/40 p-4 text-sm">
+          {unrecognizedMarketplaceCount} unrecognized marketplace event
+          {unrecognizedMarketplaceCount === 1 ? '' : 's'} — history may be incomplete.
+        </Container>
+      )}
       {selectedEntries.length > 0 ? (
         <NotificationsList entries={selectedEntries} unreadNotifications={unreadNotifications} />
       ) : (

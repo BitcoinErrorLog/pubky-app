@@ -42,6 +42,7 @@ export function MarketplaceNotifications() {
     markAllRead,
     updatePreferences,
   } = useMarketplaceNotifications();
+  const unrecognizedCount = notifications.filter((notification) => 'kind' in notification).length;
   const watchAlerts = useMarketplaceWatchAlertFeed();
   // Opening the commerce activity page also runs the bounded watchlist check.
   useMarketplaceWatchDetection();
@@ -176,29 +177,54 @@ export function MarketplaceNotifications() {
           </div>
         ) : notifications.length ? (
           <div className="flex flex-col gap-3">
-            {notifications.map((notification) => (
-              <Card key={notification.id} className="border py-4">
-                <CardContent className="flex items-center gap-4 px-4">
-                  <div className="rounded-full bg-brand/15 p-3 text-brand">
-                    <NotificationIcon type={notification.type} />
-                  </div>
-                  <div className="min-w-0 flex-1">
+            {unrecognizedCount > 0 && (
+              <div role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm">
+                {unrecognizedCount} unrecognized marketplace event{unrecognizedCount === 1 ? '' : 's'} — history may be
+                incomplete.
+              </div>
+            )}
+            {notifications.map((notification, index) =>
+              'kind' in notification ? (
+                <Card
+                  key={`unrecognized:${notification.type}:${notification.createdAt}:${index}`}
+                  className="border py-4"
+                >
+                  <CardContent className="flex items-center gap-4 px-4">
+                    <div className="rounded-full bg-amber-500/15 p-3 text-amber-600">
+                      <Bell className="size-5" />
+                    </div>
                     <Typography as="p" className="font-semibold">
-                      {notificationLabel(notification.type)}
-                      {/* §8-permitted monetary context (offer amount, auction
-                          visible price), formatted per BIP-177 for bitcoin. */}
-                      {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
+                      Unrecognized marketplace event — history may be incomplete
                     </Typography>
-                    <Typography as="p" className="truncate text-sm text-muted-foreground">
-                      From {notification.actorPubky.slice(0, 10)}…
-                    </Typography>
-                  </div>
-                  <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
-                    {new Date(notification.createdAt).toLocaleDateString('en-US')}
-                  </time>
-                </CardContent>
-              </Card>
-            ))}
+                    <time dateTime={notification.createdAt} className="ml-auto text-xs text-muted-foreground">
+                      {new Date(notification.createdAt).toLocaleDateString('en-US')}
+                    </time>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card key={notification.id} className="border py-4">
+                  <CardContent className="flex items-center gap-4 px-4">
+                    <div className="rounded-full bg-brand/15 p-3 text-brand">
+                      <NotificationIcon type={notification.type} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Typography as="p" className="font-semibold">
+                        {notificationLabel(notification.type)}
+                        {/* §8-permitted monetary context (offer amount, auction
+                            visible price), formatted per BIP-177 for bitcoin. */}
+                        {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
+                      </Typography>
+                      <Typography as="p" className="truncate text-sm text-muted-foreground">
+                        From {notificationActorLabel(notification.actorPubky)}
+                      </Typography>
+                    </div>
+                    <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
+                      {new Date(notification.createdAt).toLocaleDateString('en-US')}
+                    </time>
+                  </CardContent>
+                </Card>
+              ),
+            )}
           </div>
         ) : (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed text-center">
@@ -295,4 +321,10 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
     case 'pickup_ready':
       return 'Order ready for pickup';
   }
+}
+
+function notificationActorLabel(actorPubky: string): string {
+  if (actorPubky === 'system') return 'System';
+  if (actorPubky === 'paypal-ipn') return 'PayPal';
+  return `${actorPubky.slice(0, 10)}…`;
 }

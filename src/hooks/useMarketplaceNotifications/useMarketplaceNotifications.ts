@@ -10,7 +10,11 @@ import {
 } from '@/libs/commerce/failure-messages';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
-import type { MarketplaceNotification, MarketplaceNotificationPreferences } from '@/services/marketplace/marketplace';
+import type {
+  MarketplaceNotificationEntry,
+  MarketplaceNotificationPreferences,
+} from '@/services/marketplace/marketplace';
+import { isRecognizedMarketplaceNotification } from '@/services/marketplace/marketplace-projections';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
@@ -30,7 +34,7 @@ export function useMarketplaceNotifications() {
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const adapterMode = getCommerceAdapterMode();
   const canMarkRead = adapterMode === 'sandbox';
-  const [notifications, setNotifications] = useState<MarketplaceNotification[]>([]);
+  const [notifications, setNotifications] = useState<MarketplaceNotificationEntry[]>([]);
   const [preferences, setPreferences] = useState<MarketplaceNotificationPreferences | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +89,7 @@ export function useMarketplaceNotifications() {
       toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.notificationsReadUnavailable });
       return;
     }
-    const unread = notifications.filter(({ readAt }) => !readAt);
+    const unread = notifications.filter(isRecognizedMarketplaceNotification).filter(({ readAt }) => !readAt);
     try {
       const results = await Promise.all(
         unread.map((notification) =>
@@ -110,7 +114,7 @@ export function useMarketplaceNotifications() {
       }
       setNotifications((current) =>
         current.map((notification) =>
-          notification.readAt
+          !isRecognizedMarketplaceNotification(notification) || notification.readAt
             ? notification
             : {
                 ...notification,
@@ -170,7 +174,9 @@ export function useMarketplaceNotifications() {
   return {
     notifications,
     preferences,
-    unreadCount: notifications.filter(({ readAt }) => !readAt).length,
+    unreadCount: notifications.filter(
+      (notification) => isRecognizedMarketplaceNotification(notification) && !notification.readAt,
+    ).length,
     isLoading,
     error,
     needsSession,

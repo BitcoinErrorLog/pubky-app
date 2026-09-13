@@ -49,12 +49,7 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
       expect(MARKETPLACE_FEED_NOTIFICATION_KEYS).toContain(key);
     }
     const serialized = JSON.stringify(item);
-    for (const leaked of [
-      '1 Secret Lane',
-      'bc1qsecret',
-      'private message text',
-      'bearer-bundle',
-    ]) {
+    for (const leaked of ['1 Secret Lane', 'bc1qsecret', 'private message text', 'bearer-bundle']) {
       expect(serialized).not.toContain(leaked);
     }
   });
@@ -78,7 +73,11 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
       amount: { amountMinor: 8_500, currency: 'USD', exponent: 2 },
     });
     const carried = MarketplaceNotificationNormalizer.toFeedNotification(withAmount, 'transaction-service');
-    expect(carried.amount).toEqual({ amountMinor: 8_500, currency: 'USD', exponent: 2 });
+    expect('amount' in carried ? carried.amount : undefined).toEqual({
+      amountMinor: 8_500,
+      currency: 'USD',
+      exponent: 2,
+    });
 
     // Old service rows deliver amount: null; sandbox rows have no field at
     // all — neither may materialize an `amount` key on the feed shape.

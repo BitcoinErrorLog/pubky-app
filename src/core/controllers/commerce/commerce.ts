@@ -17,6 +17,7 @@ import type { CommerceIndexedReview, CommerceListingProjectionModelSchema } from
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
+import { isRecognizedMarketplaceNotification } from '@/services/marketplace/marketplace-projections';
 import type { MarketplaceSessionEndedEvent, MarketplaceSessionInfo } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -578,7 +579,10 @@ export class CommerceController {
       return;
     }
     const notifications = await CommerceApplication.getMarketplaceNotifications(this.getCurrentUserPubky());
-    notificationStore.setMarketplaceUnread(notifications.filter(({ readAt }) => !readAt).length);
+    notificationStore.setMarketplaceUnread(
+      notifications.filter((notification) => isRecognizedMarketplaceNotification(notification) && !notification.readAt)
+        .length,
+    );
   }
 
   /**
@@ -596,7 +600,7 @@ export class CommerceController {
   static async markAllMarketplaceNotificationsRead(): Promise<void> {
     if (getCommerceAdapterMode() !== 'sandbox' || !useAuthStore.getState().currentUserPubky) return;
     const notifications = await CommerceApplication.getMarketplaceNotifications(this.getCurrentUserPubky());
-    const unread = notifications.filter(({ readAt }) => !readAt);
+    const unread = notifications.filter(isRecognizedMarketplaceNotification).filter(({ readAt }) => !readAt);
     if (unread.length === 0) {
       useNotificationStore.getState().setMarketplaceUnread(0);
       return;
