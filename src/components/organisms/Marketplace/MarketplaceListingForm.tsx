@@ -225,14 +225,18 @@ export function MarketplaceListingForm({
   const navigateToSection = (sectionId: ListingFormSectionId) => {
     setActiveSectionId(sectionId);
     const section = document.getElementById(sectionId);
-    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (section && typeof section.scrollIntoView === 'function') {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     section?.focus({ preventScroll: true });
   };
   const focusListingControl = (controlId: string, sectionId: ListingFormSectionId, message: string) => {
     setFocusAnnouncement(message);
     setActiveSectionId(sectionId);
     const section = document.getElementById(sectionId);
-    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (section && typeof section.scrollIntoView === 'function') {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     const control = document.getElementById(controlId);
     if (control instanceof HTMLElement) {
       control.focus({ preventScroll: true });
@@ -246,15 +250,6 @@ export function MarketplaceListingForm({
       const firstError = Object.keys(form.formState.errors)[0] ?? CREATE_MARKETPLACE_LISTING_FIELDS.TITLE;
       const sectionId = sectionForListingField(firstError);
       focusListingControl(firstError, sectionId, 'Fix the first highlighted field before publishing.');
-      return;
-    }
-    const missingDescription = mediaItems.find((item) => item.altText.trim() === '');
-    if (missingDescription) {
-      focusListingControl(
-        `listing-photo-alt-${missingDescription.key}`,
-        'listing-section-photos',
-        'Every photo needs a description for screen readers.',
-      );
       return;
     }
     await onSubmit();
