@@ -7,6 +7,13 @@ import type {
 import type { AuctionState, CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
 export type CommerceCacheStatus = 'local' | 'pending' | 'synced' | 'failed';
+export type CommerceListingRegistrationStatus = 'registered' | 'unregistered';
+
+export function isListingRegistrationPending(
+  listing: Pick<CommerceListingModelSchema, 'registration_status'>,
+): boolean {
+  return listing.registration_status !== 'registered';
+}
 
 export interface CommerceShopModelSchema {
   id: string;
@@ -31,6 +38,7 @@ export interface CommerceListingModelSchema {
   currency: string;
   price_minor: number;
   sync_status: CommerceCacheStatus;
+  registration_status?: CommerceListingRegistrationStatus;
   updated_at: number;
 }
 

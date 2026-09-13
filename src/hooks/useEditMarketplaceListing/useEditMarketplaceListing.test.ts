@@ -58,6 +58,7 @@ const publishedRecord = {
 };
 
 const authState = vi.hoisted(() => ({ currentUserPubky: 'y'.repeat(52) }));
+const commerceState = vi.hoisted(() => ({ marketplaceSession: {} }));
 
 vi.mock('@/config/commerce', async () => ({
   ...(await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce')),
@@ -66,6 +67,10 @@ vi.mock('@/config/commerce', async () => ({
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector(authState),
+}));
+
+vi.mock('@/stores/commerce/commerce.store', () => ({
+  useCommerceStore: (selector: (store: typeof commerceState) => unknown) => selector(commerceState),
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({

@@ -236,7 +236,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
           />
 
           <div className="flex flex-col gap-5">
-            {isOwner && <MarketplaceListingOwnerPanel record={record} />}
+            {isOwner && (
+              <MarketplaceListingOwnerPanel record={record} registrationStatus={listing.registration_status} />
+            )}
             {stateNotice && (
               <div
                 role="status"

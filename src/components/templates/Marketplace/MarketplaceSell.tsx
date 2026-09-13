@@ -20,14 +20,17 @@ import { useCreateMarketplaceListing } from '@/hooks/useCreateMarketplaceListing
 import { CREATE_MARKETPLACE_LISTING_FIELDS } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
+import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export function MarketplaceSell() {
   const router = useRouter();
   const listing = useCreateMarketplaceListing();
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishAfterSession, setPublishAfterSession] = useState(false);
 
-  const submit = async () => {
+  const publish = async () => {
     setIsPublishing(true);
     try {
       const compositeId = await listing.submit();
@@ -48,6 +51,14 @@ export function MarketplaceSell() {
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  const submit = async () => {
+    if (isDurableCommerceMode(getCommerceAdapterMode()) && !useCommerceStore.getState().marketplaceSession) {
+      setPublishAfterSession(true);
+      return;
+    }
+    await publish();
   };
 
   return (
@@ -181,6 +192,15 @@ export function MarketplaceSell() {
           onSubmit={submit}
           isPublishing={isPublishing}
         />
+        {publishAfterSession && (
+          <MarketplaceSessionConnectDialog
+            autoOpen
+            onConnected={async () => {
+              setPublishAfterSession(false);
+              await publish();
+            }}
+          />
+        )}
       </Container>
     </ContentLayout>
   );

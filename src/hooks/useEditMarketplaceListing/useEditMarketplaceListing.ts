@@ -40,6 +40,7 @@ import {
 import { dimensionInputFromMillimeters, type MeasurementSystem, weightInputFromGrams } from '@/libs/commerce/units';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export type EditMarketplaceListingStatus = 'loading' | 'ready' | 'not-found' | 'not-owner' | 'unsupported';
 
@@ -49,7 +50,7 @@ export interface UseEditMarketplaceListingResult {
   media: UseListingMediaManagerResult;
   /** True for auction listings: the sale terms were fixed at publish time. */
   saleTermsLocked: boolean;
-  publishBlocked: 'no-method' | 'unverified' | null;
+  publishBlocked: 'no-method' | 'unverified' | 'session' | null;
   submit: () => Promise<string | null>;
 }
 
@@ -71,11 +72,12 @@ export interface UseEditMarketplaceListingResult {
  */
 export function useEditMarketplaceListing(sellerPubky: string, listingId: string): UseEditMarketplaceListingResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const measurementSystem = useMeasurementSystem();
   const media = useListingMediaManager();
   const [status, setStatus] = useState<EditMarketplaceListingStatus>('loading');
   const [record, setRecord] = useState<CommerceListingRecord | null>(null);
-  const [publishBlocked, setPublishBlocked] = useState<'no-method' | 'unverified' | null>(null);
+  const [publishBlocked, setPublishBlocked] = useState<'no-method' | 'unverified' | 'session' | null>(null);
   const form = useForm<CreateMarketplaceListingData>({
     resolver: zodResolver(createMarketplaceListingSchema),
     defaultValues: createMarketplaceListingDefaults,
@@ -124,6 +126,10 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
     if (!currentUserPubky || !record) return null;
     setPublishBlocked(null);
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      if (!marketplaceSession) {
+        setPublishBlocked('session');
+        return null;
+      }
       try {
         const paymentConfig = await CommerceController.getSellerPaymentConfig(currentUserPubky);
         if (availablePaymentMethods(paymentConfig).length === 0) {

@@ -154,6 +154,23 @@ describe('LocalCommerceService', () => {
     expect(await CommerceSyncJobModel.findById(listingJob.id)).toMatchObject({ entity_type: 'listing' });
   });
 
+  it('preserves a pending registration marker during seller catalog refresh', async () => {
+    const listing = createCommerceListingFixture();
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    await LocalCommerceService.setListingRegistrationStatus(`${listing.ownerPubky}:${listing.listingId}`, 'unregistered');
+
+    const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
+    await LocalCommerceService.commitSellerCatalogRefresh(
+      [createCommerceCatalogEntryFixture({ revision: refreshed.revision })],
+      [refreshed],
+    );
+
+    await expect(LocalCommerceService.getListing(`${listing.ownerPubky}:${listing.listingId}`)).resolves.toMatchObject({
+      revision: refreshed.revision,
+      registration_status: 'unregistered',
+    });
+  });
+
   it('rejects a sync job scoped to a different public record', async () => {
     const listing = createCommerceListingFixture();
     const mismatchedJob = createCommerceSyncJobFixture({ entity_id: 'other_listing' });

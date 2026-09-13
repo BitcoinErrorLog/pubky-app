@@ -187,7 +187,9 @@ describe('useCreateMarketplaceListing', () => {
     // Publishing SUCCEEDED — the submit reports it as such, with the honest
     // registration caveat, and the draft is consumed (no duplicate on retry).
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
-    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published — registration pending' }));
+    expect(toast).toHaveBeenCalledWith({
+      description: 'Published, but not yet registered for checkout — retry from your listing',
+    });
     expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalled();
   });
 

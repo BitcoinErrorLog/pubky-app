@@ -433,7 +433,12 @@ export class LocalCommerceService {
     entries: CommerceCatalogEntryModelSchema[],
     records: CommerceListingRecord[],
   ): Promise<void> {
-    const listings = records.map((record) => this.toListingModel(record, 'synced'));
+    const currentListings = await Promise.all(
+      records.map((record) => CommerceListingModel.findById(`${record.ownerPubky}:${record.listingId}`)),
+    );
+    const listings = records.map((record, index) =>
+      this.toListingModel(record, 'synced', currentListings[index]?.registration_status),
+    );
     try {
       await db.transaction('rw', CommerceCatalogEntryModel.table, CommerceListingModel.table, async () => {
         await CommerceCatalogEntryModel.table.bulkPut(entries);
@@ -465,7 +470,17 @@ export class LocalCommerceService {
   }
 
   static async upsertListing(record: CommerceListingRecord, syncStatus: CommerceCacheStatus): Promise<void> {
-    await CommerceListingModel.upsert(this.toListingModel(record, syncStatus));
+    const current = await CommerceListingModel.findById(`${record.ownerPubky}:${record.listingId}`);
+    await CommerceListingModel.upsert(this.toListingModel(record, syncStatus, current?.registration_status));
+  }
+
+  static async setListingRegistrationStatus(
+    compositeListingId: string,
+    registrationStatus: CommerceListingModelSchema['registration_status'],
+  ): Promise<void> {
+    const listing = await CommerceListingModel.findById(compositeListingId);
+    if (!listing) return;
+    await CommerceListingModel.upsert({ ...listing, registration_status: registrationStatus });
   }
 
   /**
@@ -504,9 +519,14 @@ export class LocalCommerceService {
     }
   }
 
-  static async stageListingSync(record: CommerceListingRecord, job: CommerceSyncJobModelSchema): Promise<void> {
+  static async stageListingSync(
+    record: CommerceListingRecord,
+    job: CommerceSyncJobModelSchema,
+    registrationStatus?: CommerceListingModelSchema['registration_status'],
+  ): Promise<void> {
     this.assertSyncJobIdentity(job, record.ownerPubky, record.listingId, 'listing');
-    const listing = this.toListingModel(record, 'pending');
+    const current = await CommerceListingModel.findById(`${record.ownerPubky}:${record.listingId}`);
+    const listing = this.toListingModel(record, 'pending', registrationStatus ?? current?.registration_status);
 
     try {
       await db.transaction('rw', CommerceListingModel.table, CommerceSyncJobModel.table, async () => {
@@ -776,6 +796,7 @@ export class LocalCommerceService {
   private static toListingModel(
     record: CommerceListingRecord,
     syncStatus: CommerceCacheStatus,
+    registrationStatus?: CommerceListingModelSchema['registration_status'],
   ): CommerceListingModelSchema {
     const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
     return {
@@ -790,6 +811,7 @@ export class LocalCommerceService {
       currency: price.currency,
       price_minor: price.amountMinor,
       sync_status: syncStatus,
+      registration_status: registrationStatus,
       updated_at: Date.parse(record.updatedAt),
     };
   }
