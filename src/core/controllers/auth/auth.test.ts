@@ -296,6 +296,11 @@ vi.mock('@/stores/migration/migration.store', () => ({
 
 // Mock @synonymdev/pubky
 vi.mock('@synonymdev/pubky', () => ({
+  Client: class {
+    fetch(input: string, init?: RequestInit | null): Promise<Response> {
+      return globalThis.fetch(input, init ?? undefined);
+    }
+  },
   Keypair: {
     fromSecret: vi.fn(() => ({
       pubky: vi.fn(() => ({ z32: () => 'test-public-key' })),
@@ -306,6 +311,16 @@ vi.mock('@synonymdev/pubky', () => ({
       secret: vi.fn(() => new Uint8Array(32).fill(1)),
     })),
   },
+  Pubky: {
+    withClient: (client: { fetch: (input: string, init?: RequestInit | null) => Promise<Response> }) => ({
+      client,
+      getHomeserverOf: vi.fn(),
+    }),
+  },
+  PublicKey: {
+    from: vi.fn(),
+  },
+  resolvePubky: (identifier: string) => identifier.replace('pubky://', 'https://'),
   createRecoveryFile: vi.fn(() => new Uint8Array([1, 2, 3, 4, 5])),
 }));
 
