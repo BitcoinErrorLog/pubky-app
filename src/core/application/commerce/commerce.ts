@@ -50,6 +50,7 @@ import {
   buildMarketplacePaymentAggregateId,
   classifyMarketplacePickupCommandRefusal,
   type CreateMarketplaceCheckoutCommand,
+  isSuccessfulListingRegistrationResponse,
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
 } from '@/libs/commerce/transaction-commands';
@@ -2708,7 +2709,13 @@ export class CommerceApplication {
       // the service charging a stale price after every edit. The sandbox has
       // no homeserver to sync from, so it keeps the skip.
       if (isDurableCommerceMode(getCommerceAdapterMode())) {
-        await this.syncListingRegistration(listing.ownerPubky, listing.ownerPubky, listing.listingId);
+        const response = await this.syncListingRegistration(listing.ownerPubky, listing.ownerPubky, listing.listingId);
+        if (!isSuccessfulListingRegistrationResponse(response)) {
+          throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+            service: ErrorService.Marketplace,
+            operation: 'registerListing',
+          });
+        }
       }
       return;
     }
@@ -2746,7 +2753,13 @@ export class CommerceApplication {
             : undefined,
       },
     });
-    await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    if (!isSuccessfulListingRegistrationResponse(response)) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+        service: ErrorService.Marketplace,
+        operation: 'registerListing',
+      });
+    }
   }
 
   private static createSyncJob({

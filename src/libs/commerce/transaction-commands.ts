@@ -533,6 +533,9 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
         .object({
           kind: z.enum([
             'listing',
+            'unchanged',
+            'no_op',
+            'noop',
             'reservation',
             'offer',
             'accepted_offer',
@@ -603,6 +606,27 @@ export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
 export type UpdateReviewCommand = z.infer<typeof updateReviewCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
+
+const BENIGN_LISTING_REGISTRATION_CODES = new Set([
+  'ALREADY_EXISTS',
+  'ALREADY_REGISTERED',
+  'NO_OP',
+  'NOOP',
+  'NOT_MODIFIED',
+  'UNCHANGED',
+]);
+
+/**
+ * A convergent listing registration may report that the aggregate already
+ * contains the canonical record. That is a successful registration outcome;
+ * other refusals must remain visible to the caller.
+ */
+export function isSuccessfulListingRegistrationResponse(response: MarketplaceCommandResponse): boolean {
+  if (response.ok) {
+    return ['listing', 'unchanged', 'no_op', 'noop'].includes(response.result.kind);
+  }
+  return BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase());
+}
 
 /**
  * The `result` view of a successful `pickup_details.set` /
