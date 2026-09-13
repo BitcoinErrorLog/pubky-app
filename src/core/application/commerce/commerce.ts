@@ -50,6 +50,8 @@ import {
   buildMarketplacePaymentAggregateId,
   classifyMarketplacePickupCommandRefusal,
   type CreateMarketplaceCheckoutCommand,
+  isCorrelatedBenignListingRegistrationResponse,
+  isSuccessfulListingRegistrationResponse,
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
 } from '@/libs/commerce/transaction-commands';
@@ -2465,12 +2467,17 @@ export class CommerceApplication {
     if (getCommerceAdapterMode() === 'unavailable') return false;
     try {
       await this.registerListing(record);
-      await LocalCommerceService.setListingRegistrationStatus(`${record.ownerPubky}:${record.listingId}`, 'registered');
+      await LocalCommerceService.setListingRegistrationStatus(
+        `${record.ownerPubky}:${record.listingId}`,
+        'registered',
+        record,
+      );
       return true;
     } catch (error) {
       await LocalCommerceService.setListingRegistrationStatus(
         `${record.ownerPubky}:${record.listingId}`,
         'unregistered',
+        record,
       );
       Logger.warn('Listing registration retry failed', {
         listing: `${record.ownerPubky}:${record.listingId}`,
@@ -2708,7 +2715,14 @@ export class CommerceApplication {
       // the service charging a stale price after every edit. The sandbox has
       // no homeserver to sync from, so it keeps the skip.
       if (isDurableCommerceMode(getCommerceAdapterMode())) {
-        await this.syncListingRegistration(listing.ownerPubky, listing.ownerPubky, listing.listingId);
+        const command = this.createListingSyncCommand(listing.ownerPubky, listing.listingId);
+        const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+        if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId, true)) {
+          throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+            service: ErrorService.Marketplace,
+            operation: 'registerListing',
+          });
+        }
       }
       return;
     }
@@ -2746,7 +2760,22 @@ export class CommerceApplication {
             : undefined,
       },
     });
-    await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
+      if (!isCorrelatedBenignListingRegistrationResponse(response, aggregateId, command.commandId)) {
+        throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+          service: ErrorService.Marketplace,
+          operation: 'registerListing',
+        });
+      }
+      const confirmed = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
+      if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId, Boolean(confirmed?.serverRevision))) {
+        throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+          service: ErrorService.Marketplace,
+          operation: 'registerListing',
+        });
+      }
+    }
   }
 
   private static createSyncJob({
@@ -2778,5 +2807,17 @@ export class CommerceApplication {
       created_at: now,
       updated_at: now,
     };
+  }
+
+  private static createListingSyncCommand(sellerPubky: string, listingId: string) {
+    return CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'listing.sync',
+      payload: { sellerPubky, listingId },
+    });
   }
 }

@@ -533,6 +533,9 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
         .object({
           kind: z.enum([
             'listing',
+            'unchanged',
+            'no_op',
+            'noop',
             'reservation',
             'offer',
             'accepted_offer',
@@ -603,6 +606,52 @@ export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
 export type UpdateReviewCommand = z.infer<typeof updateReviewCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
+
+const BENIGN_LISTING_REGISTRATION_CODES = new Set([
+  'ALREADY_EXISTS',
+  'ALREADY_REGISTERED',
+  'NO_OP',
+  'NOOP',
+  'NOT_MODIFIED',
+  'UNCHANGED',
+]);
+
+/**
+ * A convergent listing registration may report that the aggregate already
+ * contains the canonical record. That is a successful registration outcome;
+ * other refusals must remain visible to the caller.
+ */
+export function isSuccessfulListingRegistrationResponse(
+  response: MarketplaceCommandResponse,
+  expectedAggregateId: string,
+  expectedCommandId: string,
+  serviceHoldsAggregate = false,
+): boolean {
+  if (response.ok) {
+    if (response.aggregateId !== expectedAggregateId) return false;
+    if (response.commandId !== expectedCommandId) return false;
+    return ['listing', 'unchanged', 'no_op', 'noop'].includes(response.result.kind);
+  }
+  const aggregateId = 'aggregateId' in response ? response.aggregateId : undefined;
+  const commandId = 'commandId' in response ? response.commandId : undefined;
+  if (aggregateId !== undefined && aggregateId !== expectedAggregateId) return false;
+  if (commandId !== undefined && commandId !== expectedCommandId) return false;
+  return serviceHoldsAggregate && BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase());
+}
+
+export function isCorrelatedBenignListingRegistrationResponse(
+  response: MarketplaceCommandResponse,
+  expectedAggregateId: string,
+  expectedCommandId: string,
+): boolean {
+  if (response.ok || !BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase())) return false;
+  const aggregateId = 'aggregateId' in response ? response.aggregateId : undefined;
+  const commandId = 'commandId' in response ? response.commandId : undefined;
+  return (
+    (aggregateId === undefined || aggregateId === expectedAggregateId) &&
+    (commandId === undefined || commandId === expectedCommandId)
+  );
+}
 
 /**
  * The `result` view of a successful `pickup_details.set` /
