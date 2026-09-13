@@ -34,15 +34,18 @@ import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
-import { getCommerceAdapterMode } from '@/config/commerce';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { isListingRegistrationPending } from '@/models/commerce/commerce.schema';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export function MarketplaceDashboard() {
   const dashboard = useMarketplaceSellerDashboard();
@@ -52,7 +55,12 @@ export function MarketplaceDashboard() {
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [pendingDuplicateId, setPendingDuplicateId] = useState<string | null>(null);
   const [pendingUnsavedDraftId, setPendingUnsavedDraftId] = useState<string | null>(null);
+  const [pendingStateChange, setPendingStateChange] = useState<{
+    listingIds: string[];
+    state: 'active' | 'paused';
+  } | null>(null);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   // Normalize "no record" to null so `undefined` keeps meaning "still loading".
   const shop = useLiveQuery(
     () => (currentUserPubky ? CommerceController.getShop(currentUserPubky).then((found) => found ?? null) : null),
@@ -82,6 +90,14 @@ export function MarketplaceDashboard() {
     );
     setDuplicatingId(null);
     if (seeded) router.push(MARKETPLACE_ROUTES.SELL);
+  };
+
+  const updateListingState = (listingIds: string[], state: 'active' | 'paused') => {
+    if (isDurableCommerceMode(getCommerceAdapterMode()) && !marketplaceSession) {
+      setPendingStateChange({ listingIds, state });
+      return;
+    }
+    void dashboard.updateListingState(listingIds, state);
   };
 
   const requestDuplicate = async (listingId: string) => {
@@ -308,7 +324,7 @@ export function MarketplaceDashboard() {
                         variant="secondary"
                         className="rounded-full"
                         disabled={!selected.length}
-                        onClick={() => void dashboard.updateListingState(selected, 'paused')}
+                        onClick={() => updateListingState(selected, 'paused')}
                       >
                         <Pause className="mr-2 size-4" />
                         Pause
@@ -318,7 +334,7 @@ export function MarketplaceDashboard() {
                         variant="secondary"
                         className="rounded-full"
                         disabled={!selected.length}
-                        onClick={() => void dashboard.updateListingState(selected, 'active')}
+                        onClick={() => updateListingState(selected, 'active')}
                       >
                         <Play className="mr-2 size-4" />
                         Activate
@@ -436,7 +452,7 @@ export function MarketplaceDashboard() {
                                       <Copy className="mr-2 size-4" />
                                       Duplicate
                                     </Button>
-                                    {listing.registration_status === 'unregistered' && (
+                                    {isListingRegistrationPending(listing) && (
                                       <Button
                                         size="sm"
                                         variant="secondary"
@@ -459,6 +475,16 @@ export function MarketplaceDashboard() {
               )}
             </Card>
           </>
+        )}
+        {pendingStateChange && (
+          <MarketplaceSessionConnectDialog
+            autoOpen
+            onConnected={async () => {
+              const pending = pendingStateChange;
+              setPendingStateChange(null);
+              await dashboard.updateListingState(pending.listingIds, pending.state);
+            }}
+          />
         )}
       </Container>
       <Dialog

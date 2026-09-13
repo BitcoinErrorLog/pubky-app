@@ -2414,7 +2414,7 @@ export class CommerceApplication {
       now,
     });
 
-    await LocalCommerceService.stageListingSync(record, publishJob);
+    await LocalCommerceService.stageListingSync(record, publishJob, 'unregistered');
     await CommerceHomeserverService.putJson(url, { ...record });
     await LocalCommerceService.upsertListing(record, 'synced');
     await LocalCommerceService.completeSyncJob(publishJob.id);

@@ -9,6 +9,12 @@ import type { AuctionState, CommerceJsonValue, CommerceMoney } from '@/libs/comm
 export type CommerceCacheStatus = 'local' | 'pending' | 'synced' | 'failed';
 export type CommerceListingRegistrationStatus = 'registered' | 'unregistered';
 
+export function isListingRegistrationPending(
+  listing: Pick<CommerceListingModelSchema, 'registration_status'>,
+): boolean {
+  return listing.registration_status !== 'registered';
+}
+
 export interface CommerceShopModelSchema {
   id: string;
   owner_id: string;

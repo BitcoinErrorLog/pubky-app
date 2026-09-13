@@ -287,7 +287,7 @@ describe('CommerceApplication', () => {
 
     await CommerceApplication.commitUpsertListing(record);
 
-    expect(stage).toHaveBeenCalledWith(record, expect.objectContaining({ operation: 'publish' }));
+    expect(stage).toHaveBeenCalledWith(record, expect.objectContaining({ operation: 'publish' }), 'unregistered');
     expect(execute).toHaveBeenCalledWith(
       record.ownerPubky,
       expect.objectContaining({

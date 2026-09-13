@@ -20,7 +20,10 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { Logger } from '@/libs/logger/logger';
-import type { CommerceListingRegistrationStatus } from '@/models/commerce/commerce.schema';
+import {
+  type CommerceListingRegistrationStatus,
+  isListingRegistrationPending,
+} from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
@@ -59,7 +62,7 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
   };
 
   useEffect(() => {
-    if (registrationStatus !== 'unregistered' || !marketplaceSession) return;
+    if (!isListingRegistrationPending({ registration_status: registrationStatus }) || !marketplaceSession) return;
     void CommerceController.ensureListingRegistered(record);
   }, [record, registrationStatus, marketplaceSession]);
 
@@ -126,7 +129,7 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
           <Badge variant="secondary">{record.state}</Badge>
         </div>
         <div className="flex flex-wrap gap-2">
-          {registrationStatus === 'unregistered' && (
+          {isListingRegistrationPending({ registration_status: registrationStatus }) && (
             <Button
               size="sm"
               variant="secondary"
