@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH } from '@/services/marketplace/marketplace-projections';
 import { createNotificationFixture, NOTIFICATION_TYPES } from '@/test/fixtures/commerce/notifications';
 import { MarketplaceNotificationNormalizer } from './marketplaceNotification.normalizer';
 import { MARKETPLACE_FEED_NOTIFICATION_KEYS } from './marketplaceNotification.types';
@@ -70,15 +71,34 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
 
   it('keeps quarantined rows with the same type and timestamp uniquely keyed', () => {
     const first = MarketplaceNotificationNormalizer.toFeedNotification(
-      { kind: 'unrecognized', id: 'row-1', type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
+      { kind: 'unrecognized', id: 'row-1', index: 0, type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
       'transaction-service',
     );
     const second = MarketplaceNotificationNormalizer.toFeedNotification(
-      { kind: 'unrecognized', id: 'row-2', type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
+      { kind: 'unrecognized', id: 'row-2', index: 1, type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
       'transaction-service',
     );
 
     expect(first.id).not.toBe(second.id);
+  });
+
+  it('bounds the raw quarantine id and appends the row index', () => {
+    const item = MarketplaceNotificationNormalizer.toFeedNotification(
+      {
+        kind: 'unrecognized',
+        id: 'r'.repeat(1_024),
+        index: 7,
+        type: 'future_event',
+        createdAt: '1970-01-01T00:00:00.000Z',
+      },
+      'transaction-service',
+    );
+
+    expect(item.id).toBe(
+      `marketplace:unrecognized:future_event:1970-01-01T00:00:00.000Z:${'r'.repeat(
+        MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH,
+      )}:7`,
+    );
   });
 
   it('carries the §8-permitted amount field-by-field and omits it when absent', () => {
@@ -104,7 +124,7 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
 
   it('includes kind in the exact redacted key set for quarantined rows', () => {
     const item = MarketplaceNotificationNormalizer.toFeedNotification(
-      { kind: 'unrecognized', id: 'row-1', type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
+      { kind: 'unrecognized', id: 'row-1', index: 0, type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
       'transaction-service',
     );
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/database/franky/franky';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
@@ -168,6 +168,32 @@ describe('LocalCommerceService', () => {
     await expect(LocalCommerceService.getListing(`${listing.ownerPubky}:${listing.listingId}`)).resolves.toMatchObject({
       revision: refreshed.revision,
       registration_status: 'unregistered',
+    });
+  });
+
+  it('preserves a registration change observed between refresh reads and writes', async () => {
+    const listing = createCommerceListingFixture();
+    const listingId = `${listing.ownerPubky}:${listing.listingId}`;
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    await LocalCommerceService.setListingRegistrationStatus(listingId, 'unregistered');
+
+    const originalBulkGet = CommerceListingModel.table.bulkGet.bind(CommerceListingModel.table);
+    vi.spyOn(CommerceListingModel.table, 'bulkGet').mockImplementation(
+      (keys) =>
+        originalBulkGet(keys).then((current) => {
+          if (current[0]) current[0].registration_status = 'registered';
+          return current;
+        }) as ReturnType<typeof originalBulkGet>,
+    );
+
+    const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
+    await LocalCommerceService.commitSellerCatalogRefresh(
+      [createCommerceCatalogEntryFixture({ revision: refreshed.revision })],
+      [refreshed],
+    );
+
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'registered',
     });
   });
 

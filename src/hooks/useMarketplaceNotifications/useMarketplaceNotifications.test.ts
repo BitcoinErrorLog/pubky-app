@@ -144,6 +144,7 @@ describe('useMarketplaceNotifications', () => {
       {
         kind: 'unrecognized',
         id: 'row-1',
+        index: 0,
         type: 'payment_method_bound',
         createdAt: '2026-08-19T23:00:00.000Z',
       },

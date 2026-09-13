@@ -68,10 +68,7 @@ describe('marketplace listing projection — viewer bid', () => {
     ['exponent', { exponent: 3 }],
   ])('drops viewer_bid when its %s does not match the auction money', (_field, mismatch) => {
     const fixture = createViewerBidAuctionProjectionFixture();
-    fixture.viewerBid = {
-      ...fixture.viewerBid!,
-      minimumNextBid: { ...fixture.viewerBid!.minimumNextBid, ...mismatch },
-    };
+    fixture.viewerBid = { ...fixture.viewerBid!, minimumNextBid: { ...fixture.viewerBid!.minimumNextBid, ...mismatch } };
 
     const parsed = marketplaceListingProjectionSchema.safeParse(fixture);
 
@@ -81,5 +78,51 @@ describe('marketplace listing projection — viewer bid', () => {
       expect(parsed.data.auction?.currentPrice.amountMinor).toBe(4_500);
       expect(parsed.data.auction?.minimumIncrement.amountMinor).toBe(500);
     }
+  });
+
+  it('drops viewer_bid when maximumAmount alone has a currency mismatch', () => {
+    const fixture = createViewerBidAuctionProjectionFixture();
+    fixture.viewerBid = {
+      ...fixture.viewerBid!,
+      maximumAmount: { ...fixture.viewerBid!.maximumAmount, currency: 'EUR' },
+    };
+
+    const parsed = marketplaceListingProjectionSchema.safeParse(fixture);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.viewerBid).toBeUndefined();
+  });
+
+  it('drops viewer_bid when minimumIncrement alone has a currency mismatch', () => {
+    const fixture = createViewerBidAuctionProjectionFixture();
+    fixture.auction = {
+      ...fixture.auction!,
+      minimumIncrement: { ...fixture.auction!.minimumIncrement, currency: 'EUR' },
+    };
+
+    const parsed = marketplaceListingProjectionSchema.safeParse(fixture);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.viewerBid).toBeUndefined();
+  });
+
+  it('drops viewer_bid when minimumIncrement alone has an exponent mismatch', () => {
+    const fixture = createViewerBidAuctionProjectionFixture();
+    fixture.auction = {
+      ...fixture.auction!,
+      minimumIncrement: { ...fixture.auction!.minimumIncrement, exponent: 3 },
+    };
+
+    const parsed = marketplaceListingProjectionSchema.safeParse(fixture);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.viewerBid).toBeUndefined();
+  });
+
+  it('keeps viewer_bid when all bid money fields match the auction', () => {
+    const parsed = marketplaceListingProjectionSchema.safeParse(createViewerBidAuctionProjectionFixture());
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.viewerBid).toBeDefined();
   });
 });
