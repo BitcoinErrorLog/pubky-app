@@ -191,13 +191,8 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
         if (registered) {
           toast({ title: 'Listing published', description: 'Your owner-signed listing is now available.' });
         } else {
-          // Two truths, reported separately (same discipline as the Drop
-          // Studio): the record IS on the homeserver; only the service
-          // registration is missing, and it self-heals once a session exists.
           toast({
-            title: 'Listing published — registration pending',
-            description:
-              'Your owner-signed listing is on your homeserver, but it is not buyable yet: connect a marketplace session and it will register automatically.',
+            description: 'Published, but not yet registered for checkout — retry from your listing',
           });
         }
       } catch (error) {

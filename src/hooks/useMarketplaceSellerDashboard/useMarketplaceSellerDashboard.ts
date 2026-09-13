@@ -92,6 +92,18 @@ export function useMarketplaceSellerDashboard() {
     }
   };
 
+  const retryListingRegistration = async (listingId: string): Promise<boolean> => {
+    const listing = (localListings ?? []).find((candidate) => candidate.listing_id === listingId);
+    if (!listing) return false;
+    const registered = await CommerceController.ensureListingRegistered(listing.record);
+    toast(
+      registered
+        ? { title: 'Listing registered for checkout' }
+        : { description: 'Published, but not yet registered for checkout — retry from your listing' },
+    );
+    return registered;
+  };
+
   const duplicateListing = async (
     listingId: string,
     options: { replaceUnsavedDraft?: boolean; unsavedDraftId?: string | null } = {},
@@ -180,6 +192,7 @@ export function useMarketplaceSellerDashboard() {
       total: ordersToShip + offersAwaitingReply + expiringAuctions,
     },
     updateListingState,
+    retryListingRegistration,
     duplicateListing,
     hasUnsavedListingDraft,
     exportCsv,

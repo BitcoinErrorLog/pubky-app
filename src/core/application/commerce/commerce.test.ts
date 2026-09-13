@@ -319,6 +319,7 @@ describe('CommerceApplication', () => {
   it('syncs an already-registered listing on republish so edits reach the authority (durable)', async () => {
     const record = createCommerceListingFixture();
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
     vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
@@ -1431,9 +1432,11 @@ describe('CommerceApplication', () => {
       const generateAuthUrlSpy = vi.spyOn(HomeserverService, 'generateAuthUrl');
       const beginSessionFlowSpy = vi.spyOn(MarketplaceSessionService, 'beginSessionFlow');
 
-      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
+      await expect(CommerceApplication.commitUpsertListing(record)).rejects.toMatchObject({
+        code: AuthErrorCode.SESSION_EXPIRED,
+      });
 
-      expect(put).toHaveBeenCalledWith(LISTING_URL, { ...record });
+      expect(put).not.toHaveBeenCalled();
       expect(generateAuthUrlSpy).not.toHaveBeenCalled();
       expect(beginSessionFlowSpy).not.toHaveBeenCalled();
     });

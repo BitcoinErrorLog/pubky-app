@@ -54,7 +54,7 @@ import {
   type MarketplaceCommandResponse,
 } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
-import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { hasHttpStatus, isAppError, isNotFound } from '@/libs/error/error.utils';
@@ -2397,6 +2397,12 @@ export class CommerceApplication {
   }
 
   static async commitUpsertListing(record: CommerceListingRecord): Promise<{ registered: boolean }> {
+    if (isDurableCommerceMode(getCommerceAdapterMode()) && !this.hasActiveMarketplaceSession()) {
+      throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Connect a marketplace session to publish a listing.', {
+        service: ErrorService.Marketplace,
+        operation: 'commitUpsertListing',
+      });
+    }
     const now = Date.now();
     const url = CommerceRecordNormalizer.listingUri(record.ownerPubky, record.listingId);
     const publishJob = this.createSyncJob({
@@ -2429,7 +2435,15 @@ export class CommerceApplication {
     if (getCommerceAdapterMode() !== 'unavailable') {
       try {
         await this.registerListing(record);
+        await LocalCommerceService.setListingRegistrationStatus(
+          `${record.ownerPubky}:${record.listingId}`,
+          'registered',
+        );
       } catch (error) {
+        await LocalCommerceService.setListingRegistrationStatus(
+          `${record.ownerPubky}:${record.listingId}`,
+          'unregistered',
+        );
         Logger.warn('Listing published but service registration failed; it will self-heal from owner surfaces', {
           listing: `${record.ownerPubky}:${record.listingId}`,
           error,
@@ -2448,8 +2462,21 @@ export class CommerceApplication {
    */
   static async ensureListingRegistered(record: CommerceListingRecord): Promise<boolean> {
     if (getCommerceAdapterMode() === 'unavailable') return false;
-    await this.registerListing(record);
-    return true;
+    try {
+      await this.registerListing(record);
+      await LocalCommerceService.setListingRegistrationStatus(`${record.ownerPubky}:${record.listingId}`, 'registered');
+      return true;
+    } catch (error) {
+      await LocalCommerceService.setListingRegistrationStatus(
+        `${record.ownerPubky}:${record.listingId}`,
+        'unregistered',
+      );
+      Logger.warn('Listing registration retry failed', {
+        listing: `${record.ownerPubky}:${record.listingId}`,
+        error,
+      });
+      return false;
+    }
   }
 
   /**

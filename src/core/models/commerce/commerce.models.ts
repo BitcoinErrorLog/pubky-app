@@ -193,6 +193,7 @@ export class CommerceListingModel
   currency: string;
   price_minor: number;
   sync_status: CommerceListingModelSchema['sync_status'];
+  registration_status: CommerceListingModelSchema['registration_status'];
   updated_at: number;
 
   constructor(listing: CommerceListingModelSchema) {
@@ -207,6 +208,7 @@ export class CommerceListingModel
     this.currency = listing.currency;
     this.price_minor = listing.price_minor;
     this.sync_status = listing.sync_status;
+    this.registration_status = listing.registration_status;
     this.updated_at = listing.updated_at;
   }
 

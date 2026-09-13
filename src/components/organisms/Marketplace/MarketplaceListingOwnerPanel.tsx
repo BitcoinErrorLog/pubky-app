@@ -20,11 +20,13 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { Logger } from '@/libs/logger/logger';
+import type { CommerceListingRegistrationStatus } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export interface MarketplaceListingOwnerPanelProps {
   record: CommerceListingRecord;
+  registrationStatus?: CommerceListingRegistrationStatus;
 }
 
 /**
@@ -34,7 +36,7 @@ export interface MarketplaceListingOwnerPanelProps {
  * would pull terms bidders already acted on, so only fixed-price listings
  * offer the pause/relist toggle.
  */
-export function MarketplaceListingOwnerPanel({ record }: MarketplaceListingOwnerPanelProps) {
+export function MarketplaceListingOwnerPanel({ record, registrationStatus }: MarketplaceListingOwnerPanelProps) {
   // Self-heal: listings published before durable-mode registration existed
   // (or while it failed) have no aggregate on the transaction service, which
   // makes them un-buyable. Registration is idempotent, so re-run it whenever
@@ -45,9 +47,21 @@ export function MarketplaceListingOwnerPanel({ record }: MarketplaceListingOwner
   // here: the transactional surfaces own session guidance, buyers self-heal
   // via `listing.sync`, and the next visit retries.
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
+  const retryRegistration = async () => {
+    setIsMutating(true);
+    const registered = await CommerceController.ensureListingRegistered(record);
+    setIsMutating(false);
+    if (registered) {
+      toast({ title: 'Listing registered for checkout' });
+      return;
+    }
+    toast({ description: 'Published, but not yet registered for checkout — retry from your listing' });
+  };
+
   useEffect(() => {
-    CommerceController.ensureListingRegistered(record).catch(() => {});
-  }, [record, marketplaceSession]);
+    if (registrationStatus !== 'unregistered' || !marketplaceSession) return;
+    void CommerceController.ensureListingRegistered(record);
+  }, [record, registrationStatus, marketplaceSession]);
 
   const router = useRouter();
   const [isMutating, setIsMutating] = useState(false);
@@ -112,6 +126,17 @@ export function MarketplaceListingOwnerPanel({ record }: MarketplaceListingOwner
           <Badge variant="secondary">{record.state}</Badge>
         </div>
         <div className="flex flex-wrap gap-2">
+          {registrationStatus === 'unregistered' && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full"
+              disabled={isMutating}
+              onClick={() => void retryRegistration()}
+            >
+              Register for checkout
+            </Button>
+          )}
           <Button asChild size="sm" className="rounded-full" disabled={isMutating}>
             <Link href={getMarketplaceListingEditRoute(record.ownerPubky, record.listingId)} overrideDefaults>
               <PencilLine className="mr-2 size-4" />

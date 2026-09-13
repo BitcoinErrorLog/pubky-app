@@ -25,9 +25,11 @@ import { toast } from '@/molecules/Toaster/use-toast';
 export function MarketplaceSessionConnectDialog({
   triggerLabel = 'Connect marketplace session',
   onConnected,
+  autoOpen = false,
 }: {
   triggerLabel?: string;
   onConnected?: () => void | Promise<void>;
+  autoOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const session = useMarketplaceSessionConnect({
@@ -44,6 +46,10 @@ export function MarketplaceSessionConnectDialog({
   // Referencing `session.start`/`session.cancel` directly keeps the effect
   // dependency-stable: both are useCallback-memoized in the hook.
   const { start, cancel } = session;
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
+
   useEffect(() => {
     if (open) {
       start();

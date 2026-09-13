@@ -436,6 +436,16 @@ export function MarketplaceDashboard() {
                                       <Copy className="mr-2 size-4" />
                                       Duplicate
                                     </Button>
+                                    {listing.registration_status === 'unregistered' && (
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="rounded-full"
+                                        onClick={() => void dashboard.retryListingRegistration(listing.listing_id)}
+                                      >
+                                        Register for checkout
+                                      </Button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
