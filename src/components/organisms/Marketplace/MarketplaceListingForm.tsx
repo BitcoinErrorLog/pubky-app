@@ -40,7 +40,10 @@ import type {
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMarketplaceShippingPresets } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets';
-import { presetToShippingFields } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
+import {
+  presetToShippingFields,
+  shippingFieldsToPresetInput,
+} from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
 import { amountInputSchemaForAsset, amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
 import {
   dimensionInputFromMillimeters,
@@ -217,6 +220,7 @@ export function MarketplaceListingForm({
   const remainingRequired = createMarketplaceListingPublishChecklist(formValues, mediaItems.length);
   const optionalLaterItems = getOptionalLaterItems(formValues);
   const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(LISTING_FORM_SECTIONS[0].id);
+  const [focusAnnouncement, setFocusAnnouncement] = useState('');
   const activeSectionIndex = LISTING_FORM_SECTIONS.findIndex((section) => section.id === activeSectionId);
   const navigateToSection = (sectionId: ListingFormSectionId) => {
     setActiveSectionId(sectionId);
@@ -224,15 +228,49 @@ export function MarketplaceListingForm({
     section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     section?.focus({ preventScroll: true });
   };
+  const focusListingControl = (controlId: string, sectionId: ListingFormSectionId, message: string) => {
+    setFocusAnnouncement(message);
+    setActiveSectionId(sectionId);
+    const section = document.getElementById(sectionId);
+    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const control = document.getElementById(controlId);
+    if (control instanceof HTMLElement) {
+      control.focus({ preventScroll: true });
+      return;
+    }
+    section?.focus({ preventScroll: true });
+  };
+  const submitListing = async () => {
+    const valid = await form.trigger();
+    if (!valid) {
+      const firstError = Object.keys(form.formState.errors)[0] ?? CREATE_MARKETPLACE_LISTING_FIELDS.TITLE;
+      const sectionId = sectionForListingField(firstError);
+      focusListingControl(firstError, sectionId, 'Fix the first highlighted field before publishing.');
+      return;
+    }
+    const missingDescription = mediaItems.find((item) => item.altText.trim() === '');
+    if (missingDescription) {
+      focusListingControl(
+        `listing-photo-alt-${missingDescription.key}`,
+        'listing-section-photos',
+        'Every photo needs a description for screen readers.',
+      );
+      return;
+    }
+    await onSubmit();
+  };
 
   return (
     <form
       className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_9rem]"
       onSubmit={(event) => {
         event.preventDefault();
-        void onSubmit();
+        void submitListing();
       }}
     >
+      <p role="status" aria-live="assertive" className="sr-only">
+        {focusAnnouncement}
+      </p>
       <SectionProgressRail
         activeSectionId={activeSectionId}
         sectionStatuses={sectionStatuses}
@@ -674,7 +712,12 @@ export function MarketplaceListingForm({
             optionalLaterItems={optionalLaterItems}
             publishMinimumMet={publishMinimumMet}
           />
-          <Button type="submit" size="lg" className="w-full rounded-full" disabled={isPublishing || !publishMinimumMet}>
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full rounded-full"
+            disabled={isPublishing || !publishMinimumMet}
+          >
             {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
           </Button>
         </ListingFormSection>
@@ -703,7 +746,7 @@ function SectionProgressRail({
   return (
     <nav
       aria-label={align === 'left' ? 'Listing sections' : 'Listing section status'}
-      className="sticky top-24 hidden h-fit flex-col gap-2 lg:flex"
+      className="sticky top-24 z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
     >
       {LISTING_FORM_SECTIONS.map((section, index) => {
         const complete = sectionStatuses[section.id];
@@ -737,6 +780,26 @@ function SectionProgressRail({
       })}
     </nav>
   );
+}
+
+function sectionForListingField(field: string): ListingFormSectionId {
+  if (field === 'title' || field === 'description' || field === 'categoryId' || field.startsWith('attr')) {
+    return 'listing-section-item';
+  }
+  if (field === 'price' || field === 'saleFormat' || field === 'currency' || field === 'variants') {
+    return 'listing-section-price';
+  }
+  if (
+    field === 'fulfillment' ||
+    field === 'shippingLabel' ||
+    field === 'shippingPrice' ||
+    field.startsWith('shipping') ||
+    field.startsWith('package') ||
+    field === 'returnDays'
+  ) {
+    return 'listing-section-shipping';
+  }
+  return 'listing-section-review';
 }
 
 function MobileSectionStepper({
@@ -994,6 +1057,7 @@ function ListingShippingPresetRow({
   isPublishing: boolean;
 }) {
   const { presets, saveFromFields } = useMarketplaceShippingPresets();
+  const [presetError, setPresetError] = useState('');
 
   const applyPreset = (presetId: string) => {
     const preset = presets.find(({ id }) => id === presetId);
@@ -1014,12 +1078,30 @@ function ListingShippingPresetRow({
 
   const saveAsPreset = () => {
     const values = form.getValues();
-    void saveFromFields(null, {
+    const fields = {
       shippingLabel: values.shippingLabel,
       shippingPrice: values.shippingPrice,
       shippingMinDays: values.shippingMinDays,
       shippingMaxDays: values.shippingMaxDays,
-    });
+    };
+    if (!shippingFieldsToPresetInput(fields)) {
+      setPresetError('Complete the shipping label, price, and delivery estimates before saving a preset.');
+      const field =
+        !fields.shippingLabel.trim() || fields.shippingLabel.trim().length > 100
+          ? CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_LABEL
+          : !/^\d+(?:\.\d{1,2})?$/.test(fields.shippingPrice.trim()) ||
+              Number(fields.shippingPrice) <= 0
+            ? CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE
+            : !/^\d+$/.test(fields.shippingMinDays.trim())
+              ? CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MIN_DAYS
+              : CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_MAX_DAYS;
+      const control = document.getElementById(field);
+      control?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      control?.focus({ preventScroll: true });
+      return;
+    }
+    setPresetError('');
+    void saveFromFields(null, fields);
   };
 
   return (
@@ -1054,6 +1136,11 @@ function ListingShippingPresetRow({
       >
         Save as preset
       </Button>
+      {presetError && (
+        <Typography as="p" role="alert" className="basis-full text-sm text-destructive">
+          {presetError}
+        </Typography>
+      )}
       {presets.length === 0 && (
         <Typography as="p" className="text-sm text-muted-foreground">
           Presets store these shipping fields on this device so future listings start pre-filled.

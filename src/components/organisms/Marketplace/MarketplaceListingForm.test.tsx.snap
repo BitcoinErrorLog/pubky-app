@@ -4,9 +4,14 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
 <form
   class="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_9rem]"
 >
+  <p
+    aria-live="assertive"
+    class="sr-only"
+    role="status"
+  />
   <nav
     aria-label="Listing sections"
-    class="sticky top-24 hidden h-fit flex-col gap-2 lg:flex"
+    class="sticky top-24 z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
   >
     <a
       aria-current="step"
@@ -1841,7 +1846,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
   </div>
   <nav
     aria-label="Listing section status"
-    class="sticky top-24 hidden h-fit flex-col gap-2 lg:flex"
+    class="sticky top-24 z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
   >
     <a
       aria-current="step"
