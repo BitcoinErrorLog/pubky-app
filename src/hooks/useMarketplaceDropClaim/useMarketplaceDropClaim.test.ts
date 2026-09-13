@@ -91,7 +91,7 @@ describe('useMarketplaceDropClaim', () => {
 
     let ok = false;
     await act(async () => {
-      ok = await result.current.claim(SELLER, 'listing1');
+      ok = await result.current.claim(SELLER, 'listing1', 1);
     });
 
     expect(ok).toBe(true);
@@ -118,7 +118,7 @@ describe('useMarketplaceDropClaim', () => {
       [
         'INVALID_STATE',
         "You have reached this drop's per-buyer limit.",
-        "You've reached the per-buyer limit for this drop.",
+        "You have reached this drop's per-buyer limit.",
       ],
     ]) {
       vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
@@ -129,7 +129,7 @@ describe('useMarketplaceDropClaim', () => {
       await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
 
       await act(async () => {
-        await result.current.claim(SELLER, 'listing1');
+        await result.current.claim(SELLER, 'listing1', 1);
       });
       expect(result.current.failure).toBe(expected);
     }
@@ -144,7 +144,7 @@ describe('useMarketplaceDropClaim', () => {
     await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
 
     await act(async () => {
-      await result.current.claim(SELLER, 'listing1');
+      await result.current.claim(SELLER, 'listing1', 1);
     });
     expect(result.current.failure).toBe('The claim could not be completed.');
     expect(result.current.failure).not.toContain('SENTINEL_SERVER_TEXT_drop');
@@ -165,7 +165,7 @@ describe('useMarketplaceDropClaim', () => {
     await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
 
     await act(async () => {
-      await result.current.claim(SELLER, 'listing1');
+      await result.current.claim(SELLER, 'listing1', 1);
     });
     expect(result.current.failure).toBeTypeOf('string');
     expect(result.current.failure).not.toContain(sentinel);
@@ -185,7 +185,7 @@ describe('useMarketplaceDropClaim', () => {
 
     let ok = false;
     await act(async () => {
-      ok = await result.current.claim(SELLER, 'listing1');
+      ok = await result.current.claim(SELLER, 'listing1', 1);
     });
     expect(ok).toBe(true);
     expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
@@ -198,10 +198,24 @@ describe('useMarketplaceDropClaim', () => {
 
     let ok = true;
     await act(async () => {
-      ok = await result.current.claim(SELLER, 'listing1');
+      ok = await result.current.claim(SELLER, 'listing1', 1);
     });
     expect(ok).toBe(false);
     expect(result.current.failure).toContain('delivery address');
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+  });
+
+  it('fails closed at zero allowance before reading a projection or issuing a command', async () => {
+    const { result } = renderHook(() => useMarketplaceDropClaim());
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.claim(SELLER, 'listing1', 0);
+    });
+
+    expect(ok).toBe(false);
+    expect(CommerceController.getMarketplaceListingProjection).not.toHaveBeenCalled();
     expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
 });

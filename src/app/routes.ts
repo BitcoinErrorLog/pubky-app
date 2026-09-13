@@ -54,6 +54,11 @@ export enum MARKETPLACE_ROUTES {
   SETTINGS_SHIPPING = '/marketplace/settings/shipping',
 }
 
+export function getMarketplaceAddressSettingsRoute(returnTo?: string): string {
+  if (!returnTo || !matchMarketplaceDropRoute(returnTo)) return MARKETPLACE_ROUTES.SETTINGS_ADDRESSES;
+  return `${MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 export enum PROFILE_ROUTES {
   PROFILE = '/profile',
   NOTIFICATIONS = '/profile/notifications',
@@ -389,7 +394,19 @@ export function getMarketplaceDropRoute(sellerPubky: string, dropId: string): st
 }
 
 export function matchMarketplaceDropRoute(pathname: string): { sellerPubky: string; dropId: string } | null {
-  const segments = pathname.split('/').filter(Boolean);
+  if (pathname.startsWith('//') || !pathname.startsWith('/') || /^[a-z][a-z\d+\-.]*:/i.test(pathname)) {
+    return null;
+  }
+  let decodedPathname: string;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+  if (decodedPathname.split('/').some((segment) => segment === '.' || segment === '..')) {
+    return null;
+  }
+  const segments = decodedPathname.split('/').filter(Boolean);
   if (segments[0] !== 'marketplace' || segments[1] !== 'drop' || segments.length !== 4) {
     return null;
   }

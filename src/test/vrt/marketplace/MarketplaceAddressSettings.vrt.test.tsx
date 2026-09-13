@@ -50,6 +50,7 @@ const addressFixtures = vi.hoisted(() => {
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
   usePathname: () => '/marketplace/settings/addresses',
 }));
 

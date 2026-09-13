@@ -1,7 +1,7 @@
 'use client';
 
 import { CheckCircle2, Circle } from 'lucide-react';
-import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { getMarketplaceAddressSettingsRoute } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
@@ -15,6 +15,7 @@ export interface DropReadyCheckPanelProps {
   hasSession: boolean;
   hasAddress: boolean;
   readyCheck: MarketplaceDropReadyCheck | null;
+  returnTo?: string;
   /** Refetches the allowance after the session connects. */
   onSessionConnected?: () => void | Promise<void>;
 }
@@ -29,6 +30,7 @@ export function DropReadyCheckPanel({
   hasSession,
   hasAddress,
   readyCheck,
+  returnTo,
   onSessionConnected,
 }: DropReadyCheckPanelProps) {
   const view = deriveDropReadyCheck({ hasSession, hasAddress, readyCheck });
@@ -76,7 +78,7 @@ export function DropReadyCheckPanel({
               )}
               {item.id === 'address' && !item.ready && (
                 <Button asChild variant="secondary" size="sm" className="w-fit rounded-full">
-                  <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults>
+                  <Link href={getMarketplaceAddressSettingsRoute(returnTo)} overrideDefaults>
                     Add a delivery address
                   </Link>
                 </Button>

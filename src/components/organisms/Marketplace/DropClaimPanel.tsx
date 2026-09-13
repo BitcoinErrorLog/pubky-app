@@ -30,9 +30,11 @@ type HydratedDropListing = {
 export function DropClaimPanel({
   record,
   claim,
+  remainingAllowance,
 }: {
   record: CommerceDropRecord;
   claim: UseMarketplaceDropClaimResult;
+  remainingAllowance: number | null;
 }) {
   const [listings, setListings] = useState<HydratedDropListing[] | null>(null);
 
@@ -82,6 +84,7 @@ export function DropClaimPanel({
               const compositeId = `${record.ownerPubky}:${listingId}`;
               const isSubmitting = claim.submittingListingId === compositeId;
               const isClaimed = claim.claimedListingIds.has(compositeId);
+              const allowanceSpent = remainingAllowance === 0;
               const mediaUrl = mediaUrls[index] ?? null;
               const price = listing?.sale.format === 'fixed_price' ? listing.sale.unitPrice : null;
               return (
@@ -116,15 +119,17 @@ export function DropClaimPanel({
                     <Button
                       size="sm"
                       className="rounded-full"
-                      disabled={claim.submittingListingId !== null}
-                      onClick={() => void claim.claim(record.ownerPubky, listingId)}
+                      disabled={claim.submittingListingId !== null || allowanceSpent}
+                      onClick={() => void claim.claim(record.ownerPubky, listingId, remainingAllowance)}
                     >
-                      {isSubmitting ? (
+                      {allowanceSpent ? (
+                        <CheckCircle2 className="mr-2 size-4" />
+                      ) : isSubmitting ? (
                         <LoaderCircle className="mr-2 size-4 animate-spin" />
                       ) : (
                         <Zap className="mr-2 size-4" />
                       )}
-                      {isSubmitting ? 'Claiming…' : 'Claim one'}
+                      {allowanceSpent ? 'Per-buyer limit reached' : isSubmitting ? 'Claiming…' : 'Claim one'}
                     </Button>
                   )}
                 </li>
@@ -136,6 +141,11 @@ export function DropClaimPanel({
       {claim.failure && (
         <Typography as="p" role="alert" aria-live="assertive" className="text-sm font-medium text-amber-300">
           {claim.failure}
+        </Typography>
+      )}
+      {remainingAllowance === 0 && (
+        <Typography as="p" role="status" className="text-sm font-medium text-muted-foreground">
+          You have reached this drop&apos;s per-buyer limit.
         </Typography>
       )}
       {!claim.claimAddress && !claim.needsSession && (

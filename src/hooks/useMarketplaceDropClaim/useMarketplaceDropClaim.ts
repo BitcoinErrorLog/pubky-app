@@ -29,7 +29,7 @@ export interface UseMarketplaceDropClaimResult {
   failure: string | null;
   needsSession: boolean;
   sessionError: string | null;
-  claim: (listingOwnerPubky: string, listingId: string) => Promise<boolean>;
+  claim: (listingOwnerPubky: string, listingId: string, remainingAllowance: number | null) => Promise<boolean>;
 }
 
 /**
@@ -68,8 +68,16 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
     setSessionError(null);
   }, [marketplaceSession]);
 
-  const claim = async (listingOwnerPubky: string, listingId: string): Promise<boolean> => {
+  const claim = async (
+    listingOwnerPubky: string,
+    listingId: string,
+    remainingAllowance: number | null,
+  ): Promise<boolean> => {
     if (submittingListingId !== null) return false;
+    if (remainingAllowance === 0) {
+      setFailure(MARKETPLACE_FAILURE_MESSAGES.claimRefusal);
+      return false;
+    }
     if (!claimAddress) {
       setFailure(MARKETPLACE_FAILURE_MESSAGES.claimAddress);
       return false;
