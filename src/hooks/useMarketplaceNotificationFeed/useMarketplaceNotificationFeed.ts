@@ -46,7 +46,9 @@ export function useMarketplaceNotificationFeed() {
       setItems((previous) =>
         previous.length === 0 && fetched.length === 0
           ? previous
-          : fetched.map((item) => (seenUnread.has(item.id) ? { ...item, isUnread: true } : item)),
+          : fetched.map((item) =>
+              item.kind === 'unrecognized' || !seenUnread.has(item.id) ? item : { ...item, isUnread: true },
+            ),
       );
     } catch (error) {
       Logger.warn('Failed to load marketplace notifications for the general surface', { error });

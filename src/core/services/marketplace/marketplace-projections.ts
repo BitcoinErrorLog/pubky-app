@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
 import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
+import { ServerErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 
 /**
  * Read-projection schemas shared by BOTH marketplace transports.
@@ -93,7 +96,7 @@ export const marketplaceNotificationSchema = z
     // revision, so this stays optional rather than required.
     revision: z.number().int().positive().optional(),
     recipientPubky: commercePubkySchema,
-    actorPubky: commercePubkySchema,
+    actorPubky: z.union([commercePubkySchema, z.literal('system'), z.literal('paypal-ipn')]),
     type: z.enum([
       'message_received',
       'offer_received',
@@ -130,7 +133,7 @@ export const marketplaceNotificationSchema = z
     // outbid/auction_won/auction_ended). Null on service rows delivered
     // before amounts existed and absent from sandbox notifications.
     amount: marketplaceMoneySchema.nullish(),
-    createdAt: z.string(),
+    createdAt: z.iso.datetime({ offset: true }),
     readAt: z.string().nullable(),
   })
   .passthrough();
@@ -374,7 +377,20 @@ export const marketplaceReceiptSchema = z.object({
 });
 
 export type MarketplaceListingProjection = z.infer<typeof marketplaceListingProjectionSchema>;
-export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSchema>;
+export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSchema> & { kind?: never };
+export type MarketplaceUnrecognizedNotification = {
+  kind: 'unrecognized';
+  id: string;
+  type: string;
+  createdAt: string;
+};
+export type MarketplaceNotificationEntry = MarketplaceNotification | MarketplaceUnrecognizedNotification;
+
+export function isRecognizedMarketplaceNotification(
+  entry: MarketplaceNotificationEntry,
+): entry is MarketplaceNotification {
+  return !('kind' in entry);
+}
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;
 export type MarketplaceOrder = z.infer<typeof marketplaceOrderSchema>;
 export type MarketplacePublicDrop = z.infer<typeof marketplacePublicDropSchema>;
@@ -382,3 +398,43 @@ export type MarketplaceSellerDrop = z.infer<typeof marketplaceSellerDropSchema>;
 export type MarketplaceDropReadyCheck = z.infer<typeof marketplaceDropReadyCheckSchema>;
 export type MarketplacePayment = z.infer<typeof marketplacePaymentSchema>;
 export type MarketplaceReceipt = z.infer<typeof marketplaceReceiptSchema>;
+
+export const MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH = 64;
+const SAFE_QUARANTINE_TIMESTAMP = new Date(0).toISOString();
+
+export function parseMarketplaceNotificationEntries(
+  raw: unknown,
+  reportInvalidTypes?: (invalidTypes: readonly string[]) => void,
+): MarketplaceNotificationEntry[] {
+  const envelope = z.object({ notifications: z.array(z.unknown()) }).safeParse(raw);
+  if (!envelope.success) {
+    throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid notifications.', {
+      service: ErrorService.Marketplace,
+      operation: 'getNotifications',
+    });
+  }
+
+  const invalidTypes = new Set<string>();
+  const entries = envelope.data.notifications.map((row, index): MarketplaceNotificationEntry => {
+    const parsed = marketplaceNotificationSchema.safeParse(row);
+    if (parsed.success) return parsed.data;
+
+    const candidate = typeof row === 'object' && row !== null ? (row as Record<string, unknown>) : {};
+    const type =
+      typeof candidate.type === 'string'
+        ? candidate.type.slice(0, MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH)
+        : '<unknown>';
+    const createdAt =
+      typeof candidate.createdAt === 'string' &&
+      marketplaceNotificationSchema.shape.createdAt.safeParse(candidate.createdAt).success
+        ? candidate.createdAt
+        : SAFE_QUARANTINE_TIMESTAMP;
+    const id = typeof candidate.id === 'string' ? candidate.id : String(index);
+    invalidTypes.add(type);
+    return { kind: 'unrecognized', id, type, createdAt };
+  });
+
+  if (invalidTypes.size > 0) reportInvalidTypes?.([...invalidTypes].sort());
+
+  return entries;
+}

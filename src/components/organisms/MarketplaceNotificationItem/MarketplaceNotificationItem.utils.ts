@@ -1,5 +1,10 @@
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import type { MarketplaceFeedNotification } from '@/pipes/marketplaceNotification/marketplaceNotification.types';
+import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+
+type MarketplaceNotificationActionInput = {
+  type: MarketplaceNotification['type'];
+  amount?: { amountMinor: number; currency: string; exponent: number };
+};
 
 /**
  * Action text rendered after the actor's username, mirroring the social
@@ -11,9 +16,7 @@ import type { MarketplaceFeedNotification } from '@/pipes/marketplaceNotificatio
  * units, never "sats"). Exhaustive: adding a notification type fails
  * compilation.
  */
-export function getMarketplaceNotificationActionText(
-  notification: Pick<MarketplaceFeedNotification, 'type' | 'amount'>,
-): string {
+export function getMarketplaceNotificationActionText(notification: MarketplaceNotificationActionInput): string {
   const base = getBaseActionText(notification.type);
   if (!notification.amount) return base;
   const money = formatCommerceMoney(notification.amount);
@@ -39,7 +42,7 @@ export function getMarketplaceNotificationActionText(
   }
 }
 
-function getBaseActionText(type: MarketplaceFeedNotification['type']): string {
+function getBaseActionText(type: MarketplaceNotification['type']): string {
   switch (type) {
     case 'message_received':
       return 'sent you a marketplace message';
@@ -85,5 +88,9 @@ function getBaseActionText(type: MarketplaceFeedNotification['type']): string {
       return 'removed the pickup details';
     case 'pickup_ready':
       return 'marked your order ready for pickup';
+    default: {
+      const exhaustiveCheck: never = type;
+      return exhaustiveCheck;
+    }
   }
 }

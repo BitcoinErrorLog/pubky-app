@@ -1,6 +1,6 @@
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import type { CommerceAdapterMode } from '@/config/commerce';
-import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+import type { MarketplaceNotification, MarketplaceNotificationEntry } from '@/services/marketplace/marketplace';
 import type { MarketplaceFeedNotification } from './marketplaceNotification.types';
 
 export class MarketplaceNotificationNormalizer {
@@ -22,9 +22,21 @@ export class MarketplaceNotificationNormalizer {
    * never clear is a count they cannot act on.
    */
   static toFeedNotification(
-    notification: MarketplaceNotification,
+    notification: MarketplaceNotificationEntry,
     adapterMode: CommerceAdapterMode,
   ): MarketplaceFeedNotification {
+    if (notification.kind === 'unrecognized') {
+      return {
+        id: `marketplace:unrecognized:${notification.type}:${notification.createdAt}:${notification.id}`,
+        source: 'marketplace',
+        kind: 'unrecognized',
+        type: notification.type,
+        timestamp: Date.parse(notification.createdAt),
+        isUnread: false,
+        href: APP_ROUTES.MARKETPLACE,
+      };
+    }
+
     return {
       id: `marketplace:${notification.id}`,
       source: 'marketplace',

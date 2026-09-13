@@ -53,6 +53,7 @@ import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
+import { reportMarketplaceNotificationInvalidTypes } from './marketplace-notification-diagnostics';
 import {
   type MarketplaceBidHistory,
   marketplaceBidHistorySchema,
@@ -60,8 +61,7 @@ import {
   marketplaceDropReadyCheckSchema,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
-  type MarketplaceNotification,
-  marketplaceNotificationSchema,
+  type MarketplaceNotificationEntry,
   type MarketplaceOffer,
   marketplaceOfferSchema,
   type MarketplaceOrder,
@@ -74,6 +74,7 @@ import {
   marketplaceReceiptSchema,
   type MarketplaceSellerDrop,
   marketplaceSellerDropSchema,
+  parseMarketplaceNotificationEntries,
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
 
@@ -393,12 +394,7 @@ export class MarketplaceTransactionService {
     this.assertTransactionServiceMode('getHealth');
     const url = `${getMarketplaceUrl()}/health`;
     const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getHealth');
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getHealth',
-      url,
-    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getHealth', url);
     return this.parseProjection(
       'getHealth',
       marketplaceHealthSchema,
@@ -657,14 +653,9 @@ export class MarketplaceTransactionService {
    * carry no `revision` — there is no notification command surface on the
    * durable service, so nothing can mark them read.
    */
-  static async getNotifications(actor: string): Promise<MarketplaceNotification[]> {
+  static async getNotifications(actor: string): Promise<MarketplaceNotificationEntry[]> {
     const raw = await this.readProjection('getNotifications', actor, '/v1/notifications');
-    return this.parseProjection(
-      'getNotifications',
-      z.object({ notifications: z.array(marketplaceNotificationSchema) }),
-      raw,
-      'Marketplace returned invalid notifications.',
-    ).notifications;
+    return parseMarketplaceNotificationEntries(raw, reportMarketplaceNotificationInvalidTypes);
   }
 
   /**

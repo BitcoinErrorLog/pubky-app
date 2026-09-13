@@ -26,12 +26,12 @@ import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
+import { reportMarketplaceNotificationInvalidTypes } from './marketplace-notification-diagnostics';
 import {
   type MarketplaceBidHistory,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
-  type MarketplaceNotification,
-  marketplaceNotificationSchema,
+  type MarketplaceNotificationEntry,
   type MarketplaceOffer,
   marketplaceOfferSchema,
   type MarketplaceOrder,
@@ -40,6 +40,7 @@ import {
   marketplacePaymentSchema,
   type MarketplaceReceipt,
   marketplaceReceiptSchema,
+  parseMarketplaceNotificationEntries,
 } from './marketplace-projections';
 import { MarketplaceTransactionService } from './marketplace-transaction';
 
@@ -102,12 +103,14 @@ export type {
   MarketplaceDropReadyCheck,
   MarketplaceListingProjection,
   MarketplaceNotification,
+  MarketplaceNotificationEntry,
   MarketplaceOffer,
   MarketplaceOrder,
   MarketplacePayment,
   MarketplacePublicDrop,
   MarketplaceReceipt,
   MarketplaceSellerDrop,
+  MarketplaceUnrecognizedNotification,
 } from './marketplace-projections';
 
 /**
@@ -302,7 +305,7 @@ export class MarketplaceGatewayService {
     return parsed.data.offers;
   }
 
-  static async getNotifications(actor: string): Promise<MarketplaceNotification[]> {
+  static async getNotifications(actor: string): Promise<MarketplaceNotificationEntry[]> {
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getNotifications(actor);
     }
@@ -315,15 +318,7 @@ export class MarketplaceGatewayService {
       'getNotifications',
     );
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getNotifications', url);
-    const parsed = z.object({ notifications: z.array(marketplaceNotificationSchema) }).safeParse(raw);
-    if (!parsed.success) {
-      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid notifications.', {
-        service: ErrorService.Marketplace,
-        operation: 'getNotifications',
-        context: { statusCode: response.status },
-      });
-    }
-    return parsed.data.notifications;
+    return parseMarketplaceNotificationEntries(raw, reportMarketplaceNotificationInvalidTypes);
   }
 
   static async getNotificationPreferences(actor: string): Promise<MarketplaceNotificationPreferences> {

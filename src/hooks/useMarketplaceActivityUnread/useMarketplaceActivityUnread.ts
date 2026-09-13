@@ -5,6 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { Logger } from '@/libs/logger/logger';
+import { isRecognizedMarketplaceNotification } from '@/services/marketplace/marketplace-projections';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
@@ -60,8 +61,14 @@ export function useMarketplaceActivityUnread(): number {
         if (!active) return;
         setNotificationCount(
           adapterMode === 'sandbox'
-            ? notifications.filter(({ readAt }) => !readAt).length
-            : notifications.filter(({ createdAt }) => new Date(createdAt).getTime() > checkpoint).length,
+            ? notifications.filter(
+                (notification) => isRecognizedMarketplaceNotification(notification) && !notification.readAt,
+              ).length
+            : notifications.filter(
+                (notification) =>
+                  isRecognizedMarketplaceNotification(notification) &&
+                  new Date(notification.createdAt).getTime() > checkpoint,
+              ).length,
         );
       })
       .catch((error) => {

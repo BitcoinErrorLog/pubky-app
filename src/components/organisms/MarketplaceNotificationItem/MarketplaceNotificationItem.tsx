@@ -34,12 +34,39 @@ interface MarketplaceNotificationItemProps {
 export function MarketplaceNotificationItem({ notification, isMobile = false }: MarketplaceNotificationItemProps) {
   const router = useRouter();
   const { formatRelativeTime } = useRelativeTime();
+  const actorPubky = 'kind' in notification ? '' : notification.actorPubky;
 
   // Marketplace actors are pubky users, so the same profile lookup the
   // social rows use resolves their display name and avatar.
-  const { profile } = useUserProfile(notification.actorPubky);
-  const userName = profile?.name || 'User';
-  const userProfileLink = getUserProfileLink(notification.actorPubky);
+  const { profile } = useUserProfile(actorPubky);
+
+  if ('kind' in notification) {
+    return (
+      <Container
+        overrideDefaults={true}
+        className="flex w-full min-w-0 items-center gap-3 rounded-md border border-amber-500/40 p-3"
+        data-cy="marketplace-unrecognized-notification"
+      >
+        <Container overrideDefaults={true} className="size-6 shrink-0 rounded-full bg-amber-500/15" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">Unrecognized marketplace event</p>
+          <p className="text-sm text-muted-foreground">History may be incomplete.</p>
+        </div>
+        <span className="shrink-0 text-xs font-medium tracking-widest text-muted-foreground">Integrity notice</span>
+      </Container>
+    );
+  }
+
+  const userName =
+    notification.actorPubky === 'system'
+      ? 'System'
+      : notification.actorPubky === 'paypal-ipn'
+        ? 'PayPal'
+        : profile?.name || 'User';
+  const userProfileLink =
+    notification.actorPubky === 'system' || notification.actorPubky === 'paypal-ipn'
+      ? null
+      : getUserProfileLink(notification.actorPubky);
   const actionText = getMarketplaceNotificationActionText(notification);
   const timestampDate = new Date(notification.timestamp);
 

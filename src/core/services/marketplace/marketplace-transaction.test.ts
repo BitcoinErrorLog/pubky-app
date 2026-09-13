@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import type { AppError } from '@/libs/error/error';
 import { ErrorService } from '@/libs/error/error.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { Logger } from '@/libs/logger/logger';
 import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
+import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import { asOpaque } from '@/test-utils/type-assertions';
+import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH, marketplaceNotificationSchema } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
 import { MarketplaceTransactionService } from './marketplace-transaction';
 
@@ -17,6 +20,32 @@ const COMMAND_ID = '00000000-0000-4000-8000-000000000700';
 // Captured from https://marketplace-service-production-ce23.up.railway.app/health at 2026-09-13T12:01:05Z.
 const LIVE_HEALTH_RESPONSE =
   '{"status":"ok","pickup_available":true,"paykit_rail":{"bitcoin_offer_available":true,"age_seconds":9}}';
+// Minimized live capture from GET /v1/notifications at
+// https://marketplace-service-production-ce23.up.railway.app on 2026-09-13.
+// Values are replaced with non-identifying placeholders; only the wire shape
+// and literals needed to exercise the client parser are retained.
+const LIVE_NOTIFICATION_ROWS = [
+  {
+    id: '00000000-0000-4000-8000-000000000931',
+    recipient_pubky: ACTOR,
+    actor_pubky: OTHER_ACTOR,
+    type: 'order_created',
+    aggregate_id: 'order:placeholder',
+    created_at: '2026-08-20T11:00:00.000Z',
+    read_at: null,
+    amount: null,
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000932',
+    recipient_pubky: ACTOR,
+    actor_pubky: OTHER_ACTOR,
+    type: 'payment_method_bound',
+    aggregate_id: 'seller-payment:placeholder',
+    created_at: '2026-08-20T11:01:00.000Z',
+    read_at: null,
+    amount: null,
+  },
+] as const;
 
 const config = vi.hoisted(() => ({
   mode: 'transaction-service' as string,
@@ -507,7 +536,123 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(notifications).toEqual([
       expect.objectContaining({ type: 'order_shipped', aggregateId: `order:${ORDER_ID}`, readAt: null }),
     ]);
-    expect(notifications[0].revision).toBeUndefined();
+    expect('revision' in notifications[0] ? notifications[0].revision : undefined).toBeUndefined();
+  });
+
+  it('keeps valid rows when a live row has an unknown type and does not log its body', async () => {
+    const oldAtomicParse = z.object({ notifications: z.array(marketplaceNotificationSchema) }).safeParse({
+      notifications: [
+        {
+          id: LIVE_NOTIFICATION_ROWS[0].id,
+          recipientPubky: LIVE_NOTIFICATION_ROWS[0].recipient_pubky,
+          actorPubky: LIVE_NOTIFICATION_ROWS[0].actor_pubky,
+          type: LIVE_NOTIFICATION_ROWS[0].type,
+          aggregateId: LIVE_NOTIFICATION_ROWS[0].aggregate_id,
+          createdAt: LIVE_NOTIFICATION_ROWS[0].created_at,
+          readAt: LIVE_NOTIFICATION_ROWS[0].read_at,
+          amount: LIVE_NOTIFICATION_ROWS[0].amount,
+        },
+        {
+          id: LIVE_NOTIFICATION_ROWS[1].id,
+          recipientPubky: LIVE_NOTIFICATION_ROWS[1].recipient_pubky,
+          actorPubky: LIVE_NOTIFICATION_ROWS[1].actor_pubky,
+          type: LIVE_NOTIFICATION_ROWS[1].type,
+          aggregateId: LIVE_NOTIFICATION_ROWS[1].aggregate_id,
+          createdAt: LIVE_NOTIFICATION_ROWS[1].created_at,
+          readAt: LIVE_NOTIFICATION_ROWS[1].read_at,
+          amount: LIVE_NOTIFICATION_ROWS[1].amount,
+        },
+      ],
+    });
+    expect(oldAtomicParse.success).toBe(false);
+
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [
+          ...LIVE_NOTIFICATION_ROWS,
+          {
+            ...LIVE_NOTIFICATION_ROWS[0],
+            id: '00000000-0000-4000-8000-000000000933',
+            actor_pubky: 'system',
+            type: 'payment_confirmed',
+          },
+        ],
+      }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const notifications = await MarketplaceTransactionService.getNotifications(ACTOR);
+
+    expect(notifications).toHaveLength(3);
+    expect(notifications[0]).toMatchObject({ type: 'order_created' });
+    expect(notifications[1]).toEqual({
+      kind: 'unrecognized',
+      id: '00000000-0000-4000-8000-000000000932',
+      type: 'payment_method_bound',
+      createdAt: '2026-08-20T11:01:00.000Z',
+    });
+    expect(notifications[2]).toMatchObject({ type: 'payment_confirmed', actorPubky: 'system' });
+    expect(loggerError).toHaveBeenCalledOnce();
+    expect(loggerError.mock.calls[0]?.[1]).toBe('Marketplace notification history was partially unrecognized.');
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('seller-payment:placeholder');
+  });
+
+  it('bounds an unrecognized type in telemetry and the normalized feed id', async () => {
+    await establishSession();
+    const oversizedType = 'x'.repeat(1_024);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [
+          {
+            ...LIVE_NOTIFICATION_ROWS[0],
+            type: oversizedType,
+          },
+        ],
+      }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const [notification] = await MarketplaceTransactionService.getNotifications(ACTOR);
+    expect(notification).toMatchObject({
+      kind: 'unrecognized',
+      type: 'x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH),
+    });
+    expect(JSON.stringify(loggerError.mock.calls)).toContain('x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH));
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(oversizedType);
+    expect(MarketplaceNotificationNormalizer.toFeedNotification(notification, 'transaction-service').id).toContain(
+      `marketplace:unrecognized:${'x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH)}`,
+    );
+  });
+
+  it('quarantines malformed notification timestamps at epoch', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [{ ...LIVE_NOTIFICATION_ROWS[1], created_at: 'not-a-date' }],
+      }),
+    );
+
+    const [notification] = await MarketplaceTransactionService.getNotifications(ACTOR);
+    expect(notification).toMatchObject({
+      kind: 'unrecognized',
+      createdAt: '1970-01-01T00:00:00.000Z',
+    });
+    expect(MarketplaceNotificationNormalizer.toFeedNotification(notification, 'transaction-service').timestamp).toBe(0);
+  });
+
+  it('reports each distinct invalid-type set once until the session ends', async () => {
+    await establishSession();
+    const invalidRow = { ...LIVE_NOTIFICATION_ROWS[1] };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, { notifications: [invalidRow] }))
+      .mockResolvedValueOnce(jsonResponse(200, { notifications: [invalidRow] }));
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    await MarketplaceTransactionService.getNotifications(ACTOR);
+    await MarketplaceTransactionService.getNotifications(ACTOR);
+
+    expect(loggerError).toHaveBeenCalledOnce();
   });
 
   it('requires a session for every projection read', async () => {
