@@ -1,8 +1,11 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
+import projectionSamples from '@/libs/commerce/contracts/samples/projections.json';
+import { marketplaceOrderSchema } from '@/core/services/marketplace/marketplace-projections';
+import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 
 /**
@@ -27,6 +30,7 @@ const fixtures = vi.hoisted(async () => {
 
 const view = vi.hoisted(() => ({
   deployEnv: 'production' as 'production' | 'staging' | undefined,
+  currentUserPubky: 's'.repeat(52) as string | null,
   locks: {
     enabled: true,
     correlation: null as unknown,
@@ -61,6 +65,11 @@ vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
   return { ...actual, getDeployEnv: () => view.deployEnv };
 });
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string | null }) => unknown) =>
+    selector({ currentUserPubky: view.currentUserPubky }),
+}));
 
 vi.mock('@/controllers/commerce/commerce', async () => {
   const { ORDER_FIXTURE_SELLER } = await import('@/test/fixtures/commerce/orders');
@@ -117,10 +126,12 @@ async function renderCard(
     isBuyer?: boolean;
     viewport?: object;
     deployEnv?: 'production' | 'staging';
+    currentUserPubky?: string | null;
   } = {},
 ) {
   const { createOrderFixture, createPaymentFixture } = await fixtures;
   view.deployEnv = options.deployEnv ?? 'production';
+  view.currentUserPubky = options.currentUserPubky ?? 's'.repeat(52);
   const payment = createPaymentFixture(paymentState, {
     adapter: options.adapter ?? 'sandbox',
     locksBundleId: undefined,
@@ -343,4 +354,94 @@ describe('Marketplace payment status card — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-sandbox-detected-desktop');
     view.locks.enabled = true;
   });
+
+  it('renders seller-observed Bitcoin facts and confirmation CTA', async () => {
+    const screen = await renderCapturedCard('seller_awaiting_confirmation', false);
+    await expect.element(screen.getByText('Review Bitcoin payment')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-seller-awaiting-review-desktop',
+    );
+  });
+
+  it('renders seller manual resolution outcomes and entered context', async () => {
+    const screen = await renderCapturedCard('seller_manual_review_held', false);
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-seller-manual-review-held-desktop',
+    );
+  });
+
+  it('renders seller late manual resolution from the captured projection', async () => {
+    const screen = await renderCapturedCard('seller_manual_review_late', false);
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-seller-manual-review-late-desktop',
+    );
+  });
+
+  it('renders buyer projections without seller evidence or controls', async () => {
+    const screen = await renderCapturedCard('buyer_manual_review_held', true);
+    await expect.element(screen.getByText('Under manual review')).toBeInTheDocument();
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-buyer-manual-review-redacted-desktop',
+    );
+  });
+
+  it('suppresses Bitcoin review controls for a non-Bitcoin rail', async () => {
+    const screen = await renderCard('manual_review', 'transaction-service', {
+      isBuyer: false,
+      currentUserPubky: 's'.repeat(52),
+      orderOverrides: { paymentMethod: 'stripe' },
+      deployEnv: 'staging',
+    });
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+  });
 });
+
+async function renderCapturedCard(scene: keyof typeof projectionSamples, isBuyer: boolean) {
+  view.deployEnv = 'staging';
+  view.currentUserPubky = isBuyer ? 'b'.repeat(52) : 's'.repeat(52);
+  const body = projectionBody(scene);
+  const order = marketplaceOrderSchema.parse(toCamelCaseWire(body));
+  const screen = await renderForVRT(
+    <Harness>
+      <MarketplacePaymentStatusCard
+        order={order}
+        payment={order.payment ?? null}
+        isBuyer={isBuyer}
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />
+    </Harness>,
+    { viewport: VRT_VIEWPORT_DESKTOP },
+  );
+  expect(expectVrtSurface('marketplace-payment-status-card')).toBeInTheDocument();
+  return screen;
+}
+
+function projectionBody(scene: keyof typeof projectionSamples): Record<string, unknown> {
+  const source = projectionSamples[scene].response.body;
+  const replacements: Record<string, string> = {
+    '<uuid:1>': '018f47d2-6a27-7c23-a49d-000000000001',
+    '<uuid:2>': '018f47d2-6a27-7c23-a49d-000000000002',
+    '<uuid:3>': '018f47d2-6a27-7c23-a49d-000000000003',
+    '<uuid:4>': '018f47d2-6a27-7c23-a49d-000000000004',
+    '<uuid:5>': '018f47d2-6a27-7c23-a49d-000000000005',
+    '<uuid:6>': '018f47d2-6a27-7c23-a49d-000000000006',
+    '<pubky:buyer>': 'b'.repeat(52),
+    '<pubky:seller>': 's'.repeat(52),
+    '<timestamp:1>': '2026-08-20T20:00:00.000Z',
+    '<timestamp:2>': '2026-08-20T21:00:00.000Z',
+    '<timestamp:3>': '2026-08-27T20:00:00.000Z',
+    '<paykit-reference:1>': 'paykit-reference-1',
+    '<paykit-reference:2>': 'paykit-reference-2',
+    '<paykit-reference:3>': 'paykit-reference-3',
+  };
+  return JSON.parse(
+    JSON.stringify(source, (_key, value: unknown) =>
+      typeof value === 'string' ? (replacements[value] ?? value) : value,
+    ),
+  ) as Record<string, unknown>;
+}

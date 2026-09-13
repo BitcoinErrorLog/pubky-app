@@ -630,6 +630,31 @@ export class CommerceController {
     );
   }
 
+  static async confirmBitcoinPayment(orderId: unknown, reason?: string) {
+    return await CommerceApplication.confirmBitcoinPayment(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+      reason,
+    );
+  }
+
+  static async resolveBitcoinPayment(
+    orderId: unknown,
+    input: {
+      outcome: 'paid' | 'refunded' | 'abandoned';
+      reason?: string;
+      externalRefundReference?: string;
+    },
+    idempotencyKey: string,
+  ) {
+    return await CommerceApplication.resolveBitcoinPayment(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+      input,
+      idempotencyKey,
+    );
+  }
+
   static async getMarketplaceReceipt(receiptId: unknown) {
     return await CommerceApplication.getMarketplaceReceipt(
       this.getCurrentUserPubky(),

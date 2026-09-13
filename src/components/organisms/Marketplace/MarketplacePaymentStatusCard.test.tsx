@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
 import { createOrderFixture, createPaymentFixture } from '@/test/fixtures/commerce/orders';
@@ -45,9 +45,81 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: 's'.repeat(52) }),
+}));
+
 describe('MarketplacePaymentStatusCard', () => {
   beforeEach(() => {
     runtime.deployEnv = 'production';
+    vi.mocked(useMarketplaceOrderPayment).mockReturnValue({
+      availableMethods: null,
+      bitcoinOfferUnavailable: false,
+      configError: null,
+      pendingAction: null,
+      bind: vi.fn(),
+      verifyStripe: vi.fn(),
+      markPaid: vi.fn(),
+      confirmReceived: vi.fn(),
+    });
+  });
+
+  it('renders every null seller observation fact as Not provided without hiding the CTA', () => {
+    const payment = createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' });
+    const order = createOrderFixture('pending_payment', {
+      paymentId: payment.id,
+      paymentMethod: 'bitcoin',
+      paykitRequestState: 'awaiting_seller_confirmation',
+      paykitObservation: {
+        txid: null,
+        observedSats: null,
+        confirmations: null,
+        amountMatched: null,
+        disappeared: null,
+        observedAt: null,
+      },
+    });
+
+    render(
+      <MarketplacePaymentStatusCard
+        order={order}
+        payment={payment}
+        isBuyer={false}
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Review Bitcoin payment')).toBeInTheDocument();
+    expect(screen.getAllByText('Not provided')).toHaveLength(7);
+  });
+
+  it('focuses the confirmation reason after static validation fails', async () => {
+    const payment = createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' });
+    const order = createOrderFixture('pending_payment', {
+      paymentId: payment.id,
+      paymentMethod: 'bitcoin',
+      paykitRequestState: 'awaiting_seller_confirmation',
+      paykitObservation: {},
+    });
+    render(
+      <MarketplacePaymentStatusCard
+        order={order}
+        payment={payment}
+        isBuyer={false}
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    const reason = screen.getByLabelText('Seller note (optional)');
+    fireEvent.change(reason, { target: { value: 'x'.repeat(501) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm payment received' }));
+
+    await waitFor(() => expect(reason).toHaveFocus());
   });
 
   it.each(['transaction-service', 'locks-paykit', 'unavailable'] as const)(
@@ -174,7 +246,7 @@ describe('MarketplacePaymentStatusCard', () => {
   });
 
   it('explains when Bitcoin is temporarily unavailable while other methods remain available', () => {
-    vi.mocked(useMarketplaceOrderPayment).mockReturnValueOnce({
+    vi.mocked(useMarketplaceOrderPayment).mockReturnValue({
       availableMethods: ['stripe'],
       bitcoinOfferUnavailable: true,
       configError: null,

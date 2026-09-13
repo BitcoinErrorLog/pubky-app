@@ -69,7 +69,7 @@ export const paymentTransitions = {
   // has elapsed is reconciled rather than discarded: the service moves the
   // expired payment to manual_review instead of confirming it late.
   expired: ['manual_review'],
-  manual_review: [],
+  manual_review: ['confirmed', 'expired'],
 } as const satisfies TransitionMap<PaymentState>;
 
 /**
@@ -92,7 +92,7 @@ export const orderTransitions = {
   delivered: ['return_requested', 'completed'],
   completed: ['return_requested'],
   cancel_requested: ['cancelled'],
-  cancelled: ['refunded_external'],
+  cancelled: ['paid', 'refunded_external'],
   return_requested: ['return_approved'],
   return_approved: ['return_received'],
   return_received: ['refunded_external'],
