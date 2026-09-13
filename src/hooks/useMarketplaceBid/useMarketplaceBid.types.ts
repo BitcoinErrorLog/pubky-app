@@ -3,12 +3,8 @@ import { z } from 'zod';
 export function marketplaceBidMinimum(
   currentPriceMinor: number,
   minimumIncrementMinor: number,
-  ownMaximumMinor?: number,
 ): number {
-  const visiblePriceMinimum = currentPriceMinor + minimumIncrementMinor;
-  return ownMaximumMinor === undefined
-    ? visiblePriceMinimum
-    : Math.max(visiblePriceMinimum, ownMaximumMinor + minimumIncrementMinor);
+  return currentPriceMinor + minimumIncrementMinor;
 }
 
 export const marketplaceBidSchema = z.object({

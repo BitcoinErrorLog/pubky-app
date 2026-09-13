@@ -29,10 +29,6 @@ describe('useMarketplaceBid', () => {
     expect(marketplaceBidMinimum(100, 1)).toBe(101);
   });
 
-  it('raises the floor for a returning bidder when an own maximum is available', () => {
-    expect(marketplaceBidMinimum(100, 1, 150)).toBe(151);
-  });
-
   it('accepts a maximum exactly equal to the minimum', async () => {
     vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
       ok: true,
