@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   WalletCards,
 } from 'lucide-react';
+import { Controller, type UseFormReturn } from 'react-hook-form';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
@@ -19,11 +20,19 @@ import { type CommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceM
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksPayment } from '@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment';
 import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
+import {
+  type SellerPaymentConfirmationForm,
+  type SellerPaymentConfirmationSubmission,
+  type SellerPaymentResolutionForm,
+  type SellerPaymentResolutionSubmission,
+  useMarketplaceSellerPaymentReviewForm,
+} from '@/hooks/useMarketplaceSellerPaymentReview/useMarketplaceSellerPaymentReviewForm';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { type BuyerVisiblePaymentStatus, buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
  * The buyer-visible payment status vocabulary is deliberately small
@@ -74,6 +83,7 @@ export function MarketplacePaymentStatusCard({
   ) => Promise<boolean>;
   onPaymentChanged: () => void | Promise<void>;
 }) {
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const isSandbox = adapterMode === 'sandbox';
   const isStaging = getDeployEnv() === 'staging';
   const isLocksPaykit = isLocksPaykitCommerceMode(adapterMode);
@@ -117,6 +127,7 @@ export function MarketplacePaymentStatusCard({
 
   const isDurable = isDurableCommerceMode(adapterMode);
   const isTerminal = ['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+  const isSeller = currentUserPubky !== null && currentUserPubky === order.sellerPubky;
   const visibleStatus = payment ? buyerVisiblePaymentStatus(payment.state) : null;
   const isAwaiting = visibleStatus === 'awaiting_entitlement' && !isTerminal;
   // Digital Locks orders keep the Locks/Paykit flow; everything else in the
@@ -127,6 +138,7 @@ export function MarketplacePaymentStatusCard({
     enabled: usesMethodFlow && isBuyer,
     onPaymentChanged,
   });
+  const sellerReview = useMarketplaceSellerPaymentReviewForm(order.id, onPaymentChanged);
   const [paypalTransactionRef, setPaypalTransactionRef] = useState('');
 
   if (!payment || visibleStatus === null) return null;
@@ -139,11 +151,9 @@ export function MarketplacePaymentStatusCard({
       : BUYER_VISIBLE_STATUS_LABELS[visibleStatus];
 
   return (
-    <div className="grid gap-3 rounded-xl border p-4">
+    <div className="grid gap-3 rounded-xl border p-4" data-surface="marketplace-payment-status-card">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={visibleStatus === 'confirmed' ? 'default' : 'outline'}>
-          {visibleStatusLabel}
-        </Badge>
+        <Badge variant={visibleStatus === 'confirmed' ? 'default' : 'outline'}>{visibleStatusLabel}</Badge>
         {payment.adapter === 'locks' && <Badge variant="secondary">Locks/Paykit</Badge>}
         {order.paymentMethod === 'bitcoin' && <Badge variant="secondary">₿ Bitcoin</Badge>}
         {order.paymentMethod === 'stripe' && <Badge variant="secondary">Card (Stripe)</Badge>}
@@ -159,8 +169,14 @@ export function MarketplacePaymentStatusCard({
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
       {!isSandbox && isBuyer && isAwaiting && (
-        <Typography as="p" role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          {isStaging ? 'Staging environment — test rails, no real funds move' : 'Real money. Payments are final and go directly to the seller.'}
+        <Typography
+          as="p"
+          role="note"
+          className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+        >
+          {isStaging
+            ? 'Staging environment — test rails, no real funds move'
+            : 'Real money. Payments are final and go directly to the seller.'}
         </Typography>
       )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'gateway-notified' && (
@@ -184,10 +200,40 @@ export function MarketplacePaymentStatusCard({
       )}
       {visibleStatus === 'manual_review' && (
         <Typography as="p" className="text-sm text-muted-foreground">
-          A verified event arrived outside the normal flow (for example after the payment window expired), so an
-          operator has to reconcile this order manually. No funds are held by this marketplace.
+          A verified event arrived outside the normal flow (for example after the payment window expired), so the seller
+          must resolve this order manually. No funds are held by this marketplace.
         </Typography>
       )}
+
+      {isDurable &&
+        isSeller &&
+        order.paymentMethod === 'bitcoin' &&
+        payment.adapter === 'paykit' &&
+        order.paykitRequestState === 'awaiting_seller_confirmation' &&
+        order.paykitObservation && (
+          <SellerBitcoinConfirmationReview
+            observation={order.paykitObservation}
+            deadline={order.paykitSellerConfirmationDeadline}
+            form={sellerReview.confirmForm}
+            isSubmitting={sellerReview.isSubmitting}
+            error={sellerReview.error}
+            onConfirm={() => void sellerReview.submitConfirm()}
+          />
+        )}
+
+      {isDurable &&
+        isSeller &&
+        order.paymentMethod === 'bitcoin' &&
+        payment.adapter === 'paykit' &&
+        payment.state === 'manual_review' && (
+          <SellerBitcoinResolutionReview
+            enteredAt={payment.manualReviewEnteredAt}
+            form={sellerReview.resolveForm}
+            isSubmitting={sellerReview.isSubmitting}
+            error={sellerReview.error}
+            onResolve={() => void sellerReview.submitResolve()}
+          />
+        )}
 
       {/* Sandbox-only simulated detail, always under the visible sandbox label. */}
       {isSandbox && isBuyer && payment.state !== 'confirmed' && (
@@ -532,4 +578,188 @@ export function MarketplacePaymentStatusCard({
       )}
     </div>
   );
+}
+
+function SellerBitcoinConfirmationReview({
+  observation,
+  deadline,
+  form,
+  isSubmitting,
+  error,
+  onConfirm,
+}: {
+  observation: NonNullable<MarketplaceOrder['paykitObservation']>;
+  deadline?: string | null;
+  form: UseFormReturn<SellerPaymentConfirmationForm, unknown, SellerPaymentConfirmationSubmission>;
+  isSubmitting: boolean;
+  error: string | null;
+  onConfirm: () => void;
+}) {
+  return (
+    <section
+      className="grid gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4"
+      aria-labelledby="bitcoin-review-title"
+    >
+      <Typography as="h3" id="bitcoin-review-title" className="font-semibold">
+        Review Bitcoin payment
+      </Typography>
+      <Typography as="p" className="text-sm text-muted-foreground">
+        Confirm these service-observed facts before attesting that you received the payment.
+      </Typography>
+      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        <ReviewFact label="Transaction ID" value={observation.txid} />
+        <ReviewFact label="Observed sats" value={observation.observedSats} />
+        <ReviewFact label="Confirmations" value={observation.confirmations} />
+        <ReviewFact label="Amount matched" value={formatBooleanFact(observation.amountMatched)} />
+        <ReviewFact label="Payment disappeared" value={formatBooleanFact(observation.disappeared)} />
+        <ReviewFact label="Observed at" value={observation.observedAt} />
+        <ReviewFact label="Seller confirmation deadline" value={deadline ?? 'Not provided'} />
+      </dl>
+      <Controller
+        control={form.control}
+        name="reason"
+        render={({ field, fieldState }) => (
+          <label className="grid gap-1 text-sm" htmlFor="bitcoin-confirm-reason">
+            Seller note (optional)
+            <input
+              {...field}
+              id="bitcoin-confirm-reason"
+              maxLength={500}
+              aria-describedby="bitcoin-confirm-error"
+              className="h-9 rounded-md border bg-transparent px-3"
+            />
+            {fieldState.error && <span className="text-amber-300">{fieldState.error.message}</span>}
+          </label>
+        )}
+      />
+      {error && (
+        <Typography id="bitcoin-confirm-error" role="alert" className="text-sm text-amber-300">
+          {error}
+        </Typography>
+      )}
+      <Button className="w-fit rounded-full" disabled={isSubmitting} onClick={onConfirm}>
+        {isSubmitting ? (
+          <LoaderCircle className="mr-2 size-4 animate-spin" />
+        ) : (
+          <CheckCircle2 className="mr-2 size-4" />
+        )}
+        Confirm payment received
+      </Button>
+    </section>
+  );
+}
+
+function SellerBitcoinResolutionReview({
+  enteredAt,
+  form,
+  isSubmitting,
+  error,
+  onResolve,
+}: {
+  enteredAt?: string | null;
+  form: UseFormReturn<SellerPaymentResolutionForm, unknown, SellerPaymentResolutionSubmission>;
+  isSubmitting: boolean;
+  error: string | null;
+  onResolve: () => void;
+}) {
+  const outcome = form.watch('outcome');
+  const refundReference = form.watch('externalRefundReference') ?? '';
+  const validRefundReference = /^[\x20-\x7E]{1,64}$/.test(refundReference);
+  const canResolve = !isSubmitting && (outcome !== 'refunded' || validRefundReference);
+  return (
+    <section
+      className="grid gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4"
+      aria-labelledby="bitcoin-resolution-title"
+    >
+      <Typography as="h3" id="bitcoin-resolution-title" className="font-semibold">
+        Resolve Bitcoin payment review
+      </Typography>
+      <Typography as="p" className="text-sm text-muted-foreground">
+        This payment is held for manual review. Choose the server-validated outcome; the marketplace remains the
+        authority.
+      </Typography>
+      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        <ReviewFact label="Manual review entered" value={enteredAt ?? 'Not provided'} />
+      </dl>
+      <label className="grid gap-1 text-sm" htmlFor="bitcoin-resolution-outcome">
+        Outcome
+        <Controller
+          control={form.control}
+          name="outcome"
+          render={({ field }) => (
+            <select {...field} id="bitcoin-resolution-outcome" className="h-9 rounded-md border bg-background px-3">
+              <option value="paid">Paid</option>
+              <option value="refunded">Refunded</option>
+              <option value="abandoned">Abandoned</option>
+            </select>
+          )}
+        />
+      </label>
+      {outcome === 'refunded' && (
+        <Controller
+          control={form.control}
+          name="externalRefundReference"
+          render={({ field, fieldState }) => (
+            <label className="grid gap-1 text-sm" htmlFor="bitcoin-refund-reference">
+              External refund reference (required)
+              <input
+                {...field}
+                id="bitcoin-refund-reference"
+                maxLength={64}
+                aria-describedby="bitcoin-resolution-reference-error bitcoin-resolution-error"
+                aria-invalid={!validRefundReference}
+                className="h-9 rounded-md border bg-transparent px-3"
+                inputMode="text"
+              />
+              {fieldState.error && <span className="text-amber-300">{fieldState.error.message}</span>}
+            </label>
+          )}
+        />
+      )}
+      <Controller
+        control={form.control}
+        name="reason"
+        render={({ field, fieldState }) => (
+          <label className="grid gap-1 text-sm" htmlFor="bitcoin-resolution-reason">
+            Reason (optional)
+            <input
+              {...field}
+              id="bitcoin-resolution-reason"
+              maxLength={500}
+              className="h-9 rounded-md border bg-transparent px-3"
+            />
+            {fieldState.error && <span className="text-amber-300">{fieldState.error.message}</span>}
+          </label>
+        )}
+      />
+      {outcome === 'refunded' && !validRefundReference && (
+        <Typography id="bitcoin-resolution-reference-error" role="alert" className="text-sm text-amber-300">
+          Enter a printable ASCII refund reference from 1 to 64 characters.
+        </Typography>
+      )}
+      {error && (
+        <Typography id="bitcoin-resolution-error" role="alert" className="text-sm text-amber-300">
+          {error}
+        </Typography>
+      )}
+      <Button className="w-fit rounded-full" disabled={!canResolve} onClick={onResolve}>
+        {isSubmitting ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : null}
+        Resolve payment
+      </Button>
+    </section>
+  );
+}
+
+function ReviewFact({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
+  return (
+    <div>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="break-all">{value === null || value === undefined ? 'Not provided' : value}</dd>
+    </div>
+  );
+}
+
+function formatBooleanFact(value: boolean | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  return value ? 'Yes' : 'No';
 }

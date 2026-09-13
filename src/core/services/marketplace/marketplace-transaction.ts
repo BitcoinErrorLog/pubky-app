@@ -7,6 +7,12 @@ import {
   marketplaceReceiptAttestationSchema,
 } from '@/libs/commerce/attestation';
 import {
+  sellerPaymentConfirmationSchema,
+  sellerPaymentResolutionSchema,
+  sellerPaymentReviewReasonCopy,
+  sellerPaymentReviewReasonSchema,
+} from '@/libs/commerce/marketplace-payment-review';
+import {
   type PaymentMethodKind,
   type SellerPaymentConfig,
   type SellerPaymentConfigOwnView,
@@ -895,11 +901,63 @@ export class MarketplaceTransactionService {
     return this.parseOrderEnvelope('confirmFiatReceived', raw);
   }
 
+  static async confirmBitcoinPayment(
+    actor: string,
+    orderId: string,
+    reason?: string,
+  ): Promise<{ order: MarketplaceOrder | null; confirmation: z.infer<typeof sellerPaymentConfirmationSchema> }> {
+    const raw = await this.paymentMethodRequest(
+      'confirmBitcoinPayment',
+      actor,
+      `/v0/orders/${encodeURIComponent(orderId)}/confirm-bitcoin-payment`,
+      { method: 'POST', body: reason ? { reason } : {} },
+    );
+    const parsed = this.parseProjection(
+      'confirmBitcoinPayment',
+      z.object({
+        ok: z.literal(true),
+        order: marketplaceOrderSchema.nullable().optional(),
+        confirmation: sellerPaymentConfirmationSchema,
+      }),
+      raw,
+      'Marketplace returned an invalid Bitcoin payment confirmation.',
+    );
+    return { order: parsed.order ?? null, confirmation: parsed.confirmation };
+  }
+
+  static async resolveBitcoinPayment(
+    actor: string,
+    orderId: string,
+    input: {
+      outcome: 'paid' | 'refunded' | 'abandoned';
+      reason?: string;
+      externalRefundReference?: string;
+    },
+    idempotencyKey: string,
+  ): Promise<{ order: MarketplaceOrder; resolution: z.infer<typeof sellerPaymentResolutionSchema> }> {
+    const raw = await this.paymentMethodRequest(
+      'resolveBitcoinPayment',
+      actor,
+      `/v0/orders/${encodeURIComponent(orderId)}/bitcoin/resolve`,
+      {
+        method: 'POST',
+        body: input,
+        headers: { 'Idempotency-Key': idempotencyKey },
+      },
+    );
+    return this.parseProjection(
+      'resolveBitcoinPayment',
+      z.object({ ok: z.literal(true), order: marketplaceOrderSchema, resolution: sellerPaymentResolutionSchema }),
+      raw,
+      'Marketplace returned an invalid Bitcoin payment resolution.',
+    );
+  }
+
   private static async paymentMethodRequest(
     operation: string,
     actor: string,
     path: string,
-    request: { method: 'PUT' | 'POST'; body: unknown },
+    request: { method: 'PUT' | 'POST'; body: unknown; headers?: Record<string, string> },
   ): Promise<unknown> {
     this.assertTransactionServiceMode(operation);
     const session = this.requireSession(operation, actor);
@@ -908,16 +966,78 @@ export class MarketplaceTransactionService {
       url,
       {
         method: request.method,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${session.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${session.token}`,
+          ...Object.fromEntries(
+            Object.entries(request.headers ?? {}).filter(([name]) => name.toLowerCase() !== 'authorization'),
+          ),
+        },
         body: JSON.stringify(toSnakeCaseWire(request.body)),
       },
       ErrorService.Marketplace,
       operation,
     );
     this.throwIfSessionRejected(response.status, operation);
-    await this.throwPaymentMethodError(response, operation);
+    if (operation === 'confirmBitcoinPayment' || operation === 'resolveBitcoinPayment') {
+      await this.throwSellerPaymentReviewError(response, operation);
+    } else {
+      await this.throwPaymentMethodError(response, operation);
+    }
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
     return toCamelCaseWire(raw);
+  }
+
+  private static async throwSellerPaymentReviewError(response: Response, operation: string): Promise<void> {
+    if (response.ok) return;
+    let reason: string | undefined;
+    try {
+      const body = (await response.clone().json()) as { error?: { reason?: unknown } };
+      reason = typeof body.error?.reason === 'string' ? body.error.reason : undefined;
+    } catch {
+      // Keep the fallback static; response bodies are never copied into errors.
+    }
+    const parsedReason = sellerPaymentReviewReasonSchema.safeParse(reason);
+    const message = parsedReason.success
+      ? sellerPaymentReviewReasonCopy[parsedReason.data]
+      : 'The payment review could not be completed.';
+    const context = {
+      statusCode: response.status,
+      ...(parsedReason.success ? { reason: parsedReason.data } : {}),
+    };
+    if (response.status === HttpStatusCode.FORBIDDEN) {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, message, {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    if (response.status === HttpStatusCode.NOT_FOUND) {
+      throw Err.client(ClientErrorCode.NOT_FOUND, message, {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    if (response.status === HttpStatusCode.CONFLICT) {
+      throw Err.client(ClientErrorCode.CONFLICT, message, {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    if (response.status === HttpStatusCode.UNPROCESSABLE_ENTITY) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, message, {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    throw Err.client(ClientErrorCode.BAD_REQUEST, message, {
+      service: ErrorService.Marketplace,
+      operation,
+      context,
+    });
   }
 
   /**

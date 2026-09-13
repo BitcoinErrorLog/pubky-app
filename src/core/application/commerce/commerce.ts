@@ -851,6 +851,23 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getPayment(actorPubky, paymentId);
   }
 
+  static async confirmBitcoinPayment(actorPubky: string, orderId: string, reason?: string) {
+    return await MarketplaceGatewayService.confirmBitcoinPayment(actorPubky, orderId, reason);
+  }
+
+  static async resolveBitcoinPayment(
+    actorPubky: string,
+    orderId: string,
+    input: {
+      outcome: 'paid' | 'refunded' | 'abandoned';
+      reason?: string;
+      externalRefundReference?: string;
+    },
+    idempotencyKey: string,
+  ) {
+    return await MarketplaceGatewayService.resolveBitcoinPayment(actorPubky, orderId, input, idempotencyKey);
+  }
+
   // --- Seller-configurable payment methods (durable service only) ----------
 
   static async getSellerPaymentConfig(sellerPubky: string) {

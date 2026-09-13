@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
 import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
 
@@ -168,6 +169,10 @@ export const marketplacePaymentSchema = z
     adapter: z.enum(['sandbox', 'locks', 'paykit', 'stripe', 'paypal']),
     state: z.enum(['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review']),
     confirmations: z.number().int().min(0).max(6),
+    manualReviewEnteredAt: z.string().nullable().optional(),
+    resolutionBasis: z.string().nullable().optional(),
+    resolutionOutcome: z.enum(['paid', 'refunded', 'abandoned']).nullable().optional(),
+    resolvedAt: z.string().nullable().optional(),
     // Withheld by the durable service: a bundle id is bearer material, so
     // ADR-0019 section 8 keeps it out of read projections. The sandbox still
     // sends it, hence optional rather than removed.
@@ -212,6 +217,7 @@ export const marketplaceOrderSchema = z
     guaranteePolicyVersion: z.literal(1),
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),
+    holdExpiresAt: z.string().nullable().optional(),
     // How this order reaches the buyer (§A2): exactly one fulfillment kind,
     // required on the service — one order per (seller, fulfillment). Orders
     // served by backends predating Wave 7 read as shipped orders.
@@ -288,9 +294,19 @@ export const marketplaceOrderSchema = z
     paymentReportedAt: z.string().nullable().optional(),
     fiatTransactionRef: z.string().nullable().optional(),
     // Physical-bitcoin orders: the Paykit payment-request reference and the
-    // worker-observed request state (`pending`/`detected`/`confirmed`).
+    // worker-observed request state. The enum is intentionally closed to the
+    // service CHECK constraint.
     paykitRequestReference: z.string().nullable().optional(),
-    paykitRequestState: z.string().nullable().optional(),
+    paykitRequestState: z
+      .enum(['preparing', 'pending', 'detected', 'confirmed', 'awaiting_seller_confirmation'])
+      .nullable()
+      .optional(),
+    // Seller-only evidence. The service omits these keys from buyer and
+    // system projections; nullable/optional preserves that distinction.
+    paykitObservation: sellerPaymentObservationSchema.nullable().optional(),
+    paykitSellerConfirmationEnteredAt: z.string().nullable().optional(),
+    paykitSellerConfirmationDeadline: z.string().nullable().optional(),
+    paykitTotalSats: z.number().int().nonnegative().nullable().optional(),
     // Drop orders (ADR 0026): the bound drop aggregate and, once paid, the
     // gapless edition number assigned inside the exactly-once confirmation.
     dropAggregateId: z.string().nullable().optional(),

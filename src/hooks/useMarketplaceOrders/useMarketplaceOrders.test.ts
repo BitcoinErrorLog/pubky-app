@@ -198,7 +198,7 @@ describe('useMarketplaceOrders', () => {
     expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
 
-  it('loads durable orders from their embedded payment projection in transaction-service mode', async () => {
+  it('refreshes durable orders from embedded payment without an extra payment fetch', async () => {
     config.mode = 'transaction-service';
     const [sandboxOrder] = await CommerceController.getMarketplaceOrders();
     vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
@@ -229,6 +229,11 @@ describe('useMarketplaceOrders', () => {
     expect(CommerceController.getMarketplacePayment).not.toHaveBeenCalled();
     // receiptId is null until payment confirmation issues the receipt.
     expect(CommerceController.getMarketplaceReceipt).not.toHaveBeenCalled();
+
+    vi.mocked(CommerceController.getMarketplaceOrders).mockClear();
+    await act(() => result.current.refresh());
+    expect(CommerceController.getMarketplaceOrders).toHaveBeenCalledTimes(1);
+    expect(CommerceController.getMarketplacePayment).not.toHaveBeenCalled();
   });
 
   it('sources expected_revision from the loaded order and refetches on a revision conflict', async () => {

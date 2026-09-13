@@ -517,6 +517,25 @@ export class MarketplaceGatewayService {
     return await MarketplaceTransactionService.confirmFiatReceived(actor, orderId);
   }
 
+  static async confirmBitcoinPayment(actor: string, orderId: string, reason?: string) {
+    this.assertDurableServiceOnly('confirmBitcoinPayment');
+    return await MarketplaceTransactionService.confirmBitcoinPayment(actor, orderId, reason);
+  }
+
+  static async resolveBitcoinPayment(
+    actor: string,
+    orderId: string,
+    input: {
+      outcome: 'paid' | 'refunded' | 'abandoned';
+      reason?: string;
+      externalRefundReference?: string;
+    },
+    idempotencyKey: string,
+  ) {
+    this.assertDurableServiceOnly('resolveBitcoinPayment');
+    return await MarketplaceTransactionService.resolveBitcoinPayment(actor, orderId, input, idempotencyKey);
+  }
+
   static async getMyShippingConfig(actor: string): Promise<SellerShippingConfig | null> {
     this.assertDurableServiceOnly('getMyShippingConfig');
     return await MarketplaceTransactionService.getMyShippingConfig(actor);

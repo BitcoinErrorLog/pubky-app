@@ -107,6 +107,8 @@ describe('payment state machine', () => {
     ['awaiting_entitlement', 'manual_review'],
     ['detected', 'confirmed'],
     ['detected', 'manual_review'],
+    ['manual_review', 'confirmed'],
+    ['manual_review', 'expired'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionPayment(from, to)).toBe(true);
   });
@@ -114,7 +116,6 @@ describe('payment state machine', () => {
   it.each<[PaymentState, PaymentState]>([
     ['confirmed', 'detected'],
     ['expired', 'confirmed'],
-    ['manual_review', 'confirmed'],
     ['detected', 'expired'],
     ['awaiting_entitlement', 'awaiting_entitlement'],
   ])('rejects %s -> %s', (from, to) => {
@@ -142,6 +143,7 @@ describe('order state machine', () => {
     ['delivered', 'return_requested'],
     ['completed', 'return_requested'],
     ['cancel_requested', 'cancelled'],
+    ['cancelled', 'paid'],
     ['cancelled', 'refunded_external'],
     ['return_requested', 'return_approved'],
     ['return_approved', 'return_received'],
@@ -158,7 +160,6 @@ describe('order state machine', () => {
     ['shipped', 'return_requested'],
     ['shipped', 'cancelled'],
     ['completed', 'closed'],
-    ['cancelled', 'paid'],
     ['closed', 'return_requested'],
     ['refunded_external', 'closed'],
   ])('rejects %s -> %s', (from, to) => {
