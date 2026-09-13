@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import { MarketplaceSell } from '@/templates/Marketplace/MarketplaceSell';
@@ -165,16 +165,16 @@ describe('Marketplace sell studio — visual regression', () => {
     view.drafts = [];
     view.mediaItems = [];
 
-    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-empty-form-desktop');
+    await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-empty-form-desktop');
   });
 
   it('renders the empty listing form at mobile viewport', async () => {
     view.drafts = [];
     view.mediaItems = [];
 
-    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-empty-form-mobile');
+    await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-empty-form-mobile');
   });
 
   it('renders the publish-blocked payment state at desktop viewport', async () => {
@@ -220,7 +220,7 @@ describe('Marketplace sell studio — visual regression', () => {
         throw new Error('The preset picker has not rendered yet.');
       }
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-shipping-presets-desktop');
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-shipping-presets-desktop');
     view.shippingPresets = [];
   });
 
@@ -235,7 +235,7 @@ describe('Marketplace sell studio — visual regression', () => {
     });
     // The restored-draft notice sits at the top; the populated fields prove
     // hydration below the fold.
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-draft-restored-desktop');
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-draft-restored-desktop');
   });
 
   it('renders the form with additional variants added at desktop viewport', async () => {
@@ -250,7 +250,7 @@ describe('Marketplace sell studio — visual regression', () => {
         throw new Error('Variant rows have not rendered yet.');
       }
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-variants-added-desktop');
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-variants-added-desktop');
   });
 
   it('renders the compose form with multiple ordered photos at desktop viewport', async () => {
@@ -261,8 +261,8 @@ describe('Marketplace sell studio — visual regression', () => {
       photoItem('photo_sole', 'Soles with light wear'),
     ];
 
-    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-attached-desktop');
+    await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-photos-attached-desktop');
   });
 
   it('renders the compose form with multiple ordered photos at mobile viewport', async () => {
@@ -272,8 +272,8 @@ describe('Marketplace sell studio — visual regression', () => {
       photoItem('photo_back', 'Back view showing the heels'),
     ];
 
-    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-attached-mobile');
+    await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-photos-attached-mobile');
   });
 
   it('renders the photo list after a reorder moved a new cover first at desktop viewport', async () => {
@@ -286,8 +286,8 @@ describe('Marketplace sell studio — visual regression', () => {
       photoItem('photo_back', 'Back view showing the heels'),
     ];
 
-    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-reordered-desktop');
+    await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-photos-reordered-desktop');
   });
 
   it('renders the photo limit reached state at desktop viewport', async () => {
@@ -296,8 +296,8 @@ describe('Marketplace sell studio — visual regression', () => {
       photoItem(`photo_${index + 1}`, `Detail photo ${index + 1}`),
     );
 
-    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-photos-limit-desktop');
+    await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-photos-limit-desktop');
   });
 
   // A restored draft for a sized fashion leaf: the category cascade shows
@@ -332,7 +332,7 @@ describe('Marketplace sell studio — visual regression', () => {
         throw new Error('The size field has not rendered yet.');
       }
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-attributes-fashion-desktop');
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-attributes-fashion-desktop');
     view.drafts = [];
   });
 
@@ -361,7 +361,7 @@ describe('Marketplace sell studio — visual regression', () => {
         throw new Error('The model field has not rendered yet.');
       }
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-attributes-electronics-desktop');
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-attributes-electronics-desktop');
     view.drafts = [];
   });
 
@@ -390,7 +390,7 @@ describe('Marketplace sell studio — visual regression', () => {
         throw new Error('The description checklist row has not rendered yet.');
       }
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('sell-validation-errors-desktop');
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-validation-errors-desktop');
   });
 
   it('renders the seller studio with pickup enabled and a pickup-only draft at desktop viewport', async () => {

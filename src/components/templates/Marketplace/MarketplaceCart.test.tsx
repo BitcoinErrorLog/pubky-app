@@ -1,6 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { MarketplaceCart } from './MarketplaceCart';
 
 beforeAll(() => {
@@ -27,12 +28,17 @@ const view = vi.hoisted(() => ({
   requiresDeliveryAddress: true,
   hasFulfillmentConflict: false,
   orderCount: 1,
+  submitResult: false,
 }));
 
 const cartActions = vi.hoisted(() => ({
   update: vi.fn(),
   remove: vi.fn(),
   setFulfillmentChoice: vi.fn(),
+}));
+
+const routerActions = vi.hoisted(() => ({
+  push: vi.fn(),
 }));
 
 const listing = {
@@ -63,7 +69,7 @@ const secondSellerListing = {
 };
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerActions.push }),
   usePathname: () => '/marketplace/cart',
 }));
 
@@ -89,7 +95,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
         variantId: string;
         listing: {
           record: {
-            variants: Array<{ id: string; priceOverride?: { amountMinor: number; currency: string; exponent: number } }>;
+            variants: Array<{
+              id: string;
+              priceOverride?: { amountMinor: number; currency: string; exponent: number };
+            }>;
             sale: { format: string; unitPrice?: { amountMinor: number; currency: string; exponent: number } };
           };
         };
@@ -120,9 +129,8 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
 vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
   const { useForm } = await import('react-hook-form');
   const { zodResolver } = await import('@hookform/resolvers/zod');
-  const { marketplaceCheckoutDefaults, marketplaceCheckoutSchema } = await import(
-    '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types'
-  );
+  const { marketplaceCheckoutDefaults, marketplaceCheckoutSchema } =
+    await import('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types');
   return {
     useMarketplaceCheckout: () => ({
       form: useForm({
@@ -130,7 +138,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
         defaultValues: marketplaceCheckoutDefaults,
         mode: 'onTouched',
       }),
-      submit: vi.fn(async () => false),
+      submit: vi.fn(async () => view.submitResult),
       needsSession: view.needsSession,
       sessionError: view.sessionError,
       hasMarketplaceSession: view.hasMarketplaceSession,
@@ -205,6 +213,8 @@ describe('MarketplaceCart', () => {
     view.requiresDeliveryAddress = true;
     view.hasFulfillmentConflict = false;
     view.orderCount = 1;
+    view.submitResult = false;
+    routerActions.push.mockReset();
   });
 
   it('disables Place order without a marketplace session in durable mode', () => {
@@ -239,9 +249,7 @@ describe('MarketplaceCart', () => {
       expect(screen.getByRole('note')).toHaveTextContent(
         'Real money. Payments are final and go directly to the seller.',
       );
-      expect(
-        screen.getByText(/Your delivery address is sent with your order/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Your delivery address is sent with your order/)).toBeInTheDocument();
     },
   );
 
@@ -269,9 +277,7 @@ describe('MarketplaceCart', () => {
 
   it.each([false, true])('renders truthful address copy exactly once with saved addresses=%s', (hasSavedAddress) => {
     seededCart();
-    view.addresses = hasSavedAddress
-      ? [{ id: 'home', label: 'Home', city: 'New York', is_default: true }]
-      : [];
+    view.addresses = hasSavedAddress ? [{ id: 'home', label: 'Home', city: 'New York', is_default: true }] : [];
 
     render(<MarketplaceCart />);
 
@@ -299,6 +305,19 @@ describe('MarketplaceCart', () => {
     expect(placeOrder).toBeEnabled();
   });
 
+  it('routes to orders only after checkout submit succeeds', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.submitResult = true;
+
+    render(<MarketplaceCart />);
+    await fillValidDelivery(user);
+    await user.click(screen.getByRole('checkbox', { name: /I accept sandbox guarantee policy v1/ }));
+    await user.click(screen.getByRole('button', { name: 'Place sandbox order' }));
+
+    expect(routerActions.push).toHaveBeenCalledWith(MARKETPLACE_ROUTES.ORDERS);
+  });
+
   it('requires the guarantee after a submit attempt and leaves it unchecked by default', async () => {
     const user = userEvent.setup();
     seededCart();
@@ -311,7 +330,9 @@ describe('MarketplaceCart', () => {
 
     await fillValidDelivery(user);
     expect(screen.getByRole('button', { name: 'Place sandbox order' })).toBeDisabled();
-    expect(screen.getByText('Fill in delivery details and accept the guarantee to place the order.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Fill in delivery details and accept the guarantee to place the order.'),
+    ).toBeInTheDocument();
   });
 
   it('re-opens step 1 when a session expires mid-flow', () => {
@@ -337,6 +358,60 @@ describe('MarketplaceCart', () => {
     expect(skeleton).toBeInTheDocument();
     expect(skeleton.className).toContain('lg:grid-cols-[1fr_420px]');
     expect(within(skeleton).getAllByRole('generic').length).toBeGreaterThan(1);
+    expect(document.querySelector('[data-surface="marketplace-cart"]')).toContainElement(skeleton);
+  });
+
+  it('marks the empty cart surface', () => {
+    render(<MarketplaceCart />);
+
+    expect(document.querySelector('[data-surface="marketplace-cart"]')).toHaveTextContent('Your cart is empty');
+  });
+
+  it('keeps the shipping workflow in logical numbered order', async () => {
+    seededCart();
+
+    render(<MarketplaceCart />);
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole('region')
+          .map((region) => region.getAttribute('aria-label'))
+          .filter(
+            (label) =>
+              label === '1 Approve in Pubky Ring' ||
+              label === '2 Delivery address' ||
+              label === 'Guarantee' ||
+              label === '3 Place order',
+          ),
+      ).toEqual(['1 Approve in Pubky Ring', '2 Delivery address', 'Guarantee', '3 Place order']);
+    });
+  });
+
+  it('keeps delivery details in the items column before the short order summary', async () => {
+    seededCart();
+
+    render(<MarketplaceCart />);
+
+    await waitFor(() => {
+      const itemsColumn = screen.getByTestId('marketplace-cart-items');
+      const leftFlow = itemsColumn.parentElement;
+      const approvalSection = screen.getByRole('region', { name: '1 Approve in Pubky Ring' });
+      const deliverySection = screen.getByRole('region', { name: '2 Delivery address' });
+      const summaryColumn = screen.getByTestId('marketplace-cart-summary');
+      const orderSection = within(summaryColumn).getByRole('region', { name: '3 Place order' });
+      const grid = summaryColumn.parentElement;
+
+      expect(leftFlow).toContainElement(approvalSection);
+      expect(leftFlow).toContainElement(deliverySection);
+      expect(summaryColumn).not.toContainElement(deliverySection);
+      expect(grid).toHaveClass('lg:grid-cols-[1fr_420px]');
+      expect(grid?.children).toHaveLength(2);
+      expect(grid?.children[1]).toBe(summaryColumn);
+      expect(summaryColumn).toHaveClass('lg:col-start-2', 'lg:row-start-1', 'lg:self-start');
+      expect(itemsColumn.compareDocumentPosition(summaryColumn)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(deliverySection.compareDocumentPosition(orderSection)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
   });
 
   it('groups multi-seller cart items by seller with per-asset subtotals', () => {
@@ -461,6 +536,21 @@ describe('MarketplaceCart local pickup (Wave 7, §A2)', () => {
     expect(screen.getByRole('checkbox', { name: /I accept sandbox guarantee policy v1/ })).toBeInTheDocument();
   });
 
+  it('keeps the pickup workflow in logical numbered order', () => {
+    seededCart();
+    view.fulfillmentEffective = { [listing.record.ownerPubky]: 'pickup' };
+    view.requiresDeliveryAddress = false;
+
+    render(<MarketplaceCart />);
+
+    expect(
+      screen
+        .getAllByRole('region')
+        .map((region) => region.getAttribute('aria-label'))
+        .filter((label) => label === '1 Approve in Pubky Ring' || label === 'Guarantee' || label === '3 Place order'),
+    ).toEqual(['1 Approve in Pubky Ring', 'Guarantee', '3 Place order']);
+  });
+
   it('states the (seller, fulfillment) split plainly before submit', () => {
     view.items = [
       { id: 'seller:boots:variant_42', listingId: listing.id, variantId: 'variant_42', quantity: 1, listing },
@@ -489,8 +579,9 @@ describe('MarketplaceCart local pickup (Wave 7, §A2)', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent(/can't be checked out together/);
     expect(screen.getByRole('button', { name: 'Place sandbox order' })).toBeDisabled();
-    expect(
-      screen.getByText("Some items can't be checked out together — see the note in your cart."),
-    ).toHaveAttribute('id', 'place-order-reason');
+    expect(screen.getByText("Some items can't be checked out together — see the note in your cart.")).toHaveAttribute(
+      'id',
+      'place-order-reason',
+    );
   });
 });

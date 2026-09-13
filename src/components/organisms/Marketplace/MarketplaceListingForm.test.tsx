@@ -166,6 +166,33 @@ describe('MarketplaceListingForm', () => {
     expect(screen.queryByText('Flat shipping (USD)')).not.toBeInTheDocument();
     expect(screen.queryByText('Weight (g)')).not.toBeInTheDocument();
   });
+
+  it('keeps the section rail sticky', () => {
+    render(<FormHarness />);
+
+    expect(screen.getByRole('navigation', { name: 'Listing sections' })).toHaveClass('sticky');
+  });
+
+  it('focuses and announces the first photo description missing on publish', async () => {
+    const user = userEvent.setup();
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        media={buildMedia([photoItem('one')])}
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Publish listing' }));
+
+    expect(screen.getByLabelText('Photo 1 description')).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent('Every photo needs a description for screen readers.');
+  });
 });
 
 describe('MarketplaceListingForm pickup capability (§A7)', () => {
@@ -618,6 +645,18 @@ describe('MarketplaceListingForm free shipping', () => {
     await waitFor(() => expect(price).toBeEnabled());
     expect(price).toHaveValue('12.00');
     expect(screen.getByRole('checkbox', { name: 'Free shipping' })).not.toBeChecked();
+  });
+
+  it('focuses and announces the first invalid control when saving a preset', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness />);
+
+    await user.click(screen.getByRole('button', { name: 'Save as preset' }));
+
+    expect(screen.getByLabelText(/Flat shipping/)).toHaveFocus();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Complete the shipping label, price, and delivery estimates before saving a preset.',
+    );
   });
 });
 

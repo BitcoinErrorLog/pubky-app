@@ -51,6 +51,14 @@ export function expectVrtSurface(surface: string) {
         'Mount the production component that carries the marker, not a test stand-in.',
     );
   }
+  // Playwright's element screenshot scrolls tall elements into view before
+  // capturing them. Firefox can choose a middle scroll position for a surface
+  // taller than the viewport, which changes sticky layout and clips the
+  // capture. Establish the top position and let that layout settle first.
+  if (marker instanceof HTMLElement) {
+    marker.style.scrollMargin = '0';
+    marker.scrollIntoView({ block: 'start', inline: 'nearest' });
+  }
   return page.elementLocator(marker as HTMLElement);
 }
 
