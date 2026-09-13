@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowLeft, MapPin, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { APP_ROUTES } from '@/app/routes';
+import { APP_ROUTES, matchMarketplaceDropRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -27,7 +28,11 @@ import { ControlledInputField } from '@/molecules/ControlledInputField/Controlle
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 
 export function MarketplaceAddressSettings() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { addresses, isLoading, save, remove, setDefault } = useMarketplaceAddressBook();
+  const returnTo = searchParams.get('returnTo');
+  const returnPath = returnTo && matchMarketplaceDropRoute(returnTo) ? returnTo : null;
   // null: list only; 'new': creating; otherwise the composite id being edited.
   const [editingId, setEditingId] = useState<string | null>(null);
   const form = useForm<MarketplaceAddressFormData>({
@@ -60,6 +65,7 @@ export function MarketplaceAddressSettings() {
     if (await save(editing ? bareDeliveryAddressId(editing) : null, data)) {
       form.reset(marketplaceAddressFormDefaults);
       setEditingId(null);
+      if (returnPath) router.push(returnPath);
     }
   });
 

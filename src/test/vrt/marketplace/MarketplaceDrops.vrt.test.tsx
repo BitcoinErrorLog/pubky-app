@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { HOUR_MS, VRT_FROZEN_NOW_MS } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceDrops } from '@/templates/Marketplace/MarketplaceDrops';
@@ -77,26 +77,26 @@ const POPULATED = {
 describe('Marketplace drops calendar — visual regression', () => {
   it('renders the populated estimate buckets at desktop viewport', async () => {
     setDropsView({ buckets: POPULATED });
-    const screen = await renderForVRT(<MarketplaceDrops />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drops-calendar-desktop');
+    await renderForVRT(<MarketplaceDrops />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(expectVrtSurface('marketplace-drops')).toMatchScreenshot('drops-calendar-desktop');
   });
 
   it('renders the populated estimate buckets at mobile viewport', async () => {
     setDropsView({ buckets: POPULATED });
-    const screen = await renderForVRT(<MarketplaceDrops />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drops-calendar-mobile');
+    await renderForVRT(<MarketplaceDrops />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(expectVrtSurface('marketplace-drops')).toMatchScreenshot('drops-calendar-mobile');
   });
 
   it('renders the honest not-indexed empty state at desktop viewport', async () => {
     setDropsView({ isIndexed: false });
     const screen = await renderForVRT(<MarketplaceDrops />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect.element(screen.getByText(/isn't indexed on this deployment yet/)).toBeInTheDocument();
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drops-calendar-not-indexed-desktop');
+    await expect(expectVrtSurface('marketplace-drops')).toMatchScreenshot('drops-calendar-not-indexed-desktop');
   });
 
   it('renders the durable-only unavailable state in sandbox mode at desktop viewport', async () => {
     setDropsView({ adapterMode: 'sandbox' });
-    const screen = await renderForVRT(<MarketplaceDrops />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drops-calendar-unavailable-desktop');
+    await renderForVRT(<MarketplaceDrops />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(expectVrtSurface('marketplace-drops')).toMatchScreenshot('drops-calendar-unavailable-desktop');
   });
 });

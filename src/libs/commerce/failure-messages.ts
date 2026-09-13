@@ -28,7 +28,7 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   soldOut: 'This drop is sold out.',
   dropNotStarted: "This drop hasn't started yet.",
   dropEnded: 'This drop has ended.',
-  dropPerBuyerLimit: "You've reached the per-buyer limit for this drop.",
+  dropPerBuyerLimit: "You have reached this drop's per-buyer limit.",
   shippingRates: 'Shipping rates are unavailable.',
   shippingLabel: 'The shipping label could not be purchased.',
   paymentSettings: 'Payment settings are unavailable.',

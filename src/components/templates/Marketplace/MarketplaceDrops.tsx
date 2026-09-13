@@ -15,8 +15,8 @@ import { DropCard } from '@/organisms/Marketplace/DropCard';
 
 const SECTION_TITLES: Record<DropStreamBucket, string> = {
   upcoming: 'Upcoming',
-  live: 'May be live now',
-  ended: 'Ended',
+  live: 'Start time passed',
+  ended: 'End time passed',
 };
 
 const SECTION_ORDER: DropStreamBucket[] = ['live', 'upcoming', 'ended'];
@@ -41,7 +41,11 @@ export function MarketplaceDrops() {
       className="pb-28 lg:pb-16"
       classNameWrapperContent="max-w-6xl"
     >
-      <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6 lg:px-8">
+      <Container
+        overrideDefaults
+        data-surface="marketplace-drops"
+        className="flex w-full flex-col gap-6 px-4 sm:px-6 lg:px-8"
+      >
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults
@@ -55,9 +59,8 @@ export function MarketplaceDrops() {
             Drops
           </Heading>
           <Typography as="p" className="mt-2 max-w-2xl text-muted-foreground">
-            Timed, limited releases with a server-enforced clock. Shelf states and countdowns here are estimates from
-            the discovery index — every drop page confirms the real state with the transaction service before showing
-            live.
+            Timed, limited releases listed by the discovery index. Open a drop to confirm its current state with the
+            transaction service before claiming.
           </Typography>
         </div>
 
@@ -103,7 +106,6 @@ function DropSection({ bucket, entries }: { bucket: DropStreamBucket; entries: N
     <section aria-label={SECTION_TITLES[bucket]} className="flex flex-col gap-3">
       <Heading level={2} size="md">
         {SECTION_TITLES[bucket]}
-        <span className="ml-2 align-middle text-sm font-normal text-muted-foreground">estimated from index times</span>
       </Heading>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {entries.map((entry) => (

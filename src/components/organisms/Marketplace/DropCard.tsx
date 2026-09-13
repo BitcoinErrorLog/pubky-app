@@ -10,9 +10,9 @@ import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useM
 import { DropCountdown } from './DropCountdown';
 
 const BUCKET_BADGES: Record<DropStreamBucket, string> = {
-  upcoming: 'Upcoming · estimate',
-  live: 'May be live · open to confirm',
-  ended: 'Ended · estimate',
+  upcoming: 'Upcoming · indexed',
+  live: 'Start time passed · indexed',
+  ended: 'End time passed · indexed',
 };
 
 /**
@@ -55,7 +55,7 @@ export function DropCard({ entry, bucket }: { entry: NexusDropStreamEntry; bucke
           />
         )}
         <Typography as="p" className="text-xs text-muted-foreground">
-          From index times — the drop page confirms the real state with the transaction service.
+          Open the drop page to confirm its current state before claiming.
         </Typography>
       </div>
     </Link>

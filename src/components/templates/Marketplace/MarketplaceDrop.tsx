@@ -207,6 +207,7 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
           hasSession={marketplaceSession !== null}
           hasAddress={claim.claimAddress !== null}
           readyCheck={drop.readyCheck}
+          returnTo={getMarketplaceDropRoute(sellerPubky, dropId)}
           onSessionConnected={drop.refresh}
         />
       )}
@@ -225,7 +226,7 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
               phaseLabel="Ends in"
             />
           )}
-          <DropClaimPanel record={record} claim={claim} />
+          <DropClaimPanel record={record} claim={claim} remainingAllowance={drop.readyCheck?.remainingAllowance ?? null} />
         </>
       )}
 

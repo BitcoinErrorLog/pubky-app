@@ -4,6 +4,7 @@ import {
   AUTH_ROUTES,
   AUTHENTICATED_ROUTES,
   getCollectionRoute,
+  getMarketplaceAddressSettingsRoute,
   getMarketplaceListingRoute,
   getMarketplaceShopRoute,
   getProfileRoute,
@@ -189,6 +190,18 @@ describe('isDynamicPublicRoute', () => {
       expect(isDynamicPublicRoute('/onboarding')).toBe(false);
       expect(isDynamicPublicRoute('/onboarding/profile')).toBe(false);
     });
+  });
+});
+
+describe('getMarketplaceAddressSettingsRoute', () => {
+  it.each([
+    'https://evil.example/drop',
+    '//evil.example/drop',
+    'javascript:alert(1)',
+    '/marketplace/drop/x',
+    '/marketplace/drop/%2e%2e',
+  ])('rejects unsafe return target %s', (returnTo) => {
+    expect(getMarketplaceAddressSettingsRoute(returnTo)).toBe('/marketplace/settings/addresses');
   });
 });
 
