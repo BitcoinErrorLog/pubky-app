@@ -6,6 +6,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceBid } from '@/hooks/useMarketplaceBid/useMarketplaceBid';
+import { marketplaceBidMinimum } from '@/hooks/useMarketplaceBid/useMarketplaceBid.types';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import type { AuctionPhase } from '@/libs/commerce/auction-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
@@ -34,7 +35,14 @@ export function MarketplaceBidDialog({
   const [open, setOpen] = useState(false);
   // `onAccepted` refreshes the projection, which is exactly the recovery a
   // revision conflict needs: reload the price/revision, then the user rebids.
-  const bid = useMarketplaceBid(aggregateId, projection?.serverRevision ?? null, onAccepted, priceAsset, auctionPhase);
+  const bid = useMarketplaceBid(
+    aggregateId,
+    projection?.serverRevision ?? null,
+    onAccepted,
+    priceAsset,
+    auctionPhase,
+    projection?.auction ?? undefined,
+  );
   const { requireAuth } = useRequireAuth();
 
   const submit = async () => {
@@ -85,6 +93,17 @@ export function MarketplaceBidDialog({
             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
               {projection.auction.bidCount} {projection.auction.bidCount === 1 ? 'bid' : 'bids'} ·{' '}
               {projection.auction.reserveMet ? 'Reserve met' : 'Reserve not met'}
+            </Typography>
+            <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+              Minimum maximum:{' '}
+              {formatCommerceMoney({
+                ...projection.auction.currentPrice,
+                amountMinor: marketplaceBidMinimum(
+                  projection.auction.currentPrice.amountMinor,
+                  projection.auction.minimumIncrement.amountMinor,
+                ),
+              })}{' '}
+              floor based on the visible price; your private maximum may need to be higher.
             </Typography>
           </div>
         )}

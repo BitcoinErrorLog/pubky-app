@@ -9,6 +9,10 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   sendOffer: 'Could not send this offer.',
   counterOffer: 'Could not send this counteroffer.',
   bid: 'Could not place this bid.',
+  bidTooLow: 'Your new maximum must be higher than your previous maximum and the current visible price.',
+  bidUnauthorized: 'You cannot bid on your own auction.',
+  bidStale: 'The auction changed since you loaded it. Reload the latest price and try again.',
+  bidClosed: 'This auction is no longer open for bidding.',
   message: 'Could not send this message.',
   notifications: 'Could not update commerce notifications.',
   order: 'Could not update this order.',
@@ -85,6 +89,14 @@ export function marketplaceFailureMessage(code: MarketplaceFailureCode, fallback
     return error.message;
   }
   return (code && CODE_MESSAGES.get(code)) || fallback;
+}
+
+export function marketplaceBidFailureMessage(code: MarketplaceFailureCode): string {
+  if (code === 'BID_TOO_LOW') return MARKETPLACE_FAILURE_MESSAGES.bidTooLow;
+  if (code === 'UNAUTHORIZED') return MARKETPLACE_FAILURE_MESSAGES.bidUnauthorized;
+  if (code === 'REVISION_CONFLICT') return MARKETPLACE_FAILURE_MESSAGES.bidStale;
+  if (code === 'INVALID_STATE') return MARKETPLACE_FAILURE_MESSAGES.bidClosed;
+  return MARKETPLACE_FAILURE_MESSAGES.bid;
 }
 
 export function marketplaceErrorCode(error: unknown): string | null {

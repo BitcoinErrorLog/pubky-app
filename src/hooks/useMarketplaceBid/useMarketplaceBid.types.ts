@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+export function marketplaceBidMinimum(
+  currentPriceMinor: number,
+  minimumIncrementMinor: number,
+): number {
+  return currentPriceMinor + minimumIncrementMinor;
+}
+
 export const marketplaceBidSchema = z.object({
   maximumAmount: z
     .string()

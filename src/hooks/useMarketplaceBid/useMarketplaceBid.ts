@@ -4,11 +4,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { AuctionPhase } from '@/libs/commerce/auction-phase';
-import { MARKETPLACE_FAILURE_MESSAGES, marketplaceFailureMessage } from '@/libs/commerce/failure-messages';
+import { marketplaceBidFailureMessage } from '@/libs/commerce/failure-messages';
 import { amountInputSchemaForAsset, amountInputToMoney, type CommerceAsset } from '@/libs/commerce/pricing';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
-import { type MarketplaceBidData, marketplaceBidDefaults, marketplaceBidSchema } from './useMarketplaceBid.types';
+import {
+  type MarketplaceBidData,
+  marketplaceBidDefaults,
+  marketplaceBidMinimum,
+  marketplaceBidSchema,
+} from './useMarketplaceBid.types';
 
 export interface UseMarketplaceBidResult {
   form: UseFormReturn<MarketplaceBidData>;
@@ -27,6 +32,7 @@ export function useMarketplaceBid(
   onConflict: () => void | Promise<void>,
   priceAsset: CommerceAsset,
   auctionPhase: AuctionPhase = 'live',
+  auction?: { currentPrice: { amountMinor: number }; minimumIncrement: { amountMinor: number } },
 ): UseMarketplaceBidResult {
   const form = useForm<MarketplaceBidData>({
     resolver: zodResolver(marketplaceBidSchema),
@@ -42,6 +48,18 @@ export function useMarketplaceBid(
       if (!assetCheck.success) {
         form.setError('maximumAmount', { message: assetCheck.error.issues[0]?.message ?? 'Enter a valid amount.' });
         return;
+      }
+      if (auction) {
+        const minimumMinor = marketplaceBidMinimum(
+          auction.currentPrice.amountMinor,
+          auction.minimumIncrement.amountMinor,
+        );
+        if (amountInputToMoney(data.maximumAmount, priceAsset).amountMinor < minimumMinor) {
+          form.setError('maximumAmount', {
+            message: 'Your maximum must be at least the current visible price plus the minimum increment.',
+          });
+          return;
+        }
       }
       try {
         const response = await CommerceController.executeMarketplaceCommand({
@@ -60,13 +78,13 @@ export function useMarketplaceBid(
             await onConflict();
             toast({
               variant: 'error',
-              description: 'The auction moved since you loaded it. The latest price was reloaded — bid again.',
+              description: marketplaceBidFailureMessage(response.error.code),
             });
             return;
           }
           toast({
             variant: 'error',
-            description: marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.bid),
+            description: marketplaceBidFailureMessage(response.error.code),
           });
           return;
         }
