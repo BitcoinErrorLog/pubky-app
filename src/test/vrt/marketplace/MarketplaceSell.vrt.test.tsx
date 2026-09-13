@@ -110,6 +110,19 @@ vi.mock('@/stores/auth/auth.store', () => ({
     selector({ currentUserPubky: 'y'.repeat(52) }),
 }));
 
+vi.mock('@/stores/commerce/commerce.store', () => ({
+  useCommerceStore: {
+    getState: () => ({
+      marketplaceSession: {
+        pubky: 'y'.repeat(52),
+        capabilities: '/pub/pubky.app/:rw',
+        expiresAt: '2026-09-14T00:00:00.000Z',
+        issuedAt: '2026-09-13T00:00:00.000Z',
+      },
+    }),
+  },
+}));
+
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getListingDrafts: () => Promise.resolve(view.drafts),
@@ -121,6 +134,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitUpsertShippingPreset: () => Promise.resolve(),
     fetchPickupAvailable: () => Promise.resolve(view.pickupAvailable),
     getSellerPaymentConfig: sellerPaymentConfig,
+    hasFullHomeserverGrant: () => true,
   },
 }));
 

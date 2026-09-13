@@ -132,6 +132,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchShop: () =>
       view.shop ? Promise.resolve((view.shop as { record: unknown }).record) : Promise.reject(new Error('no shop')),
     getListingsBySeller: () => Promise.resolve(view.listings),
+    getMarketplaceMediaOwnerHomeserver: (_ownerPubky: unknown) => Promise.resolve(null),
+    hasFullHomeserverGrant: () => true,
   },
 }));
 
