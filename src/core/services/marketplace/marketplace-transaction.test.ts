@@ -14,6 +14,8 @@ const OTHER_ACTOR = 'b'.repeat(52);
 const SESSION_BEARER = `Bearer ${'A'.repeat(43)}`;
 const AGGREGATE_ID = buildMarketplaceListingAggregateId(ACTOR, 'boots_01');
 const COMMAND_ID = '00000000-0000-4000-8000-000000000700';
+// Captured from https://marketplace-service-production-ce23.up.railway.app/health at 2026-09-13T12:01:05Z.
+const LIVE_HEALTH_RESPONSE = '{"status":"ok","pickup_available":true,"paykit_rail":{"bitcoin_offer_available":true,"age_seconds":9}}';
 
 const config = vi.hoisted(() => ({
   mode: 'transaction-service' as string,
@@ -1215,5 +1217,46 @@ describe('MarketplaceTransactionService.getHealth (the pickup_available capabili
     // The capability read is deliberately public: no session, no bearer.
     expect(init?.headers).toBeUndefined();
     expect(health.pickupAvailable).toBe(pickupAvailable);
+  });
+
+  it('parses the pinned live production health response through the transport boundary', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(LIVE_HEALTH_RESPONSE, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const health = await MarketplaceTransactionService.getHealth();
+
+    expect(health.pickupAvailable).toBe(true);
+  });
+
+  it('fails closed when pickup_available is missing', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { status: 'ok' }));
+
+    await expect(MarketplaceTransactionService.getHealth()).resolves.toMatchObject({ pickupAvailable: false });
+  });
+
+  it('fails closed and logs through Err when the health body is malformed JSON', async () => {
+    const loggerError = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('{"status":"ok",', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getHealth()).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      message: 'Failed to parse JSON response',
+    });
+    expect(loggerError).toHaveBeenCalledWith(
+      '[marketplace:getHealth]',
+      'Failed to parse JSON response',
+      expect.objectContaining({ endpoint: 'http://127.0.0.1:8080/health' }),
+    );
+    expect(JSON.stringify(loggerError.mock.calls[0])).not.toContain('responseText');
+    loggerError.mockRestore();
   });
 });

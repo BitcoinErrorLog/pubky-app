@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isTrustedMarketplaceAttestor, MARKETPLACE_TRUSTED_ATTESTORS } from '@/config/commerce';
+import { isDurableCommerceMode, isTrustedMarketplaceAttestor, MARKETPLACE_TRUSTED_ATTESTORS } from '@/config/commerce';
+
+describe('isDurableCommerceMode', () => {
+  it('treats the live production locks-paykit mode as durable', () => {
+    expect(isDurableCommerceMode('locks-paykit')).toBe(true);
+  });
+});
 
 describe('MARKETPLACE_TRUSTED_ATTESTORS', () => {
   it('pins the staging and production transaction-service attestors', () => {
