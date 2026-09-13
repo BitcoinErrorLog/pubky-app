@@ -502,8 +502,29 @@ describe('CommerceApplication', () => {
 
     await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
     expect(getListing).toHaveBeenCalledTimes(2);
+    expect(getListing).toHaveBeenNthCalledWith(2, record.ownerPubky, `listing:${record.ownerPubky}_${record.listingId}`);
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
       registration_status: 'registered',
+    });
+  });
+
+  it('keeps a listing unregistered when confirming a benign listing.register response throws', async () => {
+    const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    await LocalCommerceService.upsertListing(record, 'synced');
+    vi.spyOn(MarketplaceGatewayService, 'getListing')
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new TypeError('confirmation unavailable'));
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({
+      ok: false,
+      error: { code: 'ALREADY_EXISTS', message: 'Already registered.' },
+    });
+
+    await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      registration_status: 'unregistered',
     });
   });
 

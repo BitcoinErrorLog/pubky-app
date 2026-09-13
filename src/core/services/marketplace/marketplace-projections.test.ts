@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createOrderFixture } from '@/test/fixtures/commerce/orders';
+import { createBitcoinQuotedOrderFixture, createOrderFixture } from '@/test/fixtures/commerce/orders';
 import {
   createAuctionProjectionFixture,
   createViewerBidAuctionProjectionFixture,
@@ -40,6 +40,31 @@ describe('marketplace order projection — taxation removed', () => {
       expect('tax' in marketplaceOrderSchema.shape).toBe(false);
       expect(parsed.data.total.amountMinor).toBe(parsed.data.subtotal.amountMinor + parsed.data.shipping.amountMinor);
     }
+  });
+});
+
+describe('marketplace order projection — Bitcoin quote', () => {
+  it('parses the live FX-quoted Bitcoin order shape', () => {
+    const parsed = marketplaceOrderSchema.safeParse(createBitcoinQuotedOrderFixture());
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.bitcoinQuote).toMatchObject({
+        quotedSats: 2_588,
+        currency: 'USD',
+        exponent: 2,
+        expiresAt: '2026-09-13T21:00:00.000Z',
+      });
+    }
+  });
+
+  it.each([undefined, null])('accepts an order with bitcoin_quote %s', (bitcoinQuote) => {
+    const parsed = marketplaceOrderSchema.safeParse({
+      ...createOrderFixture('pending_payment'),
+      bitcoinQuote,
+    });
+
+    expect(parsed.success).toBe(true);
   });
 });
 

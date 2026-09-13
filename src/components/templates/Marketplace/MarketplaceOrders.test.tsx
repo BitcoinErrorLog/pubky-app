@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import {
   createOrderFixture,
   createPaymentFixture,
@@ -30,6 +31,16 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
+  useIndicativeBtcRate: (enabled: boolean) =>
+    enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-09-13T20:00:00Z') } : null,
+}));
+
+vi.mock('@/organisms/Marketplace/MarketplaceIndicativePrice', () => ({
+  MarketplaceIndicativePrice: ({ money }: { money: { currency: string } }) =>
+    money.currency === 'USD' ? <span>≈ ₿137,000</span> : null,
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: ordersState.currentUserPubky }),
@@ -55,6 +66,7 @@ vi.mock('@/organisms/Marketplace/MarketplaceMyReviews', () => ({
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  useMarketplaceDisplayStore.setState({ showFxEstimate: false, measurementSystem: null });
 });
 
 function orderView(
@@ -98,6 +110,7 @@ describe('MarketplaceOrders tabs', () => {
   beforeEach(() => {
     ordersState.currentUserPubky = CURRENT_USER;
     ordersState.orders = [];
+    useMarketplaceDisplayStore.setState({ showFxEstimate: false, measurementSystem: null });
   });
 
   it('defaults to To ship when the user has seller orders without a next actor', async () => {
@@ -455,6 +468,46 @@ describe('MarketplaceOrders tabs', () => {
     for (const button of iconOnlyButtons) {
       expect(button).toHaveAttribute('aria-label', expect.stringMatching(/\S/));
     }
+  });
+
+  it('shows the locked Bitcoin quote for a bound Bitcoin order', async () => {
+    ordersState.orders = [
+      orderView('paid', 'Locked quote boots', 'seller', {
+        paymentMethod: 'bitcoin',
+        bitcoinQuote: {
+          quotedSats: 2_588,
+          currency: 'USD',
+          exponent: 2,
+          rate: 100_000,
+          source: 'blocktank',
+          fetchedAt: '2026-09-13T20:00:00.000Z',
+          expiresAt: '2026-09-13T21:00:00.000Z',
+          spreadBps: 50,
+        },
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+    await userEvent.setup().click(screen.getByRole('tab', { name: /All 1/i }));
+
+    expect(screen.getByText(/Locked Bitcoin amount: ₿2,588/)).toBeInTheDocument();
+    expect(screen.queryByText(/≈ ₿/)).not.toBeInTheDocument();
+  });
+
+  it('shows the indicative Bitcoin estimate when no locked quote exists', async () => {
+    useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: null });
+    ordersState.orders = [
+      orderView('paid', 'Indicative quote boots', 'buyer', {
+        paymentMethod: 'bitcoin',
+        bitcoinQuote: null,
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+    await userEvent.setup().click(screen.getByRole('tab', { name: /All 1/i }));
+
+    expect(await screen.findByText('≈ ₿137,000')).toBeInTheDocument();
+    expect(screen.queryByText(/Locked Bitcoin amount/)).not.toBeInTheDocument();
   });
 });
 
