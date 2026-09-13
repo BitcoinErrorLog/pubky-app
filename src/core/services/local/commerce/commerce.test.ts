@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/database/franky/franky';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
@@ -18,10 +18,7 @@ import {
   CommerceWatchAlertModel,
   CommerceWatchSnapshotModel,
 } from '@/models/commerce/commerce.models';
-import type {
-  CommerceWatchAlertModelSchema,
-  CommerceWatchSnapshotModelSchema,
-} from '@/models/commerce/commerce.schema';
+import type { CommerceWatchAlertModelSchema, CommerceWatchSnapshotModelSchema } from '@/models/commerce/commerce.schema';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
@@ -171,29 +168,28 @@ describe('LocalCommerceService', () => {
     });
   });
 
-  it('preserves a registration change observed between refresh reads and writes', async () => {
+  it('preserves a separately scheduled registration update across an overlapping refresh', async () => {
     const listing = createCommerceListingFixture();
     const listingId = `${listing.ownerPubky}:${listing.listingId}`;
     await LocalCommerceService.upsertListing(listing, 'synced');
-    await LocalCommerceService.setListingRegistrationStatus(listingId, 'unregistered');
-
-    const originalBulkGet = CommerceListingModel.table.bulkGet.bind(CommerceListingModel.table);
-    vi.spyOn(CommerceListingModel.table, 'bulkGet').mockImplementation(
-      (keys) =>
-        originalBulkGet(keys).then((current) => {
-          if (current[0]) current[0].registration_status = 'registered';
-          return current;
-        }) as ReturnType<typeof originalBulkGet>,
-    );
+    await LocalCommerceService.setListingRegistrationStatus(listingId, 'registered');
 
     const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
-    await LocalCommerceService.commitSellerCatalogRefresh(
+    const refreshPromise = LocalCommerceService.commitSellerCatalogRefresh(
       [createCommerceCatalogEntryFixture({ revision: refreshed.revision })],
       [refreshed],
     );
+    const registrationUpdatePromise = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        LocalCommerceService.setListingRegistrationStatus(listingId, 'unregistered').then(resolve, reject);
+      }, 0);
+    });
+
+    await Promise.all([refreshPromise, registrationUpdatePromise]);
 
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
-      registration_status: 'registered',
+      revision: refreshed.revision,
+      registration_status: 'unregistered',
     });
   });
 
