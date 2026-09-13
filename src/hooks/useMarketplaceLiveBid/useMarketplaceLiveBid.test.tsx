@@ -97,11 +97,28 @@ describe('useMarketplaceLiveBid', () => {
     await waitFor(() =>
       expect(result.current.bid).toEqual({
         currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 },
+        minimumNextBid: { amountMinor: 8_000, currency: 'USD', exponent: 2 },
         bidCount: 4,
         reserveMet: true,
       }),
     );
     expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalledExactlyOnceWith(SELLER, 'camera');
+  });
+
+  it('exposes the viewer minimum from the authenticated listing projection', async () => {
+    const projection = auctionProjection();
+    projection.auction!.currentPrice = { amountMinor: 4_500, currency: 'USD', exponent: 2 };
+    projection.viewerBid = {
+      maximumAmount: { amountMinor: 7_000, currency: 'USD', exponent: 2 },
+      minimumNextBid: { amountMinor: 7_001, currency: 'USD', exponent: 2 },
+    };
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(projection);
+
+    const { result } = renderHook(() => useMarketplaceLiveBid(SELLER, 'camera', true));
+    attachAndShow(result.current.ref);
+
+    await waitFor(() => expect(result.current.bid?.minimumNextBid?.amountMinor).toBe(7_001));
+    expect(result.current.bid?.viewerBid?.maximumAmount.amountMinor).toBe(7_000);
   });
 
   it('fetches only once per card even across repeated visibility changes', async () => {

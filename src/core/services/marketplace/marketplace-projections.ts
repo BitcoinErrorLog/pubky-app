@@ -53,6 +53,15 @@ export const marketplaceListingProjectionSchema = z
       })
       .passthrough()
       .nullable(),
+    // Present only for the authenticated bidder who owns the proxy maximum.
+    // The seller, other bidders, non-bidders, and anonymous reads omit it.
+    viewerBid: z
+      .object({
+        maximumAmount: marketplaceMoneySchema,
+        minimumNextBid: marketplaceMoneySchema,
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 

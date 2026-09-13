@@ -3,11 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { marketplaceBidMinimum } from '@/hooks/useMarketplaceBid/useMarketplaceBid.types';
 import { useViewportObserver } from '@/hooks/useViewportObserver/useViewportObserver';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
 export interface MarketplaceLiveBid {
   currentPrice: CommerceMoney;
+  minimumNextBid?: CommerceMoney;
+  viewerBid?: {
+    maximumAmount: CommerceMoney;
+    minimumNextBid: CommerceMoney;
+  };
   bidCount: number;
   reserveMet: boolean;
 }
@@ -59,6 +65,15 @@ export function useMarketplaceLiveBid(
         if (!mounted || !projection?.auction) return;
         setBid({
           currentPrice: projection.auction.currentPrice,
+          minimumNextBid: {
+            ...projection.auction.currentPrice,
+            amountMinor: marketplaceBidMinimum(
+              projection.auction.currentPrice.amountMinor,
+              projection.auction.minimumIncrement.amountMinor,
+              projection.viewerBid?.minimumNextBid.amountMinor,
+            ),
+          },
+          viewerBid: projection.viewerBid,
           bidCount: projection.auction.bidCount,
           reserveMet: projection.auction.reserveMet,
         });

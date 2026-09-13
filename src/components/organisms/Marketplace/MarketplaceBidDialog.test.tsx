@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { USD_ASSET } from '@/libs/commerce/pricing';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { createAuctionProjectionFixture } from '@/test/fixtures/commerce/projections';
+import {
+  createAuctionProjectionFixture,
+  createViewerBidAuctionProjectionFixture,
+} from '@/test/fixtures/commerce/projections';
 import { MarketplaceBidDialog } from './MarketplaceBidDialog';
 
 const SIGNED_IN_PUBKY = 'y'.repeat(52);
@@ -60,5 +63,23 @@ describe('MarketplaceBidDialog', () => {
       screen.getByText('Your maximum stays private. The visible price advances only enough to keep you ahead.'),
     ).toBeInTheDocument();
     expect(screen.getByText(/Minimum maximum: \$74\.00/)).toBeInTheDocument();
+  });
+
+  it('shows the bidder-specific minimum and current proxy maximum', async () => {
+    const user = userEvent.setup();
+    render(
+      <MarketplaceBidDialog
+        aggregateId="listing:x"
+        projection={createViewerBidAuctionProjectionFixture()}
+        priceAsset={USD_ASSET}
+        onAccepted={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Place a bid' }));
+
+    expect(screen.getByText(/Minimum maximum: \$70\.01/)).toBeInTheDocument();
+    expect(screen.getByText(/minimum required to exceed your own current proxy maximum\./)).toBeInTheDocument();
+    expect(screen.getByText('Your current proxy maximum: $70.00')).toBeInTheDocument();
   });
 });

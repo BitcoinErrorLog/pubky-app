@@ -50,3 +50,17 @@ export function createAuctionProjectionFixture(
     ...overrides,
   });
 }
+
+/** Authenticated bidder projection captured from the marketplace service contract sample. */
+export function createViewerBidAuctionProjectionFixture(): MarketplaceListingProjection {
+  return createAuctionProjectionFixture({
+    auction: {
+      ...createAuctionProjectionFixture().auction!,
+      currentPrice: usd(4_500),
+    },
+    viewerBid: {
+      maximumAmount: usd(7_000),
+      minimumNextBid: usd(7_001),
+    },
+  });
+}
