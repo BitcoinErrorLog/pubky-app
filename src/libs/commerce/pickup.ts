@@ -247,9 +247,10 @@ export const marketplaceSellerPickupDetailsSchema = z
 export const marketplaceHealthSchema = z
   .object({
     status: z.string(),
-    pickupAvailable: z.boolean(),
+    // The health endpoint may add capability telemetry without changing this client contract.
+    pickupAvailable: z.boolean().default(false),
   })
-  .strict();
+  .passthrough();
 
 export type MarketplacePickupRevealLine = z.infer<typeof marketplacePickupRevealLineSchema>;
 export type MarketplacePickupReveal = z.infer<typeof marketplacePickupRevealSchema>;

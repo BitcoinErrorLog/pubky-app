@@ -398,7 +398,6 @@ export class MarketplaceTransactionService {
       ErrorService.Marketplace,
       'getHealth',
       url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
     );
     return this.parseProjection(
       'getHealth',

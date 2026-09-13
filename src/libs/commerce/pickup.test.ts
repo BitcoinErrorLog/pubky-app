@@ -279,7 +279,7 @@ describe('reveal and owner-read schemas (captured shapes from crates/service/tes
   it('parses the /health capability surface', () => {
     expect(marketplaceHealthSchema.parse({ status: 'ok', pickupAvailable: true }).pickupAvailable).toBe(true);
     expect(marketplaceHealthSchema.parse({ status: 'ok', pickupAvailable: false }).pickupAvailable).toBe(false);
-    expect(marketplaceHealthSchema.safeParse({ status: 'ok' }).success).toBe(false);
+    expect(marketplaceHealthSchema.parse({ status: 'ok' }).pickupAvailable).toBe(false);
   });
 });
 
