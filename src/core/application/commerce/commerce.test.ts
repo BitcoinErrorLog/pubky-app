@@ -414,6 +414,23 @@ describe('CommerceApplication', () => {
     });
   });
 
+  it('creates and stamps the local row when a legacy listing is absent locally', async () => {
+    const record = createCommerceListingFixture();
+    const listingId = `${record.ownerPubky}:${record.listingId}`;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(LISTING_REGISTERED_RESPONSE);
+
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
+    await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
+    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+      record,
+      registration_status: 'registered',
+      sync_status: 'synced',
+    });
+  });
+
   it.each(['ALREADY_EXISTS', 'ALREADY_REGISTERED', 'UNCHANGED', 'NO_OP'])(
     'treats %s from listing.sync as registered for a legacy listing',
     async (code) => {

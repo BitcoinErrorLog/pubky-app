@@ -2466,12 +2466,17 @@ export class CommerceApplication {
     if (getCommerceAdapterMode() === 'unavailable') return false;
     try {
       await this.registerListing(record);
-      await LocalCommerceService.setListingRegistrationStatus(`${record.ownerPubky}:${record.listingId}`, 'registered');
+      await LocalCommerceService.setListingRegistrationStatus(
+        `${record.ownerPubky}:${record.listingId}`,
+        'registered',
+        record,
+      );
       return true;
     } catch (error) {
       await LocalCommerceService.setListingRegistrationStatus(
         `${record.ownerPubky}:${record.listingId}`,
         'unregistered',
+        record,
       );
       Logger.warn('Listing registration retry failed', {
         listing: `${record.ownerPubky}:${record.listingId}`,

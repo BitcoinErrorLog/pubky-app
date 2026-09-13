@@ -477,9 +477,14 @@ export class LocalCommerceService {
   static async setListingRegistrationStatus(
     compositeListingId: string,
     registrationStatus: CommerceListingModelSchema['registration_status'],
+    record?: CommerceListingRecord,
   ): Promise<void> {
     const listing = await CommerceListingModel.findById(compositeListingId);
-    if (!listing) return;
+    if (!listing) {
+      if (!record) return;
+      await CommerceListingModel.upsert(this.toListingModel(record, 'synced', registrationStatus));
+      return;
+    }
     await CommerceListingModel.upsert({ ...listing, registration_status: registrationStatus });
   }
 
