@@ -59,5 +59,6 @@ describe('MarketplaceBidDialog', () => {
     expect(
       screen.getByText('Your maximum stays private. The visible price advances only enough to keep you ahead.'),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Minimum maximum: \$74\.00/)).toBeInTheDocument();
   });
 });

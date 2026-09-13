@@ -15,7 +15,8 @@ const SESSION_BEARER = `Bearer ${'A'.repeat(43)}`;
 const AGGREGATE_ID = buildMarketplaceListingAggregateId(ACTOR, 'boots_01');
 const COMMAND_ID = '00000000-0000-4000-8000-000000000700';
 // Captured from https://marketplace-service-production-ce23.up.railway.app/health at 2026-09-13T12:01:05Z.
-const LIVE_HEALTH_RESPONSE = '{"status":"ok","pickup_available":true,"paykit_rail":{"bitcoin_offer_available":true,"age_seconds":9}}';
+const LIVE_HEALTH_RESPONSE =
+  '{"status":"ok","pickup_available":true,"paykit_rail":{"bitcoin_offer_available":true,"age_seconds":9}}';
 
 const config = vi.hoisted(() => ({
   mode: 'transaction-service' as string,
@@ -126,6 +127,19 @@ describe('MarketplaceTransactionService.execute', () => {
     await expect(MarketplaceTransactionService.execute(ACTOR, bidCommand())).resolves.toEqual({
       ok: false,
       error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 5 },
+    });
+  });
+
+  it.each([
+    [409, { code: 'BID_TOO_LOW', message: 'A new proxy maximum must exceed the bidder previous maximum.' }],
+    [403, { code: 'UNAUTHORIZED', message: 'A seller cannot bid on their own auction.' }],
+  ] as const)('preserves typed bid refusal responses from the live command envelope (%s)', async (status, error) => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(status, { ok: false, error }));
+
+    await expect(MarketplaceTransactionService.execute(ACTOR, bidCommand())).resolves.toEqual({
+      ok: false,
+      error,
     });
   });
 
