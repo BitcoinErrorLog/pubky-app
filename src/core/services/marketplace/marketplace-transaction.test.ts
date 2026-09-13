@@ -351,6 +351,10 @@ describe('MarketplaceTransactionService read projections', () => {
           bid_count: 3,
           reserve_met: true,
         },
+        viewer_bid: {
+          maximum_amount: { amount_minor: 7_000, currency: 'USD', exponent: 2 },
+          minimum_next_bid: { amount_minor: 7_001, currency: 'USD', exponent: 2 },
+        },
         updated_at: '2026-08-20T10:00:00.000Z',
       }),
     );
@@ -362,6 +366,10 @@ describe('MarketplaceTransactionService read projections', () => {
       serverRevision: 4,
       state: 'available',
       auction: { currentPrice: { amountMinor: 13_000 }, leaderPubky: OTHER_ACTOR, bidCount: 3, reserveMet: true },
+      viewerBid: {
+        maximumAmount: { amountMinor: 7_000 },
+        minimumNextBid: { amountMinor: 7_001 },
+      },
     });
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://127.0.0.1:8080/v1/listings/${encodeURIComponent(AGGREGATE_ID)}`);

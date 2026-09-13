@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import type { MarketplaceListingProjection } from '@/core/services/marketplace/marketplace-projections';
 import type { AuctionPhase } from '@/libs/commerce/auction-phase';
 import { marketplaceBidFailureMessage } from '@/libs/commerce/failure-messages';
 import { amountInputSchemaForAsset, amountInputToMoney, type CommerceAsset } from '@/libs/commerce/pricing';
@@ -32,7 +33,11 @@ export function useMarketplaceBid(
   onConflict: () => void | Promise<void>,
   priceAsset: CommerceAsset,
   auctionPhase: AuctionPhase = 'live',
-  auction?: { currentPrice: { amountMinor: number }; minimumIncrement: { amountMinor: number } },
+  auction?: {
+    currentPrice: { amountMinor: number };
+    minimumIncrement: { amountMinor: number };
+    viewerBid?: MarketplaceListingProjection['viewerBid'];
+  },
 ): UseMarketplaceBidResult {
   const form = useForm<MarketplaceBidData>({
     resolver: zodResolver(marketplaceBidSchema),
@@ -53,10 +58,14 @@ export function useMarketplaceBid(
         const minimumMinor = marketplaceBidMinimum(
           auction.currentPrice.amountMinor,
           auction.minimumIncrement.amountMinor,
+          auction.viewerBid?.minimumNextBid.amountMinor,
         );
         if (amountInputToMoney(data.maximumAmount, priceAsset).amountMinor < minimumMinor) {
           form.setError('maximumAmount', {
-            message: 'Your maximum must be at least the current visible price plus the minimum increment.',
+            message:
+              auction.viewerBid && minimumMinor > auction.currentPrice.amountMinor + auction.minimumIncrement.amountMinor
+                ? 'Your maximum must exceed your own current proxy maximum.'
+                : 'Your maximum must be at least the current visible price plus the minimum increment.',
           });
           return;
         }
@@ -74,13 +83,8 @@ export function useMarketplaceBid(
           },
         });
         if (!response.ok) {
-          if (isMarketplaceRevisionConflict(response)) {
+          if (isMarketplaceRevisionConflict(response) || response.error.code === 'BID_TOO_LOW') {
             await onConflict();
-            toast({
-              variant: 'error',
-              description: marketplaceBidFailureMessage(response.error.code),
-            });
-            return;
           }
           toast({
             variant: 'error',

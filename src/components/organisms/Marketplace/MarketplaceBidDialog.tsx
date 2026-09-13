@@ -41,7 +41,12 @@ export function MarketplaceBidDialog({
     onAccepted,
     priceAsset,
     auctionPhase,
-    projection?.auction ?? undefined,
+    projection?.auction
+      ? {
+          ...projection.auction,
+          viewerBid: projection.viewerBid,
+        }
+      : undefined,
   );
   const { requireAuth } = useRequireAuth();
 
@@ -101,10 +106,20 @@ export function MarketplaceBidDialog({
                 amountMinor: marketplaceBidMinimum(
                   projection.auction.currentPrice.amountMinor,
                   projection.auction.minimumIncrement.amountMinor,
+                  projection.viewerBid?.minimumNextBid.amountMinor,
                 ),
               })}{' '}
-              floor based on the visible price; your private maximum may need to be higher.
+              {projection.viewerBid &&
+              projection.viewerBid.minimumNextBid.amountMinor >
+                projection.auction.currentPrice.amountMinor + projection.auction.minimumIncrement.amountMinor
+                ? 'minimum required to exceed your own current proxy maximum.'
+                : 'floor based on the visible price.'}
             </Typography>
+            {projection.viewerBid && (
+              <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                Your current proxy maximum: {formatCommerceMoney(projection.viewerBid.maximumAmount)}
+              </Typography>
+            )}
           </div>
         )}
         <ControlledInputField

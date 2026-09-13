@@ -3,8 +3,9 @@ import { z } from 'zod';
 export function marketplaceBidMinimum(
   currentPriceMinor: number,
   minimumIncrementMinor: number,
+  viewerMinimumMinor?: number,
 ): number {
-  return currentPriceMinor + minimumIncrementMinor;
+  return Math.max(currentPriceMinor + minimumIncrementMinor, viewerMinimumMinor ?? 0);
 }
 
 export const marketplaceBidSchema = z.object({

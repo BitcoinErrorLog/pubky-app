@@ -26,7 +26,7 @@ export const marketplaceMoneySchema = z.object({
   exponent: z.number().int(),
 });
 
-export const marketplaceListingProjectionSchema = z
+const marketplaceListingProjectionBaseSchema = z
   .object({
     aggregateId: z.string(),
     sellerPubky: commercePubkySchema,
@@ -56,8 +56,59 @@ export const marketplaceListingProjectionSchema = z
       })
       .passthrough()
       .nullable(),
+    // Present only for the authenticated bidder who owns the proxy maximum.
+    // The seller, other bidders, non-bidders, and anonymous reads omit it.
+    viewerBid: z
+      .object({
+        maximumAmount: marketplaceMoneySchema,
+        minimumNextBid: marketplaceMoneySchema,
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
+
+export const marketplaceListingProjectionSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object') return input;
+  const record = input as Record<string, unknown>;
+  const viewerBid = record.viewerBid;
+  const auction = record.auction;
+  if (!viewerBid || typeof viewerBid !== 'object' || !auction || typeof auction !== 'object') return input;
+
+  const bid = viewerBid as Record<string, unknown>;
+  const auctionRecord = auction as Record<string, unknown>;
+  const currentPrice = auctionRecord.currentPrice;
+  const minimumIncrement = auctionRecord.minimumIncrement;
+  const maximumAmount = bid.maximumAmount;
+  const minimumNextBid = bid.minimumNextBid;
+  if (
+    !currentPrice ||
+    typeof currentPrice !== 'object' ||
+    !minimumIncrement ||
+    typeof minimumIncrement !== 'object' ||
+    !maximumAmount ||
+    typeof maximumAmount !== 'object' ||
+    !minimumNextBid ||
+    typeof minimumNextBid !== 'object'
+  ) {
+    return input;
+  }
+
+  const moneyMatches = (left: Record<string, unknown>, right: Record<string, unknown>) =>
+    left.currency === right.currency && left.exponent === right.exponent;
+  const current = currentPrice as Record<string, unknown>;
+  const increment = minimumIncrement as Record<string, unknown>;
+  if (moneyMatches(maximumAmount as Record<string, unknown>, current) &&
+      moneyMatches(maximumAmount as Record<string, unknown>, increment) &&
+      moneyMatches(minimumNextBid as Record<string, unknown>, current) &&
+      moneyMatches(minimumNextBid as Record<string, unknown>, increment)) {
+    return input;
+  }
+
+  const withoutViewerBid = { ...record };
+  delete withoutViewerBid.viewerBid;
+  return withoutViewerBid;
+}, marketplaceListingProjectionBaseSchema);
 
 /**
  * The auction's public bid history: the VISIBLE price progression only.

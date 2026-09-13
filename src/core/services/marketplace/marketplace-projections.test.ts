@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createOrderFixture } from '@/test/fixtures/commerce/orders';
-import { marketplaceOrderSchema } from './marketplace-projections';
+import {
+  createAuctionProjectionFixture,
+  createViewerBidAuctionProjectionFixture,
+} from '@/test/fixtures/commerce/projections';
+import { marketplaceListingProjectionSchema, marketplaceOrderSchema } from './marketplace-projections';
 
 /**
  * Taxation was removed from the marketplace: no tax computation in checkout
@@ -35,6 +39,47 @@ describe('marketplace order projection — taxation removed', () => {
       // must still omit `tax`.
       expect('tax' in marketplaceOrderSchema.shape).toBe(false);
       expect(parsed.data.total.amountMinor).toBe(parsed.data.subtotal.amountMinor + parsed.data.shipping.amountMinor);
+    }
+  });
+});
+
+describe('marketplace listing projection — viewer bid', () => {
+  it('parses the live bidder viewer_bid shape', () => {
+    const parsed = marketplaceListingProjectionSchema.safeParse(createViewerBidAuctionProjectionFixture());
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.viewerBid).toEqual({
+        maximumAmount: { amountMinor: 7_000, currency: 'USD', exponent: 2 },
+        minimumNextBid: { amountMinor: 7_001, currency: 'USD', exponent: 2 },
+      });
+    }
+  });
+
+  it('accepts projections without viewer_bid for sellers and other bidders', () => {
+    const parsed = marketplaceListingProjectionSchema.safeParse(createAuctionProjectionFixture());
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.viewerBid).toBeUndefined();
+  });
+
+  it.each([
+    ['currency', { currency: 'EUR' }],
+    ['exponent', { exponent: 3 }],
+  ])('drops viewer_bid when its %s does not match the auction money', (_field, mismatch) => {
+    const fixture = createViewerBidAuctionProjectionFixture();
+    fixture.viewerBid = {
+      ...fixture.viewerBid!,
+      minimumNextBid: { ...fixture.viewerBid!.minimumNextBid, ...mismatch },
+    };
+
+    const parsed = marketplaceListingProjectionSchema.safeParse(fixture);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.viewerBid).toBeUndefined();
+      expect(parsed.data.auction?.currentPrice.amountMinor).toBe(4_500);
+      expect(parsed.data.auction?.minimumIncrement.amountMinor).toBe(500);
     }
   });
 });

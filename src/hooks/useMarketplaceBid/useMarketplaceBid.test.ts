@@ -56,6 +56,63 @@ describe('useMarketplaceBid', () => {
     expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalled();
   });
 
+  it('uses the bidder viewer minimum and refuses one minor unit below it', async () => {
+    const onConflict = vi.fn();
+    const { result } = renderHook(() =>
+      useMarketplaceBid('listing:seller_item', 3, onConflict, USD_ASSET, 'live', {
+        currentPrice: { amountMinor: 4_500 },
+        minimumIncrement: { amountMinor: 500 },
+        viewerBid: {
+          maximumAmount: { amountMinor: 7_000, currency: 'USD', exponent: 2 },
+          minimumNextBid: { amountMinor: 7_001, currency: 'USD', exponent: 2 },
+        },
+      }),
+    );
+    act(() => result.current.form.setValue('maximumAmount', '70.00'));
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(result.current.form.getFieldState('maximumAmount').error?.message).toBe(
+      'Your maximum must exceed your own current proxy maximum.',
+    );
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+  });
+
+  it('accepts a maximum equal to the bidder viewer minimum', async () => {
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000810',
+      aggregateId: 'listing:seller_item',
+      revision: 4,
+      eventIds: ['00000000-0000-4000-8000-000000000811'],
+      result: { kind: 'bid' },
+    });
+    const { result } = renderHook(() =>
+      useMarketplaceBid('listing:seller_item', 3, vi.fn(), USD_ASSET, 'live', {
+        currentPrice: { amountMinor: 4_500 },
+        minimumIncrement: { amountMinor: 500 },
+        viewerBid: {
+          maximumAmount: { amountMinor: 7_000, currency: 'USD', exponent: 2 },
+          minimumNextBid: { amountMinor: 7_001, currency: 'USD', exponent: 2 },
+        },
+      }),
+    );
+    act(() => result.current.form.setValue('maximumAmount', '70.01'));
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(true);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalled();
+  });
+
   it('submits a private proxy maximum at the authoritative auction revision', async () => {
     vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
       ok: true,
