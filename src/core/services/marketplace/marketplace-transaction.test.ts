@@ -6,8 +6,9 @@ import { ErrorService } from '@/libs/error/error.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { Logger } from '@/libs/logger/logger';
 import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
+import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
 import { asOpaque } from '@/test-utils/type-assertions';
-import { marketplaceNotificationSchema } from './marketplace-projections';
+import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH, marketplaceNotificationSchema } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
 import { MarketplaceTransactionService } from './marketplace-transaction';
 
@@ -587,6 +588,7 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(notifications[0]).toMatchObject({ type: 'order_created' });
     expect(notifications[1]).toEqual({
       kind: 'unrecognized',
+      id: '00000000-0000-4000-8000-000000000932',
       type: 'payment_method_bound',
       createdAt: '2026-08-20T11:01:00.000Z',
     });
@@ -594,6 +596,63 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(loggerError).toHaveBeenCalledOnce();
     expect(loggerError.mock.calls[0]?.[1]).toBe('Marketplace notification history was partially unrecognized.');
     expect(JSON.stringify(loggerError.mock.calls)).not.toContain('seller-payment:placeholder');
+  });
+
+  it('bounds an unrecognized type in telemetry and the normalized feed id', async () => {
+    await establishSession();
+    const oversizedType = 'x'.repeat(1_024);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [
+          {
+            ...LIVE_NOTIFICATION_ROWS[0],
+            type: oversizedType,
+          },
+        ],
+      }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const [notification] = await MarketplaceTransactionService.getNotifications(ACTOR);
+    expect(notification).toMatchObject({
+      kind: 'unrecognized',
+      type: 'x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH),
+    });
+    expect(JSON.stringify(loggerError.mock.calls)).toContain('x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH));
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(oversizedType);
+    expect(MarketplaceNotificationNormalizer.toFeedNotification(notification, 'transaction-service').id).toContain(
+      `marketplace:unrecognized:${'x'.repeat(MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH)}`,
+    );
+  });
+
+  it('quarantines malformed notification timestamps at epoch', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [{ ...LIVE_NOTIFICATION_ROWS[1], created_at: 'not-a-date' }],
+      }),
+    );
+
+    const [notification] = await MarketplaceTransactionService.getNotifications(ACTOR);
+    expect(notification).toMatchObject({
+      kind: 'unrecognized',
+      createdAt: '1970-01-01T00:00:00.000Z',
+    });
+    expect(MarketplaceNotificationNormalizer.toFeedNotification(notification, 'transaction-service').timestamp).toBe(0);
+  });
+
+  it('reports each distinct invalid-type set once until the session ends', async () => {
+    await establishSession();
+    const invalidRow = { ...LIVE_NOTIFICATION_ROWS[1] };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, { notifications: [invalidRow] }))
+      .mockResolvedValueOnce(jsonResponse(200, { notifications: [invalidRow] }));
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    await MarketplaceTransactionService.getNotifications(ACTOR);
+    await MarketplaceTransactionService.getNotifications(ACTOR);
+
+    expect(loggerError).toHaveBeenCalledOnce();
   });
 
   it('requires a session for every projection read', async () => {

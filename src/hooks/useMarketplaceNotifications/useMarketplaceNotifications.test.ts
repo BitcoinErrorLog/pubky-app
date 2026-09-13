@@ -143,6 +143,7 @@ describe('useMarketplaceNotifications', () => {
     vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
       {
         kind: 'unrecognized',
+        id: 'row-1',
         type: 'payment_method_bound',
         createdAt: '2026-08-19T23:00:00.000Z',
       },

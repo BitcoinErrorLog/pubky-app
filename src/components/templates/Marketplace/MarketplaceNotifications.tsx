@@ -183,10 +183,10 @@ export function MarketplaceNotifications() {
                 incomplete.
               </div>
             )}
-            {notifications.map((notification, index) =>
+            {notifications.map((notification) =>
               'kind' in notification ? (
                 <Card
-                  key={`unrecognized:${notification.type}:${notification.createdAt}:${index}`}
+                  key={`unrecognized:${notification.type}:${notification.createdAt}:${notification.id}`}
                   className="border py-4"
                 >
                   <CardContent className="flex items-center gap-4 px-4">
@@ -196,9 +196,9 @@ export function MarketplaceNotifications() {
                     <Typography as="p" className="font-semibold">
                       Unrecognized marketplace event — history may be incomplete
                     </Typography>
-                    <time dateTime={notification.createdAt} className="ml-auto text-xs text-muted-foreground">
-                      {new Date(notification.createdAt).toLocaleDateString('en-US')}
-                    </time>
+                    <Typography as="span" className="ml-auto text-xs text-muted-foreground">
+                      Integrity notice
+                    </Typography>
                   </CardContent>
                 </Card>
               ) : (

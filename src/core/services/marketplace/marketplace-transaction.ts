@@ -53,6 +53,7 @@ import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
+import { reportMarketplaceNotificationInvalidTypes } from './marketplace-notification-diagnostics';
 import {
   type MarketplaceBidHistory,
   marketplaceBidHistorySchema,
@@ -654,7 +655,7 @@ export class MarketplaceTransactionService {
    */
   static async getNotifications(actor: string): Promise<MarketplaceNotificationEntry[]> {
     const raw = await this.readProjection('getNotifications', actor, '/v1/notifications');
-    return parseMarketplaceNotificationEntries(raw);
+    return parseMarketplaceNotificationEntries(raw, reportMarketplaceNotificationInvalidTypes);
   }
 
   /**

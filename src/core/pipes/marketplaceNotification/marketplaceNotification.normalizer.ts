@@ -27,7 +27,7 @@ export class MarketplaceNotificationNormalizer {
   ): MarketplaceFeedNotification {
     if (notification.kind === 'unrecognized') {
       return {
-        id: `marketplace:unrecognized:${notification.type}:${notification.createdAt}`,
+        id: `marketplace:unrecognized:${notification.type}:${notification.createdAt}:${notification.id}`,
         source: 'marketplace',
         kind: 'unrecognized',
         type: notification.type,

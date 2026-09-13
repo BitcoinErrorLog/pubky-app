@@ -10,6 +10,7 @@ import { isAppError, isRetryable } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { sleep } from '@/libs/utils/utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
+import { resetMarketplaceNotificationDiagnostics } from './marketplace-notification-diagnostics';
 
 /**
  * Treat a session as expired slightly before the server does, so a request
@@ -225,6 +226,7 @@ export class MarketplaceSessionService {
     }
     const { token, pubky, capabilities, expiresAt } = parsed.data;
     const issuedAt = new Date().toISOString();
+    resetMarketplaceNotificationDiagnostics();
     this.session = { token, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
     this.writePersistedSession(parsed.data);
     Logger.info('Established marketplace transaction session', { pubky, expiresAt });
@@ -331,6 +333,7 @@ export class MarketplaceSessionService {
   static clearSession(reason: MarketplaceSessionEndedReason = 'cleared'): void {
     const ended = this.session;
     this.session = null;
+    resetMarketplaceNotificationDiagnostics();
     this.removePersistedSession();
     if (!ended) return;
     this.notifySessionEnded({ reason, issuedAt: ended.issuedAt });

@@ -56,6 +56,7 @@ export type MarketplaceFeedNotification =
 export const MARKETPLACE_FEED_NOTIFICATION_KEYS = [
   'id',
   'source',
+  'kind',
   'type',
   'actorPubky',
   'aggregateId',

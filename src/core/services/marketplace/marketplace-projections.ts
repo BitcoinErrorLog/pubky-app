@@ -133,7 +133,7 @@ export const marketplaceNotificationSchema = z
     // outbid/auction_won/auction_ended). Null on service rows delivered
     // before amounts existed and absent from sandbox notifications.
     amount: marketplaceMoneySchema.nullish(),
-    createdAt: z.string(),
+    createdAt: z.iso.datetime({ offset: true }),
     readAt: z.string().nullable(),
   })
   .passthrough();
@@ -380,6 +380,7 @@ export type MarketplaceListingProjection = z.infer<typeof marketplaceListingProj
 export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSchema> & { kind?: never };
 export type MarketplaceUnrecognizedNotification = {
   kind: 'unrecognized';
+  id: string;
   type: string;
   createdAt: string;
 };
@@ -398,7 +399,13 @@ export type MarketplaceDropReadyCheck = z.infer<typeof marketplaceDropReadyCheck
 export type MarketplacePayment = z.infer<typeof marketplacePaymentSchema>;
 export type MarketplaceReceipt = z.infer<typeof marketplaceReceiptSchema>;
 
-export function parseMarketplaceNotificationEntries(raw: unknown): MarketplaceNotificationEntry[] {
+export const MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH = 64;
+const SAFE_QUARANTINE_TIMESTAMP = new Date(0).toISOString();
+
+export function parseMarketplaceNotificationEntries(
+  raw: unknown,
+  reportInvalidTypes?: (invalidTypes: readonly string[]) => void,
+): MarketplaceNotificationEntry[] {
   const envelope = z.object({ notifications: z.array(z.unknown()) }).safeParse(raw);
   if (!envelope.success) {
     throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid notifications.', {
@@ -408,24 +415,26 @@ export function parseMarketplaceNotificationEntries(raw: unknown): MarketplaceNo
   }
 
   const invalidTypes = new Set<string>();
-  const entries = envelope.data.notifications.map((row): MarketplaceNotificationEntry => {
+  const entries = envelope.data.notifications.map((row, index): MarketplaceNotificationEntry => {
     const parsed = marketplaceNotificationSchema.safeParse(row);
     if (parsed.success) return parsed.data;
 
     const candidate = typeof row === 'object' && row !== null ? (row as Record<string, unknown>) : {};
-    const type = typeof candidate.type === 'string' ? candidate.type : '<unknown>';
-    const createdAt = typeof candidate.createdAt === 'string' ? candidate.createdAt : '';
+    const type =
+      typeof candidate.type === 'string'
+        ? candidate.type.slice(0, MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH)
+        : '<unknown>';
+    const createdAt =
+      typeof candidate.createdAt === 'string' &&
+      marketplaceNotificationSchema.shape.createdAt.safeParse(candidate.createdAt).success
+        ? candidate.createdAt
+        : SAFE_QUARANTINE_TIMESTAMP;
+    const id = typeof candidate.id === 'string' ? candidate.id : String(index);
     invalidTypes.add(type);
-    return { kind: 'unrecognized', type, createdAt };
+    return { kind: 'unrecognized', id, type, createdAt };
   });
 
-  if (invalidTypes.size > 0) {
-    Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace notification history was partially unrecognized.', {
-      service: ErrorService.Marketplace,
-      operation: 'getNotifications',
-      context: { invalidTypes: [...invalidTypes].sort() },
-    });
-  }
+  if (invalidTypes.size > 0) reportInvalidTypes?.([...invalidTypes].sort());
 
   return entries;
 }

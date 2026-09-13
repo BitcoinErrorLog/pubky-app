@@ -88,7 +88,9 @@ function getBaseActionText(type: MarketplaceNotification['type']): string {
       return 'removed the pickup details';
     case 'pickup_ready':
       return 'marked your order ready for pickup';
-    default:
-      return 'updated marketplace activity';
+    default: {
+      const exhaustiveCheck: never = type;
+      return exhaustiveCheck;
+    }
   }
 }

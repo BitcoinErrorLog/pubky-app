@@ -41,7 +41,6 @@ export function MarketplaceNotificationItem({ notification, isMobile = false }: 
   const { profile } = useUserProfile(actorPubky);
 
   if ('kind' in notification) {
-    const timestampDate = new Date(notification.timestamp);
     return (
       <Container
         overrideDefaults={true}
@@ -53,12 +52,7 @@ export function MarketplaceNotificationItem({ notification, isMobile = false }: 
           <p className="font-medium">Unrecognized marketplace event</p>
           <p className="text-sm text-muted-foreground">History may be incomplete.</p>
         </div>
-        <RelativeTimestamp
-          timeAgo={formatRelativeTime(timestampDate)}
-          date={timestampDate}
-          isMobile={isMobile}
-          className="shrink-0 text-xs font-medium tracking-widest text-muted-foreground"
-        />
+        <span className="shrink-0 text-xs font-medium tracking-widest text-muted-foreground">Integrity notice</span>
       </Container>
     );
   }

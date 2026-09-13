@@ -68,6 +68,19 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
     expect(MarketplaceNotificationNormalizer.toFeedNotification(row, 'transaction-service').isUnread).toBe(false);
   });
 
+  it('keeps quarantined rows with the same type and timestamp uniquely keyed', () => {
+    const first = MarketplaceNotificationNormalizer.toFeedNotification(
+      { kind: 'unrecognized', id: 'row-1', type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
+      'transaction-service',
+    );
+    const second = MarketplaceNotificationNormalizer.toFeedNotification(
+      { kind: 'unrecognized', id: 'row-2', type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
+      'transaction-service',
+    );
+
+    expect(first.id).not.toBe(second.id);
+  });
+
   it('carries the §8-permitted amount field-by-field and omits it when absent', () => {
     const withAmount = createNotificationFixture('auction_ended', {
       amount: { amountMinor: 8_500, currency: 'USD', exponent: 2 },
@@ -87,6 +100,18 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
     );
     const absent = createNotificationFixture('auction_ended');
     expect('amount' in MarketplaceNotificationNormalizer.toFeedNotification(absent, 'sandbox')).toBe(false);
+  });
+
+  it('includes kind in the exact redacted key set for quarantined rows', () => {
+    const item = MarketplaceNotificationNormalizer.toFeedNotification(
+      { kind: 'unrecognized', id: 'row-1', type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
+      'transaction-service',
+    );
+
+    expect(MARKETPLACE_FEED_NOTIFICATION_KEYS).toContain('kind');
+    for (const key of Object.keys(item)) {
+      expect(MARKETPLACE_FEED_NOTIFICATION_KEYS).toContain(key);
+    }
   });
 });
 

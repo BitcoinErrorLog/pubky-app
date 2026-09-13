@@ -26,6 +26,7 @@ import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
+import { reportMarketplaceNotificationInvalidTypes } from './marketplace-notification-diagnostics';
 import {
   type MarketplaceBidHistory,
   type MarketplaceListingProjection,
@@ -317,7 +318,7 @@ export class MarketplaceGatewayService {
       'getNotifications',
     );
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getNotifications', url);
-    return parseMarketplaceNotificationEntries(raw);
+    return parseMarketplaceNotificationEntries(raw, reportMarketplaceNotificationInvalidTypes);
   }
 
   static async getNotificationPreferences(actor: string): Promise<MarketplaceNotificationPreferences> {
