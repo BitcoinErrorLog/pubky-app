@@ -5,6 +5,15 @@ import { MARKETPLACE_STATIC_SEO } from '@/libs/commerce/seo';
 import { createCommerceShopFixture, createNexusListingDetailsFixture } from '@/test/fixtures/commerce/commerce';
 import MarketplacePage, { generateMetadata } from './page';
 
+vi.mock('@synonymdev/pubky', () => ({
+  Client: class {
+    fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      return globalThis.fetch(input, init);
+    }
+  },
+  resolvePubky: (identifier: string) => identifier.replace('pubky://', 'https://_pubky.'),
+}));
+
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
   return {
@@ -47,6 +56,14 @@ describe('marketplace catalog page', () => {
     expect(metadata.twitter).not.toHaveProperty('images');
   });
 
+  it('keeps the Pubky resolver transport hostname shape', async () => {
+    const { resolvePubky } = await import('@synonymdev/pubky');
+
+    expect(resolvePubky('pubky://example-pubky/pub/pubky.app/shop.json')).toBe(
+      'https://_pubky.example-pubky/pub/pubky.app/shop.json',
+    );
+  });
+
   it('server-renders listing cards from a fixture Nexus stream', async () => {
     const fixture = createNexusListingDetailsFixture();
     vi.spyOn(globalThis, 'fetch')
@@ -64,5 +81,18 @@ describe('marketplace catalog page', () => {
 
     expect(screen.getByRole('article')).toHaveTextContent('Vintage leather boots');
     expect(screen.getByRole('article')).toHaveTextContent('Satoshi Vintage');
+  });
+
+  it('rejects a wrong-shaped listing stream instead of rendering fabricated cards', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ listings: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    render(await MarketplacePage());
+
+    expect(screen.queryAllByRole('article')).toHaveLength(0);
   });
 });
