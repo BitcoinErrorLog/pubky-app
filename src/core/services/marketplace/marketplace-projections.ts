@@ -99,10 +99,12 @@ export const marketplaceListingProjectionSchema = z.preprocess((input) => {
     left.currency === right.currency && left.exponent === right.exponent;
   const current = currentPrice as Record<string, unknown>;
   const increment = minimumIncrement as Record<string, unknown>;
-  if (moneyMatches(maximumAmount as Record<string, unknown>, current) &&
-      moneyMatches(maximumAmount as Record<string, unknown>, increment) &&
-      moneyMatches(minimumNextBid as Record<string, unknown>, current) &&
-      moneyMatches(minimumNextBid as Record<string, unknown>, increment)) {
+  if (
+    moneyMatches(maximumAmount as Record<string, unknown>, current) &&
+    moneyMatches(maximumAmount as Record<string, unknown>, increment) &&
+    moneyMatches(minimumNextBid as Record<string, unknown>, current) &&
+    moneyMatches(minimumNextBid as Record<string, unknown>, increment)
+  ) {
     return input;
   }
 
@@ -243,7 +245,7 @@ export const marketplaceBitcoinQuoteSchema = z
     quotedSats: z.number().int().positive().max(MAX_BITCOIN_BASE_UNITS).nullable(),
     currency: z.string().nullable(),
     exponent: z.number().int().nullable(),
-    rate: z.number().nullable(),
+    rate: z.union([z.string(), z.number().finite()]).nullable(),
     source: z.string().nullable(),
     fetchedAt: z.string().nullable(),
     expiresAt: z.string().nullable(),
@@ -251,7 +253,7 @@ export const marketplaceBitcoinQuoteSchema = z
   })
   .passthrough();
 
-export const marketplaceOrderSchema = z
+export const marketplaceOrderProjectionSchema = z
   .object({
     id: z.uuid(),
     buyerPubky: commercePubkySchema,
@@ -387,6 +389,22 @@ export const marketplaceOrderSchema = z
   })
   .passthrough();
 
+export const marketplaceOrderSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object') return input;
+  const record = input as Record<string, unknown>;
+  const bitcoinQuote = record.bitcoinQuote;
+  if (
+    bitcoinQuote === undefined ||
+    bitcoinQuote === null ||
+    marketplaceBitcoinQuoteSchema.safeParse(bitcoinQuote).success
+  ) {
+    return input;
+  }
+  const withoutBitcoinQuote = { ...record };
+  delete withoutBitcoinQuote.bitcoinQuote;
+  return withoutBitcoinQuote;
+}, marketplaceOrderProjectionSchema);
+
 /**
  * The PUBLIC drop projection (`GET /v0/drops/{seller}/{dropId}`, ADR 0026):
  * the transaction service's authoritative drop state, with stock redaction
@@ -498,7 +516,10 @@ export function parseMarketplaceNotificationEntries(
       marketplaceNotificationSchema.shape.createdAt.safeParse(candidate.createdAt).success
         ? candidate.createdAt
         : SAFE_QUARANTINE_TIMESTAMP;
-    const id = typeof candidate.id === 'string' ? candidate.id.slice(0, MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH) : String(index);
+    const id =
+      typeof candidate.id === 'string'
+        ? candidate.id.slice(0, MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH)
+        : String(index);
     invalidTypes.add(type);
     return { kind: 'unrecognized', id, index, type, createdAt };
   });

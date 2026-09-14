@@ -8,6 +8,7 @@ import {
 import {
   marketplaceBitcoinQuoteSchema,
   marketplaceListingProjectionSchema,
+  marketplaceOrderProjectionSchema,
   marketplaceOrderSchema,
 } from './marketplace-projections';
 
@@ -42,7 +43,7 @@ describe('marketplace order projection — taxation removed', () => {
       // `.passthrough()` keeps unknown wire keys on the object; the declared
       // projection (schema shape / parse result fields the UI types from)
       // must still omit `tax`.
-      expect('tax' in marketplaceOrderSchema.shape).toBe(false);
+      expect('tax' in marketplaceOrderProjectionSchema.shape).toBe(false);
       expect(parsed.data.total.amountMinor).toBe(parsed.data.subtotal.amountMinor + parsed.data.shipping.amountMinor);
     }
   });
@@ -69,7 +70,7 @@ describe('marketplace order projection — Bitcoin quote', () => {
         quotedSats: 2_588,
         currency: 'USD',
         exponent: 2,
-        expiresAt: '2026-09-13T21:00:00.000Z',
+        expiresAt: '2026-09-13T20:15:09.050Z',
       });
     }
   });
@@ -92,6 +93,10 @@ describe('marketplace order projection — Bitcoin quote', () => {
 
   it.each([1, MAX_BITCOIN_BASE_UNITS])('accepts quotedSats=%s', (quotedSats) => {
     expect(marketplaceBitcoinQuoteSchema.safeParse(quote(quotedSats)).success).toBe(true);
+  });
+
+  it.each(['77287', 100_000, null])('accepts rate=%s', (rate) => {
+    expect(marketplaceBitcoinQuoteSchema.safeParse({ ...quote(2_588), rate }).success).toBe(true);
   });
 
   it('relies on installed Zod to reject unsafe integers', () => {
@@ -125,7 +130,10 @@ describe('marketplace listing projection — viewer bid', () => {
     ['exponent', { exponent: 3 }],
   ])('drops viewer_bid when its %s does not match the auction money', (_field, mismatch) => {
     const fixture = createViewerBidAuctionProjectionFixture();
-    fixture.viewerBid = { ...fixture.viewerBid!, minimumNextBid: { ...fixture.viewerBid!.minimumNextBid, ...mismatch } };
+    fixture.viewerBid = {
+      ...fixture.viewerBid!,
+      minimumNextBid: { ...fixture.viewerBid!.minimumNextBid, ...mismatch },
+    };
 
     const parsed = marketplaceListingProjectionSchema.safeParse(fixture);
 
