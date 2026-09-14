@@ -470,22 +470,39 @@ describe('MarketplaceOrders tabs', () => {
     }
   });
 
-  it('shows the locked Bitcoin quote for a bound Bitcoin order', async () => {
-    ordersState.orders = [
-      orderView('paid', 'Locked quote boots', 'seller', {
-        paymentMethod: 'bitcoin',
-        bitcoinQuote: {
-          quotedSats: 2_588,
-          currency: 'USD',
-          exponent: 2,
-          rate: '77287',
-          source: 'blocktank',
-          fetchedAt: '2026-09-13T19:14:48.286Z',
-          expiresAt: '2026-09-13T20:15:09.050Z',
-          spreadBps: 0,
-        },
-      }),
-    ];
+  // Quote values are the live capture of 2026-09-14 (`orders.wire.ts`); the
+  // lock expired at 2026-09-13T20:15:09.050Z, so the clock is pinned on each
+  // side of that instant instead of trusting the wall clock.
+  const lockedQuoteOrder = () =>
+    orderView('paid', 'Locked quote boots', 'seller', {
+      paymentMethod: 'bitcoin',
+      bitcoinQuote: {
+        quotedSats: 2_588,
+        currency: 'USD',
+        exponent: 2,
+        rate: '77287',
+        source: 'blocktank',
+        fetchedAt: '2026-09-13T19:14:48.286Z',
+        expiresAt: '2026-09-13T20:15:09.050Z',
+        spreadBps: 0,
+      },
+    });
+
+  it('shows the locked Bitcoin quote while the lock is current', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-13T20:00:00.000Z'));
+    ordersState.orders = [lockedQuoteOrder()];
+
+    render(<MarketplaceOrders />);
+    await userEvent.setup().click(screen.getByRole('tab', { name: /All 1/i }));
+
+    expect(screen.getByText(/Locked Bitcoin amount: ₿2,588/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bitcoin quote expired/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/≈ ₿/)).not.toBeInTheDocument();
+  });
+
+  it('marks the locked Bitcoin quote expired once the lock has lapsed', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-13T20:15:09.051Z'));
+    ordersState.orders = [lockedQuoteOrder()];
 
     render(<MarketplaceOrders />);
     await userEvent.setup().click(screen.getByRole('tab', { name: /All 1/i }));
@@ -495,12 +512,12 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.queryByText(/≈ ₿/)).not.toBeInTheDocument();
   });
 
-  it('shows the indicative Bitcoin estimate when no locked quote exists', async () => {
+  it.each([null, undefined])('shows the indicative Bitcoin estimate when the quote is %s', async (bitcoinQuote) => {
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: null });
     ordersState.orders = [
       orderView('paid', 'Indicative quote boots', 'buyer', {
         paymentMethod: 'bitcoin',
-        bitcoinQuote: undefined,
+        bitcoinQuote,
       }),
     ];
 

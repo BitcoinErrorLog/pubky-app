@@ -1,6 +1,9 @@
 /**
  * Captured from GET /v1/orders at the production marketplace service on
  * 2026-09-14. Pubkys and free text are redacted; wire keys and values are intact.
+ * The capture held six orders; this fixture keeps the two that carry every
+ * distinct `bitcoin_quote` shape observed (a bound quote whose `rate` is a
+ * decimal STRING, and the all-null quote object with `payment_method: null`).
  */
 export const LIVE_ORDERS_WIRE_FIXTURE = {
   orders: [
