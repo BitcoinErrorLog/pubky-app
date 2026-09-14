@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
+import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
 import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
 import { ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -239,7 +240,7 @@ export const marketplacePaymentSchema = z
 
 export const marketplaceBitcoinQuoteSchema = z
   .object({
-    quotedSats: z.number().int().nonnegative().nullable(),
+    quotedSats: z.number().int().positive().max(MAX_BITCOIN_BASE_UNITS).nullable(),
     currency: z.string().nullable(),
     exponent: z.number().int().nullable(),
     rate: z.number().nullable(),

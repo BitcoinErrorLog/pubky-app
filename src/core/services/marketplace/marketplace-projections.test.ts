@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
 import { createBitcoinQuotedOrderFixture, createOrderFixture } from '@/test/fixtures/commerce/orders';
 import {
   createAuctionProjectionFixture,
   createViewerBidAuctionProjectionFixture,
 } from '@/test/fixtures/commerce/projections';
-import { marketplaceListingProjectionSchema, marketplaceOrderSchema } from './marketplace-projections';
+import {
+  marketplaceBitcoinQuoteSchema,
+  marketplaceListingProjectionSchema,
+  marketplaceOrderSchema,
+} from './marketplace-projections';
 
 /**
  * Taxation was removed from the marketplace: no tax computation in checkout
@@ -44,6 +49,17 @@ describe('marketplace order projection — taxation removed', () => {
 });
 
 describe('marketplace order projection — Bitcoin quote', () => {
+  const quote = (quotedSats: number) => ({
+    quotedSats,
+    currency: null,
+    exponent: null,
+    rate: null,
+    source: null,
+    fetchedAt: null,
+    expiresAt: null,
+    spreadBps: null,
+  });
+
   it('parses the live FX-quoted Bitcoin order shape', () => {
     const parsed = marketplaceOrderSchema.safeParse(createBitcoinQuotedOrderFixture());
 
@@ -65,6 +81,22 @@ describe('marketplace order projection — Bitcoin quote', () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it.each([0, -1, 1.5, Infinity, MAX_BITCOIN_BASE_UNITS + 1, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects quotedSats=%s',
+    (quotedSats) => {
+      expect(marketplaceBitcoinQuoteSchema.safeParse(quote(quotedSats)).success).toBe(false);
+    },
+  );
+
+  it.each([1, MAX_BITCOIN_BASE_UNITS])('accepts quotedSats=%s', (quotedSats) => {
+    expect(marketplaceBitcoinQuoteSchema.safeParse(quote(quotedSats)).success).toBe(true);
+  });
+
+  it('relies on installed Zod to reject unsafe integers', () => {
+    expect(Number.MAX_SAFE_INTEGER + 1).toBeGreaterThan(Number.MAX_SAFE_INTEGER);
+    expect(marketplaceBitcoinQuoteSchema.shape.quotedSats.safeParse(Number.MAX_SAFE_INTEGER + 1).success).toBe(false);
   });
 });
 
