@@ -1138,8 +1138,8 @@ export class CommerceApplication {
     return await LocksGatewayService.fetchGuardedContent(relativePath, credential);
   }
 
-  static getPaykitSetupUrl(returnTo: string, state: string) {
-    return LocksGatewayService.buildPaykitSetupUrl(returnTo, state);
+  static getPaykitSetupUrl(returnTo: string, state: string, creator: string) {
+    return LocksGatewayService.buildPaykitSetupUrl(returnTo, state, creator);
   }
 
   /**

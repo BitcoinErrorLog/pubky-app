@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Bitcoin,
   CheckCircle2,
@@ -25,12 +25,14 @@ import { Label } from '@/atoms/Label/Label';
 import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getLocksUrl } from '@/config/commerce';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceSellerPaymentConfig } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   atLeastOneMethodSentence,
@@ -52,13 +54,25 @@ type LocksConnectView = {
 type MarketplaceGetPaidSettingsProps = {
   /** Step 1 of the bitcoin method, owned by the template (no session needed). */
   locksConnect: LocksConnectView;
-  /** Step 2 of the bitcoin method: opens the Bitkit setup window. */
-  onOpenPaykit: () => void;
 };
 
+type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout';
+
+const PAYKIT_SETUP_TIMEOUT_MS = 6 * 60 * 1_000;
+const PAYKIT_SETUP_EXPLANATION =
+  'Scan the code with Bitkit, or open this page on your phone and tap Open in Bitkit. Bitkit 2.5 or newer is required.';
+
+function createPaykitSetupState(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/, '');
+}
+
 function StatusPill({ status, testId }: { status: PaymentMethodStatus; testId: string }) {
-  const variant =
-    status === 'connected' ? 'secondary' : status === 'needs_attention' ? 'destructive' : 'outline';
+  const variant = status === 'connected' ? 'secondary' : status === 'needs_attention' ? 'destructive' : 'outline';
   return (
     <Badge variant={variant} role="status" data-testid={testId} className="mt-1">
       {PAYMENT_METHOD_STATUS_LABELS[status]}
@@ -111,9 +125,18 @@ function MethodCard({
  * settle into the seller's own processor accounts. This marketplace never
  * receives funds on any rail.
  */
-export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: MarketplaceGetPaidSettingsProps) {
+export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidSettingsProps) {
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const payments = useMarketplaceSellerPaymentConfig();
+  const refreshPaymentConfig = payments.refresh;
+  const paykitIframeRef = useRef<HTMLIFrameElement>(null);
+  const paykitSetupGenerationRef = useRef<string | null>(null);
+  const [paykitSetupOpen, setPaykitSetupOpen] = useState(false);
+  const [paykitSetupUrl, setPaykitSetupUrl] = useState<string | null>(null);
+  const [paykitSetupState, setPaykitSetupState] = useState<string | null>(null);
+  const [paykitSetupCreator, setPaykitSetupCreator] = useState<string | null>(null);
+  const [paykitSetupStatus, setPaykitSetupStatus] = useState<PaykitSetupStatus>('idle');
 
   const [bitcoinEnabled, setBitcoinEnabled] = useState(false);
   const [stripePaymentLink, setStripePaymentLink] = useState('');
@@ -121,6 +144,15 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   const [paypalMerchantEmail, setPaypalMerchantEmail] = useState('');
   const [xpubInput, setXpubInput] = useState('');
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+
+  function closePaykitSetup() {
+    paykitSetupGenerationRef.current = null;
+    setPaykitSetupOpen(false);
+    setPaykitSetupUrl(null);
+    setPaykitSetupState(null);
+    setPaykitSetupCreator(null);
+    setPaykitSetupStatus('idle');
+  }
 
   useEffect(() => {
     if (!payments.config) return;
@@ -132,6 +164,65 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
   useEffect(() => {
     if (payments.claimStatus === 'claimed') setClaimDialogOpen(false);
   }, [payments.claimStatus]);
+
+  useEffect(() => {
+    if (!paykitSetupOpen || !paykitSetupUrl || !paykitSetupState) return;
+    const setupOrigin = new URL(paykitSetupUrl).origin;
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.origin !== setupOrigin ||
+        event.source !== paykitIframeRef.current?.contentWindow ||
+        event.data?.type !== 'paykit-setup-callback' ||
+        event.data.state !== paykitSetupState
+      ) {
+        return;
+      }
+      if (event.data.error === 'identity-mismatch') {
+        setPaykitSetupStatus('mismatch');
+        return;
+      }
+      if (event.data.error) {
+        setPaykitSetupStatus('error');
+        return;
+      }
+      setPaykitSetupStatus('verifying');
+      void refreshPaymentConfig().then((claimed) => {
+        if (paykitSetupGenerationRef.current !== event.data.state) return;
+        if (claimed === true) {
+          closePaykitSetup();
+          toast({ title: 'Bitkit setup connected' });
+          return;
+        }
+        setPaykitSetupStatus('mismatch');
+      });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [paykitSetupOpen, paykitSetupState, paykitSetupUrl, refreshPaymentConfig]);
+
+  useEffect(() => {
+    if (!paykitSetupOpen || !paykitSetupUrl || !paykitSetupState || paykitSetupStatus !== 'idle') return;
+    const timeout = window.setTimeout(() => setPaykitSetupStatus('timeout'), PAYKIT_SETUP_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [paykitSetupOpen, paykitSetupState, paykitSetupStatus, paykitSetupUrl]);
+
+  useEffect(() => {
+    if (paykitSetupOpen && (!marketplaceSession || !currentUserPubky || currentUserPubky !== paykitSetupCreator)) {
+      closePaykitSetup();
+    }
+  }, [currentUserPubky, marketplaceSession, paykitSetupCreator, paykitSetupOpen]);
+
+  const openPaykitSetup = () => {
+    if (!marketplaceSession || !currentUserPubky) return;
+    const state = createPaykitSetupState();
+    const url = CommerceController.getPaykitSetupUrl(window.location.href, state, currentUserPubky);
+    paykitSetupGenerationRef.current = state;
+    setPaykitSetupState(state);
+    setPaykitSetupUrl(url);
+    setPaykitSetupCreator(currentUserPubky);
+    setPaykitSetupStatus('idle');
+    setPaykitSetupOpen(true);
+  };
 
   const onSave = async () => {
     const saved = await payments.save({ bitcoinEnabled, stripePaymentLink, stripeRestrictedKey, paypalMerchantEmail });
@@ -369,7 +460,12 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
               </Typography>
             )}
           </div>
-          <Button variant={step1NeedsPrimary ? 'secondary' : 'default'} className="rounded-full" onClick={onOpenPaykit}>
+          <Button
+            variant={step1NeedsPrimary ? 'secondary' : 'default'}
+            className="rounded-full"
+            disabled={!marketplaceSession || !currentUserPubky}
+            onClick={openPaykitSetup}
+          >
             Open Bitkit setup
             <ExternalLink className="ml-2 size-4" />
           </Button>
@@ -454,6 +550,50 @@ export function MarketplaceGetPaidSettings({ locksConnect, onOpenPaykit }: Marke
           </>,
         )}
       </MethodCard>
+
+      <Dialog open={paykitSetupOpen} onOpenChange={(open) => (open ? setPaykitSetupOpen(true) : closePaykitSetup())}>
+        <DialogContent className="w-full max-w-lg" centered>
+          <DialogHeader>
+            <DialogTitle>Connect Bitkit</DialogTitle>
+          </DialogHeader>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {PAYKIT_SETUP_EXPLANATION}
+          </Typography>
+          {paykitSetupUrl && (
+            <iframe
+              ref={paykitIframeRef}
+              key={paykitSetupUrl}
+              src={paykitSetupUrl}
+              title="Connect Bitkit"
+              sandbox="allow-scripts allow-same-origin allow-forms"
+              referrerPolicy="no-referrer"
+              className="h-[min(28rem,60vh)] w-full rounded-lg border bg-white"
+            />
+          )}
+          {paykitSetupStatus !== 'idle' && (
+            <div role="alert" className="grid gap-3 rounded-lg border border-amber-500/40 p-3 text-sm">
+              <Typography as="p">
+                {paykitSetupStatus === 'error'
+                  ? 'Bitkit setup failed. Try again.'
+                  : paykitSetupStatus === 'mismatch'
+                    ? 'Bitkit approved a different account. In Bitkit, sign in with the same Pubky identity you use here, then try again.'
+                    : paykitSetupStatus === 'verifying'
+                      ? 'Confirming your Bitkit account…'
+                      : 'No approval received. Update Bitkit to 2.5 or newer and try again.'}
+              </Typography>
+              <Button variant="secondary" className="w-fit rounded-full" onClick={openPaykitSetup}>
+                <RefreshCw className="mr-2 size-4" />
+                Retry
+              </Button>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" className="rounded-full" onClick={closePaykitSetup}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={claimDialogOpen} onOpenChange={onCloseClaimDialog}>
         <DialogContent className="border-border bg-popover">

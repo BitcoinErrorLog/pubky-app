@@ -20,7 +20,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
-    getPaykitSetupUrl: () => 'https://paykit.example/setup',
+    getPaykitSetupUrl: () => 'about:blank',
     getMyPaymentConfig: vi.fn(async () => ({
       bitcoinEnabled: true,
       stripePaymentLink: 'https://buy.stripe.com/test_fixture',
@@ -51,6 +51,7 @@ describe('Marketplace payment settings — visual regression', () => {
     // The Get paid section requires a marketplace session; a fixture session
     // makes the full form render deterministically in every baseline.
     const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
+    const { useAuthStore } = await import('@/stores/auth/auth.store');
     useCommerceStore.setState({
       marketplaceSession: {
         pubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
@@ -59,6 +60,7 @@ describe('Marketplace payment settings — visual regression', () => {
         issuedAt: '2026-08-21T12:00:00.000Z',
       },
     });
+    useAuthStore.setState({ currentUserPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco' });
   });
 
   it('renders the payments and Locks setup at desktop viewport', async () => {
@@ -101,5 +103,13 @@ describe('Marketplace payment settings — visual regression', () => {
     await expect.element(screen.getByText('Display preferences')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-display-preferences-desktop');
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: null });
+  });
+
+  it('renders the Bitkit setup dialog', async () => {
+    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_MOBILE });
+    await screen.getByRole('button', { name: /Open Bitkit setup/ }).click();
+    await expect(screen.getByTitle('Connect Bitkit')).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-bitkit-dialog-mobile');
   });
 });

@@ -12,7 +12,6 @@ import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
-import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksConnect } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceGetPaidSettings } from '@/organisms/Marketplace/MarketplaceGetPaidSettings';
@@ -24,11 +23,6 @@ export function MarketplacePaymentSettings() {
   const setShowFxEstimate = useMarketplaceDisplayStore((state) => state.setShowFxEstimate);
   const measurementSystem = useMarketplaceDisplayStore((state) => state.measurementSystem);
   const setMeasurementSystem = useMarketplaceDisplayStore((state) => state.setMeasurementSystem);
-
-  const openPaykit = () => {
-    const url = CommerceController.getPaykitSetupUrl(window.location.href, crypto.randomUUID().replaceAll('-', ''));
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
 
   return (
     <ContentLayout
@@ -58,7 +52,7 @@ export function MarketplacePaymentSettings() {
           </Typography>
         </div>
 
-        <MarketplaceGetPaidSettings locksConnect={locksConnect} onOpenPaykit={openPaykit} />
+        <MarketplaceGetPaidSettings locksConnect={locksConnect} />
 
         <Card className="border">
           <CardContent className="flex flex-col gap-3 px-6 sm:flex-row sm:items-center sm:justify-between">

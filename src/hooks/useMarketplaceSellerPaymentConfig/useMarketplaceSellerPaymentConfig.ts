@@ -39,39 +39,40 @@ export function useMarketplaceSellerPaymentConfig() {
   const [claimAuthorizationUrl, setClaimAuthorizationUrl] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
   const activeClaimRef = useRef<ClaimFlow | null>(null);
+  const load = useCallback(async (): Promise<boolean | null> => {
+    setIsLoading(true);
+    setLoadError(null);
+    const [configResult, claimedResult] = await Promise.allSettled([
+      CommerceController.getMyPaymentConfig(),
+      CommerceController.isOwnPaykitAccountClaimed(),
+    ]);
+    if (configResult.status === 'fulfilled') {
+      setConfig(configResult.value);
+    } else {
+      Logger.error('Failed to load the payment configuration', { error: configResult.reason });
+      setLoadError(
+        marketplaceFailureMessage(
+          marketplaceErrorCode(configResult.reason),
+          MARKETPLACE_FAILURE_MESSAGES.paymentSettings,
+          configResult.reason,
+        ),
+      );
+    }
+    const claimed = claimedResult.status === 'fulfilled' ? claimedResult.value : null;
+    setAccountClaimed(claimed);
+    setIsLoading(false);
+    return claimed;
+  }, []);
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
-      setIsLoading(true);
-      setLoadError(null);
-      const [configResult, claimedResult] = await Promise.allSettled([
-        CommerceController.getMyPaymentConfig(),
-        CommerceController.isOwnPaykitAccountClaimed(),
-      ]);
+    void load().then(() => {
       if (!active) return;
-      if (configResult.status === 'fulfilled') {
-        setConfig(configResult.value);
-      } else {
-        Logger.error('Failed to load the payment configuration', { error: configResult.reason });
-        setLoadError(
-          marketplaceFailureMessage(
-            marketplaceErrorCode(configResult.reason),
-            MARKETPLACE_FAILURE_MESSAGES.paymentSettings,
-            configResult.reason,
-          ),
-        );
-      }
-      // A paykit outage must not block the fiat form: claim state renders
-      // as unknown instead.
-      setAccountClaimed(claimedResult.status === 'fulfilled' ? claimedResult.value : null);
-      setIsLoading(false);
-    };
-    void load();
+    });
     return () => {
       active = false;
     };
-  }, [marketplaceSession]);
+  }, [load, marketplaceSession]);
 
   const save = useCallback(
     async (input: {
@@ -236,5 +237,6 @@ export function useMarketplaceSellerPaymentConfig() {
     claimError,
     startClaim,
     cancelClaim,
+    refresh: load,
   };
 }

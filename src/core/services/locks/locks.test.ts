@@ -218,9 +218,13 @@ describe('LocksGatewayService', () => {
 
   it('builds exact-origin Paykit setup callbacks', () => {
     expect(
-      LocksGatewayService.buildPaykitSetupUrl('https://app.example.com/marketplace/settings', 'opaque-state'),
+      LocksGatewayService.buildPaykitSetupUrl(
+        'https://app.example.com/marketplace/settings',
+        'opaque-state',
+        'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      ),
     ).toBe(
-      'https://paykit.example.com/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state',
+      'https://paykit.example.com/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state&creator=gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
     );
   });
 });

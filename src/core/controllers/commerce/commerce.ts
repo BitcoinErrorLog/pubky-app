@@ -913,7 +913,7 @@ export class CommerceController {
     return await CommerceApplication.fetchLocksGuardedContent(relativePath, credential);
   }
 
-  static getPaykitSetupUrl(returnTo: unknown, state: unknown): string {
+  static getPaykitSetupUrl(returnTo: unknown, state: unknown, creator: unknown): string {
     const parsedReturnTo = typeof returnTo === 'string' ? URL.parse(returnTo) : null;
     if (!parsedReturnTo || !['http:', 'https:'].includes(parsedReturnTo.protocol)) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Paykit setup return URL is invalid.', {
@@ -921,7 +921,11 @@ export class CommerceController {
         operation: 'getPaykitSetupUrl',
       });
     }
-    return CommerceApplication.getPaykitSetupUrl(parsedReturnTo.toString(), CommerceRecordNormalizer.entityId(state));
+    return CommerceApplication.getPaykitSetupUrl(
+      parsedReturnTo.toString(),
+      CommerceRecordNormalizer.entityId(state),
+      CommerceRecordNormalizer.pubky(creator),
+    );
   }
 
   static async getIndicativeBtcRate() {
