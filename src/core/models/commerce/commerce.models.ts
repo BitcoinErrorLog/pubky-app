@@ -216,6 +216,12 @@ export class CommerceListingModel
     return await this.findAndSort('seller_id', sellerId);
   }
 
+  static async findByCompositeIds(ids: string[]): Promise<CommerceListingModelSchema[]> {
+    return (await this.findByIdsPreserveOrder(ids)).filter(
+      (listing): listing is CommerceListingModelSchema => listing !== undefined,
+    );
+  }
+
   static async findByCategory(categoryId: string): Promise<CommerceListingModelSchema[]> {
     return await this.findAndSort('category_id', categoryId);
   }

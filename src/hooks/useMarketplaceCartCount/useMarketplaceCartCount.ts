@@ -21,17 +21,8 @@ export function useMarketplaceCartCount(): number {
     useLiveQuery(async () => {
       if (!currentUserPubky) return 0;
       const rows = await CommerceController.getCartItems();
-      const quantities = await Promise.all(
-        rows.map(async (row) => {
-          const separator = row.listing_id.indexOf(':');
-          const listing = await CommerceController.getListing(
-            row.listing_id.slice(0, separator),
-            row.listing_id.slice(separator + 1),
-          );
-          return listing ? row.quantity : 0;
-        }),
-      );
-      return quantities.reduce((total, quantity) => total + quantity, 0);
+      const listings = await CommerceController.getManyListings(rows.map((row) => row.listing_id));
+      return rows.reduce((total, row) => total + (listings.has(row.listing_id) ? row.quantity : 0), 0);
     }, [currentUserPubky]) ?? 0
   );
 }

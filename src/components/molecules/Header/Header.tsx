@@ -182,7 +182,11 @@ const NavigationButton = ({
   badgeLabel = 'unread',
 }: NavigationButtonProps) => {
   const accessibleLabel =
-    badgeCount > 0 ? `${label}, ${badgeCount} ${badgeLabel}` : showNew && newLabel ? `${label}, ${newLabel}` : label;
+    badgeCount > 0
+      ? `${label}, ${badgeCount} ${badgeLabel === 'items in cart' && badgeCount === 1 ? 'item in cart' : badgeLabel}`
+      : showNew && newLabel
+        ? `${label}, ${newLabel}`
+        : label;
   const button = (
     <Button
       data-cy={href ? undefined : dataCy}

@@ -68,6 +68,13 @@ export class CommerceController {
     return await CommerceApplication.getListing(`${owner}:${id}`);
   }
 
+  static async getManyListings(listingCompositeIds: unknown[]) {
+    const ids = listingCompositeIds.map((listingCompositeId) =>
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+    );
+    return await CommerceApplication.getManyListings(ids);
+  }
+
   static async fetchListing(ownerPubky: unknown, listingId: unknown) {
     const owner = CommerceRecordNormalizer.pubky(ownerPubky);
     const id = CommerceRecordNormalizer.entityId(listingId);

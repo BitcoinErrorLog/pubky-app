@@ -239,6 +239,18 @@ describe('MobileFooter', () => {
     }
   });
 
+  it('uses singular cart accessibility copy for one item', () => {
+    const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    vi.mocked(useMarketplaceCartCount).mockReturnValue(1);
+    try {
+      render(<MobileFooter />);
+
+      expect(screen.getByRole('link', { name: 'Marketplace, 1 item in cart' })).toBeInTheDocument();
+    } finally {
+      adapterMode.mockRestore();
+    }
+  });
+
   it('hides the cart badge at zero and caps it above 21', () => {
     const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
     try {

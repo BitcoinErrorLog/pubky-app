@@ -276,6 +276,11 @@ export class CommerceApplication {
     return applyInventoryProjection(listing, projection);
   }
 
+  static async getManyListings(compositeListingIds: string[]): Promise<Map<string, CommerceListingModelSchema>> {
+    const listings = await LocalCommerceService.getListingsByIds(compositeListingIds);
+    return new Map(listings.map((listing) => [listing.id, listing]));
+  }
+
   /**
    * Reads the locally cached community tag aggregate for a marketplace target.
    *
@@ -2769,7 +2774,14 @@ export class CommerceApplication {
         });
       }
       const confirmed = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
-      if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId, Boolean(confirmed?.serverRevision))) {
+      if (
+        !isSuccessfulListingRegistrationResponse(
+          response,
+          aggregateId,
+          command.commandId,
+          Boolean(confirmed?.serverRevision),
+        )
+      ) {
         throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
           service: ErrorService.Marketplace,
           operation: 'registerListing',

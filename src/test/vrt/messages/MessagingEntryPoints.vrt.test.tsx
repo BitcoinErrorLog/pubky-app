@@ -11,6 +11,8 @@ const COUNTERPARTY = 'z'.repeat(52);
 
 const unread = vi.hoisted(() => ({ count: 0 }));
 const auth = vi.hoisted(() => ({ currentUserPubky: 'o'.repeat(52) as string | null }));
+const cart = vi.hoisted(() => ({ count: 0 }));
+const commerce = vi.hoisted(() => ({ mode: 'unavailable' as 'unavailable' | 'sandbox' }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -19,7 +21,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
-  return { ...actual, getCommerceAdapterMode: () => 'unavailable' as const };
+  return { ...actual, getCommerceAdapterMode: () => commerce.mode };
 });
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -32,6 +34,10 @@ vi.mock('@/stores/auth/auth.store', () => ({
 
 vi.mock('@/hooks/useMessagesUnread/useMessagesUnread', () => ({
   useMessagesUnread: () => unread.count,
+}));
+
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => cart.count,
 }));
 
 vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => ({
@@ -95,6 +101,8 @@ function ProfileHeaderHarness() {
 describe('Messaging entry points — visual regression', () => {
   beforeEach(() => {
     unread.count = 0;
+    cart.count = 0;
+    commerce.mode = 'unavailable';
     auth.currentUserPubky = 'o'.repeat(52);
   });
 
@@ -130,6 +138,32 @@ describe('Messaging entry points — visual regression', () => {
       { viewport: VRT_VIEWPORT_MOBILE },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('footer-messages-unread-mobile');
+  });
+
+  it('renders the header Store item with a populated cart badge at desktop viewport', async () => {
+    commerce.mode = 'sandbox';
+    cart.count = 3;
+
+    const screen = await renderForVRT(
+      <main className="flex w-full justify-center py-10">
+        <HeaderNavigationButtons avatarName="U" avatarSeed="vrt-user" />
+      </main>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('header-store-cart-badge-desktop');
+  });
+
+  it('renders the mobile footer Store item with a capped cart badge at mobile viewport', async () => {
+    commerce.mode = 'sandbox';
+    cart.count = 25;
+
+    const screen = await renderForVRT(
+      <main className="min-h-40 w-full">
+        <MobileFooter />
+      </main>,
+      { viewport: VRT_VIEWPORT_MOBILE },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('footer-store-cart-badge-mobile');
   });
 
   it('renders the profile Message button on another user profile at desktop viewport', async () => {

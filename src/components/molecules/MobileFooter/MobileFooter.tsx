@@ -147,7 +147,9 @@ export function MobileFooter({ className }: MobileFooterProps) {
               href={item.href}
               aria-label={
                 itemBadgeCount > 0
-                  ? `${item.label}, ${itemBadgeCount} ${itemBadgeLabel}`
+                  ? `${item.label}, ${itemBadgeCount} ${
+                      itemBadgeLabel === 'items in cart' && itemBadgeCount === 1 ? 'item in cart' : itemBadgeLabel
+                    }`
                   : showCollectionsNewTreatment
                     ? `${item.label}, ${collectionsNewLabel}`
                     : item.label
