@@ -24,6 +24,7 @@ import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyRevie
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -108,6 +109,7 @@ export function MarketplaceOrders() {
       classNameWrapperContent="max-w-5xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6" data-surface="marketplace-orders">
+        <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults

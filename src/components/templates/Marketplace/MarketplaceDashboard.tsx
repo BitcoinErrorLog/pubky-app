@@ -42,6 +42,7 @@ import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashb
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { isListingRegistrationPending } from '@/models/commerce/commerce.schema';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -129,6 +130,7 @@ export function MarketplaceDashboard() {
       classNameWrapperContent="max-w-7xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+        <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults

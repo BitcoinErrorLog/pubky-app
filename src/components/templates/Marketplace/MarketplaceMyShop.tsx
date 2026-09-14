@@ -11,6 +11,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceShopSettings } from '@/hooks/useMarketplaceShopSettings/useMarketplaceShopSettings';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceShopSettingsFormView } from '@/organisms/Marketplace/MarketplaceShopSettingsForm';
 import { ShopProfileCard } from '@/organisms/Marketplace/ShopProfileCard/ShopProfileCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -24,7 +25,9 @@ export function MarketplaceMyShop() {
   });
   const previewName = String(name ?? '').trim() || 'Your shop name';
   const previewBio = String(bio ?? '').trim() || 'Your shop bio will appear here as buyers see it.';
-  const previewCountryCode = String(countryCode ?? '').trim().toUpperCase();
+  const previewCountryCode = String(countryCode ?? '')
+    .trim()
+    .toUpperCase();
   const previewRegion = String(region ?? '').trim();
 
   return (
@@ -37,6 +40,7 @@ export function MarketplaceMyShop() {
       classNameWrapperContent="max-w-3xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+        <MarketplaceSectionNav />
         <Link
           href={MARKETPLACE_ROUTES.DASHBOARD}
           overrideDefaults

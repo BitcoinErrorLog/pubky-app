@@ -19,6 +19,7 @@ import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import {
   getWatchAlertDetail,
@@ -86,6 +87,7 @@ export function MarketplaceNotifications() {
       classNameWrapperContent="max-w-3xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+        <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults
@@ -202,27 +204,7 @@ export function MarketplaceNotifications() {
                   </CardContent>
                 </Card>
               ) : (
-                <Card key={notification.id} className="border py-4">
-                  <CardContent className="flex items-center gap-4 px-4">
-                    <div className="rounded-full bg-brand/15 p-3 text-brand">
-                      <NotificationIcon type={notification.type} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <Typography as="p" className="font-semibold">
-                        {notificationLabel(notification.type)}
-                        {/* §8-permitted monetary context (offer amount, auction
-                            visible price), formatted per BIP-177 for bitcoin. */}
-                        {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
-                      </Typography>
-                      <Typography as="p" className="truncate text-sm text-muted-foreground">
-                        From {notificationActorLabel(notification.actorPubky)}
-                      </Typography>
-                    </div>
-                    <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
-                      {new Date(notification.createdAt).toLocaleDateString('en-US')}
-                    </time>
-                  </CardContent>
-                </Card>
+                <NotificationCard key={notification.id} notification={notification} />
               ),
             )}
           </div>
@@ -236,6 +218,47 @@ export function MarketplaceNotifications() {
         )}
       </Container>
     </ContentLayout>
+  );
+}
+
+function NotificationCard({ notification }: { notification: MarketplaceNotification }) {
+  const offerId = notification.aggregateId.startsWith('offer:')
+    ? notification.aggregateId.slice('offer:'.length)
+    : null;
+  const content = (
+    <Card className="border py-4">
+      <CardContent className="flex items-center gap-4 px-4">
+        <div className="rounded-full bg-brand/15 p-3 text-brand">
+          <NotificationIcon type={notification.type} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <Typography as="p" className="font-semibold">
+            {notificationLabel(notification.type)}
+            {/* §8-permitted monetary context (offer amount, auction
+                            visible price), formatted per BIP-177 for bitcoin. */}
+            {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
+          </Typography>
+          <Typography as="p" className="truncate text-sm text-muted-foreground">
+            From {notificationActorLabel(notification.actorPubky)}
+          </Typography>
+        </div>
+        <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
+          {new Date(notification.createdAt).toLocaleDateString('en-US')}
+        </time>
+      </CardContent>
+    </Card>
+  );
+  return notification.type === 'offer_received' && offerId ? (
+    <Link
+      href={`${MARKETPLACE_ROUTES.OFFERS}#offer-${offerId}`}
+      overrideDefaults
+      className="block rounded-xl hover:ring-1 hover:ring-brand/40"
+      aria-label="Open new offer"
+    >
+      {content}
+    </Link>
+  ) : (
+    content
   );
 }
 

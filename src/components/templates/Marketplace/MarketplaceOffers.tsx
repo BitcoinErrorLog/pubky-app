@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, HandCoins } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -12,12 +12,16 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { amountInputUnitLabel, isBitcoinAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -42,6 +46,7 @@ export function MarketplaceOffers() {
       classNameWrapperContent="max-w-4xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+        <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults
@@ -73,16 +78,17 @@ export function MarketplaceOffers() {
               const actionable = offer.state === 'pending' || offer.state === 'countered';
               const incoming = offer.offeredBy !== currentUserPubky;
               return (
-                <Card key={offer.id} className="border py-5">
+                <Card key={offer.id} id={`offer-${offer.id}`} className="border py-5">
                   <CardContent className="grid gap-4 px-5 sm:grid-cols-[1fr_auto] sm:items-center">
                     <div>
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <Badge>{incoming ? 'Incoming' : 'Sent'}</Badge>
-                        <Badge variant="secondary">{offer.state}</Badge>
+                        <Badge variant="secondary">{offerStateLabel(offer.state, offer.expiresAt)}</Badge>
                       </div>
                       <Typography as="p" className="text-2xl font-bold text-brand">
                         {formatCommerceMoney(offer.amount)}
                       </Typography>
+                      <OfferListingSummary offer={offer} />
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Quantity {offer.quantity} · Expires {new Date(offer.expiresAt).toLocaleString('en-US')}
                       </Typography>
@@ -177,4 +183,74 @@ export function MarketplaceOffers() {
       </Dialog>
     </ContentLayout>
   );
+}
+
+export function offerStateLabel(state: MarketplaceOffer['state'], expiresAt: string, nowMs = Date.now()): string {
+  return state === 'accepted' && Date.parse(expiresAt) <= nowMs ? 'Expired' : state;
+}
+
+export function OfferListingSummary({ offer }: { offer: MarketplaceOffer }) {
+  const listingRef = parseListingAggregateId(offer.listingAggregateId);
+  const sellerPubky = listingRef?.sellerPubky;
+  const listingId = listingRef?.listingId;
+  const [listing, setListing] = useState<CommerceListingRecord | null>(null);
+
+  useEffect(() => {
+    if (!sellerPubky || !listingId) return;
+    let active = true;
+    CommerceController.getOrFetchListing(sellerPubky, listingId)
+      .then((record) => {
+        if (active) setListing(record ?? null);
+      })
+      .catch(() => {
+        if (active) setListing(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [listingId, sellerPubky]);
+
+  if (!listingRef || !listing) {
+    return (
+      <Typography as="p" className="text-sm text-muted-foreground">
+        Listing details unavailable
+      </Typography>
+    );
+  }
+
+  const imageUri = listing.media.find(({ type }) => type === 'image')?.url ?? null;
+  return (
+    <Link
+      href={getMarketplaceListingRoute(listingRef.sellerPubky, listingRef.listingId)}
+      overrideDefaults
+      className="flex items-center gap-3 rounded-lg py-1 hover:text-brand"
+    >
+      <OfferThumbnail uri={imageUri} title={listing.title} />
+      <Typography as="p" className="font-semibold hover:underline">
+        {listing.title}
+      </Typography>
+    </Link>
+  );
+}
+
+function OfferThumbnail({ uri, title }: { uri: string | null; title: string }) {
+  const mediaUrl = useMarketplaceFirstMediaUrl(uri ? [uri] : []);
+  return (
+    <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+      {mediaUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={mediaUrl} alt={`${title} thumbnail`} className="size-full object-cover" />
+      ) : (
+        <HandCoins className="size-5 text-muted-foreground" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
+export function parseListingAggregateId(value: string): { sellerPubky: string; listingId: string } | null {
+  const encoded = value.startsWith('listing:') ? value.slice('listing:'.length) : '';
+  if (encoded.length <= 53) return null;
+  const sellerPubky = encoded.slice(0, 52);
+  const listingId = encoded.slice(53);
+  return sellerPubky && listingId ? { sellerPubky, listingId } : null;
 }

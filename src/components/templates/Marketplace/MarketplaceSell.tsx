@@ -67,6 +67,7 @@ export function MarketplaceSell() {
       showRightSidebar={false}
       showLeftMobileButton={false}
       showRightMobileButton={false}
+      disableMainContentOverflow
       className="pb-28 lg:pb-16"
       classNameWrapperContent="max-w-4xl"
     >
