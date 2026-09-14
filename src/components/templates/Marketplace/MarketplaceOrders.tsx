@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ExternalLink, ReceiptText } from 'lucide-react';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -16,6 +16,7 @@ import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMark
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
+import { formatBitcoinAmount } from '@/libs/commerce/pricing';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
@@ -209,7 +210,7 @@ export function MarketplaceOrders() {
                         ))}
                         <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
                           {formatCommerceMoney(order.total)}{' '}
-                          <MarketplaceIndicativePrice money={order.total} className="text-sm font-normal" />
+                          <MarketplaceOrderBitcoinAmount order={order} />
                         </Typography>
                         <Typography as="p" className="mt-1 text-xs text-muted-foreground">
                           Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
@@ -342,6 +343,25 @@ export function MarketplaceOrders() {
       </Container>
     </ContentLayout>
   );
+}
+
+function MarketplaceOrderBitcoinAmount({ order }: { order: MarketplaceOrder }): ReactNode {
+  const quote = order.paymentMethod === 'bitcoin' ? order.bitcoinQuote : null;
+  if (quote?.quotedSats !== null && quote?.quotedSats !== undefined) {
+    return (
+      <Typography as="span" className="text-sm font-normal">
+        Locked Bitcoin amount: {formatBitcoinAmount(quote.quotedSats)}
+        {isMarketplaceBitcoinQuoteExpired(quote.expiresAt) ? ' · Bitcoin quote expired' : ''}
+      </Typography>
+    );
+  }
+
+  return <MarketplaceIndicativePrice money={order.total} className="text-sm font-normal" />;
+}
+
+function isMarketplaceBitcoinQuoteExpired(expiresAt: string | null): boolean {
+  const parsedExpiresAt = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  return Number.isFinite(parsedExpiresAt) && parsedExpiresAt <= Date.now();
 }
 
 function getOrderTabCounts(orders: MarketplaceOrderView[], currentUserPubky: string | null): Record<OrdersTab, number> {

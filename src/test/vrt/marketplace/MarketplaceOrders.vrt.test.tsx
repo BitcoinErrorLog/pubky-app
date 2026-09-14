@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
+import { expectVrtSurface, parkVrtHover, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
 
@@ -177,6 +177,37 @@ const ordersState = vi.hoisted(() => ({
   adapterMode: 'sandbox' as string,
 }));
 
+async function settleAwaitingPaymentTab(tabList: HTMLElement) {
+  await parkVrtHover();
+  const deadline = performance.now() + 2_000;
+  let settledChecks = 0;
+
+  while (settledChecks < 2) {
+    if (performance.now() >= deadline) {
+      throw new Error('Awaiting payment tab animations did not settle within 2 seconds');
+    }
+
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    const animations = tabList.getAnimations({ subtree: true });
+
+    if (animations.length > 0) {
+      settledChecks = 0;
+      await Promise.all(animations.map((animation) => animation.finished.catch(() => undefined)));
+    } else {
+      settledChecks += 1;
+    }
+  }
+
+  tabList.scrollLeft = 0;
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+  tabList.scrollLeft = 0;
+  expect(tabList.scrollLeft).toBe(0);
+}
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace/orders',
@@ -230,7 +261,14 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
+    const tabList = screen.container.querySelector('[role="tablist"]') as HTMLElement;
+    tabList.scrollLeft = 0;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    tabList.scrollLeft = 0;
+    expect(tabList.scrollLeft).toBe(0);
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-every-state-mobile');
   });
 
@@ -282,12 +320,12 @@ describe('Marketplace orders — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await screen.getByRole('tab', { name: /Awaiting payment 2/i }).click();
-    (screen.container.querySelector('[role="tablist"]') as HTMLElement).scrollLeft = 0;
     await expect(screen.getByRole('tab', { name: /Awaiting payment 2/i })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Seller awaiting entitlement')).toBeInTheDocument();
     expect(screen.getByText('Seller detected payment')).toBeInTheDocument();
     expect(screen.container.textContent).not.toContain('Seller confirmed payment');
     expect(screen.container.textContent).not.toContain('Buyer awaiting payment');
+    await settleAwaitingPaymentTab(screen.container.querySelector('[role="tablist"]') as HTMLElement);
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-desktop');
   });
 
@@ -299,8 +337,8 @@ describe('Marketplace orders — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
     await screen.getByRole('tab', { name: /Awaiting payment 2/i }).click();
-    (screen.container.querySelector('[role="tablist"]') as HTMLElement).scrollLeft = 0;
     await expect(screen.getByRole('tab', { name: /Awaiting payment 2/i })).toHaveAttribute('aria-selected', 'true');
+    await settleAwaitingPaymentTab(screen.container.querySelector('[role="tablist"]') as HTMLElement);
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-mobile');
   });
 

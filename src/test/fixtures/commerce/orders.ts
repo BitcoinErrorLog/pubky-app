@@ -105,6 +105,23 @@ export function createOrderFixture(
   };
 }
 
+/** Live durable-service shape for an FX-quoted Bitcoin order projection. */
+export function createBitcoinQuotedOrderFixture(): MarketplaceOrder {
+  return createOrderFixture('pending_payment', {
+    paymentMethod: 'bitcoin',
+    bitcoinQuote: {
+      quotedSats: 2_588,
+      currency: 'USD',
+      exponent: 2,
+      rate: 100_000,
+      source: 'blocktank',
+      fetchedAt: '2026-09-13T20:00:00.000Z',
+      expiresAt: '2026-09-13T21:00:00.000Z',
+      spreadBps: 50,
+    },
+  });
+}
+
 export function createPaymentFixture(
   state: MarketplacePayment['state'],
   overrides: Partial<MarketplacePayment> = {},

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
+import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
 import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
 import { ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -237,6 +238,19 @@ export const marketplacePaymentSchema = z
   })
   .passthrough();
 
+export const marketplaceBitcoinQuoteSchema = z
+  .object({
+    quotedSats: z.number().int().positive().max(MAX_BITCOIN_BASE_UNITS).nullable(),
+    currency: z.string().nullable(),
+    exponent: z.number().int().nullable(),
+    rate: z.number().nullable(),
+    source: z.string().nullable(),
+    fetchedAt: z.string().nullable(),
+    expiresAt: z.string().nullable(),
+    spreadBps: z.number().int().nonnegative().nullable(),
+  })
+  .passthrough();
+
 export const marketplaceOrderSchema = z
   .object({
     id: z.uuid(),
@@ -347,6 +361,9 @@ export const marketplaceOrderSchema = z
     fiatVerification: z.enum(['processor', 'gateway-notified', 'seller-attested']).nullable().optional(),
     paymentReportedAt: z.string().nullable().optional(),
     fiatTransactionRef: z.string().nullable().optional(),
+    // FX-quoted Bitcoin orders carry the service's exact settlement amount.
+    // Older orders and non-FX orders may omit this projection entirely.
+    bitcoinQuote: marketplaceBitcoinQuoteSchema.nullable().optional(),
     // Physical-bitcoin orders: the Paykit payment-request reference and the
     // worker-observed request state. The enum is intentionally closed to the
     // service CHECK constraint.

@@ -432,6 +432,17 @@ describe('MarketplaceTransactionService read projections', () => {
           orderWire({
             state: 'delivered',
             payment: paymentWire(),
+            payment_method: 'bitcoin',
+            bitcoin_quote: {
+              quoted_sats: 2_588,
+              currency: 'USD',
+              exponent: 2,
+              rate: 100_000,
+              source: 'captured',
+              fetched_at: '2026-08-20T10:00:00.000Z',
+              expires_at: '2026-08-20T11:00:00.000Z',
+              spread_bps: 0,
+            },
             shipment: {
               carrier: 'DHL',
               tracking_number: 'JD014600003RU',
@@ -454,11 +465,40 @@ describe('MarketplaceTransactionService read projections', () => {
       deliveryAssumed: false,
       nextActor: 'none',
       payment: { id: PAYMENT_ID, state: 'awaiting_entitlement', adapter: 'sandbox' },
+      paymentMethod: 'bitcoin',
+      bitcoinQuote: { quotedSats: 2_588, currency: 'USD', exponent: 2 },
       shipment: { carrier: 'DHL', trackingNumber: 'JD014600003RU', state: 'delivered' },
       receiptId: null,
     });
     expect(orders[0]).not.toHaveProperty('deliveryAddress');
     expect(orders[0].payment).not.toHaveProperty('locksBundleId');
+  });
+
+  it('rejects an order whose snake_case bitcoin quote exceeds the protocol bound', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        orders: [
+          orderWire({
+            payment_method: 'bitcoin',
+            bitcoin_quote: {
+              quoted_sats: 2_100_000_000_000_001,
+              currency: 'USD',
+              exponent: 2,
+              rate: 100_000,
+              source: 'captured',
+              fetched_at: '2026-08-20T10:00:00.000Z',
+              expires_at: '2026-08-20T11:00:00.000Z',
+              spread_bps: 0,
+            },
+          }),
+        ],
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getOrders(ACTOR)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
   });
 
   it('reads assumed-delivery and next-actor order projection fields when present', async () => {
