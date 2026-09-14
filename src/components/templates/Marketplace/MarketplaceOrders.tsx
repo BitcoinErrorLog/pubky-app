@@ -209,8 +209,7 @@ export function MarketplaceOrders() {
                           </div>
                         ))}
                         <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
-                          {formatCommerceMoney(order.total)}{' '}
-                          <MarketplaceOrderBitcoinAmount order={order} />
+                          {formatCommerceMoney(order.total)} <MarketplaceOrderBitcoinAmount order={order} />
                         </Typography>
                         <Typography as="p" className="mt-1 text-xs text-muted-foreground">
                           Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
