@@ -123,6 +123,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         },
       });
       if (!response.ok) {
+        await Promise.resolve(onClaimed?.()).catch(() => {});
         // The service's refusal is classified by stable code and message;
         // arbitrary wire text never reaches rendered state.
         setFailure(

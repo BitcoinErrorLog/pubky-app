@@ -150,6 +150,22 @@ describe('useMarketplaceDropClaim', () => {
     expect(result.current.failure).not.toContain('SENTINEL_SERVER_TEXT_drop');
   });
 
+  it('refreshes the public drop and ready check after a refusal', async () => {
+    const refresh = vi.fn(async () => {});
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: 'The drop has ended.' },
+    } as never);
+    const { result } = renderHook(() => useMarketplaceDropClaim(refresh));
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    await act(async () => {
+      await result.current.claim(SELLER, 'listing1', 1);
+    });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('maps thrown sentinel failures to static copy', async () => {
     const sentinel = 'SENTINEL_SERVER_TEXT_drop_claim';
     vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce(

@@ -39,13 +39,18 @@ export function useMarketplaceProjection(sellerPubky: string, listingId: string)
       return;
     }
     let active = true;
+    const refetch = () => {
+      if (active) void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession);
+    };
     void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession);
     const timer = window.setInterval(() => {
       if (active) void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession);
     }, getCommercePollIntervalMs());
+    window.addEventListener('focus', refetch);
     return () => {
       active = false;
       window.clearInterval(timer);
+      window.removeEventListener('focus', refetch);
     };
   }, [isTransactional, listingId, sellerPubky, marketplaceSession]);
 

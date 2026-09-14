@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '@/libs/error/error';
 import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
-import { marketplaceFailureMessage } from './failure-messages';
+import {
+  MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceCheckoutRefusalMessage,
+  marketplaceFailureMessage,
+} from './failure-messages';
 
 describe('marketplaceFailureMessage', () => {
   it('keeps action-specific fallbacks for ordinary refusal codes', () => {
@@ -59,6 +63,51 @@ describe('marketplaceFailureMessage', () => {
     expect(marketplaceFailureMessage('CONFLICT', 'Checkout failed.', clientError)).toBe('Checkout failed.');
     expect(marketplaceFailureMessage('INVALID_INPUT', 'Checkout failed.', validationError)).toBe(
       validationError.message,
+    );
+  });
+});
+
+describe('marketplaceCheckoutRefusalMessage', () => {
+  const mappedRefusals = [
+    [
+      'INVALID_COMMAND',
+      'Checkout aggregate identity or revision is invalid.',
+      'Checkout could not be started. Review your cart and try again.',
+    ],
+    ['NOT_FOUND', 'A checkout listing is unavailable.', 'A listing in your cart is no longer available.'],
+    ['UNAUTHORIZED', 'A buyer cannot purchase their own listing.', 'You cannot purchase your own listing.'],
+    [
+      'INVALID_STATE',
+      'Only fixed-price listings can enter checkout.',
+      'Only fixed-price listings can be purchased through checkout.',
+    ],
+    [
+      'INVALID_STATE',
+      "Another buyer's payment is holding this item. If it isn't completed in time, the item restocks.",
+      'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
+    ],
+    ['INVALID_STATE', 'This listing has sold out.', MARKETPLACE_FAILURE_MESSAGES.listingSoldOut],
+    [
+      'INVALID_STATE',
+      'Only available fixed-price listings can enter checkout.',
+      'This listing is not available for checkout.',
+    ],
+  ] as const;
+
+  it.each(mappedRefusals)('maps %s refusal %s to static copy', (code, message, expected) => {
+    expect(marketplaceCheckoutRefusalMessage(code, message)).toBe(expected);
+  });
+
+  it('returns null for unmapped and non-string inputs', () => {
+    expect(marketplaceCheckoutRefusalMessage('INVALID_STATE', 'Unknown refusal')).toBeNull();
+    expect(marketplaceCheckoutRefusalMessage(null, 'This listing has sold out.')).toBeNull();
+    expect(marketplaceCheckoutRefusalMessage('INVALID_STATE', null)).toBeNull();
+    expect(marketplaceCheckoutRefusalMessage(undefined, 42)).toBeNull();
+  });
+
+  it('does not use the session copy for an own-listing refusal', () => {
+    expect(marketplaceCheckoutRefusalMessage('UNAUTHORIZED', 'A buyer cannot purchase their own listing.')).not.toBe(
+      MARKETPLACE_FAILURE_MESSAGES.session,
     );
   });
 });

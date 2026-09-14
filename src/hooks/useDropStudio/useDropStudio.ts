@@ -53,7 +53,8 @@ export function useDropStudio(): UseDropStudioResult {
   const form = useForm<DropStudioData>({
     resolver: zodResolver(dropStudioSchema),
     defaultValues: dropStudioDefaults,
-    mode: 'onChange',
+    mode: 'onBlur',
+    reValidateMode: 'onBlur',
   });
   const selectedListingIds = useWatch({ control: form.control, name: 'listingIds' });
 

@@ -97,6 +97,8 @@ describe('useMarketplaceCheckout', () => {
     authMock.currentUserPubky = null;
     useCommerceStore.setState({ marketplaceSession: null });
     vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([]);
+    vi.mocked(CommerceController.commitUpsertDeliveryAddress).mockResolvedValue(undefined);
+    vi.mocked(CommerceController.commitMarkDeliveryAddressUsed).mockResolvedValue(undefined);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000001100');
     vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue({
       aggregateId: `listing:${listing.ownerPubky}_${listing.listingId}`,
@@ -268,6 +270,153 @@ describe('useMarketplaceCheckout', () => {
     expect(vi.mocked(toast)).toHaveBeenCalledWith(
       expect.objectContaining({ description: expect.stringContaining('place the order again') }),
     );
+  });
+
+  it('shows listing-specific copy and returns false for a sold-out checkout refusal', async () => {
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: 'This listing has sold out.' },
+    } as never);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'This listing has sold out.' }),
+    );
+  });
+
+  it('shows own-listing copy without setting needsSession', async () => {
+    authMock.currentUserPubky = listing.ownerPubky;
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
+      ok: false,
+      error: { code: 'UNAUTHORIZED', message: 'A buyer cannot purchase their own listing.' },
+    } as never);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    await act(async () => {
+      expect(await result.current.submit()).toBe(false);
+    });
+
+    expect(result.current.needsSession).toBe(false);
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'You cannot purchase your own listing.' }),
+    );
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('session expired');
+  });
+
+  it('uses generic checkout copy for an unmapped refusal code', async () => {
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
+      ok: false,
+      error: { code: 'UNKNOWN_REFUSAL', message: 'Unmapped refusal' },
+    } as never);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    await act(async () => {
+      expect(await result.current.submit()).toBe(false);
+    });
+
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Checkout could not be completed.' }),
+    );
+  });
+
+  it('reports success when cart clearing fails after the order is placed', async () => {
+    const clear = vi.fn().mockRejectedValue(new Error('cart failure'));
+    const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    await act(async () => {
+      expect(await result.current.submit()).toBe(true);
+    });
+
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const descriptions = vi.mocked(toast).mock.calls.map(([call]) => call.description);
+    expect(descriptions).toContain('Complete the sandbox payment to continue.');
+    expect(descriptions).toContain('The order was placed, but your cart could not be cleared.');
+  });
+
+  it('reports success when the post-order address save fails', async () => {
+    authMock.currentUserPubky = BUYER;
+    vi.mocked(CommerceController.commitUpsertDeliveryAddress).mockRejectedValue(new Error('address failure'));
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('saveAddress', true);
+      result.current.form.setValue('saveLabel', 'Home');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    await act(async () => {
+      expect(await result.current.submit()).toBe(true);
+    });
+
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const descriptions = vi.mocked(toast).mock.calls.map(([call]) => call.description);
+    expect(descriptions).toContain('Complete the sandbox payment to continue.');
+    expect(descriptions).toContain('The order was placed, but the address could not be saved.');
   });
 
   it('prefills from the top saved address and marks it used after a successful order', async () => {

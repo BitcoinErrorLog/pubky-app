@@ -119,6 +119,15 @@ describe('dropStudioSchema — composer validation mirrors the record contract',
     expect(tooGreedy.error!.issues.map(({ message }) => message)).toContain('Per-buyer limit can be at most 100.');
   });
 
+  it('rejects datetime values with more than four year digits', () => {
+    const result = dropStudioSchema.safeParse({
+      ...base,
+      endsAtLocal: '202222-09-14T12:00',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues.map(({ path }) => path.join('.'))).toContain('endsAtLocal');
+  });
+
   it('accepts an empty end time — the drop runs until sell-out or cancel', () => {
     expect(dropStudioSchema.safeParse({ ...base, endsAtLocal: '' }).success).toBe(true);
   });
