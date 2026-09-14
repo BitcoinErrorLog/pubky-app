@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
+import { marketplaceReceiptAttestationSchema } from '@/libs/commerce/attestation';
+import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { AppError } from '@/libs/error/error';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
@@ -8,6 +10,9 @@ import { CommerceHomeserverService } from '@/services/homeserver/commerce/commer
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import receiptAttestationV1 from '@/test/fixtures/commerce/receipt-attestation-v1.json';
+import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
+import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
 import { CommerceApplication } from './commerce';
 
 // A REAL receipt attestation issued by the transaction service's Rust
@@ -21,6 +26,16 @@ const RECEIPT_ID = '018f47d2-6a27-7c23-a49d-6b21bb770201';
 const RECEIPT_URL = `pubky://${BUYER}/priv/pubky.app/marketplace/v1/receipts/${RECEIPT_ID}`;
 const JWS =
   'eyJhbGciOiJFZERTQSIsInR5cCI6InB1Ymt5LW9yZGVyLXJlY2VpcHQrdjEifQ.eyJ2IjoxLCJpc3MiOiI3amZnYWE5bnV0anlpeHppa2I3dGdtc2Y5Z2t3cTdpcXo0OTh6cjFuZDVpZzFmbmc0ZXN5IiwiYnV5ZXIiOiJvcGVycnI4d3NicHIzdWU5ZDRxajQxZ2Uxa2NjNnI3ZmRpeTZvM3VnanJyaGk0eTc3cmRvIiwic2VsbGVyIjoicHhudTMzeDdqdHB4OWFyMXl0c2k0eXhicDZhNW8zNmd3aGZmczh6b3htYnVwdGljaTFqeSIsIm9yZGVyIjoiMDE4ZjQ3ZDItNmEyNy03YzIzLWE0OWQtNmIyMWJiNzcwMjAwIiwicmVjZWlwdCI6IjAxOGY0N2QyLTZhMjctN2MyMy1hNDlkLTZiMjFiYjc3MDIwMSIsInRvdGFsX21pbm9yIjoxNDc5NiwiY3VycmVuY3kiOiJVU0QiLCJleHBvbmVudCI6MiwicGFpZF9hdCI6IjIwMjYtMDgtMTlUMjI6MDA6MDAuMDAwWiIsImlhdCI6MTc4NzE3NjgwMH0.2zDQZwDYjVsxfppJMZanH9WR04bW8IkqbwHvVY49a72SFqpLDnZN_YYeYHYex5mujtXMp6fLwqhzG8vMZRMFAA';
+
+type LiveReceiptFixture = {
+  receipt_attestation: {
+    jws: string;
+    claims: Record<string, unknown>;
+  };
+};
+
+const parseLiveReceiptFixture = (fixture: LiveReceiptFixture) =>
+  marketplaceReceiptAttestationSchema.parse(toCamelCaseWire(fixture.receipt_attestation));
 
 const attestation = () => ({
   jws: JWS,
@@ -140,6 +155,50 @@ describe('CommerceApplication.publishOrderReceipts', () => {
     const [, record] = put.mock.calls[0] as [string, Record<string, unknown>];
     expect(record.editionAttestation).toBe(EDITION_JWS);
     expect(record.drop).toEqual({ dropId: 'drop_summer_01', edition: 7, of: 100 });
+  });
+
+  it.each([
+    ['v1', receiptAttestationV1],
+    ['v2 bitcoin settlement', receiptAttestationV2Bitcoin],
+    ['v2 same-currency settlement', receiptAttestationV2SameCurrency],
+  ])('parses the live %s receipt attestation through the wire boundary', (_name, fixture) => {
+    const parsed = parseLiveReceiptFixture(fixture as LiveReceiptFixture);
+    expect(parsed.jws).toBe((fixture as LiveReceiptFixture).receipt_attestation.jws);
+  });
+
+  it('rejects a deliberately wrong v2 claim version and mismatched money shape', () => {
+    const wrongVersion = structuredClone(receiptAttestationV2Bitcoin.receipt_attestation);
+    wrongVersion.claims.v = 1;
+    expect(marketplaceReceiptAttestationSchema.safeParse(toCamelCaseWire(wrongVersion)).success).toBe(false);
+
+    const wrongMoneyShape = structuredClone(receiptAttestationV2Bitcoin.receipt_attestation);
+    wrongMoneyShape.claims.merchandise_total = {
+      amount_minor: -1,
+      currency: 'USD',
+      exponent: 2,
+    };
+    expect(marketplaceReceiptAttestationSchema.safeParse(toCamelCaseWire(wrongMoneyShape)).success).toBe(false);
+  });
+
+  it('publishes a v2 receipt with merchandise value as the portable record total', async () => {
+    grantCapableSession();
+    const fixture = parseLiveReceiptFixture(receiptAttestationV2Bitcoin as LiveReceiptFixture);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
+    vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(fixture);
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+
+    await CommerceApplication.publishOrderReceipts(fixture.claims.buyer, [
+      {
+        receiptId: fixture.claims.receipt,
+        buyerPubky: fixture.claims.buyer,
+        sellerPubky: fixture.claims.seller,
+      } as never,
+    ]);
+
+    const [, record] = put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(record.total).toEqual({ amountMinor: 13700, currency: 'USD', exponent: 2 });
+    expect(record.settlementTotal).toEqual({ amountMinor: 51637, currency: 'SAT', exponent: 0 });
+    expect(record.receiptAttestation).toBe(fixture.jws);
   });
 
   it('refuses to publish a drop receipt whose edition attestation does not verify', async () => {
@@ -301,9 +360,7 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
 
   it('re-reads a published receipt after clearMarketplaceSession instead of trusting the memo', async () => {
     grantCapableSession();
-    const fetch = vi
-      .spyOn(CommerceHomeserverService, 'fetchJson')
-      .mockResolvedValue({ recordType: 'order_receipt' });
+    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ recordType: 'order_receipt' });
     vi.spyOn(MarketplaceSessionService, 'clearSession').mockImplementation(() => {});
     const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770217';
 

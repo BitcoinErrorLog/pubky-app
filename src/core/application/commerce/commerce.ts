@@ -1473,7 +1473,15 @@ export class CommerceApplication {
           orderId: claims.order,
           buyerPubky: claims.buyer,
           sellerPubky: claims.seller,
-          total: { amountMinor: claims.totalMinor, currency: claims.currency, exponent: claims.exponent },
+          total:
+            claims.v === 2
+              ? {
+                  amountMinor: claims.merchandiseTotal.amountMinor,
+                  currency: claims.merchandiseTotal.currency,
+                  exponent: claims.merchandiseTotal.exponent,
+                }
+              : { amountMinor: claims.totalMinor, currency: claims.currency, exponent: claims.exponent },
+          ...(claims.v === 2 ? { settlementTotal: claims.settlementTotal } : {}),
           paidAt: claims.paidAt,
           receiptAttestation: attestation.jws,
           ...(editionAttestation !== null
@@ -1490,6 +1498,7 @@ export class CommerceApplication {
         const { PubkySpecsBuilder } = await import('pubky-app-specs');
         const built = new PubkySpecsBuilder(ownerPubky).createMarketplaceOrderReceipt(body);
         const record = CommerceRecordNormalizer.orderReceiptRecord(built.order_receipt.toJson());
+        if (claims.v === 2) record.settlementTotal = claims.settlementTotal;
         if (verifyOwnOrderReceipt({ ...record }) === null) {
           Logger.warn('Refusing to publish an order receipt whose attestation does not verify', { url });
           continue;
