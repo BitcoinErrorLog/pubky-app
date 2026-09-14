@@ -19,19 +19,24 @@ const VALID = {
 };
 
 describe('PubchiBotV1', () => {
-  it('strictly parses the custody v1 document', () => {
+  it('parses and preserves extension members in the custody v1 document', () => {
     expect(parsePubchiBotV1(VALID)).toEqual({ ok: true, value: VALID });
-    expect(PATHS.bot).toBe('/pub/pubchi.app/bot.json');
-    expect(botUri(OWNER)).toBe(`pubky://${OWNER}/pub/pubchi.app/bot.json`);
+    expect(PATHS.bot).toBe('/pub/app.pubchi/v1/bot.json');
+    expect(botUri(OWNER)).toBe(`pubky://${OWNER}/pub/app.pubchi/v1/bot.json`);
   });
 
   it.each([
     { ...VALID, display_name: '' },
     { ...VALID, display_name: 'x'.repeat(41) },
     { ...VALID, key_generation: 0 },
-    { ...VALID, phrase: 'forbidden' },
-    { ...VALID, extra_field: true },
   ])('rejects invalid and forbidden fields', (candidate) => {
     expect(parsePubchiBotV1(candidate).ok).toBe(false);
+  });
+
+  it('preserves unknown members and ext', () => {
+    expect(parsePubchiBotV1({ ...VALID, extra_field: true, ext: { badge: { color: 'orange' } } })).toEqual({
+      ok: true,
+      value: { ...VALID, extra_field: true, ext: { badge: { color: 'orange' } } },
+    });
   });
 });

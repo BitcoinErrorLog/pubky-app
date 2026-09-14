@@ -6,6 +6,7 @@ import { HttpMethod } from '@/libs/http/http.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import type { FeedProposalV1, FeedProposalV2 } from '@/libs/pubchi/schemas';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
+import { parsePubchiDocumentText, validatePubchiDocumentSize } from '@/libs/pubchi/schemas/document';
 import {
   parsePubchiFeedProvenanceV1,
   type PubchiFeedProvenanceV1,
@@ -14,6 +15,13 @@ import {
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { toast } from '@/molecules/Toaster/toast';
 import { HomeserverService } from '@/services/homeserver/homeserver';
+
+async function requestPubchiDocumentText(url: string): Promise<string> {
+  if (typeof HomeserverService.requestRawText === 'function') {
+    return HomeserverService.requestRawText(url);
+  }
+  return JSON.stringify(await HomeserverService.request<unknown>({ method: HttpMethod.GET, url }));
+}
 
 export async function recordPubchiBuiltFeed(
   owner: string,
@@ -24,11 +32,20 @@ export async function recordPubchiBuiltFeed(
   const url = provenanceUri(owner, provenanceFeedId);
   let existing: (PubchiFeedProvenanceV1 & Record<string, unknown>) | undefined;
   try {
-    const rawExisting = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
-    const parsedExisting = parsePubchiFeedProvenanceV1(rawExisting);
+    let rawExisting: unknown;
+    const parsedExisting = parsePubchiDocumentText(await requestPubchiDocumentText(url), (value) => {
+      rawExisting = value;
+      return parsePubchiFeedProvenanceV1(value);
+    });
     if (parsedExisting.ok) {
       existing = parsedExisting.value as PubchiFeedProvenanceV1 & Record<string, unknown>;
     } else {
+      if (parsedExisting.code !== 'SCHEMA_INVALID') {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, parsedExisting.code, {
+          service: ErrorService.Pubchi,
+          operation: 'recordPubchiBuiltFeed',
+        });
+      }
       const lenientExisting = PubchiFeedProvenanceV1Schema.passthrough().safeParse(rawExisting);
       if (!lenientExisting.success) {
         toast({ variant: 'warning', title: "Couldn't update the feed record; the feed itself was saved" });
@@ -70,6 +87,13 @@ export async function recordPubchiBuiltFeed(
       operation: 'recordPubchiBuiltFeed',
     });
   }
+  const size = validatePubchiDocumentSize(record);
+  if (!size.ok) {
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, size.code, {
+      service: ErrorService.Pubchi,
+      operation: 'recordPubchiBuiltFeed',
+    });
+  }
   await HomeserverService.request({
     method: HttpMethod.PUT,
     url,
@@ -85,11 +109,9 @@ export async function listPubchiFeedProvenance(owner: string): Promise<PubchiFee
   const files = await HomeserverService.listAll({ baseDirectory: provenanceDirectory(owner) });
   const results = await Promise.allSettled(
     files.map(async (url) => {
-      const match = url.match(/\/pubchi\.app\/feeds\/([^/]+)\.json$/);
+      const match = url.match(/\/app\.pubchi\/v1\/feeds\/([^/]+)\.json$/);
       if (!match) return undefined;
-      const parsed = parsePubchiFeedProvenanceV1(
-        await HomeserverService.request<unknown>({ method: HttpMethod.GET, url }),
-      );
+      const parsed = parsePubchiDocumentText(await requestPubchiDocumentText(url), parsePubchiFeedProvenanceV1);
       if (!parsed.ok || parsed.value.feed_id !== match[1]) return undefined;
       return parsed.value;
     }),
@@ -98,9 +120,9 @@ export async function listPubchiFeedProvenance(owner: string): Promise<PubchiFee
 }
 
 export function provenanceUri(owner: string, feedId: string): string {
-  return `pubky://${owner}/pub/pubchi.app/feeds/${feedId}.json`;
+  return `pubky://${owner}/priv/app.pubchi/v1/feeds/${feedId}.json`;
 }
 
 export function provenanceDirectory(owner: string): string {
-  return `pubky://${owner}/pub/pubchi.app/feeds/`;
+  return `pubky://${owner}/priv/app.pubchi/v1/feeds/`;
 }

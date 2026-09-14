@@ -14,7 +14,7 @@ export const PubchiOwnerContextV1Schema = z
     instructions: codePointString(1000).optional(),
     updated_at: zUnix,
   })
-  .strict();
+  .catchall(z.unknown());
 
 export type PubchiOwnerContextV1 = z.infer<typeof PubchiOwnerContextV1Schema>;
 

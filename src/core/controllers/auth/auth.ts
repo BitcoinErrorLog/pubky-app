@@ -470,7 +470,7 @@ export class AuthController {
     }
 
     if (session) {
-      // DELETE every known delegationUri while the session still covers write on `/pub/pubchi.app/`.
+      // DELETE every known delegationUri while the session still covers write on `/pub/app.pubchi/v1/`.
       try {
         await PubchiApplication.unpublishKnownDelegations(owner, { attemptRemote: true });
       } catch (error) {

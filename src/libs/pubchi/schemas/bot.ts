@@ -14,8 +14,9 @@ export const PubchiBotV1Schema = z
     backup_confirmed_at: zUnix.nullable(),
     homeserver_account: z.string().min(1).nullable(),
     key_generation: z.number().int().min(1),
+    ext: z.record(z.string(), z.unknown()).optional(),
   })
-  .strict();
+  .catchall(z.unknown());
 
 export type PubchiBotV1 = z.infer<typeof PubchiBotV1Schema>;
 

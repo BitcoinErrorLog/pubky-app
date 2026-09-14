@@ -133,17 +133,21 @@ vi.mock('@/libs/pubchi/device-key', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: Object.assign((
-    selector: (state: { currentUserPubky: string | null; session: { info: { capabilities: string[] } } }) => unknown,
-  ) => selector({
-      currentUserPubky: mocks.owner,
-      session: { info: { capabilities: mocks.capabilities } },
-    }), {
-    getState: () => ({
-      currentUserPubky: mocks.owner,
-      session: { info: { capabilities: mocks.capabilities } },
-    }),
-  }),
+  useAuthStore: Object.assign(
+    (
+      selector: (state: { currentUserPubky: string | null; session: { info: { capabilities: string[] } } }) => unknown,
+    ) =>
+      selector({
+        currentUserPubky: mocks.owner,
+        session: { info: { capabilities: mocks.capabilities } },
+      }),
+    {
+      getState: () => ({
+        currentUserPubky: mocks.owner,
+        session: { info: { capabilities: mocks.capabilities } },
+      }),
+    },
+  ),
 }));
 
 describe('usePubchiEnrollment', () => {
@@ -171,7 +175,13 @@ describe('usePubchiEnrollment', () => {
 
   it('keeps bot and config state when private context loading fails', async () => {
     mocks.reconcile.mockResolvedValue(ACTIVE);
-    mocks.load.mockResolvedValue({ bot: OWNER, displayName: 'Scout', createdAt: 1, backupConfirmedAt: null, verified: true });
+    mocks.load.mockResolvedValue({
+      bot: OWNER,
+      displayName: 'Scout',
+      createdAt: 1,
+      backupConfirmedAt: null,
+      verified: true,
+    });
     mocks.loadConfig.mockResolvedValue(CONFIG);
     mocks.loadContext.mockRejectedValue(new Error('context unavailable'));
 
@@ -194,10 +204,9 @@ describe('usePubchiEnrollment', () => {
     await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
 
     act(() => {
-      usePubchiStore.getState().setPubchi(
-        { bot: OWNER, displayName: 'Shared', createdAt: 1, backupConfirmedAt: null, verified: true },
-        OWNER,
-      );
+      usePubchiStore
+        .getState()
+        .setPubchi({ bot: OWNER, displayName: 'Shared', createdAt: 1, backupConfirmedAt: null, verified: true }, OWNER);
     });
 
     await waitFor(() => expect(first.result.current.pubchi?.displayName).toBe('Shared'));
@@ -340,10 +349,9 @@ describe('usePubchiEnrollment', () => {
     const { result } = renderHook(() => usePubchiEnrollment());
     await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
     act(() => {
-      usePubchiStore.getState().setPubchi(
-        { bot: OWNER, displayName: 'Scout', createdAt: 1, backupConfirmedAt: null, verified: true },
-        OWNER,
-      );
+      usePubchiStore
+        .getState()
+        .setPubchi({ bot: OWNER, displayName: 'Scout', createdAt: 1, backupConfirmedAt: null, verified: true }, OWNER);
     });
     postSyncMessage(OWNER, 'signed-out');
 
@@ -352,7 +360,13 @@ describe('usePubchiEnrollment', () => {
   });
 
   it('does not repopulate the store after sign-out during a load', async () => {
-    let resolveLoad!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
+    let resolveLoad!: (value: {
+      bot: string;
+      displayName: string;
+      createdAt: number;
+      backupConfirmedAt: null;
+      verified: boolean;
+    }) => void;
     mocks.load.mockReturnValue(
       new Promise((resolve) => {
         resolveLoad = resolve;
@@ -374,8 +388,20 @@ describe('usePubchiEnrollment', () => {
 
   it('keeps the next identity from seeing the previous identity bot', async () => {
     const otherOwner = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    let resolveA!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
-    let resolveB!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
+    let resolveA!: (value: {
+      bot: string;
+      displayName: string;
+      createdAt: number;
+      backupConfirmedAt: null;
+      verified: boolean;
+    }) => void;
+    let resolveB!: (value: {
+      bot: string;
+      displayName: string;
+      createdAt: number;
+      backupConfirmedAt: null;
+      verified: boolean;
+    }) => void;
     mocks.load
       .mockReturnValueOnce(
         new Promise((resolve) => {
@@ -960,7 +986,7 @@ describe('usePubchiEnrollment', () => {
       cancelAuthFlow: cancel,
     });
     mocks.adopt.mockImplementation(async () => {
-      mocks.capabilities = ['/pub/pubky.app/:rw', '/pub/pubchi.app/:rw'];
+      mocks.capabilities = ['/pub/pubky.app/:rw', '/pub/app.pubchi/v1/:rw'];
     });
     vi.spyOn(window, 'open').mockReturnValue(null);
     const { result, rerender } = renderHook(() => usePubchiEnrollment());

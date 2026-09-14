@@ -5,17 +5,20 @@
  * each entry is `"<scope>:<actions>"` where `scope` starts with `/` and `actions` is
  * `r`, `w`, or `rw` (`wr` is normalized to `rw`). SessionInfo lists those entries.
  *
- * Write on `/pub/pubchi.app/` is granted by a capability whose actions include `w`
- * and whose directory scope (`…/` ) is `/`, `/pub/`, `/pub/pubchi.app/`, or any
+ * Write on `/pub/app.pubchi/v1/` is granted by a capability whose actions include `w`
+ * and whose directory scope (`…/` ) is `/`, `/pub/`, `/pub/app.pubchi/v1/`, or any
  * other directory prefix of that path at a slash boundary. Read-only (`:r`) never
  * satisfies a write. File scopes (no trailing `/`) do not cover the directory.
  */
 
-export const PUBCHI_HOMESERVER_DIRECTORY = '/pub/pubchi.app/';
-export const PUBCHI_PRIVATE_DIRECTORY = '/priv/pubchi.app/';
+export const PUBCHI_HOMESERVER_DIRECTORY = '/pub/app.pubchi/v1/';
+export const PUBCHI_PRIVATE_DIRECTORY = '/priv/app.pubchi/v1/';
 
-/** Default Ring sign-in request: pubky.app first, Pubchi folder appended. */
-export const PUBCHI_SIGNIN_CAPABILITIES = `/pub/pubky.app/:rw,${PUBCHI_HOMESERVER_DIRECTORY}:rw,${PUBCHI_PRIVATE_DIRECTORY}:rw`;
+/** Default Ring sign-in request for the App's social and Pubchi-owned state. */
+export const APP_SIGNIN_CAPABILITIES = '/pub/pubky.app/:rw,/pub/app.pubchi/v1/:rw,/priv/app.pubchi/v1/:rw';
+
+/** Pubchi re-approval request for Pubchi-owned public and private state. */
+export const PUBCHI_SIGNIN_CAPABILITIES = `${PUBCHI_HOMESERVER_DIRECTORY}:rw,${PUBCHI_PRIVATE_DIRECTORY}:rw`;
 
 export const PUBCHI_DEGRADED_SESSION_MESSAGE =
   "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.";

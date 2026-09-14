@@ -28,7 +28,7 @@ import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
-import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { APP_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { sleep } from '@/libs/utils/utils';
 import type { Pubky as TPubkyModel } from '@/models/models.types';
 import type {
@@ -63,7 +63,7 @@ import {
   resolveOwnedSessionPath,
 } from './homeserver.utils';
 
-const CAPABILITIES = PUBCHI_SIGNIN_CAPABILITIES;
+const CAPABILITIES = APP_SIGNIN_CAPABILITIES;
 const PUB_PATH_PREFIX = '/pub/' as const;
 const SESSION_OWNED_PATH_PREFIXES = ['/pub/', '/priv/'] as const;
 const DELETE_IDEMPOTENT_MAX_ATTEMPTS = 3;
@@ -456,6 +456,25 @@ export class HomeserverService {
   }
 
   /**
+   * Reads a GET response as raw text so callers can enforce byte limits before parsing.
+   * This is intentionally separate from `request`, whose JSON parsing behavior is shared.
+   */
+  static async requestRawText(url: string): Promise<string> {
+    const owned = this.resolveOwnedSessionPath(url);
+    if (owned && !owned.session?.storage) {
+      return JSON.stringify(await this.request<unknown>({ method: HttpMethod.GET, url }));
+    }
+    const response = owned
+      ? await getOwnedResponse({ session: owned.session, path: owned.path as PubPath<string>, url })
+      : await (
+          isHttpUrl(url) ? this.getPubkySdk().client.fetch(url) : this.getPubkySdk().publicStorage.get(url as Address)
+        ).catch((error) => handleError({ error, additionalContext: { url, method: HttpMethod.GET } }));
+
+    if (!owned) await assertOk({ response, url, operation: 'requestRawText' });
+    return response.text();
+  }
+
+  /**
    * Uploads binary data to the homeserver using PUT.
    *
    * Intended for blob contents (e.g., avatars). Throws if the response is not OK.
@@ -513,7 +532,13 @@ export class HomeserverService {
       const owned = this.resolveOwnedSessionPath(baseDirectory);
       if (owned) {
         const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as SessionOwnedPath<string>);
-        const files = await owned.session.storage.list(dirPath as PubPath<string>, cursor ?? null, reverse, limit, false);
+        const files = await owned.session.storage.list(
+          dirPath as PubPath<string>,
+          cursor ?? null,
+          reverse,
+          limit,
+          false,
+        );
         Logger.debug('List successful', { baseDirectory, filesCount: files.length });
         return files;
       }

@@ -48,13 +48,14 @@ import {
   ownerBindingsUri,
   ownerBindingUri,
   type OwnerBindingV1,
+  parseConversation,
   parseDeviceDelegationV1,
   parseFeedProposal,
   parseOwnerBindingV1,
   parsePubchiAnswerV1,
-  parseConversation,
   parsePubchiBotV1,
   parsePubchiConfigV1,
+  parsePubchiDocumentText,
   parsePubchiOwnerContextV1,
   parseQueryResultV1,
   type PubchiBotV1,
@@ -66,6 +67,8 @@ import {
   signRequestObjectV2,
   type UnsignedDeviceDelegationV1,
   type UnsignedRequestObjectV2,
+  validatePubchiDocumentSize,
+  validatePublicRootReferences,
 } from '@/libs/pubchi/schemas';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
 import { toast } from '@/molecules/Toaster/toast';
@@ -172,8 +175,7 @@ export class PubchiApplication {
   static async loadPubchiConfig(owner: string, refreshDelegation = true): Promise<PubchiConfigV1 | null> {
     const url = pubchiConfigUri(owner);
     try {
-      const raw = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
-      const parsed = parsePubchiConfigV1(raw);
+      const parsed = parsePubchiDocumentText(await HomeserverService.requestRawText(url), parsePubchiConfigV1);
       if (!parsed.ok) throw pubchiValidationError(parsed.code, 'loadPubchiConfig');
       if (refreshDelegation) await refreshPublishedDelegation(owner);
       return parsed.value;
@@ -212,6 +214,10 @@ export class PubchiApplication {
     if (!parsed.ok) throw pubchiValidationError(parsed.code, 'savePubchiConfig');
     const forbidden = scanForbiddenPublicState(candidate);
     if (!forbidden.ok) throw pubchiValidationError(forbidden.code, 'savePubchiConfig');
+    const root = validatePublicRootReferences(candidate);
+    if (!root.ok) throw pubchiValidationError(root.code, 'savePubchiConfig');
+    const size = validatePubchiDocumentSize(candidate);
+    if (!size.ok) throw pubchiValidationError(size.code, 'savePubchiConfig');
     if (displayName !== currentBot.display_name) {
       await putAndVerifyBot(owner, { ...currentBot, display_name: displayName }, currentBot);
     }
@@ -227,9 +233,10 @@ export class PubchiApplication {
     const session = useAuthStore.getState().selectSession();
     if (!session || !sessionCovers(session.info.capabilities ?? [], PUBCHI_PRIVATE_DIRECTORY)) return null;
     try {
-      const parsed = parsePubchiOwnerContextV1(
-        await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: pubchiContextUri(owner) }),
-      );
+      const raw = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url: pubchiContextUri(owner) });
+      const size = validatePubchiDocumentSize(raw);
+      if (!size.ok) throw pubchiValidationError(size.code, 'loadPubchiContext');
+      const parsed = parsePubchiOwnerContextV1(raw);
       if (!parsed.ok) throw pubchiValidationError(parsed.code, 'loadPubchiContext');
       return parsed.value;
     } catch (error) {
@@ -262,6 +269,8 @@ export class PubchiApplication {
     };
     const parsed = parsePubchiOwnerContextV1(candidate);
     if (!parsed.ok) throw pubchiValidationError(parsed.code, 'savePubchiContext');
+    const size = validatePubchiDocumentSize(candidate);
+    if (!size.ok) throw pubchiValidationError(size.code, 'savePubchiContext');
     const url = pubchiContextUri(owner);
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: parsed.value });
     const readBack = await this.loadPubchiContext(owner);
@@ -511,6 +520,10 @@ export class PubchiApplication {
       expires_at: device.expires_at,
     };
     const signedDelegation = await signDeviceDelegationV1(delegation, device.key);
+    const delegationRoot = validatePublicRootReferences(signedDelegation);
+    if (!delegationRoot.ok) throw pubchiValidationError(delegationRoot.code, 'createPubchi');
+    const delegationSize = validatePubchiDocumentSize(signedDelegation);
+    if (!delegationSize.ok) throw pubchiValidationError(delegationSize.code, 'createPubchi');
     await HomeserverService.request({
       method: HttpMethod.PUT,
       url: delegationUri(params.owner, device.signer),
@@ -637,11 +650,20 @@ export class PubchiApplication {
         created_at: device.created_at,
         expires_at: device.expires_at,
       };
+      const signedDelegation = await signDeviceDelegationV1(delegation, device.key);
+      const delegationRoot = validatePublicRootReferences(signedDelegation);
+      if (!delegationRoot.ok) throw pubchiValidationError(delegationRoot.code, 'commitCreateBinding');
+      const delegationSize = validatePubchiDocumentSize(signedDelegation);
+      if (!delegationSize.ok) throw pubchiValidationError(delegationSize.code, 'commitCreateBinding');
       await HomeserverService.request({
         method: HttpMethod.PUT,
         url: delegationUri(params.owner, device.signer),
-        bodyJson: await signDeviceDelegationV1(delegation, device.key),
+        bodyJson: signedDelegation,
       });
+      const ownerBindingRoot = validatePublicRootReferences(parsed.value);
+      if (!ownerBindingRoot.ok) throw pubchiValidationError(ownerBindingRoot.code, 'commitCreateBinding');
+      const ownerBindingSize = validatePubchiDocumentSize(parsed.value);
+      if (!ownerBindingSize.ok) throw pubchiValidationError(ownerBindingSize.code, 'commitCreateBinding');
       await HomeserverService.request({
         method: HttpMethod.PUT,
         url: ownerBindingUri(params.owner, params.bot),
@@ -696,9 +718,9 @@ export class PubchiApplication {
 
   /**
    * Record known device delegations and, when `attemptRemote` is true, DELETE
-   * each `delegationUri` while the session still covers write on `/pub/pubchi.app/`.
+   * each `delegationUri` while the session still covers write on `/pub/app.pubchi/v1/`.
    *
-   * Does NOT delete the owner binding at `/pub/pubchi.app/bots/<bot>.json`.
+   * Does NOT delete the owner binding at `/pub/app.pubchi/v1/bots/<bot>.json`.
    * That object is the account-level U→B enrollment; logout revokes this
    * browser's device key, not the bot binding. "Remove bot" is the unenroll path.
    *
@@ -800,7 +822,7 @@ export class PubchiApplication {
 
   /**
    * Reconcile the Dexie binding with the homeserver object at
-   * `pubky://<owner>/pub/pubchi.app/bots/<B>.json`. Revoke the local row only
+   * `pubky://<owner>/pub/app.pubchi/v1/bots/<B>.json`. Revoke the local row only
    * on explicit 404/absence or a parsed body with `status !== 'active'`.
    * A malformed 200 or a parsed body whose `owner`/`bot` do not match the
    * requested binding is treated as transient — the local row is kept.
@@ -927,6 +949,10 @@ export class PubchiApplication {
 
 async function putAndVerifyOwnerBinding(owner: string, candidate: OwnerBindingV1) {
   const url = ownerBindingUri(owner, candidate.bot);
+  const root = validatePublicRootReferences(candidate);
+  if (!root.ok) throw pubchiValidationError(root.code, 'putAndVerifyOwnerBinding');
+  const size = validatePubchiDocumentSize(candidate);
+  if (!size.ok) throw pubchiValidationError(size.code, 'putAndVerifyOwnerBinding');
   try {
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: candidate });
   } catch {
@@ -973,6 +999,12 @@ async function putAndVerifyBot(
     throw pubchiValidationError('SCHEMA_INVALID', 'putAndVerifyBot');
   }
   const preservedCandidate = current ? { ...current, ...candidate } : candidate;
+  const forbidden = scanForbiddenPublicState(preservedCandidate);
+  if (!forbidden.ok) throw pubchiValidationError(forbidden.code, 'putAndVerifyBot');
+  const root = validatePublicRootReferences(preservedCandidate);
+  if (!root.ok) throw pubchiValidationError(root.code, 'putAndVerifyBot');
+  const size = validatePubchiDocumentSize(preservedCandidate);
+  if (!size.ok) throw pubchiValidationError(size.code, 'putAndVerifyBot');
   try {
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: preservedCandidate });
   } catch {
@@ -989,7 +1021,7 @@ async function putAndVerifyBot(
 
 async function tryReadBot(url: string, candidate: PubchiBotV1): Promise<boolean> {
   try {
-    const parsed = parsePubchiBotV1(await HomeserverService.request({ method: HttpMethod.GET, url }));
+    const parsed = parsePubchiDocumentText(await HomeserverService.requestRawText(url), parsePubchiBotV1);
     return parsed.ok && sameBot(parsed.value, candidate);
   } catch {
     return false;
@@ -998,7 +1030,7 @@ async function tryReadBot(url: string, candidate: PubchiBotV1): Promise<boolean>
 
 async function readBotIfPresent(owner: string): Promise<PubchiBotV1 | undefined> {
   try {
-    const parsed = parsePubchiBotV1(await HomeserverService.request({ method: HttpMethod.GET, url: botUri(owner) }));
+    const parsed = parsePubchiDocumentText(await HomeserverService.requestRawText(botUri(owner)), parsePubchiBotV1);
     if (!parsed.ok || parsed.value.owner !== owner) {
       throw pubchiValidationError(parsed.ok ? 'SCHEMA_INVALID' : parsed.code, 'readBotIfPresent');
     }
@@ -1067,6 +1099,8 @@ async function tombstoneBindingIfActive(owner: string, bot: string, now: number)
     status: 'revoked' as const,
     updated_at: now,
   };
+  const root = validatePublicRootReferences(tombstone);
+  if (!root.ok) throw pubchiValidationError(root.code, 'tombstoneBindingIfActive');
   await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: tombstone });
   const verified = parseOwnerBindingV1(await HomeserverService.request({ method: HttpMethod.GET, url }));
   if (!verified.ok || !sameOwnerBinding(verified.value, tombstone)) {
@@ -1234,19 +1268,19 @@ function assertPubchiCapability(owner: string): void {
 }
 
 function pubchiConfigUri(owner: string): string {
-  return `pubky://${owner}/pub/pubchi.app/config.json`;
+  return `pubky://${owner}/pub/app.pubchi/v1/config.json`;
 }
 
 function pubchiContextUri(owner: string): string {
-  return `pubky://${owner}/priv/pubchi.app/context.json`;
+  return `pubky://${owner}/priv/app.pubchi/v1/context.json`;
 }
 
 function pubchiCursorUri(owner: string): string {
-  return `pubky://${owner}/priv/pubchi.app/cursor.json`;
+  return `pubky://${owner}/priv/app.pubchi/v1/cursor.json`;
 }
 
 function devicesUri(owner: string): string {
-  return `pubky://${owner}/pub/pubchi.app/devices/`;
+  return `pubky://${owner}/pub/app.pubchi/v1/devices/`;
 }
 
 function defaultPubchiConfig(owner: string, bot: string, now: number): PubchiConfigV1 {
@@ -1328,6 +1362,10 @@ async function publishDeviceDelegation(
     expires_at: now + DEVICE_DELEGATION_MAX_SECONDS,
   };
   const signed = await signDeviceDelegationV1(unsigned, device.key);
+  const root = validatePublicRootReferences(signed);
+  if (!root.ok) throw pubchiValidationError(root.code, 'refreshPublishedDelegation');
+  const size = validatePubchiDocumentSize(signed);
+  if (!size.ok) throw pubchiValidationError(size.code, 'refreshPublishedDelegation');
   await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: signed });
   const readBack = parseDeviceDelegationV1(await HomeserverService.request<unknown>({ method: HttpMethod.GET, url }));
   if (!readBack.ok || JSON.stringify(readBack.value) !== JSON.stringify(signed)) {
@@ -1435,7 +1473,7 @@ export async function listKnownDelegations(
  * Same-pubky restore keeps this owner's key. A missing key is left missing so
  * enroll can mint a fresh signer. Foreign local rows are wiped. Remote
  * delegations for a previous identity stay published until that identity signs
- * in again — we have no write capability on their `/pub/pubchi.app/` path.
+ * in again — we have no write capability on their `/pub/app.pubchi/v1/` path.
  */
 async function wipeLocalStateFromOtherIdentities(owner: string): Promise<void> {
   try {

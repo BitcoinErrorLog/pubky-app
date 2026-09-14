@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { PUBCHI_TIER_PANEL_SURFACE, type PubchiTier,PubchiTierPanel } from './PubchiTierPanel';
+import { PUBCHI_TIER_PANEL_SURFACE, type PubchiTier, PubchiTierPanel } from './PubchiTierPanel';
 
 const defaultProps = {
   desiredTier: 'assisted' as const,
@@ -30,9 +30,15 @@ describe('PubchiTierPanel', () => {
   });
 
   it('shows the effective-tier alert when the effective tier is lower', () => {
-    render(<PubchiTierPanel {...defaultProps} effectiveTier="read-only" effectiveReason="Session lacks /pub/pubchi.app/:rw" />);
+    render(
+      <PubchiTierPanel
+        {...defaultProps}
+        effectiveTier="read-only"
+        effectiveReason="Session lacks /pub/app.pubchi/v1/:rw"
+      />,
+    );
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Session lacks /pub/pubchi.app/:rw');
+    expect(screen.getByRole('alert')).toHaveTextContent('Session lacks /pub/app.pubchi/v1/:rw');
     expect(screen.getByText('Desired: Assisted · Effective: Read-only')).toBeInTheDocument();
   });
 
@@ -41,7 +47,7 @@ describe('PubchiTierPanel', () => {
     render(<PubchiTierPanel {...defaultProps} onChangeDesired={onChangeDesired} />);
 
     fireEvent.click(screen.getByText('Technical details'));
-    expect(screen.getAllByText('/pub/pubchi.app/:rw', { exact: true })).toHaveLength(3);
+    expect(screen.getAllByText('/pub/app.pubchi/v1/:rw', { exact: true })).toHaveLength(3);
     expect(screen.getByText('/pub/pubky.app/posts/:w', { exact: false })).toBeInTheDocument();
     expect(screen.getByText('/pub/pubky.app/tags/:w', { exact: false })).toBeInTheDocument();
 

@@ -34,17 +34,51 @@ describe('PubchiConfigV1Schema', () => {
   });
 
   it.each([
-    ['extra key', { extra: true }],
     ['hosted endpoint', { brain: { ...valid.brain, endpoint: 'https://example.com' } }],
     ['self-hosted without endpoint', { brain: { ...valid.brain, execution: 'self-hosted', endpoint: null } }],
-    ['self-hosted endpoint userinfo', { brain: { ...valid.brain, execution: 'self-hosted', endpoint: 'https://user:pass@example.com' } }],
-    ['self-hosted endpoint query', { brain: { ...valid.brain, execution: 'self-hosted', endpoint: 'https://example.com/?api_key=secret' } }],
-    ['self-hosted endpoint fragment', { brain: { ...valid.brain, execution: 'self-hosted', endpoint: 'https://example.com/#secret' } }],
-    ['too many topics', { interests: { topics: Array.from({ length: 21 }, () => ({ label: 'topic', weight: 1 })), excluded_topics: [] } }],
-    ['mnemonic-like label', { interests: { topics: [{ label: 'one two three four five six seven eight nine ten eleven twelve', weight: 1 }], excluded_topics: [] } }],
+    [
+      'self-hosted endpoint userinfo',
+      { brain: { ...valid.brain, execution: 'self-hosted', endpoint: 'https://user:pass@example.com' } },
+    ],
+    [
+      'self-hosted endpoint query',
+      { brain: { ...valid.brain, execution: 'self-hosted', endpoint: 'https://example.com/?api_key=secret' } },
+    ],
+    [
+      'self-hosted endpoint fragment',
+      { brain: { ...valid.brain, execution: 'self-hosted', endpoint: 'https://example.com/#secret' } },
+    ],
+    [
+      'too many topics',
+      { interests: { topics: Array.from({ length: 21 }, () => ({ label: 'topic', weight: 1 })), excluded_topics: [] } },
+    ],
+    [
+      'mnemonic-like label',
+      {
+        interests: {
+          topics: [{ label: 'one two three four five six seven eight nine ten eleven twelve', weight: 1 }],
+          excluded_topics: [],
+        },
+      },
+    ],
     ['api key', { api_key: 'not-a-secret' }],
-    ['verdict', { verdict: 'approved' }],
   ])('rejects %s', (_name, change) => {
     expect(parsePubchiConfigV1({ ...valid, ...change })).toMatchObject({ ok: false });
+  });
+
+  it('preserves unknown members and ext', () => {
+    expect(
+      parsePubchiConfigV1({ ...valid, future_field: { enabled: true }, ext: { badge: { color: 'orange' } } }),
+    ).toEqual({
+      ok: true,
+      value: { ...valid, future_field: { enabled: true }, ext: { badge: { color: 'orange' } } },
+    });
+  });
+
+  it('rejects a forbidden-shaped value inside ext', () => {
+    expect(parsePubchiConfigV1({ ...valid, ext: { credential: 'sk-abcdefghijklmnopqrstuvwxyz' } })).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN_SECRET',
+    });
   });
 });

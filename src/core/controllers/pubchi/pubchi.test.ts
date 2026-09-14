@@ -148,7 +148,13 @@ describe('PubchiController', () => {
 
   it('does not repopulate Pubchi after the owner changes during load', async () => {
     setPubchiEnv('true', 'https://pubchi.example.com');
-    let resolveLoad!: (value: { bot: string; displayName: string; createdAt: number; backupConfirmedAt: null; verified: boolean }) => void;
+    let resolveLoad!: (value: {
+      bot: string;
+      displayName: string;
+      createdAt: number;
+      backupConfirmedAt: null;
+      verified: boolean;
+    }) => void;
     vi.spyOn(PubchiApplication, 'loadPubchi').mockReturnValue(
       new Promise((resolve) => {
         resolveLoad = resolve;
@@ -278,7 +284,7 @@ describe('PubchiController', () => {
         setSession: authState.setSession,
       }),
     );
-    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/pubchi.app/:rw']);
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/app.pubchi/v1/:rw']);
     const bootstrapSpy = vi.spyOn(AuthController, 'initializeAuthenticatedSession');
     await PubchiController.adoptCapabilityApproval(session);
     expect(authState.setSession).toHaveBeenCalledWith(session);
@@ -357,7 +363,7 @@ describe('PubchiController', () => {
         setSession: authState.setSession,
       }),
     );
-    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/pubchi.app/:rw']);
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/app.pubchi/v1/:rw']);
     vi.mocked(PubchiApplication.unpublishKnownDelegations).mockRejectedValue(new Error('drain failed'));
 
     await PubchiController.adoptCapabilityApproval(session);
@@ -396,7 +402,7 @@ describe('PubchiController', () => {
         setSession: authState.setSession,
       }),
     );
-    const session = sessionFor(OTHER, ['/pub/pubchi.app/:rw']);
+    const session = sessionFor(OTHER, ['/pub/app.pubchi/v1/:rw']);
     const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
     await expect(PubchiController.adoptCapabilityApproval(session)).rejects.toMatchObject({
       code: AuthErrorCode.FORBIDDEN,

@@ -37,7 +37,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
   ) =>
     selector({
       currentUserPubky: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
-      session: { info: { capabilities: ['/pub/pubchi.app/:rw'] } },
+      session: { info: { capabilities: ['/pub/app.pubchi/v1/:rw'] } },
     }),
 }));
 

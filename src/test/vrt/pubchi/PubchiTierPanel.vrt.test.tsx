@@ -35,11 +35,13 @@ describe('PubchiTierPanel — visual regression', () => {
         {...baseProps}
         desiredTier="assisted"
         effectiveTier="read-only"
-        effectiveReason="Session lacks /pub/pubchi.app/:rw"
+        effectiveReason="Session lacks /pub/app.pubchi/v1/:rw"
       />,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
 
-    await expect(screen.getByTestId('pubchi-tier-panel')).toMatchScreenshot('pubchi-tier-panel-effective-lower-desktop');
+    await expect(screen.getByTestId('pubchi-tier-panel')).toMatchScreenshot(
+      'pubchi-tier-panel-effective-lower-desktop',
+    );
   });
 });

@@ -85,7 +85,7 @@ export function PubchiTierPanel({
             return (
               <div
                 key={tier}
-                className="flex gap-3 rounded-lg border border-border p-4 has-[[data-state=checked]]:border-brand has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:opacity-60"
+                className="flex gap-3 rounded-lg border border-border p-4 has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:opacity-60 has-[[data-state=checked]]:border-brand"
               >
                 <RadioGroupItem value={tier} id={`pubchi-tier-${tier}`} disabled={disabled} />
                 <div className="min-w-0 flex-1">
@@ -140,15 +140,15 @@ export function PubchiTierPanel({
           <CollapsibleContent className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
             <div>
               <span className="font-medium text-foreground">Read-only: </span>
-              <code>/pub/pubchi.app/:rw</code> on your session.
+              <code>/pub/app.pubchi/v1/:rw</code> on your session.
             </div>
             <div>
               <span className="font-medium text-foreground">Assisted: </span>
-              <code>/pub/pubchi.app/:rw</code> on your session.
+              <code>/pub/app.pubchi/v1/:rw</code> on your session.
             </div>
             <div>
               <span className="font-medium text-foreground">Autonomous: </span>
-              <code>/pub/pubchi.app/:rw</code>, <code>/pub/pubky.app/posts/:w</code>, and{' '}
+              <code>/pub/app.pubchi/v1/:rw</code>, <code>/pub/pubky.app/posts/:w</code>, and{' '}
               <code>/pub/pubky.app/tags/:w</code> on bot sessions.
             </div>
           </CollapsibleContent>

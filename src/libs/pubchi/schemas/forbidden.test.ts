@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import servicePatterns from './__fixtures__/forbidden-service-patterns.json';
 import { parsePubchiBotV1 } from './bot';
-import { scanForbiddenPublicState,SECRET_VALUE_PATTERNS } from './forbidden';
+import { scanForbiddenPublicState, SECRET_VALUE_PATTERNS, validatePublicRootReferences } from './forbidden';
 
 const fixtures = import.meta.glob('./__fixtures__/forbidden/*.json', {
   eager: true,
@@ -36,5 +36,21 @@ describe('scanForbiddenPublicState', () => {
     for (let depth = 0; depth <= 64; depth += 1) value = { nested: value };
 
     expect(scanForbiddenPublicState(value)).toEqual({ ok: false, code: 'SCHEMA_INVALID' });
+  });
+});
+
+describe('validatePublicRootReferences', () => {
+  it('accepts public references', () => {
+    expect(validatePublicRootReferences({ uri: 'pubky://owner/pub/app.pubchi/v1/config.json' })).toEqual({
+      ok: true,
+      value: undefined,
+    });
+  });
+
+  it('rejects private references in public documents', () => {
+    expect(validatePublicRootReferences({ uri: 'pubky://owner/priv/app.pubchi/v1/context.json' })).toEqual({
+      ok: false,
+      code: 'URI_FORBIDDEN',
+    });
   });
 });

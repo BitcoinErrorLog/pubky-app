@@ -78,7 +78,7 @@ vi.mock('@/libs/pubchi/device-key', () => {
 
 const sessionIdentity = {
   pubky: '',
-  capabilities: ['/pub/pubchi.app/:rw'] as string[],
+  capabilities: ['/pub/app.pubchi/v1/:rw'] as string[],
 };
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -147,7 +147,7 @@ function setPubchiEnv(enabled = 'true', apiUrl = 'https://pubchi.example.com') {
 describe('PubchiApplication', () => {
   beforeEach(() => {
     sessionIdentity.pubky = OWNER;
-    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw'];
+    sessionIdentity.capabilities = ['/pub/app.pubchi/v1/:rw'];
     setPubchiEnv();
     vi.spyOn(LocalPubchiBindingService, 'readActive').mockResolvedValue(ACTIVE_BINDING);
     vi.spyOn(LocalPubchiBindingService, 'read').mockResolvedValue(ACTIVE_BINDING);
@@ -251,7 +251,7 @@ describe('PubchiApplication', () => {
   });
 
   it('loads private context through the authenticated homeserver path', async () => {
-    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw', '/priv/pubchi.app/:rw'];
+    sessionIdentity.capabilities = ['/pub/app.pubchi/v1/:rw', '/priv/app.pubchi/v1/:rw'];
     const context = {
       schema: 'pubchi-owner-context' as const,
       version: 1 as const,
@@ -265,12 +265,12 @@ describe('PubchiApplication', () => {
 
     expect(HomeserverService.request).toHaveBeenCalledWith({
       method: HttpMethod.GET,
-      url: `pubky://${OWNER}/priv/pubchi.app/context.json`,
+      url: `pubky://${OWNER}/priv/app.pubchi/v1/context.json`,
     });
   });
 
   it('writes and reads back private context through the authenticated path', async () => {
-    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw', '/priv/pubchi.app/:rw'];
+    sessionIdentity.capabilities = ['/pub/app.pubchi/v1/:rw', '/priv/app.pubchi/v1/:rw'];
     const context = {
       schema: 'pubchi-owner-context' as const,
       version: 1 as const,
@@ -294,26 +294,26 @@ describe('PubchiApplication', () => {
 
     expect(HomeserverService.request).toHaveBeenNthCalledWith(2, {
       method: HttpMethod.PUT,
-      url: `pubky://${OWNER}/priv/pubchi.app/context.json`,
+      url: `pubky://${OWNER}/priv/app.pubchi/v1/context.json`,
       bodyJson: expect.objectContaining({ about: 'About', instructions: 'Instructions' }),
     });
   });
 
   it('writes a first-use private cursor remotely after a 404', async () => {
-    sessionIdentity.capabilities = ['/priv/pubchi.app/:rw'];
+    sessionIdentity.capabilities = ['/priv/app.pubchi/v1/:rw'];
     vi.mocked(HomeserverService.request).mockRejectedValueOnce(notFoundError()).mockResolvedValueOnce(undefined);
 
     await expect(PubchiApplication.savePubchiCursor(OWNER, '2026-09-10T07:00:00Z')).resolves.toBeUndefined();
 
     expect(HomeserverService.request).toHaveBeenNthCalledWith(2, {
       method: HttpMethod.PUT,
-      url: `pubky://${OWNER}/priv/pubchi.app/cursor.json`,
+      url: `pubky://${OWNER}/priv/app.pubchi/v1/cursor.json`,
       bodyJson: { cursor: '2026-09-10T07:00:00Z' },
     });
   });
 
   it('does not overwrite a newer remote cursor', async () => {
-    sessionIdentity.capabilities = ['/priv/pubchi.app/:rw'];
+    sessionIdentity.capabilities = ['/priv/app.pubchi/v1/:rw'];
     vi.mocked(HomeserverService.request).mockResolvedValueOnce({ cursor: '2026-09-10T08:00:00Z' });
 
     await expect(PubchiApplication.savePubchiCursor(OWNER, '2026-09-10T07:00:00+00:00')).resolves.toBeUndefined();
@@ -322,7 +322,7 @@ describe('PubchiApplication', () => {
   });
 
   it('refuses to save a cursor for a foreign owner', async () => {
-    sessionIdentity.capabilities = ['/priv/pubchi.app/:rw'];
+    sessionIdentity.capabilities = ['/priv/app.pubchi/v1/:rw'];
 
     await expect(PubchiApplication.savePubchiCursor('f'.repeat(52), '2026-09-10T07:00:00Z')).rejects.toThrow();
 
@@ -645,7 +645,12 @@ describe('PubchiApplication', () => {
   });
 
   it('refuses enrollment for near-miss and read-only covering scopes', async () => {
-    for (const capability of ['/pub/pubchi.app.evil/:rw', '/pub/pubchi.appfoo/:rw', '/:r', '/pub/pubchi.app/:r']) {
+    for (const capability of [
+      '/pub/app.pubchi/v1.evil/:rw',
+      '/pub/app.pubchi/v1foo/:rw',
+      '/:r',
+      '/pub/app.pubchi/v1/:r',
+    ]) {
       sessionIdentity.capabilities = [capability];
       await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow('PATH_FORBIDDEN');
     }
@@ -949,7 +954,7 @@ describe('PubchiApplication', () => {
     expect(deleteSpy).toHaveBeenCalledWith(OWNER, planted);
     const urls = requestSpy.mock.calls.map((call) => String(call[0].url));
     expect(urls.every((url) => !url.includes('..'))).toBe(true);
-    expect(urls.some((url) => url.includes('/pub/pubchi.app/devices/'))).toBe(true);
+    expect(urls.some((url) => url.includes('/pub/app.pubchi/v1/devices/'))).toBe(true);
   });
 
   it('DELETEs known delegations for a root /:rw session instead of skipping remote drain', async () => {
@@ -1143,7 +1148,7 @@ describe('PubchiApplication', () => {
 
   it('refuses enrollment when the session pubky is not the binding owner before minting a device key', async () => {
     sessionIdentity.pubky = Keypair.random().publicKey.z32();
-    sessionIdentity.capabilities = ['/pub/pubchi.app/:rw', '/:rw'];
+    sessionIdentity.capabilities = ['/pub/app.pubchi/v1/:rw', '/:rw'];
     const mintSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey');
     const upsertSpy = vi.spyOn(LocalPubchiBindingService, 'upsert');
 

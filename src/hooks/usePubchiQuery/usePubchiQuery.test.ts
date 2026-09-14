@@ -34,7 +34,9 @@ const FEED_SUCCESS: PubchiQuerySuccess = {
   applyAllowed: true,
 };
 
-function answer(overrides: Partial<{ owner: string; complete: boolean; until: string; continuation: boolean }> = {}): PubchiQuerySuccess {
+function answer(
+  overrides: Partial<{ owner: string; complete: boolean; until: string; continuation: boolean }> = {},
+): PubchiQuerySuccess {
   const { owner = 'a'.repeat(52), complete = true, until = '2026-09-10T07:00:00Z', continuation = true } = overrides;
   return {
     kind: 'answer',
@@ -274,7 +276,7 @@ describe('usePubchiQuery', () => {
   });
 
   it('writes the cursor remotely when the session covers the private directory', async () => {
-    mocks.sessionCapabilities = ['/priv/pubchi.app/:rw'];
+    mocks.sessionCapabilities = ['/priv/app.pubchi/v1/:rw'];
     mocks.fetchPubchiQuery.mockResolvedValue(answer());
     const { result } = renderHook(() => usePubchiQuery());
     await waitFor(() => expect(result.current.signingAvailable).toBe(true));
@@ -289,7 +291,7 @@ describe('usePubchiQuery', () => {
   });
 
   it('keeps the answer and shows one warning when saving the cursor fails', async () => {
-    mocks.sessionCapabilities = ['/priv/pubchi.app/:rw'];
+    mocks.sessionCapabilities = ['/priv/app.pubchi/v1/:rw'];
     mocks.fetchPubchiQuery.mockResolvedValue(answer());
     mocks.savePubchiCursor.mockRejectedValue(new Error('save failed'));
     const { result } = renderHook(() => usePubchiQuery());

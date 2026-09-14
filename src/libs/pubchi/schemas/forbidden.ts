@@ -126,6 +126,18 @@ export function scanForbiddenPublicState(value: unknown): ParseResult<void> {
   return hasSecretLookingValue(value, 0) ? err('FORBIDDEN_SECRET') : ok(undefined);
 }
 
+export function validatePublicRootReferences(value: unknown): ParseResult<void> {
+  return containsPrivatePubkyUri(value, 0) ? err('URI_FORBIDDEN') : ok(undefined);
+}
+
+function containsPrivatePubkyUri(value: unknown, depth: number): boolean {
+  if (depth > MAX_JSON_DEPTH) return true;
+  if (typeof value === 'string') return /pubky:\/\/[^/]+\/priv\//.test(value);
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some((item) => containsPrivatePubkyUri(item, depth + 1));
+  return Object.values(value as Record<string, unknown>).some((child) => containsPrivatePubkyUri(child, depth + 1));
+}
+
 function hasSecretLookingValue(value: unknown, depth: number): boolean {
   if (depth > MAX_JSON_DEPTH) return true;
   if (typeof value === 'string') return SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(value.trim()));

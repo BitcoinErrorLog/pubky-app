@@ -52,6 +52,7 @@ export {
   type UnsignedDeviceDelegationV1,
   verifyDeviceDelegationV1,
 } from './delegation';
+export { MAX_PUBCHI_DOCUMENT_BYTES, parsePubchiDocumentText, validatePubchiDocumentSize } from './document';
 export { verifyEd25519, verifyPubkySignature } from './ed25519';
 export {
   type CommonEnvelopeV1,
@@ -79,7 +80,12 @@ export {
   parseFeedProposalV2,
 } from './feed';
 export { FEED_CATALOG, type FeedCatalog } from './feed-catalog';
-export { FORBIDDEN_CATEGORIES, scanForbidden, scanForbiddenPublicState } from './forbidden';
+export {
+  FORBIDDEN_CATEGORIES,
+  scanForbidden,
+  scanForbiddenPublicState,
+  validatePublicRootReferences,
+} from './forbidden';
 export { type ManifestV1, ManifestV1Schema, parseManifestV1 } from './manifest';
 export { MemoryNonceStore, type NonceStore } from './nonce';
 export { parseBySchema } from './parse';
@@ -96,6 +102,7 @@ export {
   ownerBindingUri,
   PATHS,
   PUBCHI_APP,
+  PUBCHI_EPOCH,
   PUBKY_APP,
   requestBindingPath,
   runReceiptPath,

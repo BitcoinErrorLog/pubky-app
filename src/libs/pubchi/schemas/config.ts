@@ -67,13 +67,16 @@ export const PubchiConfigV1Schema = z
       .object({
         enabled: z.boolean(),
         max_suggestions_per_day: z.number().int().min(0).max(10),
-        quiet_hours_utc: z.object({ start: z.number().int().min(0).max(23), end: z.number().int().min(0).max(23) }).strict(),
+        quiet_hours_utc: z
+          .object({ start: z.number().int().min(0).max(23), end: z.number().int().min(0).max(23) })
+          .strict(),
       })
       .strict(),
     follower_history_opt_in: z.boolean(),
     brain: brainSchema,
+    ext: z.record(z.string(), z.unknown()).optional(),
   })
-  .strict();
+  .catchall(z.unknown());
 
 export type PubchiConfigV1 = z.infer<typeof PubchiConfigV1Schema>;
 

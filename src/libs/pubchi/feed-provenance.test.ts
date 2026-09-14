@@ -63,7 +63,7 @@ describe('Pubchi feed provenance', () => {
 
     expect(HomeserverService.request).toHaveBeenCalledWith({
       method: HttpMethod.PUT,
-      url: `pubky://${OWNER}/pub/pubchi.app/feeds/${FEED.id}.json`,
+      url: `pubky://${OWNER}/priv/app.pubchi/v1/feeds/${FEED.id}.json`,
       bodyJson: expect.objectContaining({
         schema: 'pubchi-feed-provenance',
         version: 1,
@@ -84,15 +84,13 @@ describe('Pubchi feed provenance', () => {
       bot: BOT,
       future_field: { retained: true },
     };
-    vi.mocked(HomeserverService.request)
-      .mockResolvedValueOnce(existing)
-      .mockResolvedValueOnce(undefined);
+    vi.mocked(HomeserverService.request).mockResolvedValueOnce(existing).mockResolvedValueOnce(undefined);
 
     await recordPubchiBuiltFeed(OWNER, PROPOSAL, FEED);
 
     expect(HomeserverService.request).toHaveBeenLastCalledWith({
       method: HttpMethod.PUT,
-      url: `pubky://${OWNER}/pub/pubchi.app/feeds/${FEED.id}.json`,
+      url: `pubky://${OWNER}/priv/app.pubchi/v1/feeds/${FEED.id}.json`,
       bodyJson: expect.objectContaining({ future_field: existing.future_field }),
     });
   });
@@ -111,10 +109,10 @@ describe('Pubchi feed provenance', () => {
   });
 
   it('lists only valid provenance records and ignores missing feeds at the join boundary', async () => {
-    const recordUrl = `pubky://${OWNER}/pub/pubchi.app/feeds/${FEED.id}.json`;
+    const recordUrl = `pubky://${OWNER}/priv/app.pubchi/v1/feeds/${FEED.id}.json`;
     vi.mocked(HomeserverService.listAll).mockResolvedValue([
       recordUrl,
-      `pubky://${OWNER}/pub/pubchi.app/feeds/missing.json`,
+      `pubky://${OWNER}/priv/app.pubchi/v1/feeds/missing.json`,
     ]);
     vi.mocked(HomeserverService.request)
       .mockResolvedValueOnce({

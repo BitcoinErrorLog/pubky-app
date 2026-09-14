@@ -6,7 +6,13 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import * as deviceKey from '@/libs/pubchi/device-key';
-import { botUri, delegationUri, ownerBindingsUri, ownerBindingUri, signDeviceDelegationV1 } from '@/libs/pubchi/schemas';
+import {
+  botUri,
+  delegationUri,
+  ownerBindingsUri,
+  ownerBindingUri,
+  signDeviceDelegationV1,
+} from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
 import type { PubchiBindingRecord } from '@/models/pubchi/binding.schema';
@@ -17,8 +23,7 @@ import { PubchiApplication } from './pubchi';
 const OWNER = Keypair.random().publicKey.z32();
 const BOT = 'aihfhgdfshrj8nz9ofo7khayc1mgcqa4wrrdjahs5tmgo4pna3iy';
 const OLD_BOT = Keypair.random().publicKey.z32();
-const TEST_PHRASE =
-  'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const custodyMode = vi.hoisted(() => ({ real: false }));
 
 vi.mock('@/libs/pubchi/bot-key-custody', async (importOriginal) => {
@@ -118,7 +123,9 @@ describe('PubchiApplication create protocol', () => {
       operations.indexOf(`PUT ${botUri(OWNER)}`),
     );
     expect(operations.indexOf(`PUT ${botUri(OWNER)}`)).toBeLessThan(
-      operations.findIndex((operation) => /^PUT pubky:\/\/.*\/pub\/pubchi\.app\/devices\/.*\.json$/.test(operation)),
+      operations.findIndex((operation) =>
+        /^PUT pubky:\/\/.*\/pub\/app\.pubchi\/v1\/devices\/.*\.json$/.test(operation),
+      ),
     );
     const delegation = [...documents.entries()].find(([url]) => url.includes('/devices/'))?.[1] as {
       bot: string;
@@ -194,9 +201,7 @@ describe('PubchiApplication create protocol', () => {
       PubchiApplication.createPubchi({ owner: OWNER, displayName: 'Ignored', capabilities: ['/:rw'] }),
     ).rejects.toThrow('PUBCHI_ALREADY_EXISTS');
 
-    const delegationPuts = operations.filter(
-      (operation) => operation === `PUT ${delegationUri(OWNER, device.signer)}`,
-    );
+    const delegationPuts = operations.filter((operation) => operation === `PUT ${delegationUri(OWNER, device.signer)}`);
     expect(delegationPuts).toHaveLength(1);
     expect(documents.get(delegationUri(OWNER, device.signer))).toMatchObject({ bot: OLD_BOT });
   });
@@ -260,9 +265,9 @@ describe('PubchiApplication create protocol', () => {
 
     await expect(PubchiApplication.loadPubchi(OWNER)).resolves.toMatchObject({ bot: OLD_BOT, verified: true });
 
-    expect(
-      operations.filter((operation) => operation === `PUT ${delegationUri(OWNER, device.signer)}`),
-    ).toHaveLength(1);
+    expect(operations.filter((operation) => operation === `PUT ${delegationUri(OWNER, device.signer)}`)).toHaveLength(
+      1,
+    );
     expect(documents.get(delegationUri(OWNER, device.signer))).toMatchObject({ bot: OLD_BOT });
   });
 
@@ -270,9 +275,9 @@ describe('PubchiApplication create protocol', () => {
     documents.set(botUri(OWNER), botDocument(OLD_BOT, 4));
     const loadDeviceSpy = vi.spyOn(deviceKey, 'loadOrGenerateDeviceKey');
 
-    await expect(
-      PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT }),
-    ).rejects.toThrow('PUBCHI_ALREADY_EXISTS');
+    await expect(PubchiApplication.commitCreateBinding({ owner: OWNER, bot: BOT })).rejects.toThrow(
+      'PUBCHI_ALREADY_EXISTS',
+    );
 
     expect(loadDeviceSpy).not.toHaveBeenCalled();
   });
