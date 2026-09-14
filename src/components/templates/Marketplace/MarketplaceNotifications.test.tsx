@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { MarketplaceNotifications } from './MarketplaceNotifications';
@@ -41,6 +41,9 @@ vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () 
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
+}));
+vi.mock('@/organisms/Marketplace/MarketplaceSectionNav', () => ({
+  MarketplaceSectionNav: () => <nav data-testid="marketplace-section-nav" />,
 }));
 
 describe('MarketplaceNotifications', () => {
@@ -89,5 +92,26 @@ describe('MarketplaceNotifications', () => {
 
     expect(getByText('From System')).toBeInTheDocument();
     expect(getByText('Unrecognized marketplace event — history may be incomplete')).toBeInTheDocument();
+  });
+
+  it('links a new offer activity row to its offer anchor', () => {
+    marketplaceView.notifications = [
+      {
+        id: '00000000-0000-4000-8000-000000000932',
+        recipientPubky: 'y'.repeat(52),
+        actorPubky: 'b'.repeat(52),
+        type: 'offer_received',
+        aggregateId: 'offer:00000000-0000-4000-8000-000000000933',
+        createdAt: '2026-08-20T11:00:00.000Z',
+        readAt: null,
+      },
+    ];
+
+    render(<MarketplaceNotifications />);
+
+    expect(screen.getByRole('link', { name: 'Open new offer' })).toHaveAttribute(
+      'href',
+      '/marketplace/offers#offer-00000000-0000-4000-8000-000000000933',
+    );
   });
 });

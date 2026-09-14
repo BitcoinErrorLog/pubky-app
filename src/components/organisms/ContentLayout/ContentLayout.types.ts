@@ -20,6 +20,8 @@ export interface ContentLayoutProps {
   className?: string;
   classNameWrapperContent?: string;
   classNameMobileHeader?: string;
+  /** Keep the main content's overflow visible for page-local sticky descendants. */
+  disableMainContentOverflow?: boolean;
   feedVariant?: TimelineFeedVariant;
   /** Temporary page-level layout that takes precedence over persisted feed preferences. */
   layoutOverride?: LayoutType;

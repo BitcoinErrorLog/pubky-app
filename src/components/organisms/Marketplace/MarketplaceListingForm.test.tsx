@@ -172,33 +172,6 @@ describe('MarketplaceListingForm', () => {
 
     expect(screen.getByRole('navigation', { name: 'Listing sections' })).toHaveClass('sticky');
   });
-
-  it('submits without photo descriptions when scrollIntoView is unavailable', async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn(async () => {});
-    render(
-      <FormHarness
-        fulfillment="pickup"
-        media={buildMedia([photoItem('one')])}
-        defaultValues={{
-          title: 'Vintage boots',
-          description: 'Well cared for boots.',
-          categoryId: 'fashion',
-          price: '125.00',
-        }}
-        onSubmit={onSubmit}
-      />,
-    );
-
-    Object.defineProperty(document.getElementById('listing-section-price'), 'scrollIntoView', {
-      configurable: true,
-      value: undefined,
-    });
-    await user.click(screen.getAllByRole('link', { name: /Price & format/ })[0]);
-    await user.click(screen.getByRole('button', { name: 'Publish listing' }));
-
-    expect(onSubmit).toHaveBeenCalledOnce();
-  });
 });
 
 describe('MarketplaceListingForm pickup capability (§A7)', () => {

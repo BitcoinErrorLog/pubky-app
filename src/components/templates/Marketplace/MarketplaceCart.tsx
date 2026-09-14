@@ -33,6 +33,7 @@ import { ControlledInputField } from '@/molecules/ControlledInputField/Controlle
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { MarketplaceCartSkeleton } from './MarketplaceCart.skeleton';
 
@@ -78,6 +79,7 @@ export function MarketplaceCart() {
       classNameWrapperContent="max-w-6xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+        <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults

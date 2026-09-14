@@ -55,6 +55,14 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', async () => {
   };
 });
 
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 3,
+}));
+
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 2,
+}));
+
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));

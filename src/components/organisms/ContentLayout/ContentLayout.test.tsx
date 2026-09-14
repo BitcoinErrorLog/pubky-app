@@ -275,6 +275,21 @@ describe('ContentLayout', () => {
     expect(screen.getByText('Test Content')).toBeInTheDocument();
   });
 
+  it('allows page-local sticky content to use the page scroll root', () => {
+    render(
+      <ContentLayout disableMainContentOverflow>
+        <div data-testid="sticky-rail" className="sticky">
+          Rail
+        </div>
+      </ContentLayout>,
+    );
+
+    const main = screen.getByTestId('sticky-rail').parentElement;
+    expect(main).not.toBeNull();
+    expect(main).not.toHaveClass('lg:overflow-hidden');
+    expect(screen.getByTestId('sticky-rail')).toHaveClass('sticky');
+  });
+
   it('renders MobileHeader by default', () => {
     render(
       <ContentLayout>

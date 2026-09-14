@@ -17,6 +17,7 @@ import { parseConversationAggregateId } from '@/libs/commerce/messaging-contract
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceInbox() {
@@ -32,6 +33,7 @@ export function MarketplaceInbox() {
       classNameWrapperContent="max-w-3xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+        <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults

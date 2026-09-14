@@ -29,6 +29,7 @@ import { formatCommerceMoney } from '@/libs/commerce/format';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceNotificationItem } from '@/organisms/MarketplaceNotificationItem/MarketplaceNotificationItem';
 import {
   getWatchAlertDetail,
@@ -73,6 +74,7 @@ export function MarketplaceWatchlist() {
       classNameWrapperContent="max-w-4xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+        <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
           overrideDefaults
