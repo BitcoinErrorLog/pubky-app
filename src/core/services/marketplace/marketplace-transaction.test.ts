@@ -7,6 +7,7 @@ import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/
 import { Logger } from '@/libs/logger/logger';
 import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
+import { LIVE_ORDERS_WIRE_FIXTURE } from '@/test/fixtures/commerce/orders.wire';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH, marketplaceNotificationSchema } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
@@ -437,7 +438,7 @@ describe('MarketplaceTransactionService read projections', () => {
               quoted_sats: 2_588,
               currency: 'USD',
               exponent: 2,
-              rate: 100_000,
+              rate: '77287',
               source: 'captured',
               fetched_at: '2026-08-20T10:00:00.000Z',
               expires_at: '2026-08-20T11:00:00.000Z',
@@ -474,32 +475,60 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(orders[0].payment).not.toHaveProperty('locksBundleId');
   });
 
-  it('rejects an order whose snake_case bitcoin quote exceeds the protocol bound', async () => {
+  it('reads the captured wire orders, including the locked and all-null quotes', async () => {
     await establishSession();
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(200, {
-        orders: [
-          orderWire({
-            payment_method: 'bitcoin',
-            bitcoin_quote: {
-              quoted_sats: 2_100_000_000_000_001,
-              currency: 'USD',
-              exponent: 2,
-              rate: 100_000,
-              source: 'captured',
-              fetched_at: '2026-08-20T10:00:00.000Z',
-              expires_at: '2026-08-20T11:00:00.000Z',
-              spread_bps: 0,
-            },
-          }),
-        ],
-      }),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, LIVE_ORDERS_WIRE_FIXTURE));
 
-    await expect(MarketplaceTransactionService.getOrders(ACTOR)).rejects.toMatchObject({
-      code: 'INVALID_RESPONSE',
-    });
+    const orders = await MarketplaceTransactionService.getOrders(ACTOR);
+
+    expect(orders).toHaveLength(2);
+    expect(orders[0]).toMatchObject({ bitcoinQuote: { quotedSats: 2_588, rate: '77287' } });
+    expect(orders[1]).toMatchObject({ paymentMethod: null, bitcoinQuote: { quotedSats: null } });
   });
+
+  it.each([2_100_000_000_000_001, 0])(
+    'drops malformed quoted_sats=%s without dropping the order list',
+    async (quotedSats) => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          orders: [
+            orderWire({
+              bitcoin_quote: {
+                quoted_sats: quotedSats,
+                currency: 'USD',
+                exponent: 2,
+                rate: '77287',
+                source: 'blocktank',
+                fetched_at: '2026-09-13T19:14:48.286Z',
+                expires_at: '2026-09-13T20:15:09.050Z',
+                spread_bps: 0,
+              },
+            }),
+            orderWire({
+              id: '00000000-0000-4000-8000-000000000913',
+              bitcoin_quote: {
+                quoted_sats: 2_588,
+                currency: 'USD',
+                exponent: 2,
+                rate: '77287',
+                source: 'blocktank',
+                fetched_at: '2026-09-13T19:14:48.286Z',
+                expires_at: '2026-09-13T20:15:09.050Z',
+                spread_bps: 0,
+              },
+            }),
+          ],
+        }),
+      );
+
+      const orders = await MarketplaceTransactionService.getOrders(ACTOR);
+
+      expect(orders).toHaveLength(2);
+      expect(orders[0]?.bitcoinQuote).toBeUndefined();
+      expect(orders[1]?.bitcoinQuote).toMatchObject({ quotedSats: 2_588, rate: '77287' });
+    },
+  );
 
   it('reads assumed-delivery and next-actor order projection fields when present', async () => {
     await establishSession();

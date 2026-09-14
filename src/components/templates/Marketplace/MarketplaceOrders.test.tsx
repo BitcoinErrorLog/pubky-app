@@ -478,11 +478,11 @@ describe('MarketplaceOrders tabs', () => {
           quotedSats: 2_588,
           currency: 'USD',
           exponent: 2,
-          rate: 100_000,
+          rate: '77287',
           source: 'blocktank',
-          fetchedAt: '2026-09-13T20:00:00.000Z',
-          expiresAt: '2026-09-13T21:00:00.000Z',
-          spreadBps: 50,
+          fetchedAt: '2026-09-13T19:14:48.286Z',
+          expiresAt: '2026-09-13T20:15:09.050Z',
+          spreadBps: 0,
         },
       }),
     ];
@@ -491,6 +491,7 @@ describe('MarketplaceOrders tabs', () => {
     await userEvent.setup().click(screen.getByRole('tab', { name: /All 1/i }));
 
     expect(screen.getByText(/Locked Bitcoin amount: ₿2,588/)).toBeInTheDocument();
+    expect(screen.getByText(/ · Bitcoin quote expired/)).toBeInTheDocument();
     expect(screen.queryByText(/≈ ₿/)).not.toBeInTheDocument();
   });
 
@@ -499,7 +500,7 @@ describe('MarketplaceOrders tabs', () => {
     ordersState.orders = [
       orderView('paid', 'Indicative quote boots', 'buyer', {
         paymentMethod: 'bitcoin',
-        bitcoinQuote: null,
+        bitcoinQuote: undefined,
       }),
     ];
 

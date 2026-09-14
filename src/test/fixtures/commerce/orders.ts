@@ -113,11 +113,11 @@ export function createBitcoinQuotedOrderFixture(): MarketplaceOrder {
       quotedSats: 2_588,
       currency: 'USD',
       exponent: 2,
-      rate: 100_000,
+      rate: '77287',
       source: 'blocktank',
-      fetchedAt: '2026-09-13T20:00:00.000Z',
-      expiresAt: '2026-09-13T21:00:00.000Z',
-      spreadBps: 50,
+      fetchedAt: '2026-09-13T19:14:48.286Z',
+      expiresAt: '2026-09-13T20:15:09.050Z',
+      spreadBps: 0,
     },
   });
 }
