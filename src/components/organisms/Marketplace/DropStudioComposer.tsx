@@ -446,6 +446,7 @@ function DropStudioScheduleField({
             value={field.value}
             onChange={field.onChange}
             onBlur={field.onBlur}
+            max="9999-12-31T23:59"
             disabled={disabled}
             aria-invalid={!!error}
           />

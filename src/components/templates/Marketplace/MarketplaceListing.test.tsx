@@ -228,29 +228,27 @@ describe('MarketplaceListing', () => {
     expect(screen.queryByText('New seller · no reviews yet')).not.toBeInTheDocument();
   });
 
-  it('adds the selected variant to cart without a marketplace session', async () => {
+  it('requires a marketplace session before showing availability', async () => {
     view.projection = null;
     view.projectionError = 'A marketplace session is required.';
     view.needsSession = true;
-    const user = userEvent.setup();
-
-    const listing = renderListing();
-    await user.click(screen.getByRole('button', { name: 'Add to cart' }));
-
-    expect(cartAdd).toHaveBeenCalledWith(`${listing.seller_id}:${listing.listing_id}`, 'variant_01', 1);
-  });
-
-  it('does not show the approval card after Add to cart is clicked without a marketplace session', async () => {
-    view.projection = null;
-    view.projectionError = 'A marketplace session is required.';
-    view.needsSession = true;
-    const user = userEvent.setup();
 
     renderListing();
-    await user.click(screen.getByRole('button', { name: 'Add to cart' }));
 
-    expect(screen.queryByRole('heading', { name: 'Approve purchases in Pubky Ring' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Connect to see availability' })[0]).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Add to cart' })).not.toBeInTheDocument();
+    expect(cartAdd).not.toHaveBeenCalled();
+  });
+
+  it('offers the existing session connect affordance without claiming stock', async () => {
+    view.projection = null;
+    view.projectionError = 'A marketplace session is required.';
+    view.needsSession = true;
+
+    renderListing();
+
+    expect(screen.getByText('Connect to see availability before adding this item to your cart.')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Connect to see availability' })).toHaveLength(2);
   });
 
   it('adds the selected variant to cart when the marketplace session is ready', async () => {

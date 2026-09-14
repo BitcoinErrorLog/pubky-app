@@ -30,6 +30,7 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   sessionTimeout: 'The approval expired before it was completed. Try again.',
   sessionStart: 'Could not start the marketplace session.',
   soldOut: 'This drop is sold out.',
+  listingSoldOut: 'This listing has sold out.',
   dropNotStarted: "This drop hasn't started yet.",
   dropEnded: 'This drop has ended.',
   dropPerBuyerLimit: "You have reached this drop's per-buyer limit.",
@@ -74,6 +75,34 @@ const DROP_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([
   ['INSUFFICIENT_INVENTORY:The drop is sold out.', MARKETPLACE_FAILURE_MESSAGES.soldOut],
   ["INVALID_STATE:You have reached this drop's per-buyer limit.", MARKETPLACE_FAILURE_MESSAGES.dropPerBuyerLimit],
 ]);
+
+const CHECKOUT_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([
+  ['INSUFFICIENT_INVENTORY:Checkout quantity is unavailable.', MARKETPLACE_FAILURE_MESSAGES.listingSoldOut],
+  [
+    'INVALID_COMMAND:Checkout aggregate identity or revision is invalid.',
+    'Checkout could not be started. Review your cart and try again.',
+  ],
+  ['NOT_FOUND:A checkout listing is unavailable.', 'A listing in your cart is no longer available.'],
+  ['UNAUTHORIZED:A buyer cannot purchase their own listing.', 'You cannot purchase your own listing.'],
+  [
+    'INVALID_STATE:Only fixed-price listings can enter checkout.',
+    'Only fixed-price listings can be purchased through checkout.',
+  ],
+  [
+    "INVALID_STATE:Another buyer's payment is holding this item. If it isn't completed in time, the item restocks.",
+    'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
+  ],
+  ['INVALID_STATE:This listing has sold out.', MARKETPLACE_FAILURE_MESSAGES.listingSoldOut],
+  [
+    'INVALID_STATE:Only available fixed-price listings can enter checkout.',
+    'This listing is not available for checkout.',
+  ],
+]);
+
+export function marketplaceCheckoutRefusalMessage(code: MarketplaceFailureCode, message: unknown): string | null {
+  if (typeof code !== 'string' || typeof message !== 'string') return null;
+  return CHECKOUT_REFUSAL_MESSAGES.get(`${code}:${message}`) ?? null;
+}
 
 export function marketplaceDropRefusalMessage(code: MarketplaceFailureCode, message: unknown): string | null {
   if (typeof code !== 'string' || typeof message !== 'string') return null;

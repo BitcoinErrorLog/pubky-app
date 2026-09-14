@@ -30,6 +30,28 @@ const wholeNumberSchema = (message: string) =>
     .trim()
     .regex(/^[1-9]\d*$/, message);
 
+const localDateTimeSchema = (label: string, optional: boolean) =>
+  z
+    .string()
+    .trim()
+    .refine((value) => optional || value !== '', `Set a ${label.toLowerCase()}.`)
+    .refine((value) => (optional && value === '') || isValidLocalDateTime(value), `${label} is not a valid date.`);
+
+function isValidLocalDateTime(value: string): boolean {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return false;
+  const [, year, month, day, hour, minute, second = '0'] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  return (
+    date.getFullYear() === Number(year) &&
+    date.getMonth() === Number(month) - 1 &&
+    date.getDate() === Number(day) &&
+    date.getHours() === Number(hour) &&
+    date.getMinutes() === Number(minute) &&
+    date.getSeconds() === Number(second)
+  );
+}
+
 export const dropStudioSchema = z
   .object({
     title: z
@@ -48,16 +70,9 @@ export const dropStudioSchema = z
       .array(z.string().min(1))
       .min(1, 'Pick at least one listing.')
       .max(DROP_MAX_LISTINGS, `A drop bundles at most ${DROP_MAX_LISTINGS} listings.`),
-    startsAtLocal: z
-      .string()
-      .trim()
-      .min(1, 'Set a launch time.')
-      .refine((value) => !Number.isNaN(Date.parse(value)), 'Launch time is not a valid date.'),
+    startsAtLocal: localDateTimeSchema('Launch time', false),
     /** Empty string means "no scheduled end" — the drop runs until sell-out or cancellation. */
-    endsAtLocal: z
-      .string()
-      .trim()
-      .refine((value) => value === '' || !Number.isNaN(Date.parse(value)), 'End time is not a valid date.'),
+    endsAtLocal: localDateTimeSchema('End time', true),
     totalQuantity: wholeNumberSchema('Total quantity must be a positive whole number.').refine(
       (value) => Number(value) <= DROP_MAX_TOTAL_QUANTITY,
       `Total quantity can be at most ${DROP_MAX_TOTAL_QUANTITY.toLocaleString('en-US')}.`,

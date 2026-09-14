@@ -13,7 +13,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
-import { getCommerceAdapterMode, isTransactionalCommerceMode } from '@/config/commerce';
+import { getCommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
@@ -173,8 +173,16 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     (total, variant) => total + (variant.enabled ? variant.quantity : 0),
     0,
   );
-  const isSoldOut = (listing.purchasableQuantity ?? recordQuantity) <= 0;
+  const isDurable = isDurableCommerceMode(adapterMode);
+  const projectionIsSoldOut =
+    negotiation.projection !== null &&
+    (negotiation.projection.state !== 'available' || negotiation.projection.availableQuantity === 0);
+  const isSoldOut = isDurable ? projectionIsSoldOut : (listing.purchasableQuantity ?? recordQuantity) <= 0;
   const isPurchasable = record.state === 'active';
+  const availabilityPending = isDurable && negotiation.isLoading;
+  const availabilityNeedsSession = isDurable && negotiation.needsSession;
+  const availabilityReady =
+    !isDurable || (!availabilityPending && !availabilityNeedsSession && negotiation.projection !== null);
   const stateNotice =
     record.state === 'paused'
       ? 'The seller has unlisted this item. It cannot be purchased right now.'
@@ -450,15 +458,25 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     disabled={
                       adapterMode === 'unavailable' ||
                       !isPurchasable ||
+                      !availabilityReady ||
+                      isSoldOut ||
                       !selectedVariant ||
                       selectedVariant.quantity === 0
                     }
                     onClick={addSelectedVariantToCart}
                   >
                     <ShoppingCart className="mr-2 size-4" />
-                    {isSoldOut ? 'Sold out' : isPurchasable ? 'Add to cart' : 'Unavailable'}
+                    {availabilityPending
+                      ? 'Checking availability…'
+                      : availabilityNeedsSession
+                        ? 'Connect to see availability'
+                        : isSoldOut
+                          ? 'Sold out'
+                          : isPurchasable
+                            ? 'Add to cart'
+                            : 'Unavailable'}
                   </Button>
-                  {record.sale.acceptsOffers && isPurchasable && (
+                  {record.sale.acceptsOffers && isPurchasable && availabilityReady && !isSoldOut && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}
@@ -488,6 +506,21 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </Button>
               <MarketplaceListingSavePicker sellerPubky={record.ownerPubky} listingId={record.listingId} />
             </div>
+            {availabilityNeedsSession && (
+              <div className="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <Typography as="p" className="text-sm text-amber-200">
+                  Connect to see availability before adding this item to your cart.
+                </Typography>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-fit rounded-full"
+                  onClick={revealSessionRequired}
+                >
+                  Connect to see availability
+                </Button>
+              </div>
+            )}
             {adapterMode === 'unavailable' && (
               <Typography as="p" className="text-center text-sm text-muted-foreground">
                 Transactions are disabled in this deployment.

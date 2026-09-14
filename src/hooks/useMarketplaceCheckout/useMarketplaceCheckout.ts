@@ -9,6 +9,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceCheckoutRefusalMessage,
   marketplaceErrorCode,
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
@@ -366,14 +367,11 @@ export function useMarketplaceCheckout(
             variant: 'error',
             description: pickupRefusal
               ? pickupRefusalFailureMessage(pickupRefusal)
-              : marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.checkout),
+              : (marketplaceCheckoutRefusalMessage(response.error.code, response.error.message) ??
+                marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.checkout)),
           });
           return;
         }
-        // The address book only learns an address that actually traveled —
-        // a pickup-only checkout sent none (§A2).
-        if (requiresDeliveryAddress) await persistAddressBookAfterOrder(data);
-        await clearCart();
         succeeded = true;
         const mode = getCommerceAdapterMode();
         toast({
@@ -385,6 +383,14 @@ export function useMarketplaceCheckout(
                 ? 'Recorded by the transaction service. Open Orders to request the payment in your wallet.'
                 : 'Recorded by the transaction service. Payments are not enabled here, so it will stay awaiting payment.',
         });
+        // The address book only learns an address that actually traveled —
+        // a pickup-only checkout sent none (§A2).
+        if (requiresDeliveryAddress) await persistAddressBookAfterOrder(data);
+        try {
+          await clearCart();
+        } catch {
+          toast({ variant: 'error', description: 'The order was placed, but your cart could not be cleared.' });
+        }
       } catch (checkoutError) {
         if (isMarketplaceSessionRequiredError(checkoutError)) {
           // The projection reads and the checkout command both require the
