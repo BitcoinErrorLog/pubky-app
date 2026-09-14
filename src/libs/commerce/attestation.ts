@@ -65,31 +65,58 @@ export function extractReviewAttestation(result: Record<string, unknown>): Marke
  * receipt document lives under the owner's `/priv/` tree, so there is no
  * observer to redact from. Issuance is deterministic per receipt.
  */
-export const marketplaceReceiptAttestationSchema = z
+const receiptAttestationJwsSchema = z
+  .string()
+  .min(32)
+  .max(4_096)
+  .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+
+const receiptAttestationPartyClaims = {
+  iss: z.string().length(52),
+  buyer: z.string().length(52),
+  seller: z.string().length(52),
+  order: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  receipt: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  paidAt: z.string().min(1),
+  iat: z.number().int().positive(),
+};
+
+const receiptMoneyObjectSchema = z
   .object({
-    jws: z
-      .string()
-      .min(32)
-      .max(4_096)
-      .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/),
-    claims: z
-      .object({
-        v: z.literal(1),
-        iss: z.string().length(52),
-        buyer: z.string().length(52),
-        seller: z.string().length(52),
-        order: z.uuid(),
-        receipt: z.uuid(),
-        totalMinor: z.number().int().positive(),
-        currency: z.string().min(1),
-        exponent: z.number().int().min(0),
-        paidAt: z.string().min(1),
-        iat: z.number().int().positive(),
-      })
-      .strict(),
+    amountMinor: z.number().int().min(0),
+    currency: z.string().min(1),
+    exponent: z.number().int().min(0),
   })
   .strict();
 
+const marketplaceReceiptAttestationClaimsSchema = z.discriminatedUnion('v', [
+  z
+    .object({
+      ...receiptAttestationPartyClaims,
+      v: z.literal(1),
+      totalMinor: z.number().int().positive(),
+      currency: z.string().min(1),
+      exponent: z.number().int().min(0),
+    })
+    .strict(),
+  z
+    .object({
+      ...receiptAttestationPartyClaims,
+      v: z.literal(2),
+      settlementTotal: receiptMoneyObjectSchema,
+      merchandiseTotal: receiptMoneyObjectSchema,
+    })
+    .strict(),
+]);
+
+export const marketplaceReceiptAttestationSchema = z
+  .object({
+    jws: receiptAttestationJwsSchema,
+    claims: marketplaceReceiptAttestationClaimsSchema,
+  })
+  .strict();
+
+export type MarketplaceReceiptAttestationClaims = z.infer<typeof marketplaceReceiptAttestationClaimsSchema>;
 export type MarketplaceReceiptAttestation = z.infer<typeof marketplaceReceiptAttestationSchema>;
 
 /**

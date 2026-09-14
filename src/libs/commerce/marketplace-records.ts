@@ -837,6 +837,7 @@ const commerceOrderReceiptRecordSchemaInner = commercePublicRecordBaseSchema
     buyerPubky: commercePubkySchema,
     sellerPubky: commercePubkySchema,
     total: commerceMoneySchema,
+    settlementTotal: commerceMoneySchema.optional(),
     paidAt: commerceTimestampSchema,
     receiptAttestation: z
       .string()

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
+import { verifyOwnOrderReceipt } from './attestation';
 import {
   commerceCollectionRecordSchema,
   commerceDropRecordSchema,
@@ -13,6 +15,7 @@ import {
   locksPublicUriSchema,
   marketplacePublicUriSchema,
 } from './marketplace-records';
+import { toCamelCaseWire } from './wire-casing';
 
 const SELLER_PUBKY = 'y'.repeat(52);
 const BUYER_PUBKY = 'b'.repeat(52);
@@ -671,5 +674,42 @@ describe('commerceListingFulfillmentMethods (mirrors the service homeserver deri
     // The service deliberately dedupes set-wise (not Vec::dedup's adjacent-only
     // collapse) so a non-adjacent repeat cannot fail registration validation.
     expect(commerceListingFulfillmentMethods(['shipping', 'pickup', 'shipping'])).toEqual(['shipping', 'pickup']);
+  });
+});
+
+describe('portable v2 order receipt records', () => {
+  it('keeps the opaque v2 JWS and verifies the parsed record', () => {
+    const attestation = toCamelCaseWire(receiptAttestationV2Bitcoin.receipt_attestation) as {
+      jws: string;
+      claims: {
+        iss: string;
+        buyer: string;
+        seller: string;
+        order: string;
+        receipt: string;
+        paidAt: string;
+        merchandiseTotal: { amountMinor: number; currency: string; exponent: number };
+      };
+    };
+    const record = {
+      schemaVersion: COMMERCE_CONTRACT_VERSION,
+      recordType: 'order_receipt',
+      ownerPubky: attestation.claims.buyer,
+      revision: 1,
+      createdAt: attestation.claims.paidAt,
+      updatedAt: attestation.claims.paidAt,
+      role: 'buyer',
+      receiptId: attestation.claims.receipt,
+      orderId: attestation.claims.order,
+      buyerPubky: attestation.claims.buyer,
+      sellerPubky: attestation.claims.seller,
+      total: attestation.claims.merchandiseTotal,
+      paidAt: attestation.claims.paidAt,
+      receiptAttestation: attestation.jws,
+    };
+
+    const parsed = commerceOrderReceiptRecordSchema.parse(record);
+    expect(parsed.receiptAttestation).toBe(attestation.jws);
+    expect(verifyOwnOrderReceipt(parsed)).toBe(attestation.claims.iss);
   });
 });
