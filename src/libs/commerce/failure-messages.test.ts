@@ -87,6 +87,7 @@ describe('marketplaceCheckoutRefusalMessage', () => {
       'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
     ],
     ['INVALID_STATE', 'This listing has sold out.', MARKETPLACE_FAILURE_MESSAGES.listingSoldOut],
+    ['INSUFFICIENT_INVENTORY', 'Checkout quantity is unavailable.', MARKETPLACE_FAILURE_MESSAGES.listingSoldOut],
     [
       'INVALID_STATE',
       'Only available fixed-price listings can enter checkout.',

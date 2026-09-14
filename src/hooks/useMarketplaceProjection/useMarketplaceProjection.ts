@@ -1,6 +1,6 @@
 'use client';
 
-import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
+import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 import {
   getCommerceAdapterMode,
   getCommercePollIntervalMs,
@@ -30,21 +30,41 @@ export function useMarketplaceProjection(sellerPubky: string, listingId: string)
   const [isLoading, setIsLoading] = useState(isTransactional);
   const [error, setError] = useState<string | null>(null);
   const [needsSession, setNeedsSession] = useState(false);
+  const generationRef = useRef(0);
 
-  const refresh = () => loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession);
+  const refresh = () => {
+    const generation = generationRef.current;
+    void loadProjection(
+      sellerPubky,
+      listingId,
+      setProjection,
+      setIsLoading,
+      setError,
+      setNeedsSession,
+      () => generationRef.current === generation,
+    );
+  };
 
   useEffect(() => {
+    const generation = ++generationRef.current;
+    const isCurrent = () => generationRef.current === generation;
+    setProjection(null);
+    setIsLoading(true);
+    setError(null);
+    setNeedsSession(false);
     if (!isTransactional) {
       setIsLoading(false);
       return;
     }
     let active = true;
     const refetch = () => {
-      if (active) void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession);
+      if (active)
+        void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession, isCurrent);
     };
-    void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession);
+    void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession, isCurrent);
     const timer = window.setInterval(() => {
-      if (active) void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession);
+      if (active)
+        void loadProjection(sellerPubky, listingId, setProjection, setIsLoading, setError, setNeedsSession, isCurrent);
     }, getCommercePollIntervalMs());
     window.addEventListener('focus', refetch);
     return () => {
@@ -64,6 +84,7 @@ async function loadProjection(
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
   setNeedsSession: Dispatch<SetStateAction<boolean>>,
+  isCurrent: () => boolean,
 ): Promise<void> {
   if (!isTransactionalCommerceMode(getCommerceAdapterMode())) return;
   try {
@@ -77,11 +98,16 @@ async function loadProjection(
     if (!next && isDurableCommerceMode(getCommerceAdapterMode())) {
       next = await syncThenReread(sellerPubky, listingId);
     }
+    if (!isCurrent()) return;
     setProjection(next);
-    if (next) await cacheProjection(next);
+    if (next) {
+      await cacheProjection(next);
+      if (!isCurrent()) return;
+    }
     setError(next ? null : MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable);
     setNeedsSession(false);
   } catch (loadError) {
+    if (!isCurrent()) return;
     // A missing/expired marketplace session is not a dead end: flag it so the
     // listing surface renders the session-connect affordance.
     setNeedsSession(isMarketplaceSessionRequiredError(loadError));
@@ -91,7 +117,7 @@ async function loadProjection(
         : 'Transaction service is unavailable.',
     );
   } finally {
-    setIsLoading(false);
+    if (isCurrent()) setIsLoading(false);
   }
 }
 

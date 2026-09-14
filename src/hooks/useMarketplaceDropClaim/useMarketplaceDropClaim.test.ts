@@ -187,6 +187,36 @@ describe('useMarketplaceDropClaim', () => {
     expect(result.current.failure).not.toContain(sentinel);
   });
 
+  it('refreshes the public drop and ready check after a thrown claim error', async () => {
+    const refresh = vi.fn(async () => {});
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockRejectedValueOnce(new Error('service failure'));
+    const { result } = renderHook(() => useMarketplaceDropClaim(refresh));
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    await act(async () => {
+      await result.current.claim(SELLER, 'listing1', 1);
+    });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a successful claim when the success refresh callback throws', async () => {
+    const refresh = vi.fn(async () => {
+      throw new Error('refresh failure');
+    });
+    const { result } = renderHook(() => useMarketplaceDropClaim(refresh));
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.claim(SELLER, 'listing1', 1);
+    });
+
+    expect(ok).toBe(true);
+    expect(result.current.failure).toBeNull();
+    expect(result.current.claimedListingIds.has(`${SELLER}:listing1`)).toBe(true);
+  });
+
   it('heals an unregistered listing with one sync before giving up', async () => {
     vi.mocked(CommerceController.getMarketplaceListingProjection)
       .mockResolvedValueOnce(null)

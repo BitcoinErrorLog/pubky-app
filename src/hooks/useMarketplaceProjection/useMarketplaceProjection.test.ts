@@ -163,6 +163,45 @@ describe('useMarketplaceProjection', () => {
     expect(result.current.error).toBe('A marketplace session is required.');
   });
 
+  it('ignores a late projection after switching listings and refetches the new key on focus', async () => {
+    config.mode = 'transaction-service';
+    let resolveFirst: ((value: never) => void) | undefined;
+    const first = new Promise<never>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let resolveSecond: ((value: never) => void) | undefined;
+    const secondPending = new Promise<never>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const second = {
+      aggregateId: 'listing:seller_second',
+      listingId: 'second',
+      serverRevision: 7,
+    };
+    vi.mocked(CommerceController.getMarketplaceListingProjection)
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(secondPending)
+      .mockResolvedValue(second as never);
+
+    const { result, rerender } = renderHook(({ listingId }) => useMarketplaceProjection('y'.repeat(52), listingId), {
+      initialProps: { listingId: 'first' },
+    });
+    rerender({ listingId: 'second' });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    resolveSecond?.(second as never);
+    await waitFor(() => expect(result.current.projection).toMatchObject({ listingId: 'second' }));
+    expect(result.current.isLoading).toBe(false);
+    resolveFirst?.({ aggregateId: 'listing:seller_first', listingId: 'first' } as never);
+    await Promise.resolve();
+    expect(result.current.projection).toMatchObject({ listingId: 'second' });
+
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() =>
+      expect(CommerceController.getMarketplaceListingProjection).toHaveBeenLastCalledWith('y'.repeat(52), 'second'),
+    );
+  });
+
   it('loads nothing in modes without a transaction backend', async () => {
     config.mode = 'unavailable';
     const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));

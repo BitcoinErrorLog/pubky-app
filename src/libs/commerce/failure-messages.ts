@@ -77,6 +77,7 @@ const DROP_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([
 ]);
 
 const CHECKOUT_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([
+  ['INSUFFICIENT_INVENTORY:Checkout quantity is unavailable.', MARKETPLACE_FAILURE_MESSAGES.listingSoldOut],
   [
     'INVALID_COMMAND:Checkout aggregate identity or revision is invalid.',
     'Checkout could not be started. Review your cart and try again.',

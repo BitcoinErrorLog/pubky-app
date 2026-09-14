@@ -139,9 +139,10 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         title: 'Claimed',
         description: 'The order was recorded by the transaction service. Open Orders to complete the payment.',
       });
-      await onClaimed?.();
+      await Promise.resolve(onClaimed?.()).catch(() => {});
       return true;
     } catch (claimError) {
+      await Promise.resolve(onClaimed?.()).catch(() => {});
       if (isMarketplaceSessionRequiredError(claimError)) {
         setNeedsSession(true);
         setSessionError(MARKETPLACE_FAILURE_MESSAGES.session);

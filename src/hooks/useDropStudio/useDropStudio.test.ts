@@ -97,6 +97,24 @@ describe('dropStudioSchema — composer validation mirrors the record contract',
     expect(paths).toContain('listingIds');
   });
 
+  it('uses the launch-time required message before date-format validation', () => {
+    const result = dropStudioSchema.safeParse({ ...base, startsAtLocal: '' });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues.find(({ path }) => path.join('.') === 'startsAtLocal')?.message).toBe(
+      'Set a launch time.',
+    );
+  });
+
+  it('rejects invalid calendar dates and accepts leap-day dates', () => {
+    const invalid = dropStudioSchema.safeParse({ ...base, startsAtLocal: '2024-02-30T10:00' });
+    expect(invalid.success).toBe(false);
+    expect(invalid.error!.issues.find(({ path }) => path.join('.') === 'startsAtLocal')?.message).toBe(
+      'Launch time is not a valid date.',
+    );
+
+    expect(dropStudioSchema.safeParse({ ...base, startsAtLocal: '2024-02-29T10:00' }).success).toBe(true);
+  });
+
   it('rejects a per-buyer limit above the total quantity', () => {
     const result = dropStudioSchema.safeParse({ ...base, totalQuantity: '5', perBuyerLimit: '6' });
     expect(result.success).toBe(false);
