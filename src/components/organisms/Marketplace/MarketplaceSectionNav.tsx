@@ -47,6 +47,7 @@ export function MarketplaceSectionNav() {
     <nav
       aria-label="Marketplace sections"
       data-testid="marketplace-section-nav"
+      data-surface="marketplace-section-nav"
       className="flex w-full gap-2 overflow-x-auto border-b pb-2"
     >
       {ITEMS.map(({ label, href, icon: Icon, badge, activePrefixes }) => {

@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import { MarketplaceSell } from '@/templates/Marketplace/MarketplaceSell';
@@ -173,6 +173,33 @@ describe('Marketplace sell studio — visual regression', () => {
     view.pickupAvailable = false;
     view.adapterMode = 'sandbox';
     sellerPaymentConfig.mockClear();
+  });
+
+  function assertStickyRailHasVisibleAncestors(rail: Element, scrollingRoot: Element) {
+    expect(window.getComputedStyle(rail).position).toBe('sticky');
+    for (let parent = rail.parentElement; parent && parent !== scrollingRoot; parent = parent.parentElement) {
+      expect(window.getComputedStyle(parent).overflow).toBe('visible');
+    }
+  }
+
+  it('keeps the production section rail sticky without an overflowing ancestor', async () => {
+    view.drafts = [];
+    view.mediaItems = [];
+    await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+
+    const rail = document.querySelector('[aria-label="Listing sections"]');
+    const scrollingRoot = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
+    expect(rail).not.toBeNull();
+    expect(scrollingRoot).not.toBeNull();
+    assertStickyRailHasVisibleAncestors(rail!, scrollingRoot!);
+
+    const clipped = document.createElement('div');
+    clipped.style.overflow = 'hidden';
+    const clonedRail = rail!.cloneNode(true);
+    clipped.append(clonedRail);
+    scrollingRoot!.append(clipped);
+    expect(() => assertStickyRailHasVisibleAncestors(clonedRail as Element, scrollingRoot!)).toThrow();
+    clipped.remove();
   });
 
   it('renders the empty listing form at desktop viewport', async () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, HandCoins } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -30,6 +30,9 @@ export function MarketplaceOffers() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const offers = useMarketplaceOffers();
   const [countering, setCountering] = useState<MarketplaceOffer | null>(null);
+  const { listings, isHydrating } = useOfferListings(offers.offers);
+  const linkedOfferId = useOfferAnchor();
+  const linkedOfferMissing = isLinkedOfferMissing(linkedOfferId, offers.offers, offers.isLoading, offers.error);
 
   const submitCounter = async () => {
     if (!countering || !(await offers.counter(countering))) return;
@@ -72,6 +75,10 @@ export function MarketplaceOffers() {
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">
             {offers.error}
           </div>
+        ) : linkedOfferMissing ? (
+          <Typography as="p" role="status" className="rounded-xl border border-dashed p-4 text-muted-foreground">
+            This offer is no longer available.
+          </Typography>
         ) : offers.offers.length ? (
           <div className="grid gap-4">
             {offers.offers.map((offer) => {
@@ -88,7 +95,11 @@ export function MarketplaceOffers() {
                       <Typography as="p" className="text-2xl font-bold text-brand">
                         {formatCommerceMoney(offer.amount)}
                       </Typography>
-                      <OfferListingSummary offer={offer} />
+                      <OfferListingSummary
+                        offer={offer}
+                        listing={listings.get(listingCompositeId(offer))}
+                        isHydrating={isHydrating}
+                      />
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Quantity {offer.quantity} · Expires {new Date(offer.expiresAt).toLocaleString('en-US')}
                       </Typography>
@@ -189,31 +200,102 @@ export function offerStateLabel(state: MarketplaceOffer['state'], expiresAt: str
   return state === 'accepted' && Date.parse(expiresAt) <= nowMs ? 'Expired' : state;
 }
 
-export function OfferListingSummary({ offer }: { offer: MarketplaceOffer }) {
+const LISTING_HYDRATION_CONCURRENCY = 4;
+
+export async function loadOfferListings(offers: readonly MarketplaceOffer[]) {
+  const ids = [...new Set(offers.map(listingCompositeId).filter(Boolean))];
+  if (!ids.length) return new Map<string, CommerceListingRecord>();
+
+  const localModels = await CommerceController.getManyListings(ids);
+  const local = new Map([...localModels].map(([id, model]) => [id, model.record] as [string, CommerceListingRecord]));
+  const missing = ids.filter((id) => !local.has(id));
+  if (!missing.length) return local;
+
+  const hydrated = new Map<string, CommerceListingRecord>();
+  let next = 0;
+  const worker = async () => {
+    while (next < missing.length) {
+      const compositeId = missing[next++];
+      const separator = compositeId.indexOf(':');
+      try {
+        const record = await CommerceController.getOrFetchListing(
+          compositeId.slice(0, separator),
+          compositeId.slice(separator + 1),
+        );
+        hydrated.set(compositeId, record);
+      } catch {
+        // Missing listings are rendered as unavailable after bounded hydration.
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(LISTING_HYDRATION_CONCURRENCY, missing.length) }, () => worker()));
+  return new Map([...local, ...hydrated]);
+}
+
+function listingCompositeId(offer: MarketplaceOffer): string {
   const listingRef = parseListingAggregateId(offer.listingAggregateId);
-  const sellerPubky = listingRef?.sellerPubky;
-  const listingId = listingRef?.listingId;
-  const [listing, setListing] = useState<CommerceListingRecord | null>(null);
+  return listingRef ? `${listingRef.sellerPubky}:${listingRef.listingId}` : '';
+}
+
+function useOfferListings(offers: readonly MarketplaceOffer[]) {
+  const ids = useMemo(() => offers.map(listingCompositeId).filter(Boolean).sort().join('|'), [offers]);
+  const [listings, setListings] = useState<Map<string, CommerceListingRecord>>(new Map());
+  const [isHydrating, setIsHydrating] = useState(false);
 
   useEffect(() => {
-    if (!sellerPubky || !listingId) return;
     let active = true;
-    CommerceController.getOrFetchListing(sellerPubky, listingId)
-      .then((record) => {
-        if (active) setListing(record ?? null);
-      })
-      .catch(() => {
-        if (active) setListing(null);
-      });
+    const currentOffers = offers;
+    setListings(new Map());
+    setIsHydrating(false);
+    void loadOfferListings(currentOffers).then((nextListings) => {
+      if (!active) return;
+      setListings(nextListings);
+      setIsHydrating(false);
+    });
+    if (ids) setIsHydrating(true);
     return () => {
       active = false;
     };
-  }, [listingId, sellerPubky]);
+  }, [ids, offers]);
+
+  return { listings, isHydrating };
+}
+
+function useOfferAnchor() {
+  const [offerId, setOfferId] = useState<string | null>(null);
+  useEffect(() => {
+    const update = () => setOfferId(window.location.hash.startsWith('#offer-') ? window.location.hash.slice(7) : null);
+    update();
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
+  return offerId;
+}
+
+export function isLinkedOfferMissing(
+  linkedOfferId: string | null,
+  offers: readonly MarketplaceOffer[],
+  isLoading: boolean,
+  error: string | null,
+): boolean {
+  return !isLoading && !error && linkedOfferId !== null && !offers.some((offer) => offer.id === linkedOfferId);
+}
+
+export function OfferListingSummary({
+  offer,
+  listing,
+  isHydrating = false,
+}: {
+  offer: MarketplaceOffer;
+  listing?: CommerceListingRecord;
+  isHydrating?: boolean;
+}) {
+  const listingRef = parseListingAggregateId(offer.listingAggregateId);
 
   if (!listingRef || !listing) {
     return (
       <Typography as="p" className="text-sm text-muted-foreground">
-        Listing details unavailable
+        {isHydrating ? 'Loading listing…' : 'Listing details unavailable'}
       </Typography>
     );
   }
