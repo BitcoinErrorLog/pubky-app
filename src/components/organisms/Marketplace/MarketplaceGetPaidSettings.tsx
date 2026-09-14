@@ -32,6 +32,7 @@ import { copyToClipboard } from '@/libs/utils/utils';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   atLeastOneMethodSentence,
@@ -55,7 +56,7 @@ type MarketplaceGetPaidSettingsProps = {
   locksConnect: LocksConnectView;
 };
 
-type PaykitSetupStatus = 'idle' | 'error' | 'timeout';
+type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout';
 
 const PAYKIT_SETUP_TIMEOUT_MS = 6 * 60 * 1_000;
 const PAYKIT_SETUP_EXPLANATION =
@@ -126,12 +127,15 @@ function MethodCard({
  */
 export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidSettingsProps) {
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const payments = useMarketplaceSellerPaymentConfig();
   const refreshPaymentConfig = payments.refresh;
   const paykitIframeRef = useRef<HTMLIFrameElement>(null);
+  const paykitSetupGenerationRef = useRef<string | null>(null);
   const [paykitSetupOpen, setPaykitSetupOpen] = useState(false);
   const [paykitSetupUrl, setPaykitSetupUrl] = useState<string | null>(null);
   const [paykitSetupState, setPaykitSetupState] = useState<string | null>(null);
+  const [paykitSetupCreator, setPaykitSetupCreator] = useState<string | null>(null);
   const [paykitSetupStatus, setPaykitSetupStatus] = useState<PaykitSetupStatus>('idle');
 
   const [bitcoinEnabled, setBitcoinEnabled] = useState(false);
@@ -140,6 +144,15 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
   const [paypalMerchantEmail, setPaypalMerchantEmail] = useState('');
   const [xpubInput, setXpubInput] = useState('');
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+
+  function closePaykitSetup() {
+    paykitSetupGenerationRef.current = null;
+    setPaykitSetupOpen(false);
+    setPaykitSetupUrl(null);
+    setPaykitSetupState(null);
+    setPaykitSetupCreator(null);
+    setPaykitSetupStatus('idle');
+  }
 
   useEffect(() => {
     if (!payments.config) return;
@@ -164,39 +177,49 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
       ) {
         return;
       }
+      if (event.data.error === 'identity-mismatch') {
+        setPaykitSetupStatus('mismatch');
+        return;
+      }
       if (event.data.error) {
         setPaykitSetupStatus('error');
         return;
       }
-      setPaykitSetupOpen(false);
-      setPaykitSetupUrl(null);
-      setPaykitSetupState(null);
-      setPaykitSetupStatus('idle');
-      toast({ title: 'Bitkit setup connected' });
-      refreshPaymentConfig();
+      setPaykitSetupStatus('verifying');
+      void refreshPaymentConfig().then((claimed) => {
+        if (paykitSetupGenerationRef.current !== event.data.state) return;
+        if (claimed === true) {
+          closePaykitSetup();
+          toast({ title: 'Bitkit setup connected' });
+          return;
+        }
+        setPaykitSetupStatus('mismatch');
+      });
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [paykitSetupOpen, paykitSetupState, paykitSetupUrl, refreshPaymentConfig]);
 
   useEffect(() => {
-    if (!paykitSetupOpen) return;
+    if (!paykitSetupOpen || !paykitSetupUrl || !paykitSetupState || paykitSetupStatus !== 'idle') return;
     const timeout = window.setTimeout(() => setPaykitSetupStatus('timeout'), PAYKIT_SETUP_TIMEOUT_MS);
     return () => window.clearTimeout(timeout);
-  }, [paykitSetupOpen, paykitSetupUrl]);
+  }, [paykitSetupOpen, paykitSetupState, paykitSetupStatus, paykitSetupUrl]);
 
-  const closePaykitSetup = () => {
-    setPaykitSetupOpen(false);
-    setPaykitSetupUrl(null);
-    setPaykitSetupState(null);
-    setPaykitSetupStatus('idle');
-  };
+  useEffect(() => {
+    if (paykitSetupOpen && (!marketplaceSession || !currentUserPubky || currentUserPubky !== paykitSetupCreator)) {
+      closePaykitSetup();
+    }
+  }, [currentUserPubky, marketplaceSession, paykitSetupCreator, paykitSetupOpen]);
 
   const openPaykitSetup = () => {
+    if (!marketplaceSession || !currentUserPubky) return;
     const state = createPaykitSetupState();
-    const url = CommerceController.getPaykitSetupUrl(window.location.href, state);
+    const url = CommerceController.getPaykitSetupUrl(window.location.href, state, currentUserPubky);
+    paykitSetupGenerationRef.current = state;
     setPaykitSetupState(state);
     setPaykitSetupUrl(url);
+    setPaykitSetupCreator(currentUserPubky);
     setPaykitSetupStatus('idle');
     setPaykitSetupOpen(true);
   };
@@ -440,6 +463,7 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
           <Button
             variant={step1NeedsPrimary ? 'secondary' : 'default'}
             className="rounded-full"
+            disabled={!marketplaceSession || !currentUserPubky}
             onClick={openPaykitSetup}
           >
             Open Bitkit setup
@@ -551,7 +575,11 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
               <Typography as="p">
                 {paykitSetupStatus === 'error'
                   ? 'Bitkit setup failed. Try again.'
-                  : 'No approval received. Update Bitkit to 2.5 or newer and try again.'}
+                  : paykitSetupStatus === 'mismatch'
+                    ? 'Bitkit approved a different account. In Bitkit, sign in with the same Pubky identity you use here, then try again.'
+                    : paykitSetupStatus === 'verifying'
+                      ? 'Confirming your Bitkit account…'
+                      : 'No approval received. Update Bitkit to 2.5 or newer and try again.'}
               </Typography>
               <Button variant="secondary" className="w-fit rounded-full" onClick={openPaykitSetup}>
                 <RefreshCw className="mr-2 size-4" />

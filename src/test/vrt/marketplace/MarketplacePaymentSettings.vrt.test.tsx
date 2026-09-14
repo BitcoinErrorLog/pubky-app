@@ -51,6 +51,7 @@ describe('Marketplace payment settings — visual regression', () => {
     // The Get paid section requires a marketplace session; a fixture session
     // makes the full form render deterministically in every baseline.
     const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
+    const { useAuthStore } = await import('@/stores/auth/auth.store');
     useCommerceStore.setState({
       marketplaceSession: {
         pubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
@@ -59,6 +60,7 @@ describe('Marketplace payment settings — visual regression', () => {
         issuedAt: '2026-08-21T12:00:00.000Z',
       },
     });
+    useAuthStore.setState({ currentUserPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco' });
   });
 
   it('renders the payments and Locks setup at desktop viewport', async () => {

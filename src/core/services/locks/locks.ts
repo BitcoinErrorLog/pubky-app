@@ -244,10 +244,11 @@ export class LocksGatewayService {
     return parsed.data;
   }
 
-  static buildPaykitSetupUrl(returnTo: string, state: string): string {
+  static buildPaykitSetupUrl(returnTo: string, state: string, creator: string): string {
     const url = new URL(getPaykitSetupUrl());
     url.searchParams.set('return_to', returnTo);
     url.searchParams.set('state', state);
+    url.searchParams.set('creator', creator);
     return url.toString();
   }
 

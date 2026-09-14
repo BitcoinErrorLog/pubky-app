@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplacePaymentSettings } from './MarketplacePaymentSettings';
 
@@ -17,10 +18,11 @@ const view = vi.hoisted(() => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
-    getPaykitSetupUrl: vi.fn((returnTo: string, state: string) => {
+    getPaykitSetupUrl: vi.fn((returnTo: string, state: string, creator: string) => {
       const url = new URL('https://paykit.example/setup');
       url.searchParams.set('return_to', returnTo);
       url.searchParams.set('state', state);
+      url.searchParams.set('creator', creator);
       return url.toString();
     }),
     getMyPaymentConfig: vi.fn(),
@@ -88,6 +90,7 @@ beforeEach(() => {
       expiresAt: '2026-09-21T12:00:00.000Z',
     },
   });
+  useAuthStore.setState({ currentUserPubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco' });
 });
 
 afterEach(() => {
@@ -243,8 +246,10 @@ describe('MarketplacePaymentSettings', () => {
     const setupUrl = new URL(iframe.getAttribute('src')!);
     expect(setupUrl.origin).toBe('https://paykit.example');
     const state = String(setupUrl.searchParams.get('state'));
+    expect(setupUrl.searchParams.get('creator')).toBe('gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco');
     expect(state).toHaveLength(22);
     const source = setPaykitIframeSource(iframe);
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValueOnce(true);
 
     const message = new MessageEvent('message', {
       origin: 'https://paykit.example',
@@ -277,6 +282,91 @@ describe('MarketplacePaymentSettings', () => {
     );
     expect(secondState).not.toBe(firstState);
     vi.useRealTimers();
+  });
+
+  it('keeps the dialog open and shows an identity mismatch when verification is not claimed', async () => {
+    await renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const source = setPaykitIframeSource(iframe);
+    const state = new URL(iframe.src).searchParams.get('state');
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValueOnce(false);
+
+    act(() =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://paykit.example',
+          source,
+          data: { type: 'paykit-setup-callback', state },
+        }),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'Bitkit approved a different account. In Bitkit, sign in with the same Pubky identity you use here, then try again.',
+        ),
+      ).toBeInTheDocument(),
+    );
+    expect(mockedToast).not.toHaveBeenCalled();
+    expect(screen.getByTitle('Connect Bitkit')).toBeInTheDocument();
+  });
+
+  it('maps identity mismatch separately from other setup errors', async () => {
+    await renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const source = setPaykitIframeSource(iframe);
+    const state = new URL(iframe.src).searchParams.get('state');
+
+    act(() =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://paykit.example',
+          source,
+          data: { type: 'paykit-setup-callback', state, error: 'identity-mismatch' },
+        }),
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Bitkit approved a different account');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const secondIframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const secondSource = setPaykitIframeSource(secondIframe);
+    const secondState = new URL(secondIframe.src).searchParams.get('state');
+    act(() =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://paykit.example',
+          source: secondSource,
+          data: { type: 'paykit-setup-callback', state: secondState, error: 'setup-failed' },
+        }),
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Bitkit setup failed. Try again.');
+  });
+
+  it('closes the setup dialog when the viewer identity is cleared', async () => {
+    await renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const source = setPaykitIframeSource(iframe);
+    const state = new URL(iframe.src).searchParams.get('state');
+
+    act(() => useAuthStore.setState({ currentUserPubky: null }));
+    expect(screen.queryByTitle('Connect Bitkit')).not.toBeInTheDocument();
+
+    act(() =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://paykit.example',
+          source,
+          data: { type: 'paykit-setup-callback', state },
+        }),
+      ),
+    );
+    expect(mockedToast).not.toHaveBeenCalled();
   });
 
   it('ignores callbacks that fail any message guard', async () => {
