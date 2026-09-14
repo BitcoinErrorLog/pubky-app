@@ -6,6 +6,7 @@ import { FORCE_FEED_SCROLL_TOP_KEY } from '@/config/feed';
 import { FileController } from '@/controllers/file/file';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
+import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { MobileFooter } from './MobileFooter';
 
 const collectionsDiscoveryMock = vi.hoisted(() => ({
@@ -116,6 +117,9 @@ vi.mock('@/hooks/useKeyboardOffset/useKeyboardOffset', () => ({
 vi.mock('@/hooks/useMessagesUnread/useMessagesUnread', () => ({
   useMessagesUnread: vi.fn(() => 0),
 }));
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: vi.fn(() => 0),
+}));
 
 vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => ({
   useCollectionsNavDiscovery: () => ({
@@ -157,6 +161,7 @@ describe('MobileFooter', () => {
     vi.clearAllMocks();
     vi.mocked(usePathname).mockReturnValue('/home');
     mockSelectUnread.mockReturnValue(0);
+    vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
     mockCurrentUserPubky = 'pk:test-user-pubky';
     collectionsDiscoveryMock.showCollectionsNew = false;
     mockIsPublicRoute = false;
@@ -216,6 +221,48 @@ describe('MobileFooter', () => {
     try {
       render(<MobileFooter />);
       expect(screen.getByRole('link', { name: 'Marketplace' })).toHaveAttribute('href', '/marketplace');
+    } finally {
+      adapterMode.mockRestore();
+    }
+  });
+
+  it('shows the cart badge with honest accessibility copy', () => {
+    const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    vi.mocked(useMarketplaceCartCount).mockReturnValue(3);
+    try {
+      render(<MobileFooter />);
+
+      expect(screen.getByRole('link', { name: 'Marketplace, 3 items in cart' })).toBeInTheDocument();
+      expect(document.querySelector('[data-cy="mobile-marketplace-counter"]')).toHaveTextContent('3');
+    } finally {
+      adapterMode.mockRestore();
+    }
+  });
+
+  it('uses singular cart accessibility copy for one item', () => {
+    const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    vi.mocked(useMarketplaceCartCount).mockReturnValue(1);
+    try {
+      render(<MobileFooter />);
+
+      expect(screen.getByRole('link', { name: 'Marketplace, 1 item in cart' })).toBeInTheDocument();
+    } finally {
+      adapterMode.mockRestore();
+    }
+  });
+
+  it('hides the cart badge at zero and caps it above 21', () => {
+    const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    try {
+      vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
+      const { unmount } = render(<MobileFooter />);
+      expect(document.querySelector('[data-cy="mobile-marketplace-counter"]')).toBeNull();
+      unmount();
+
+      vi.mocked(useMarketplaceCartCount).mockReturnValue(22);
+      render(<MobileFooter />);
+      expect(document.querySelector('[data-cy="mobile-marketplace-counter"]')).toHaveTextContent('21+');
+      expect(screen.getByRole('link', { name: 'Marketplace, 22 items in cart' })).toBeInTheDocument();
     } finally {
       adapterMode.mockRestore();
     }

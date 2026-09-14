@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
+import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 import { HeaderButtonSignIn } from '../HeaderButtonSignIn/HeaderButtonSignIn';
@@ -48,6 +49,9 @@ vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => (
     showCollectionsNew: collectionsDiscoveryMock.showCollectionsNew,
     markCollectionsNavSeen: collectionsDiscoveryMock.markCollectionsNavSeen,
   }),
+}));
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: vi.fn(() => 0),
 }));
 vi.mock('@/stores/search/search.store', () => ({
   useSearchStore: vi.fn(() => ({
@@ -184,6 +188,7 @@ describe('Header Components', () => {
       return selector(state as never);
     });
     vi.mocked(useNotificationStore).mockReturnValue({ selectUnread: () => 0 });
+    vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
     vi.mocked(useLiveQuery).mockReturnValue({ name: 'Test User', image: 'test-image.jpg' });
   });
 
@@ -539,6 +544,48 @@ describe('Header Components', () => {
         render(<HeaderNavigationButtons avatarName="TU" />);
         const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
         expect(hrefs).toContain('/marketplace');
+      } finally {
+        adapterMode.mockRestore();
+      }
+    });
+
+    it('shows the cart badge with honest accessibility copy', () => {
+      const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      vi.mocked(useMarketplaceCartCount).mockReturnValue(3);
+      try {
+        render(<HeaderNavigationButtons avatarName="TU" />);
+
+        expect(screen.getByRole('button', { name: 'Marketplace, 3 items in cart' })).toBeInTheDocument();
+        expect(document.querySelector('[data-cy="header-marketplace-btn-counter"]')).toHaveTextContent('3');
+      } finally {
+        adapterMode.mockRestore();
+      }
+    });
+
+    it('uses singular cart accessibility copy for one item', () => {
+      const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      vi.mocked(useMarketplaceCartCount).mockReturnValue(1);
+      try {
+        render(<HeaderNavigationButtons avatarName="TU" />);
+
+        expect(screen.getByRole('button', { name: 'Marketplace, 1 item in cart' })).toBeInTheDocument();
+      } finally {
+        adapterMode.mockRestore();
+      }
+    });
+
+    it('hides the cart badge at zero and caps it above 21', () => {
+      const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      try {
+        vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
+        const { unmount } = render(<HeaderNavigationButtons avatarName="TU" />);
+        expect(document.querySelector('[data-cy="header-marketplace-btn-counter"]')).toBeNull();
+        unmount();
+
+        vi.mocked(useMarketplaceCartCount).mockReturnValue(22);
+        render(<HeaderNavigationButtons avatarName="TU" />);
+        expect(document.querySelector('[data-cy="header-marketplace-btn-counter"]')).toHaveTextContent('21+');
+        expect(screen.getByRole('button', { name: 'Marketplace, 22 items in cart' })).toBeInTheDocument();
       } finally {
         adapterMode.mockRestore();
       }

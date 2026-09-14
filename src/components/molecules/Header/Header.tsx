@@ -13,6 +13,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { getGithubLink, getTelegramLink, getTwitterGetpubkyLink } from '@/config/externalLinks';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
+import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Github2, Telegram, XTwitter } from '@/icons';
@@ -165,6 +166,7 @@ type NavigationButtonProps = {
   newLabel?: string;
   /** Honest device-local count (e.g. unread conversations); 0 hides the badge. */
   badgeCount?: number;
+  badgeLabel?: string;
 };
 const NavigationButton = ({
   href,
@@ -177,9 +179,14 @@ const NavigationButton = ({
   showNew = false,
   newLabel,
   badgeCount = 0,
+  badgeLabel = 'unread',
 }: NavigationButtonProps) => {
   const accessibleLabel =
-    badgeCount > 0 ? `${label}, ${badgeCount} unread` : showNew && newLabel ? `${label}, ${newLabel}` : label;
+    badgeCount > 0
+      ? `${label}, ${badgeCount} ${badgeLabel === 'items in cart' && badgeCount === 1 ? 'item in cart' : badgeLabel}`
+      : showNew && newLabel
+        ? `${label}, ${newLabel}`
+        : label;
   const button = (
     <Button
       data-cy={href ? undefined : dataCy}
@@ -250,12 +257,14 @@ export function HeaderNavigationButtons({
   // Honest badge: conversations on THIS device whose last received message
   // postdates the local read checkpoint — never a server-claimed count.
   const unreadMessages = useMessagesUnread();
+  const marketplaceCartCount = useMarketplaceCartCount();
   const counterString = counter > 21 ? '21+' : counter.toString();
   return (
     <Container className={cn('hidden w-auto flex-row items-center justify-start gap-3 lg:flex', className)}>
       {getNavigationItems().map((item) => {
         const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
         const isMessagesItem = item.href === APP_ROUTES.MESSAGES;
+        const isMarketplaceItem = item.href === APP_ROUTES.MARKETPLACE;
         return (
           <NavigationButton
             key={item.href}
@@ -268,7 +277,8 @@ export function HeaderNavigationButtons({
             isFeedRoute={item.isFeedRoute}
             showNew={isCollectionsItem && showCollectionsNew}
             newLabel={'New'}
-            badgeCount={isMessagesItem ? unreadMessages : 0}
+            badgeCount={isMessagesItem ? unreadMessages : isMarketplaceItem ? marketplaceCartCount : 0}
+            badgeLabel={isMarketplaceItem ? 'items in cart' : 'unread'}
           />
         );
       })}

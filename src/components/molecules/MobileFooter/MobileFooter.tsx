@@ -13,6 +13,7 @@ import { FileController } from '@/controllers/file/file';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
+import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
@@ -43,6 +44,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
   // Honest device-local unread: conversations whose last received message
   // postdates the local read checkpoint.
   const unreadMessages = useMessagesUnread();
+  const marketplaceCartCount = useMarketplaceCartCount();
   const localAvatarUrl = useLocalFilesStore((state) => state.profile);
   const { isKeyboardVisible, keyboardOffset } = useKeyboardOffset();
   const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
@@ -135,14 +137,19 @@ export function MobileFooter({ className }: MobileFooterProps) {
           const itemIsActive = isNavItemActive(pathname, item);
           const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
           const showCollectionsNewTreatment = isCollectionsItem && showCollectionsNew;
-          const itemBadgeCount = item.href === APP_ROUTES.MESSAGES ? unreadMessages : 0;
+          const isMarketplaceItem = item.href === APP_ROUTES.MARKETPLACE;
+          const itemBadgeCount =
+            item.href === APP_ROUTES.MESSAGES ? unreadMessages : isMarketplaceItem ? marketplaceCartCount : 0;
+          const itemBadgeLabel = isMarketplaceItem ? 'items in cart' : 'unread';
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-label={
                 itemBadgeCount > 0
-                  ? `${item.label}, ${itemBadgeCount} unread`
+                  ? `${item.label}, ${itemBadgeCount} ${
+                      itemBadgeLabel === 'items in cart' && itemBadgeCount === 1 ? 'item in cart' : itemBadgeLabel
+                    }`
                   : showCollectionsNewTreatment
                     ? `${item.label}, ${collectionsNewLabel}`
                     : item.label
@@ -172,7 +179,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
               <Icon className="h-6 w-6" />
               {itemBadgeCount > 0 && (
                 <Badge
-                  data-cy="mobile-messages-counter"
+                  data-cy={isMarketplaceItem ? 'mobile-marketplace-counter' : 'mobile-messages-counter'}
                   className="absolute -right-1 -bottom-1 h-5 w-5 rounded-full bg-brand shadow-sm"
                   variant="secondary"
                 >
