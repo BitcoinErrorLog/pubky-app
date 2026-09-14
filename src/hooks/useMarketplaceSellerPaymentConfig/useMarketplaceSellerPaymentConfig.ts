@@ -39,6 +39,8 @@ export function useMarketplaceSellerPaymentConfig() {
   const [claimAuthorizationUrl, setClaimAuthorizationUrl] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
   const activeClaimRef = useRef<ClaimFlow | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const refresh = useCallback(() => setRefreshNonce((nonce) => nonce + 1), []);
 
   useEffect(() => {
     let active = true;
@@ -71,7 +73,7 @@ export function useMarketplaceSellerPaymentConfig() {
     return () => {
       active = false;
     };
-  }, [marketplaceSession]);
+  }, [marketplaceSession, refreshNonce]);
 
   const save = useCallback(
     async (input: {
@@ -236,5 +238,6 @@ export function useMarketplaceSellerPaymentConfig() {
     claimError,
     startClaim,
     cancelClaim,
+    refresh,
   };
 }

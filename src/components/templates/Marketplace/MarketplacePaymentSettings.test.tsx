@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplacePaymentSettings } from './MarketplacePaymentSettings';
 
@@ -16,7 +17,12 @@ const view = vi.hoisted(() => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
-    getPaykitSetupUrl: vi.fn(() => 'https://paykit.example/setup'),
+    getPaykitSetupUrl: vi.fn((returnTo: string, state: string) => {
+      const url = new URL('https://paykit.example/setup');
+      url.searchParams.set('return_to', returnTo);
+      url.searchParams.set('state', state);
+      return url.toString();
+    }),
     getMyPaymentConfig: vi.fn(),
     isOwnPaykitAccountClaimed: vi.fn(),
     putMyPaymentConfig: vi.fn(),
@@ -24,6 +30,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     beginMarketplaceSessionConnect: vi.fn(),
     createLocksFrontendSession: vi.fn(),
   },
+}));
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({
+  toast: vi.fn(),
 }));
 
 vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => ({
@@ -38,6 +48,7 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 const mockedController = vi.mocked(CommerceController);
+const mockedToast = vi.mocked(toast);
 
 const EMPTY_CONFIG: SellerPaymentConfigOwnView = {
   bitcoinEnabled: false,
@@ -50,6 +61,8 @@ const EMPTY_CONFIG: SellerPaymentConfigOwnView = {
 const PLAUSIBLE_XPUB = `zpub${'r'.repeat(107)}`;
 
 beforeEach(() => {
+  vi.useRealTimers();
+  mockedToast.mockReset();
   view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
   mockedController.getMyPaymentConfig.mockReset().mockResolvedValue(EMPTY_CONFIG);
   mockedController.isOwnPaykitAccountClaimed.mockReset().mockResolvedValue(false);
@@ -77,11 +90,19 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 async function renderSettings() {
   render(<MarketplacePaymentSettings />);
-  // Wait until the payment configuration finished loading into the form.
-  await screen.findByRole('heading', { name: 'PayPal' });
-  await waitFor(() => expect(screen.queryByText('Loading payment settings…')).not.toBeInTheDocument());
+  await screen.findByLabelText('PayPal merchant email');
+}
+
+function setPaykitIframeSource(iframe: HTMLIFrameElement): WindowProxy {
+  const source = {} as WindowProxy;
+  Object.defineProperty(iframe, 'contentWindow', { configurable: true, value: source });
+  return source;
 }
 
 describe('MarketplacePaymentSettings', () => {
@@ -211,20 +232,111 @@ describe('MarketplacePaymentSettings', () => {
     expect(mockedController.putMyPaymentConfig).not.toHaveBeenCalled();
   });
 
-  it('opens the Bitkit setup through the existing controller call', async () => {
-    const user = userEvent.setup();
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const uuidSpy = vi
-      .spyOn(crypto, 'randomUUID')
-      .mockReturnValue('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
-    await renderSettings();
+  it('validates the Bitkit setup callback', async () => {
+    render(<MarketplacePaymentSettings />);
+    expect(screen.getByRole('heading', { name: 'PayPal' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
 
     expect(mockedController.getPaykitSetupUrl).toHaveBeenCalledTimes(1);
-    expect(mockedController.getPaykitSetupUrl.mock.calls).toMatchSnapshot();
-    openSpy.mockRestore();
-    uuidSpy.mockRestore();
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const setupUrl = new URL(iframe.getAttribute('src')!);
+    expect(setupUrl.origin).toBe('https://paykit.example');
+    const state = String(setupUrl.searchParams.get('state'));
+    expect(state).toHaveLength(22);
+    const source = setPaykitIframeSource(iframe);
+
+    const message = new MessageEvent('message', {
+      origin: 'https://paykit.example',
+      source,
+      data: { type: 'paykit-setup-callback', state },
+    });
+    act(() => window.dispatchEvent(message));
+
+    await waitFor(() => expect(screen.queryByTitle('Connect Bitkit')).not.toBeInTheDocument());
+    expect(mockedToast).toHaveBeenCalledWith({ title: 'Bitkit setup connected' });
+    await waitFor(() => expect(mockedController.getMyPaymentConfig).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows the timeout state and retries with a fresh setup state', async () => {
+    await renderSettings();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6 * 60 * 1_000);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('No approval received.');
+
+    const firstState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
+      'state',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const secondState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
+      'state',
+    );
+    expect(secondState).not.toBe(firstState);
+    vi.useRealTimers();
+  });
+
+  it('ignores callbacks that fail any message guard', async () => {
+    const user = userEvent.setup();
+    await renderSettings();
+    await user.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const source = setPaykitIframeSource(iframe);
+    const state = new URL(iframe.src).searchParams.get('state');
+    const messages = [
+      { origin: 'https://wrong.example', source, data: { type: 'paykit-setup-callback', state } },
+      { origin: 'https://paykit.example', source: window, data: { type: 'paykit-setup-callback', state } },
+      { origin: 'https://paykit.example', source, data: { type: 'other', state } },
+      {
+        origin: 'https://paykit.example',
+        source,
+        data: { type: 'paykit-setup-callback', state: 'wrong' },
+      },
+    ];
+    act(() => {
+      messages.forEach((message) => window.dispatchEvent(new MessageEvent('message', message)));
+    });
+
+    expect(screen.getByTitle('Connect Bitkit')).toBeInTheDocument();
+    expect(mockedController.getMyPaymentConfig).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Bitkit setup connected')).not.toBeInTheDocument();
+  });
+
+  it('shows failure and retries with a new setup state', async () => {
+    const user = userEvent.setup();
+    await renderSettings();
+    await user.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const firstIframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const firstState = String(new URL(firstIframe.src).searchParams.get('state'));
+    const source = setPaykitIframeSource(firstIframe);
+    const message = new MessageEvent('message', {
+      origin: 'https://paykit.example',
+      source,
+      data: { type: 'paykit-setup-callback', state: firstState, error: 'setup-failed' },
+    });
+    act(() => window.dispatchEvent(message));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Bitkit setup failed. Try again.');
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    const secondIframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    expect(new URL(secondIframe.src).searchParams.get('state')).not.toBe(firstState);
+  });
+
+  it('removes the callback listener when the settings surface unmounts', async () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    const user = userEvent.setup();
+    const { unmount } = render(<MarketplacePaymentSettings />);
+    await screen.findByRole('heading', { name: 'PayPal' });
+    await user.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    unmount();
+    expect(addSpy).toHaveBeenCalledWith('message', expect.any(Function));
+    expect(removeSpy).toHaveBeenCalledWith('message', expect.any(Function));
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
   });
 
   it('starts the watch-only claim with the pasted xpub, payload unchanged', async () => {

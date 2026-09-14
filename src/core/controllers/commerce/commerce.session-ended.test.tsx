@@ -2,10 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { MarketplaceGetPaidSettings } from '@/organisms/Marketplace/MarketplaceGetPaidSettings';
-import {
-  MARKETPLACE_SESSION_STORAGE_KEY,
-  MarketplaceSessionService,
-} from '@/services/marketplace/marketplace-session';
+import { MARKETPLACE_SESSION_STORAGE_KEY, MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { CommerceController } from './commerce';
@@ -116,7 +113,6 @@ describe('CommerceController marketplace session-ended binding', () => {
             error: null,
             openConnect: () => {},
           }}
-          onOpenPaykit={() => {}}
         />
       </>,
     );

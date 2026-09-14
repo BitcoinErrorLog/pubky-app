@@ -20,7 +20,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
-    getPaykitSetupUrl: () => 'https://paykit.example/setup',
+    getPaykitSetupUrl: () => 'about:blank',
     getMyPaymentConfig: vi.fn(async () => ({
       bitcoinEnabled: true,
       stripePaymentLink: 'https://buy.stripe.com/test_fixture',
@@ -101,5 +101,13 @@ describe('Marketplace payment settings — visual regression', () => {
     await expect.element(screen.getByText('Display preferences')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-display-preferences-desktop');
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: null });
+  });
+
+  it('renders the Bitkit setup dialog', async () => {
+    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_MOBILE });
+    await screen.getByRole('button', { name: /Open Bitkit setup/ }).click();
+    await expect(screen.getByTitle('Connect Bitkit')).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-bitkit-dialog-mobile');
   });
 });

@@ -1,14 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`MarketplacePaymentSettings > opens the Bitkit setup through the existing controller call 1`] = `
-[
-  [
-    "http://localhost:3000/",
-    "aaaaaaaabbbbccccddddeeeeeeeeeeee",
-  ],
-]
-`;
-
 exports[`MarketplacePaymentSettings > saves the Stripe and PayPal rails with the unchanged payload shape 1`] = `
 [
   [
