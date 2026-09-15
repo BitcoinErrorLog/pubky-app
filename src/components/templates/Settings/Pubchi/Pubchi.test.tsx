@@ -95,8 +95,8 @@ describe('PubchiSettings', () => {
     expect(screen.getByTestId(PUBCHI_SETTINGS_SURFACE)).toHaveAttribute('data-surface', PUBCHI_SETTINGS_SURFACE);
     expect(screen.getByText('Pubchi')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-create')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Name your Pubchi')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-not-enrolled')).toHaveTextContent('Create a Pubchi');
-    expect(screen.queryByPlaceholderText(/52-character|pubky/i)).not.toBeInTheDocument();
   });
 
   it('shows the persistent degraded state and disables enrollment until reapproval', () => {
@@ -105,7 +105,7 @@ describe('PubchiSettings', () => {
     render(<PubchiSettings />);
 
     expect(screen.getByTestId('pubchi-degraded-session')).toHaveTextContent(
-      "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.",
+      "Your sign-in predates Pubchi and can't reach its folders yet. Tap Re-approve and confirm in Pubky Ring.",
     );
     expect(screen.getByTestId('pubchi-create')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));

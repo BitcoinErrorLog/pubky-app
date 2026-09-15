@@ -24,6 +24,7 @@ import type { PubchiTarget } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PubchiAnswerCard } from '../PubchiAnswerCard/PubchiAnswerCard';
@@ -70,6 +71,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const [prefilledQuestion, setPrefilledQuestion] = useState<string>();
   const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
   const [showDatabaseBlockedNotice, setShowDatabaseBlockedNotice] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
   const initialTier = effectiveTier({
     desired: config?.tier ?? 'read-only',
     ceiling: 'assisted',
@@ -218,7 +220,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             {needsReapproval ? (
               <div className="flex flex-col gap-3" data-testid="pubchi-degraded-session">
                 <Typography size="sm">{PUBCHI_DEGRADED_SESSION_MESSAGE}</Typography>
-                <Button type="button" disabled={reapprovalLoading} onClick={() => void reapprove()}>
+                <Button type="button" disabled={reapprovalLoading} onClick={() => setApprovalOpen(true)}>
                   Re-approve
                 </Button>
               </div>
@@ -450,6 +452,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           </div>
         </SheetContent>
       </Sheet>
+      <RingApprovalDialog
+        open={approvalOpen}
+        onOpenChange={setApprovalOpen}
+        onApproved={(session) => reapprove(session)}
+      />
       {!loading && feedBuilderProposal ? (
         <PubchiFeedBuilder
           proposal={feedBuilderProposal}

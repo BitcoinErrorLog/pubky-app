@@ -15,7 +15,7 @@ vi.mock('react-hook-form', () => ({
 }));
 
 vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
-  RingApprovalDialog: () => null,
+  RingApprovalDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="ring-approval-dialog" /> : null),
 }));
 
 const submit = vi.fn();
@@ -420,11 +420,11 @@ describe('PubchiPanel', () => {
     render(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(screen.getByTestId('pubchi-degraded-session')).toHaveTextContent(
-      "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.",
+      "Your sign-in predates Pubchi and can't reach its folders yet. Tap Re-approve and confirm in Pubky Ring.",
     );
     expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
-    expect(reapprove).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('ring-approval-dialog')).toBeInTheDocument();
   });
 
   it('explains feed errors instead of rendering the raw code', () => {

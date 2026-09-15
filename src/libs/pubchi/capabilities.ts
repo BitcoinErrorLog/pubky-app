@@ -21,7 +21,7 @@ export const APP_SIGNIN_CAPABILITIES = '/pub/pubky.app/:rw,/pub/app.pubchi/v1/:r
 export const PUBCHI_SIGNIN_CAPABILITIES = `${PUBCHI_HOMESERVER_DIRECTORY}:rw,${PUBCHI_PRIVATE_DIRECTORY}:rw`;
 
 export const PUBCHI_DEGRADED_SESSION_MESSAGE =
-  "This session can't manage Pubchi. Re-approve with the Pubchi folder to restore revocation.";
+  "Your sign-in predates Pubchi and can't reach its folders yet. Tap Re-approve and confirm in Pubky Ring.";
 
 const ACTIONS = new Set(['r', 'w', 'rw', 'wr']);
 

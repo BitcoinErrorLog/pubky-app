@@ -192,7 +192,7 @@ export function PubchiSettings() {
               name={ENROLL_FORM_FIELDS.DISPLAY_NAME}
               control={form.control}
               label="Name"
-              placeholder="Pubchi"
+              placeholder="Name your Pubchi"
               dataCy="pubchi-name-input"
             />
             <Button type="submit" data-testid="pubchi-create" disabled={loading || needsReapproval}>
