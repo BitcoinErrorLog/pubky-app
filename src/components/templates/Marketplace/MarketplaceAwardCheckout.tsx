@@ -14,6 +14,7 @@ import { useMarketplaceAddressBook } from '@/hooks/useMarketplaceAddressBook/use
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceOfferCheckout } from '@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
+import { marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-messages';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
@@ -25,7 +26,8 @@ export function MarketplaceAwardCheckout() {
   const cart = useMarketplaceCart();
   const addressBook = useMarketplaceAddressBook();
   const [addressId, setAddressId] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<'expired' | 'converted' | 'success' | null>(null);
+  const [outcome, setOutcome] = useState<'expired' | 'converted' | 'error' | 'success' | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const offer = offers.offers.find((item) => item.id === offerReference || item.award?.id === offerReference);
   const award = offer?.award;
@@ -61,6 +63,9 @@ export function MarketplaceAwardCheckout() {
       setOutcome('expired');
     } else if (result.code === 'AWARD_ALREADY_CONVERTED' || result.code === 'REVISION_CONFLICT') {
       setOutcome('converted');
+    } else {
+      setErrorCode(result.code);
+      setOutcome('error');
     }
   };
 
@@ -139,6 +144,18 @@ export function MarketplaceAwardCheckout() {
                 <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
                   View orders
                 </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : outcome === 'error' ? (
+          <Card className="border">
+            <CardContent className="grid gap-4 px-6">
+              <Heading level={1} size="lg">
+                Checkout could not be completed
+              </Heading>
+              <Typography as="p">{marketplaceOfferCheckoutFailureMessage(errorCode)}</Typography>
+              <Button className="w-fit rounded-full" onClick={() => setOutcome(null)}>
+                Retry
               </Button>
             </CardContent>
           </Card>

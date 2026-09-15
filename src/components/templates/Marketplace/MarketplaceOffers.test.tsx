@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
@@ -10,6 +11,7 @@ import {
   offerStateLabel,
   parseListingAggregateId,
 } from './MarketplaceOffers';
+import { MarketplaceOffers } from './MarketplaceOffers';
 
 const getOrFetchListing = vi.hoisted(() => vi.fn());
 const getManyListings = vi.hoisted(() => vi.fn());
@@ -20,6 +22,43 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 
 vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', () => ({
   useMarketplaceFirstMediaUrl: (uris: readonly string[]) => uris[0] ?? null,
+}));
+
+const offerView = vi.hoisted(() => ({
+  offers: [] as MarketplaceOffer[],
+  addAward: vi.fn(async () => {}),
+  push: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: offerView.push }),
+  usePathname: () => '/marketplace/offers',
+}));
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: 'b'.repeat(52) }),
+}));
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({
+    offers: offerView.offers,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(async () => {}),
+    form: {},
+    act: vi.fn(async () => false),
+    counter: vi.fn(async () => false),
+  }),
+}));
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
+  useMarketplaceCart: () => ({ addAward: offerView.addAward }),
+}));
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({ useMarketplaceCartCount: () => 0 }));
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 0,
+}));
+vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
+  ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
 
 const seller = 's'.repeat(52);
@@ -95,5 +134,50 @@ describe('Marketplace offers UX', () => {
     expect(isLinkedOfferMissing(offer.id, [offer], false, null)).toBe(false);
     expect(isLinkedOfferMissing('missing', [], true, null)).toBe(false);
     expect(isLinkedOfferMissing('missing', [], false, 'unavailable')).toBe(false);
+  });
+
+  it('shows the buyer merchandise total and creates one award cart line before routing', async () => {
+    const accepted = {
+      ...offer,
+      award: {
+        id: '00000000-0000-4000-8000-000000000801',
+        state: 'active',
+        listing: {
+          aggregateId: offer.listingAggregateId,
+          sellerPubky: seller,
+          listingId: 'boots',
+          title: 'Vintage boots',
+          listingRevision: 2,
+          listingRecordSha256: 'a'.repeat(64),
+        },
+        variant: { id: 'variant_42', sku: null, options: [{ name: 'Size', value: '42' }] },
+        unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
+        quantity: 1,
+        acceptedAt: '2026-09-15T10:00:00.000Z',
+        convertBy: '2026-09-15T12:00:00.000Z',
+        convertedOrderId: null,
+        subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
+        shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
+        merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
+      },
+    } as MarketplaceOffer;
+    offerView.offers = [accepted];
+    const user = userEvent.setup();
+    render(<MarketplaceOffers />);
+
+    expect(screen.getByRole('button', { name: 'Buy for $7.00' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Buy for $7.00' }));
+
+    await waitFor(() => expect(offerView.addAward).toHaveBeenCalledTimes(1));
+    expect(offerView.addAward).toHaveBeenCalledWith(`${seller}:boots`, 'variant_42', 1, accepted.award?.id, 1);
+    expect(offerView.push).toHaveBeenCalledWith(
+      '/marketplace/award-checkout?offer=018f47d2-6a27-7c23-b51e-000000000001',
+    );
+  });
+
+  it('does not offer checkout to the seller on an accepted seller-side row', () => {
+    offerView.offers = [{ ...offer, buyerPubky: 'b'.repeat(52), offeredBy: seller, award: undefined }];
+    render(<MarketplaceOffers />);
+    expect(screen.queryByRole('button', { name: /Buy for/ })).not.toBeInTheDocument();
   });
 });

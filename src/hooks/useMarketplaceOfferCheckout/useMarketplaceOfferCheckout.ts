@@ -28,7 +28,7 @@ export function useMarketplaceOfferCheckout(onCompleted?: () => Promise<void> | 
       currentOffer = (await CommerceController.getMarketplaceOffers()).find(({ id }) => id === offer.id) ?? offer;
     } catch {
       toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.offerCheckoutUnavailable });
-      return { ok: false, code: null };
+      return { ok: false, code: 'AWARD_UNAVAILABLE' };
     }
     const award: MarketplaceOfferAward | undefined = currentOffer.award;
     if (!award || award.state !== 'active') {

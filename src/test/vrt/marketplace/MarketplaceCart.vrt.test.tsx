@@ -459,4 +459,23 @@ describe('Marketplace cart — visual regression', () => {
     view.adapterMode = 'sandbox';
     view.hasMarketplaceSession = false;
   });
+
+  it('renders an accepted-offer group without mixing it into ordinary checkout', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = [
+      ...singleSeller,
+      {
+        ...singleSeller[0],
+        id: 'award-cart-line',
+        awardId: '00000000-0000-0000-0000-000000000902',
+        pricingSource: 'offer',
+      },
+    ];
+    view.isLoading = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const surface = expectVrtSurface('marketplace-cart');
+    expect(document.querySelector('[data-surface="marketplace-award-cart-group"]')).toBeTruthy();
+    await expect(surface).toMatchScreenshot('cart-award-group-desktop');
+  });
 });
