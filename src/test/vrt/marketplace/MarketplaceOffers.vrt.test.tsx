@@ -55,6 +55,12 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', async () => {
   };
 });
 
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
+  useMarketplaceCart: () => ({
+    addAward: vi.fn(async () => true),
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: () => 3,
 }));

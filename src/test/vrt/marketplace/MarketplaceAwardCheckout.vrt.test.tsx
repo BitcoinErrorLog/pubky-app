@@ -5,6 +5,8 @@ import { userEvent } from 'vitest/browser';
 import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceAwardCheckout } from '@/templates/Marketplace/MarketplaceAwardCheckout';
+import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
+import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE } from '@/test/fixtures/commerce/offers';
 
 const state = vi.hoisted(() => ({
   outcome: 'active' as 'active' | 'expired' | 'success',
@@ -13,29 +15,13 @@ const state = vi.hoisted(() => ({
 const offer = {
   id: '00000000-0000-0000-0000-000000000901',
   state: 'accepted',
-  award: {
-    id: '00000000-0000-0000-0000-000000000902',
-    state: 'active',
-    listing: {
-      aggregateId: `listing:${'s'.repeat(52)}_boots`,
-      sellerPubky: 's'.repeat(52),
-      listingId: 'boots',
-      title: 'Vintage boots',
-      listingRevision: 3,
-      listingRecordSha256: 'a'.repeat(64),
-    },
-    variant: { id: 'variant_42', options: [{ name: 'Size', value: '42' }] },
-    unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
-    quantity: 1,
-    convertBy: '2026-09-15T12:00:00.000Z',
-    subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
-    shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
-    merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
-  },
+  buyerPubky: 'b'.repeat(52),
+  award: toCamelCaseWire(ACCEPTED_OFFER_AWARD_WIRE_FIXTURE),
 };
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams('offer=00000000-0000-0000-0000-000000000901'),
+  usePathname: () => '/marketplace/award-checkout',
 }));
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
@@ -51,6 +37,12 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
     awardItems: [{ awardId: offer.award.id, listingId: 's:boots', variantId: 'variant_42' }],
     remove: vi.fn(async () => {}),
   }),
+}));
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 3,
+}));
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 2,
 }));
 vi.mock('@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook', () => ({
   useMarketplaceAddressBook: () => ({
