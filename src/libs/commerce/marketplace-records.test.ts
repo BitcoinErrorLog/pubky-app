@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import receiptAttestationV1 from '@/test/fixtures/commerce/receipt-attestation-v1.json';
 import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
-import { verifyOwnOrderReceipt } from './attestation';
+import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
+import { verifyOrderReceiptClaims, verifyOwnOrderReceipt } from './attestation';
 import {
   commerceCollectionRecordSchema,
   commerceDropRecordSchema,
@@ -22,6 +24,20 @@ const BUYER_PUBKY = 'b'.repeat(52);
 const CREATED_AT = '2026-08-19T20:00:00.000Z';
 const UPDATED_AT = '2026-08-19T21:00:00.000Z';
 const IMAGE_URL = `pubky://${SELLER_PUBKY}/pub/pubky.app/marketplace/v1/media/image_01`;
+type ReceiptFixtureClaims = {
+  v: 1 | 2;
+  iss: string;
+  buyer: string;
+  seller: string;
+  order: string;
+  receipt: string;
+  paidAt: string;
+  totalMinor?: number;
+  currency?: string;
+  exponent?: number;
+  merchandiseTotal?: { amountMinor: number; currency: string; exponent: number };
+  settlementTotal?: { amountMinor: number; currency: string; exponent: number };
+};
 const LOCK_URL = `pubky://${SELLER_PUBKY}/pub/locks.app/boots_01.json`;
 
 function usd(amountMinor: number) {
@@ -713,3 +729,60 @@ describe('portable v2 order receipt records', () => {
     expect(verifyOwnOrderReceipt(parsed)).toBe(attestation.claims.iss);
   });
 });
+
+describe('portable order receipt attestation verification', () => {
+  it.each([
+    ['v1', receiptAttestationV1],
+    ['v2 same-currency', receiptAttestationV2SameCurrency],
+  ])('round-trips the verified claims for the %s fixture', (_name, fixture) => {
+    const attestation = toCamelCaseWire(fixture.receipt_attestation) as {
+      jws: string;
+      claims: ReceiptFixtureClaims;
+    };
+    const record = receiptRecordForAttestation(attestation);
+
+    const verified = verifyOrderReceiptClaims(record);
+
+    expect(verified).not.toBeNull();
+    expect(verified?.v).toBe(attestation.claims.v);
+    expect(verified?.iss).toBe(attestation.claims.iss);
+  });
+
+  it('rejects a v2 receipt with a tampered signature', () => {
+    const attestation = toCamelCaseWire(receiptAttestationV2SameCurrency.receipt_attestation) as {
+      jws: string;
+      claims: ReceiptFixtureClaims;
+    };
+    const record = receiptRecordForAttestation({
+      ...attestation,
+      jws: `${attestation.jws.slice(0, -1)}${attestation.jws.endsWith('A') ? 'B' : 'A'}`,
+    });
+
+    expect(verifyOrderReceiptClaims(record)).toBeNull();
+  });
+});
+
+function receiptRecordForAttestation(attestation: { jws: string; claims: ReceiptFixtureClaims }) {
+  const { claims } = attestation;
+  const record = {
+    schemaVersion: COMMERCE_CONTRACT_VERSION,
+    recordType: 'order_receipt',
+    ownerPubky: claims.buyer,
+    revision: 1,
+    createdAt: claims.paidAt,
+    updatedAt: claims.paidAt,
+    role: 'buyer',
+    receiptId: claims.receipt,
+    orderId: claims.order,
+    buyerPubky: claims.buyer,
+    sellerPubky: claims.seller,
+    total:
+      claims.v === 2
+        ? claims.merchandiseTotal
+        : { amountMinor: claims.totalMinor, currency: claims.currency, exponent: claims.exponent },
+    ...(claims.v === 2 ? { settlementTotal: claims.settlementTotal } : {}),
+    paidAt: claims.paidAt,
+    receiptAttestation: attestation.jws,
+  };
+  return record;
+}

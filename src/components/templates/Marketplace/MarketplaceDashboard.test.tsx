@@ -31,6 +31,7 @@ const dashboardState = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: () => router,
+  usePathname: () => MARKETPLACE_ROUTES.DASHBOARD,
 }));
 
 vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
@@ -70,8 +71,18 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: COMMERCE_FIXTURE_SELLER }),
+  useAuthStore: Object.assign(
+    (selector: (state: { currentUserPubky: string }) => unknown) =>
+      selector({ currentUserPubky: COMMERCE_FIXTURE_SELLER }),
+    {
+      getState: () => ({
+        currentUserPubky: COMMERCE_FIXTURE_SELLER,
+        selectCurrentUserPubky: () => COMMERCE_FIXTURE_SELLER,
+      }),
+      setState: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
+    },
+  ),
 }));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({

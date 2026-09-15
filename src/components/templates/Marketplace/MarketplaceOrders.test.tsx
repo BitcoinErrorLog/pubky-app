@@ -42,8 +42,18 @@ vi.mock('@/organisms/Marketplace/MarketplaceIndicativePrice', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: ordersState.currentUserPubky }),
+  useAuthStore: Object.assign(
+    (selector: (state: { currentUserPubky: string }) => unknown) =>
+      selector({ currentUserPubky: ordersState.currentUserPubky }),
+    {
+      getState: () => ({
+        currentUserPubky: ordersState.currentUserPubky,
+        selectCurrentUserPubky: () => ordersState.currentUserPubky,
+      }),
+      setState: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
+    },
+  ),
 }));
 
 vi.mock('@/stores/commerce/commerce.store', () => ({

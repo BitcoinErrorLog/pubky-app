@@ -5,6 +5,7 @@ import {
 } from 'pubky-app-specs';
 import { z } from 'zod';
 import type { CommerceReviewRecord } from '@/libs/commerce/marketplace-records';
+import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 
 /**
  * The purchase attestation as `review.create` / `review.update` return it
@@ -59,7 +60,7 @@ export function extractReviewAttestation(result: Record<string, unknown>): Marke
 
 /**
  * The receipt attestation as `GET /v1/receipts/{id}/attestation` returns it:
- * a compact JWS (EdDSA, `typ: pubky-order-receipt+v1`) plus its decoded
+ * a compact JWS (EdDSA, `typ: pubky-order-receipt+v1` or `+v2`) plus its decoded
  * claims, camelCased by the wire-casing boundary. Unlike the public
  * purchase attestation, the `order` claim is the raw order UUID — the
  * receipt document lives under the owner's `/priv/` tree, so there is no
@@ -180,6 +181,14 @@ export function verifyOwnOrderReceipt(record: Record<string, unknown>): string |
   try {
     const claims = verifyOrderReceiptAttestation({ ...record }) as { iss?: unknown };
     return typeof claims.iss === 'string' ? claims.iss : null;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyOrderReceiptClaims(record: Record<string, unknown>): MarketplaceReceiptAttestationClaims | null {
+  try {
+    return toCamelCaseWire(verifyOrderReceiptAttestation({ ...record })) as MarketplaceReceiptAttestationClaims;
   } catch {
     return null;
   }

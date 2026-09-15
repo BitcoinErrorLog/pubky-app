@@ -201,6 +201,28 @@ describe('CommerceApplication.publishOrderReceipts', () => {
     expect(record.receiptAttestation).toBe(fixture.jws);
   });
 
+  it('refuses a v2 receipt when wire claims disagree with the signed payload', async () => {
+    grantCapableSession();
+    const tamperedWire = structuredClone(receiptAttestationV2Bitcoin) as LiveReceiptFixture;
+    (
+      tamperedWire.receipt_attestation.claims as { settlement_total: { amount_minor: number } }
+    ).settlement_total.amount_minor += 1;
+    const fixture = parseLiveReceiptFixture(tamperedWire);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
+    vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(fixture);
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
+
+    await CommerceApplication.publishOrderReceipts(fixture.claims.buyer, [
+      {
+        receiptId: fixture.claims.receipt,
+        buyerPubky: fixture.claims.buyer,
+        sellerPubky: fixture.claims.seller,
+      } as never,
+    ]);
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
   it('refuses to publish a drop receipt whose edition attestation does not verify', async () => {
     grantCapableSession();
     vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());

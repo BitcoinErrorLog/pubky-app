@@ -825,7 +825,7 @@ const commerceDropRecordSchemaInner = commercePublicRecordBaseSchema
  * The portable order receipt (specs `0.6.2-marketplace.7`): a PRIVATE
  * record at `/priv/pubky.app/marketplace/v1/receipts/{receiptId}` the buyer
  * or seller writes to their OWN homeserver, carrying the service-signed
- * `pubky-order-receipt+v1` JWS so purchase history stays verifiable after
+ * `pubky-order-receipt+v1` or `+v2` JWS so purchase history stays verifiable after
  * the marketplace operator disappears. Never indexed, never public.
  */
 const commerceOrderReceiptRecordSchemaInner = commercePublicRecordBaseSchema

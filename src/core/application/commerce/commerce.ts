@@ -15,6 +15,7 @@ import {
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
 import {
   extractReviewAttestation,
+  verifyOrderReceiptClaims,
   verifyOwnDropEdition,
   verifyOwnOrderReceipt,
   verifyOwnReviewAttestation,
@@ -1461,7 +1462,7 @@ export class CommerceApplication {
             : null;
 
         const { claims } = attestation;
-        const body = {
+        const wireBody = {
           schemaVersion: 1,
           recordType: 'order_receipt',
           ownerPubky,
@@ -1496,9 +1497,59 @@ export class CommerceApplication {
             : {}),
         };
         const { PubkySpecsBuilder } = await import('pubky-app-specs');
-        const built = new PubkySpecsBuilder(ownerPubky).createMarketplaceOrderReceipt(body);
+        const provisional = new PubkySpecsBuilder(ownerPubky).createMarketplaceOrderReceipt(wireBody);
+        const provisionalRecord = CommerceRecordNormalizer.orderReceiptRecord(provisional.order_receipt.toJson());
+        const verifiedClaims = verifyOrderReceiptClaims({ ...provisionalRecord });
+        if (
+          verifiedClaims === null ||
+          verifiedClaims.v !== claims.v ||
+          (claims.v === 2 &&
+            (verifiedClaims.v !== 2 ||
+              JSON.stringify(verifiedClaims.merchandiseTotal) !== JSON.stringify(claims.merchandiseTotal) ||
+              JSON.stringify(verifiedClaims.settlementTotal) !== JSON.stringify(claims.settlementTotal)))
+        ) {
+          throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Receipt attestation claims are not verified.', {
+            service: ErrorService.Marketplace,
+            operation: 'publishOrderReceipts',
+          });
+        }
+        const verifiedBody = {
+          schemaVersion: 1,
+          recordType: 'order_receipt',
+          ownerPubky,
+          revision: 1,
+          createdAt: verifiedClaims.paidAt,
+          updatedAt: verifiedClaims.paidAt,
+          role: verifiedClaims.buyer === ownerPubky ? 'buyer' : 'seller',
+          receiptId: verifiedClaims.receipt,
+          orderId: verifiedClaims.order,
+          buyerPubky: verifiedClaims.buyer,
+          sellerPubky: verifiedClaims.seller,
+          total:
+            verifiedClaims.v === 2
+              ? verifiedClaims.merchandiseTotal
+              : {
+                  amountMinor: verifiedClaims.totalMinor,
+                  currency: verifiedClaims.currency,
+                  exponent: verifiedClaims.exponent,
+                },
+          ...(verifiedClaims.v === 2 ? { settlementTotal: verifiedClaims.settlementTotal } : {}),
+          paidAt: verifiedClaims.paidAt,
+          receiptAttestation: attestation.jws,
+          ...(editionAttestation !== null
+            ? {
+                editionAttestation: editionAttestation.jws,
+                drop: {
+                  dropId: editionAttestation.claims.drop,
+                  edition: editionAttestation.claims.edition,
+                  of: editionAttestation.claims.of,
+                },
+              }
+            : {}),
+        };
+        const built = new PubkySpecsBuilder(ownerPubky).createMarketplaceOrderReceipt(verifiedBody);
         const record = CommerceRecordNormalizer.orderReceiptRecord(built.order_receipt.toJson());
-        if (claims.v === 2) record.settlementTotal = claims.settlementTotal;
+        if (verifiedClaims.v === 2) record.settlementTotal = verifiedClaims.settlementTotal;
         if (verifyOwnOrderReceipt({ ...record }) === null) {
           Logger.warn('Refusing to publish an order receipt whose attestation does not verify', { url });
           continue;

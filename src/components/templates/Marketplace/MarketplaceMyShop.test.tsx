@@ -16,8 +16,17 @@ const imageSlot = vi.hoisted(() => (previewUrl: string | null) => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 'y'.repeat(52) }),
+  useAuthStore: Object.assign(
+    (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: 'y'.repeat(52) }),
+    {
+      getState: () => ({
+        currentUserPubky: 'y'.repeat(52),
+        selectCurrentUserPubky: () => 'y'.repeat(52),
+      }),
+      setState: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
+    },
+  ),
 }));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
