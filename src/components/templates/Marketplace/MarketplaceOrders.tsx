@@ -196,6 +196,9 @@ export function MarketplaceOrders() {
                               {nextActorHint.label}
                             </Badge>
                           )}
+                          {order.pricedFrom === 'offer' && (
+                            <Badge variant="secondary">Priced from your accepted offer</Badge>
+                          )}
                         </div>
                         {order.lines.map((line) => (
                           <div key={line.listingAggregateId}>
