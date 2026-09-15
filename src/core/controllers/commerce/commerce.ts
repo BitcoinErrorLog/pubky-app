@@ -1003,11 +1003,12 @@ export class CommerceController {
     );
   }
 
-  static async commitDeleteCartItem(listingCompositeId: unknown, variantId: unknown): Promise<void> {
+  static async commitDeleteCartItem(listingCompositeId: unknown, variantId: unknown, awardId?: unknown): Promise<void> {
     await CommerceApplication.commitDeleteCartItem(
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
       CommerceRecordNormalizer.entityId(variantId),
+      awardId === undefined ? undefined : CommerceRecordNormalizer.entityId(awardId),
     );
   }
 

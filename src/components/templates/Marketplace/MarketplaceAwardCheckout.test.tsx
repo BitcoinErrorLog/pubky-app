@@ -71,7 +71,11 @@ vi.mock('@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook', () => ({
   useMarketplaceAddressBook: () => ({ addresses: state.addresses }),
 }));
 vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
-  useMarketplaceOfferCheckout: () => ({ submit: state.submit }),
+  useMarketplaceOfferCheckout: () => ({ submit: state.submit, isSubmitting: false }),
+}));
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: 'b'.repeat(52) }),
 }));
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({ useMarketplaceCartCount: () => 0 }));
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
@@ -107,7 +111,7 @@ describe('MarketplaceAwardCheckout', () => {
     await user.click(screen.getByRole('button', { name: 'Pay agreed price' }));
 
     expect(state.submit).toHaveBeenCalled();
-    expect(state.remove).toHaveBeenCalledWith('s:boots', 'variant_42');
+    expect(state.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
     expect(state.refresh).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('heading', { name: 'Order created' })).toBeInTheDocument();
     expect(screen.getByText(/agreed merchandise total is \$7.00/)).toBeInTheDocument();
@@ -157,6 +161,33 @@ describe('MarketplaceAwardCheckout', () => {
 
   it('withholds checkout for a malformed award projection', () => {
     state.offers = [{ ...offer, award: undefined }];
+    render(<MarketplaceAwardCheckout />);
+    expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pay agreed price' })).not.toBeInTheDocument();
+  });
+
+  it.each(['subtotal', 'shipping', 'merchandiseTotal'])('withholds checkout when %s is absent', (field) => {
+    const incomplete = { ...offer, award: { ...offer.award } };
+    delete incomplete.award[field as keyof typeof incomplete.award];
+    state.offers = [incomplete];
+    render(<MarketplaceAwardCheckout />);
+    expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pay agreed price' })).not.toBeInTheDocument();
+  });
+
+  it('withholds checkout when award money currencies do not match', () => {
+    state.offers = [
+      {
+        ...offer,
+        award: { ...offer.award, shipping: { ...offer.award.shipping, currency: 'EUR' } },
+      },
+    ];
+    render(<MarketplaceAwardCheckout />);
+    expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
+  });
+
+  it('withholds checkout from the seller on the award route', () => {
+    state.offers = [{ ...offer, buyerPubky: 's'.repeat(52) }];
     render(<MarketplaceAwardCheckout />);
     expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pay agreed price' })).not.toBeInTheDocument();

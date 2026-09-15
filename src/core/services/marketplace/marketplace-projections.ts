@@ -233,9 +233,9 @@ const marketplaceOfferProjectionSchema = z
         acceptedAt: z.string(),
         convertBy: z.string(),
         convertedOrderId: z.uuid().nullable(),
-        subtotal: marketplaceMoneySchema.optional(),
-        shipping: marketplaceMoneySchema.optional(),
-        merchandiseTotal: marketplaceMoneySchema.optional(),
+        subtotal: marketplaceMoneySchema,
+        shipping: marketplaceMoneySchema,
+        merchandiseTotal: marketplaceMoneySchema,
       })
       .passthrough()
       .optional(),
@@ -253,6 +253,16 @@ export const marketplaceOfferSchema = z.preprocess((input) => {
   delete withoutAward.award;
   return withoutAward;
 }, marketplaceOfferProjectionSchema);
+
+export function isMarketplaceAwardCheckoutEligible(
+  award: MarketplaceOfferAward | null | undefined,
+): award is MarketplaceOfferAward {
+  if (!award?.subtotal || !award.shipping || !award.merchandiseTotal) return false;
+  const { currency, exponent } = award.unitPrice;
+  return [award.subtotal, award.shipping, award.merchandiseTotal].every(
+    (money) => money.currency === currency && money.exponent === exponent,
+  );
+}
 
 export const marketplacePaymentSchema = z
   .object({

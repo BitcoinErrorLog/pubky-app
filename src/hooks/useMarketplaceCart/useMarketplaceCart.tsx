@@ -159,12 +159,18 @@ export function useMarketplaceCart() {
     quantity: number,
     awardId: string,
     offerRevision: number,
-  ) => {
-    await CommerceController.commitUpsertAwardCartItem(listingId, variantId, quantity, awardId, offerRevision);
+  ): Promise<boolean> => {
+    try {
+      await CommerceController.commitUpsertAwardCartItem(listingId, variantId, quantity, awardId, offerRevision);
+      return true;
+    } catch {
+      toast({ variant: 'error', description: 'Could not start checkout for this offer.' });
+      return false;
+    }
   };
 
-  const remove = async (listingId: string, variantId: string) => {
-    await CommerceController.commitDeleteCartItem(listingId, variantId);
+  const remove = async (listingId: string, variantId: string, awardId?: string) => {
+    await CommerceController.commitDeleteCartItem(listingId, variantId, awardId);
   };
 
   const clear = async () => {

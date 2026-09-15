@@ -10,6 +10,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
+import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/marketplace-projections';
 import { useMarketplaceAddressBook } from '@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceOfferCheckout } from '@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout';
@@ -18,6 +19,8 @@ import { marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceAwardCheckout() {
   const searchParams = useSearchParams();
@@ -26,17 +29,20 @@ export function MarketplaceAwardCheckout() {
   const cart = useMarketplaceCart();
   const addressBook = useMarketplaceAddressBook();
   const [addressId, setAddressId] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<'expired' | 'converted' | 'error' | 'success' | null>(null);
+  const [outcome, setOutcome] = useState<
+    'expired' | 'converted' | 'error' | 'success' | 'unavailable' | 'session' | null
+  >(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const offer = offers.offers.find((item) => item.id === offerReference || item.award?.id === offerReference);
   const award = offer?.award;
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const addresses = addressBook.addresses;
   const selectedAddress = addresses.find((item) => item.id === addressId) ?? addresses[0];
 
   const removeAwardLine = async () => {
     const line = cart.awardItems.find((item) => item.awardId === award?.id);
-    if (line) await cart.remove(line.listingId, line.variantId);
+    if (line) await cart.remove(line.listingId, line.variantId, line.awardId ?? undefined);
   };
 
   const submit = async () => {
@@ -57,7 +63,11 @@ export function MarketplaceAwardCheckout() {
       setOutcome('success');
       return;
     }
-    if (result.code === 'AWARD_EXPIRED') {
+    if (result.code === 'AWARD_UNAVAILABLE') {
+      setOutcome('unavailable');
+    } else if (result.code === 'SESSION_REQUIRED') {
+      setOutcome('session');
+    } else if (result.code === 'AWARD_EXPIRED') {
       await removeAwardLine();
       await offers.refresh();
       setOutcome('expired');
@@ -70,7 +80,12 @@ export function MarketplaceAwardCheckout() {
   };
 
   const checkout = useMarketplaceOfferCheckout();
-  const unavailable = !offer || !award || award.state !== 'active';
+  const unavailable =
+    !offer ||
+    !award ||
+    award.state !== 'active' ||
+    offer.buyerPubky !== currentUserPubky ||
+    !isMarketplaceAwardCheckoutEligible(award);
   const listingRoute = award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
 
   return (
@@ -98,8 +113,7 @@ export function MarketplaceAwardCheckout() {
                 Order created
               </Heading>
               <Typography as="p">
-                Your agreed merchandise total is{' '}
-                {award ? formatCommerceMoney(award.merchandiseTotal ?? award.unitPrice) : ''}.
+                Your agreed merchandise total is {award ? formatCommerceMoney(award.merchandiseTotal) : ''}.
               </Typography>
               <Button asChild className="w-fit rounded-full">
                 <Link href={`${MARKETPLACE_ROUTES.ORDERS}${orderId ? `#${orderId}` : ''}`} overrideDefaults>
@@ -147,6 +161,20 @@ export function MarketplaceAwardCheckout() {
               </Button>
             </CardContent>
           </Card>
+        ) : outcome === 'unavailable' ? (
+          <Card className="border">
+            <CardContent className="grid gap-3 px-6">
+              <Heading level={1} size="lg">
+                Checkout unavailable
+              </Heading>
+              <Typography as="p">This offer is no longer available.</Typography>
+              <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
+                View offers
+              </Link>
+            </CardContent>
+          </Card>
+        ) : outcome === 'session' ? (
+          <MarketplaceSessionRequiredCard />
         ) : outcome === 'error' ? (
           <Card className="border">
             <CardContent className="grid gap-4 px-6">
@@ -190,17 +218,13 @@ export function MarketplaceAwardCheckout() {
                   {award.variant.options.map((item) => item.value).join(' · ') || 'Default'} · Quantity {award.quantity}
                 </Typography>
                 <Typography as="p">
-                  Subtotal <span className="font-bold">{formatCommerceMoney(award.subtotal ?? award.unitPrice)}</span>
+                  Subtotal <span className="font-bold">{formatCommerceMoney(award.subtotal)}</span>
                 </Typography>
                 <Typography as="p">
-                  Shipping{' '}
-                  <span className="font-bold">
-                    {formatCommerceMoney(award.shipping ?? { ...award.unitPrice, amountMinor: 0 })}
-                  </span>
+                  Shipping <span className="font-bold">{formatCommerceMoney(award.shipping)}</span>
                 </Typography>
                 <Typography as="p" className="border-t pt-2 font-semibold">
-                  Merchandise total{' '}
-                  <span className="text-brand">{formatCommerceMoney(award.merchandiseTotal ?? award.unitPrice)}</span>
+                  Merchandise total <span className="text-brand">{formatCommerceMoney(award.merchandiseTotal)}</span>
                 </Typography>
               </div>
               {addresses.length ? (
@@ -226,8 +250,12 @@ export function MarketplaceAwardCheckout() {
                   Save a delivery address before checkout.
                 </Typography>
               )}
-              <Button className="w-full rounded-full" disabled={!selectedAddress} onClick={() => void submit()}>
-                Pay agreed price
+              <Button
+                className="w-full rounded-full"
+                disabled={!selectedAddress || checkout.isSubmitting}
+                onClick={() => void submit()}
+              >
+                {checkout.isSubmitting ? 'Submitting…' : 'Pay agreed price'}
               </Button>
             </CardContent>
           </Card>

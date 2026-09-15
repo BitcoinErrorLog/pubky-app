@@ -14,6 +14,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/marketplace-projections';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
@@ -115,7 +116,9 @@ export function MarketplaceOffers() {
                       )}
                       {offer.state === 'accepted' &&
                         offer.buyerPubky === currentUserPubky &&
-                        (!offer.award || offer.award.state !== 'active') && (
+                        (!offer.award ||
+                          offer.award.state !== 'active' ||
+                          !isMarketplaceAwardCheckoutEligible(offer.award)) && (
                           <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                             Checkout for this offer is unavailable.
                           </Typography>
@@ -128,6 +131,7 @@ export function MarketplaceOffers() {
                     </div>
                     {offer.award &&
                     offer.award.state === 'active' &&
+                    isMarketplaceAwardCheckoutEligible(offer.award) &&
                     offer.state === 'accepted' &&
                     offer.buyerPubky === currentUserPubky ? (
                       <div className="flex flex-col items-start gap-2">
@@ -137,17 +141,17 @@ export function MarketplaceOffers() {
                           onClick={async () => {
                             const award = offer.award;
                             if (!award || award.state !== 'active') return;
-                            await cart.addAward(
+                            const added = await cart.addAward(
                               `${award.listing.sellerPubky}:${award.listing.listingId}`,
                               award.variant.id,
                               award.quantity,
                               award.id,
                               offer.revision,
                             );
-                            router.push(`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${offer.id}`);
+                            if (added) router.push(`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${offer.id}`);
                           }}
                         >
-                          Buy for {formatCommerceMoney(offer.award.merchandiseTotal ?? offer.award.unitPrice)}
+                          Buy for {formatCommerceMoney(offer.award.merchandiseTotal)}
                         </Button>
                         <Typography as="p" className="text-xs text-muted-foreground">
                           Priced from your accepted offer

@@ -26,7 +26,7 @@ vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', () => ({
 
 const offerView = vi.hoisted(() => ({
   offers: [] as MarketplaceOffer[],
-  addAward: vi.fn(async () => {}),
+  addAward: vi.fn(async () => true),
   push: vi.fn(),
 }));
 
@@ -179,5 +179,40 @@ describe('Marketplace offers UX', () => {
     offerView.offers = [{ ...offer, buyerPubky: 'b'.repeat(52), offeredBy: seller, award: undefined }];
     render(<MarketplaceOffers />);
     expect(screen.queryByRole('button', { name: /Buy for/ })).not.toBeInTheDocument();
+  });
+
+  it('shows a static error and does not navigate when award cart setup fails', async () => {
+    offerView.addAward.mockResolvedValueOnce(false);
+    const accepted = {
+      ...offer,
+      award: {
+        id: '00000000-0000-4000-8000-000000000801',
+        state: 'active',
+        listing: {
+          aggregateId: offer.listingAggregateId,
+          sellerPubky: seller,
+          listingId: 'boots',
+          title: 'Vintage boots',
+          listingRevision: 2,
+          listingRecordSha256: 'a'.repeat(64),
+        },
+        variant: { id: 'variant_42', sku: null, options: [] },
+        unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
+        quantity: 1,
+        acceptedAt: '2026-09-15T10:00:00.000Z',
+        convertBy: '2026-09-15T12:00:00.000Z',
+        convertedOrderId: null,
+        subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
+        shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
+        merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
+      },
+    } as MarketplaceOffer;
+    offerView.offers = [accepted];
+    const user = userEvent.setup();
+    render(<MarketplaceOffers />);
+
+    await user.click(screen.getByRole('button', { name: 'Buy for $7.00' }));
+    await waitFor(() => expect(offerView.addAward).toHaveBeenCalledTimes(1));
+    expect(offerView.push).not.toHaveBeenCalled();
   });
 });

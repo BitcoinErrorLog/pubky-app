@@ -147,4 +147,37 @@ describe('useMarketplaceOfferCheckout', () => {
 
     expect(CommerceController.commitOfferCheckout).not.toHaveBeenCalled();
   });
+
+  it('does not submit when the refreshed projection no longer contains the offer', async () => {
+    vi.mocked(CommerceController.getMarketplaceOffers).mockResolvedValue([]);
+    const { result } = renderHook(() => useMarketplaceOfferCheckout());
+
+    await act(async () => {
+      await expect(result.current.submit(offer, address)).resolves.toEqual({ ok: false, code: 'AWARD_UNAVAILABLE' });
+    });
+
+    expect(CommerceController.commitOfferCheckout).not.toHaveBeenCalled();
+  });
+
+  it('allows only one in-flight checkout command', async () => {
+    let resolve: ((value: unknown) => void) | undefined;
+    vi.mocked(CommerceController.commitOfferCheckout).mockReturnValue(
+      new Promise((res) => {
+        resolve = res;
+      }) as never,
+    );
+    const { result } = renderHook(() => useMarketplaceOfferCheckout());
+
+    let first: Promise<unknown> | undefined;
+    await act(async () => {
+      first = result.current.submit(offer, address);
+      await Promise.resolve();
+      await expect(result.current.submit(offer, address)).resolves.toEqual({ ok: false, code: 'SUBMITTING' });
+    });
+    resolve?.({ ok: true, result: { order: { id: '00000000-0000-4000-8000-000000000703' } } });
+    await act(async () => {
+      await first;
+    });
+    expect(CommerceController.commitOfferCheckout).toHaveBeenCalledTimes(1);
+  });
 });

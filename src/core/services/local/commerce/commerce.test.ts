@@ -18,7 +18,10 @@ import {
   CommerceWatchAlertModel,
   CommerceWatchSnapshotModel,
 } from '@/models/commerce/commerce.models';
-import type { CommerceWatchAlertModelSchema, CommerceWatchSnapshotModelSchema } from '@/models/commerce/commerce.schema';
+import type {
+  CommerceWatchAlertModelSchema,
+  CommerceWatchSnapshotModelSchema,
+} from '@/models/commerce/commerce.schema';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
@@ -154,7 +157,10 @@ describe('LocalCommerceService', () => {
   it('preserves a pending registration marker during seller catalog refresh', async () => {
     const listing = createCommerceListingFixture();
     await LocalCommerceService.upsertListing(listing, 'synced');
-    await LocalCommerceService.setListingRegistrationStatus(`${listing.ownerPubky}:${listing.listingId}`, 'unregistered');
+    await LocalCommerceService.setListingRegistrationStatus(
+      `${listing.ownerPubky}:${listing.listingId}`,
+      'unregistered',
+    );
 
     const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
     await LocalCommerceService.commitSellerCatalogRefresh(
@@ -361,6 +367,38 @@ describe('LocalCommerceService', () => {
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
 
     await LocalCommerceService.clearCart(COMMERCE_FIXTURE_BUYER);
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+  });
+
+  it('keeps award rows distinct and preserves them when ordinary checkout clears', async () => {
+    const listing = createCommerceListingFixture();
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    const listingId = `${COMMERCE_FIXTURE_SELLER}:${listing.listingId}`;
+
+    await LocalCommerceService.upsertCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 1, 100);
+    await LocalCommerceService.upsertAwardCartItem(
+      COMMERCE_FIXTURE_BUYER,
+      listingId,
+      'variant_01',
+      2,
+      'award-1',
+      200,
+      200,
+    );
+
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ quantity: 1 }),
+        expect.objectContaining({ pricing_source: 'offer', award_id: 'award-1', quantity: 2 }),
+      ]),
+    );
+
+    await LocalCommerceService.clearCart(COMMERCE_FIXTURE_BUYER);
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([
+      expect.objectContaining({ pricing_source: 'offer', award_id: 'award-1' }),
+    ]);
+
+    await LocalCommerceService.deleteCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 'award-1');
     expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
   });
 

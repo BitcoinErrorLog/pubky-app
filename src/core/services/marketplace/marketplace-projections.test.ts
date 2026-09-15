@@ -8,6 +8,7 @@ import {
   createViewerBidAuctionProjectionFixture,
 } from '@/test/fixtures/commerce/projections';
 import {
+  isMarketplaceAwardCheckoutEligible,
   marketplaceBitcoinQuoteSchema,
   marketplaceListingProjectionSchema,
   marketplaceOfferSchema,
@@ -162,6 +163,9 @@ describe('marketplace offer projection — award degradation', () => {
       acceptedAt: '2026-09-15T00:00:00.000Z',
       convertBy: '2026-09-15T00:30:00.000Z',
       convertedOrderId: null,
+      subtotal: { amountMinor: 1000, currency: 'USD', exponent: 2 },
+      shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
+      merchandiseTotal: { amountMinor: 1100, currency: 'USD', exponent: 2 },
     },
   };
 
@@ -173,6 +177,22 @@ describe('marketplace offer projection — award degradation', () => {
     const parsed = marketplaceOfferSchema.parse({ ...offer, award: { id: 'not-a-uuid' } });
     expect(parsed.state).toBe('accepted');
     expect(parsed.award).toBeUndefined();
+  });
+
+  it.each(['subtotal', 'shipping', 'merchandiseTotal'])('drops an award missing %s', (field) => {
+    const award = { ...offer.award };
+    delete award[field as keyof typeof award];
+    const parsed = marketplaceOfferSchema.parse({ ...offer, award });
+    expect(parsed.award).toBeUndefined();
+  });
+
+  it('drops an award whose money fields use different currency or exponent', () => {
+    const parsed = marketplaceOfferSchema.parse({
+      ...offer,
+      award: { ...offer.award, shipping: { amountMinor: 100, currency: 'EUR', exponent: 2 } },
+    });
+    expect(parsed.award).toBeDefined();
+    expect(isMarketplaceAwardCheckoutEligible(parsed.award)).toBe(false);
   });
 });
 

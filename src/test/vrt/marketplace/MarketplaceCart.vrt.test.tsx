@@ -91,6 +91,7 @@ interface CartItemMoneyLike {
 interface CartItemLike {
   quantity: number;
   variantId: string;
+  pricingSource?: 'listing' | 'offer';
   listing: {
     record: {
       variants: Array<{ id: string; priceOverride?: CartItemMoneyLike }>;
@@ -177,6 +178,8 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
       const items = view.items as CartItemLike[];
       return {
         items,
+        ordinaryItems: items.filter((item) => item.pricingSource !== 'offer'),
+        awardItems: items.filter((item) => item.pricingSource === 'offer'),
         itemCount: items.reduce((total, item) => total + item.quantity, 0),
         subtotals: sumMoneyByAsset(
           items.flatMap((item) => {
@@ -192,7 +195,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
         update: vi.fn(),
         remove: vi.fn(),
         clear: vi.fn(),
-        groups: actual.groupMarketplaceCartItems(items as never),
+        groups: actual.groupMarketplaceCartItems(items.filter((item) => item.pricingSource !== 'offer') as never),
       };
     },
   };

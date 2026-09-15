@@ -71,12 +71,17 @@ vi.mock('@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook', () => ({
 }));
 vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
   useMarketplaceOfferCheckout: () => ({
+    isSubmitting: false,
     submit: vi.fn(async () =>
       state.outcome === 'success'
         ? { ok: true, orderId: '00000000-0000-0000-0000-000000000903' }
         : { ok: false, code: 'AWARD_EXPIRED' },
     ),
   }),
+}));
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: 'b'.repeat(52) }),
 }));
 
 describe('Marketplace award checkout — visual regression', () => {

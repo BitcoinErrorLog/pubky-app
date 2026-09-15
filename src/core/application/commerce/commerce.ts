@@ -1193,8 +1193,13 @@ export class CommerceApplication {
     );
   }
 
-  static async commitDeleteCartItem(ownerPubky: string, listingId: string, variantId: string): Promise<void> {
-    await LocalCommerceService.deleteCartItem(ownerPubky, listingId, variantId);
+  static async commitDeleteCartItem(
+    ownerPubky: string,
+    listingId: string,
+    variantId: string,
+    awardId?: string,
+  ): Promise<void> {
+    await LocalCommerceService.deleteCartItem(ownerPubky, listingId, variantId, awardId);
   }
 
   static async commitClearCart(ownerPubky: string): Promise<void> {
