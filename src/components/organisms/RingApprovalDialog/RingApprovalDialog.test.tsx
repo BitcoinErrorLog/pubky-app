@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { APP_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { toast } from '@/molecules/Toaster/toast';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { RingApprovalDialog } from './RingApprovalDialog';
 
@@ -11,10 +12,12 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     getCapabilityApprovalUrl: vi.fn(),
   },
 }));
+vi.mock('@/molecules/Toaster/toast');
 
 describe('RingApprovalDialog', () => {
   beforeEach(() => {
     vi.mocked(PubchiController.getCapabilityApprovalUrl).mockReset();
+    vi.mocked(toast).mockClear();
   });
 
   it('renders the Pubchi capabilities QR and completes approval', async () => {
@@ -61,7 +64,7 @@ describe('RingApprovalDialog', () => {
     expect(PubchiController.getCapabilityApprovalUrl).toHaveBeenCalledWith(capabilities);
   });
 
-  it('adopts approval after closing and stays open when adoption fails', async () => {
+  it('ignores approval after the dialog closes', async () => {
     let resolveApproval!: (session: Session) => void;
     const approval = new Promise<Session>((resolve) => {
       resolveApproval = resolve;
@@ -79,9 +82,61 @@ describe('RingApprovalDialog', () => {
     rerender(<RingApprovalDialog open={false} onOpenChange={onOpenChange} onApproved={onApproved} />);
     resolveApproval(asOpaque<Session>({ pubky: 'owner' }));
 
-    await waitFor(() => expect(onApproved).toHaveBeenCalled());
+    await waitFor(() => expect(onApproved).not.toHaveBeenCalled());
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(screen.queryByText(/Could not apply the Ring approval/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the flow when callback identities change and uses the latest approval callback', async () => {
+    let resolveApproval!: (session: Session) => void;
+    const approval = new Promise<Session>((resolve) => {
+      resolveApproval = resolve;
+    });
+    const cancelAuthFlow = vi.fn();
+    vi.mocked(PubchiController.getCapabilityApprovalUrl).mockResolvedValue({
+      authorizationUrl: 'pubkyauth://approve?token=stable',
+      awaitApproval: approval,
+      cancelAuthFlow,
+    });
+    const firstOnApproved = vi.fn();
+    const latestOnApproved = vi.fn();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <RingApprovalDialog open onOpenChange={onOpenChange} onApproved={firstOnApproved} />,
+    );
+
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Authorize with Pubky Ring' })).toBeInTheDocument());
+    rerender(<RingApprovalDialog open onOpenChange={onOpenChange} onApproved={latestOnApproved} />);
+
+    expect(PubchiController.getCapabilityApprovalUrl).toHaveBeenCalledTimes(1);
+    expect(cancelAuthFlow).not.toHaveBeenCalled();
+
+    resolveApproval(asOpaque<Session>({ pubky: 'owner' }));
+    await waitFor(() => expect(latestOnApproved).toHaveBeenCalled());
+    expect(firstOnApproved).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'default',
+      title: 'Ring approval applied',
+      dismissButton: true,
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('cancels the active flow when explicitly cancelled', async () => {
+    const cancelAuthFlow = vi.fn();
+    vi.mocked(PubchiController.getCapabilityApprovalUrl).mockResolvedValue({
+      authorizationUrl: 'pubkyauth://approve?token=cancel',
+      awaitApproval: new Promise<Session>(() => {}),
+      cancelAuthFlow,
+    });
+    const onOpenChange = vi.fn();
+    render(<RingApprovalDialog open onOpenChange={onOpenChange} onApproved={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByTestId('pubchi-reapprove-cancel')).toBeInTheDocument());
+    screen.getByTestId('pubchi-reapprove-cancel').click();
+
+    expect(cancelAuthFlow).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('keeps the dialog open and shows adoption errors', async () => {

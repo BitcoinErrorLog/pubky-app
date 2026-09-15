@@ -31,6 +31,8 @@ export function RingApprovalDialog({
   onApproved,
   capabilities = PUBCHI_RING_CAPABILITIES,
 }: RingApprovalDialogProps) {
+  const onApprovedRef = useRef(onApproved);
+  const onOpenChangeRef = useRef(onOpenChange);
   const grantedCapabilities = capabilities.split(',').map((capability) => capability.trim()).filter(Boolean);
   const [approval, setApproval] = useState<TGenerateAuthUrlResult>();
   const [loading, setLoading] = useState(false);
@@ -40,8 +42,13 @@ export function RingApprovalDialog({
 
   const cancel = () => {
     approvalRef.current?.cancelAuthFlow();
-    onOpenChange(false);
+    onOpenChangeRef.current(false);
   };
+
+  useEffect(() => {
+    onApprovedRef.current = onApproved;
+    onOpenChangeRef.current = onOpenChange;
+  }, [onApproved, onOpenChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -61,12 +68,15 @@ export function RingApprovalDialog({
         setApproval(nextApproval);
         nextApproval.awaitApproval
           .then(async (session) => {
+            if (!active) return;
             try {
-              const result = await onApproved(session);
+              const result = await onApprovedRef.current(session);
               if (result === false) throw new Error('Ring approval adoption failed');
+              if (!active) return;
               toast({ variant: 'default', title: 'Ring approval applied', dismissButton: true });
-              if (active) onOpenChange(false);
+              onOpenChangeRef.current(false);
             } catch {
+              if (!active) return;
               setAdoptionError(true);
               toast({ variant: 'error', title: 'Could not apply Ring approval', dismissButton: true });
             }
@@ -89,15 +99,15 @@ export function RingApprovalDialog({
       approvalRef.current?.cancelAuthFlow();
       approvalRef.current = undefined;
     };
-  }, [capabilities, onApproved, onOpenChange, open]);
+  }, [capabilities, open]);
 
   const reload = () => {
-    onOpenChange(false);
-    setTimeout(() => onOpenChange(true), 0);
+    onOpenChangeRef.current(false);
+    setTimeout(() => onOpenChangeRef.current(true), 0);
   };
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => (nextOpen ? onOpenChange(true) : cancel())}>
+    <Dialog open={open} onOpenChange={(nextOpen) => (nextOpen ? onOpenChangeRef.current(true) : cancel())}>
       <DialogContent centered className="w-full max-w-md" data-testid="pubchi-reapprove-dialog">
         <DialogHeader>
           <DialogTitle>Approve Pubchi in Ring</DialogTitle>
