@@ -74,6 +74,10 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
     remainingAllowance: number | null,
   ): Promise<boolean> => {
     if (submittingListingId !== null) return false;
+    if (currentUserPubky === listingOwnerPubky) {
+      setFailure('You cannot claim from your own drop');
+      return false;
+    }
     if (remainingAllowance === 0) {
       setFailure(MARKETPLACE_FAILURE_MESSAGES.claimRefusal);
       return false;

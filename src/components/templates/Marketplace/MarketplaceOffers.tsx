@@ -103,6 +103,11 @@ export function MarketplaceOffers() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Quantity {offer.quantity} · Expires {new Date(offer.expiresAt).toLocaleString('en-US')}
                       </Typography>
+                      {offer.state === 'accepted' && offerAwardConvertBy(offer) && (
+                        <Typography as="p" className="text-sm text-muted-foreground">
+                          Buyer checkout window closes {new Date(offerAwardConvertBy(offer) as string).toLocaleString()}
+                        </Typography>
+                      )}
                       {offer.message && (
                         <Typography as="p" className="mt-2 text-sm">
                           “{offer.message}”
@@ -194,6 +199,11 @@ export function MarketplaceOffers() {
       </Dialog>
     </ContentLayout>
   );
+}
+
+function offerAwardConvertBy(offer: MarketplaceOffer): string | null {
+  const award = (offer as MarketplaceOffer & { award?: { convertBy?: unknown } }).award;
+  return typeof award?.convertBy === 'string' ? award.convertBy : null;
 }
 
 export function offerStateLabel(state: MarketplaceOffer['state'], expiresAt: string, nowMs = Date.now()): string {

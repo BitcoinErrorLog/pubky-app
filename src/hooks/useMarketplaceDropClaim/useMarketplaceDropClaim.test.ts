@@ -264,4 +264,16 @@ describe('useMarketplaceDropClaim', () => {
     expect(CommerceController.getMarketplaceListingProjection).not.toHaveBeenCalled();
     expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
+
+  it('refuses the seller from claiming their own drop before reading a projection', async () => {
+    const { result } = renderHook(() => useMarketplaceDropClaim());
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    await act(async () => {
+      await expect(result.current.claim(BUYER, 'listing1', 1)).resolves.toBe(false);
+    });
+    expect(result.current.failure).toBe('You cannot claim from your own drop');
+    expect(CommerceController.getMarketplaceListingProjection).not.toHaveBeenCalled();
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+  });
 });

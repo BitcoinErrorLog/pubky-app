@@ -31,10 +31,12 @@ export function DropClaimPanel({
   record,
   claim,
   remainingAllowance,
+  isOwner = false,
 }: {
   record: CommerceDropRecord;
   claim: UseMarketplaceDropClaimResult;
   remainingAllowance: number | null;
+  isOwner?: boolean;
 }) {
   const [listings, setListings] = useState<HydratedDropListing[] | null>(null);
 
@@ -119,7 +121,7 @@ export function DropClaimPanel({
                     <Button
                       size="sm"
                       className="rounded-full"
-                      disabled={claim.submittingListingId !== null || allowanceSpent}
+                      disabled={isOwner || claim.submittingListingId !== null || allowanceSpent}
                       onClick={() => void claim.claim(record.ownerPubky, listingId, remainingAllowance)}
                     >
                       {allowanceSpent ? (
@@ -129,7 +131,13 @@ export function DropClaimPanel({
                       ) : (
                         <Zap className="mr-2 size-4" />
                       )}
-                      {allowanceSpent ? 'Per-buyer limit reached' : isSubmitting ? 'Claiming…' : 'Claim one'}
+                      {isOwner
+                        ? 'You cannot claim from your own drop'
+                        : allowanceSpent
+                          ? 'Per-buyer limit reached'
+                          : isSubmitting
+                            ? 'Claiming…'
+                            : 'Claim one'}
                     </Button>
                   )}
                 </li>

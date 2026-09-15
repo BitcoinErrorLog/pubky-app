@@ -486,6 +486,7 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
                 id="get-paid-bitcoin"
                 checked={bitcoinEnabled}
                 onCheckedChange={setBitcoinEnabled}
+                disabled={bitcoinStatus !== 'connected'}
                 aria-label="Accept bitcoin"
               />
             </div>

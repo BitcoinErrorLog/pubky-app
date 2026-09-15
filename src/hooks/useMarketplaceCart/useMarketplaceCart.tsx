@@ -30,7 +30,8 @@ export function marketplaceCartShippingTotals(
   groups: MarketplaceCartGroup[],
   fulfillmentForSeller: (sellerPubky: string) => 'shipping' | 'pickup' | undefined,
 ): { totals: ReturnType<typeof sumMoneyByAsset>; hasCalculatedShipping: boolean } {
-  const shippingLines: Array<{ money: { amountMinor: number; currency: string; exponent: number }; quantity: number }> = [];
+  const shippingLines: Array<{ money: { amountMinor: number; currency: string; exponent: number }; quantity: number }> =
+    [];
   let hasCalculatedShipping = false;
   for (const group of groups) {
     if (fulfillmentForSeller(group.sellerPubky) !== 'shipping') continue;
@@ -125,6 +126,10 @@ export function useMarketplaceCart() {
 
   const add = async (listingId: string, variantId: string, quantity = 1) => {
     const mutation = requireAuth(async () => {
+      if (currentUserPubky && listingId.startsWith(`${currentUserPubky}:`)) {
+        toast({ variant: 'error', description: 'You cannot buy your own listing' });
+        return;
+      }
       try {
         await CommerceController.commitUpsertCartItem(listingId, variantId, quantity);
         toast({
