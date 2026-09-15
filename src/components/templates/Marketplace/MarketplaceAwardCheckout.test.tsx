@@ -1,8 +1,7 @@
-import { hydrateRoot } from 'react-dom/client';
-import { renderToString } from 'react-dom/server';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { MarketplaceAwardCheckout } from './MarketplaceAwardCheckout';
 
 const state = vi.hoisted(() => ({
@@ -13,6 +12,7 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(async () => {}),
   refresh: vi.fn(async () => {}),
   submit: vi.fn(),
+  isLoading: false,
   addresses: [
     {
       id: 'home',
@@ -70,7 +70,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   }),
 }));
 vi.mock('@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook', () => ({
-  useMarketplaceAddressBook: () => ({ addresses: state.addresses }),
+  useMarketplaceAddressBook: () => ({ addresses: state.addresses, isLoading: state.isLoading }),
 }));
 vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
   useMarketplaceOfferCheckout: () => ({ submit: state.submit, isSubmitting: false }),
@@ -101,6 +101,7 @@ describe('MarketplaceAwardCheckout', () => {
         country_code: 'US',
       },
     ];
+    state.isLoading = false;
     state.outcome = { ok: true, orderId: '00000000-0000-0000-0000-000000000803' };
     state.submit.mockResolvedValue(state.outcome);
   });
@@ -119,20 +120,23 @@ describe('MarketplaceAwardCheckout', () => {
     expect(screen.queryByText(/discount/i)).not.toBeInTheDocument();
   });
 
-  it('releases the pay button after hydration preserves the saved address', async () => {
-    const container = document.createElement('div');
-    container.innerHTML = renderToString(<MarketplaceAwardCheckout />);
-    const serverButton = [...container.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('Pay agreed price'),
-    );
-    expect(serverButton).toBeDisabled();
+  it('mounts the pay button only after the address live query resolves', async () => {
+    state.isLoading = true;
+    const { rerender } = render(<MarketplaceAwardCheckout />);
 
-    const root = hydrateRoot(container, <MarketplaceAwardCheckout />);
-    const hydratedButton = [...container.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('Pay agreed price'),
-    );
-    await waitFor(() => expect(hydratedButton).toBeEnabled());
-    root.unmount();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading delivery addresses…');
+    expect(screen.queryByRole('button', { name: 'Pay agreed price' })).not.toBeInTheDocument();
+
+    state.isLoading = false;
+    rerender(<MarketplaceAwardCheckout />);
+    const button = screen.getByRole('button', { name: 'Pay agreed price' });
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute('disabled');
+    const propsKey = Object.keys(button).find((key) => key.startsWith('__reactProps'));
+    expect(propsKey ? asOpaque<Record<string, { disabled?: boolean }>>(button)[propsKey]?.disabled : undefined).toBe(false);
+
+    await userEvent.setup().click(button);
+    expect(state.submit).toHaveBeenCalledTimes(1);
   });
 
   it('links buyers without a saved address to address settings', () => {

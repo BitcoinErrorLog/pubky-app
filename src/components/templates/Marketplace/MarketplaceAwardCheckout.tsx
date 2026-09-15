@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -29,7 +29,6 @@ export function MarketplaceAwardCheckout() {
   const cart = useMarketplaceCart();
   const addressBook = useMarketplaceAddressBook();
   const [addressId, setAddressId] = useState<string | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
   const [outcome, setOutcome] = useState<
     'expired' | 'converted' | 'error' | 'success' | 'unavailable' | 'session' | null
   >(null);
@@ -40,10 +39,6 @@ export function MarketplaceAwardCheckout() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const addresses = addressBook.addresses;
   const selectedAddress = addresses.find((item) => item.id === addressId) ?? addresses[0];
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   const removeAwardLine = async () => {
     const line = cart.awardItems.find((item) => item.awardId === award?.id);
@@ -236,24 +231,37 @@ export function MarketplaceAwardCheckout() {
                   Merchandise total <span className="text-brand">{formatCommerceMoney(award.merchandiseTotal)}</span>
                 </Typography>
               </div>
-              {addresses.length ? (
-                <div className="grid gap-2">
-                  <Typography as="p" className="font-medium">
-                    Delivery address
-                  </Typography>
-                  <Select value={selectedAddress?.id} onValueChange={setAddressId}>
-                    <SelectTrigger className="h-11 w-full rounded-md border px-3">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {addresses.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.label} · {item.city}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              {addressBook.isLoading ? (
+                <Typography as="p" role="status">
+                  Loading delivery addresses…
+                </Typography>
+              ) : addresses.length ? (
+                <>
+                  <div className="grid gap-2">
+                    <Typography as="p" className="font-medium">
+                      Delivery address
+                    </Typography>
+                    <Select value={selectedAddress?.id} onValueChange={setAddressId}>
+                      <SelectTrigger className="h-11 w-full rounded-md border px-3">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {addresses.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.label} · {item.city}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    className="w-full rounded-full"
+                    disabled={checkout.isSubmitting}
+                    onClick={() => void submit()}
+                  >
+                    {checkout.isSubmitting ? 'Submitting…' : 'Pay agreed price'}
+                  </Button>
+                </>
               ) : (
                 <Typography as="p" role="alert">
                   Save a{' '}
@@ -263,13 +271,6 @@ export function MarketplaceAwardCheckout() {
                   before checkout.
                 </Typography>
               )}
-              <Button
-                className="w-full rounded-full"
-                disabled={!isHydrated || !selectedAddress || checkout.isSubmitting}
-                onClick={() => void submit()}
-              >
-                {checkout.isSubmitting ? 'Submitting…' : 'Pay agreed price'}
-              </Button>
             </CardContent>
           </Card>
         )}
