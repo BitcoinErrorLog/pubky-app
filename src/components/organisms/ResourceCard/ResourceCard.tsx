@@ -36,6 +36,7 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
   const postId = buildCompositeIdFromPubkyUri({ uri: resource.details.uri, domain: CompositeIdDomain.POSTS });
   const detailsHref = getResourceRoute(resource.details.id);
   const displayUrl = safeUrl ? displayExternalUrl(safeUrl) : resource.details.uri;
+  const safeHost = safeUrl ? new URL(safeUrl).host : resource.details.scheme || 'Resource';
 
   async function shareResource() {
     try {
@@ -55,39 +56,42 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
     <Card data-surface="resource-card" className="gap-0 rounded-md py-0">
       <CardContent className="flex flex-col gap-4 p-6">
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <Typography as="span" size="sm" className="text-muted-foreground">
-              <span className="truncate">
-                {safeUrl ? new URL(safeUrl).host : resource.details.scheme || 'Resource'}
-              </span>
-              <span aria-hidden="true"> · </span>
-              <span>{new Date(resource.details.indexed_at).toLocaleDateString('en-US', { timeZone: 'UTC' })}</span>
-            </Typography>
-          </div>
           {!safeUrl && !postId ? (
-            <Typography as="h2" size={variant === 'inline' ? 'md' : 'lg'}>
-              Unsupported link
-            </Typography>
+            <>
+              <ResourceMetadata host={resource.details.scheme || 'Resource'} indexedAt={resource.details.indexed_at} />
+              <Typography as="h2" size={variant === 'inline' ? 'md' : 'lg'}>
+                Unsupported link
+              </Typography>
+            </>
           ) : postId ? (
-            <PostPreviewCard postId={postId} interactiveActions={false} />
+            <>
+              <ResourceMetadata host={safeHost} indexedAt={resource.details.indexed_at} />
+              <PostPreviewCard postId={postId} interactiveActions={false} />
+            </>
           ) : (
             <Link href={detailsHref} className="block rounded-md">
-              <div className="flex flex-col gap-2">
-                <Typography as="h2" size={variant === 'inline' ? 'md' : 'lg'}>
-                  {metadata?.title || displayUrl}
-                </Typography>
-                {metadata?.description ? (
-                  <Typography size="sm" className="line-clamp-3 text-muted-foreground">
-                    {metadata.description}
+              <div className="flex justify-between gap-6 lg:flex-row @max-xl/grid:flex-col!">
+                <div className="flex min-w-0 flex-1 flex-col gap-y-2">
+                  <ResourceMetadata host={safeHost} indexedAt={resource.details.indexed_at} />
+                  <Typography as="h2" size={variant === 'inline' ? 'md' : 'lg'}>
+                    {metadata?.title || displayUrl}
                   </Typography>
-                ) : null}
+                  {metadata?.description ? (
+                    <Typography size="sm" className="line-clamp-3 text-muted-foreground">
+                      {metadata.description}
+                    </Typography>
+                  ) : null}
+                </div>
                 {metadata?.image ? (
                   <Image
                     src={metadata.image}
                     alt=""
-                    width={640}
-                    height={360}
-                    className="aspect-video h-auto max-h-48 w-full rounded-md object-cover"
+                    width={180}
+                    height={100}
+                    onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                    className="h-25 w-45 shrink-0 rounded-md object-cover object-center"
                   />
                 ) : null}
               </div>
@@ -133,6 +137,16 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ResourceMetadata({ host, indexedAt }: { host: string; indexedAt: number }) {
+  return (
+    <Typography as="span" size="sm" className="text-muted-foreground">
+      <span className="truncate">{host}</span>
+      <span aria-hidden="true"> · </span>
+      <span>{new Date(indexedAt).toLocaleDateString('en-US', { timeZone: 'UTC' })}</span>
+    </Typography>
   );
 }
 

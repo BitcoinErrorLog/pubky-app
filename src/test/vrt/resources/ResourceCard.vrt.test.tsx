@@ -10,7 +10,12 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
   useOgMetadata: () => ({
-    metadata: { title: 'Bitcoin.org', description: 'Bitcoin resources', image: null },
+    metadata: {
+      title: 'Bitcoin.org',
+      description: 'Bitcoin resources',
+      image:
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='100'%3E%3Crect width='180' height='100' fill='%23009900'/%3E%3C/svg%3E",
+    },
   }),
 }));
 
