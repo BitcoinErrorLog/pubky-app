@@ -1,13 +1,31 @@
 import { z } from 'zod';
-import { fromZod } from './zod';
+import { type PubchiAnswerBasis, PubchiCitationSchema } from './answer';
 import type { ParseResult } from './codes';
-import { PubchiCitationSchema, type PubchiAnswerBasis } from './answer';
+import { fromZod } from './zod';
 
 export const MAX_CONVERSATION_TURNS = 8;
 export const MAX_CONVERSATION_TURN_CODE_POINTS = 600;
 export const MAX_CONVERSATION_CODE_POINTS = 4_800;
 
 const codePointLength = (value: string) => Array.from(value).length;
+
+const PUBKY_APP_TARGET_RE =
+  /^pubky:\/\/([ybndrfg8ejkmcpqxot1uwisza345h769]{52})\/pub\/pubky\.app\/(?:posts\/[A-Z0-9]{13}|profile\.json)$/;
+
+export const PubchiTargetSchema = z
+  .object({
+    kind: z.enum(['post', 'user']),
+    uri: z.string().refine((value) => PUBKY_APP_TARGET_RE.test(value), 'INVALID_TARGET'),
+  })
+  .strict()
+  .superRefine((target, ctx) => {
+    const isPost = /\/posts\/[A-Z0-9]{13}$/.test(target.uri);
+    if ((target.kind === 'post') !== isPost) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['kind'], message: 'TARGET_KIND_MISMATCH' });
+    }
+  });
+
+export type PubchiTarget = z.infer<typeof PubchiTargetSchema>;
 
 export const ConversationTurnSchema = z
   .object({
@@ -37,6 +55,23 @@ export const ConversationSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['turns'], message: 'conversation is too large' });
     }
   });
+
+export const PubchiAskBodySchema = z
+  .object({
+    question: z.string().min(1).max(500),
+    conversation: ConversationSchema.optional(),
+    proposal_version: z.literal(2).optional(),
+    target_feed_id: z.string().optional(),
+    current_feed: z.unknown().optional(),
+    target: PubchiTargetSchema.optional(),
+  })
+  .strict();
+
+export type PubchiAskBody = z.infer<typeof PubchiAskBodySchema>;
+
+export function parsePubchiAskBody(input: unknown): ParseResult<PubchiAskBody> {
+  return fromZod(PubchiAskBodySchema, input);
+}
 
 export type ConversationTurn = z.infer<typeof ConversationTurnSchema>;
 export type Conversation = z.infer<typeof ConversationSchema>;

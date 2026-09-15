@@ -123,6 +123,7 @@ describe('PubchiPanel', () => {
     hookState.result = undefined;
     hookState.errorCode = undefined;
     hookState.form.setValue.mockReset();
+    hookState.form.watch = () => '';
     consumePrefill.mockReset();
     getFeed.mockReset();
     openFeedBuilder.mockReset();
@@ -162,6 +163,28 @@ describe('PubchiPanel', () => {
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
+  });
+
+  it('submits the canonical post target supplied by the route prefill', () => {
+    const target = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/POST123456789' };
+    const question = `Summarize this thread ${target.uri}`;
+    hookState.form.watch = () => question;
+    const prefill = { question, source: 'post-menu' as const, target };
+    consumePrefill.mockReturnValue(prefill);
+    usePubchiStore.getState().openFlyout(prefill, 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo');
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByTestId('pubchi-suggest-tags'));
+    expect(submit).toHaveBeenCalledWith('ask', { target });
+  });
+
+  it('submits the canonical user target supplied by the profile route', () => {
+    const target = { kind: 'user' as const, uri: 'pubky://owner/pub/pubky.app/profile.json' };
+    const prefill = { question: 'Suggest tags for this user', source: 'chip' as const, target };
+    consumePrefill.mockReturnValue(prefill);
+    usePubchiStore.getState().openFlyout(prefill, 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo');
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByTestId('pubchi-suggest-tags'));
+    expect(submit).toHaveBeenCalledWith('ask', { target });
   });
 
   it('sends no model-controlled target when interpreting a create proposal', async () => {

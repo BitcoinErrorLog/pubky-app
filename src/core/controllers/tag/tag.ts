@@ -1,4 +1,5 @@
 import { TagApplication } from '@/application/tag/tag';
+import type { TCreateTagResult } from '@/application/tag/tag.types';
 import type { TTagEventParams } from '@/controllers/tag/tag.types';
 import { TagNormalizer } from '@/pipes/tag/tag.normalizer';
 
@@ -12,10 +13,10 @@ export class TagController {
    * @param params.label - Tag label
    * @param params.taggerId - ID of the user adding the tag
    */
-  static async commitCreate(params: TTagEventParams) {
+  static async commitCreate(params: TTagEventParams): Promise<TCreateTagResult | TCreateTagResult[] | undefined> {
     const tag = TagNormalizer.from(params);
 
-    await TagApplication.commitCreate({ tagList: [tag] });
+    return TagApplication.commitCreate({ tagList: [tag] });
   }
 
   /**
@@ -35,5 +36,9 @@ export class TagController {
       taggerId,
       tagUrl,
     });
+  }
+
+  static async materializeForDelete(params: TTagEventParams): Promise<void> {
+    await TagApplication.materializeForDelete(params);
   }
 }

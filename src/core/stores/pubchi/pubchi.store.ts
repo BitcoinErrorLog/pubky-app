@@ -6,6 +6,7 @@ import type {
   FeedProposalV2,
   PubchiConfigV1,
   PubchiOwnerContextV1,
+  PubchiTarget,
 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 
@@ -15,6 +16,7 @@ export type PubchiFlyoutPrefill = {
   question: string;
   source: 'post-menu' | 'chip';
   feedId?: string;
+  target?: PubchiTarget;
 };
 type StoredPubchiFlyoutPrefill = PubchiFlyoutPrefill & { ownerPubky: Pubky };
 export type PubchiFlyoutState = {

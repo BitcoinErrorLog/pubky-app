@@ -203,6 +203,10 @@ describe('usePostMenuActions', () => {
         question: 'Summarize this thread pubky://author123/pub/pubky.app/posts/post456',
         source: 'post-menu',
         ownerPubky: mockCurrentUserId,
+        target: {
+          kind: 'post',
+          uri: 'pubky://author123/pub/pubky.app/posts/post456',
+        },
       },
     });
   });

@@ -1,4 +1,4 @@
-import { type Capabilities,Session } from '@synonymdev/pubky';
+import { type Capabilities, Session } from '@synonymdev/pubky';
 import { PubchiApplication } from '@/application/pubchi/pubchi';
 import type {
   CreatedPubchi,
@@ -6,19 +6,17 @@ import type {
   PubchiBindingRecordResult,
   PubchiQuerySuccess,
 } from '@/application/pubchi/pubchi.types';
-import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { TagKind } from '@/application/tag/tag.types';
+import { TagController } from '@/controllers/tag/tag';
+import { getPubchiDatabase } from '@/database/pubchi/pubchi';
+import { AuthErrorCode, NetworkErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
-import {
-  type FeedProposalV2,
-  isPubkyId,
-  type PubchiConfigV1,
-  type PubchiOwnerContextV1,
-} from '@/libs/pubchi/schemas';
+import { type FeedProposalV2, isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -175,8 +173,172 @@ export class PubchiController {
       ...(params.proposalVersion ? { proposalVersion: params.proposalVersion } : {}),
       ...(params.targetFeedId ? { targetFeedId: params.targetFeedId } : {}),
       ...(params.currentFeed ? { currentFeed: params.currentFeed } : {}),
+      ...(params.target ? { target: params.target } : {}),
       ...(context ? { context } : {}),
     });
+  }
+
+  static async applyTagSuggestion(
+    recordId: string,
+    suggestionIndex: number,
+  ): Promise<'applied' | 'superseded' | 'reconciliation-pending'> {
+    PubchiApplication.beginTagSuggestionOperation(recordId, suggestionIndex);
+    try {
+      return await this.applyTagSuggestionInternal(recordId, suggestionIndex);
+    } finally {
+      PubchiApplication.endTagSuggestionOperation(recordId, suggestionIndex);
+    }
+  }
+
+  private static async applyTagSuggestionInternal(
+    recordId: string,
+    suggestionIndex: number,
+  ): Promise<'applied' | 'superseded' | 'reconciliation-pending'> {
+    const auth = useAuthStore.getState();
+    const owner = auth.selectCurrentUserPubky();
+    const prepared = await PubchiApplication.prepareTagSuggestionApplication(
+      recordId,
+      suggestionIndex,
+      owner,
+      auth.selectSession()?.info.capabilities ?? [],
+    );
+    const taggedKind = prepared.binding.target.kind === 'post' ? TagKind.POST : TagKind.USER;
+    const matched = prepared.binding.target.uri.match(
+      prepared.binding.target.kind === 'post'
+        ? /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/posts\/([^/]+)$/
+        : /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/profile\.json$/,
+    );
+    if (!matched) {
+      throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'Invalid tag suggestion target', {
+        service: ErrorService.Pubchi,
+        operation: 'applyTagSuggestion',
+      });
+    }
+    let result;
+    try {
+      result = await TagController.commitCreate({
+        taggedKind,
+        taggedId: taggedKind === TagKind.POST ? `${matched[1]}:${matched[2]}` : matched[1],
+        label: prepared.suggestion.label,
+        taggerId: owner,
+      });
+    } catch (cause) {
+      await PubchiApplication.finalizeTagSuggestionApplication(
+        recordId,
+        suggestionIndex,
+        prepared.applicationId,
+        'failed',
+      );
+      throw cause;
+    }
+    const tag = Array.isArray(result) ? result[0] : result;
+    if (!tag) {
+      await PubchiApplication.finalizeTagSuggestionApplication(
+        recordId,
+        suggestionIndex,
+        prepared.applicationId,
+        'failed',
+      );
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag application did not return a result', {
+        service: ErrorService.Pubchi,
+        operation: 'applyTagSuggestion',
+      });
+    }
+    const status = tag.alreadyExisted ? 'superseded' : 'applied';
+    try {
+      await PubchiApplication.recordTagSuggestionApplyOutcome(recordId, suggestionIndex, tag.alreadyExisted);
+    } catch {
+      await PubchiApplication.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
+      return 'reconciliation-pending';
+    }
+    try {
+      await PubchiApplication.finalizeTagSuggestionApplication(
+        recordId,
+        suggestionIndex,
+        prepared.applicationId,
+        status,
+        tag.tagUrl,
+        tag.alreadyExisted,
+      );
+      return status;
+    } catch (cause) {
+      await PubchiApplication.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
+      throw Err.network(NetworkErrorCode.CONNECTION_FAILED, 'Tag was written but receipt needs reconciliation', {
+        service: ErrorService.Pubchi,
+        operation: 'applyTagSuggestion',
+        cause,
+      });
+    }
+  }
+
+  static async revertTagSuggestion(recordId: string, suggestionIndex: number): Promise<void> {
+    PubchiApplication.beginTagSuggestionOperation(recordId, suggestionIndex);
+    try {
+      await this.revertTagSuggestionInternal(recordId, suggestionIndex);
+    } finally {
+      PubchiApplication.endTagSuggestionOperation(recordId, suggestionIndex);
+    }
+  }
+
+  private static async revertTagSuggestionInternal(recordId: string, suggestionIndex: number): Promise<void> {
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const prepared = await PubchiApplication.prepareTagSuggestionRevert(recordId, suggestionIndex, owner);
+    await PubchiApplication.recordTagSuggestionRevertOperation(recordId, suggestionIndex);
+    const matched = prepared.binding.target.uri.match(
+      prepared.binding.target.kind === 'post'
+        ? /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/posts\/([^/]+)$/
+        : /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/profile\.json$/,
+    );
+    if (!matched) {
+      throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'Invalid tag suggestion target', {
+        service: ErrorService.Pubchi,
+        operation: 'revertTagSuggestion',
+      });
+    }
+    const taggedKind = prepared.binding.target.kind === 'post' ? TagKind.POST : TagKind.USER;
+    const tagParams = {
+      taggedKind,
+      taggedId: taggedKind === TagKind.POST ? `${matched[1]}:${matched[2]}` : matched[1],
+      label: prepared.suggestion.label,
+      taggerId: owner,
+    };
+    await TagController.materializeForDelete(tagParams);
+    await TagController.commitDelete(tagParams);
+    try {
+      await PubchiApplication.finalizeTagSuggestionApplication(
+        recordId,
+        suggestionIndex,
+        prepared.applicationId,
+        'reverted',
+      );
+    } catch (cause) {
+      await PubchiApplication.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
+      throw Err.network(NetworkErrorCode.CONNECTION_FAILED, 'Tag was removed but receipt needs reconciliation', {
+        service: ErrorService.Pubchi,
+        operation: 'revertTagSuggestion',
+        cause,
+      });
+    }
+  }
+
+  static async reconcileTagSuggestion(
+    recordId: string,
+    suggestionIndex: number,
+  ): Promise<
+    'proposed' | 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted' | 'reconciliation-pending'
+  > {
+    return PubchiApplication.reconcileTagSuggestionApplication(
+      recordId,
+      suggestionIndex,
+      useAuthStore.getState().selectCurrentUserPubky(),
+    );
+  }
+
+  static async getTagSuggestionStatuses(recordId: string): Promise<Record<number, string>> {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    if (!record || record.owner !== owner) return {};
+    return PubchiApplication.rehydrateTagSuggestionStatuses(recordId, owner);
   }
 
   static async loadPubchiCursor(): Promise<string | null> {

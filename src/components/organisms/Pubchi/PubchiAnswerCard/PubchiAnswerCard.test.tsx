@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { PubchiController } from '@/controllers/pubchi/pubchi';
 import type { PubchiAnswerV1 } from '@/libs/pubchi/schemas';
 import { PubchiAnswerCard } from './PubchiAnswerCard';
 
@@ -32,6 +33,18 @@ const answer: PubchiAnswerV1 = {
 
 vi.mock('@/controllers/user/user', () => ({
   UserController: { getOrFetch: vi.fn().mockResolvedValue({ name: 'Alice' }) },
+}));
+
+vi.mock('@/libs/pubchi/flags', () => ({
+  isPubchiEnabled: () => true,
+}));
+
+vi.mock('@/controllers/pubchi/pubchi', () => ({
+  PubchiController: {
+    applyTagSuggestion: vi.fn(),
+    getTagSuggestionStatuses: vi.fn(async () => ({})),
+    reconcileTagSuggestion: vi.fn(),
+  },
 }));
 
 describe('PubchiAnswerCard', () => {
@@ -148,6 +161,148 @@ describe('PubchiAnswerCard', () => {
     expect(screen.getByTestId('pubchi-answer-scope')).toHaveTextContent(
       'Scope: last 7 days (Sep 3–10 UTC) · your network (2 hops)',
     );
+  });
+
+  it('preserves a production scope label without duplicating the UTC range', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          scope: {
+            time: {
+              since_ms: Date.parse('2026-09-03T00:00:00Z'),
+              until_ms: Date.parse('2026-09-10T00:00:00Z'),
+              label: 'last 7 days (Sep 3–10 UTC)',
+              source: 'default',
+            },
+            graph: { kind: 'whole_graph' },
+            filters: [],
+            complete: true,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('pubchi-answer-scope')).toHaveTextContent(
+      'Scope: last 7 days (Sep 3–10 UTC) · whole graph',
+    );
+    expect(screen.getByTestId('pubchi-answer-scope').textContent?.match(/UTC/g)).toHaveLength(1);
+  });
+
+  it('renders superseded suggestions as already applied without actions', () => {
+    const c5Answer = {
+      ...answer,
+      section: 'tag_suggestions' as const,
+      target: {
+        kind: 'user' as const,
+        uri: `pubky://${owner}/pub/pubky.app/profile.json`,
+        snapshot_sha256: 'a'.repeat(64),
+      },
+      tag_suggestions: [
+        {
+          label: 'pubky-app',
+          rationale: 'Matches the public profile.',
+          evidence: [`pubky://${owner}/pub/pubky.app/profile.json`],
+          already_applied: true,
+          source: 'vocab' as const,
+        },
+      ],
+    };
+    render(<PubchiAnswerCard answer={c5Answer} currentUserPubky={owner} />);
+    expect(screen.getByText('Already applied')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+
+  it('renders a controller-superseded suggestion as already applied without actions', async () => {
+    vi.mocked(PubchiController.applyTagSuggestion).mockResolvedValue('superseded');
+    const c5Answer = {
+      ...answer,
+      section: 'tag_suggestions' as const,
+      target: {
+        kind: 'user' as const,
+        uri: `pubky://${owner}/pub/pubky.app/profile.json`,
+        snapshot_sha256: 'a'.repeat(64),
+      },
+      tag_suggestions: [
+        {
+          label: 'pubky-app',
+          rationale: 'Matches the public profile.',
+          evidence: [`pubky://${owner}/pub/pubky.app/profile.json`],
+          already_applied: false,
+          source: 'vocab' as const,
+        },
+      ],
+    };
+    render(
+      <PubchiAnswerCard
+        answer={c5Answer}
+        binding={{
+          owner,
+          bot: owner,
+          servedPurpose: 'ask',
+          question: c5Answer.question,
+          target: c5Answer.target,
+          submitted_at: c5Answer.generated_at * 1_000,
+          recordId: 'record-1',
+        }}
+        currentUserPubky={owner}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('pubchi-tag-approve-0'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('pubchi-tag-already-applied-0')).toHaveTextContent('Already applied'),
+    );
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+
+  it('renders an unknown apply outcome with safe copy and only Check again', async () => {
+    vi.mocked(PubchiController.getTagSuggestionStatuses).mockResolvedValue({ 0: 'reconciliation-pending' });
+    vi.mocked(PubchiController.reconcileTagSuggestion).mockResolvedValue('reconciliation-pending');
+    const c5Answer = {
+      ...answer,
+      section: 'tag_suggestions' as const,
+      target: {
+        kind: 'user' as const,
+        uri: `pubky://${owner}/pub/pubky.app/profile.json`,
+        snapshot_sha256: 'a'.repeat(64),
+      },
+      tag_suggestions: [
+        {
+          label: 'pubky-app',
+          rationale: 'Matches the public profile.',
+          evidence: [`pubky://${owner}/pub/pubky.app/profile.json`],
+          already_applied: false,
+          source: 'vocab' as const,
+        },
+      ],
+    };
+    render(
+      <PubchiAnswerCard
+        answer={c5Answer}
+        binding={{
+          owner,
+          bot: owner,
+          servedPurpose: 'ask',
+          question: c5Answer.question,
+          target: c5Answer.target,
+          submitted_at: c5Answer.generated_at * 1_000,
+          recordId: 'record-1',
+        }}
+        currentUserPubky={owner}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "Pubchi could not confirm the result of this tag. Check again, or manage the tag from the post's tags.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
   it('renders no graph lookup without inventing a time scope', () => {

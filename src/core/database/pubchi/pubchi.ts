@@ -7,6 +7,10 @@ import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { type PubchiBindingRecord, pubchiBindingTableSchema } from '@/models/pubchi/binding.schema';
 import { type PubchiDeviceKeyRecord, pubchiDeviceKeyTableSchema } from '@/models/pubchi/device-key.schema';
 import { pubchiFeedProvenanceTableSchema } from '@/models/pubchi/feed-provenance.schema';
+import {
+  type PubchiTagApplicationRecord,
+  pubchiTagApplicationTableSchema,
+} from '@/models/pubchi/tag-application.schema';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 
 /**
@@ -16,6 +20,7 @@ import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 class PubchiDatabase extends Dexie {
   bindings!: Table<PubchiBindingRecord>;
   deviceKeys!: Table<PubchiDeviceKeyRecord>;
+  tagApplications!: Table<PubchiTagApplicationRecord>;
 
   constructor() {
     super('pubchi');
@@ -33,6 +38,11 @@ class PubchiDatabase extends Dexie {
       deviceKeys: pubchiDeviceKeyTableSchema,
       feedProvenance: null,
     });
+    this.version(5).stores({
+      bindings: pubchiBindingTableSchema,
+      deviceKeys: pubchiDeviceKeyTableSchema,
+      tagApplications: pubchiTagApplicationTableSchema,
+    });
 
     let blockedRetryTimer: ReturnType<typeof setTimeout> | undefined;
     let blockedLogged = false;
@@ -47,9 +57,11 @@ class PubchiDatabase extends Dexie {
         clearBlockedState();
         return;
       }
-      void this.open().then(clearBlockedState).catch(() => {
-        blockedRetryTimer = setTimeout(retryOpen, 1_000);
-      });
+      void this.open()
+        .then(clearBlockedState)
+        .catch(() => {
+          blockedRetryTimer = setTimeout(retryOpen, 1_000);
+        });
     };
     this.on('versionchange', () => {
       this.close();
@@ -96,4 +108,14 @@ export async function deletePubchiDatabase(): Promise<void> {
   } finally {
     instance = null;
   }
+}
+
+export async function clearPubchiOwnerData(owner: string): Promise<void> {
+  if (!isPubchiEnabled()) return;
+  const db = getPubchiDatabase();
+  await Promise.all([
+    db.bindings.where('owner').equals(owner).delete(),
+    db.deviceKeys.where('owner').equals(owner).delete(),
+    db.tagApplications.where('owner').equals(owner).delete(),
+  ]);
 }

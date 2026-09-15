@@ -9,6 +9,11 @@ export interface TCreateTagListInput {
   tagList: TCreateTagInput[];
 }
 
+export type TCreateTagResult = {
+  tagUrl: string;
+  alreadyExisted: boolean;
+};
+
 export type TDeleteTagInput = Omit<TCreateTagInput, 'tagJson'>;
 
 export enum TagKind {

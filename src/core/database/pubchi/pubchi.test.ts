@@ -7,7 +7,7 @@ import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.sc
 import { pubchiBindingTableSchema } from '@/models/pubchi/binding.schema';
 import { pubchiDeviceKeyTableSchema } from '@/models/pubchi/device-key.schema';
 import { pubchiFeedProvenanceTableSchema } from '@/models/pubchi/feed-provenance.schema';
-import { deletePubchiDatabase, getPubchiDatabase, resetPubchiDatabaseForTests } from './pubchi';
+import { clearPubchiOwnerData, deletePubchiDatabase, getPubchiDatabase, resetPubchiDatabaseForTests } from './pubchi';
 
 class LegacyPubchiDatabase extends Dexie {
   bindings!: Table<unknown>;
@@ -36,6 +36,14 @@ describe('deletePubchiDatabase', () => {
     const deleteSpy = vi.spyOn(Dexie, 'delete').mockResolvedValue(undefined);
     await deletePubchiDatabase();
     expect(deleteSpy).toHaveBeenCalledWith('pubchi');
+  });
+
+  it('does not open the pubchi database when clearing owner data while disabled', async () => {
+    const openSpy = vi.spyOn(Dexie.prototype, 'open');
+
+    await expect(clearPubchiOwnerData('owner-a')).resolves.toBeUndefined();
+
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it('resets the singleton even when Dexie.delete rejects', async () => {
@@ -96,14 +104,108 @@ describe('deletePubchiDatabase', () => {
     resetRuntimeConfigForTests();
     const warn = vi.spyOn(Logger, 'warn');
     const db = getPubchiDatabase();
+    const blocked = new Promise<void>((resolve) => {
+      db.on('blocked', () => resolve());
+    });
     const opening = db.open();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await blocked;
     legacy.close();
 
     await opening;
 
     expect(warn).toHaveBeenCalledWith('Pubchi database upgrade is blocked by another tab');
     expect(db.isOpen()).toBe(true);
+    await deletePubchiDatabase();
+  });
+
+  it('enumerates every table and clears only owner-scoped records on identity clear', async () => {
+    await deletePubchiDatabase();
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled] = 'true';
+    resetRuntimeConfigForTests();
+    const db = getPubchiDatabase();
+    await db.open();
+    const owner = 'owner-a';
+    const otherOwner = 'owner-b';
+    const tablePolicies: Record<string, 'owner-scoped'> = {
+      bindings: 'owner-scoped',
+      deviceKeys: 'owner-scoped',
+      tagApplications: 'owner-scoped',
+    };
+    expect(db.tables.map((table) => table.name).every((name) => name in tablePolicies)).toBe(true);
+
+    const keyPair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])) as CryptoKeyPair;
+    await db.bindings.bulkPut([
+      {
+        id: `${owner}:bot-a`,
+        schema: 'pubchi-owner-binding',
+        version: 1,
+        owner,
+        bot: 'bot-a',
+        status: 'active',
+        created_at: 1,
+        updated_at: 1,
+      },
+      {
+        id: `${otherOwner}:bot-b`,
+        schema: 'pubchi-owner-binding',
+        version: 1,
+        owner: otherOwner,
+        bot: 'bot-b',
+        status: 'active',
+        created_at: 1,
+        updated_at: 1,
+      },
+    ]);
+    await db.deviceKeys.bulkPut([
+      { id: `${owner}:signer-a`, owner, signer: 'signer-a', key: keyPair.privateKey, created_at: 1, expires_at: 2 },
+      {
+        id: `${otherOwner}:signer-b`,
+        owner: otherOwner,
+        signer: 'signer-b',
+        key: keyPair.privateKey,
+        created_at: 1,
+        expires_at: 2,
+      },
+    ]);
+    await db.tagApplications.bulkPut([
+      {
+        id: 'application-a',
+        owner,
+        binding_id: 'application-a',
+        bot: 'bot',
+        served_purpose: 'ask',
+        question: 'question',
+        target: { kind: 'user', uri: 'pubky://owner/pub/pubky.app/profile.json' },
+        submitted_at: Date.now(),
+        response_run_id: 'run-a',
+        response: {},
+        suggestion_index: 0,
+        status: 'proposed',
+        updated_at: Date.now(),
+      },
+      {
+        id: 'application-b',
+        owner: otherOwner,
+        binding_id: 'application-b',
+        bot: 'bot',
+        served_purpose: 'ask',
+        question: 'question',
+        target: { kind: 'user', uri: 'pubky://other/pub/pubky.app/profile.json' },
+        submitted_at: Date.now(),
+        response_run_id: 'run-b',
+        response: {},
+        suggestion_index: 0,
+        status: 'proposed',
+        updated_at: Date.now(),
+      },
+    ]);
+    await clearPubchiOwnerData(owner);
+    await expect(db.bindings.get(`${owner}:bot-a`)).resolves.toBeUndefined();
+    await expect(db.bindings.get(`${otherOwner}:bot-b`)).resolves.toMatchObject({ owner: otherOwner });
+    await expect(db.deviceKeys.get(`${owner}:signer-a`)).resolves.toBeUndefined();
+    await expect(db.deviceKeys.get(`${otherOwner}:signer-b`)).resolves.toMatchObject({ owner: otherOwner });
+    await expect(db.tagApplications.get('application-a')).resolves.toBeUndefined();
+    await expect(db.tagApplications.get('application-b')).resolves.toMatchObject({ owner: otherOwner });
     await deletePubchiDatabase();
   });
 });

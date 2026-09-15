@@ -13,7 +13,7 @@ import { NotificationCoordinator } from '@/coordinators/notifications/notificati
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
 import { clearDatabase } from '@/database/franky/franky.helpers';
-import { deletePubchiDatabase } from '@/database/pubchi/pubchi';
+import { clearPubchiOwnerData, deletePubchiDatabase } from '@/database/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -173,6 +173,7 @@ vi.mock('@/database/franky/franky.helpers', () => ({
 }));
 
 vi.mock('@/database/pubchi/pubchi', () => ({
+  clearPubchiOwnerData: vi.fn(),
   deletePubchiDatabase: vi.fn(),
 }));
 
@@ -185,6 +186,7 @@ vi.mock('@/libs/pubchi/flags', async (importOriginal) => {
 });
 
 const mockClearDatabase = vi.mocked(clearDatabase);
+const mockClearPubchiOwnerData = vi.mocked(clearPubchiOwnerData);
 const mockDeletePubchiDatabase = vi.mocked(deletePubchiDatabase);
 
 const storeMocks = vi.hoisted(() => {
@@ -366,6 +368,7 @@ describe('AuthController', () => {
     getModerationIdMock.mockReset().mockReturnValue(undefined);
     vi.spyOn(UserApplication, 'ensureModerationFollow').mockResolvedValue(undefined);
     mockClearDatabase.mockReset();
+    mockClearPubchiOwnerData.mockReset();
     mockDeletePubchiDatabase.mockReset();
     // Default: homeserver environment check passes (non-staging test config / allowed key)
     vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
@@ -1383,6 +1386,51 @@ describe('AuthController', () => {
   describe('initializeAuthenticatedSession', () => {
     beforeEach(() => {
       setupNotificationMocks();
+    });
+
+    it('continues an identity switch when Pubchi is disabled', async () => {
+      const mockSession = buildMockSession();
+      const nextPubky = 'next-pubky' as Pubky;
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(nextPubky);
+      vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(false);
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        currentUserPubky: TEST_PUBKY as Pubky,
+      });
+      const signInStore = storeMocks.getSignInState();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(useSignInStore, 'getState').mockReturnValue(mockSignInStore(signInStore));
+      mockClearPubchiOwnerData.mockResolvedValue(undefined);
+
+      await expect(AuthController.initializeAuthenticatedSession({ session: mockSession })).resolves.toBeUndefined();
+
+      expect(mockClearPubchiOwnerData).toHaveBeenCalledWith(TEST_PUBKY);
+      expect(authStore.init).toHaveBeenCalled();
+    });
+
+    it('continues an identity switch and warns when Pubchi owner-data cleanup fails', async () => {
+      const mockSession = buildMockSession();
+      const nextPubky = 'next-pubky' as Pubky;
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(nextPubky);
+      vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(false);
+      const authStore = mockAuthStore({
+        ...storeMocks.getAuthState(),
+        currentUserPubky: TEST_PUBKY as Pubky,
+      });
+      const signInStore = storeMocks.getSignInState();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(useSignInStore, 'getState').mockReturnValue(mockSignInStore(signInStore));
+      const error = new Error('database unavailable');
+      mockClearPubchiOwnerData.mockRejectedValue(error);
+      const loggerWarnSpy = vi.spyOn(Logger, 'warn');
+
+      await expect(AuthController.initializeAuthenticatedSession({ session: mockSession })).resolves.toBeUndefined();
+
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Pubchi owner-data clear failed on identity switch; sign-in continues',
+        { error },
+      );
+      expect(authStore.init).toHaveBeenCalled();
     });
 
     it('should stop any active auth flow polling when a session is initialized', async () => {

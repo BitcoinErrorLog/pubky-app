@@ -2,20 +2,25 @@
 
 import { useEffect, useState } from 'react';
 import { getUserProfileUrl } from '@/app/routes';
+import type { PubchiRequestBinding } from '@/application/pubchi/pubchi.types';
 import { Badge } from '@/atoms/Badge/Badge';
+import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Collapsible/Collapsible';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { UserController } from '@/controllers/user/user';
+import { useTagSuggestionApplication } from '@/hooks/useTagSuggestionApplication/useTagSuggestionApplication';
 import { linkifyPubkys } from '@/libs/pubchi/capabilities-v1';
 import type { ExecutionScope, PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 
 type PubchiAnswerCardProps = {
   answer: PubchiAnswerV1;
+  binding?: PubchiRequestBinding;
   currentUserPubky?: string | null;
   cursorSource?: 'device' | 'remote' | 'none';
+  visible?: boolean;
 };
 
 const icons = {
@@ -38,8 +43,15 @@ type EvidenceGroup = {
   more: number;
 };
 
-export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'none' }: PubchiAnswerCardProps) {
+export function PubchiAnswerCard({
+  answer,
+  binding,
+  currentUserPubky,
+  cursorSource = 'none',
+  visible = true,
+}: PubchiAnswerCardProps) {
   const [names, setNames] = useState<Map<string, string>>(new Map());
+  const { statuses, approve, revert, reconcile } = useTagSuggestionApplication(binding?.recordId, visible);
 
   useEffect(() => {
     let active = true;
@@ -62,6 +74,84 @@ export function PubchiAnswerCard({ answer, currentUserPubky, cursorSource = 'non
 
   return (
     <div data-surface="pubchi-answer" data-testid="pubchi-answer" className="flex flex-col gap-3">
+      {answer.section === 'tag_suggestions' && answer.tag_suggestions ? (
+        <Card data-testid="pubchi-tag-suggestions">
+          <CardHeader>
+            <CardTitle>Suggested tags</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {answer.tag_suggestions.map((suggestion, index) => {
+              const status = suggestion.already_applied ? 'superseded' : (statuses[index] ?? 'proposed');
+              return (
+                <div
+                  key={`${suggestion.label}-${index}`}
+                  data-testid={`pubchi-tag-suggestion-${index}`}
+                  className="flex flex-col gap-2 rounded-md border p-3"
+                >
+                  <Typography className="font-medium">{suggestion.label}</Typography>
+                  <Typography size="sm">{suggestion.rationale}</Typography>
+                  <div className="flex flex-wrap gap-2">
+                    {suggestion.evidence.map((uri) => {
+                      const href = pubkyUriToAppHref(uri, currentUserPubky);
+                      return href ? (
+                        <Link key={uri} href={href} className="text-sm break-all underline">
+                          {uri}
+                        </Link>
+                      ) : (
+                        <Typography key={uri} size="sm" className="break-all">
+                          {uri}
+                        </Typography>
+                      );
+                    })}
+                  </div>
+                  {status === 'superseded' ? (
+                    <Typography size="sm" data-testid={`pubchi-tag-already-applied-${index}`}>
+                      Already applied
+                    </Typography>
+                  ) : status === 'applied' ? (
+                    <Button type="button" data-testid={`pubchi-tag-revert-${index}`} onClick={() => void revert(index)}>
+                      Revert
+                    </Button>
+                  ) : status === 'reconciliation-pending' ? (
+                    <div className="flex items-center gap-2">
+                      <Typography size="sm">
+                        Pubchi could not confirm the result of this tag. Check again, or manage the tag from the
+                        post&apos;s tags.
+                      </Typography>
+                      <Button
+                        type="button"
+                        data-testid={`pubchi-tag-check-again-${index}`}
+                        onClick={() => void reconcile(index)}
+                      >
+                        Check again
+                      </Button>
+                    </div>
+                  ) : status === 'reconciling' ? (
+                    <Button type="button" disabled>
+                      Checking…
+                    </Button>
+                  ) : status === 'reverted' ? (
+                    <Typography size="sm">Reverted</Typography>
+                  ) : status === 'failed' ? (
+                    <Button type="button" data-testid={`pubchi-tag-retry-${index}`} onClick={() => void approve(index)}>
+                      Retry
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      data-testid={`pubchi-tag-approve-${index}`}
+                      disabled={status === 'applying'}
+                      onClick={() => void approve(index)}
+                    >
+                      {status === 'applying' ? 'Applying…' : 'Approve'}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
       {answer.evidence.length > 0 ? (
         <div className="flex flex-col gap-3" data-testid="pubchi-answer-evidence">
           {groupEvidence(answer).map((group) => {
@@ -230,7 +320,10 @@ function formatScopeLine(scope: ExecutionScope): string {
 
   const since = formatUtcDate(scope.time.since_ms);
   const until = formatUtcDate(scope.time.until_ms, scope.time.since_ms);
-  return `Scope: ${scope.time.label} (${since}–${until} UTC) · ${graph}`;
+  const label = /\([^()]*UTC\)$/.test(scope.time.label)
+    ? scope.time.label
+    : `${scope.time.label} (${since}–${until} UTC)`;
+  return `Scope: ${label} · ${graph}`;
 }
 
 function formatUtcDate(timestamp: number, rangeStart?: number): string {

@@ -157,6 +157,7 @@ export function usePostMenuActions(postId: string, options: UsePostMenuActionsOp
         PubchiController.openFlyout({
           question: `Summarize this thread ${postUriBuilder(postAuthorId, parsedId.id)}`,
           source: 'post-menu',
+          target: { kind: 'post', uri: postUriBuilder(postAuthorId, parsedId.id) },
         });
       },
       variant: POST_MENU_ACTION_VARIANTS.DEFAULT,

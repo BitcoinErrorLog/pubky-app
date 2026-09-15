@@ -11,7 +11,7 @@ import { PUBCHI_PRIVATE_DIRECTORY, sessionCovers } from '@/libs/pubchi/capabilit
 import { readLocalCursor, writeLocalCursor } from '@/libs/pubchi/capabilities-v1';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
-import type { Phase0Purpose } from '@/libs/pubchi/schemas';
+import type { Phase0Purpose, PubchiTarget } from '@/libs/pubchi/schemas';
 import { toast } from '@/molecules/Toaster/toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
@@ -80,7 +80,7 @@ export function usePubchiQuery() {
 
   const submit = async (
     purpose: Phase0Purpose,
-    requestOptions: { proposalVersion?: 2; targetFeedId?: string; currentFeed?: unknown } = {},
+    requestOptions: { proposalVersion?: 2; targetFeedId?: string; currentFeed?: unknown; target?: PubchiTarget } = {},
   ): Promise<boolean> => {
     if (!isPubchiPanelEnabled()) {
       setErrorCode('PUBCHI_DISABLED');
@@ -111,8 +111,8 @@ export function usePubchiQuery() {
             question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
             ...(purpose === 'ask' ? { conversation } : {}),
-        ...(purpose === 'build-feed' ? { proposalVersion: 2 as const } : {}),
-        ...requestOptions,
+            ...(purpose === 'build-feed' ? { proposalVersion: 2 as const } : {}),
+            ...requestOptions,
           });
           const nextUntil = next.kind === 'answer' ? next.result.continuation?.until : undefined;
           const cursorTime = cursor ? Date.parse(cursor) : Number.NaN;

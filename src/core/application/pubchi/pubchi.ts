@@ -1,8 +1,12 @@
+import { PubkyAppTag } from 'pubky-app-specs';
+import { TagKind } from '@/application/tag/tag.types';
+import { getPubchiDatabase } from '@/database/pubchi/pubchi';
 import { AppError } from '@/libs/error/error';
 import {
   AuthErrorCode,
   ClientErrorCode,
   DatabaseErrorCode,
+  NetworkErrorCode,
   ServerErrorCode,
   TimeoutErrorCode,
   ValidationErrorCode,
@@ -57,6 +61,7 @@ import {
   parsePubchiConfigV1,
   parsePubchiDocumentText,
   parsePubchiOwnerContextV1,
+  parsePubchiTagApplication,
   parseQueryResultV1,
   type PubchiBotV1,
   type PubchiConfigV1,
@@ -70,8 +75,11 @@ import {
   validatePubchiDocumentSize,
   validatePublicRootReferences,
 } from '@/libs/pubchi/schemas';
+import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
+import { canApplyTagSuggestion, tagApplicationBinding } from '@/libs/pubchi/tag-application';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
 import { toast } from '@/molecules/Toaster/toast';
+import { TagNormalizer } from '@/pipes/tag/tag.normalizer';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
@@ -131,11 +139,20 @@ function randomNonce(): string {
 
 export class PubchiApplication {
   private static readonly deviceReadiness = new Map<string, Promise<boolean>>();
+  private static readonly tagSuggestionOperationsInFlight = new Set<string>();
   private static deviceListingHadFailures = false;
   private static deviceListingUnlistedSigners: string[] = [];
   private static deviceListingUnlistedCount = 0;
 
   private constructor() {}
+
+  static beginTagSuggestionOperation(recordId: string, suggestionIndex: number): void {
+    this.tagSuggestionOperationsInFlight.add(`${recordId}:${suggestionIndex}`);
+  }
+
+  static endTagSuggestionOperation(recordId: string, suggestionIndex: number): void {
+    this.tagSuggestionOperationsInFlight.delete(`${recordId}:${suggestionIndex}`);
+  }
 
   static ensureDeviceReady(owner: string): Promise<boolean> {
     const inFlight = this.deviceReadiness.get(owner);
@@ -876,6 +893,473 @@ export class PubchiApplication {
     }
   }
 
+  static async prepareTagSuggestionApplication(
+    recordId: string,
+    suggestionIndex: number,
+    owner: string,
+    capabilities: string[],
+  ) {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    const binding = record ? tagApplicationBinding(record) : undefined;
+    if (
+      !record ||
+      !binding ||
+      record.owner !== owner ||
+      !canApplyTagSuggestion(binding, suggestionIndex, { info: { capabilities } })
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion binding is no longer applicable', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareTagSuggestionApplication',
+      });
+    }
+    const responseSha256 = await sha256Hex(canonicalJson(record.response));
+    if (responseSha256 !== record.response_sha256 || record.response_run_id !== binding.response.run_id) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Stored Pubchi tag suggestion response is invalid', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareTagSuggestionApplication',
+      });
+    }
+    const suggestion = binding.response.tag_suggestions?.[suggestionIndex];
+    if (!suggestion || !binding.response.target?.snapshot_sha256) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareTagSuggestionApplication',
+      });
+    }
+    await this.assertTagSuggestionTargetUnchanged(binding);
+    const applicationId = await sha256Hex(
+      canonicalJson({
+        owner: binding.owner,
+        run_id: binding.response.run_id,
+        target_uri: binding.target.uri,
+        label: suggestion.label,
+      }),
+    );
+    await this.writeTagSuggestionReceipt(binding, suggestionIndex, applicationId, 'applying');
+    await getPubchiDatabase().tagApplications.update(recordId, {
+      statuses: { ...(record.statuses ?? {}), [suggestionIndex]: 'applying' },
+      operations: { ...(record.operations ?? {}), [suggestionIndex]: 'apply' },
+      already_existed: { ...(record.already_existed ?? {}), [suggestionIndex]: null },
+      updated_at: Date.now(),
+    });
+    return { binding, applicationId, suggestion };
+  }
+
+  private static async assertTagSuggestionTargetUnchanged(
+    binding: NonNullable<ReturnType<typeof tagApplicationBinding>>,
+  ): Promise<void> {
+    const expected = binding.response.target?.snapshot_sha256;
+    if (!expected) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Target changed — ask again', {
+        service: ErrorService.Pubchi,
+        operation: 'assertTagSuggestionTargetUnchanged',
+      });
+    }
+    try {
+      const raw = await HomeserverService.requestRawText(binding.target.uri);
+      const source: unknown = JSON.parse(raw);
+      if (!source || Array.isArray(source) || typeof source !== 'object')
+        throw new TypeError('Target is not an object');
+      const value = source as Record<string, unknown>;
+      const projection =
+        binding.target.kind === 'post'
+          ? {
+              kind: 'post',
+              uri: binding.target.uri,
+              author: /^pubky:\/\/([^/]+)\//.exec(binding.target.uri)?.[1] ?? '',
+              content: typeof value.content === 'string' ? value.content : '',
+              post_kind: typeof value.kind === 'string' ? value.kind : '',
+            }
+          : {
+              kind: 'user',
+              uri: binding.target.uri,
+              pubky: /^pubky:\/\/([^/]+)\//.exec(binding.target.uri)?.[1] ?? '',
+              name: typeof value.name === 'string' ? value.name : '',
+              bio: typeof value.bio === 'string' ? value.bio : null,
+            };
+      if ((await sha256Hex(canonicalJson(projection))) !== expected) throw new TypeError('Target digest changed');
+    } catch (cause) {
+      if (cause instanceof AppError && !hasHttpStatus(cause, HttpStatusCode.NOT_FOUND)) throw cause;
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Target changed — ask again', {
+        service: ErrorService.Pubchi,
+        operation: 'assertTagSuggestionTargetUnchanged',
+        cause,
+      });
+    }
+  }
+
+  static async finalizeTagSuggestionApplication(
+    recordId: string,
+    suggestionIndex: number,
+    applicationId: string,
+    status: 'applied' | 'superseded' | 'failed' | 'reverted',
+    tagUri?: string,
+    alreadyExisted?: boolean | null,
+  ): Promise<void> {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    const binding = record ? tagApplicationBinding(record) : undefined;
+    if (!record || !binding) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'finalizeTagSuggestionApplication',
+      });
+    }
+    await this.writeTagSuggestionReceipt(binding, suggestionIndex, applicationId, status, tagUri, alreadyExisted);
+    await getPubchiDatabase().tagApplications.update(recordId, {
+      statuses: { ...(record.statuses ?? {}), [suggestionIndex]: status },
+      updated_at: Date.now(),
+    });
+  }
+
+  static async markTagSuggestionReconciliationPending(recordId: string, suggestionIndex: number): Promise<void> {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    if (!record) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'markTagSuggestionReconciliationPending',
+      });
+    }
+    await getPubchiDatabase().tagApplications.update(recordId, {
+      statuses: { ...(record.statuses ?? {}), [suggestionIndex]: 'reconciliation-pending' },
+      updated_at: Date.now(),
+    });
+  }
+
+  static async recordTagSuggestionApplyOutcome(
+    recordId: string,
+    suggestionIndex: number,
+    alreadyExisted: boolean,
+  ): Promise<void> {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    if (!record) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'recordTagSuggestionApplyOutcome',
+      });
+    }
+    await getPubchiDatabase().tagApplications.update(recordId, {
+      operations: { ...(record.operations ?? {}), [suggestionIndex]: 'apply' },
+      already_existed: { ...(record.already_existed ?? {}), [suggestionIndex]: alreadyExisted },
+      updated_at: Date.now(),
+    });
+  }
+
+  static async recordTagSuggestionRevertOperation(recordId: string, suggestionIndex: number): Promise<void> {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    if (!record) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'recordTagSuggestionRevertOperation',
+      });
+    }
+    await getPubchiDatabase().tagApplications.update(recordId, {
+      operations: { ...(record.operations ?? {}), [suggestionIndex]: 'revert' },
+      updated_at: Date.now(),
+    });
+  }
+
+  private static async updateTagSuggestionStatus(
+    recordId: string,
+    suggestionIndex: number,
+    status: 'applied' | 'superseded' | 'failed' | 'reverted',
+  ): Promise<void> {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    if (!record) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'updateTagSuggestionStatus',
+      });
+    }
+    await getPubchiDatabase().tagApplications.update(recordId, {
+      statuses: { ...(record.statuses ?? {}), [suggestionIndex]: status },
+      updated_at: Date.now(),
+    });
+  }
+
+  static async rehydrateTagSuggestionStatuses(recordId: string, owner: string): Promise<Record<number, string>> {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    const binding = record ? tagApplicationBinding(record) : undefined;
+    if (!record || !binding || record.owner !== owner) return {};
+    const statuses = { ...(record.statuses ?? {}) };
+    for (const [index, suggestion] of (binding.response.tag_suggestions ?? []).entries()) {
+      if (statuses[index] !== 'proposed') continue;
+      try {
+        const applicationId = await this.tagSuggestionApplicationId(binding, suggestion.label);
+        const receipt = await this.readTagSuggestionReceipt(binding, applicationId);
+        if (receipt?.status === 'applying') {
+          statuses[index] = 'applying';
+          await getPubchiDatabase().tagApplications.update(recordId, {
+            statuses,
+            operations: { ...(record.operations ?? {}), [index]: 'apply' },
+            already_existed: { ...(record.already_existed ?? {}), [index]: null },
+            updated_at: Date.now(),
+          });
+        }
+      } catch {}
+    }
+    return statuses;
+  }
+
+  static async reconcileTagSuggestionApplication(
+    recordId: string,
+    suggestionIndex: number,
+    owner: string,
+  ): Promise<
+    'proposed' | 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted' | 'reconciliation-pending'
+  > {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    const binding = record ? tagApplicationBinding(record) : undefined;
+    if (!record || !binding || binding.owner !== owner) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion cannot be reconciled', {
+        service: ErrorService.Pubchi,
+        operation: 'reconcileTagSuggestionApplication',
+      });
+    }
+    if (this.tagSuggestionOperationsInFlight.has(`${recordId}:${suggestionIndex}`)) {
+      return record.statuses?.[suggestionIndex] ?? 'reconciliation-pending';
+    }
+    const suggestion = binding.response.tag_suggestions?.[suggestionIndex];
+    if (!suggestion) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'reconcileTagSuggestionApplication',
+      });
+    }
+    const target = /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/(?:posts\/([^/]+)|profile\.json)$/.exec(binding.target.uri);
+    if (!target)
+      throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'Invalid tag suggestion target', {
+        service: ErrorService.Pubchi,
+        operation: 'reconcileTagSuggestionApplication',
+      });
+    const tag = TagNormalizer.from({
+      taggedKind: binding.target.kind === 'post' ? TagKind.POST : TagKind.USER,
+      taggedId: binding.target.kind === 'post' ? `${target[1]}:${target[2]}` : target[1],
+      label: suggestion.label,
+      taggerId: binding.owner,
+    });
+    try {
+      const applicationId = await this.tagSuggestionApplicationId(binding, suggestion.label);
+      const receipt = await this.readTagSuggestionReceipt(binding, applicationId);
+      if (!receipt) throw new TypeError('Tag suggestion receipt is missing');
+      const tagState = await this.readTagSuggestionPublicTag(tag.tagUrl, tag.tagJson);
+      const operation = record.operations?.[suggestionIndex] ?? 'apply';
+      const receiptStatus = receipt.status;
+
+      if (tagState === 'indeterminate') {
+        await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
+        return 'reconciliation-pending';
+      }
+      const tagPresent = tagState === 'present-canonical';
+      if (receiptStatus === 'superseded') {
+        await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'superseded');
+        return 'superseded';
+      }
+      if (receiptStatus === 'reverted') {
+        await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'reverted');
+        return 'reverted';
+      }
+      if (receiptStatus === 'applied' && tagPresent) {
+        await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'applied');
+        return 'applied';
+      }
+      if (receiptStatus === 'applied' && !tagPresent && operation === 'revert') {
+        await this.finalizeTagSuggestionApplication(recordId, suggestionIndex, applicationId, 'reverted');
+        return 'reverted';
+      }
+      // Reconciliation table: a failed receipt is terminal only when the
+      // canonical public tag is absent. A present tag can self-heal the
+      // receipt when the durable outcome proves whether it pre-existed.
+      if (receiptStatus === 'failed') {
+        if (!tagPresent) {
+          await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'failed');
+          return 'failed';
+        }
+        const alreadyExisted = record.already_existed?.[suggestionIndex];
+        if (alreadyExisted === null || alreadyExisted === undefined) {
+          await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
+          return 'reconciliation-pending';
+        }
+        const status = alreadyExisted ? 'superseded' : 'applied';
+        await this.finalizeTagSuggestionApplication(
+          recordId,
+          suggestionIndex,
+          applicationId,
+          status,
+          tag.tagUrl,
+          alreadyExisted,
+        );
+        return status;
+      }
+      if (receiptStatus === 'applying' && tagPresent && operation === 'apply') {
+        // A crash after the tag write but before its outcome is persisted cannot prove
+        // authorship. Leave it pending: public tags have no production provenance field.
+        const alreadyExisted = record.already_existed?.[suggestionIndex];
+        if (alreadyExisted === null || alreadyExisted === undefined) {
+          await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
+          return 'reconciliation-pending';
+        }
+        const status = alreadyExisted ? 'superseded' : 'applied';
+        await this.finalizeTagSuggestionApplication(
+          recordId,
+          suggestionIndex,
+          applicationId,
+          status,
+          tag.tagUrl,
+          alreadyExisted,
+        );
+        return status;
+      }
+      if (receiptStatus === 'applying' && !tagPresent) {
+        await this.finalizeTagSuggestionApplication(recordId, suggestionIndex, applicationId, 'failed');
+        return 'failed';
+      }
+      throw new TypeError('Tag suggestion state cannot be reconciled');
+    } catch {
+      await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
+      return 'reconciliation-pending';
+    }
+  }
+
+  private static async tagSuggestionApplicationId(
+    binding: NonNullable<ReturnType<typeof tagApplicationBinding>>,
+    label: string,
+  ): Promise<string> {
+    return sha256Hex(
+      canonicalJson({ owner: binding.owner, run_id: binding.response.run_id, target_uri: binding.target.uri, label }),
+    );
+  }
+
+  static async prepareTagSuggestionRevert(recordId: string, suggestionIndex: number, owner: string) {
+    const record = await getPubchiDatabase().tagApplications.get(recordId);
+    const binding = record ? tagApplicationBinding(record) : undefined;
+    if (!record || !binding || record.owner !== owner || record.statuses?.[suggestionIndex] !== 'applied') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion cannot be reverted', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareTagSuggestionRevert',
+      });
+    }
+    const suggestion = binding.response.tag_suggestions?.[suggestionIndex];
+    if (!suggestion) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareTagSuggestionRevert',
+      });
+    }
+    const applicationId = await sha256Hex(
+      canonicalJson({
+        owner: binding.owner,
+        run_id: binding.response.run_id,
+        target_uri: binding.target.uri,
+        label: suggestion.label,
+      }),
+    );
+    const receipt = await this.readTagSuggestionReceipt(binding, applicationId);
+    if (!receipt || receipt.status !== 'applied') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion receipt cannot be reverted', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareTagSuggestionRevert',
+      });
+    }
+    return { binding, applicationId, suggestion };
+  }
+
+  private static async readTagSuggestionReceipt(
+    binding: NonNullable<ReturnType<typeof tagApplicationBinding>>,
+    applicationId: string,
+  ): Promise<Record<string, unknown> | undefined> {
+    const url = `pubky://${binding.owner}${PUBCHI_PRIVATE_DIRECTORY}tag-applications/${applicationId}.json`;
+    try {
+      const raw = await HomeserverService.requestRawText(url);
+      if (raw && new TextEncoder().encode(raw).byteLength > 64 * 1024) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion receipt exceeds 64 KiB', {
+          service: ErrorService.Pubchi,
+          operation: 'readTagSuggestionReceipt',
+        });
+      }
+      const response = raw ? JSON.parse(raw) : await HomeserverService.request({ method: HttpMethod.GET, url });
+      const parsed = parsePubchiTagApplication(response);
+      if (!parsed.ok) {
+        throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'Existing tag suggestion receipt is invalid', {
+          service: ErrorService.Pubchi,
+          operation: 'readTagSuggestionReceipt',
+        });
+      }
+      return parsed.value as Record<string, unknown>;
+    } catch (cause) {
+      if (hasHttpStatus(cause, HttpStatusCode.NOT_FOUND)) return undefined;
+      if (cause instanceof Error && 'code' in cause) throw cause;
+      throw Err.network(NetworkErrorCode.CONNECTION_FAILED, 'Could not read tag suggestion receipt', {
+        service: ErrorService.Pubchi,
+        operation: 'readTagSuggestionReceipt',
+        cause,
+      });
+    }
+  }
+
+  private static async readTagSuggestionPublicTag(
+    tagUrl: string,
+    expected: Record<string, unknown>,
+  ): Promise<'absent' | 'present-canonical' | 'indeterminate'> {
+    try {
+      const raw = await HomeserverService.requestRawText(tagUrl);
+      if (new TextEncoder().encode(raw).byteLength > 64 * 1024) return 'indeterminate';
+      const tag = PubkyAppTag.fromJson(JSON.parse(raw)).toJson() as Record<string, unknown>;
+      return tag.uri === expected.uri && tag.label === expected.label ? 'present-canonical' : 'indeterminate';
+    } catch (cause) {
+      return hasHttpStatus(cause, HttpStatusCode.NOT_FOUND) ? 'absent' : 'indeterminate';
+    }
+  }
+
+  private static async writeTagSuggestionReceipt(
+    binding: NonNullable<ReturnType<typeof tagApplicationBinding>>,
+    suggestionIndex: number,
+    applicationId: string,
+    status: 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted',
+    tagUri?: string,
+    alreadyExisted?: boolean | null,
+  ): Promise<void> {
+    const suggestion = binding.response.tag_suggestions?.[suggestionIndex];
+    if (!suggestion || !binding.response.target?.snapshot_sha256) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion receipt is incomplete', {
+        service: ErrorService.Pubchi,
+        operation: 'writeTagSuggestionReceipt',
+      });
+    }
+    const url = `pubky://${binding.owner}${PUBCHI_PRIVATE_DIRECTORY}tag-applications/${applicationId}.json`;
+    const existing = (await this.readTagSuggestionReceipt(binding, applicationId)) ?? {};
+    const receipt = {
+      ...existing,
+      schema: 'pubchi-tag-application',
+      version: 1,
+      application_id: applicationId,
+      owner: binding.owner,
+      bot: binding.bot,
+      run_id: binding.response.run_id,
+      target: { ...binding.target, snapshot_sha256: binding.response.target.snapshot_sha256 },
+      label: suggestion.label,
+      source: suggestion.source,
+      evidence: suggestion.evidence,
+      suggestion_sha256: await sha256Hex(canonicalJson(suggestion)),
+      status,
+      ...(status === 'applying'
+        ? { already_existed: null }
+        : alreadyExisted !== undefined
+          ? { already_existed: alreadyExisted }
+          : {}),
+      suggested_at: binding.response.generated_at,
+      ...(tagUri ? { tag_uri: tagUri } : {}),
+      ...(status === 'applied' ? { applied_at: Math.floor(Date.now() / 1000) } : {}),
+      ...(status === 'reverted' ? { reverted_at: Math.floor(Date.now() / 1000) } : {}),
+    };
+    if (new TextEncoder().encode(JSON.stringify(receipt)).byteLength > 64 * 1024) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag suggestion receipt exceeds 64 KiB', {
+        service: ErrorService.Pubchi,
+        operation: 'writeTagSuggestionReceipt',
+      });
+    }
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: receipt });
+  }
+
   static async query(params: PubchiQueryApplicationParams): Promise<PubchiQuerySuccess> {
     if (!isPubchiPanelEnabled()) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
@@ -917,7 +1401,20 @@ export class PubchiApplication {
       ...(params.proposalVersion ? { proposal_version: params.proposalVersion } : {}),
       ...(params.targetFeedId ? { target_feed_id: params.targetFeedId } : {}),
       ...(params.currentFeed ? { current_feed: params.currentFeed } : {}),
+      ...(params.target ? { target: params.target } : {}),
     };
+    const submittedAt = Date.now();
+    const responseBinding =
+      servedPurpose === 'ask' && body.target
+        ? {
+            owner: params.owner,
+            bot: binding.bot,
+            servedPurpose: 'ask' as const,
+            question: body.question,
+            target: body.target,
+            submitted_at: submittedAt,
+          }
+        : undefined;
     if (body.conversation) {
       const parsedConversation = parseConversation(body.conversation);
       if (!parsedConversation.ok) throw pubchiValidationError(parsedConversation.code, 'query');
@@ -943,7 +1440,50 @@ export class PubchiApplication {
     assertRequestSignerIsStoredDevice(request.signer, device.signer);
 
     const response = await PubchiService.query({ request, body });
-    return interpretQueryResponse(response);
+    const interpreted = interpretQueryResponse(response);
+    if (interpreted.kind !== 'answer' || !responseBinding) return interpreted;
+    const responseSha256 = await sha256Hex(canonicalJson(interpreted.result));
+    const recordId = await sha256Hex(
+      canonicalJson({ ...responseBinding, response_sha256: responseSha256, run_id: interpreted.result.run_id }),
+    );
+    const statuses = Object.fromEntries(
+      (interpreted.result.tag_suggestions ?? []).map((suggestion, index) => [
+        index,
+        suggestion.already_applied ? 'superseded' : 'proposed',
+      ]),
+    ) as Record<number, 'proposed' | 'superseded'>;
+    try {
+      const database = getPubchiDatabase();
+      await database.transaction('rw', database.tagApplications, async () => {
+        await database.tagApplications.put({
+          id: recordId,
+          owner: responseBinding.owner,
+          bot: responseBinding.bot,
+          served_purpose: responseBinding.servedPurpose,
+          question: responseBinding.question,
+          target: responseBinding.target,
+          submitted_at: responseBinding.submitted_at,
+          response_run_id: interpreted.result.run_id,
+          response: interpreted.result,
+          response_sha256: responseSha256,
+          statuses,
+          updated_at: Date.now(),
+        });
+      });
+    } catch (cause) {
+      throw Err.database(DatabaseErrorCode.TRANSACTION_FAILED, 'Could not persist Pubchi tag suggestions', {
+        service: ErrorService.Pubchi,
+        operation: 'query',
+        cause,
+      });
+    }
+    return {
+      ...interpreted,
+      binding: {
+        ...responseBinding,
+        recordId,
+      },
+    };
   }
 }
 

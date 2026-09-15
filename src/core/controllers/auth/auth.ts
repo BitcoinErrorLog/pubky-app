@@ -17,7 +17,7 @@ import { NotificationCoordinator } from '@/coordinators/notifications/notificati
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
 import { clearDatabase } from '@/database/franky/franky.helpers';
-import { deletePubchiDatabase } from '@/database/pubchi/pubchi';
+import { clearPubchiOwnerData, deletePubchiDatabase } from '@/database/pubchi/pubchi';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError, isWrongEnvironmentHomeserverError, toAppError } from '@/libs/error/error.utils';
 import { Identity } from '@/libs/identity/identity';
@@ -248,7 +248,14 @@ export class AuthController {
       this.cancelActiveAuthFlow();
       const pubky = Identity.z32FromSession({ session });
 
-      if (authStore.currentUserPubky && authStore.currentUserPubky !== pubky) clearLocalCursors();
+      if (authStore.currentUserPubky && authStore.currentUserPubky !== pubky) {
+        clearLocalCursors();
+        try {
+          await clearPubchiOwnerData(authStore.currentUserPubky);
+        } catch (error) {
+          Logger.warn('Pubchi owner-data clear failed on identity switch; sign-in continues', { error });
+        }
+      }
       authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
 
       try {
@@ -366,6 +373,11 @@ export class AuthController {
     if (pubky) {
       publishPubchiSync(pubky, 'signed-out');
       TagApplication.clearViewerMarkers(pubky);
+      try {
+        await clearPubchiOwnerData(pubky);
+      } catch (error) {
+        Logger.warn('Pubchi owner-data clear failed on sign-out; sign-out continues', { error });
+      }
     }
 
     // Mute-list SSE cursors live in sessionStorage; clear before the next account might reuse the same tab.

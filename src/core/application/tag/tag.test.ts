@@ -3,7 +3,7 @@ import { TagKind } from '@/application/tag/tag.types';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { HttpMethod } from '@/libs/http/http.types';
+import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import type { Pubky } from '@/models/models.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPostTagService } from '@/services/local/tag/post/tag.post';
@@ -16,6 +16,7 @@ import type { TCreateTagInput, TDeleteTagInput } from './tag.types';
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
     request: vi.fn(),
+    requestRawText: vi.fn(),
   },
 }));
 
@@ -25,6 +26,7 @@ const httpError = (code: ClientErrorCode, operation: string) =>
   Err.client(code, code, {
     service: ErrorService.Homeserver,
     operation,
+    context: { statusCode: code === ClientErrorCode.NOT_FOUND ? HttpStatusCode.NOT_FOUND : undefined },
   });
 
 describe('Tag Application', () => {
@@ -64,14 +66,104 @@ describe('Tag Application', () => {
       createSpy: vi.spyOn(localTagService, 'create'),
       deleteSpy: vi.spyOn(localTagService, 'delete'),
       requestSpy: vi.spyOn(HomeserverService, 'request'),
+      requestRawTextSpy: vi.spyOn(HomeserverService, 'requestRawText'),
     };
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(HomeserverService.requestRawText).mockRejectedValue(httpError(ClientErrorCode.NOT_FOUND, 'requestRawText'));
   });
 
   describe('commitCreate', () => {
+    it('preserves extensions but keeps production builder fields authoritative', async () => {
+      const mockData = {
+        ...createMockTagData(),
+        tagJson: { uri: 'pubky://target/pub/pubky.app/posts/post123', label: 'test-tag', created_at: 1 },
+      };
+      const { createSpy, requestSpy, requestRawTextSpy } = setupMocks();
+      createSpy.mockResolvedValue(true);
+      requestRawTextSpy.mockResolvedValue(
+        JSON.stringify({
+          uri: mockData.tagJson.uri,
+          label: mockData.tagJson.label,
+          created_at: 1,
+          ext: { preserved: true },
+        }),
+      );
+      requestSpy.mockResolvedValue(undefined);
+
+      await TagApplication.commitCreate({ tagList: [mockData] });
+
+      expect(requestSpy).toHaveBeenCalledWith({
+        method: HttpMethod.PUT,
+        url: mockData.tagUrl,
+        bodyJson: { ...mockData.tagJson, ext: { preserved: true } },
+      });
+    });
+
+    it('accepts a pre-existing tag with an earlier created_at and preserves the remote timestamp', async () => {
+      const mockData = {
+        ...createMockTagData(),
+        tagJson: {
+          uri: 'pubky://target/pub/pubky.app/posts/post123',
+          label: 'test-tag',
+          created_at: 2,
+        },
+      };
+      const { createSpy, requestSpy, requestRawTextSpy } = setupMocks();
+      createSpy.mockResolvedValue(true);
+      requestRawTextSpy.mockResolvedValue(
+        JSON.stringify({
+          uri: mockData.tagJson.uri,
+          label: mockData.tagJson.label,
+          created_at: 1,
+          ext: { preserved: true },
+        }),
+      );
+      requestSpy.mockResolvedValue(undefined);
+
+      await expect(TagApplication.commitCreate({ tagList: [mockData] })).resolves.toEqual({
+        tagUrl: mockData.tagUrl,
+        alreadyExisted: true,
+      });
+
+      expect(requestSpy).toHaveBeenCalledWith({
+        method: HttpMethod.PUT,
+        url: mockData.tagUrl,
+        bodyJson: { ...mockData.tagJson, created_at: 1, ext: { preserved: true } },
+      });
+    });
+
+    it.each([
+      ['uri', { uri: 'pubky://other/pub/pubky.app/posts/post123', label: 'test-tag' }],
+      ['label', { uri: 'pubky://target/pub/pubky.app/posts/post123', label: 'other-tag' }],
+    ])('rolls back when the pre-existing tag has a divergent %s', async (_field, remoteIdentity) => {
+      const mockData = {
+        ...createMockTagData(),
+        tagJson: {
+          uri: 'pubky://target/pub/pubky.app/posts/post123',
+          label: 'test-tag',
+          created_at: 2,
+        },
+      };
+      const { createSpy, deleteSpy, requestSpy, requestRawTextSpy } = setupMocks();
+      createSpy.mockResolvedValue(true);
+      deleteSpy.mockResolvedValue(true);
+      requestRawTextSpy.mockResolvedValue(JSON.stringify({ ...remoteIdentity, created_at: 1 }));
+
+      await expect(TagApplication.commitCreate({ tagList: [mockData] })).rejects.toMatchObject({
+        message: 'Tag identity mismatch',
+      });
+
+      expect(deleteSpy).toHaveBeenCalledWith({
+        taggedId: mockData.taggedId,
+        label: mockData.label,
+        taggerId: mockData.taggerId,
+      });
+      expect(requestSpy).not.toHaveBeenCalled();
+    });
+
     it('should save locally and sync to homeserver successfully', async () => {
       const mockData = createMockTagData();
       const { createSpy, requestSpy } = setupMocks();

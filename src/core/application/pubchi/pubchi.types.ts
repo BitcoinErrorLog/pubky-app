@@ -1,4 +1,5 @@
 import type {
+  Conversation,
   ExecutionScope,
   FeedProposalV1,
   FeedProposalV2,
@@ -7,7 +8,7 @@ import type {
   PubchiAnswerV1,
   PubchiBotV1,
   PubchiOwnerContextV1,
-  Conversation,
+  PubchiTarget,
   QueryResultV1,
 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
@@ -18,6 +19,17 @@ export type PubchiAskBody = {
   proposal_version?: 2;
   target_feed_id?: string;
   current_feed?: unknown;
+  target?: PubchiTarget;
+};
+
+export type PubchiRequestBinding = {
+  owner: Pubky;
+  bot: Pubky;
+  servedPurpose: 'ask';
+  question: string;
+  target: PubchiTarget;
+  submitted_at: number;
+  recordId: string;
 };
 
 export type PubchiQueryApplicationParams = {
@@ -30,11 +42,12 @@ export type PubchiQueryApplicationParams = {
   targetFeedId?: string;
   currentFeed?: unknown;
   conversation?: Conversation;
+  target?: PubchiTarget;
 };
 
 export type PubchiQuerySuccess =
   | { kind: 'query'; result: QueryResultV1 }
-  | { kind: 'answer'; result: PubchiAnswerV1 }
+  | { kind: 'answer'; result: PubchiAnswerV1; binding?: PubchiRequestBinding }
   | { kind: 'feed'; result: FeedProposalV1; applyAllowed: true }
   | { kind: 'feed-v2'; result: FeedProposalV2; applyAllowed: false }
   | { kind: 'feed-unsupported'; code: 'FEED_UNSUPPORTED_LIKES' | 'FEED_UNSUPPORTED_REACH' | 'FEED_SPECS_INVALID' };

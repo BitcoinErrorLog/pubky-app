@@ -2,7 +2,10 @@ import { TagResult } from 'pubky-app-specs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import { db } from '@/database/franky/franky';
-import { HttpMethod } from '@/libs/http/http.types';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import type { Pubky } from '@/models/models.types';
 import { buildCompositeId } from '@/models/models.utils';
 import { PostCountsModel } from '@/models/post/counts/postCounts';
@@ -18,8 +21,16 @@ import type { TTagEventParams } from './tag.types';
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
     request: vi.fn(),
+    requestRawText: vi.fn(),
   },
 }));
+
+const notFound = () =>
+  Err.client(ClientErrorCode.NOT_FOUND, 'NOT_FOUND', {
+    service: ErrorService.Homeserver,
+    operation: 'requestRawText',
+    context: { statusCode: HttpStatusCode.NOT_FOUND },
+  });
 
 // Mock pubky-app-specs
 vi.mock('pubky-app-specs', () => ({
@@ -88,6 +99,7 @@ describe('TagController', () => {
 
     // Mock HomeserverService.request to resolve successfully
     vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+    vi.spyOn(HomeserverService, 'requestRawText').mockRejectedValue(notFound());
 
     vi.spyOn(TagNormalizer, 'to').mockImplementation((uri: string, label: string, pubky: Pubky) => {
       return asOpaque<TagResult>({
@@ -118,7 +130,7 @@ describe('TagController', () => {
   describe('commitCreate', () => {
     describe('POST tags', () => {
       it('should save post tag and sync to homeserver', async () => {
-        await TagController.commitCreate(createTagParams('javascript', TagKind.POST));
+        const result = await TagController.commitCreate(createTagParams('javascript', TagKind.POST));
 
         const savedTags = await getSavedTags(TagKind.POST);
         expect(savedTags).toBeTruthy();
@@ -126,6 +138,7 @@ describe('TagController', () => {
         expect(savedTags!.tags[0].label).toBe('javascript');
         expect(savedTags!.tags[0].taggers_count).toBe(1);
         expect(savedTags!.tags[0].relationship).toBe(true);
+        expect(result).toMatchObject({ alreadyExisted: false });
 
         // Verify homeserver sync was called
         expect(HomeserverService.request).toHaveBeenCalledWith({

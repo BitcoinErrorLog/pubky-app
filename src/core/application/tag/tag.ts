@@ -1,6 +1,16 @@
-import { TagKind, type TCreateTagListInput, type TDeleteTagInput } from '@/application/tag/tag.types';
+import {
+  TagKind,
+  type TCreateTagListInput,
+  type TCreateTagResult,
+  type TDeleteTagInput,
+} from '@/application/tag/tag.types';
+import type { TTagEventParams } from '@/controllers/tag/tag.types';
 import { AppError } from '@/libs/error/error';
-import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import { hasHttpStatus } from '@/libs/error/error.utils';
+import { HttpStatusCode } from '@/libs/http/http.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import type { Pubky } from '@/models/models.types';
@@ -27,7 +37,10 @@ export class TagApplication {
    * Commits the create tag operation to the homeserver and local database.
    * @param tagList - The list of tags to create
    */
-  static async commitCreate({ tagList }: TCreateTagListInput) {
+  static async commitCreate({
+    tagList,
+  }: TCreateTagListInput): Promise<TCreateTagResult | TCreateTagResult[] | undefined> {
+    const results: TCreateTagResult[] = [];
     // Process tags one at a time so callers never observe hidden in-flight work
     // from later entries after an earlier tag fails.
     for (const { taggerId, taggedId, label, tagUrl, tagJson, taggedKind } of tagList) {
@@ -40,7 +53,39 @@ export class TagApplication {
       }
 
       try {
-        await HomeserverService.request({ method: HttpMethod.PUT, url: tagUrl, bodyJson: tagJson });
+        let alreadyExisted = false;
+        let bodyToWrite = tagJson;
+        try {
+          const raw = await HomeserverService.requestRawText(tagUrl);
+          if (new TextEncoder().encode(raw).byteLength > 64 * 1024) {
+            throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag document is too large', {
+              service: ErrorService.Homeserver,
+              operation: 'commitCreate',
+            });
+          }
+          const remote = JSON.parse(raw) as Record<string, unknown>;
+          if (!remote || Array.isArray(remote) || typeof remote !== 'object')
+            throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'Tag document is invalid', {
+              service: ErrorService.Homeserver,
+              operation: 'commitCreate',
+            });
+          if (remote.uri !== tagJson.uri || remote.label !== tagJson.label) {
+            throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Tag identity mismatch', {
+              service: ErrorService.Homeserver,
+              operation: 'commitCreate',
+            });
+          }
+          const immutableKeys = ['uri', 'label', 'created_at'];
+          const extensions = Object.fromEntries(
+            Object.entries(remote).filter(([key]) => !immutableKeys.includes(key)),
+          );
+          bodyToWrite = { ...tagJson, created_at: remote.created_at, ...extensions };
+          alreadyExisted = true;
+        } catch (readError) {
+          if (!hasHttpStatus(readError, HttpStatusCode.NOT_FOUND)) throw readError;
+        }
+        await HomeserverService.request({ method: HttpMethod.PUT, url: tagUrl, bodyJson: bodyToWrite });
+        results.push({ tagUrl, alreadyExisted });
       } catch (error) {
         if (didCreateLocally) {
           try {
@@ -63,6 +108,7 @@ export class TagApplication {
         throw error;
       }
     }
+    return results.length === 1 ? results[0] : results;
   }
 
   /**
@@ -120,6 +166,14 @@ export class TagApplication {
 
         throw error;
       }
+    }
+  }
+
+  static async materializeForDelete({ taggerId, taggedId, label, taggedKind }: TTagEventParams): Promise<void> {
+    if (taggedKind === TagKind.POST) {
+      await LocalPostTagService.create({ taggerId, taggedId, label });
+    } else {
+      await LocalUserTagService.create({ taggerId, taggedId, label });
     }
   }
 

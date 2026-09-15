@@ -13,6 +13,7 @@ export {
   PubchiAnswerV1Schema,
   type PubchiEvidenceV1,
   PubchiEvidenceV1Schema,
+  type PubchiTagSuggestion,
 } from './answer';
 export {
   type Conversation,
@@ -24,6 +25,11 @@ export {
   MAX_CONVERSATION_TURN_CODE_POINTS,
   MAX_CONVERSATION_TURNS,
   parseConversation,
+  parsePubchiAskBody,
+  type PubchiAskBody,
+  PubchiAskBodySchema,
+  type PubchiTarget,
+  PubchiTargetSchema,
 } from './ask-body';
 export { parsePubchiBotV1, type PubchiBotV1, PubchiBotV1Schema } from './bot';
 export { bodySha256, bytesToHex, canonicalize, canonicalJson, hexToBytes, SHA256_HEX_RE, sha256Hex } from './canonical';
@@ -137,6 +143,7 @@ export {
   type VerifySignedRequestInput,
   verifySignedRequestObjectV1,
 } from './request';
+export { parsePubchiTagApplication, type PubchiTagApplication, PubchiTagApplicationSchema } from './tag-application';
 export {
   type OwnerBindingV1,
   OwnerBindingV1Schema,

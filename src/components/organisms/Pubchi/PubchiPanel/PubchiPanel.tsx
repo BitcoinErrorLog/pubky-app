@@ -19,6 +19,7 @@ import { parsePostReference } from '@/libs/pubchi/capabilities-v1';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
+import type { PubchiTarget } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -64,6 +65,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
+  const suggestionTarget: PubchiTarget | undefined = prefill?.target;
   const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
   const [showDatabaseBlockedNotice, setShowDatabaseBlockedNotice] = useState(false);
   const initialTier = effectiveTier({
@@ -274,20 +276,56 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               <Typography size="xs" className="text-muted-foreground">
                 Build feed opens the feed builder — pick filters or describe the feed.
               </Typography>
-              {postReference ? (
+              {postReference || prefill?.target?.kind === 'post' ? (
+                <div className="flex flex-wrap gap-2">
+                  {postReference ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      data-testid="pubchi-summarize-thread"
+                      disabled={actionsDisabled}
+                      onClick={() => {
+                        form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${postReference.uri}`, {
+                          shouldValidate: true,
+                        });
+                        void submitQuestion('ask', { target: suggestionTarget });
+                      }}
+                    >
+                      Summarize thread
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    data-testid="pubchi-suggest-tags"
+                    disabled={actionsDisabled || !suggestionTarget}
+                    onClick={() => {
+                      const target = suggestionTarget;
+                      if (!target) return;
+                      form.setValue(QUERY_FORM_FIELDS.QUESTION, `Suggest tags for this ${target.kind}`, {
+                        shouldValidate: true,
+                      });
+                      void submitQuestion('ask', { target });
+                    }}
+                  >
+                    Suggest tags
+                  </Button>
+                </div>
+              ) : null}
+              {!postReference && prefill?.target?.kind === 'user' ? (
                 <Button
                   type="button"
                   variant="secondary"
-                  data-testid="pubchi-summarize-thread"
+                  data-testid="pubchi-suggest-tags"
                   disabled={actionsDisabled}
                   onClick={() => {
-                    form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${postReference.uri}`, {
-                      shouldValidate: true,
-                    });
-                    void submitQuestion('ask');
+                    const target = prefill.target;
+                    if (!target) return;
+                    form.setValue(QUERY_FORM_FIELDS.QUESTION, 'Suggest tags for this user', { shouldValidate: true });
+                    void submitQuestion('ask', { target });
                   }}
                 >
-                  Summarize thread
+                  Suggest tags
                 </Button>
               ) : null}
             </form>
@@ -317,8 +355,10 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               <>
                 <PubchiAnswerCard
                   answer={result.result}
+                  binding={result.binding}
                   currentUserPubky={currentUserPubky}
                   cursorSource={cursorSource}
+                  visible={open}
                 />
               </>
             ) : null}
