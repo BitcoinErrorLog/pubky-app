@@ -157,6 +157,58 @@ const fixtures = vi.hoisted(async () => {
     return { order, payment, receipt: null };
   });
 
+  const pendingDeadline = new Date(VRT_FROZEN_NOW_MS + 2 * HOUR_MS).toISOString();
+  const buyerPendingPayment = [
+    {
+      order: createOrderFixture('pending_payment', {
+        id: '018f47d2-6a27-7c23-a49d-000000000730',
+        holdExpiresAt: pendingDeadline,
+        nextActor: 'buyer',
+        lines: [
+          {
+            listingAggregateId: `listing:${ORDER_FIXTURE_SELLER}_camera`,
+            listingRevision: 1,
+            contentHash: 'd'.repeat(64),
+            title: 'Buyer pending-payment camera',
+            quantity: 1,
+            unitPrice: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+            subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+          },
+        ],
+        subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+        total: { amountMinor: 16_200, currency: 'USD', exponent: 2 },
+      }),
+      payment: createPaymentFixture('awaiting_entitlement'),
+      receipt: null,
+    },
+  ];
+  const sellerPendingPayment = [
+    {
+      order: createOrderFixture('pending_payment', {
+        id: '018f47d2-6a27-7c23-a49d-000000000731',
+        buyerPubky: 't'.repeat(52),
+        sellerPubky: ORDER_FIXTURE_BUYER,
+        holdExpiresAt: pendingDeadline,
+        nextActor: 'buyer',
+        lines: [
+          {
+            listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_zine`,
+            listingRevision: 1,
+            contentHash: 'e'.repeat(64),
+            title: 'Seller pending-payment zine',
+            quantity: 1,
+            unitPrice: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+            subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+          },
+        ],
+        subtotal: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+        total: { amountMinor: 16_200, currency: 'USD', exponent: 2 },
+      }),
+      payment: createPaymentFixture('awaiting_entitlement'),
+      receipt: null,
+    },
+  ];
+
   return {
     buyer: ORDER_FIXTURE_BUYER,
     everyOrderState: createOrderViewsForEveryState(),
@@ -167,6 +219,8 @@ const fixtures = vi.hoisted(async () => {
     trackableShipped: [trackableShippedView()],
     deliveryAssumed: [deliveryAssumedView()],
     sellerAwaitingPayment: sellerAwaitingPaymentViews,
+    buyerPendingPayment,
+    sellerPendingPayment,
   };
 });
 
@@ -215,8 +269,12 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/stores/auth/auth.store', async () => {
   const { buyer } = await fixtures;
+  const useAuthStore = Object.assign(
+    (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: buyer }),
+    { getState: () => ({ currentUserPubky: buyer, selectCurrentUserPubky: () => buyer }) },
+  );
   return {
-    useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: buyer }),
+    useAuthStore,
   };
 });
 
@@ -346,6 +404,36 @@ describe('Marketplace orders — visual regression', () => {
     );
     await settleAwaitingPaymentTab(screen.container.querySelector('[role="tablist"]') as HTMLElement);
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-mobile');
+  });
+
+  it('renders a buyer pending-payment order with the active action tab and deadline at desktop viewport', async () => {
+    const { buyerPendingPayment } = await fixtures;
+    ordersState.orders = buyerPendingPayment;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toHaveAttribute('aria-selected', 'true');
+    await expect.element(screen.getByText('Buyer pending-payment camera')).toBeVisible();
+    await expect.element(screen.getByText(/Complete payment by/i)).toBeVisible();
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-pending-payment-buyer-desktop');
+  });
+
+  it('renders a seller pending-payment order in the waiting tab with deadline at desktop viewport', async () => {
+    const { sellerPendingPayment } = await fixtures;
+    ordersState.orders = sellerPendingPayment;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await screen.getByRole('tab', { name: /Waiting on the other side 1/i }).click();
+    await expect(screen.getByRole('tab', { name: /Waiting on the other side 1/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect.element(screen.getByText('Seller pending-payment zine')).toBeVisible();
+    await expect.element(screen.getByText(/Complete payment by/i)).toBeVisible();
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-pending-payment-seller-desktop');
   });
 
   it('rejects an incorrect production surface marker', async () => {

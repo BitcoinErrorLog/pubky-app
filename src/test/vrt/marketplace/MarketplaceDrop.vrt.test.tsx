@@ -206,6 +206,21 @@ describe('Marketplace drop page — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-live-desktop');
   });
 
+  it('renders the claimed confirmation with the payment deadline at desktop viewport', async () => {
+    setDropView({
+      projection: makeProjection({ state: 'live', startsAt: STARTED_AT, remaining: 12 }),
+      displayState: 'live',
+    });
+    setClaimView({
+      claimedListingIds: new Set(['s'.repeat(52) + ':listing-a']),
+      claimDeadlines: new Map([['s'.repeat(52) + ':listing-a', new Date(VRT_FROZEN_NOW_MS + 2 * HOUR_MS).toISOString()]]),
+    });
+    const screen = await renderDropPage();
+    await expect.element(screen.getByText('Claimed — open Orders')).toBeVisible();
+    await expect.element(screen.getByText(/Complete payment by/i)).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-live-claimed-deadline-desktop');
+  });
+
   it("renders a live refusal with the service's pinned copy verbatim at desktop viewport", async () => {
     setDropView({
       projection: makeProjection({
