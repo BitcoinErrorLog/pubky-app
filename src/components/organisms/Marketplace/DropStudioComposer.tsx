@@ -27,6 +27,7 @@ import {
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { RequiredToPublishSummary } from '@/molecules/Marketplace/RequiredToPublishSummary';
 import { DropStudioPreviewCard } from '@/organisms/Marketplace/DropStudioPreviewCard';
 
 export interface DropStudioComposerProps {
@@ -310,26 +311,17 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
         )}
         {publishIssues.length > 0 && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3" role="alert">
-            <Typography as="p" className="text-sm font-semibold text-destructive">
-              Required to publish
-            </Typography>
-            <ul className="mt-1 list-disc pl-5 text-sm">
-              {publishIssues.map(({ field, label, message }) => (
-                <li key={field}>
-                  <a
-                    href={`#${field}`}
-                    className="text-destructive underline underline-offset-2"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      scrollToDropStudioField(field);
-                    }}
-                  >
-                    {label}
-                  </a>
-                  {message ? ` — ${message}` : ''}
-                </li>
-              ))}
-            </ul>
+            <RequiredToPublishSummary
+              items={publishIssues.map(({ field, label, message }) => ({
+                id: field,
+                label,
+                description: message,
+                onSelect: () => scrollToDropStudioField(field),
+              }))}
+              titleClassName="text-sm font-semibold text-destructive"
+              listClassName="mt-1 list-disc pl-5 text-sm"
+              itemClassName="text-destructive underline underline-offset-2"
+            />
           </div>
         )}
         <Button

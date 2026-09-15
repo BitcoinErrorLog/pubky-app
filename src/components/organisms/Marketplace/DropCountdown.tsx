@@ -21,6 +21,8 @@ export interface DropCountdownProps {
   /** Card-sized rendering (smaller number, no pulse dot). */
   compact?: boolean;
   className?: string;
+  hideWhenExpired?: boolean;
+  announcePhaseLabel?: boolean;
 }
 
 /**
@@ -36,7 +38,16 @@ export interface DropCountdownProps {
  * `aria-live="polite"` region announces at MINUTE granularity only. Reduced
  * motion drops the pulse dot and renders static text updated per tick.
  */
-export function DropCountdown({ startsAt, endsAt, clockOffsetMs, phaseLabel, compact, className }: DropCountdownProps) {
+export function DropCountdown({
+  startsAt,
+  endsAt,
+  clockOffsetMs,
+  phaseLabel,
+  compact,
+  className,
+  hideWhenExpired,
+  announcePhaseLabel = true,
+}: DropCountdownProps) {
   const reducedMotion = useReducedMotion();
   const offset = clockOffsetMs ?? 0;
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -56,8 +67,12 @@ export function DropCountdown({ startsAt, endsAt, clockOffsetMs, phaseLabel, com
     remainingMs <= 0
       ? `${phaseLabel}: now`
       : wholeMinutes === 0
-        ? `${phaseLabel}: under a minute`
-        : `${phaseLabel}: about ${wholeMinutes} ${wholeMinutes === 1 ? 'minute' : 'minutes'}`;
+        ? `${announcePhaseLabel ? `${phaseLabel}: ` : ''}under a minute`
+        : `${announcePhaseLabel ? `${phaseLabel}: ` : ''}about ${wholeMinutes} ${
+            wholeMinutes === 1 ? 'minute' : 'minutes'
+          }`;
+
+  if (remainingMs <= 0 && hideWhenExpired) return null;
 
   if (remainingMs <= 0) {
     return (

@@ -12,13 +12,13 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isTransactionalCommerceMode } from '@/config/commerce';
-import { useDropStudioCountdown } from '@/hooks/useDropStudio/useDropStudioCountdown';
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { formatBitcoinAmount } from '@/libs/commerce/pricing';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { DropCountdown } from '@/organisms/Marketplace/DropCountdown';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
@@ -42,13 +42,6 @@ const ORDER_TABS: { id: OrdersTab; label: string }[] = [
   { id: 'all', label: 'All' },
 ];
 
-const SELLER_NEEDS_ATTENTION_STATES: MarketplaceOrder['state'][] = [
-  'cancel_requested',
-  'return_requested',
-  'return_approved',
-  'return_received',
-];
-
 export function MarketplaceOrders() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const receiptsPublicationStatus = useCommerceStore((state) => state.receiptsPublicationStatus);
@@ -66,13 +59,7 @@ export function MarketplaceOrders() {
   useEffect(() => {
     if (hasSelectedTab || !orders.length) return;
     setActiveTab(
-      orderCounts.needs_action > 0
-        ? 'needs_action'
-        : orderCounts.waiting_other > 0
-          ? 'waiting_other'
-          : orders.some(({ order }) => isCurrentUserSeller(order, currentUserPubky))
-            ? 'needs_action'
-            : 'all',
+      orderCounts.needs_action > 0 ? 'needs_action' : orderCounts.waiting_other > 0 ? 'waiting_other' : 'all',
     );
   }, [currentUserPubky, hasSelectedTab, orderCounts.needs_action, orderCounts.waiting_other, orders]);
 
@@ -424,11 +411,7 @@ function isOrderNeedingCurrentUser(order: MarketplaceOrder, currentUserPubky: st
   if (currentUserPubky === null) return false;
   if (order.nextActor === 'buyer') return isCurrentUserBuyer(order, currentUserPubky);
   if (order.nextActor === 'seller') return isCurrentUserSeller(order, currentUserPubky);
-  if (order.state === 'pending_payment') return false;
-  return (
-    isCurrentUserSeller(order, currentUserPubky) &&
-    (order.state === 'paid' || SELLER_NEEDS_ATTENTION_STATES.includes(order.state))
-  );
+  return false;
 }
 
 function isOrderWaitingOnOtherSide(
@@ -438,7 +421,7 @@ function isOrderWaitingOnOtherSide(
   if (currentUserPubky === null) return false;
   if (order.nextActor === 'buyer') return isSellerAwaitingPayment({ order, payment }, currentUserPubky);
   if (order.nextActor === 'seller') return isCurrentUserBuyer(order, currentUserPubky);
-  return isSellerAwaitingPayment({ order, payment }, currentUserPubky);
+  return false;
 }
 
 /**
@@ -471,14 +454,17 @@ function getNextActorHint(order: MarketplaceOrder, isBuyer: boolean): { label: s
 }
 
 function PaymentDeadline({ expiresAt }: { expiresAt: string }) {
-  const countdown = useDropStudioCountdown('1970-01-01T00:00:00.000Z', expiresAt, 0);
-  if (countdown.reading.phase === 'after_end') return null;
   const localDeadline = new Date(expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   return (
-    <div className="mt-2 flex flex-wrap items-baseline gap-1 text-sm text-muted-foreground">
-      <span>Complete payment by {localDeadline} (</span>
-      <span className="font-semibold text-foreground tabular-nums">{countdown.label}</span>
-      <span> left)</span>
-    </div>
+    <DropCountdown
+      startsAt={expiresAt}
+      endsAt={null}
+      clockOffsetMs={0}
+      phaseLabel={`Complete payment by ${localDeadline} (`}
+      compact
+      hideWhenExpired
+      announcePhaseLabel={false}
+      className="mt-2 text-muted-foreground"
+    />
   );
 }
