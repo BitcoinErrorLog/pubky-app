@@ -64,6 +64,8 @@ export function MarketplaceAwardCheckout() {
       return;
     }
     if (result.code === 'AWARD_UNAVAILABLE') {
+      await removeAwardLine();
+      await offers.refresh();
       setOutcome('unavailable');
     } else if (result.code === 'SESSION_REQUIRED') {
       setOutcome('session');
@@ -72,6 +74,8 @@ export function MarketplaceAwardCheckout() {
       await offers.refresh();
       setOutcome('expired');
     } else if (result.code === 'AWARD_ALREADY_CONVERTED' || result.code === 'REVISION_CONFLICT') {
+      await removeAwardLine();
+      await offers.refresh();
       setOutcome('converted');
     } else {
       setErrorCode(result.code);

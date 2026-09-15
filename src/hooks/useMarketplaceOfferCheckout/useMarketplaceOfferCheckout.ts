@@ -31,7 +31,16 @@ export function useMarketplaceOfferCheckout(onCompleted?: () => Promise<void> | 
     submittingRef.current = true;
     setIsSubmitting(true);
     try {
-      const currentOffer = (await CommerceController.getMarketplaceOffers()).find(({ id }) => id === offer.id);
+      let currentOffer: MarketplaceOffer | undefined;
+      try {
+        currentOffer = (await CommerceController.getMarketplaceOffers()).find(({ id }) => id === offer.id);
+      } catch (error) {
+        if (isMarketplaceSessionRequiredError(error)) {
+          toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
+          return { ok: false, code: 'SESSION_REQUIRED' };
+        }
+        throw error;
+      }
       if (!currentOffer) {
         toast({ variant: 'error', description: 'This offer is no longer available.' });
         return { ok: false, code: 'AWARD_UNAVAILABLE' };

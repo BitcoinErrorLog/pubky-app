@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
+import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE, createOfferFixture } from '@/test/fixtures/commerce/offers';
 import { createBitcoinQuotedOrderFixture, createOrderFixture } from '@/test/fixtures/commerce/orders';
 import { LIVE_OFFER_ORDER_WIRE_FIXTURE } from '@/test/fixtures/commerce/orders-award.wire';
 import {
@@ -132,6 +133,28 @@ describe('marketplace order projection — offer-priced orders', () => {
 });
 
 describe('marketplace offer projection — award degradation', () => {
+  it('parses the accepted award wire fixture through casing and the offer schema', () => {
+    const parsed = marketplaceOfferSchema.safeParse(
+      toCamelCaseWire({
+        ...createOfferFixture('accepted'),
+        award: {
+          ...ACCEPTED_OFFER_AWARD_WIRE_FIXTURE,
+          id: '018f47d2-6a27-7c23-b51e-000000000902',
+        },
+      }),
+    );
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.award).toMatchObject({
+        subtotal: { amountMinor: expect.any(Number) },
+        shipping: { amountMinor: expect.any(Number) },
+        merchandiseTotal: { amountMinor: expect.any(Number) },
+        unitPrice: { amountMinor: expect.any(Number) },
+      });
+    }
+  });
+
   const offer = {
     id: '018f47d2-6a27-7c23-b51e-000000000001',
     aggregateId: 'offer:018f47d2-6a27-7c23-b51e-000000000002',

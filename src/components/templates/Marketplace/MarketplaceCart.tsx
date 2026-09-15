@@ -142,7 +142,7 @@ export function MarketplaceCart() {
                             size="icon"
                             variant="ghost"
                             aria-label={`Remove ${item.listing.record.title}`}
-                            onClick={() => void cart.remove(item.listingId, item.variantId)}
+                            onClick={() => void cart.remove(item.listingId, item.variantId, item.awardId ?? undefined)}
                           >
                             <Trash2 className="size-4" />
                           </Button>

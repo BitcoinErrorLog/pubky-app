@@ -146,6 +146,20 @@ describe('MarketplaceAwardCheckout', () => {
 
     expect(screen.getByText('This accepted offer has already been converted to an order.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View orders' })).toBeInTheDocument();
+    expect(state.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
+    expect(state.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the award line and refreshes offers when the award is unavailable', async () => {
+    state.submit.mockResolvedValue({ ok: false, code: 'AWARD_UNAVAILABLE' });
+    const user = userEvent.setup();
+    render(<MarketplaceAwardCheckout />);
+
+    await user.click(screen.getByRole('button', { name: 'Pay agreed price' }));
+
+    expect(screen.getByText('This offer is no longer available.')).toBeInTheDocument();
+    expect(state.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
+    expect(state.refresh).toHaveBeenCalledTimes(1);
   });
 
   it('shows mapped refusal copy and Retry for other checkout refusal codes', async () => {

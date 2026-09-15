@@ -7,17 +7,19 @@ import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.view
 import { MarketplaceAwardCheckout } from '@/templates/Marketplace/MarketplaceAwardCheckout';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE } from '@/test/fixtures/commerce/offers';
+import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
+import { asOpaque } from '@/test-utils/type-assertions';
 
 const state = vi.hoisted(() => ({
   outcome: 'active' as 'active' | 'expired' | 'success',
 }));
 
-const offer = {
+const offer = asOpaque<MarketplaceOffer>({
   id: '00000000-0000-0000-0000-000000000901',
   state: 'accepted',
   buyerPubky: 'b'.repeat(52),
-  award: toCamelCaseWire(ACCEPTED_OFFER_AWARD_WIRE_FIXTURE),
-};
+  award: toCamelCaseWire(ACCEPTED_OFFER_AWARD_WIRE_FIXTURE) as MarketplaceOffer['award'],
+});
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams('offer=00000000-0000-0000-0000-000000000901'),
@@ -34,7 +36,7 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
 }));
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   useMarketplaceCart: () => ({
-    awardItems: [{ awardId: offer.award.id, listingId: 's:boots', variantId: 'variant_42' }],
+    awardItems: [{ awardId: offer.award!.id, listingId: 's:boots', variantId: 'variant_42' }],
     remove: vi.fn(async () => {}),
   }),
 }));

@@ -4,6 +4,8 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { useMarketplaceOfferCheckout } from './useMarketplaceOfferCheckout';
 
+const errorState = vi.hoisted(() => ({ sessionRequired: false }));
+
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMarketplaceOffers: vi.fn(),
@@ -12,7 +14,9 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 vi.mock('@/molecules/Toaster/use-toast', () => ({ toast: vi.fn() }));
-vi.mock('@/libs/error/error.utils', () => ({ isMarketplaceSessionRequiredError: () => false }));
+vi.mock('@/libs/error/error.utils', () => ({
+  isMarketplaceSessionRequiredError: () => errorState.sessionRequired,
+}));
 
 const offer: MarketplaceOffer = {
   id: '00000000-0000-4000-8000-000000000701',
@@ -64,6 +68,7 @@ const address = {
 describe('useMarketplaceOfferCheckout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    errorState.sessionRequired = false;
     vi.mocked(CommerceController.getMarketplaceOffers).mockResolvedValue([offer]);
     vi.mocked(CommerceController.commitOfferCheckout).mockResolvedValue({
       ok: true,
@@ -143,6 +148,18 @@ describe('useMarketplaceOfferCheckout', () => {
 
     await act(async () => {
       await expect(result.current.submit(offer, address)).resolves.toEqual({ ok: false, code: 'AWARD_UNAVAILABLE' });
+    });
+
+    expect(CommerceController.commitOfferCheckout).not.toHaveBeenCalled();
+  });
+
+  it('surfaces reconnect when the participant projection re-read requires a session', async () => {
+    errorState.sessionRequired = true;
+    vi.mocked(CommerceController.getMarketplaceOffers).mockRejectedValue(new Error('session expired'));
+    const { result } = renderHook(() => useMarketplaceOfferCheckout());
+
+    await act(async () => {
+      await expect(result.current.submit(offer, address)).resolves.toEqual({ ok: false, code: 'SESSION_REQUIRED' });
     });
 
     expect(CommerceController.commitOfferCheckout).not.toHaveBeenCalled();

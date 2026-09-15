@@ -462,7 +462,8 @@ describe('MarketplaceCart', () => {
     await user.click(screen.getByRole('button', { name: 'Increase Vintage boots quantity' }));
     expect(cartActions.update).toHaveBeenCalledWith(listing.id, 'variant_42', 2);
 
-    await user.click(screen.getByRole('button', { name: 'Remove Vintage boots' }));
+    const ordinaryGroup = screen.getByRole('region', { name: `Cart items from ${listing.record.ownerPubky}` });
+    await user.click(within(ordinaryGroup).getByRole('button', { name: 'Remove Vintage boots' }));
     expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42');
   });
 
@@ -495,6 +496,33 @@ describe('MarketplaceCart', () => {
     expect(screen.getByRole('button', { name: 'Place sandbox order' })).toBeInTheDocument();
     expect(screen.getAllByText('$12.00').length).toBeGreaterThan(0);
     expect(screen.queryByText('$24.00')).not.toBeInTheDocument();
+  });
+
+  it('removes award and ordinary rows by their distinct identities', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.items = [
+      ...(view.items as unknown[]),
+      {
+        id: 'seller:boots:award-1',
+        listingId: listing.id,
+        variantId: 'variant_42',
+        quantity: 1,
+        awardId: 'award-1',
+        pricingSource: 'offer',
+        listing,
+      },
+    ];
+
+    render(<MarketplaceCart />);
+
+    const awardGroup = screen.getByRole('region', { name: 'Accepted offer checkout' });
+    await user.click(within(awardGroup).getByRole('button', { name: 'Remove Vintage boots' }));
+    expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42', 'award-1');
+
+    const ordinaryGroup = screen.getByRole('region', { name: `Cart items from ${listing.record.ownerPubky}` });
+    await user.click(within(ordinaryGroup).getByRole('button', { name: 'Remove Vintage boots' }));
+    expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42');
   });
 });
 
