@@ -1,9 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ResourceCard } from './ResourceCard';
 
+const push = vi.fn();
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push }),
 }));
 
 vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
@@ -63,25 +65,19 @@ describe('ResourceCard', () => {
     );
   });
 
-  it('renders the web-page variant and Jeb attribution', () => {
+  it('renders the web-page variant without suggested-by text', () => {
     render(<ResourceCard resource={resource} />);
 
     expect(screen.getByText('Bitcoin resources')).toBeInTheDocument();
     expect(screen.getByLabelText('bitcoin tag (1 taggers)')).toBeInTheDocument();
-    expect(screen.getByLabelText('Suggested by Jeb')).toBeInTheDocument();
+    expect(screen.queryByText(/suggested by/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open original/i })).toHaveAttribute('href', 'https://example.com/bitcoin');
   });
 
-  it('omits Jeb attribution when no pilot tagger is present', () => {
-    render(
-      <ResourceCard
-        resource={{
-          ...resource,
-          tags: [{ ...resource.tags[0], taggers: ['pk1other'] }],
-        }}
-      />,
-    );
+  it('navigates to the public resource tag route when a tag is clicked', () => {
+    render(<ResourceCard resource={resource} />);
 
-    expect(screen.queryByLabelText('Suggested by Jeb')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('bitcoin tag (1 taggers)'));
+    expect(push).toHaveBeenCalledWith('/resources/tag/bitcoin');
   });
 });

@@ -6,6 +6,7 @@ import { getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { CONTENT_GUTTER_CLASS } from '@/config/layoutClasses';
 import { RESOURCE_DISCOVERY_LIMIT } from '@/config/nexus';
@@ -45,7 +46,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     setLoadMoreError(false);
 
     const request = tag
-      ? ResourceController.fetchByTag({ tag, limit: RESOURCE_DISCOVERY_LIMIT })
+      ? ResourceController.fetchStreamPage({ tags: tag, sorting: sort, limit: RESOURCE_DISCOVERY_LIMIT })
       : !id
         ? ResourceController.fetchStreamPage({ sorting: sort })
         : id?.includes('://')
@@ -91,6 +92,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     setLoadMoreError(false);
     try {
       const result = await ResourceController.fetchStreamPage({
+        ...(tag ? { tags: tag } : {}),
         sorting: sort,
         skip: nextSkip,
       });
@@ -170,17 +172,42 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   }
 
   return (
-    <Container className="gap-6">
-      <Heading level={1} size="xl">
-        Resources tagged {tag}
-      </Heading>
+    <Container
+      overrideDefaults
+      data-surface="resource-discovery"
+      className={cn('container m-auto w-full max-w-(--container-max-width) flex-col gap-6 pb-12', CONTENT_GUTTER_CLASS)}
+    >
+      <Container overrideDefaults className="gap-3">
+        <Heading level={1} size="xl">
+          Resources tagged {tag}
+        </Heading>
+        <Container overrideDefaults className="flex flex-wrap items-center gap-2">
+          <Link href="/resources" variant="muted">
+            Back to resources
+          </Link>
+          <Select value={sort} onValueChange={(value) => setSort(value as TResourceStreamParams['sorting'])}>
+            <SelectTrigger size="sm" aria-label="Sort resources" className="ml-auto border border-border/60 px-2">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="timeline">Recent</SelectItem>
+              <SelectItem value="taggers_count">Most taggers</SelectItem>
+            </SelectContent>
+          </Select>
+        </Container>
+      </Container>
       {resources.length === 0 ? (
         <ResourceEmpty error={hasError} unknown={isNotFoundError} />
       ) : (
-        <Container className="gap-4">
+        <Container overrideDefaults className="gap-4">
           {resources.map((item) => (
             <ResourceCard key={item.details.id} resource={item} variant="feed" showDetailsLink />
           ))}
+          {nextSkip !== null ? (
+            <Button type="button" variant={ButtonVariant.OUTLINE} onClick={loadMore} disabled={loadingMore}>
+              {loadingMore ? 'Loading…' : loadMoreError ? 'Retry loading resources' : 'Load more'}
+            </Button>
+          ) : null}
         </Container>
       )}
     </Container>

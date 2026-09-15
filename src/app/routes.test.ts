@@ -6,6 +6,7 @@ import {
   getCollectionRoute,
   getContentSearchUrl,
   getProfileRoute,
+  getResourceTagRoute,
   getUserProfileUrl,
   isCollectionsOverviewRoute,
   isCoreExploreRoute,
@@ -28,6 +29,13 @@ import {
 describe('getContentSearchUrl', () => {
   it('builds an encoded q-only search URL', () => {
     expect(getContentSearchUrl('bitcoin wallets & privacy')).toBe('/search?q=bitcoin+wallets+%26+privacy');
+  });
+});
+
+describe('getResourceTagRoute', () => {
+  it('builds a public resource tag URL', () => {
+    expect(getResourceTagRoute('privacy-guides')).toBe('/resources/tag/privacy-guides');
+    expect(isResourceRoute(getResourceTagRoute('privacy-guides'))).toBe(true);
   });
 });
 

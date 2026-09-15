@@ -10,7 +10,6 @@ export const NEXUS_STREAM_MAX_LIMIT = 50; // Hard cap Nexus enforces on a single
 export const NEXUS_USERS_PER_PAGE = 10; // Number of users to fetch per page in streams
 export const RESOURCE_TAGS_LIMIT = 50;
 export const RESOURCE_DISCOVERY_APP = 'jeb.pubky.app';
-export const JEB_TAGGER_PUBKY_PREFIX = 'ui8nw8s9';
 export const RESOURCE_DISCOVERY_LIMIT = 20;
 
 /** Nexus stream items are limited to five tags; detail reads can request the full set. */

@@ -50,10 +50,11 @@ describe('ResourceDiscovery', () => {
     vi.mocked(ResourceController.fetchById).mockReset();
     vi.mocked(ResourceController.fetchByUri).mockReset();
     vi.mocked(ResourceController.fetchStreamPage).mockReset();
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValue({ resources: [], nextSkip: null });
   });
 
   it('renders the production loading skeleton', () => {
-    vi.mocked(ResourceController.fetchByTag).mockReturnValue(new Promise(() => {}));
+    vi.mocked(ResourceController.fetchStreamPage).mockReturnValue(new Promise(() => {}));
 
     render(<ResourceDiscovery tag="docs" />);
 
@@ -70,6 +71,17 @@ describe('ResourceDiscovery', () => {
 
     expect(await screen.findByRole('button', { name: 'docs' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Sort resources' })).toHaveTextContent('Recent');
+  });
+
+  it('renders a public tag stream with the selected tag', async () => {
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({ resources: [], nextSkip: null });
+
+    render(<ResourceDiscovery tag="privacy-guides" />);
+
+    expect(await screen.findByRole('heading', { name: 'Resources tagged privacy-guides' })).toBeInTheDocument();
+    expect(ResourceController.fetchStreamPage).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: 'privacy-guides', sorting: 'timeline' }),
+    );
   });
 
   it('does not refetch when the router object changes between renders', async () => {
@@ -123,10 +135,13 @@ describe('ResourceDiscovery', () => {
   });
 
   it('renders two tagged resources with safe hrefs', async () => {
-    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([
-      taggedResource('resource-1', 'https://example.com/one'),
-      taggedResource('resource-2', 'https://example.com/two'),
-    ]);
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({
+      resources: [
+        taggedResource('resource-1', 'https://example.com/one'),
+        taggedResource('resource-2', 'https://example.com/two'),
+      ],
+      nextSkip: null,
+    });
 
     const { container } = render(<ResourceDiscovery tag="docs" />);
 
@@ -143,9 +158,10 @@ describe('ResourceDiscovery', () => {
 
   it('renders all ten labels on a resource card', async () => {
     const labels = Array.from({ length: 10 }, (_, index) => `label-${index + 1}`);
-    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([
-      resourceWithLabels('resource-10-labels', 'https://example.com/labels', labels),
-    ]);
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({
+      resources: [resourceWithLabels('resource-10-labels', 'https://example.com/labels', labels)],
+      nextSkip: null,
+    });
 
     render(<ResourceDiscovery tag="docs" />);
 
@@ -153,7 +169,7 @@ describe('ResourceDiscovery', () => {
   });
 
   it('renders the empty stream state', async () => {
-    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([]);
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({ resources: [], nextSkip: null });
 
     render(<ResourceDiscovery tag="docs" />);
 
@@ -175,7 +191,7 @@ describe('ResourceDiscovery', () => {
 
   it('renders an error state when the fetch fails', async () => {
     vi.useFakeTimers();
-    vi.mocked(ResourceController.fetchByTag).mockRejectedValueOnce(
+    vi.mocked(ResourceController.fetchStreamPage).mockRejectedValueOnce(
       Err.network(NetworkErrorCode.CONNECTION_FAILED, 'offline', {
         service: ErrorService.Nexus,
         operation: 'fetchNexus',
@@ -208,9 +224,10 @@ describe('ResourceDiscovery', () => {
   });
 
   it('does not render a javascript: href from a tagged resource', async () => {
-    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([
-      taggedResource('resource-js', 'javascript:alert(1)'),
-    ]);
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({
+      resources: [taggedResource('resource-js', 'javascript:alert(1)')],
+      nextSkip: null,
+    });
 
     const { container } = render(<ResourceDiscovery tag="docs" />);
 
@@ -219,9 +236,10 @@ describe('ResourceDiscovery', () => {
   });
 
   it('does not render a data: href from a tagged resource', async () => {
-    vi.mocked(ResourceController.fetchByTag).mockResolvedValueOnce([
-      taggedResource('resource-data', 'data:text/html,hi'),
-    ]);
+    vi.mocked(ResourceController.fetchStreamPage).mockResolvedValueOnce({
+      resources: [taggedResource('resource-data', 'data:text/html,hi')],
+      nextSkip: null,
+    });
 
     const { container } = render(<ResourceDiscovery tag="docs" />);
 

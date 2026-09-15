@@ -2,13 +2,12 @@
 
 import { useRouter } from 'next/navigation';
 import { ExternalLink, Share2 } from 'lucide-react';
-import { getResourceRoute } from '@/app/routes';
+import { getResourceRoute, getResourceTagRoute } from '@/app/routes';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
-import { JEB_TAGGER_PUBKY_PREFIX } from '@/config/nexus';
 import { useEnrichedTags } from '@/hooks/useEnrichedTags/useEnrichedTags';
 import { useOgMetadata } from '@/hooks/useOgMetadata/useOgMetadata';
 import { getSafeExternalUrl } from '@/libs/utils/safeExternalUrl';
@@ -35,10 +34,6 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
   const isPubkyPost = resource.details.uri.startsWith('pubky://') && resource.details.uri.includes('/posts/');
   const detailsHref = getResourceRoute(resource.details.id);
   const displayUrl = safeUrl ? displayExternalUrl(safeUrl) : resource.details.uri;
-  const hasJebTag = resource.tags.some((tag) =>
-    tag.taggers.some((tagger) => tagger.startsWith(JEB_TAGGER_PUBKY_PREFIX)),
-  );
-
   async function shareResource() {
     if (typeof navigator.share === 'function') {
       await navigator.share({ title: metadata?.title ?? displayUrl, url: resource.details.uri });
@@ -100,19 +95,10 @@ export function ResourceCard({ resource, variant = 'feed', showDetailsLink = fal
               count={tag.taggers_count}
               countLabel="taggers"
               selected={tag.relationship}
-              onClick={() => router.push(`/search?tags=${encodeURIComponent(tag.label)}`)}
+              onClick={() => router.push(getResourceTagRoute(tag.label))}
             />
           </PostTagPopoverWrapper>
         ))}
-        {hasJebTag ? (
-          <Typography
-            as="span"
-            className="rounded-full border border-brand/40 px-2 py-1 text-xs text-brand"
-            aria-label="Suggested by Jeb"
-          >
-            suggested by Jeb
-          </Typography>
-        ) : null}
       </Container>
       <Container overrideDefaults className="flex flex-wrap items-center gap-2">
         {safeUrl ? (

@@ -56,7 +56,7 @@ export function getResourceRoute(resourceId: string): string {
 }
 
 export function getResourceTagRoute(tag: string): string {
-  return `${APP_ROUTES.SEARCH}?tags=${encodeURIComponent(tag)}`;
+  return `${RESOURCE_ROUTES.TAG}/${encodeURIComponent(tag)}`;
 }
 
 export function getResourceLookupRoute(uri: string): string {
