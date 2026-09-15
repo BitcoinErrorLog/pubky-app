@@ -94,7 +94,7 @@ export function MarketplaceAddressSettings() {
               Delivery addresses
             </Heading>
             <Typography as="p" className="mt-2 max-w-xl text-muted-foreground">
-              These are your delivery addresses for purchases you make; sellers never see them.
+              These delivery addresses are sent with your order and shown only to the seller of that order.
             </Typography>
           </div>
           {editingId === null && (

@@ -30,6 +30,14 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('MarketplaceAddressSettings', () => {
+  it('explains that the seller sees the address for the order', () => {
+    render(<MarketplaceAddressSettings />);
+
+    expect(
+      screen.getByText('These delivery addresses are sent with your order and shown only to the seller of that order.'),
+    ).toBeInTheDocument();
+  });
+
   it('returns to the originating drop after saving a new address', async () => {
     const user = userEvent.setup();
     render(<MarketplaceAddressSettings />);

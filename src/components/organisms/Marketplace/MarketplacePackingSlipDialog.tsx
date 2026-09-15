@@ -16,12 +16,11 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
  * seller's client legitimately holds: the order projection the transaction
  * service serves to participants.
  *
- * THE DELIVERY ADDRESS IS DELIBERATELY ABSENT from the order data. The
- * buyer's address travels exactly once — inside the buyer's own
- * `checkout.create` command — and the service withholds `delivery_address`
- * from every read projection, the seller's included, by design (ADR-0019 §8).
- * This client never invents a side channel for it: by default the slip says
- * so and leaves ruled space to write the destination by hand.
+ * THE DELIVERY ADDRESS IS CURRENTLY ABSENT from the order data. The service
+ * strips `delivery_address` from the participant projection used by the
+ * seller's order reads (ADR-0019 §8). This client never invents a side
+ * channel for it: by default the slip explains the deployment limitation and
+ * leaves ruled space to write the destination by hand.
  *
  * As a convenience for sellers shipping many orders, the dialog offers an
  * OPTIONAL paste field: the seller copies the destination the buyer sent
@@ -162,9 +161,8 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
               ) : (
                 <>
                   <p className="mt-1 text-xs leading-relaxed text-neutral-700">
-                    Not printed: the delivery address is withheld from all transaction-service reads — including yours
-                    as the seller — by design, so this client never has it. Get the destination from the buyer (for
-                    example via your encrypted conversation) and write it below.
+                    The buyer&apos;s delivery address arrives with the order; this deployment does not yet expose it to
+                    the seller — ask the buyer in your encrypted conversation and write it below.
                   </p>
                   <div className="mt-3 space-y-4" aria-hidden="true">
                     <div className="border-b border-neutral-400" />
