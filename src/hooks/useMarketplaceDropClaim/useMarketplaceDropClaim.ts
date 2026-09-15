@@ -23,6 +23,8 @@ export interface UseMarketplaceDropClaimResult {
   submittingListingId: string | null;
   /** Listings this session claimed successfully (composite `seller:listingId`). */
   claimedListingIds: ReadonlySet<string>;
+  /** Payment deadlines keyed by the claimed seller/listing composite id. */
+  claimDeadlines?: ReadonlyMap<string, string>;
   /**
    * The last claim refusal, mapped to client-owned static copy.
    */
@@ -48,6 +50,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const [submittingListingId, setSubmittingListingId] = useState<string | null>(null);
   const [claimedListingIds, setClaimedListingIds] = useState<ReadonlySet<string>>(new Set());
+  const [claimDeadlines, setClaimDeadlines] = useState<ReadonlyMap<string, string>>(new Map());
   const [failure, setFailure] = useState<string | null>(null);
   const [needsSession, setNeedsSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -139,9 +142,17 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         return false;
       }
       setClaimedListingIds((current) => new Set(current).add(compositeId));
+      const responseDeadline = readHoldExpiresAt(response.result);
+      const projectionDeadline =
+        responseDeadline ?? (await readClaimedOrderDeadline(projection.aggregateId)).holdExpiresAt;
+      if (projectionDeadline) {
+        setClaimDeadlines((current) => new Map(current).set(compositeId, projectionDeadline));
+      }
       toast({
         title: 'Claimed',
-        description: 'The order was recorded by the transaction service. Open Orders to complete the payment.',
+        description: responseDeadline
+          ? `The order was recorded by the transaction service. Complete payment by ${formatDeadline(responseDeadline)}.`
+          : 'The order was recorded by the transaction service. Open Orders to complete the payment.',
       });
       await Promise.resolve(onClaimed?.()).catch(() => {});
       return true;
@@ -164,11 +175,45 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
     claimAddress,
     submittingListingId,
     claimedListingIds,
+    claimDeadlines,
     failure,
     needsSession,
     sessionError,
     claim,
   };
+}
+
+function readHoldExpiresAt(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const record = result as Record<string, unknown>;
+  for (const key of ['hold_expires_at', 'holdExpiresAt']) {
+    if (typeof record[key] === 'string') return record[key];
+  }
+  for (const value of Object.values(record)) {
+    const nested = readHoldExpiresAt(value);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+async function readClaimedOrderDeadline(listingAggregateId: string): Promise<{ holdExpiresAt: string | null }> {
+  const getOrders = CommerceController.getMarketplaceOrders;
+  if (typeof getOrders !== 'function') return { holdExpiresAt: null };
+  try {
+    const orders = await getOrders();
+    const order = orders.find(
+      (candidate) =>
+        candidate.state === 'pending_payment' &&
+        candidate.lines.some((line) => line.listingAggregateId === listingAggregateId),
+    );
+    return { holdExpiresAt: order?.holdExpiresAt ?? null };
+  } catch {
+    return { holdExpiresAt: null };
+  }
+}
+
+function formatDeadline(deadline: string): string {
+  return new Date(deadline).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 /**

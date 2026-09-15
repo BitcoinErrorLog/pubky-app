@@ -9,6 +9,7 @@ import { DropStudioHome } from '@/organisms/Marketplace/DropStudioHome';
 const view = vi.hoisted(() => ({
   filled: false,
   publishStatus: { record: 'idle', sync: 'idle' } as { record: string; sync: string },
+  publishErrors: [] as string[],
   publishedDropId: null as string | null,
 }));
 
@@ -117,7 +118,7 @@ vi.mock('@/hooks/useDropStudio/useDropStudio', async () => {
       registration: { item1: 'registered', item2: 'unregistered' },
       registerListing: async () => undefined,
       publishStatus: view.publishStatus,
-      publishErrors: [],
+      publishErrors: view.publishErrors,
       publishedDropId: view.publishedDropId,
       publish: async () => undefined,
       retrySync: async () => undefined,
@@ -175,5 +176,23 @@ describe('Marketplace Drop Studio — visual regression', () => {
     await detailsTrigger.click();
     await expect.element(screen.getByText('Retry registration')).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-two-truth-sync-failed-desktop');
+  });
+
+  it('renders a failed publish with the required-fields summary at desktop viewport', async () => {
+    view.filled = false;
+    view.publishStatus = { record: 'idle', sync: 'idle' };
+    view.publishErrors = ['title:Enter a title.', 'listingIds:Select at least one listing.'];
+    view.publishedDropId = null;
+
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect.element(screen.getByText('Required to publish')).toBeVisible();
+    await expect.element(screen.getByRole('link', { name: 'Drop title' })).toBeVisible();
+    await expect.element(screen.getByRole('link', { name: 'Listings' })).toBeVisible();
+    screen.container.querySelector('[role="alert"]')?.scrollIntoView({ block: 'center' });
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-publish-invalid-desktop');
+    view.publishErrors = [];
   });
 });

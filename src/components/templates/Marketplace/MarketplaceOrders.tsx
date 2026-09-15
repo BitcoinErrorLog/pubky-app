@@ -18,6 +18,7 @@ import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { formatBitcoinAmount } from '@/libs/commerce/pricing';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { DropCountdown } from '@/organisms/Marketplace/DropCountdown';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
@@ -30,24 +31,15 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
-type OrdersTab = 'to_ship' | 'awaiting_payment' | 'needs_attention' | 'in_transit' | 'completed' | 'cancelled' | 'all';
+type OrdersTab = 'needs_action' | 'waiting_other' | 'in_transit' | 'completed' | 'cancelled' | 'all';
 
 const ORDER_TABS: { id: OrdersTab; label: string }[] = [
-  { id: 'to_ship', label: 'To ship' },
-  { id: 'awaiting_payment', label: 'Awaiting payment' },
-  { id: 'needs_attention', label: 'Needs attention' },
+  { id: 'needs_action', label: 'Needs my action' },
+  { id: 'waiting_other', label: 'Waiting on the other side' },
   { id: 'in_transit', label: 'In transit' },
   { id: 'completed', label: 'Completed' },
   { id: 'cancelled', label: 'Cancelled' },
   { id: 'all', label: 'All' },
-];
-
-const SELLER_NEEDS_ATTENTION_STATES: MarketplaceOrder['state'][] = [
-  'pending_payment',
-  'cancel_requested',
-  'return_requested',
-  'return_approved',
-  'return_received',
 ];
 
 export function MarketplaceOrders() {
@@ -67,15 +59,9 @@ export function MarketplaceOrders() {
   useEffect(() => {
     if (hasSelectedTab || !orders.length) return;
     setActiveTab(
-      orderCounts.needs_attention > 0
-        ? 'needs_attention'
-        : orderCounts.awaiting_payment > 0
-          ? 'awaiting_payment'
-          : orders.some(({ order }) => isCurrentUserSeller(order, currentUserPubky))
-            ? 'to_ship'
-            : 'all',
+      orderCounts.needs_action > 0 ? 'needs_action' : orderCounts.waiting_other > 0 ? 'waiting_other' : 'all',
     );
-  }, [currentUserPubky, hasSelectedTab, orderCounts.awaiting_payment, orderCounts.needs_attention, orders]);
+  }, [currentUserPubky, hasSelectedTab, orderCounts.needs_action, orderCounts.waiting_other, orders]);
 
   useEffect(() => {
     const tabList = tabListRef.current;
@@ -219,6 +205,9 @@ export function MarketplaceOrders() {
                         <Typography as="p" className="mt-1 text-xs text-muted-foreground">
                           Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
                         </Typography>
+                        {order.state === 'pending_payment' && order.holdExpiresAt && (
+                          <PaymentDeadline expiresAt={order.holdExpiresAt} />
+                        )}
                         {/* A post-payment terms change (§A3): the buyer is told
                             plainly, and their unilateral exit is named. */}
                         {isBuyer && order.fulfillment === 'pickup' && order.pickupTermsChanged && (
@@ -370,9 +359,8 @@ function isMarketplaceBitcoinQuoteExpired(expiresAt: string | null): boolean {
 
 function getOrderTabCounts(orders: MarketplaceOrderView[], currentUserPubky: string | null): Record<OrdersTab, number> {
   return {
-    to_ship: orders.filter((view) => isOrderInTab(view, 'to_ship', currentUserPubky)).length,
-    awaiting_payment: orders.filter((view) => isOrderInTab(view, 'awaiting_payment', currentUserPubky)).length,
-    needs_attention: orders.filter((view) => isOrderInTab(view, 'needs_attention', currentUserPubky)).length,
+    needs_action: orders.filter((view) => isOrderInTab(view, 'needs_action', currentUserPubky)).length,
+    waiting_other: orders.filter((view) => isOrderInTab(view, 'waiting_other', currentUserPubky)).length,
     in_transit: orders.filter((view) => isOrderInTab(view, 'in_transit', currentUserPubky)).length,
     completed: orders.filter((view) => isOrderInTab(view, 'completed', currentUserPubky)).length,
     cancelled: orders.filter((view) => isOrderInTab(view, 'cancelled', currentUserPubky)).length,
@@ -386,12 +374,10 @@ function isOrderInTab(
   currentUserPubky: string | null,
 ): boolean {
   switch (tab) {
-    case 'to_ship':
-      return isCurrentUserSeller(order, currentUserPubky) && order.state === 'paid';
-    case 'awaiting_payment':
-      return isSellerAwaitingPayment({ order, payment }, currentUserPubky);
-    case 'needs_attention':
+    case 'needs_action':
       return isOrderNeedingCurrentUser(order, currentUserPubky);
+    case 'waiting_other':
+      return isOrderWaitingOnOtherSide({ order, payment }, currentUserPubky);
     case 'in_transit':
       return ['shipped', 'delivered'].includes(order.state);
     case 'completed':
@@ -428,7 +414,17 @@ function isOrderNeedingCurrentUser(order: MarketplaceOrder, currentUserPubky: st
   if (currentUserPubky === null) return false;
   if (order.nextActor === 'buyer') return isCurrentUserBuyer(order, currentUserPubky);
   if (order.nextActor === 'seller') return isCurrentUserSeller(order, currentUserPubky);
-  return isCurrentUserSeller(order, currentUserPubky) && SELLER_NEEDS_ATTENTION_STATES.includes(order.state);
+  return false;
+}
+
+function isOrderWaitingOnOtherSide(
+  { order, payment }: Pick<MarketplaceOrderView, 'order' | 'payment'>,
+  currentUserPubky: string | null,
+): boolean {
+  if (currentUserPubky === null) return false;
+  if (order.nextActor === 'buyer') return isSellerAwaitingPayment({ order, payment }, currentUserPubky);
+  if (order.nextActor === 'seller') return isCurrentUserBuyer(order, currentUserPubky);
+  return false;
 }
 
 /**
@@ -458,4 +454,20 @@ function getNextActorHint(order: MarketplaceOrder, isBuyer: boolean): { label: s
     return isBuyer ? { label: 'Waiting on seller', isCurrentUser: false } : { label: 'Your move', isCurrentUser: true };
   }
   return { label: 'No action pending', isCurrentUser: false };
+}
+
+function PaymentDeadline({ expiresAt }: { expiresAt: string }) {
+  const localDeadline = new Date(expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return (
+    <DropCountdown
+      startsAt={expiresAt}
+      endsAt={null}
+      clockOffsetMs={0}
+      phaseLabel={`Complete payment by ${localDeadline} (`}
+      compact
+      hideWhenExpired
+      announcePhaseLabel={false}
+      className="mt-2 text-muted-foreground"
+    />
+  );
 }

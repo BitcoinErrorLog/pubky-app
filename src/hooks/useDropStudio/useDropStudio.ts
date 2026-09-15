@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
+import { type FieldErrors, useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { type CommerceDropRecord, commerceDropRecordSchema } from '@/libs/commerce/marketplace-records';
@@ -132,33 +132,40 @@ export function useDropStudio(): UseDropStudioResult {
 
   const publish = async (): Promise<void> => {
     if (!currentUserPubky || !isDurable) return;
-    await form.handleSubmit(async (data) => {
-      setPublishErrors([]);
-      const built = buildDropRecord(currentUserPubky, data, listings);
-      if (!built.ok) {
-        setPublishErrors(built.errors);
-        return;
-      }
-      setPublishStatus({ record: 'publishing', sync: 'idle' });
-      try {
-        await CommerceController.publishDrop(built.record);
-      } catch (publishError) {
-        setPublishStatus({ record: 'failed', sync: 'idle' });
-        setPublishErrors([
-          publishError instanceof Error && publishError.name === 'AppError'
-            ? publishError.message
-            : 'Could not publish the drop record to your homeserver.',
-        ]);
-        return;
-      }
-      // The record is now a fact on the homeserver — remember it for the
-      // device-local drops index regardless of how registration goes.
-      rememberOwnDrop(currentUserPubky, built.record.dropId);
-      setPublishedDropId(built.record.dropId);
-      setPublishStatus({ record: 'ok', sync: 'idle' });
-      toast({ title: 'Drop record published', description: 'The seller-signed announcement is on your homeserver.' });
-      await runSync(currentUserPubky, built.record.dropId);
-    })();
+    await form.handleSubmit(
+      async (data) => {
+        setPublishErrors([]);
+        const built = buildDropRecord(currentUserPubky, data, listings);
+        if (!built.ok) {
+          setPublishErrors(built.errors);
+          return;
+        }
+        setPublishStatus({ record: 'publishing', sync: 'idle' });
+        try {
+          await CommerceController.publishDrop(built.record);
+        } catch (publishError) {
+          setPublishStatus({ record: 'failed', sync: 'idle' });
+          setPublishErrors([
+            publishError instanceof Error && publishError.name === 'AppError'
+              ? publishError.message
+              : 'Could not publish the drop record to your homeserver.',
+          ]);
+          return;
+        }
+        // The record is now a fact on the homeserver — remember it for the
+        // device-local drops index regardless of how registration goes.
+        rememberOwnDrop(currentUserPubky, built.record.dropId);
+        setPublishedDropId(built.record.dropId);
+        setPublishStatus({ record: 'ok', sync: 'idle' });
+        toast({ title: 'Drop record published', description: 'The seller-signed announcement is on your homeserver.' });
+        await runSync(currentUserPubky, built.record.dropId);
+      },
+      (errors) => {
+        const messages = collectDropFormErrors(errors);
+        setPublishErrors(messages);
+        focusDropStudioField(Object.keys(errors)[0]);
+      },
+    )();
   };
 
   const retrySync = async (): Promise<void> => {
@@ -179,6 +186,20 @@ export function useDropStudio(): UseDropStudioResult {
     publish,
     retrySync,
   };
+}
+
+function collectDropFormErrors(errors: FieldErrors<DropStudioData>): string[] {
+  return Object.values(errors)
+    .map((error) => (typeof error?.message === 'string' ? error.message : null))
+    .filter((message): message is string => message !== null);
+}
+
+function focusDropStudioField(fieldName: string | undefined): void {
+  if (!fieldName) return;
+  const control = document.getElementById(fieldName) ?? document.getElementById(`drop-${fieldName}`);
+  if (!control) return;
+  control.scrollIntoView({ block: 'center' });
+  if (control instanceof HTMLElement) control.focus();
 }
 
 type BuildDropRecordResult = { ok: true; record: CommerceDropRecord } | { ok: false; errors: string[] };

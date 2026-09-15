@@ -21,11 +21,13 @@ import {
   DROP_MAX_TOTAL_QUANTITY,
   DROP_STUDIO_FIELDS,
   DROP_TITLE_MAX_CHARS,
+  type DropStudioData,
   type DropStudioListingRegistration,
 } from '@/hooks/useDropStudio/useDropStudio.types';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { RequiredToPublishSummary } from '@/molecules/Marketplace/RequiredToPublishSummary';
 import { DropStudioPreviewCard } from '@/organisms/Marketplace/DropStudioPreviewCard';
 
 export interface DropStudioComposerProps {
@@ -53,6 +55,7 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
     selectedListingIds
       .map((listingId) => listings.find((row) => row.listing_id === listingId))
       .flatMap((listing) => listing?.record.media.filter((asset) => asset.type === 'image') ?? [])[0]?.url ?? null;
+  const publishIssues = getDropPublishIssues(form.formState.errors, studio.publishErrors);
 
   const toggleListing = (listingId: string, checked: boolean) => {
     const current = form.getValues(DROP_STUDIO_FIELDS.LISTING_IDS);
@@ -67,7 +70,15 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
       className="flex flex-col gap-8"
       onSubmit={(event) => {
         event.preventDefault();
-        void studio.publish();
+        void studio.publish().then(async () => {
+          const formIsValid = await form.trigger();
+          if (!formIsValid) {
+            const firstInvalidField = Object.values(DROP_STUDIO_FIELDS).find(
+              (field) => form.getFieldState(field as keyof DropStudioData).error,
+            );
+            if (firstInvalidField) scrollToDropStudioField(firstInvalidField);
+          }
+        });
       }}
     >
       <section className="flex flex-col gap-4">
@@ -92,7 +103,7 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
         />
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section id={DROP_STUDIO_FIELDS.LISTING_IDS} tabIndex={-1} className="flex flex-col gap-3">
         <Typography as="h2" className="text-xl font-semibold">
           Listings in this drop
         </Typography>
@@ -298,6 +309,21 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
             Publishing unlocks once every bundled listing shows &ldquo;Registered&rdquo; with the service.
           </Typography>
         )}
+        {publishIssues.length > 0 && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3" role="alert">
+            <RequiredToPublishSummary
+              items={publishIssues.map(({ field, label, message }) => ({
+                id: field,
+                label,
+                description: message,
+                onSelect: () => scrollToDropStudioField(field),
+              }))}
+              titleClassName="text-sm font-semibold text-destructive"
+              listClassName="mt-1 list-disc pl-5 text-sm"
+              itemClassName="text-destructive underline underline-offset-2"
+            />
+          </div>
+        )}
         <Button
           type="submit"
           className="w-fit rounded-full"
@@ -309,6 +335,44 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
       </section>
     </form>
   );
+}
+
+const DROP_STUDIO_FIELD_LABELS: Record<string, string> = {
+  title: 'Drop title',
+  description: 'Description',
+  listingIds: 'Listings',
+  startsAtLocal: 'Launch time',
+  endsAtLocal: 'End time',
+  totalQuantity: 'Total quantity',
+  perBuyerLimit: 'Per-buyer limit',
+  stockDisplay: 'Stock display',
+};
+
+function getDropPublishIssues(
+  errors: Record<string, { message?: unknown } | undefined>,
+  publishErrors: string[],
+): { field: string; label: string; message: string }[] {
+  const issues = Object.entries(errors)
+    .filter(([, error]) => error)
+    .map(([field, error]) => ({
+      field,
+      label: DROP_STUDIO_FIELD_LABELS[field] ?? field,
+      message: typeof error?.message === 'string' ? error.message : '',
+    }));
+  for (const error of publishErrors) {
+    const [field, ...messageParts] = error.split(':');
+    if (DROP_STUDIO_FIELD_LABELS[field] && !issues.some((issue) => issue.field === field)) {
+      issues.push({ field, label: DROP_STUDIO_FIELD_LABELS[field], message: messageParts.join(':').trim() });
+    }
+  }
+  return issues;
+}
+
+function scrollToDropStudioField(field: string): void {
+  const control = document.getElementById(field) ?? document.getElementById(`drop-${field}`);
+  if (!control) return;
+  control.scrollIntoView({ block: 'center' });
+  if (control instanceof HTMLElement) control.focus();
 }
 
 /** Publish status summary with the homeserver/service detail available on demand. */

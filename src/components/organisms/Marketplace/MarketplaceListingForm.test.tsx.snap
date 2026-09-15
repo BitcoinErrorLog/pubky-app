@@ -1781,22 +1781,52 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
                   class="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground"
                 >
                   <li>
-                    At least one photo
+                    <a
+                      class="text-muted-foreground hover:underline"
+                      href="#required-at-least-one-photo"
+                    >
+                      At least one photo
+                    </a>
                   </li>
                   <li>
-                    Title
+                    <a
+                      class="text-muted-foreground hover:underline"
+                      href="#required-title"
+                    >
+                      Title
+                    </a>
                   </li>
                   <li>
-                    Description
+                    <a
+                      class="text-muted-foreground hover:underline"
+                      href="#required-description"
+                    >
+                      Description
+                    </a>
                   </li>
                   <li>
-                    Category
+                    <a
+                      class="text-muted-foreground hover:underline"
+                      href="#required-category"
+                    >
+                      Category
+                    </a>
                   </li>
                   <li>
-                    Price
+                    <a
+                      class="text-muted-foreground hover:underline"
+                      href="#required-price"
+                    >
+                      Price
+                    </a>
                   </li>
                   <li>
-                    Shipping details
+                    <a
+                      class="text-muted-foreground hover:underline"
+                      href="#required-shipping-details"
+                    >
+                      Shipping details
+                    </a>
                   </li>
                 </ul>
               </div>

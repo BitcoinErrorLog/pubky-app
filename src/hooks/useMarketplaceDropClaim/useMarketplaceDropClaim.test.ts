@@ -19,6 +19,7 @@ vi.mock('@/config/commerce', async () => {
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMarketplaceListingProjection: vi.fn(),
+    getMarketplaceOrders: vi.fn(async () => []),
     syncListingRegistration: vi.fn(),
     executeMarketplaceCommand: vi.fn(),
     getDeliveryAddresses: vi.fn(async () => []),
@@ -108,6 +109,24 @@ describe('useMarketplaceDropClaim', () => {
     expect(onClaimed).toHaveBeenCalledTimes(1);
     expect(result.current.claimedListingIds.has(`${SELLER}:listing1`)).toBe(true);
     expect(result.current.failure).toBeNull();
+  });
+
+  it('keeps the payment deadline from the claimed order for the confirmation surface', async () => {
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
+      {
+        state: 'pending_payment',
+        holdExpiresAt: '2026-09-15T13:00:00.000Z',
+        lines: [{ listingAggregateId: `listing:${SELLER}_listing1` }],
+      } as never,
+    ]);
+    const { result } = renderHook(() => useMarketplaceDropClaim());
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    await act(async () => {
+      await result.current.claim(SELLER, 'listing1', 1);
+    });
+
+    expect(result.current.claimDeadlines?.get(`${SELLER}:listing1`)).toBe('2026-09-15T13:00:00.000Z');
   });
 
   it('maps service refusal messages to static client copy', async () => {

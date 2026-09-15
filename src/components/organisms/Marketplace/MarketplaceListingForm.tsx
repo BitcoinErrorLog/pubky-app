@@ -55,6 +55,7 @@ import {
 } from '@/libs/commerce/units';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { RequiredToPublishSummary } from '@/molecules/Marketplace/RequiredToPublishSummary';
 import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
 import { MarketplaceListingAttributeFields } from '@/organisms/Marketplace/MarketplaceListingAttributeFields';
 import { MarketplacePickupDetailsEditor } from '@/organisms/Marketplace/MarketplacePickupDetailsEditor';
@@ -681,6 +682,7 @@ export function MarketplaceListingForm({
             remainingRequired={remainingRequired}
             optionalLaterItems={optionalLaterItems}
             publishMinimumMet={publishMinimumMet}
+            onSelectRequired={(item) => navigateToSection(listingChecklistSection(item))}
           />
           <Button type="submit" size="lg" className="w-full rounded-full" disabled={isPublishing || !publishMinimumMet}>
             {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
@@ -868,36 +870,24 @@ function ReviewPublishChecklist({
   remainingRequired,
   optionalLaterItems,
   publishMinimumMet,
+  onSelectRequired,
 }: {
   remainingRequired: string[];
   optionalLaterItems: string[];
   publishMinimumMet: boolean;
+  onSelectRequired: (item: string) => void;
 }) {
   return (
     <div className="grid gap-4 rounded-xl border bg-card/60 p-4">
-      <div className="flex items-start gap-3">
-        {publishMinimumMet ? (
-          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-brand" aria-hidden="true" />
-        ) : (
-          <Circle className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        )}
-        <div>
-          <Typography as="p" className="font-semibold">
-            Required to publish
-          </Typography>
-          {remainingRequired.length > 0 ? (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              {remainingRequired.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          ) : (
-            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              Every schema-required field is valid and at least one photo is attached.
-            </Typography>
-          )}
-        </div>
-      </div>
+      <RequiredToPublishSummary
+        items={remainingRequired.map((item) => ({
+          id: `required-${item.toLowerCase().replaceAll(' ', '-')}`,
+          label: item,
+          onSelect: () => onSelectRequired(item),
+        }))}
+        emptyMessage="Every schema-required field is valid and at least one photo is attached."
+        isComplete={publishMinimumMet}
+      />
       <div>
         <Typography as="p" className="font-semibold">
           You can add these later
@@ -916,6 +906,18 @@ function ReviewPublishChecklist({
       </div>
     </div>
   );
+}
+
+function listingChecklistSection(item: string): ListingFormSectionId {
+  if (item === 'At least one photo') return 'listing-section-photos';
+  if (item === 'Title' || item === 'Description' || item === 'Category' || item === 'Required item specifics') {
+    return 'listing-section-item';
+  }
+  if (item === 'Price') return 'listing-section-price';
+  if (item === 'Country' || item === 'Shipping details' || item === 'Choose shipping or pickup') {
+    return 'listing-section-shipping';
+  }
+  return 'listing-section-review';
 }
 
 function getListingSectionStatuses(
