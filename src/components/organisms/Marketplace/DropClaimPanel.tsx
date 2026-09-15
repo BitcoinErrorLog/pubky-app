@@ -84,6 +84,7 @@ export function DropClaimPanel({
               const compositeId = `${record.ownerPubky}:${listingId}`;
               const isSubmitting = claim.submittingListingId === compositeId;
               const isClaimed = claim.claimedListingIds.has(compositeId);
+              const claimDeadline = claim.claimDeadlines?.get(compositeId);
               const allowanceSpent = remainingAllowance === 0;
               const mediaUrl = mediaUrls[index] ?? null;
               const price = listing?.sale.format === 'fixed_price' ? listing.sale.unitPrice : null;
@@ -109,12 +110,20 @@ export function DropClaimPanel({
                     )}
                   </div>
                   {isClaimed ? (
-                    <Button asChild variant="secondary" size="sm" className="rounded-full">
-                      <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
-                        <CheckCircle2 className="mr-2 size-4 text-brand" />
-                        Claimed — open Orders
-                      </Link>
-                    </Button>
+                    <div className="flex flex-col items-end gap-1">
+                      <Button asChild variant="secondary" size="sm" className="rounded-full">
+                        <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
+                          <CheckCircle2 className="mr-2 size-4 text-brand" />
+                          Claimed — open Orders
+                        </Link>
+                      </Button>
+                      {claimDeadline && (
+                        <Typography as="p" className="text-right text-xs text-muted-foreground">
+                          Complete payment by{' '}
+                          {new Date(claimDeadline).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        </Typography>
+                      )}
+                    </div>
                   ) : (
                     <Button
                       size="sm"

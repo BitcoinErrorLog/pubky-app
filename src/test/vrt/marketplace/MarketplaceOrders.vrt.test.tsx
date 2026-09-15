@@ -312,15 +312,18 @@ describe('Marketplace orders — visual regression', () => {
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-payment-states-desktop');
   });
 
-  it('renders the active seller Awaiting payment tab at desktop viewport', async () => {
+  it('renders the active seller Waiting on the other side tab at desktop viewport', async () => {
     const { sellerAwaitingPayment } = await fixtures;
     ordersState.orders = sellerAwaitingPayment;
     ordersState.isLoading = false;
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await screen.getByRole('tab', { name: /Awaiting payment 2/i }).click();
-    await expect(screen.getByRole('tab', { name: /Awaiting payment 2/i })).toHaveAttribute('aria-selected', 'true');
+    await screen.getByRole('tab', { name: /Waiting on the other side 2/i }).click();
+    await expect(screen.getByRole('tab', { name: /Waiting on the other side 2/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     expect(screen.getByText('Seller awaiting entitlement')).toBeInTheDocument();
     expect(screen.getByText('Seller detected payment')).toBeInTheDocument();
     expect(screen.container.textContent).not.toContain('Seller confirmed payment');
@@ -329,15 +332,18 @@ describe('Marketplace orders — visual regression', () => {
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-desktop');
   });
 
-  it('renders the active seller Awaiting payment tab at mobile viewport', async () => {
+  it('renders the active seller Waiting on the other side tab at mobile viewport', async () => {
     const { sellerAwaitingPayment } = await fixtures;
     ordersState.orders = sellerAwaitingPayment;
     ordersState.isLoading = false;
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
-    await screen.getByRole('tab', { name: /Awaiting payment 2/i }).click();
-    await expect(screen.getByRole('tab', { name: /Awaiting payment 2/i })).toHaveAttribute('aria-selected', 'true');
+    await screen.getByRole('tab', { name: /Waiting on the other side 2/i }).click();
+    await expect(screen.getByRole('tab', { name: /Waiting on the other side 2/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     await settleAwaitingPaymentTab(screen.container.querySelector('[role="tablist"]') as HTMLElement);
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-mobile');
   });
