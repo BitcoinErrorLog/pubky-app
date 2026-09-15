@@ -4,7 +4,7 @@ exports[`MarketplacePaymentSettings > saves the Stripe and PayPal rails with the
 [
   [
     {
-      "bitcoinEnabled": true,
+      "bitcoinEnabled": false,
       "paypalMerchantEmail": "seller@example.com",
       "stripePaymentLink": "https://buy.stripe.com/test_abc",
       "stripeRestrictedKey": "rk_test_12345678",

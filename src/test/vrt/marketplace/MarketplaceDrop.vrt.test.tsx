@@ -214,7 +214,9 @@ describe('Marketplace drop page — visual regression', () => {
     });
     setClaimView({
       claimedListingIds: new Set(['s'.repeat(52) + ':listing-a']),
-      claimDeadlines: new Map([['s'.repeat(52) + ':listing-a', new Date(VRT_FROZEN_NOW_MS + 2 * HOUR_MS).toISOString()]]),
+      claimDeadlines: new Map([
+        ['s'.repeat(52) + ':listing-a', new Date(VRT_FROZEN_NOW_MS + 2 * HOUR_MS).toISOString()],
+      ]),
     });
     const screen = await renderDropPage();
     await expect.element(screen.getByText('Claimed — open Orders')).toBeVisible();

@@ -129,7 +129,7 @@ describe('MarketplacePackingSlipDialog — pickup orders (§A5)', () => {
     const dialog = await openSlip();
 
     expect(within(dialog).getByLabelText('Paste delivery address (optional)')).toBeInTheDocument();
-    expect(within(dialog).getByText(/does not yet expose it to the seller/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/is not yet exposed to the seller/)).toBeInTheDocument();
     expect(
       within(dialog).queryByText('Local pickup — meeting point is only visible to the buyer in the app.'),
     ).not.toBeInTheDocument();
