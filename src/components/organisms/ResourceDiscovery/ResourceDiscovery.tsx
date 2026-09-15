@@ -8,15 +8,14 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
-import { CONTENT_GUTTER_CLASS } from '@/config/layoutClasses';
 import { RESOURCE_DISCOVERY_LIMIT } from '@/config/nexus';
 import { ResourceController } from '@/controllers/resource/resource';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
-import { cn } from '@/libs/utils/utils';
+import type { Resource, ResourceStreamParams } from '@/models/resource/resource';
+import { PostTag } from '@/molecules/PostTag/PostTag';
 import { ResourceEmpty } from '@/molecules/ResourceEmpty/ResourceEmpty';
 import { ResourceCanonShelf } from '@/organisms/ResourceCanonShelf/ResourceCanonShelf';
 import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
-import type { NexusResource, TResourceStreamParams } from '@/services/nexus/resource/resource.types';
 import { ResourceDiscoverySkeleton } from './ResourceDiscovery.skeleton';
 
 export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
@@ -25,12 +24,12 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   useEffect(() => {
     routerRef.current = router;
   }, [router]);
-  const [resources, setResources] = useState<NexusResource[]>([]);
-  const [resource, setResource] = useState<NexusResource | null>(null);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [resource, setResource] = useState<Resource | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isNotFoundError, setIsNotFoundError] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [sort, setSort] = useState<TResourceStreamParams['sorting']>('timeline');
+  const [sort, setSort] = useState<ResourceStreamParams['sorting']>('timeline');
   const [tagLabels, setTagLabels] = useState<string[]>([]);
   const [nextSkip, setNextSkip] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -56,10 +55,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     request
       .then((result) => {
         if (!active) return;
-        if (Array.isArray(result)) {
-          setResources(result);
-          setTagLabels(labelsByFrequency(result));
-        } else if ('resources' in result) {
+        if ('resources' in result) {
           setResources(result.resources);
           setNextSkip(result.nextSkip);
           setTagLabels(labelsByFrequency(result.resources));
@@ -108,14 +104,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   if (isLoading) return <ResourceDiscoverySkeleton />;
   if (!tag && !id) {
     return (
-      <Container
-        overrideDefaults
-        data-surface="resource-discovery"
-        className={cn(
-          'container m-auto w-full max-w-(--container-max-width) flex-col gap-6 pb-12',
-          CONTENT_GUTTER_CLASS,
-        )}
-      >
+      <Container overrideDefaults data-surface="resource-discovery" className="w-full flex-col gap-6 pb-12">
         <Container overrideDefaults className="gap-3">
           <Heading level={1} size="xl">
             Resource discovery
@@ -123,18 +112,10 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
           <Container overrideDefaults className="flex flex-wrap items-center gap-2">
             <Container overrideDefaults className="flex flex-1 flex-wrap items-center gap-2">
               {tagLabels.map((label) => (
-                <Button
-                  key={label}
-                  type="button"
-                  size="sm"
-                  variant={ButtonVariant.OUTLINE}
-                  onClick={() => router.push(getResourceTagRoute(label))}
-                >
-                  {label}
-                </Button>
+                <PostTag key={label} label={label} onClick={() => router.push(getResourceTagRoute(label))} />
               ))}
             </Container>
-            <Select value={sort} onValueChange={(value) => setSort(value as TResourceStreamParams['sorting'])}>
+            <Select value={sort} onValueChange={(value) => setSort(value as ResourceStreamParams['sorting'])}>
               <SelectTrigger size="sm" aria-label="Sort resources" className="ml-auto border border-border/60 px-2">
                 <SelectValue />
               </SelectTrigger>
@@ -172,11 +153,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
   }
 
   return (
-    <Container
-      overrideDefaults
-      data-surface="resource-discovery"
-      className={cn('container m-auto w-full max-w-(--container-max-width) flex-col gap-6 pb-12', CONTENT_GUTTER_CLASS)}
-    >
+    <Container overrideDefaults data-surface="resource-discovery" className="w-full flex-col gap-6 pb-12">
       <Container overrideDefaults className="gap-3">
         <Heading level={1} size="xl">
           Resources tagged {tag}
@@ -185,7 +162,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
           <Link href="/resources" variant="muted">
             Back to resources
           </Link>
-          <Select value={sort} onValueChange={(value) => setSort(value as TResourceStreamParams['sorting'])}>
+          <Select value={sort} onValueChange={(value) => setSort(value as ResourceStreamParams['sorting'])}>
             <SelectTrigger size="sm" aria-label="Sort resources" className="ml-auto border border-border/60 px-2">
               <SelectValue />
             </SelectTrigger>
@@ -218,7 +195,7 @@ function isNotFoundErrorValue(error: unknown): boolean {
   return isAppError(error) && isNotFound(error);
 }
 
-function labelsByFrequency(items: NexusResource[]): string[] {
+function labelsByFrequency(items: Resource[]): string[] {
   const counts = new Map<string, number>();
   for (const item of items) {
     for (const tag of item.tags) counts.set(tag.label, (counts.get(tag.label) ?? 0) + 1);

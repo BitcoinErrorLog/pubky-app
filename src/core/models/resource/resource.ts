@@ -1,20 +1,64 @@
-import { Table } from 'dexie';
-import { db } from '@/database/franky/franky';
-import { RecordModelBase } from '@/models/shared/base/record/baseRecord';
-import type { ResourceLookupCacheModelSchema } from './resource.schema';
+export type ResourceDetails = {
+  id: string;
+  uri: string;
+  scheme: string;
+  indexed_at: number;
+};
 
-export class ResourceLookupCacheModel
-  extends RecordModelBase<string, ResourceLookupCacheModelSchema>
-  implements ResourceLookupCacheModelSchema
-{
-  static table: Table<ResourceLookupCacheModelSchema> = db.table('resource_lookup_cache');
+export type ResourceTag = {
+  label: string;
+  taggers: string[];
+  taggers_count: number;
+  relationship: boolean;
+};
 
-  response: ResourceLookupCacheModelSchema['response'];
-  expires_at: number;
+export type Resource = {
+  details: ResourceDetails;
+  tags: ResourceTag[];
+  taggers_count?: number;
+};
 
-  constructor(data: ResourceLookupCacheModelSchema) {
-    super(data);
-    this.response = data.response;
-    this.expires_at = data.expires_at;
-  }
-}
+export type ResourceTagsResponse = {
+  resource: ResourceDetails;
+  tags: ResourceTag[];
+};
+
+export type ResourcePage = {
+  resources: Resource[];
+  nextSkip: number | null;
+};
+
+export type ResourceStreamParams = {
+  app?: string;
+  tags?: string;
+  limit?: number;
+  limit_tags?: number;
+  limit_taggers?: number;
+  skip?: number;
+  sorting?: 'timeline' | 'taggers_count';
+  start?: number;
+  end?: number;
+};
+
+export type ResourcesByTagParams = {
+  tag: string;
+  limit?: number;
+  limit_tags?: number;
+  limit_taggers?: number;
+  skip?: number;
+  sorting?: 'timeline' | 'taggers_count';
+};
+
+export type ResourceByIdParams = {
+  id: string;
+  limit_tags?: number;
+  limit_taggers?: number;
+  skip_tags?: number;
+};
+
+export type ResourceByUriParams = {
+  uri: string;
+  limit_tags?: number;
+  limit_taggers?: number;
+  skip_tags?: number;
+};

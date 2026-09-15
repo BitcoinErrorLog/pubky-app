@@ -5,7 +5,7 @@ import { ResourceController } from '@/controllers/resource/resource';
 import { ClientErrorCode, NetworkErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import type { NexusResource } from '@/services/nexus/resource/resource.types';
+import type { Resource } from '@/models/resource/resource';
 import { ResourceDiscovery } from './ResourceDiscovery';
 
 vi.mock('next/navigation', () => ({
@@ -29,14 +29,14 @@ vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
   }),
 }));
 
-function taggedResource(id: string, uri: string): NexusResource {
+function taggedResource(id: string, uri: string): Resource {
   return {
     details: { id, uri, scheme: uri.split(':')[0] ?? '', indexed_at: 1 },
     tags: [{ label: 'docs', taggers: [], taggers_count: 1, relationship: false }],
   };
 }
 
-function resourceWithLabels(id: string, uri: string, labels: string[]): NexusResource {
+function resourceWithLabels(id: string, uri: string, labels: string[]): Resource {
   return {
     details: { id, uri, scheme: uri.split(':')[0] ?? '', indexed_at: 1 },
     tags: labels.map((label) => ({ label, taggers: [], taggers_count: 1, relationship: false })),
@@ -69,7 +69,7 @@ describe('ResourceDiscovery', () => {
 
     render(<ResourceDiscovery />);
 
-    expect(await screen.findByRole('button', { name: 'docs' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'docs tag' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Sort resources' })).toHaveTextContent('Recent');
   });
 

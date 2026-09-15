@@ -6,6 +6,7 @@ import { SEARCH_EXPANDED_STYLE } from '@/config/search';
 import type { HotTag } from '@/hooks/useHotTags/useHotTags.types';
 import type { AutocompleteTag } from '@/hooks/useSearchAutocomplete/useSearchAutocomplete.types';
 import type { AutocompleteUserData } from '@/hooks/useUserDetailsFromIds/useUserDetailsFromIds.types';
+import { isHttpUrl } from '@/libs/resource/isHttpUrl';
 import type { Pubky } from '@/models/models.types';
 import { MAX_RECENT_SEARCHES } from '@/stores/search/search.constants';
 import { SearchRecentSection } from '../SearchRecentSection/SearchRecentSection';
@@ -92,7 +93,7 @@ export function SearchSuggestions({
   // query is being refined the previous suggestions stay on screen (the hook
   // keeps them until fresh results land), so nothing flickers per keystroke.
   const showAutocompleteSkeleton = hasInput && isLoading && !hasAutocompleteTags && !hasAutocompleteUsers;
-  const isUrlLookup = hasInput && isAbsoluteHttpUrl(inputValue);
+  const isUrlLookup = hasInput && isHttpUrl(inputValue);
 
   const renderAutocompleteContent = () => {
     if (!hasInput) return null;
@@ -148,7 +149,7 @@ export function SearchSuggestions({
             {isUrlLookup && onResourceLookup ? (
               <Button
                 type="button"
-                variant={ButtonVariant.SECONDARY}
+                variant={ButtonVariant.OUTLINE}
                 size="sm"
                 className="self-start"
                 onClick={onResourceLookup}
@@ -172,13 +173,4 @@ export function SearchSuggestions({
       </Container>
     </Container>
   );
-}
-
-function isAbsoluteHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
 }

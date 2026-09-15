@@ -9,11 +9,7 @@ export const NEXUS_POSTS_PER_PAGE = 10; // Number of posts to fetch per page in 
 export const NEXUS_STREAM_MAX_LIMIT = 50; // Hard cap Nexus enforces on a single stream `limit`; requests above this are rejected
 export const NEXUS_USERS_PER_PAGE = 10; // Number of users to fetch per page in streams
 export const RESOURCE_TAGS_LIMIT = 50;
-export const RESOURCE_DISCOVERY_APP = 'jeb.pubky.app';
 export const RESOURCE_DISCOVERY_LIMIT = 20;
-
-/** Nexus stream items are limited to five tags; detail reads can request the full set. */
-export const RESOURCE_STREAM_TAGS_PREVIEW = 5;
 
 /**
  * Timeout for server-side Nexus fetches made while rendering link-preview

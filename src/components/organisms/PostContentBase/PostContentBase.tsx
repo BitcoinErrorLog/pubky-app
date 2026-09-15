@@ -8,7 +8,6 @@ import { PostLinkEmbeds } from '@/molecules/PostLinkEmbeds/PostLinkEmbeds';
 import { PostText } from '@/molecules/PostText/PostText';
 import { PostUnavailable } from '@/molecules/PostUnavailable/PostUnavailable';
 import { CollectionCard } from '@/organisms/Collections/CollectionCard/CollectionCard';
-import { InlineResourceCard } from '@/organisms/InlineResourceCard/InlineResourceCard';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { PostArticle } from '../PostArticle/PostArticle';
 import { PostAttachments } from '../PostAttachments/PostAttachments';
@@ -70,7 +69,6 @@ export function PostContentBase({ postId, className, textClassName, mediaVariant
 
       {/* Link previews from text */}
       {hasContent && <PostLinkEmbeds content={postDetails.content} />}
-      {hasContent && <InlineResourceCard content={postDetails.content} />}
 
       {/* Attachments on this post */}
       <PostAttachments

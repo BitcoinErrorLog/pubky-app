@@ -5,8 +5,9 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
 import { ResourceController } from '@/controllers/resource/resource';
+import type { Resource } from '@/models/resource/resource';
+import { toast } from '@/molecules/Toaster/toast';
 import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
-import type { NexusResource } from '@/services/nexus/resource/resource.types';
 
 const CANON_LABELS = [
   { label: 'bip', title: 'Bitcoin Improvement Proposals' },
@@ -25,7 +26,7 @@ export function ResourceCanonShelf() {
 }
 
 function CanonRow({ label, title }: { label: string; title: string }) {
-  const [resources, setResources] = useState<NexusResource[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -39,6 +40,9 @@ function CanonRow({ label, title }: { label: string; title: string }) {
     })
       .then((result) => {
         if (active) setResources(result);
+      })
+      .catch(() => {
+        if (active) toast({ variant: 'error', description: 'Could not load canonical resources.' });
       })
       .finally(() => {
         if (active) setIsLoading(false);

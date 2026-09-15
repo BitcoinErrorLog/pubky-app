@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { ResourceController } from '@/controllers/resource/resource';
-import type { NexusResource } from '@/services/nexus/resource/resource.types';
+import type { Resource } from '@/models/resource/resource';
 
 export function useResourceTagSearch(tags: string[]) {
-  const [resources, setResources] = useState<NexusResource[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState(tags.length > 0);
   const [error, setError] = useState<unknown>(null);
   const tagsKey = tags.join('\0');
@@ -37,7 +37,7 @@ export function useResourceTagSearch(tags: string[]) {
       ),
     )
       .then((results) => {
-        const resourcesById = new Map<string, NexusResource>();
+        const resourcesById = new Map<string, Resource>();
         results.flat().forEach((resource) => {
           const existing = resourcesById.get(resource.details.id);
           if (!existing || (resource.taggers_count ?? 0) > (existing.taggers_count ?? 0)) {

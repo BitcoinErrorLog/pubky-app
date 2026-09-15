@@ -24,7 +24,7 @@ describe('NexusResourceService', () => {
 
     await expect(NexusResourceService.fetchByTag({ tag: 'docs', limit: 20 })).resolves.toEqual([resource]);
     expect(queryNexus).toHaveBeenCalledWith({
-      url: 'https://nexus.staging.pubky.app/v0/stream/resources?tags=docs&limit=20&limit_tags=50&limit_taggers=50',
+      url: 'https://nexus.staging.pubky.app/v0/stream/resources?limit=20&tags=docs&limit_tags=50&limit_taggers=50',
     });
   });
 

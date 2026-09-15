@@ -1,12 +1,11 @@
-/* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
-import streamFixture from '@/test/fixtures/resources/stream.json';
+import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
+import { ResourceDiscovery } from '@/organisms/ResourceDiscovery/ResourceDiscovery';
 import detailFixture from '@/test/fixtures/resources/bitcoin-org.json';
 import ogMetadataFixture from '@/test/fixtures/resources/og-metadata.json';
+import streamFixture from '@/test/fixtures/resources/stream.json';
 import { matchVrtFrameScreenshot, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
-import { ResourceDiscovery } from '@/organisms/ResourceDiscovery/ResourceDiscovery';
-import { ResourceCard } from '@/molecules/ResourceCard/ResourceCard';
 
 vi.mock('next/navigation', () => {
   const router = { push: vi.fn(), replace: vi.fn() };

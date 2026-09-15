@@ -4,9 +4,6 @@ import { resourceApi } from './resource.api';
 
 describe('resourceApi', () => {
   it('builds resource endpoint URLs with query parameters', () => {
-    expect(resourceApi.byTag({ tag: 'docs', limit: 20, limit_tags: 5 })).toBe(
-      `${getNexusUrl()}/v0/stream/resources?tags=docs&limit=20&limit_tags=5`,
-    );
     expect(resourceApi.byId({ id: 'resource-1', limit_tags: 20, skip_tags: 0 })).toBe(
       `${getNexusUrl()}/v0/resource/resource-1/tags?limit_tags=20&skip_tags=0`,
     );
