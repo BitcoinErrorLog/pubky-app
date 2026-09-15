@@ -8,7 +8,7 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
-import { RESOURCE_DISCOVERY_LIMIT } from '@/config/nexus';
+import { RESOURCE_DISCOVERY_LIMIT, RESOURCE_DISCOVERY_TAGS_LIMIT } from '@/config/nexus';
 import { ResourceController } from '@/controllers/resource/resource';
 import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import type { Resource, ResourceStreamParams } from '@/models/resource/resource';
@@ -47,7 +47,7 @@ export function ResourceDiscovery({ tag, id }: { tag?: string; id?: string }) {
     const request = tag
       ? ResourceController.fetchStreamPage({ tags: tag, sorting: sort, limit: RESOURCE_DISCOVERY_LIMIT })
       : !id
-        ? ResourceController.fetchStreamPage({ sorting: sort })
+        ? ResourceController.fetchStreamPage({ sorting: sort, limit: RESOURCE_DISCOVERY_LIMIT })
         : id?.includes('://')
           ? ResourceController.fetchByUri({ uri: id })
           : ResourceController.fetchById({ id: id ?? '' });
@@ -202,6 +202,6 @@ function labelsByFrequency(items: Resource[]): string[] {
   }
   return [...counts.entries()]
     .sort(([, left], [, right]) => right - left)
-    .slice(0, 12)
+    .slice(0, RESOURCE_DISCOVERY_TAGS_LIMIT)
     .map(([label]) => label);
 }

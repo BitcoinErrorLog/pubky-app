@@ -18,7 +18,11 @@ describe('ResourceTagPage', () => {
     expect(page).toHaveProperty('props.tag', 'privacy-guides');
   });
 
-  it('returns not found for an invalid tag', async () => {
-    await expect(ResourceTagPage({ params: Promise.resolve({ tag: 'bad%3Atag' }) })).rejects.toThrow('NEXT_NOT_FOUND');
+  it.each(['Bad%20Tag!', `${'a'.repeat(21)}`, 'bad%3Atag'])('returns not found for invalid tag %s', async (tag) => {
+    await expect(ResourceTagPage({ params: Promise.resolve({ tag }) })).rejects.toThrow('NEXT_NOT_FOUND');
+  });
+
+  it('returns not found for malformed encoded tags', async () => {
+    await expect(ResourceTagPage({ params: Promise.resolve({ tag: '%E0%A4%A' }) })).rejects.toThrow('NEXT_NOT_FOUND');
   });
 });

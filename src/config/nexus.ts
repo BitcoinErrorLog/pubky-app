@@ -10,6 +10,7 @@ export const NEXUS_STREAM_MAX_LIMIT = 50; // Hard cap Nexus enforces on a single
 export const NEXUS_USERS_PER_PAGE = 10; // Number of users to fetch per page in streams
 export const RESOURCE_TAGS_LIMIT = 50;
 export const RESOURCE_DISCOVERY_LIMIT = 20;
+export const RESOURCE_DISCOVERY_TAGS_LIMIT = 12;
 
 /**
  * Timeout for server-side Nexus fetches made while rendering link-preview

@@ -69,15 +69,34 @@ describe('ResourceCard', () => {
     render(<ResourceCard resource={resource} />);
 
     expect(screen.getByText('Bitcoin resources')).toBeInTheDocument();
-    expect(screen.getByLabelText('bitcoin tag (1 taggers)')).toBeInTheDocument();
+    expect(screen.getByLabelText('bitcoin tag (1 tagger)')).toBeInTheDocument();
     expect(screen.queryByText(/suggested by/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open original/i })).toHaveAttribute('href', 'https://example.com/bitcoin');
+  });
+
+  it('renders the plural tagger label', () => {
+    render(
+      <ResourceCard
+        resource={{
+          ...resource,
+          tags: [
+            {
+              ...resource.tags[0],
+              taggers: ['tagger-1', 'tagger-2'],
+              taggers_count: 2,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText('bitcoin tag (2 taggers)')).toBeInTheDocument();
   });
 
   it('navigates to the public resource tag route when a tag is clicked', () => {
     render(<ResourceCard resource={resource} />);
 
-    fireEvent.click(screen.getByLabelText('bitcoin tag (1 taggers)'));
+    fireEvent.click(screen.getByLabelText('bitcoin tag (1 tagger)'));
     expect(push).toHaveBeenCalledWith('/resources/tag/bitcoin');
   });
 });

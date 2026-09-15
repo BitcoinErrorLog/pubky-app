@@ -9,16 +9,17 @@ import type { Resource } from '@/models/resource/resource';
 import { toast } from '@/molecules/Toaster/toast';
 import { ResourceCard } from '@/organisms/ResourceCard/ResourceCard';
 
-const CANON_LABELS = [
+export const CANONICAL_RESOURCE_SECTIONS = [
   { label: 'bip', title: 'Bitcoin Improvement Proposals' },
   { label: 'research', title: 'Research' },
   { label: 'optech', title: 'Bitcoin Optech' },
 ] as const;
+export const CANONICAL_RESOURCE_LIMIT = 3;
 
 export function ResourceCanonShelf() {
   return (
     <Container overrideDefaults className="flex flex-col gap-8">
-      {CANON_LABELS.map((section) => (
+      {CANONICAL_RESOURCE_SECTIONS.map((section) => (
         <CanonRow key={section.label} label={section.label} title={section.title} />
       ))}
     </Container>
@@ -33,7 +34,7 @@ function CanonRow({ label, title }: { label: string; title: string }) {
     let active = true;
     void ResourceController.fetchByTag({
       tag: label,
-      limit: 3,
+      limit: CANONICAL_RESOURCE_LIMIT,
       limit_tags: 50,
       limit_taggers: 50,
       sorting: 'taggers_count',
