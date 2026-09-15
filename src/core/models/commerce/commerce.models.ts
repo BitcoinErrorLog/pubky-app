@@ -541,6 +541,9 @@ export class CommerceCartItemModel
   listing_id: string;
   variant_id: string;
   quantity: number;
+  award_id?: string | null;
+  award_offer_revision?: number | null;
+  pricing_source?: 'listing' | 'offer';
   added_at: number;
   updated_at: number;
 
@@ -550,6 +553,9 @@ export class CommerceCartItemModel
     this.listing_id = item.listing_id;
     this.variant_id = item.variant_id;
     this.quantity = item.quantity;
+    this.award_id = item.award_id ?? null;
+    this.award_offer_revision = item.award_offer_revision ?? null;
+    this.pricing_source = item.pricing_source ?? 'listing';
     this.added_at = item.added_at;
     this.updated_at = item.updated_at;
   }

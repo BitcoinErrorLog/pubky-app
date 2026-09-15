@@ -192,7 +192,7 @@ export const marketplaceNotificationSchema = z
   })
   .passthrough();
 
-export const marketplaceOfferSchema = z
+const marketplaceOfferProjectionSchema = z
   .object({
     id: z.uuid(),
     aggregateId: z.string(),
@@ -207,8 +207,62 @@ export const marketplaceOfferSchema = z
     message: z.string(),
     expiresAt: z.string(),
     updatedAt: z.string(),
+    award: z
+      .object({
+        id: z.uuid(),
+        state: z.enum(['active', 'converted', 'expired']),
+        listing: z
+          .object({
+            aggregateId: z.string(),
+            sellerPubky: commercePubkySchema,
+            listingId: z.string(),
+            title: z.string(),
+            listingRevision: z.number().int().positive(),
+            listingRecordSha256: z.string(),
+          })
+          .passthrough(),
+        variant: z
+          .object({
+            id: z.string(),
+            sku: z.string().nullable(),
+            options: z.array(z.object({ name: z.string(), value: z.string() })),
+          })
+          .passthrough(),
+        unitPrice: marketplaceMoneySchema,
+        quantity: z.number().int().positive(),
+        acceptedAt: z.string(),
+        convertBy: z.string(),
+        convertedOrderId: z.uuid().nullable(),
+        subtotal: marketplaceMoneySchema,
+        shipping: marketplaceMoneySchema,
+        merchandiseTotal: marketplaceMoneySchema,
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
+
+export const marketplaceOfferSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object') return input;
+  const record = input as Record<string, unknown>;
+  const award = record.award;
+  if (award === undefined || award === null || marketplaceOfferProjectionSchema.shape.award!.safeParse(award).success) {
+    return input;
+  }
+  const withoutAward = { ...record };
+  delete withoutAward.award;
+  return withoutAward;
+}, marketplaceOfferProjectionSchema);
+
+export function isMarketplaceAwardCheckoutEligible(
+  award: MarketplaceOfferAward | null | undefined,
+): award is MarketplaceOfferAward {
+  if (!award?.subtotal || !award.shipping || !award.merchandiseTotal) return false;
+  const { currency, exponent } = award.unitPrice;
+  return [award.subtotal, award.shipping, award.merchandiseTotal].every(
+    (money) => money.currency === currency && money.exponent === exponent,
+  );
+}
 
 export const marketplacePaymentSchema = z
   .object({
@@ -264,11 +318,16 @@ export const marketplaceOrderProjectionSchema = z
       z.object({
         listingAggregateId: z.string(),
         listingRevision: z.number().int().positive(),
-        contentHash: z.string(),
+        // Offer-priced lines from the durable service do not currently carry
+        // the listing content hash; ordinary historical lines still do.
+        contentHash: z.string().optional(),
         title: z.string(),
         quantity: z.number().int().positive(),
         unitPrice: marketplaceMoneySchema,
         subtotal: marketplaceMoneySchema,
+        pricedFrom: z.string().optional(),
+        offerId: z.uuid().optional(),
+        awardId: z.uuid().optional(),
         // The buyer's variant snapshot from checkout, echoed for fulfillment
         // display. Absent on orders placed before the field existed.
         variantId: z.string().optional(),
@@ -284,6 +343,8 @@ export const marketplaceOrderProjectionSchema = z
     subtotal: marketplaceMoneySchema,
     shipping: marketplaceMoneySchema,
     total: marketplaceMoneySchema,
+    pricedFrom: z.string().optional(),
+    offerAwardId: z.uuid().nullable().optional(),
     guaranteePolicyVersion: z.literal(1),
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),
@@ -479,6 +540,7 @@ export function isRecognizedMarketplaceNotification(
   return !('kind' in entry);
 }
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;
+export type MarketplaceOfferAward = z.infer<typeof marketplaceOfferProjectionSchema>['award'];
 export type MarketplaceOrder = z.infer<typeof marketplaceOrderSchema>;
 export type MarketplacePublicDrop = z.infer<typeof marketplacePublicDropSchema>;
 export type MarketplaceSellerDrop = z.infer<typeof marketplaceSellerDropSchema>;

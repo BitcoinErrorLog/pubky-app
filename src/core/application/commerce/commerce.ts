@@ -481,6 +481,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.execute(actorPubky, command);
   }
 
+  static async commitOfferCheckout(actorPubky: string, command: MarketplaceCommand) {
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
   // ---------------------------------------------------------------------
   // Local pickup (Wave 7 safe subset, local pickup design PART A)
   //
@@ -1170,8 +1174,32 @@ export class CommerceApplication {
     await LocalCommerceService.upsertCartItem(ownerPubky, listingId, variantId, quantity, Date.now());
   }
 
-  static async commitDeleteCartItem(ownerPubky: string, listingId: string, variantId: string): Promise<void> {
-    await LocalCommerceService.deleteCartItem(ownerPubky, listingId, variantId);
+  static async commitUpsertAwardCartItem(
+    ownerPubky: string,
+    listingId: string,
+    variantId: string,
+    quantity: number,
+    awardId: string,
+    offerRevision: number,
+  ): Promise<void> {
+    await LocalCommerceService.upsertAwardCartItem(
+      ownerPubky,
+      listingId,
+      variantId,
+      quantity,
+      awardId,
+      offerRevision,
+      Date.now(),
+    );
+  }
+
+  static async commitDeleteCartItem(
+    ownerPubky: string,
+    listingId: string,
+    variantId: string,
+    awardId?: string,
+  ): Promise<void> {
+    await LocalCommerceService.deleteCartItem(ownerPubky, listingId, variantId, awardId);
   }
 
   static async commitClearCart(ownerPubky: string): Promise<void> {

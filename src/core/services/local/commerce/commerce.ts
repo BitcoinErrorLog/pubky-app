@@ -104,13 +104,51 @@ export class LocalCommerceService {
     });
   }
 
-  static async deleteCartItem(ownerId: string, listingId: string, variantId: string): Promise<void> {
-    await CommerceCartItemModel.deleteById(this.cartItemId(ownerId, listingId, variantId));
+  static async upsertAwardCartItem(
+    ownerId: string,
+    listingId: string,
+    variantId: string,
+    quantity: number,
+    awardId: string,
+    offerRevision: number,
+    now: number,
+  ): Promise<void> {
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Cart quantity must be a positive safe integer.', {
+        service: ErrorService.Local,
+        operation: 'upsertAwardCartItem',
+        context: { quantity },
+      });
+    }
+    const id = this.awardCartItemId(ownerId, awardId);
+    const current = await CommerceCartItemModel.findById(id);
+    await CommerceCartItemModel.upsert({
+      id,
+      owner_id: ownerId,
+      listing_id: listingId,
+      variant_id: variantId,
+      quantity,
+      award_id: awardId,
+      award_offer_revision: offerRevision,
+      pricing_source: 'offer',
+      added_at: current?.added_at ?? now,
+      updated_at: now,
+    });
+  }
+
+  static async deleteCartItem(ownerId: string, listingId: string, variantId: string, awardId?: string): Promise<void> {
+    await CommerceCartItemModel.deleteById(
+      awardId ? this.awardCartItemId(ownerId, awardId) : this.cartItemId(ownerId, listingId, variantId),
+    );
   }
 
   static async clearCart(ownerId: string): Promise<void> {
     try {
-      await CommerceCartItemModel.table.where('owner_id').equals(ownerId).delete();
+      await CommerceCartItemModel.table
+        .where('owner_id')
+        .equals(ownerId)
+        .and(({ pricing_source }) => pricing_source !== 'offer')
+        .delete();
     } catch (error) {
       throw Err.database(DatabaseErrorCode.DELETE_FAILED, 'Failed to clear commerce cart', {
         service: ErrorService.Local,
@@ -1025,5 +1063,9 @@ export class LocalCommerceService {
 
   private static cartItemId(ownerId: string, listingId: string, variantId: string): string {
     return `${ownerId}|${listingId}|${variantId}`;
+  }
+
+  private static awardCartItemId(ownerId: string, awardId: string): string {
+    return `${ownerId}|award|${awardId}`;
   }
 }

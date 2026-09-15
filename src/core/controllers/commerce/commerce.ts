@@ -249,6 +249,13 @@ export class CommerceController {
     );
   }
 
+  static async commitOfferCheckout(input: unknown) {
+    return await CommerceApplication.commitOfferCheckout(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.marketplaceCommand(input),
+    );
+  }
+
   /**
    * The seller's standing amount-band consent (ratified D2). `null` means
    * the backend has no attestation support (sandbox) and the opt-in must not
@@ -973,11 +980,35 @@ export class CommerceController {
     );
   }
 
-  static async commitDeleteCartItem(listingCompositeId: unknown, variantId: unknown): Promise<void> {
+  static async commitUpsertAwardCartItem(
+    listingCompositeId: unknown,
+    variantId: unknown,
+    quantity: unknown,
+    awardId: unknown,
+    offerRevision: unknown,
+  ): Promise<void> {
+    const parsedQuantity =
+      typeof quantity === 'number' && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : Number.NaN;
+    const parsedRevision =
+      typeof offerRevision === 'number' && Number.isSafeInteger(offerRevision) && offerRevision > 0
+        ? offerRevision
+        : Number.NaN;
+    await CommerceApplication.commitUpsertAwardCartItem(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+      CommerceRecordNormalizer.entityId(variantId),
+      parsedQuantity,
+      CommerceRecordNormalizer.entityId(awardId),
+      parsedRevision,
+    );
+  }
+
+  static async commitDeleteCartItem(listingCompositeId: unknown, variantId: unknown, awardId?: unknown): Promise<void> {
     await CommerceApplication.commitDeleteCartItem(
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
       CommerceRecordNormalizer.entityId(variantId),
+      awardId === undefined ? undefined : CommerceRecordNormalizer.entityId(awardId),
     );
   }
 

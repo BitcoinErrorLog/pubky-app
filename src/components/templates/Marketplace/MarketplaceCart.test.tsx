@@ -102,25 +102,30 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
             sale: { format: string; unitPrice?: { amountMinor: number; currency: string; exponent: number } };
           };
         };
+        pricingSource?: 'listing' | 'offer';
       }>;
       return {
         items,
+        ordinaryItems: items.filter((item) => item.pricingSource !== 'offer'),
+        awardItems: items.filter((item) => item.pricingSource === 'offer'),
         itemCount: items.reduce((total, item) => total + item.quantity, 0),
         subtotals: sumMoneyByAsset(
-          items.flatMap((item) => {
-            const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-            const price =
-              variant?.priceOverride ??
-              (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
-            return price ? [{ money: price, quantity: item.quantity }] : [];
-          }),
+          items
+            .filter((item) => item.pricingSource !== 'offer')
+            .flatMap((item) => {
+              const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+              const price =
+                variant?.priceOverride ??
+                (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+              return price ? [{ money: price, quantity: item.quantity }] : [];
+            }),
         ),
         isLoading: view.isLoading,
         add: vi.fn(),
         update: cartActions.update,
         remove: cartActions.remove,
         clear: vi.fn(),
-        groups: actual.groupMarketplaceCartItems(items as never),
+        groups: actual.groupMarketplaceCartItems(items.filter((item) => item.pricingSource !== 'offer') as never),
       };
     },
   };
@@ -457,7 +462,66 @@ describe('MarketplaceCart', () => {
     await user.click(screen.getByRole('button', { name: 'Increase Vintage boots quantity' }));
     expect(cartActions.update).toHaveBeenCalledWith(listing.id, 'variant_42', 2);
 
-    await user.click(screen.getByRole('button', { name: 'Remove Vintage boots' }));
+    const ordinaryGroup = screen.getByRole('region', { name: `Cart items from ${listing.record.ownerPubky}` });
+    await user.click(within(ordinaryGroup).getByRole('button', { name: 'Remove Vintage boots' }));
+    expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42');
+  });
+
+  it('renders award lines in their own fixed-term group and excludes them from Place order totals', () => {
+    seededCart();
+    view.items = [
+      ...(view.items as unknown[]),
+      {
+        id: 'seller:boots:award-1',
+        listingId: listing.id,
+        variantId: 'variant_42',
+        quantity: 1,
+        awardId: 'award-1',
+        pricingSource: 'offer',
+        listing,
+      },
+    ];
+
+    render(<MarketplaceCart />);
+
+    const awardGroup = screen.getByRole('region', { name: 'Accepted offer checkout' });
+    expect(awardGroup).toHaveAttribute('data-surface', 'marketplace-award-cart-group');
+    expect(within(awardGroup).getByText('Accepted offer')).toBeInTheDocument();
+    expect(within(awardGroup).getByText('Quantity and variant are fixed at the accepted offer.')).toBeInTheDocument();
+    expect(within(awardGroup).getByRole('link', { name: 'Pay agreed price' })).toHaveAttribute(
+      'href',
+      '/marketplace/award-checkout?offer=award-1',
+    );
+    expect(within(awardGroup).queryByRole('button', { name: /Increase|Decrease/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Place sandbox order' })).toBeInTheDocument();
+    expect(screen.getAllByText('$12.00').length).toBeGreaterThan(0);
+    expect(screen.queryByText('$24.00')).not.toBeInTheDocument();
+  });
+
+  it('removes award and ordinary rows by their distinct identities', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.items = [
+      ...(view.items as unknown[]),
+      {
+        id: 'seller:boots:award-1',
+        listingId: listing.id,
+        variantId: 'variant_42',
+        quantity: 1,
+        awardId: 'award-1',
+        pricingSource: 'offer',
+        listing,
+      },
+    ];
+
+    render(<MarketplaceCart />);
+
+    const awardGroup = screen.getByRole('region', { name: 'Accepted offer checkout' });
+    await user.click(within(awardGroup).getByRole('button', { name: 'Remove Vintage boots' }));
+    expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42', 'award-1');
+
+    const ordinaryGroup = screen.getByRole('region', { name: `Cart items from ${listing.record.ownerPubky}` });
+    await user.click(within(ordinaryGroup).getByRole('button', { name: 'Remove Vintage boots' }));
     expect(cartActions.remove).toHaveBeenCalledWith(listing.id, 'variant_42');
   });
 });

@@ -44,7 +44,9 @@ export function MarketplaceCart() {
     item.listing.record.media.filter(({ type }) => type === 'image').map(({ url }) => url),
   );
   const cartMediaUrls = useMarketplaceFirstMediaUrls(cartMediaUris);
-  const checkout = useMarketplaceCheckout(cart.items, cart.clear);
+  const ordinaryItems = cart.ordinaryItems ?? cart.items;
+  const awardItems = cart.awardItems ?? [];
+  const checkout = useMarketplaceCheckout(ordinaryItems, cart.clear);
   const adapterMode = getCommerceAdapterMode();
   const isSandbox = adapterMode === 'sandbox';
   const isStaging = getDeployEnv() === 'staging';
@@ -105,6 +107,50 @@ export function MarketplaceCart() {
           <div className="grid gap-6 lg:grid-cols-[1fr_420px]" data-surface="marketplace-cart">
             <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
               <div className="flex flex-col gap-4" data-testid="marketplace-cart-items">
+                {awardItems.map((item) => {
+                  const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+                  return (
+                    <section
+                      key={item.id}
+                      className="grid gap-3"
+                      aria-label="Accepted offer checkout"
+                      data-surface="marketplace-award-cart-group"
+                    >
+                      <Heading level={2} size="sm" className="text-xl font-semibold">
+                        Accepted offer
+                      </Heading>
+                      <Card className="border py-4">
+                        <CardContent className="flex flex-col gap-4 px-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <Typography as="p" className="font-semibold">
+                              {item.listing.record.title}
+                            </Typography>
+                            <Typography as="p" className="text-sm text-muted-foreground">
+                              {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'} · Quantity{' '}
+                              {item.quantity}
+                            </Typography>
+                            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                              Quantity and variant are fixed at the accepted offer.
+                            </Typography>
+                          </div>
+                          <Button asChild className="rounded-full">
+                            <Link href={`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${item.awardId}`} overrideDefaults>
+                              Pay agreed price
+                            </Link>
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            aria-label={`Remove ${item.listing.record.title}`}
+                            onClick={() => void cart.remove(item.listingId, item.variantId, item.awardId ?? undefined)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    </section>
+                  );
+                })}
                 {/* Nothing ships on a pickup-only checkout — the shipping note
                   would be a lie there (§A2). */}
                 {checkout.requiresDeliveryAddress && (
@@ -368,81 +414,70 @@ export function MarketplaceCart() {
               )}
             </div>
 
-            <Card
-              className="h-fit border lg:col-start-2 lg:row-start-1 lg:self-start"
-              data-testid="marketplace-cart-summary"
-            >
-              <CardContent className="grid gap-6 px-6">
-                <section className="grid gap-4" aria-label="Guarantee">
-                  <Heading level={2} size="sm" className="text-xl font-semibold">
-                    Guarantee
-                  </Heading>
-                  {!checkout.requiresDeliveryAddress && (
-                    <div className="rounded-xl border bg-card/60 p-4">
-                      <Typography as="p" className="text-sm font-medium">
-                        Local pickup
-                      </Typography>
-                      <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                        No delivery address is needed — every item in this cart is collected in person. The
-                        seller&apos;s meeting point is revealed on the order as soon as your payment confirms.
-                      </Typography>
-                    </div>
-                  )}
-                  <Controller
-                    name="acceptsGuarantee"
-                    control={checkout.form.control}
-                    render={({ field, fieldState }) => (
-                      <div className="grid gap-2">
-                        <Label className="items-start gap-3">
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            onBlur={field.onBlur}
-                            aria-invalid={fieldState.error ? true : undefined}
-                          />
-                          <span>
-                            {/* The guarantee copy must stay truthful per mode: only
-                            locks-paykit has live payment rails, and even there the
-                            marketplace never holds or moves funds itself. */}
-                            {isSandbox
-                              ? 'I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.'
-                              : isLocksPaykitCommerceMode(adapterMode)
-                                ? 'I accept guarantee policy v1. This is not legal escrow — payment goes from your wallet directly to the seller, and this marketplace never holds funds.'
-                                : 'I accept guarantee policy v1. This is not legal escrow, and no payment rails are live in this deployment — no real funds move.'}
-                          </span>
-                        </Label>
-                        {fieldState.error && (
-                          <Typography as="p" role="alert" className="text-sm text-destructive">
-                            {fieldState.error.message}
-                          </Typography>
-                        )}
+            {ordinaryItems.length > 0 && (
+              <Card
+                className="h-fit border lg:col-start-2 lg:row-start-1 lg:self-start"
+                data-testid="marketplace-cart-summary"
+              >
+                <CardContent className="grid gap-6 px-6">
+                  <section className="grid gap-4" aria-label="Guarantee">
+                    <Heading level={2} size="sm" className="text-xl font-semibold">
+                      Guarantee
+                    </Heading>
+                    {!checkout.requiresDeliveryAddress && (
+                      <div className="rounded-xl border bg-card/60 p-4">
+                        <Typography as="p" className="text-sm font-medium">
+                          Local pickup
+                        </Typography>
+                        <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                          No delivery address is needed — every item in this cart is collected in person. The
+                          seller&apos;s meeting point is revealed on the order as soon as your payment confirms.
+                        </Typography>
                       </div>
                     )}
-                  />
-                </section>
+                    <Controller
+                      name="acceptsGuarantee"
+                      control={checkout.form.control}
+                      render={({ field, fieldState }) => (
+                        <div className="grid gap-2">
+                          <Label className="items-start gap-3">
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              onBlur={field.onBlur}
+                              aria-invalid={fieldState.error ? true : undefined}
+                            />
+                            <span>
+                              {/* The guarantee copy must stay truthful per mode: only
+                            locks-paykit has live payment rails, and even there the
+                            marketplace never holds or moves funds itself. */}
+                              {isSandbox
+                                ? 'I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.'
+                                : isLocksPaykitCommerceMode(adapterMode)
+                                  ? 'I accept guarantee policy v1. This is not legal escrow — payment goes from your wallet directly to the seller, and this marketplace never holds funds.'
+                                  : 'I accept guarantee policy v1. This is not legal escrow, and no payment rails are live in this deployment — no real funds move.'}
+                            </span>
+                          </Label>
+                          {fieldState.error && (
+                            <Typography as="p" role="alert" className="text-sm text-destructive">
+                              {fieldState.error.message}
+                            </Typography>
+                          )}
+                        </div>
+                      )}
+                    />
+                  </section>
 
-                <section className="grid gap-3 border-t pt-4" aria-label="3 Place order">
-                  <Heading level={2} size="sm" className="text-xl font-semibold">
-                    3 Place order
-                  </Heading>
-                  <div className="flex justify-between">
-                    <Typography as="span">Items</Typography>
-                    {/* One line per pricing asset: USD cents and bitcoin base
-                        units are never summed into one false number. */}
-                    <div className="flex flex-col items-end">
-                      {cart.subtotals.map((subtotal) => (
-                        <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
-                          {formatCommerceMoney(subtotal)}{' '}
-                          <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
-                        </Typography>
-                      ))}
-                    </div>
-                  </div>
-                  {shipping.totals.length > 0 && (
+                  <section className="grid gap-3 border-t pt-4" aria-label="3 Place order">
+                    <Heading level={2} size="sm" className="text-xl font-semibold">
+                      3 Place order
+                    </Heading>
                     <div className="flex justify-between">
-                      <Typography as="span">Shipping</Typography>
+                      <Typography as="span">Items</Typography>
+                      {/* One line per pricing asset: USD cents and bitcoin base
+                        units are never summed into one false number. */}
                       <div className="flex flex-col items-end">
-                        {shipping.totals.map((subtotal) => (
+                        {cart.subtotals.map((subtotal) => (
                           <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
                             {formatCommerceMoney(subtotal)}{' '}
                             <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
@@ -450,73 +485,90 @@ export function MarketplaceCart() {
                         ))}
                       </div>
                     </div>
-                  )}
-                  <div className="flex justify-between border-t pt-3">
-                    <Typography as="span" className="font-semibold">
-                      Total
-                    </Typography>
-                    <div className="flex flex-col items-end">
-                      {totalSubtotals.map((subtotal) => (
-                        <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
-                          {formatCommerceMoney(subtotal)}{' '}
-                          <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
-                        </Typography>
-                      ))}
+                    {shipping.totals.length > 0 && (
+                      <div className="flex justify-between">
+                        <Typography as="span">Shipping</Typography>
+                        <div className="flex flex-col items-end">
+                          {shipping.totals.map((subtotal) => (
+                            <Typography
+                              key={`${subtotal.currency}:${subtotal.exponent}`}
+                              as="span"
+                              className="font-bold"
+                            >
+                              {formatCommerceMoney(subtotal)}{' '}
+                              <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
+                            </Typography>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t pt-3">
+                      <Typography as="span" className="font-semibold">
+                        Total
+                      </Typography>
+                      <div className="flex flex-col items-end">
+                        {totalSubtotals.map((subtotal) => (
+                          <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
+                            {formatCommerceMoney(subtotal)}{' '}
+                            <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
+                          </Typography>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <Typography as="p" className="text-xs text-muted-foreground">
-                    {shipping.hasCalculatedShipping
-                      ? 'Shipping calculated at checkout for the items that ship.'
-                      : shipping.totals.length > 0
-                        ? 'Shipping is shown from each seller’s configured flat or free option.'
-                        : checkout.requiresDeliveryAddress
-                          ? 'Shipping is calculated authoritatively at checkout for the items that ship.'
-                          : 'No shipping — pickup is arranged with the seller after payment.'}
-                  </Typography>
-                  {/* The (seller, fulfillment) split, stated plainly before
-                      submit (§A2): one order per seller group. */}
-                  {checkout.orderCount > 1 && (
                     <Typography as="p" className="text-xs text-muted-foreground">
-                      This places {checkout.orderCount} orders — one per seller and delivery method.
+                      {shipping.hasCalculatedShipping
+                        ? 'Shipping calculated at checkout for the items that ship.'
+                        : shipping.totals.length > 0
+                          ? 'Shipping is shown from each seller’s configured flat or free option.'
+                          : checkout.requiresDeliveryAddress
+                            ? 'Shipping is calculated authoritatively at checkout for the items that ship.'
+                            : 'No shipping — pickup is arranged with the seller after payment.'}
                     </Typography>
-                  )}
-                  {isStaging ? (
-                    <Typography
-                      as="p"
-                      role="note"
-                      className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+                    {/* The (seller, fulfillment) split, stated plainly before
+                      submit (§A2): one order per seller group. */}
+                    {checkout.orderCount > 1 && (
+                      <Typography as="p" className="text-xs text-muted-foreground">
+                        This places {checkout.orderCount} orders — one per seller and delivery method.
+                      </Typography>
+                    )}
+                    {isStaging ? (
+                      <Typography
+                        as="p"
+                        role="note"
+                        className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+                      >
+                        Staging environment — test rails, no real funds move
+                      </Typography>
+                    ) : (
+                      <Typography
+                        as="p"
+                        role="note"
+                        className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+                      >
+                        Real money. Payments are final and go directly to the seller.
+                      </Typography>
+                    )}
+                    <Button
+                      className="w-full rounded-full"
+                      onClick={submit}
+                      disabled={!canPlaceOrder}
+                      aria-describedby={!canPlaceOrder ? 'place-order-reason' : undefined}
                     >
-                      Staging environment — test rails, no real funds move
-                    </Typography>
-                  ) : (
-                    <Typography
-                      as="p"
-                      role="note"
-                      className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
-                    >
-                      Real money. Payments are final and go directly to the seller.
-                    </Typography>
-                  )}
-                  <Button
-                    className="w-full rounded-full"
-                    onClick={submit}
-                    disabled={!canPlaceOrder}
-                    aria-describedby={!canPlaceOrder ? 'place-order-reason' : undefined}
-                  >
-                    {isSandbox ? 'Place sandbox order' : 'Place order'}
-                  </Button>
-                  {!canPlaceOrder && (
-                    <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
-                      {approvalNeeded
-                        ? 'Approve purchases in Pubky Ring before placing the order.'
-                        : checkout.hasFulfillmentConflict
-                          ? "Some items can't be checked out together — see the note in your cart."
-                          : 'Fill in delivery details and accept the guarantee to place the order.'}
-                    </Typography>
-                  )}
-                </section>
-              </CardContent>
-            </Card>
+                      {isSandbox ? 'Place sandbox order' : 'Place order'}
+                    </Button>
+                    {!canPlaceOrder && (
+                      <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
+                        {approvalNeeded
+                          ? 'Approve purchases in Pubky Ring before placing the order.'
+                          : checkout.hasFulfillmentConflict
+                            ? "Some items can't be checked out together — see the note in your cart."
+                            : 'Fill in delivery details and accept the guarantee to place the order.'}
+                      </Typography>
+                    )}
+                  </section>
+                </CardContent>
+              </Card>
+            )}
           </div>
         ) : (
           <div

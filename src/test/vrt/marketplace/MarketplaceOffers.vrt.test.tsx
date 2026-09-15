@@ -52,8 +52,22 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', async () => {
   };
 });
 
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
+  useMarketplaceCart: () => ({
+    addAward: vi.fn(async () => true),
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: () => 3,
+}));
+
+vi.mock('@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook', () => ({
+  useMarketplaceAddressBook: () => ({ addresses: [], isLoading: false, error: null }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
+  useMarketplaceOfferCheckout: () => ({ submit: vi.fn(async () => false) }),
 }));
 
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({

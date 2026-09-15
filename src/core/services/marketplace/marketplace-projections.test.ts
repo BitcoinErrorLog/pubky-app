@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
+import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
+import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE, createOfferFixture } from '@/test/fixtures/commerce/offers';
 import { createBitcoinQuotedOrderFixture, createOrderFixture } from '@/test/fixtures/commerce/orders';
+import { LIVE_OFFER_ORDER_WIRE_FIXTURE } from '@/test/fixtures/commerce/orders-award.wire';
 import {
   createAuctionProjectionFixture,
   createViewerBidAuctionProjectionFixture,
 } from '@/test/fixtures/commerce/projections';
 import {
+  isMarketplaceAwardCheckoutEligible,
   marketplaceBitcoinQuoteSchema,
   marketplaceListingProjectionSchema,
+  marketplaceOfferSchema,
   marketplaceOrderProjectionSchema,
   marketplaceOrderSchema,
 } from './marketplace-projections';
@@ -102,6 +107,115 @@ describe('marketplace order projection — Bitcoin quote', () => {
   it('relies on installed Zod to reject unsafe integers', () => {
     expect(Number.MAX_SAFE_INTEGER + 1).toBeGreaterThan(Number.MAX_SAFE_INTEGER);
     expect(marketplaceBitcoinQuoteSchema.shape.quotedSats.safeParse(Number.MAX_SAFE_INTEGER + 1).success).toBe(false);
+  });
+});
+
+describe('marketplace order projection — offer-priced orders', () => {
+  it('parses the captured offer-priced order through wire casing', () => {
+    const parsed = marketplaceOrderSchema.safeParse(toCamelCaseWire(LIVE_OFFER_ORDER_WIRE_FIXTURE));
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.pricedFrom).toBe('offer');
+      expect(parsed.data.offerAwardId).toBe('bf50a192-3b30-46af-9c41-909b2bf7f784');
+      expect(parsed.data.lines[0]).toMatchObject({
+        pricedFrom: 'offer',
+        offerId: '9ff7f42a-4380-4144-b7d6-3ac6ec7b4a56',
+        awardId: 'bf50a192-3b30-46af-9c41-909b2bf7f784',
+      });
+    }
+  });
+
+  it('keeps ordinary order fixtures parsing unchanged', () => {
+    expect(marketplaceOrderSchema.safeParse(createOrderFixture('pending_payment')).success).toBe(true);
+    expect(marketplaceOrderSchema.safeParse(createBitcoinQuotedOrderFixture()).success).toBe(true);
+  });
+});
+
+describe('marketplace offer projection — award degradation', () => {
+  it('parses the accepted award wire fixture through casing and the offer schema', () => {
+    const parsed = marketplaceOfferSchema.safeParse(
+      toCamelCaseWire({
+        ...createOfferFixture('accepted'),
+        award: {
+          ...ACCEPTED_OFFER_AWARD_WIRE_FIXTURE,
+          id: '018f47d2-6a27-7c23-b51e-000000000902',
+        },
+      }),
+    );
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.award).toMatchObject({
+        subtotal: { amountMinor: expect.any(Number) },
+        shipping: { amountMinor: expect.any(Number) },
+        merchandiseTotal: { amountMinor: expect.any(Number) },
+        unitPrice: { amountMinor: expect.any(Number) },
+      });
+    }
+  });
+
+  const offer = {
+    id: '018f47d2-6a27-7c23-b51e-000000000001',
+    aggregateId: 'offer:018f47d2-6a27-7c23-b51e-000000000002',
+    listingAggregateId: 'listing:' + 's'.repeat(52) + '_boots',
+    buyerPubky: 'b'.repeat(52),
+    sellerPubky: 's'.repeat(52),
+    revision: 2,
+    state: 'accepted',
+    offeredBy: 'b'.repeat(52),
+    amount: { amountMinor: 1000, currency: 'USD', exponent: 2 },
+    quantity: 1,
+    message: '',
+    expiresAt: '2026-09-16T00:00:00.000Z',
+    updatedAt: '2026-09-15T00:00:00.000Z',
+    award: {
+      id: '018f47d2-6a27-7c23-b51e-000000000003',
+      state: 'active',
+      listing: {
+        aggregateId: 'listing:' + 's'.repeat(52) + '_boots',
+        sellerPubky: 's'.repeat(52),
+        listingId: 'boots',
+        title: 'Boots',
+        listingRevision: 1,
+        listingRecordSha256: 'a'.repeat(64),
+      },
+      variant: { id: 'variant_1', sku: null, options: [] },
+      unitPrice: { amountMinor: 1000, currency: 'USD', exponent: 2 },
+      quantity: 1,
+      acceptedAt: '2026-09-15T00:00:00.000Z',
+      convertBy: '2026-09-15T00:30:00.000Z',
+      convertedOrderId: null,
+      subtotal: { amountMinor: 1000, currency: 'USD', exponent: 2 },
+      shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
+      merchandiseTotal: { amountMinor: 1100, currency: 'USD', exponent: 2 },
+    },
+  };
+
+  it('keeps a valid award on the accepted row', () => {
+    expect(marketplaceOfferSchema.parse(offer).award?.id).toBe(offer.award.id);
+  });
+
+  it('drops only a malformed optional award', () => {
+    const parsed = marketplaceOfferSchema.parse({ ...offer, award: { id: 'not-a-uuid' } });
+    expect(parsed.state).toBe('accepted');
+    expect(parsed.award).toBeUndefined();
+  });
+
+  it.each(['subtotal', 'shipping', 'merchandiseTotal'])('drops an award missing %s', (field) => {
+    const award = { ...offer.award };
+    delete award[field as keyof typeof award];
+    const parsed = marketplaceOfferSchema.parse({ ...offer, award });
+    expect(parsed.award).toBeUndefined();
+  });
+
+  it('drops an award whose money fields use different currency or exponent', () => {
+    const parsed = marketplaceOfferSchema.parse({
+      ...offer,
+      award: { ...offer.award, shipping: { amountMinor: 100, currency: 'EUR', exponent: 2 } },
+    });
+    expect(parsed.award).toBeDefined();
+    expect(isMarketplaceAwardCheckoutEligible(parsed.award)).toBe(false);
   });
 });
 

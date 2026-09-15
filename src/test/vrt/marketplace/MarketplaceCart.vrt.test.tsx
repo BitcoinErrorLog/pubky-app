@@ -91,6 +91,7 @@ interface CartItemMoneyLike {
 interface CartItemLike {
   quantity: number;
   variantId: string;
+  pricingSource?: 'listing' | 'offer';
   listing: {
     record: {
       variants: Array<{ id: string; priceOverride?: CartItemMoneyLike }>;
@@ -177,6 +178,8 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
       const items = view.items as CartItemLike[];
       return {
         items,
+        ordinaryItems: items.filter((item) => item.pricingSource !== 'offer'),
+        awardItems: items.filter((item) => item.pricingSource === 'offer'),
         itemCount: items.reduce((total, item) => total + item.quantity, 0),
         subtotals: sumMoneyByAsset(
           items.flatMap((item) => {
@@ -192,7 +195,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
         update: vi.fn(),
         remove: vi.fn(),
         clear: vi.fn(),
-        groups: actual.groupMarketplaceCartItems(items as never),
+        groups: actual.groupMarketplaceCartItems(items.filter((item) => item.pricingSource !== 'offer') as never),
       };
     },
   };
@@ -458,5 +461,24 @@ describe('Marketplace cart — visual regression', () => {
     await captureCart('cart-durable-unapproved-desktop');
     view.adapterMode = 'sandbox';
     view.hasMarketplaceSession = false;
+  });
+
+  it('renders an accepted-offer group without mixing it into ordinary checkout', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = [
+      ...singleSeller,
+      {
+        ...singleSeller[0],
+        id: 'award-cart-line',
+        awardId: '00000000-0000-0000-0000-000000000902',
+        pricingSource: 'offer',
+      },
+    ];
+    view.isLoading = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const surface = expectVrtSurface('marketplace-cart');
+    expect(document.querySelector('[data-surface="marketplace-award-cart-group"]')).toBeTruthy();
+    await expect(surface).toMatchScreenshot('cart-award-group-desktop');
   });
 });

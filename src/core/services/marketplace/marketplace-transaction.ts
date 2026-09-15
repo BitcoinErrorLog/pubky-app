@@ -136,6 +136,7 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'offer.create',
   'offer.counter',
   'offer.accept',
+  'offer.checkout',
   'offer.reject',
   'offer.withdraw',
   'auction.place_bid',

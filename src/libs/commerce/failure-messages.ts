@@ -6,6 +6,9 @@ import { ErrorCategory } from '@/libs/error/error.types';
 export const MARKETPLACE_FAILURE_MESSAGES = {
   offer: 'Could not update this offer.',
   offerChanged: 'This offer changed since you loaded it. The latest state was reloaded — retry from there.',
+  offerCheckoutUnavailable: 'Checkout for this offer is unavailable.',
+  offerExpired: 'This accepted offer expired before the order was placed. Nothing was ordered.',
+  offerAlreadyConverted: 'This accepted offer has already been converted to an order.',
   sendOffer: 'Could not send this offer.',
   counterOffer: 'Could not send this counteroffer.',
   bid: 'Could not place this bid.',
@@ -126,6 +129,19 @@ export function marketplaceBidFailureMessage(code: MarketplaceFailureCode): stri
   if (code === 'REVISION_CONFLICT') return MARKETPLACE_FAILURE_MESSAGES.bidStale;
   if (code === 'INVALID_STATE') return MARKETPLACE_FAILURE_MESSAGES.bidClosed;
   return MARKETPLACE_FAILURE_MESSAGES.bid;
+}
+
+export function marketplaceOfferCheckoutFailureMessage(code: MarketplaceFailureCode): string {
+  if (code === 'AWARD_EXPIRED') return MARKETPLACE_FAILURE_MESSAGES.offerExpired;
+  if (code === 'AWARD_ALREADY_CONVERTED' || code === 'REVISION_CONFLICT') {
+    return MARKETPLACE_FAILURE_MESSAGES.offerAlreadyConverted;
+  }
+  if (code === 'AWARD_QUANTITY_MISMATCH') return 'The checkout quantity does not match the accepted offer.';
+  if (code === 'AWARD_VARIANT_MISMATCH') return 'The checkout variant does not match the accepted offer.';
+  if (code === 'AWARD_LISTING_CHANGED') return 'The listing snapshot does not match the offer terms.';
+  if (code === 'AWARD_HOLD_MISSING') return 'The inventory reserved for this accepted offer is no longer held.';
+  if (code === 'INVALID_STATE') return 'Only an accepted offer can enter offer checkout.';
+  return MARKETPLACE_FAILURE_MESSAGES.checkout;
 }
 
 export function marketplaceErrorCode(error: unknown): string | null {

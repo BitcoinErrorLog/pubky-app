@@ -2,10 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
-import {
-  commercePubkySchema,
-  createCommerceCommandSchema,
-} from '../../../src/libs/commerce/transaction-contracts';
+import { commercePubkySchema, createCommerceCommandSchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
   type AdvanceSandboxPaymentCommand,
@@ -167,10 +164,7 @@ const setPickupDetailsCommandSchema = createCommerceCommandSchema(
  * non-terminal order; the version counter row survives (§A3). Same counter
  * CAS as `pickup_details.set`.
  */
-const clearPickupDetailsCommandSchema = createCommerceCommandSchema(
-  'pickup_details.clear',
-  z.object({}).strict(),
-);
+const clearPickupDetailsCommandSchema = createCommerceCommandSchema('pickup_details.clear', z.object({}).strict());
 
 const pickupOrderIdPayload = z.object({ orderId: z.uuid() }).strict();
 
@@ -472,7 +466,6 @@ export interface MarketplaceExternalRefund {
   recordedAt: string;
 }
 
-
 /** One sealed details version (§A1). Cleared listings keep referenced versions only (§A3 retention). */
 export interface MarketplacePickupDetailsVersion {
   listingAggregateId: string;
@@ -625,7 +618,7 @@ export interface MarketplaceEvent {
     | 'return.approved'
     | 'return.received'
     | 'refund.recorded_external'
-    | 'review.created'
+    | 'review.created';
   occurredAt: string;
 }
 
@@ -680,7 +673,7 @@ export type MarketplaceCommandSuccess = {
         /** The surviving per-listing version counter (post-clear CAS target, §A3). */
         version: number;
         details: MarketplacePickupDetailsVersion | null;
-      }
+      };
 };
 
 /** The verification worker's confirmation of a payment (non-sandbox deployments only). */
@@ -961,7 +954,6 @@ export class InMemoryMarketplaceRepository {
     return this.receipts.get(id);
   }
 
-
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
     return this.commands.get(`${actorPubky}:${commandId}`);
   }
@@ -1095,7 +1087,6 @@ export class MarketplaceTransactionService {
     return receipt && (receipt.recipientPubky === actorPubky || receipt.issuerPubky === actorPubky) ? receipt : null;
   }
 
-
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
     const commandResult = prototypeMarketplaceCommandSchema.safeParse(commandInput);
@@ -1167,6 +1158,8 @@ export class MarketplaceTransactionService {
         return this.counterOffer(actorPubky, command);
       case 'offer.accept':
         return this.acceptOffer(actorPubky, command);
+      case 'offer.checkout':
+        return failure('INVALID_STATE', 'Only an accepted offer can enter offer checkout.');
       case 'offer.reject':
         return this.rejectOffer(actorPubky, command);
       case 'offer.withdraw':
@@ -2190,7 +2183,10 @@ export class MarketplaceTransactionService {
         confirmations: Math.max(1, payment.confirmations),
         updatedAt: occurredAt,
       };
-      const commandRef = { commandId: `worker:${payment.id}`, aggregateId: buildMarketplacePaymentAggregateId(payment.id) };
+      const commandRef = {
+        commandId: `worker:${payment.id}`,
+        aggregateId: buildMarketplacePaymentAggregateId(payment.id),
+      };
       const paymentEvent = this.createEvent(
         SERVER_ACTOR_PUBKY,
         commandRef,
@@ -2209,7 +2205,10 @@ export class MarketplaceTransactionService {
         [paymentEvent.id],
       );
       if (!result.ok || result.result.kind !== 'payment' || !result.result.receipt) {
-        return { ok: false as const, error: { code: 'INVARIANT_VIOLATION' as const, message: 'Worker confirmation failed.' } };
+        return {
+          ok: false as const,
+          error: { code: 'INVARIANT_VIOLATION' as const, message: 'Worker confirmation failed.' },
+        };
       }
       return {
         ok: true as const,
@@ -2591,8 +2590,6 @@ export class MarketplaceTransactionService {
     );
   }
 
-
-
   private setPickupDetails(actorPubky: string, command: SetPickupDetailsCommand): MarketplaceCommandResult {
     // Deployment boundary (§A7/§A8): refused whenever sandbox payments are
     // enabled, so no real meeting point is stored against fake money.
@@ -2762,7 +2759,10 @@ export class MarketplaceTransactionService {
    * withdrawal window.
    */
   revealPickupDetails(actorPubky: string, orderId: string): MarketplacePickupRevealResult {
-    const refuse = (code: MarketplaceCommandFailure['error']['code'], message: string): MarketplacePickupRevealResult => ({
+    const refuse = (
+      code: MarketplaceCommandFailure['error']['code'],
+      message: string,
+    ): MarketplacePickupRevealResult => ({
       ok: false,
       error: { code, message },
     });
@@ -2792,7 +2792,10 @@ export class MarketplaceTransactionService {
       snapshot: this.repository.getPickupSnapshot(order.id, lineIndex),
     }));
     if (snapshots.some(({ snapshot }) => snapshot?.pinnedAdapter === 'sandbox_advance')) {
-      return refuse('INVALID_STATE', 'The order was confirmed under sandbox_advance; its meeting point is never revealed.');
+      return refuse(
+        'INVALID_STATE',
+        'The order was confirmed under sandbox_advance; its meeting point is never revealed.',
+      );
     }
     // Binding assertion (§A3): the snapshot served for a line must be the
     // one pinned FOR that line — bound to (order id ‖ line index ‖
@@ -2846,7 +2849,10 @@ export class MarketplaceTransactionService {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'The listing is not registered.' } };
     }
     if (listing.sellerPubky !== actorPubky) {
-      return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Only the listing seller may read its pickup details.' } };
+      return {
+        ok: false,
+        error: { code: 'UNAUTHORIZED', message: 'Only the listing seller may read its pickup details.' },
+      };
     }
     const current = this.repository.getCurrentPickupDetails(listingAggregateId);
     return {
@@ -2935,7 +2941,9 @@ export class MarketplaceTransactionService {
   ): void {
     for (const order of this.repository.getAllOrders()) {
       if (order.fulfillment !== 'pickup' || !order.receiptId || isTerminalForPickupRetention(order)) continue;
-      if (!order.lines.some((line) => line.fulfillment === 'pickup' && line.listingAggregateId === listingAggregateId)) {
+      if (
+        !order.lines.some((line) => line.fulfillment === 'pickup' && line.listingAggregateId === listingAggregateId)
+      ) {
         continue;
       }
       this.notify(order.buyerPubky, actorPubky, type, `order:${order.id}`, occurredAt);
@@ -2951,7 +2959,8 @@ export class MarketplaceTransactionService {
           order.receiptId !== null &&
           !isTerminalForPickupRetention(order) &&
           order.lines.some(
-            (line) => line.listingAggregateId === version.listingAggregateId && line.versionAtPayment === version.version,
+            (line) =>
+              line.listingAggregateId === version.listingAggregateId && line.versionAtPayment === version.version,
           ),
       );
   }
@@ -3025,7 +3034,6 @@ export class MarketplaceTransactionService {
     this.notify(review.subjectPubky, actorPubky, 'review_received', `order:${order.id}`, occurredAt);
     return success(command, updated.revision, event.id, { kind: 'review', order: updated, review });
   }
-
 
   private getOrderAction(
     actorPubky: string,
@@ -3296,7 +3304,12 @@ export function buildPrototypeStateMachineDocument(): {
           {
             from: 'available',
             to: 'reserved',
-            via: [command('inventory.reserve'), command('checkout.create'), command('offer.accept'), command('auction.close')],
+            via: [
+              command('inventory.reserve'),
+              command('checkout.create'),
+              command('offer.accept'),
+              command('auction.close'),
+            ],
           },
           {
             from: 'reserved',
@@ -3316,7 +3329,14 @@ export function buildPrototypeStateMachineDocument(): {
             via: [command('order.cancel_request'), command('order.cancel_approve')],
           },
         ],
-        commands: ['listing.register', 'listing.sync', 'inventory.reserve', 'checkout.create', 'offer.accept', 'auction.close'],
+        commands: [
+          'listing.register',
+          'listing.sync',
+          'inventory.reserve',
+          'checkout.create',
+          'offer.accept',
+          'auction.close',
+        ],
         unreachable_states: [],
       },
       {
@@ -3326,7 +3346,11 @@ export function buildPrototypeStateMachineDocument(): {
         transitions: [
           { from: 'active', to: 'expired', via: [server('reservation_expiry')] },
           { from: 'active', to: 'released', via: [command('order.cancel_request'), command('order.cancel_approve')] },
-          { from: 'active', to: 'converted', via: [command('payment.sandbox_advance'), server('payment_confirmation')] },
+          {
+            from: 'active',
+            to: 'converted',
+            via: [command('payment.sandbox_advance'), server('payment_confirmation')],
+          },
         ],
         commands: ['inventory.reserve'],
         unreachable_states: [],
@@ -3382,8 +3406,16 @@ export function buildPrototypeStateMachineDocument(): {
         ],
         initial: 'pending_payment',
         transitions: [
-          { from: 'pending_payment', to: 'paid', via: [command('payment.sandbox_advance'), server('payment_confirmation')] },
-          { from: 'pending_payment', to: 'cancelled', via: [command('order.cancel_request'), server('payment_window')] },
+          {
+            from: 'pending_payment',
+            to: 'paid',
+            via: [command('payment.sandbox_advance'), server('payment_confirmation')],
+          },
+          {
+            from: 'pending_payment',
+            to: 'cancelled',
+            via: [command('order.cancel_request'), server('payment_window')],
+          },
           { from: 'paid', to: 'shipped', via: [command('fulfillment.ship')] },
           // Wave 7 pickup path (§A6): everything below this row is additive;
           // the shipped-order edges behave exactly as before.
@@ -3432,9 +3464,21 @@ export function buildPrototypeStateMachineDocument(): {
         initial: 'awaiting_entitlement',
         transitions: [
           { from: 'awaiting_entitlement', to: 'detected', via: [command('payment.sandbox_advance')] },
-          { from: 'awaiting_entitlement', to: 'confirmed', via: [command('payment.sandbox_advance'), server('locks_verification')] },
-          { from: 'awaiting_entitlement', to: 'expired', via: [command('payment.sandbox_advance'), server('payment_window')] },
-          { from: 'awaiting_entitlement', to: 'manual_review', via: [command('payment.sandbox_advance'), server('locks_verification')] },
+          {
+            from: 'awaiting_entitlement',
+            to: 'confirmed',
+            via: [command('payment.sandbox_advance'), server('locks_verification')],
+          },
+          {
+            from: 'awaiting_entitlement',
+            to: 'expired',
+            via: [command('payment.sandbox_advance'), server('payment_window')],
+          },
+          {
+            from: 'awaiting_entitlement',
+            to: 'manual_review',
+            via: [command('payment.sandbox_advance'), server('locks_verification')],
+          },
           { from: 'detected', to: 'confirmed', via: [command('payment.sandbox_advance')] },
           { from: 'detected', to: 'manual_review', via: [command('payment.sandbox_advance')] },
           { from: 'expired', to: 'manual_review', via: [server('locks_late_completion')] },
@@ -3459,10 +3503,18 @@ export function buildPrototypeStateMachineDocument(): {
         states: ['announced', 'live', 'ended_sold_out', 'ended_closed', 'ended_cancelled'],
         initial: 'announced',
         transitions: [
-          { from: 'announced', to: 'live', via: [command('inventory.reserve'), command('checkout.create'), server('drop_start')] },
+          {
+            from: 'announced',
+            to: 'live',
+            via: [command('inventory.reserve'), command('checkout.create'), server('drop_start')],
+          },
           { from: 'announced', to: 'ended_closed', via: [server('drop_end')] },
           { from: 'live', to: 'ended_closed', via: [server('drop_end')] },
-          { from: 'live', to: 'ended_sold_out', via: [command('payment.sandbox_advance'), server('payment_confirmation')] },
+          {
+            from: 'live',
+            to: 'ended_sold_out',
+            via: [command('payment.sandbox_advance'), server('payment_confirmation')],
+          },
           { from: 'announced', to: 'ended_cancelled', via: [command('drop.cancel')] },
           { from: 'live', to: 'ended_cancelled', via: [command('drop.cancel')] },
         ],

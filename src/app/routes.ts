@@ -44,6 +44,7 @@ export enum MARKETPLACE_ROUTES {
   SELL = '/marketplace/sell',
   DASHBOARD = '/marketplace/dashboard',
   CART = '/marketplace/cart',
+  AWARD_CHECKOUT = '/marketplace/award-checkout',
   ORDERS = '/marketplace/orders',
   MESSAGES = '/marketplace/messages',
   OFFERS = '/marketplace/offers',

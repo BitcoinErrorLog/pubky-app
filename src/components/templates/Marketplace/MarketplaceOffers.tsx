@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, HandCoins } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -13,6 +14,8 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/marketplace-projections';
+import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
@@ -27,8 +30,10 @@ import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOffers() {
+  const router = useRouter();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const offers = useMarketplaceOffers();
+  const cart = useMarketplaceCart();
   const [countering, setCountering] = useState<MarketplaceOffer | null>(null);
   const { listings, isHydrating } = useOfferListings(offers.offers);
   const linkedOfferId = useOfferAnchor();
@@ -103,13 +108,56 @@ export function MarketplaceOffers() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Quantity {offer.quantity} · Expires {new Date(offer.expiresAt).toLocaleString('en-US')}
                       </Typography>
+                      {offer.award && offer.state === 'accepted' && offer.buyerPubky === currentUserPubky && (
+                        <Typography as="p" className="mt-2 text-sm text-brand">
+                          Accepted offer · {formatCommerceMoney(offer.award.unitPrice)} each · Quantity{' '}
+                          {offer.award.quantity} · Buy by {new Date(offer.award.convertBy).toLocaleString('en-US')}
+                        </Typography>
+                      )}
+                      {offer.state === 'accepted' &&
+                        offer.buyerPubky === currentUserPubky &&
+                        (!offer.award ||
+                          offer.award.state !== 'active' ||
+                          !isMarketplaceAwardCheckoutEligible(offer.award)) && (
+                          <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                            Checkout for this offer is unavailable.
+                          </Typography>
+                        )}
                       {offer.message && (
                         <Typography as="p" className="mt-2 text-sm">
                           “{offer.message}”
                         </Typography>
                       )}
                     </div>
-                    {actionable && (
+                    {offer.award &&
+                    offer.award.state === 'active' &&
+                    isMarketplaceAwardCheckoutEligible(offer.award) &&
+                    offer.state === 'accepted' &&
+                    offer.buyerPubky === currentUserPubky ? (
+                      <div className="flex flex-col items-start gap-2">
+                        <Button
+                          size="sm"
+                          className="rounded-full"
+                          onClick={async () => {
+                            const award = offer.award;
+                            if (!award || award.state !== 'active') return;
+                            const added = await cart.addAward(
+                              `${award.listing.sellerPubky}:${award.listing.listingId}`,
+                              award.variant.id,
+                              award.quantity,
+                              award.id,
+                              offer.revision,
+                            );
+                            if (added) router.push(`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${offer.id}`);
+                          }}
+                        >
+                          Buy for {formatCommerceMoney(offer.award.merchandiseTotal)}
+                        </Button>
+                        <Typography as="p" className="text-xs text-muted-foreground">
+                          Priced from your accepted offer
+                        </Typography>
+                      </div>
+                    ) : actionable ? (
                       <div className="flex flex-wrap gap-2">
                         {incoming ? (
                           <>
@@ -148,7 +196,7 @@ export function MarketplaceOffers() {
                           </Button>
                         )}
                       </div>
-                    )}
+                    ) : null}
                   </CardContent>
                 </Card>
               );
