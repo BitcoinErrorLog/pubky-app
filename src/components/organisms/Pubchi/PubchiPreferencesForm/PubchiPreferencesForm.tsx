@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { type Control, Controller } from 'react-hook-form';
+import { type Control, Controller, useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/atoms/Card/Card';
 import { Label } from '@/atoms/Label/Label';
@@ -31,8 +31,8 @@ export function PubchiPreferencesForm({ onSaved }: { onSaved?: (config: PubchiCo
   const [excludedInput, setExcludedInput] = useState('');
   const [topicError, setTopicError] = useState('');
   const [excludedError, setExcludedError] = useState('');
-  const topics = form.watch('topics');
-  const excludedTopics = form.watch('excluded_topics');
+  const topics = useWatch({ control: form.control, name: 'topics' }) ?? [];
+  const excludedTopics = useWatch({ control: form.control, name: 'excluded_topics' }) ?? [];
 
   const addTopic = () => {
     const label = topicInput.trim();

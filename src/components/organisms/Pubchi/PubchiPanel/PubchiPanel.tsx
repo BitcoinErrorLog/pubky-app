@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Bot } from 'lucide-react';
+import { useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent, CardTitle } from '@/atoms/Card/Card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Collapsible/Collapsible';
@@ -63,7 +64,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const feedBuilderProposal = usePubchiStore((state) => state.feedBuilder.proposal);
   const clearConversation = usePubchiStore((state) => state.clearConversation);
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
-  const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
+  const question = useWatch({ control: form.control, name: QUERY_FORM_FIELDS.QUESTION }) ?? '';
   const postReference = parsePostReference(question);
   const [suggestionTarget, setSuggestionTarget] = useState<PubchiTarget | undefined>();
   const [prefilledQuestion, setPrefilledQuestion] = useState<string>();
@@ -100,7 +101,15 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   }, [currentUserPubky, form, open, prefill]);
 
   useEffect(() => {
-    if (!prefilledQuestion || question === prefilledQuestion) return;
+    if (
+      !prefilledQuestion ||
+      question === prefilledQuestion ||
+      question === 'Suggest tags for this post' ||
+      question === 'Suggest tags for this user' ||
+      question.startsWith('Summarize this thread ')
+    ) {
+      return;
+    }
     setSuggestionTarget(undefined);
     setPrefilledQuestion(undefined);
   }, [prefilledQuestion, question]);

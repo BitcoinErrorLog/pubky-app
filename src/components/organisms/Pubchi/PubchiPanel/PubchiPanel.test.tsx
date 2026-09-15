@@ -10,6 +10,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+vi.mock('react-hook-form', () => ({
+  useWatch: () => watchedQuestion.value,
+}));
+
 vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
   RingApprovalDialog: () => null,
 }));
@@ -17,6 +21,7 @@ vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
 const submit = vi.fn();
 const reapprove = vi.fn();
 const setupDevice = vi.fn();
+const watchedQuestion = vi.hoisted(() => ({ value: '' }));
 const { getFeed, openFeedBuilder, closeFeedBuilder, closeFlyout } = vi.hoisted(() => ({
   getFeed: vi.fn(),
   openFeedBuilder: vi.fn(),
@@ -28,7 +33,6 @@ const hookState = {
   form: {
     control: {},
     getValues: () => ({ question: '' }),
-    watch: () => '',
     trigger: async () => true,
     setValue: vi.fn(),
   },
@@ -134,7 +138,10 @@ describe('PubchiPanel', () => {
     hookState.result = undefined;
     hookState.errorCode = undefined;
     hookState.form.setValue.mockReset();
-    hookState.form.watch = () => '';
+    hookState.form.setValue.mockImplementation((name, value) => {
+      if (name === 'question') watchedQuestion.value = value;
+    });
+    watchedQuestion.value = '';
     getFeed.mockReset();
     openFeedBuilder.mockReset();
     closeFeedBuilder.mockReset();
@@ -175,16 +182,17 @@ describe('PubchiPanel', () => {
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
   });
 
-  it('submits the canonical post target supplied by the route prefill', () => {
+  it('keeps the consumed post target through canonical button edits', () => {
     const target = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/POST123456789' };
     const question = `Summarize this thread ${target.uri}`;
-    hookState.form.watch = () => question;
+    watchedQuestion.value = question;
     const prefill = { question, source: 'post-menu' as const, target };
     PubchiController.openFlyout(prefill);
     render(<PubchiPanel open onOpenChange={() => {}} />);
     expect(screen.getByTestId('pubchi-suggest-tags')).toBeEnabled();
     expect(screen.getByTestId('pubchi-summarize-thread')).toBeEnabled();
     fireEvent.click(screen.getByTestId('pubchi-suggest-tags'));
+    expect(screen.getByTestId('pubchi-suggest-tags')).toBeInTheDocument();
     expect(submit).toHaveBeenCalledWith('ask', { target });
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', 'Suggest tags for this post', {
       shouldValidate: true,
@@ -194,7 +202,7 @@ describe('PubchiPanel', () => {
   it('submits the canonical user target supplied by the profile route', () => {
     const target = { kind: 'user' as const, uri: 'pubky://owner/pub/pubky.app/profile.json' };
     const prefill = { question: 'Suggest tags for this user', source: 'chip' as const, target };
-    hookState.form.watch = () => prefill.question;
+    watchedQuestion.value = prefill.question;
     PubchiController.openFlyout(prefill);
     render(<PubchiPanel open onOpenChange={() => {}} />);
     fireEvent.click(screen.getByTestId('pubchi-suggest-tags'));
@@ -205,17 +213,19 @@ describe('PubchiPanel', () => {
     const target = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/POST123456789' };
     const question = `Summarize this thread ${target.uri}`;
     let currentQuestion = question;
-    hookState.form.watch = () => currentQuestion;
+    watchedQuestion.value = currentQuestion;
     PubchiController.openFlyout({ question, source: 'post-menu', target });
     const view = render(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(screen.getByTestId('pubchi-suggest-tags')).toBeInTheDocument();
 
     currentQuestion = 'A different question';
+    watchedQuestion.value = currentQuestion;
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('pubchi-suggest-tags')).not.toBeInTheDocument());
 
     currentQuestion = question;
+    watchedQuestion.value = currentQuestion;
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
     expect(screen.queryByTestId('pubchi-suggest-tags')).not.toBeInTheDocument();
 
@@ -232,7 +242,7 @@ describe('PubchiPanel', () => {
     const owner = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
     const target = { kind: 'user' as const, uri: 'pubky://owner/pub/pubky.app/profile.json' };
     const question = 'Suggest tags for this user';
-    hookState.form.watch = () => question;
+    watchedQuestion.value = question;
     usePubchiStore.getState().setConfig(null, owner);
     usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'Previous question' }, owner);
     PubchiController.openFlyout({ question, source: 'chip', target });
