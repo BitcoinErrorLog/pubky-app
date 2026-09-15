@@ -3,7 +3,6 @@ import {
   APP_SIGNIN_CAPABILITIES,
   capabilitiesCoverPubchiWrite,
   PUBCHI_PRIVATE_DIRECTORY,
-  PUBCHI_SIGNIN_CAPABILITIES,
   sessionCovers,
 } from './capabilities';
 
@@ -50,15 +49,10 @@ describe('capabilitiesCoverPubchiWrite', () => {
   });
 });
 
-describe('PUBCHI_SIGNIN_CAPABILITIES', () => {
-  it('requests only the Pubchi-owned directories for re-approval', () => {
-    expect(PUBCHI_SIGNIN_CAPABILITIES).toBe('/pub/app.pubchi/v1/:rw,/priv/app.pubchi/v1/:rw');
-  });
-
-  it('keeps shared social writes on the App base sign-in scope', () => {
+describe('APP_SIGNIN_CAPABILITIES', () => {
+  it('requests shared social and Pubchi-owned write scopes', () => {
     expect(APP_SIGNIN_CAPABILITIES).toContain('/pub/pubky.app/:rw');
     expect(APP_SIGNIN_CAPABILITIES).toContain('/pub/app.pubchi/v1/:rw');
     expect(APP_SIGNIN_CAPABILITIES).toContain('/priv/app.pubchi/v1/:rw');
-    expect(PUBCHI_SIGNIN_CAPABILITIES).not.toContain('/pub/pubky.app/:rw');
   });
 });

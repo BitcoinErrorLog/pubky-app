@@ -8,7 +8,6 @@ import { Logger } from '@/libs/logger/logger';
 import {
   APP_SIGNIN_CAPABILITIES,
   capabilitiesCoverPubchiWrite,
-  PUBCHI_SIGNIN_CAPABILITIES,
 } from '@/libs/pubchi/capabilities';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { resolveOwnedSessionPath } from './homeserver.utils';
@@ -722,7 +721,7 @@ describe('HomeserverService', () => {
         expect(requested).toContain('/pub/pubky.app/:rw');
       });
 
-      it('getCapabilityApprovalUrl requests the narrow Pubchi re-approval scope', async () => {
+      it('getCapabilityApprovalUrl requests all app write scopes', async () => {
         await HomeserverService.generateAuthUrl();
         mockState.startAuthFlow.mockClear();
 
@@ -730,7 +729,7 @@ describe('HomeserverService', () => {
         await PubchiController.getCapabilityApprovalUrl();
 
         expect(mockState.startAuthFlow).toHaveBeenCalledWith(
-          PUBCHI_SIGNIN_CAPABILITIES,
+          APP_SIGNIN_CAPABILITIES,
           'signin-kind',
           expect.stringContaining('/inbox'),
         );

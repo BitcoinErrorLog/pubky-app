@@ -9,14 +9,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
-import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { APP_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { BalancedQrCard } from '@/molecules/BalancedQrCard/BalancedQrCard';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/toast';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 
-export const PUBCHI_RING_CAPABILITIES = PUBCHI_SIGNIN_CAPABILITIES;
+export const PUBCHI_RING_CAPABILITIES = APP_SIGNIN_CAPABILITIES;
 
 type RingApprovalDialogProps = {
   open: boolean;
@@ -31,6 +31,7 @@ export function RingApprovalDialog({
   onApproved,
   capabilities = PUBCHI_RING_CAPABILITIES,
 }: RingApprovalDialogProps) {
+  const grantedCapabilities = capabilities.split(',').map((capability) => capability.trim()).filter(Boolean);
   const [approval, setApproval] = useState<TGenerateAuthUrlResult>();
   const [loading, setLoading] = useState(false);
   const [expired, setExpired] = useState(false);
@@ -101,8 +102,13 @@ export function RingApprovalDialog({
         <DialogHeader>
           <DialogTitle>Approve Pubchi in Ring</DialogTitle>
           <DialogDescription>
-            Your sign-in predates Pubchi. Scan with Pubky Ring to grant the Pubchi folders (
-            <code>/pub/app.pubchi/v1/</code> and <code>/priv/app.pubchi/v1/</code>). Nothing else changes.
+            Your sign-in predates Pubchi. Scan with Pubky Ring to grant these folders:
+            <span className="mt-2 flex flex-col gap-1">
+              {grantedCapabilities.map((capability) => (
+                <code key={capability}>{capability}</code>
+              ))}
+            </span>
+            Nothing else changes.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col items-center gap-4">

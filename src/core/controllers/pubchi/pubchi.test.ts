@@ -284,14 +284,18 @@ describe('PubchiController', () => {
         setSession: authState.setSession,
       }),
     );
-    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/app.pubchi/v1/:rw']);
+    const session = sessionFor(OWNER, [
+      '/pub/pubky.app/:rw',
+      '/pub/app.pubchi/v1/:rw',
+      '/priv/app.pubchi/v1/:rw',
+    ]);
     const bootstrapSpy = vi.spyOn(AuthController, 'initializeAuthenticatedSession');
     await PubchiController.adoptCapabilityApproval(session);
     expect(authState.setSession).toHaveBeenCalledWith(session);
     expect(bootstrapSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps the auth store aligned with the narrower approved session already in the cookie jar', async () => {
+  it('rejects a narrowed approved session and keeps the current session', async () => {
     authState.session = sessionFor(OWNER, ['/:rw']);
     vi.mocked(useAuthStore.getState).mockReturnValue(
       asOpaque<AuthStore>({
@@ -301,18 +305,21 @@ describe('PubchiController', () => {
         setSession: authState.setSession,
       }),
     );
-    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
-    const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockRejectedValue(new Error('logout failed'));
+    const session = sessionFor(OWNER, ['/pub/app.pubchi/v1/:rw']);
+    const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
 
-    await PubchiController.adoptCapabilityApproval(session);
+    await expect(PubchiController.adoptCapabilityApproval(session)).rejects.toMatchObject({
+      code: AuthErrorCode.FORBIDDEN,
+      message: 'PUBCHI_SESSION_SCOPE_NARROWED',
+    });
 
-    expect(logoutSpy).not.toHaveBeenCalled();
-    expect(authState.setSession).toHaveBeenCalledWith(session);
-    expect(authState.session).toBe(session);
+    expect(logoutSpy).toHaveBeenCalledWith({ session });
+    expect(authState.setSession).not.toHaveBeenCalled();
+    expect(authState.session?.info.capabilities).toEqual(['/:rw']);
     expect(PubchiApplication.unpublishKnownDelegations).not.toHaveBeenCalled();
   });
 
-  it('preserves pending delegation deletes when adopting a narrower approved session', async () => {
+  it('rejects a narrowed approved session before touching pending delegation deletes', async () => {
     const pending = [{ owner: OWNER, signer: OWNER }];
     localStorage.setItem(PENDING_DELEGATION_DELETES_KEY, JSON.stringify(pending));
     authState.session = sessionFor(OWNER, ['/:rw']);
@@ -324,10 +331,15 @@ describe('PubchiController', () => {
         setSession: authState.setSession,
       }),
     );
-    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw']);
+    const session = sessionFor(OWNER, ['/pub/app.pubchi/v1/:rw']);
+    const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
 
-    await PubchiController.adoptCapabilityApproval(session);
+    await expect(PubchiController.adoptCapabilityApproval(session)).rejects.toMatchObject({
+      code: AuthErrorCode.FORBIDDEN,
+      message: 'PUBCHI_SESSION_SCOPE_NARROWED',
+    });
 
+    expect(logoutSpy).toHaveBeenCalledWith({ session });
     expect(readPendingDelegationDeletes()).toEqual(pending);
     expect(PubchiApplication.unpublishKnownDelegations).not.toHaveBeenCalled();
   });

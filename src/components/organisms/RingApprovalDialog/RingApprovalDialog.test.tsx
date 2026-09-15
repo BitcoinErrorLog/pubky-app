@@ -2,7 +2,7 @@ import type { Session } from '@synonymdev/pubky';
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
-import { PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { APP_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { RingApprovalDialog } from './RingApprovalDialog';
 
@@ -33,8 +33,10 @@ describe('RingApprovalDialog', () => {
 
     await waitFor(() => {
       expect(screen.getAllByRole('img')[0]).toBeInTheDocument();
-      expect(screen.getByText(PUBCHI_SIGNIN_CAPABILITIES)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Open in Pubky Ring' })).toHaveAttribute(
+      for (const capability of APP_SIGNIN_CAPABILITIES.split(',')) {
+        expect(screen.getByText(capability)).toBeInTheDocument();
+      }
+      expect(screen.getByRole('link', { name: 'Authorize with Pubky Ring' })).toHaveAttribute(
         'href',
         'pubkyauth://approve?token=pubchi',
       );
@@ -73,7 +75,7 @@ describe('RingApprovalDialog', () => {
     const onOpenChange = vi.fn();
     const { rerender } = render(<RingApprovalDialog open onOpenChange={onOpenChange} onApproved={onApproved} />);
 
-    await waitFor(() => expect(screen.getByRole('link', { name: 'Open in Pubky Ring' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Authorize with Pubky Ring' })).toBeInTheDocument());
     rerender(<RingApprovalDialog open={false} onOpenChange={onOpenChange} onApproved={onApproved} />);
     resolveApproval(asOpaque<Session>({ pubky: 'owner' }));
 

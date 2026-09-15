@@ -14,7 +14,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
-import { capabilitiesCoverPubchiWrite, PUBCHI_SIGNIN_CAPABILITIES } from '@/libs/pubchi/capabilities';
+import { APP_SIGNIN_CAPABILITIES, sessionCovers } from '@/libs/pubchi/capabilities';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { type FeedProposalV2, isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -413,7 +413,7 @@ export class PubchiController {
     return config;
   }
 
-  static async getCapabilityApprovalUrl(capabilities = PUBCHI_SIGNIN_CAPABILITIES): Promise<TGenerateAuthUrlResult> {
+  static async getCapabilityApprovalUrl(capabilities = APP_SIGNIN_CAPABILITIES): Promise<TGenerateAuthUrlResult> {
     return HomeserverService.generateAuthUrl(capabilities as Capabilities);
   }
 
@@ -421,10 +421,9 @@ export class PubchiController {
    * Adopt a Ring-approved session for the already signed-in identity.
    * Does not run `initializeAuthenticatedSession` / bootstrap. A session whose
    * pubky does not match the signed-in user is signed out: its cookie has
-   * already replaced the legitimate one. The capability guard intentionally
-   * pins Pubchi write coverage only; narrowing unrelated scopes is outside it.
-   * Same-identity approvals are always adopted because the SDK has already
-   * replaced the browser cookie before this method receives the session.
+   * already replaced the legitimate one. The capability guard preserves the
+   * current app write coverage because the SDK replaces the browser cookie
+   * before this method receives the session.
    * Concurrent approvals in separate tabs can resolve out of order and
    * temporarily desynchronize the store and cookie jar; the next approval or
    * sign-in repairs the state.
@@ -444,14 +443,21 @@ export class PubchiController {
         operation: 'adoptCapabilityApproval',
       });
     }
-    const currentCoversPubchi = capabilitiesCoverPubchiWrite(authState.session?.info.capabilities ?? []);
-    const approvedCoversPubchi = capabilitiesCoverPubchiWrite(session.info.capabilities ?? []);
-    if (currentCoversPubchi && !approvedCoversPubchi) {
-      authState.setSession(session);
-      return;
+    const currentCoversApp = sessionCovers(authState.session?.info.capabilities ?? [], '/pub/pubky.app/');
+    const approvedCoversApp = sessionCovers(session.info.capabilities ?? [], '/pub/pubky.app/');
+    if (currentCoversApp && !approvedCoversApp) {
+      try {
+        await HomeserverService.logout({ session });
+      } catch (error) {
+        Logger.warn('Pubchi narrowed capability-approval session sign-out failed', { error });
+      }
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'PUBCHI_SESSION_SCOPE_NARROWED', {
+        service: ErrorService.Pubchi,
+        operation: 'adoptCapabilityApproval',
+      });
     }
     authState.setSession(session);
-    if (approvedCoversPubchi) {
+    if (approvedCoversApp) {
       try {
         await PubchiApplication.unpublishKnownDelegations(approved, {
           attemptRemote: true,
