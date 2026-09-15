@@ -1,4 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceAwardCheckout } from './MarketplaceAwardCheckout';
@@ -86,6 +88,19 @@ describe('MarketplaceAwardCheckout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.offers = [offer];
+    state.addresses = [
+      {
+        id: 'home',
+        label: 'Home',
+        name: 'Alice Buyer',
+        line1: '1 Market Street',
+        line2: '',
+        city: 'New York',
+        region: 'NY',
+        postal_code: '10001',
+        country_code: 'US',
+      },
+    ];
     state.outcome = { ok: true, orderId: '00000000-0000-0000-0000-000000000803' };
     state.submit.mockResolvedValue(state.outcome);
   });
@@ -102,6 +117,32 @@ describe('MarketplaceAwardCheckout', () => {
     expect(screen.getByText(/Checkout window closes/)).toBeInTheDocument();
     expect(screen.queryByText('$10.00')).not.toBeInTheDocument();
     expect(screen.queryByText(/discount/i)).not.toBeInTheDocument();
+  });
+
+  it('releases the pay button after hydration preserves the saved address', async () => {
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<MarketplaceAwardCheckout />);
+    const serverButton = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Pay agreed price'),
+    );
+    expect(serverButton).toBeDisabled();
+
+    const root = hydrateRoot(container, <MarketplaceAwardCheckout />);
+    const hydratedButton = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Pay agreed price'),
+    );
+    await waitFor(() => expect(hydratedButton).toBeEnabled());
+    root.unmount();
+  });
+
+  it('links buyers without a saved address to address settings', () => {
+    state.addresses = [];
+    render(<MarketplaceAwardCheckout />);
+
+    expect(screen.getByRole('link', { name: 'delivery address' })).toHaveAttribute(
+      'href',
+      '/marketplace/settings/addresses',
+    );
   });
 
   it('removes the award line and refreshes offers only after successful checkout', async () => {

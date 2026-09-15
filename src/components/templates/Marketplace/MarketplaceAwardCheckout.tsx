@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -29,6 +29,7 @@ export function MarketplaceAwardCheckout() {
   const cart = useMarketplaceCart();
   const addressBook = useMarketplaceAddressBook();
   const [addressId, setAddressId] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [outcome, setOutcome] = useState<
     'expired' | 'converted' | 'error' | 'success' | 'unavailable' | 'session' | null
   >(null);
@@ -39,6 +40,10 @@ export function MarketplaceAwardCheckout() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const addresses = addressBook.addresses;
   const selectedAddress = addresses.find((item) => item.id === addressId) ?? addresses[0];
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const removeAwardLine = async () => {
     const line = cart.awardItems.find((item) => item.awardId === award?.id);
@@ -251,12 +256,16 @@ export function MarketplaceAwardCheckout() {
                 </div>
               ) : (
                 <Typography as="p" role="alert">
-                  Save a delivery address before checkout.
+                  Save a{' '}
+                  <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults>
+                    delivery address
+                  </Link>{' '}
+                  before checkout.
                 </Typography>
               )}
               <Button
                 className="w-full rounded-full"
-                disabled={!selectedAddress || checkout.isSubmitting}
+                disabled={!isHydrated || !selectedAddress || checkout.isSubmitting}
                 onClick={() => void submit()}
               >
                 {checkout.isSubmitting ? 'Submitting…' : 'Pay agreed price'}
