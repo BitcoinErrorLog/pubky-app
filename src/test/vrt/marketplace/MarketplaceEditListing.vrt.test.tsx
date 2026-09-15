@@ -84,7 +84,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: view.currentUserPubky }),
+  useAuthStore: createMarketplaceVrtAuthStore({
+    getCurrentUserPubky: () => view.currentUserPubky,
+  }),
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
