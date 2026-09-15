@@ -35,6 +35,7 @@ const hookState = {
     getValues: () => ({ question: '' }),
     trigger: async () => true,
     setValue: vi.fn(),
+    reset: vi.fn(),
   },
   submit,
   result: undefined as PubchiQuerySuccess | undefined,
@@ -138,6 +139,7 @@ describe('PubchiPanel', () => {
     hookState.result = undefined;
     hookState.errorCode = undefined;
     hookState.form.setValue.mockReset();
+    hookState.form.reset.mockReset();
     hookState.form.setValue.mockImplementation((name, value) => {
       if (name === 'question') watchedQuestion.value = value;
     });
@@ -251,6 +253,7 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-suggest-tags')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
     expect(screen.queryByTestId('pubchi-suggest-tags')).not.toBeInTheDocument();
+    expect(hookState.form.reset).toHaveBeenCalledWith({ question: '' });
   });
 
   it('sends no model-controlled target when interpreting a create proposal', async () => {

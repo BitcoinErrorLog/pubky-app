@@ -10,7 +10,7 @@ export const pubchiQueryFormSchema = z.object({
     .string()
     .trim()
     .min(1, { message: 'Enter a question.' })
-    .max(PUBCHI_QUESTION_MAX_LENGTH),
+    .max(PUBCHI_QUESTION_MAX_LENGTH, { message: 'Questions are limited to 500 characters.' }),
 });
 
 export type PubchiQueryFormData = z.infer<typeof pubchiQueryFormSchema>;

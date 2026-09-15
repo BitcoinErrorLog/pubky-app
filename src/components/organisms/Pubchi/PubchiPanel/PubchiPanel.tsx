@@ -14,7 +14,7 @@ import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
-import { QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
+import { pubchiQueryFormDefaults, QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
 import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
 import { parsePostReference } from '@/libs/pubchi/capabilities-v1';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
@@ -22,8 +22,10 @@ import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import type { PubchiTarget } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
+import { copyToClipboard, truncateMiddle } from '@/libs/utils/utils';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { toast } from '@/molecules/Toaster/toast';
 import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
@@ -149,6 +151,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const clearPanelConversation = () => {
     setSuggestionTarget(undefined);
     setPrefilledQuestion(undefined);
+    form.reset(pubchiQueryFormDefaults);
     clearConversation();
   };
   const submitQuestion = async (
@@ -420,20 +423,50 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                     Nobody has tagged you yet.
                   </Typography>
                 )}
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button type="button" variant="ghost" data-testid="pubchi-tool-trace">
-                      Tool trace
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <Typography size="sm">
-                      {result.result.tool_trace_summary.tools.join(', ') || 'none'} ·{' '}
-                      {result.result.tool_trace_summary.call_count} calls
-                      {result.result.tool_trace_summary.truncated ? ' · truncated' : ''}
-                    </Typography>
-                  </CollapsibleContent>
-                </Collapsible>
+                <div data-testid="pubchi-tool-trace">
+                  <Collapsible>
+                    <CollapsibleTrigger asChild>
+                      <Button type="button" variant="ghost">
+                        Sources:{' '}
+                        {result.result.tool_trace_summary.tools.length > 0
+                          ? `${result.result.tool_trace_summary.tools.join(', ')} · `
+                          : 'none — answered from the model'}
+                        {result.result.tool_trace_summary.tools.length > 0
+                          ? `${result.result.tool_trace_summary.call_count} ${
+                              result.result.tool_trace_summary.call_count === 1 ? 'call' : 'calls'
+                            }`
+                          : null}
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <Typography size="sm" data-testid="pubchi-run-id">
+                          Run ID: {truncateMiddle(result.result.run_id, 40)}
+                        </Typography>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          data-testid="pubchi-run-id-copy"
+                          onClick={() => {
+                            void copyToClipboard({ text: result.result.run_id }).then(
+                              () => toast({ title: 'Copied', dismissButton: true }),
+                              () => undefined,
+                            );
+                          }}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                      <Typography size="sm">
+                        {result.result.tool_trace_summary.tools.join(', ') || 'none'} ·{' '}
+                        {result.result.tool_trace_summary.call_count}{' '}
+                        {result.result.tool_trace_summary.call_count === 1 ? 'call' : 'calls'}
+                        {result.result.tool_trace_summary.truncated ? ' · truncated' : ''}
+                      </Typography>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
               </div>
             ) : null}
 

@@ -21,6 +21,7 @@ import { ControlledInputField } from '@/molecules/ControlledInputField/Controlle
 import { SettingsSectionCard } from '@/molecules/Settings/SettingsSectionCard/SettingsSectionCard';
 import { toast } from '@/molecules/Toaster/toast';
 import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
+import { PubchiSettingsSkeleton } from './Pubchi.skeleton';
 
 export const PUBCHI_SETTINGS_SURFACE = 'pubchi-settings';
 
@@ -56,6 +57,7 @@ export function PubchiSettings() {
     deviceListingHadFailures,
     currentSigner,
     loading,
+    enrollmentLoaded,
     enabled,
   } =
     usePubchiEnrollment();
@@ -95,7 +97,8 @@ export function PubchiSettings() {
             <Typography size="xs">Minting the key, verifying the binding, and authorizing this browser.</Typography>
           </div>
         ) : null}
-        {pubchi || binding ? (
+        {!enrollmentLoaded ? <PubchiSettingsSkeleton /> : null}
+        {enrollmentLoaded && (pubchi || binding) ? (
           <div className="flex flex-col gap-4 px-6">
             {pubchi ? (
               <>
@@ -153,6 +156,17 @@ export function PubchiSettings() {
                       : undefined
                   }
                 /> : null}
+                {devices.length || deviceListingHadFailures ? (
+                  <PubchiDeviceSigners
+                    devices={devices}
+                    deviceListingHadFailures={deviceListingHadFailures}
+                    currentSigner={currentSigner}
+                    loading={loading}
+                    needsReapproval={needsReapproval}
+                    revokeDevice={revokeDevice}
+                    revokeAllDevices={revokeAllDevices}
+                  />
+                ) : null}
                 {config !== undefined ? <PubchiPreferencesForm onSaved={acceptSavedConfig} /> : null}
               </>
             ) : (
@@ -177,7 +191,7 @@ export function PubchiSettings() {
               Remove Pubchi
             </Button> : null}
           </div>
-        ) : !creating ? (
+        ) : enrollmentLoaded && !creating ? (
           <form
             className="flex flex-col gap-4 px-6"
             onSubmit={(event) => {
@@ -241,44 +255,16 @@ export function PubchiSettings() {
             </form>
           </div>
         ) : null}
-        {devices.length || deviceListingHadFailures ? (
-          <div className="flex flex-col gap-3 px-6 pb-6" data-testid="pubchi-device-signers">
-            {devices.length ? <Typography size="sm">Device signers</Typography> : null}
-            {deviceListingHadFailures ? (
-              <Typography size="xs">Some device records could not be loaded</Typography>
-            ) : null}
-            {devices.map((device) => (
-              <div className="flex items-center justify-between gap-3" key={device.signer}>
-                <Typography size="sm" className="break-all">
-                  {device.signer}
-                  {device.signer === currentSigner ? ' (this browser)' : ''}
-                  <span className="block text-xs opacity-70">
-                    Created {new Date(device.created_at * 1000).toLocaleDateString()} · Expires{' '}
-                    {new Date(device.expires_at * 1000).toLocaleDateString()}
-                  </span>
-                  <span className="block text-xs opacity-70">Purposes: {device.purposes.join(', ')}</span>
-                </Typography>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={loading || needsReapproval}
-                  onClick={() => void revokeDevice(device.signer)}
-                >
-                  Revoke
-                </Button>
-              </div>
-            ))}
-            {devices.length ? (
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={loading || needsReapproval}
-                onClick={() => void revokeAllDevices()}
-              >
-                Revoke all
-              </Button>
-            ) : null}
-          </div>
+        {enrollmentLoaded && !pubchi && (devices.length || deviceListingHadFailures) ? (
+          <PubchiDeviceSigners
+            devices={devices}
+            deviceListingHadFailures={deviceListingHadFailures}
+            currentSigner={currentSigner}
+            loading={loading}
+            needsReapproval={needsReapproval}
+            revokeDevice={revokeDevice}
+            revokeAllDevices={revokeAllDevices}
+          />
         ) : null}
       </SettingsSectionCard>
       <RingApprovalDialog
@@ -288,6 +274,67 @@ export function PubchiSettings() {
           await reapprove(session);
         }}
       />
+    </div>
+  );
+}
+
+function PubchiDeviceSigners({
+  devices,
+  deviceListingHadFailures,
+  currentSigner,
+  loading,
+  needsReapproval,
+  revokeDevice,
+  revokeAllDevices,
+}: {
+  devices: Array<{
+    signer: string;
+    purposes: string[];
+    created_at: number;
+    expires_at: number;
+  }>;
+  deviceListingHadFailures: boolean;
+  currentSigner?: string;
+  loading: boolean;
+  needsReapproval: boolean;
+  revokeDevice: (signer: string) => Promise<boolean>;
+  revokeAllDevices: () => Promise<boolean>;
+}) {
+  return (
+    <div className="flex flex-col gap-3" data-testid="pubchi-device-signers">
+      {devices.length ? <Typography size="sm">Device signers</Typography> : null}
+      {deviceListingHadFailures ? <Typography size="xs">Some device records could not be loaded</Typography> : null}
+      {devices.map((device) => (
+        <div className="flex items-center justify-between gap-3" key={device.signer}>
+          <Typography size="sm" className="break-all">
+            {device.signer}
+            {device.signer === currentSigner ? ' (this browser)' : ''}
+            <span className="block text-xs opacity-70">
+              Created {new Date(device.created_at * 1000).toLocaleDateString()} · Expires{' '}
+              {new Date(device.expires_at * 1000).toLocaleDateString()}
+            </span>
+            <span className="block text-xs opacity-70">Purposes: {device.purposes.join(', ')}</span>
+          </Typography>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={loading || needsReapproval}
+            onClick={() => void revokeDevice(device.signer)}
+          >
+            Revoke
+          </Button>
+        </div>
+      ))}
+      {devices.length ? (
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={loading || needsReapproval}
+          onClick={() => void revokeAllDevices()}
+        >
+          Revoke all
+        </Button>
+      ) : null}
     </div>
   );
 }

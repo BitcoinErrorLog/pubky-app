@@ -47,6 +47,7 @@ export function usePubchiEnrollment() {
   const pubchi = owner && storedOwner === owner ? storedPubchi : undefined;
   const config = owner && storedOwner === owner ? storedConfig : null;
   const [loading, setLoading] = useState(false);
+  const [enrollmentLoaded, setEnrollmentLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [backupPositions, setBackupPositions] = useState<number[]>([]);
@@ -90,14 +91,17 @@ export function usePubchiEnrollment() {
   useEffect(() => {
     if (!isPubchiEnabled()) {
       setBinding(undefined);
+      setEnrollmentLoaded(true);
       return;
     }
     if (!owner) {
       usePubchiStore.getState().clear();
       setBinding(undefined);
       setPendingRevocations([]);
+      setEnrollmentLoaded(true);
       return;
     }
+    setEnrollmentLoaded(false);
     const ownerAtStart = owner;
     const isCurrentOwner = () => readCurrentOwner(ownerAtStart) === ownerAtStart;
     void (async () => {
@@ -149,11 +153,13 @@ export function usePubchiEnrollment() {
             if (isCurrentOwner()) setCurrentSigner(key?.signer);
           });
         }
+        setEnrollmentLoaded(true);
       } catch {
         if (!isCurrentOwner()) return;
         setBinding(undefined);
         usePubchiStore.getState().clear();
         setDevices([]);
+        setEnrollmentLoaded(true);
         toast({ variant: 'error', title: 'Pubchi could not be loaded', dismissButton: true });
       }
     })();
@@ -585,6 +591,7 @@ export function usePubchiEnrollment() {
     reapprove,
     cancelReapproval,
     loading,
+    enrollmentLoaded,
     enabled: isPubchiEnabled(),
   };
 }

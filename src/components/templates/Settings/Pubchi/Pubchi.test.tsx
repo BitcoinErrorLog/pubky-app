@@ -46,6 +46,7 @@ const hookState = vi.hoisted(() => ({
   pendingRevocations: [] as string[],
   currentSigner: undefined as string | undefined,
   loading: false,
+  enrollmentLoaded: true,
   enabled: true,
   context: null,
   contextEditable: true,
@@ -87,6 +88,7 @@ describe('PubchiSettings', () => {
     hookState.context = null;
     hookState.contextEditable = true;
     hookState.config = undefined;
+    hookState.enrollmentLoaded = true;
     hookState.pubchi = undefined;
   });
 
@@ -97,6 +99,15 @@ describe('PubchiSettings', () => {
     expect(screen.getByTestId('pubchi-create')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Name your Pubchi')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-not-enrolled')).toHaveTextContent('Create a Pubchi');
+  });
+
+  it('shows a skeleton until enrollment has resolved', () => {
+    hookState.enrollmentLoaded = false;
+
+    render(<PubchiSettings />);
+
+    expect(screen.getByTestId('pubchi-settings-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('pubchi-create')).not.toBeInTheDocument();
   });
 
   it('shows the persistent degraded state and disables enrollment until reapproval', () => {
