@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { MarketplaceAwardCheckout } from './MarketplaceAwardCheckout';
 
 const state = vi.hoisted(() => ({
@@ -11,6 +12,7 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(async () => {}),
   refresh: vi.fn(async () => {}),
   submit: vi.fn(),
+  isLoading: false,
   addresses: [
     {
       id: 'home',
@@ -68,7 +70,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   }),
 }));
 vi.mock('@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook', () => ({
-  useMarketplaceAddressBook: () => ({ addresses: state.addresses }),
+  useMarketplaceAddressBook: () => ({ addresses: state.addresses, isLoading: state.isLoading }),
 }));
 vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
   useMarketplaceOfferCheckout: () => ({ submit: state.submit, isSubmitting: false }),
@@ -86,6 +88,20 @@ describe('MarketplaceAwardCheckout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.offers = [offer];
+    state.addresses = [
+      {
+        id: 'home',
+        label: 'Home',
+        name: 'Alice Buyer',
+        line1: '1 Market Street',
+        line2: '',
+        city: 'New York',
+        region: 'NY',
+        postal_code: '10001',
+        country_code: 'US',
+      },
+    ];
+    state.isLoading = false;
     state.outcome = { ok: true, orderId: '00000000-0000-0000-0000-000000000803' };
     state.submit.mockResolvedValue(state.outcome);
   });
@@ -102,6 +118,37 @@ describe('MarketplaceAwardCheckout', () => {
     expect(screen.getByText(/Checkout window closes/)).toBeInTheDocument();
     expect(screen.queryByText('$10.00')).not.toBeInTheDocument();
     expect(screen.queryByText(/discount/i)).not.toBeInTheDocument();
+  });
+
+  it('mounts the pay button only after the address live query resolves', async () => {
+    state.isLoading = true;
+    const { rerender } = render(<MarketplaceAwardCheckout />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading delivery addresses…');
+    expect(screen.queryByRole('button', { name: 'Pay agreed price' })).not.toBeInTheDocument();
+
+    state.isLoading = false;
+    rerender(<MarketplaceAwardCheckout />);
+    const button = screen.getByRole('button', { name: 'Pay agreed price' });
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute('disabled');
+    const propsKey = Object.keys(button).find((key) => key.startsWith('__reactProps'));
+    expect(propsKey ? asOpaque<Record<string, { disabled?: boolean }>>(button)[propsKey]?.disabled : undefined).toBe(
+      false,
+    );
+
+    await userEvent.setup().click(button);
+    expect(state.submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('links buyers without a saved address to address settings', () => {
+    state.addresses = [];
+    render(<MarketplaceAwardCheckout />);
+
+    expect(screen.getByRole('link', { name: 'delivery address' })).toHaveAttribute(
+      'href',
+      '/marketplace/settings/addresses',
+    );
   });
 
   it('removes the award line and refreshes offers only after successful checkout', async () => {

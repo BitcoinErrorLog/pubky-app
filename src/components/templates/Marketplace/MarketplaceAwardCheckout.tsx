@@ -231,36 +231,46 @@ export function MarketplaceAwardCheckout() {
                   Merchandise total <span className="text-brand">{formatCommerceMoney(award.merchandiseTotal)}</span>
                 </Typography>
               </div>
-              {addresses.length ? (
-                <div className="grid gap-2">
-                  <Typography as="p" className="font-medium">
-                    Delivery address
-                  </Typography>
-                  <Select value={selectedAddress?.id} onValueChange={setAddressId}>
-                    <SelectTrigger className="h-11 w-full rounded-md border px-3">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {addresses.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.label} · {item.city}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              {addressBook.isLoading ? (
+                <Typography as="p" role="status">
+                  Loading delivery addresses…
+                </Typography>
+              ) : addresses.length ? (
+                <>
+                  <div className="grid gap-2">
+                    <Typography as="p" className="font-medium">
+                      Delivery address
+                    </Typography>
+                    <Select value={selectedAddress?.id} onValueChange={setAddressId}>
+                      <SelectTrigger className="h-11 w-full rounded-md border px-3">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {addresses.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.label} · {item.city}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    className="w-full rounded-full"
+                    disabled={checkout.isSubmitting}
+                    onClick={() => void submit()}
+                  >
+                    {checkout.isSubmitting ? 'Submitting…' : 'Pay agreed price'}
+                  </Button>
+                </>
               ) : (
                 <Typography as="p" role="alert">
-                  Save a delivery address before checkout.
+                  Save a{' '}
+                  <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults>
+                    delivery address
+                  </Link>{' '}
+                  before checkout.
                 </Typography>
               )}
-              <Button
-                className="w-full rounded-full"
-                disabled={!selectedAddress || checkout.isSubmitting}
-                onClick={() => void submit()}
-              >
-                {checkout.isSubmitting ? 'Submitting…' : 'Pay agreed price'}
-              </Button>
             </CardContent>
           </Card>
         )}
