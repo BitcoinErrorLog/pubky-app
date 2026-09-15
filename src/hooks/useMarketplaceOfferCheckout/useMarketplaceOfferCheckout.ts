@@ -1,10 +1,7 @@
 'use client';
 
 import { CommerceController } from '@/controllers/commerce/commerce';
-import {
-  MARKETPLACE_FAILURE_MESSAGES,
-  marketplaceOfferCheckoutFailureMessage,
-} from '@/libs/commerce/failure-messages';
+import { MARKETPLACE_FAILURE_MESSAGES, marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-messages';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOffer, MarketplaceOfferAward } from '@/services/marketplace/marketplace';
@@ -19,19 +16,24 @@ type DeliveryAddress = {
   countryCode: string;
 };
 
+export type MarketplaceOfferCheckoutResult = { ok: true; orderId: string | null } | { ok: false; code: string | null };
+
 export function useMarketplaceOfferCheckout(onCompleted?: () => Promise<void> | void) {
-  const submit = async (offer: MarketplaceOffer, deliveryAddress: DeliveryAddress): Promise<boolean> => {
+  const submit = async (
+    offer: MarketplaceOffer,
+    deliveryAddress: DeliveryAddress,
+  ): Promise<MarketplaceOfferCheckoutResult> => {
     let currentOffer = offer;
     try {
       currentOffer = (await CommerceController.getMarketplaceOffers()).find(({ id }) => id === offer.id) ?? offer;
     } catch {
       toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.offerCheckoutUnavailable });
-      return false;
+      return { ok: false, code: null };
     }
     const award: MarketplaceOfferAward | undefined = currentOffer.award;
     if (!award || award.state !== 'active') {
       toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.offerCheckoutUnavailable });
-      return false;
+      return { ok: false, code: 'AWARD_UNAVAILABLE' };
     }
 
     try {
@@ -59,17 +61,21 @@ export function useMarketplaceOfferCheckout(onCompleted?: () => Promise<void> | 
           variant: 'error',
           description: marketplaceOfferCheckoutFailureMessage(response.error.code),
         });
-        return false;
+        return { ok: false, code: response.error.code };
       }
       await onCompleted?.();
-      return true;
+      const order = response.result.order;
+      return {
+        ok: true,
+        orderId: order && typeof order === 'object' && 'id' in order && typeof order.id === 'string' ? order.id : null,
+      };
     } catch (error) {
       if (isMarketplaceSessionRequiredError(error)) {
         toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
-        return false;
+        return { ok: false, code: 'SESSION_REQUIRED' };
       }
       toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.checkout });
-      return false;
+      return { ok: false, code: null };
     }
   };
 

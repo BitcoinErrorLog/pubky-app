@@ -17,6 +17,9 @@ export interface MarketplaceCartItem {
   listingId: string;
   variantId: string;
   quantity: number;
+  awardId?: string | null;
+  awardOfferRevision?: number | null;
+  pricingSource?: 'listing' | 'offer';
   listing: CommerceListingModelSchema;
 }
 
@@ -30,7 +33,8 @@ export function marketplaceCartShippingTotals(
   groups: MarketplaceCartGroup[],
   fulfillmentForSeller: (sellerPubky: string) => 'shipping' | 'pickup' | undefined,
 ): { totals: ReturnType<typeof sumMoneyByAsset>; hasCalculatedShipping: boolean } {
-  const shippingLines: Array<{ money: { amountMinor: number; currency: string; exponent: number }; quantity: number }> = [];
+  const shippingLines: Array<{ money: { amountMinor: number; currency: string; exponent: number }; quantity: number }> =
+    [];
   let hasCalculatedShipping = false;
   for (const group of groups) {
     if (fulfillmentForSeller(group.sellerPubky) !== 'shipping') continue;
@@ -102,6 +106,9 @@ export function useMarketplaceCart() {
               listingId: row.listing_id,
               variantId: row.variant_id,
               quantity: row.quantity,
+              awardId: row.award_id ?? null,
+              awardOfferRevision: row.award_offer_revision ?? null,
+              pricingSource: row.pricing_source ?? 'listing',
               listing: {
                 id: listing.id,
                 seller_id: listing.seller_id,
@@ -120,7 +127,7 @@ export function useMarketplaceCart() {
           : null;
       }),
     );
-    return enriched.filter((item): item is MarketplaceCartItem => item !== null);
+    return enriched.filter((item) => item !== null);
   }, [currentUserPubky]);
 
   const add = async (listingId: string, variantId: string, quantity = 1) => {
@@ -146,6 +153,16 @@ export function useMarketplaceCart() {
     await CommerceController.commitUpsertCartItem(listingId, variantId, quantity);
   };
 
+  const addAward = async (
+    listingId: string,
+    variantId: string,
+    quantity: number,
+    awardId: string,
+    offerRevision: number,
+  ) => {
+    await CommerceController.commitUpsertAwardCartItem(listingId, variantId, quantity, awardId, offerRevision);
+  };
+
   const remove = async (listingId: string, variantId: string) => {
     await CommerceController.commitDeleteCartItem(listingId, variantId);
   };
@@ -156,21 +173,26 @@ export function useMarketplaceCart() {
 
   // One subtotal per pricing asset: minor units of different assets (USD
   // cents, bitcoin base units) are never added into one false number.
+  const cartItems = items ?? [];
+  const ordinaryItems = cartItems.filter((item) => item.pricingSource === 'listing');
+  const awardItems = cartItems.filter((item) => item.pricingSource === 'offer');
   const subtotals = sumMoneyByAsset(
-    (items ?? []).flatMap((item) => {
+    ordinaryItems.flatMap((item) => {
       const price = priceForCartItem(item);
       return price ? [{ money: price, quantity: item.quantity }] : [];
     }),
   );
-  const cartItems = items ?? [];
 
   return {
     items: cartItems,
+    ordinaryItems,
+    awardItems,
     itemCount: cartItems.reduce((total, item) => total + item.quantity, 0),
     subtotals,
-    groups: groupMarketplaceCartItems(cartItems),
+    groups: groupMarketplaceCartItems(ordinaryItems),
     isLoading: items === undefined,
     add,
+    addAward,
     update,
     remove,
     clear,

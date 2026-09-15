@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, HandCoins } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -13,16 +14,14 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { useMarketplaceAddressBook } from '@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook';
+import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
-import { useMarketplaceOfferCheckout } from '@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { amountInputUnitLabel, isBitcoinAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
-import { toast } from '@/molecules/Toaster/use-toast';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
@@ -30,10 +29,10 @@ import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOffers() {
+  const router = useRouter();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const offers = useMarketplaceOffers();
-  const addressBook = useMarketplaceAddressBook();
-  const offerCheckout = useMarketplaceOfferCheckout(offers.refresh);
+  const cart = useMarketplaceCart();
   const [countering, setCountering] = useState<MarketplaceOffer | null>(null);
   const { listings, isHydrating } = useOfferListings(offers.offers);
   const linkedOfferId = useOfferAnchor();
@@ -127,27 +126,25 @@ export function MarketplaceOffers() {
                         </Typography>
                       )}
                     </div>
-                    {offer.award && offer.state === 'accepted' && offer.buyerPubky === currentUserPubky ? (
+                    {offer.award &&
+                    offer.award.state === 'active' &&
+                    offer.state === 'accepted' &&
+                    offer.buyerPubky === currentUserPubky ? (
                       <div className="flex flex-col items-start gap-2">
                         <Button
                           size="sm"
                           className="rounded-full"
-                          onClick={() => {
-                            const address =
-                              addressBook.addresses.find(({ is_default }) => is_default) ?? addressBook.addresses[0];
-                            if (!address) {
-                              toast({ variant: 'error', description: 'Save a delivery address before checkout.' });
-                              return;
-                            }
-                            void offerCheckout.submit(offer, {
-                              name: address.name,
-                              line1: address.line1,
-                              line2: address.line2,
-                              city: address.city,
-                              region: address.region,
-                              postalCode: address.postal_code,
-                              countryCode: address.country_code,
-                            });
+                          onClick={async () => {
+                            const award = offer.award;
+                            if (!award || award.state !== 'active') return;
+                            await cart.addAward(
+                              `${award.listing.sellerPubky}:${award.listing.listingId}`,
+                              award.variant.id,
+                              award.quantity,
+                              award.id,
+                              offer.revision,
+                            );
+                            router.push(`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${offer.id}`);
                           }}
                         >
                           Buy for {formatCommerceMoney(offer.award.merchandiseTotal ?? offer.award.unitPrice)}
