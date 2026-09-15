@@ -329,6 +329,7 @@ ADRs capture the _why_ behind key architectural decisions. Stored in `docs/adr/`
 | 0017 | Runtime config injection                                                  |
 | 0018 | Optional runtime-config tier, runtime Sentry, decoupled source-map upload |
 | 0019 | Dexie schema changes recreate the local database                          |
+| 0020 | Local-first tag cache and viewport lifetimes                              |
 
 ## Quick Checklist
 

@@ -48,7 +48,7 @@ Controller method names encode IO behavior and delivery guarantees:
 
 ```typescript
 // Real method names from the codebase
-PostController.fetchTags({ compositeId, skip, limit }); // Always network
+TagCacheController.getOrFetchNext({ kind: 'post', id: compositeId, viewerId }); // Next server page
 PostController.getDetails({ compositeId }); // Always local
 PostController.getOrFetchDetails({ compositeId, viewerId }); // Local first, fallback
 UserController.getManyDetails({ userIds }); // Bulk local
@@ -255,3 +255,35 @@ When adding controller methods:
 - [ ] Does background sync handle failures gracefully?
 - [ ] Is `useLiveQuery` used only for local reads, and do local-first reads go through `useLocalFirstQuery`?
 - [ ] Are cache hits, tombstones and a settled `null` handled on the read path?
+
+## Tag previews, pagination, and freshness
+
+The rationale and trade-offs are recorded in [ADR 0020](adr/0020-local-first-tag-cache.md).
+
+### Loading and pagination
+
+Hooks read tags locally with `TagCacheController.get` inside `useLiveQuery`. Mount calls `getOrFetch` separately to initialize missing data or revalidate a changed viewer. This tag-specific path also fills existing uninitialized records and handles viewer changes, which the `null`-only fallback in `useLocalFirstQuery` does not cover.
+
+An initialized empty list is a cache hit; locally created collections remain uninitialized until a server response is accepted. Such placeholders still need initialization, but any optimistic tags remain visible while it runs. Only an empty placeholder shows loading, and only until the fill settles. A newly created post seeds an initialized, complete window for its author, since it has no tags on Nexus yet. Cache metadata is optional for compatibility with existing records.
+
+Use `getOrFetchNext` for pagination. The persisted server cursor is independent of displayed tags and optimistic edits. Post pages contain three tags and profile pages twenty; a short/empty response marks pagination exhausted. Refresh and pagination are serialized per entity/viewer. Competing writes trigger a retry from the latest revision, with at most three attempts.
+
+### Refresh
+
+Batch previews must not truncate expanded lists. Refresh replaces the loaded server portion atomically, using requests of at most 100 tags, so deleted labels disappear. Loading another page does not renew the age of earlier pages.
+
+The TTL coordinator checks tag age independently of post/profile age. Failed tag refreshes retain visible data and set a 30-second `cache.retryAt` cooldown. Subsequent ticks retry stale tags without repeating successful entity batches; entities still waiting for their entity batch are left out of that pass because the batch response carries their preview, and per-entity tag requests run with bounded concurrency (`TAG_REFRESH_MAX_CONCURRENCY`). Ids a batch response omits (deleted, or not yet indexed) get a delayed TTL row and retry after the configured retry delay instead of every tick. Accepted data and new notification invalidation clear the cooldown; explicit pagination remains available.
+
+Tag notifications are grouped by entity and invalidate its collection before forced batch hydration. Skip invalidation only when the accepted list for the current viewer comes from requests started more than one tag TTL after the event: the snapshot carries a client timestamp and the event a server one, so a smaller margin could hide a real event behind clock skew. After hydration, a complete accepted preview, or one at least a refresh page long, needs no extra tag GET; a shorter preview refreshes the loaded list. Forced requests bypass the transport cache and wait for an identical in-flight request to settle.
+
+### Writes and session changes
+
+Persist local mutation intent with tag changes in one IndexedDB transaction. Reconcile it against both batch and page responses for the five-minute protection period. Tags and counters must remain consistent; counters cannot be derived from a partial preview. Pending operation identities guard rollback, and replacing a loaded list retires its expired identities. Cache revisions reject superseded responses. Controller session guards reject results from a replaced account/session, and viewerless previews must not overwrite authenticated relationships.
+
+### Public views and viewport subscriptions
+
+TTL refresh covers visible public posts and profiles, including their tags, for both signed-in and signed-out visitors. Signed-out visitors could already load these pages; this change adds periodic TTL refresh for those visits.
+
+Use `useTtlSubscription` for visible posts and users, including Visual tiles, profile headers, and empty Tagged panels. Each subscription must be released when its owner leaves the viewport or unmounts. Posts and users are reference counted; a tracked post also holds one author reference. Route changes do not clear these references globally.
+
+`CoordinatorsManager` owns TTL start/stop. Account changes clear queued work and temporary bootstrap references while preserving viewport ownership; an account switch ticks immediately, while sign-out delays the first guest tick by one interval to avoid refetching a page the user is leaving (IndexedDB already orders the tick's reads behind the clear). A tick re-checks its session after every await, so a batch captured for one viewer is never sent or applied on behalf of the next. A hidden browser page pauses TTL ticks. Other coordinators retain their own authentication rules.
