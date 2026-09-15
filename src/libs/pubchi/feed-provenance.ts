@@ -13,7 +13,6 @@ import {
   PubchiFeedProvenanceV1Schema,
 } from '@/libs/pubchi/schemas/feed-provenance';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
-import { toast } from '@/molecules/Toaster/toast';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 
 async function requestPubchiDocumentText(url: string): Promise<string> {
@@ -28,7 +27,7 @@ export async function recordPubchiBuiltFeed(
   proposal: FeedProposalV1 | FeedProposalV2,
   feed: FeedModelSchema,
   provenanceFeedId = feed.id,
-): Promise<void> {
+): Promise<boolean> {
   const url = provenanceUri(owner, provenanceFeedId);
   let existing: (PubchiFeedProvenanceV1 & Record<string, unknown>) | undefined;
   try {
@@ -48,15 +47,13 @@ export async function recordPubchiBuiltFeed(
       }
       const lenientExisting = PubchiFeedProvenanceV1Schema.passthrough().safeParse(rawExisting);
       if (!lenientExisting.success) {
-        toast({ variant: 'warning', title: "Couldn't update the feed record; the feed itself was saved" });
-        return;
+        return false;
       }
       existing = lenientExisting.data;
     }
   } catch (error) {
     if (error instanceof SyntaxError) {
-      toast({ variant: 'warning', title: "Couldn't update the feed record; the feed itself was saved" });
-      return;
+      return false;
     }
     if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) {
       throw error;
@@ -99,6 +96,7 @@ export async function recordPubchiBuiltFeed(
     url,
     bodyJson: record,
   });
+  return true;
 }
 
 export async function deletePubchiFeedProvenance(owner: string, feedId: string): Promise<void> {

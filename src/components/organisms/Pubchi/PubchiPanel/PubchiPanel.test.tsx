@@ -281,6 +281,59 @@ describe('PubchiPanel', () => {
     });
   });
 
+  it('opens each feed result once and opens a new result after refocus', async () => {
+    const proposal = {
+      schema: 'pubchi-feed-proposal',
+      version: 2,
+      bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+      owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+      generated_at: 1,
+      mode: 'create',
+      target_feed_id: null,
+      feed: { name: 'Builders', icon: '', feed: { reach: 'all', sort: 'recent', layout: 'columns' } },
+      mapping: { status: 'exact', unmapped: [] },
+      warnings: [],
+      installed_user_feed_id: null,
+    };
+    hookState.result = { kind: 'feed-v2', applyAllowed: false, result: proposal } as PubchiQuerySuccess;
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    await vi.waitFor(() => expect(openFeedBuilder).toHaveBeenCalledOnce());
+    usePubchiStore.getState().closeFeedBuilder();
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(openFeedBuilder).toHaveBeenCalledOnce();
+
+    hookState.result = { kind: 'feed-v2', applyAllowed: false, result: { ...proposal } } as PubchiQuerySuccess;
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    await vi.waitFor(() => expect(openFeedBuilder).toHaveBeenCalledTimes(2));
+  });
+
+  it('restores the current interpretation question when the request fails', async () => {
+    const proposal = {
+      schema: 'pubchi-feed-proposal',
+      version: 2,
+      bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+      owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+      generated_at: 1,
+      mode: 'create',
+      target_feed_id: null,
+      feed: { name: 'Builders', icon: '', feed: { reach: 'all', sort: 'recent', layout: 'columns' } },
+      mapping: { status: 'exact', unmapped: [] },
+      warnings: [],
+      installed_user_feed_id: null,
+    };
+    watchedQuestion.value = 'current draft';
+    hookState.result = { kind: 'feed-v2', applyAllowed: false, result: proposal } as PubchiQuerySuccess;
+    submit.mockResolvedValue(false);
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    await vi.waitFor(() => expect(builderProps.current).toBeDefined());
+    fireEvent.click(screen.getByText('Interpret'));
+    await vi.waitFor(() =>
+      expect(hookState.form.setValue).toHaveBeenLastCalledWith('question', 'current draft', { shouldValidate: true }),
+    );
+  });
+
   it('clears the edited feed before submitting a new create question', async () => {
     const feed = { id: 'feed-a', name: 'Feed A' };
     getFeed.mockResolvedValue(feed);

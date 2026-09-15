@@ -96,16 +96,11 @@ describe('Pubchi feed provenance', () => {
   });
 
   it('does not overwrite malformed provenance and reports a soft error', async () => {
-    const { toast } = await import('@/molecules/Toaster/toast');
     vi.mocked(HomeserverService.request).mockResolvedValueOnce('malformed json');
 
-    await recordPubchiBuiltFeed(OWNER, PROPOSAL, FEED);
+    await expect(recordPubchiBuiltFeed(OWNER, PROPOSAL, FEED)).resolves.toBe(false);
 
     expect(HomeserverService.request).toHaveBeenCalledTimes(1);
-    expect(toast).toHaveBeenCalledWith({
-      variant: 'warning',
-      title: "Couldn't update the feed record; the feed itself was saved",
-    });
   });
 
   it('lists only valid provenance records and ignores missing feeds at the join boundary', async () => {

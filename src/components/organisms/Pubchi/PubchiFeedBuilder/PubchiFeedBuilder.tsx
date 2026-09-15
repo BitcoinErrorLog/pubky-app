@@ -9,6 +9,7 @@ import { TAGGED_AS_FILTER_KEY } from '@/config/feed';
 import { FeedController } from '@/controllers/feed/feed';
 import { publishPubchiSync } from '@/controllers/pubchi/pubchi-sync';
 import { CUSTOM_FEED_CONTENT_ALL, type CustomFeedFormData } from '@/hooks/useCustomFeedForm/useCustomFeedForm.types';
+import { PUBCHI_HOMESERVER_DIRECTORY, PUBCHI_PRIVATE_DIRECTORY, sessionCovers } from '@/libs/pubchi/capabilities';
 import { feedProposalV2ToCreateParams } from '@/libs/pubchi/feed-map';
 import { recordPubchiBuiltFeed } from '@/libs/pubchi/feed-provenance';
 import type { FeedProposalV2 } from '@/libs/pubchi/schemas';
@@ -115,25 +116,60 @@ export function PubchiFeedBuilder({
   }, [draft, existingFeed?.id, owner]);
 
   const save = async (data: CustomFeedFormData): Promise<boolean> => {
-    if (!mapped.canApply || !owner) return false;
+    if (!mapped.canApply) {
+      toast({ variant: 'error', title: 'Choose supported settings before applying the feed.' });
+      return false;
+    }
+    const session = useAuthStore.getState().selectSession();
+    const capabilities = session?.info.capabilities ?? [];
+    const sessionOwner = session?.info.publicKey?.z32?.();
+    const canWriteFeed =
+      Boolean(owner) &&
+      sessionOwner === owner &&
+      sessionCovers(capabilities, PUBCHI_HOMESERVER_DIRECTORY) &&
+      sessionCovers(capabilities, PUBCHI_PRIVATE_DIRECTORY);
+    if (!canWriteFeed) {
+      toast({
+        variant: 'error',
+        title: 'Re-approve Pubchi in Ring to record this feed',
+        action: {
+          label: 'Re-approve',
+          altText: 'Re-approve Pubchi in Ring',
+          onClick: () => {
+            window.location.assign('/settings/pubchi');
+          },
+        },
+      });
+      return false;
+    }
+    let feed: FeedModelSchema;
     try {
       const changes = {
         ...data,
         reach: data.reach === TAGGED_AS_FILTER_KEY ? PubkyAppFeedReach.Wot : data.reach,
         content: data.content === CUSTOM_FEED_CONTENT_ALL ? null : data.content,
       };
-      const feed = existingFeed
+      feed = existingFeed
         ? await FeedController.commitUpdate({ feedId: existingFeed.id, changes })
         : await FeedController.commitCreate(changes);
-      await recordPubchiBuiltFeed(owner, proposal, feed, existingFeed?.id);
-      publishPubchiSync(owner, 'created');
-      toast({ title: 'Feed applied' });
-      onOpenChange(false);
-      return true;
     } catch {
-      toast({ variant: 'error', description: 'Could not apply feed. Try again.' });
+      toast({ variant: 'error', title: "Couldn't save the feed. Try again." });
       return false;
     }
+    let provenanceRecorded = true;
+    try {
+      provenanceRecorded = await recordPubchiBuiltFeed(owner!, proposal, feed, existingFeed?.id);
+    } catch {
+      provenanceRecorded = false;
+    }
+    publishPubchiSync(owner!, 'created');
+    toast(
+      provenanceRecorded
+        ? { title: 'Feed applied' }
+        : { variant: 'warning', title: "Feed applied, but couldn't save its Pubchi record" },
+    );
+    onOpenChange(false);
+    return true;
   };
 
   const notices = proposal.mapping.unmapped.map((entry) => (
@@ -160,7 +196,7 @@ export function PubchiFeedBuilder({
       extraContent={
         <div className="flex flex-col gap-3 rounded-md border border-dashed p-3">
           <div>
-            <Typography className="font-medium">Explain this feed</Typography>
+            <Typography className="font-medium">How feeds work</Typography>
             <Typography size="xs" className="text-muted-foreground">
               Set the filters below, or describe the feed and let Pubchi fill them in.
             </Typography>
@@ -219,7 +255,7 @@ export function PubchiFeedBuilder({
             </Typography>
           ) : preview.ids.length === 0 ? (
             <Typography size="xs" role="status">
-              No cached posts match yet
+              Preview: no cached posts match yet — the feed will fill as posts arrive
             </Typography>
           ) : (
             <ul data-testid="pubchi-feed-preview-results" className="flex flex-col gap-1">
