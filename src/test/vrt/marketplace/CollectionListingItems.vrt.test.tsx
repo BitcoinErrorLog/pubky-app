@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -75,6 +76,7 @@ vi.mock('dexie-react-hooks', async () => {
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    ...createMarketplaceVrtCommerceController(),
     getListing: (_seller: string, listingId: string) => view.cachedByListingId.get(listingId),
     // Hydration settles immediately; the cells render from the "cache" above.
     getOrFetchListing: () => Promise.resolve(null),

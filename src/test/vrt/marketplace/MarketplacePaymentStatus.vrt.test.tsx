@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -67,14 +68,14 @@ vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
 });
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string | null }) => unknown) =>
-    selector({ currentUserPubky: view.currentUserPubky }),
+  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: view.currentUserPubky }),
 }));
 
 vi.mock('@/controllers/commerce/commerce', async () => {
   const { ORDER_FIXTURE_SELLER } = await import('@/test/fixtures/commerce/orders');
   return {
     CommerceController: {
+      ...createMarketplaceVrtCommerceController(),
       getOrFetchListing: vi.fn(async () => ({
         digitalLock: {
           policyUri: `pubky://${ORDER_FIXTURE_SELLER}/pub/locks.app/${'0'.repeat(52)}.json`,

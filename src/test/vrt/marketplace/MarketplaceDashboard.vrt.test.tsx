@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -99,8 +100,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 'y'.repeat(52) }),
+  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: 'y'.repeat(52) }),
 }));
 
 // The dashboard's shop query is async (it normalizes "no record" to null), so
@@ -128,6 +128,7 @@ vi.mock('dexie-react-hooks', async () => {
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    ...createMarketplaceVrtCommerceController(),
     getShop: () => Promise.resolve(view.shop),
     getOrFetchShop: () =>
       view.shop ? Promise.resolve((view.shop as { record: unknown }).record) : Promise.reject(new Error('no shop')),

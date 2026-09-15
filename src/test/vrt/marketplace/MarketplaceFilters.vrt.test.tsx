@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -10,19 +11,12 @@ import { commerceInitialState, type CommerceState } from '@/stores/commerce/comm
 
 const auth = vi.hoisted(() => ({ currentUserPubky: null as string | null }));
 
-vi.mock('@/stores/auth/auth.store', () => {
-  const useAuthStore = Object.assign(
-    (selector: (state: { currentUserPubky: string | null }) => unknown) =>
-      selector({ currentUserPubky: auth.currentUserPubky }),
-    {
-      getState: () => ({
-        currentUserPubky: auth.currentUserPubky,
-        selectCurrentUserPubky: () => auth.currentUserPubky,
-      }),
-    },
-  );
-  return { useAuthStore };
-});
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: createMarketplaceVrtAuthStore({
+    currentUserPubky: auth.currentUserPubky,
+    selectCurrentUserPubky: () => auth.currentUserPubky,
+  }),
+}));
 
 function setStoreState(overrides: Partial<CommerceState> = {}) {
   useCommerceStore.setState({ ...commerceInitialState, ...overrides });

@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { HOUR_MS, VRT_FROZEN_NOW_MS } from '@/test-utils/vrt.clock';
@@ -53,6 +54,7 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    ...createMarketplaceVrtCommerceController(),
     getOrFetchShop: vi.fn(async () => ({ name: 'Analog Sound Co.' })),
     getOrFetchListing: vi.fn(async (_seller: string, listingId: string) => ({
       ownerPubky: VRT_SELLER,
@@ -68,8 +70,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: VRT_BUYER }),
+  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: VRT_BUYER }),
 }));
 
 vi.mock('@/stores/commerce/commerce.store', () => ({

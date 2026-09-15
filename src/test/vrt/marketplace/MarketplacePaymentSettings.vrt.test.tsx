@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -20,6 +21,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    ...createMarketplaceVrtCommerceController(),
     getPaykitSetupUrl: () => 'about:blank',
     getMyPaymentConfig: vi.fn(async () => ({
       bitcoinEnabled: true,

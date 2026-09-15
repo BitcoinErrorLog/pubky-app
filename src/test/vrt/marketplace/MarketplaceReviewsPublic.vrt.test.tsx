@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -29,6 +30,7 @@ const controllerState = vi.hoisted(() => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    ...createMarketplaceVrtCommerceController(),
     fetchSellerReputation: vi.fn(async () => controllerState.reputation),
     fetchSellerReviews: vi.fn(async () => ({ status: 'ok', reviews: controllerState.reviews })),
     fetchListingReviews: vi.fn(async () => ({ status: 'ok', reviews: controllerState.reviews })),

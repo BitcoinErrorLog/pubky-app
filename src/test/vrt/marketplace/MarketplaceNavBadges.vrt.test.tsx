@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildFeatureDiscoveryStorageKey, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
@@ -52,8 +53,7 @@ vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
 });
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: VRT_USER_PUBKY }),
+  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: VRT_USER_PUBKY }),
 }));
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {

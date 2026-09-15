@@ -159,21 +159,25 @@ const view = vi.hoisted(() => ({
 // order card's reveal dialog reads the pinned snapshot; the cart's checkout
 // hook reads the capability and the address book. HTTP-shaped fixtures
 // mirror the service's pickup_test.rs responses (owner read + reveal).
-vi.mock('@/controllers/commerce/commerce', async () => ({
-  CommerceController: {
-    fetchPickupAvailable: vi.fn(async () => true),
-    fetchSellerPickupDetails: vi.fn(async () => (await fixtures).ownerRead),
-    fetchPickupReveal: vi.fn(async () => (await fixtures).reveal),
-    // The badge-cards scene renders real listing cards: their favorite
-    // toggle reads through the controller seam.
-    isFavorite: vi.fn(async () => false),
-    // The cart scene runs the REAL useMarketplaceCheckout (no wholesale mock):
-    // the fulfillment derivation is exercised from the listing fixtures.
-    hasActiveMarketplaceSession: vi.fn(() => true),
-    clearMarketplaceSession: vi.fn(),
-    getDeliveryAddresses: vi.fn(async () => []),
-  },
-}));
+vi.mock('@/controllers/commerce/commerce', async () => {
+  const { createMarketplaceVrtCommerceController } = await import('@/test/mocks/marketplace-vrt');
+  return {
+    CommerceController: {
+      ...createMarketplaceVrtCommerceController(),
+      fetchPickupAvailable: vi.fn(async () => true),
+      fetchSellerPickupDetails: vi.fn(async () => (await fixtures).ownerRead),
+      fetchPickupReveal: vi.fn(async () => (await fixtures).reveal),
+      // The badge-cards scene renders real listing cards: their favorite
+      // toggle reads through the controller seam.
+      isFavorite: vi.fn(async () => false),
+      // The cart scene runs the REAL useMarketplaceCheckout (no wholesale mock):
+      // the fulfillment derivation is exercised from the listing fixtures.
+      hasActiveMarketplaceSession: vi.fn(() => true),
+      clearMarketplaceSession: vi.fn(),
+      getDeliveryAddresses: vi.fn(async () => []),
+    },
+  };
+});
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -181,9 +185,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', async () => {
-  const { buyer } = await fixtures;
+  const { createMarketplaceVrtAuthStore } = await import('@/test/mocks/marketplace-vrt');
   return {
-    useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: buyer }),
+    useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: (await fixtures).buyer }),
   };
 });
 

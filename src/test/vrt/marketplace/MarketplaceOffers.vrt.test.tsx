@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -31,13 +32,9 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/offers',
 }));
 
-vi.mock('@/stores/auth/auth.store', async () => {
-  const { seller } = await fixtures;
-  return {
-    useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-      selector({ currentUserPubky: seller }),
-  };
-});
+vi.mock('@/stores/auth/auth.store', async () => ({
+  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: (await fixtures).seller }),
+}));
 
 vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', async () => {
   const { useForm } = await import('react-hook-form');

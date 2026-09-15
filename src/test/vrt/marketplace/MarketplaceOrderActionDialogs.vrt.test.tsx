@@ -56,7 +56,6 @@ describe('Marketplace order action dialogs — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-order-return-open-mobile');
   });
 
-
   it('renders the open review form at desktop viewport', async () => {
     const { deliveredOrder } = await fixtures;
 

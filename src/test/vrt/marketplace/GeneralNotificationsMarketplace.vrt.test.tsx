@@ -1,5 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
+import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { formatStableRelative } from '@/test-utils/vrt.clock';
@@ -11,10 +12,8 @@ import { NotificationsContainer } from '@/organisms/NotificationsContainer/Notif
 // only where read state actually exists (sandbox), and never any payload
 // beyond actor + action + deep link.
 const fixtures = vi.hoisted(async () => {
-  const {
-    NOTIFICATION_FIXTURE_ACTOR: SELLER_ACTOR,
-    NOTIFICATION_FIXTURE_RECIPIENT: BUYER_ACTOR,
-  } = await import('@/test/fixtures/commerce/notifications');
+  const { NOTIFICATION_FIXTURE_ACTOR: SELLER_ACTOR, NOTIFICATION_FIXTURE_RECIPIENT: BUYER_ACTOR } =
+    await import('@/test/fixtures/commerce/notifications');
   const { NotificationType } = await import('@/models/notification/notification.types');
   const { VRT_FROZEN_NOW_MS: NOW, HOUR_MS: HOUR } = await import('@/test-utils/vrt.clock');
 
@@ -78,8 +77,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { session: unknown; currentUserPubky: string }) => unknown) =>
-    selector({ session: {}, currentUserPubky: 'v'.repeat(52) }),
+  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: 'v'.repeat(52), session: {} }),
 }));
 
 vi.mock('@/hooks/useNotifications/useNotifications', () => ({
