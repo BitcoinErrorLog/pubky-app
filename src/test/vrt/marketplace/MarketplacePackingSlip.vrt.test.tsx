@@ -8,10 +8,10 @@ import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/Marketplac
 // The seller's print-friendly packing slip. The slip renders ONLY what the
 // seller's client legitimately holds — the participant order projection — so
 // the empty-field baseline must show the truthful "Deliver to" notice (the
-// delivery address is withheld from all reads by design, ADR-0019 §8) with
-// ruled lines instead of an address block. The pasted-address scene covers
-// the optional local-only paste field: the pasted text renders onto the
-// slip but is never persisted or sent anywhere.
+// current deployment does not expose the address in seller reads) with ruled
+// lines instead of an address block. The pasted-address scene covers the
+// optional local-only paste field: the pasted text renders onto the slip but
+// is never persisted or sent anywhere.
 const fixtures = vi.hoisted(async () => {
   const { createOrderFixture } = await import('@/test/fixtures/commerce/orders');
   return {

@@ -30,6 +30,16 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('MarketplaceAddressSettings', () => {
+  it('explains that sellers cannot yet read addresses in the Shop', () => {
+    render(<MarketplaceAddressSettings />);
+
+    expect(
+      screen.getByText(
+        'Your delivery addresses are sent with your orders for the seller of each order only. Sellers cannot yet read them in the Shop; the packing slip asks the seller to confirm the destination with you.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('returns to the originating drop after saving a new address', async () => {
     const user = userEvent.setup();
     render(<MarketplaceAddressSettings />);

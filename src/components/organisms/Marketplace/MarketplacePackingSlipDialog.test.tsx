@@ -13,8 +13,8 @@ vi.mock('next/navigation', () => ({
 
 const PASTED_ADDRESS = 'Ada Buyer\n123 Privacy Lane\n83820 Someville, US';
 
-const WITHHELD_NOTE =
-  'Not printed: the delivery address is withheld from all transaction-service reads — including yours as the seller — by design, so this client never has it.';
+const UNAVAILABLE_NOTE =
+  "The buyer's delivery address was sent with the order but is not yet exposed to the seller in this deployment";
 
 const LOCAL_ONLY_NOTE =
   'Kept only in this dialog on this device — not saved, not sent to the marketplace or any server. Anything you print (including print-to-PDF) will contain it.';
@@ -49,11 +49,11 @@ beforeEach(() => {
 });
 
 describe('MarketplacePackingSlipDialog — paste delivery address', () => {
-  it('shows the withheld-address note and ruled lines while the field is empty', async () => {
+  it('shows the deployment limitation note and ruled lines while the field is empty', async () => {
     const dialog = await openSlip();
 
     const slip = within(dialog).getByText('Packing slip', { selector: 'p' }).closest('[data-packing-slip]')!;
-    expect(within(slip as HTMLElement).getByText(new RegExp(WITHHELD_NOTE.slice(0, 40)))).toBeInTheDocument();
+    expect(within(slip as HTMLElement).getByText(new RegExp(UNAVAILABLE_NOTE))).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Paste delivery address (optional)')).toHaveValue('');
     expect(within(dialog).getByText(LOCAL_ONLY_NOTE)).toBeInTheDocument();
   });
@@ -77,14 +77,12 @@ describe('MarketplacePackingSlipDialog — paste delivery address', () => {
     await userEvent.type(field, PASTED_ADDRESS);
     const slip = dialog.querySelector('[data-packing-slip]')!;
     expect(within(slip as HTMLElement).getByText(/123 Privacy Lane/)).toBeInTheDocument();
-    // The withheld note gives way to the pasted destination.
-    expect(within(slip as HTMLElement).queryByText(/withheld from all transaction-service reads/)).toBeNull();
+    // The deployment limitation note gives way to the pasted destination.
+    expect(within(slip as HTMLElement).queryByText(/does not yet expose it to the seller/)).toBeNull();
 
     await userEvent.clear(field);
     expect(within(slip as HTMLElement).queryByText(/123 Privacy Lane/)).toBeNull();
-    expect(
-      within(slip as HTMLElement).getByText(/withheld from all transaction-service reads/),
-    ).toBeInTheDocument();
+    expect(within(slip as HTMLElement).getByText(new RegExp(UNAVAILABLE_NOTE))).toBeInTheDocument();
   });
 
   it('clears the pasted address when the dialog closes', async () => {
@@ -118,7 +116,7 @@ describe('MarketplacePackingSlipDialog — pickup orders (§A5)', () => {
     const dialog = screen.getByRole('dialog');
 
     expect(within(dialog).queryByLabelText('Paste delivery address (optional)')).not.toBeInTheDocument();
-    expect(within(dialog).queryByText(/withheld from all transaction-service reads/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/does not yet expose it to the seller/)).not.toBeInTheDocument();
     expect(
       within(dialog).getByText('Local pickup — meeting point is only visible to the buyer in the app.'),
     ).toBeInTheDocument();
@@ -131,7 +129,7 @@ describe('MarketplacePackingSlipDialog — pickup orders (§A5)', () => {
     const dialog = await openSlip();
 
     expect(within(dialog).getByLabelText('Paste delivery address (optional)')).toBeInTheDocument();
-    expect(within(dialog).getByText(/withheld from all transaction-service reads/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/does not yet expose it to the seller/)).toBeInTheDocument();
     expect(
       within(dialog).queryByText('Local pickup — meeting point is only visible to the buyer in the app.'),
     ).not.toBeInTheDocument();
