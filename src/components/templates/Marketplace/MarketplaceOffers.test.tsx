@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
+import { asInvalid } from '@/test-utils/type-assertions';
 import {
   isLinkedOfferMissing,
   loadOfferListings,
@@ -67,7 +68,7 @@ describe('Marketplace offers UX', () => {
   });
 
   it('uses local listings without fetching', async () => {
-    const listing = { title: 'Local boots', media: [] } as unknown as CommerceListingRecord;
+    const listing = asInvalid<CommerceListingRecord>({ title: 'Local boots', media: [] });
     getManyListings.mockResolvedValue(new Map([[`${seller}:boots`, { record: listing }]]));
 
     await expect(loadOfferListings([offer])).resolves.toEqual(new Map([[`${seller}:boots`, listing]]));

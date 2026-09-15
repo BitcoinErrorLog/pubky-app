@@ -52,7 +52,9 @@ export function MarketplaceSectionNav() {
     >
       {ITEMS.map(({ label, href, icon: Icon, badge, activePrefixes }) => {
         const prefixes = activePrefixes ?? [href];
-        const active = prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+        const active =
+          typeof pathname === 'string' &&
+          prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
         const count = badge === 'cart' ? cartCount : badge === 'activity' ? activityUnreadCount : 0;
         return (
           <Link
