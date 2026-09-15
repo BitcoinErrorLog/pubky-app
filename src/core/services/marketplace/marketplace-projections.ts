@@ -530,6 +530,7 @@ export function isRecognizedMarketplaceNotification(
   return !('kind' in entry);
 }
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;
+export type MarketplaceOfferAward = z.infer<typeof marketplaceOfferProjectionSchema>['award'];
 export type MarketplaceOrder = z.infer<typeof marketplaceOrderSchema>;
 export type MarketplacePublicDrop = z.infer<typeof marketplacePublicDropSchema>;
 export type MarketplaceSellerDrop = z.infer<typeof marketplaceSellerDropSchema>;

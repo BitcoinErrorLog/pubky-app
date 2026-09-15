@@ -105,6 +105,7 @@ export type {
   MarketplaceNotification,
   MarketplaceNotificationEntry,
   MarketplaceOffer,
+  MarketplaceOfferAward,
   MarketplaceOrder,
   MarketplacePayment,
   MarketplacePublicDrop,

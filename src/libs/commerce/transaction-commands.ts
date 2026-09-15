@@ -177,6 +177,32 @@ const offerActionSchema = z.object({ offerId: z.uuid() }).strict();
 export const acceptOfferCommandSchema = createCommerceCommandSchema('offer.accept', offerActionSchema);
 export const rejectOfferCommandSchema = createCommerceCommandSchema('offer.reject', offerActionSchema);
 export const withdrawOfferCommandSchema = createCommerceCommandSchema('offer.withdraw', offerActionSchema);
+export const offerCheckoutCommandSchema = createCommerceCommandSchema(
+  'offer.checkout',
+  z
+    .object({
+      offerId: z.uuid(),
+      awardId: z.uuid(),
+      listingAggregateId: z.string().min(1),
+      listingRevision: z.number().int().positive(),
+      listingRecordSha256: z.string().min(1),
+      variantId: z.string().min(1),
+      quantity: z.number().int().positive(),
+      deliveryAddress: z
+        .object({
+          name: z.string().trim().min(1).max(100),
+          line1: z.string().trim().min(1).max(200),
+          line2: z.string().trim().max(200),
+          city: z.string().trim().min(1).max(100),
+          region: z.string().trim().min(1).max(100),
+          postalCode: z.string().trim().min(1).max(32),
+          countryCode: z.string().regex(/^[A-Z]{2}$/),
+        })
+        .strict(),
+      guaranteePolicyVersion: z.literal(1),
+    })
+    .strict(),
+);
 
 export const placeBidCommandSchema = createCommerceCommandSchema(
   'auction.place_bid',
@@ -494,6 +520,7 @@ export const marketplaceCommandSchema = z.union([
   createOfferCommandSchema,
   counterOfferCommandSchema,
   acceptOfferCommandSchema,
+  offerCheckoutCommandSchema,
   rejectOfferCommandSchema,
   withdrawOfferCommandSchema,
   placeBidCommandSchema,
@@ -578,6 +605,7 @@ export type ReserveInventoryCommand = z.infer<typeof reserveInventoryCommandSche
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;
 export type AcceptOfferCommand = z.infer<typeof acceptOfferCommandSchema>;
+export type OfferCheckoutCommand = z.infer<typeof offerCheckoutCommandSchema>;
 export type RejectOfferCommand = z.infer<typeof rejectOfferCommandSchema>;
 export type WithdrawOfferCommand = z.infer<typeof withdrawOfferCommandSchema>;
 export type PlaceBidCommand = z.infer<typeof placeBidCommandSchema>;
@@ -741,4 +769,3 @@ export function buildMarketplacePaymentAggregateId(paymentId: string): string {
 export function buildMarketplaceOrderAggregateId(orderId: string): string {
   return `order:${orderId}`;
 }
-

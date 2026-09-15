@@ -104,6 +104,47 @@ export class LocalCommerceService {
     });
   }
 
+  static async upsertAwardCartItem(
+    ownerId: string,
+    listingId: string,
+    variantId: string,
+    quantity: number,
+    awardId: string,
+    offerRevision: number,
+    now: number,
+  ): Promise<void> {
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Cart quantity must be a positive safe integer.', {
+        service: ErrorService.Local,
+        operation: 'upsertAwardCartItem',
+        context: { quantity },
+      });
+    }
+    const listing = await CommerceListingModel.findById(listingId);
+    const variant = listing?.record.variants.find(({ id, enabled }) => id === variantId && enabled);
+    if (!listing || !variant || quantity > variant.quantity) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Cart item is unavailable in the requested quantity.', {
+        service: ErrorService.Local,
+        operation: 'upsertAwardCartItem',
+        context: { listingFound: Boolean(listing), variantFound: Boolean(variant), quantity },
+      });
+    }
+    const id = this.cartItemId(ownerId, listingId, variantId);
+    const current = await CommerceCartItemModel.findById(id);
+    await CommerceCartItemModel.upsert({
+      id,
+      owner_id: ownerId,
+      listing_id: listingId,
+      variant_id: variantId,
+      quantity,
+      award_id: awardId,
+      award_offer_revision: offerRevision,
+      pricing_source: 'offer',
+      added_at: current?.added_at ?? now,
+      updated_at: now,
+    });
+  }
+
   static async deleteCartItem(ownerId: string, listingId: string, variantId: string): Promise<void> {
     await CommerceCartItemModel.deleteById(this.cartItemId(ownerId, listingId, variantId));
   }

@@ -534,6 +534,9 @@ export interface CommerceCartItemModelSchema {
   listing_id: string;
   variant_id: string;
   quantity: number;
+  award_id?: string | null;
+  award_offer_revision?: number | null;
+  pricing_source?: 'listing' | 'offer';
   added_at: number;
   updated_at: number;
 }

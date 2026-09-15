@@ -13,13 +13,16 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useMarketplaceAddressBook } from '@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { useMarketplaceOfferCheckout } from '@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { amountInputUnitLabel, isBitcoinAsset } from '@/libs/commerce/pricing';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
@@ -29,6 +32,8 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function MarketplaceOffers() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const offers = useMarketplaceOffers();
+  const addressBook = useMarketplaceAddressBook();
+  const offerCheckout = useMarketplaceOfferCheckout(offers.refresh);
   const [countering, setCountering] = useState<MarketplaceOffer | null>(null);
   const { listings, isHydrating } = useOfferListings(offers.offers);
   const linkedOfferId = useOfferAnchor();
@@ -103,13 +108,55 @@ export function MarketplaceOffers() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Quantity {offer.quantity} · Expires {new Date(offer.expiresAt).toLocaleString('en-US')}
                       </Typography>
+                      {offer.award && offer.state === 'accepted' && offer.buyerPubky === currentUserPubky && (
+                        <Typography as="p" className="mt-2 text-sm text-brand">
+                          Accepted offer · {formatCommerceMoney(offer.award.unitPrice)} each · Quantity{' '}
+                          {offer.award.quantity} · Buy by {new Date(offer.award.convertBy).toLocaleString('en-US')}
+                        </Typography>
+                      )}
+                      {offer.state === 'accepted' &&
+                        offer.buyerPubky === currentUserPubky &&
+                        (!offer.award || offer.award.state !== 'active') && (
+                          <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                            Checkout for this offer is unavailable.
+                          </Typography>
+                        )}
                       {offer.message && (
                         <Typography as="p" className="mt-2 text-sm">
                           “{offer.message}”
                         </Typography>
                       )}
                     </div>
-                    {actionable && (
+                    {offer.award && offer.state === 'accepted' && offer.buyerPubky === currentUserPubky ? (
+                      <div className="flex flex-col items-start gap-2">
+                        <Button
+                          size="sm"
+                          className="rounded-full"
+                          onClick={() => {
+                            const address =
+                              addressBook.addresses.find(({ is_default }) => is_default) ?? addressBook.addresses[0];
+                            if (!address) {
+                              toast({ variant: 'error', description: 'Save a delivery address before checkout.' });
+                              return;
+                            }
+                            void offerCheckout.submit(offer, {
+                              name: address.name,
+                              line1: address.line1,
+                              line2: address.line2,
+                              city: address.city,
+                              region: address.region,
+                              postalCode: address.postal_code,
+                              countryCode: address.country_code,
+                            });
+                          }}
+                        >
+                          Buy for {formatCommerceMoney(offer.award.merchandiseTotal ?? offer.award.unitPrice)}
+                        </Button>
+                        <Typography as="p" className="text-xs text-muted-foreground">
+                          Priced from your accepted offer
+                        </Typography>
+                      </div>
+                    ) : actionable ? (
                       <div className="flex flex-wrap gap-2">
                         {incoming ? (
                           <>
@@ -148,7 +195,7 @@ export function MarketplaceOffers() {
                           </Button>
                         )}
                       </div>
-                    )}
+                    ) : null}
                   </CardContent>
                 </Card>
               );

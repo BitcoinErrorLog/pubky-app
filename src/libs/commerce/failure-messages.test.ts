@@ -6,6 +6,7 @@ import {
   MARKETPLACE_FAILURE_MESSAGES,
   marketplaceCheckoutRefusalMessage,
   marketplaceFailureMessage,
+  marketplaceOfferCheckoutFailureMessage,
 } from './failure-messages';
 
 describe('marketplaceFailureMessage', () => {
@@ -110,5 +111,24 @@ describe('marketplaceCheckoutRefusalMessage', () => {
     expect(marketplaceCheckoutRefusalMessage('UNAUTHORIZED', 'A buyer cannot purchase their own listing.')).not.toBe(
       MARKETPLACE_FAILURE_MESSAGES.session,
     );
+  });
+});
+
+describe('marketplaceOfferCheckoutFailureMessage', () => {
+  it.each([
+    ['AWARD_EXPIRED', MARKETPLACE_FAILURE_MESSAGES.offerExpired],
+    ['AWARD_ALREADY_CONVERTED', MARKETPLACE_FAILURE_MESSAGES.offerAlreadyConverted],
+    ['REVISION_CONFLICT', MARKETPLACE_FAILURE_MESSAGES.offerAlreadyConverted],
+    ['AWARD_QUANTITY_MISMATCH', 'The checkout quantity does not match the accepted offer.'],
+    ['AWARD_VARIANT_MISMATCH', 'The checkout variant does not match the accepted offer.'],
+    ['AWARD_LISTING_CHANGED', 'The listing snapshot does not match the offer terms.'],
+    ['AWARD_HOLD_MISSING', 'The inventory reserved for this accepted offer is no longer held.'],
+    ['INVALID_STATE', 'Only an accepted offer can enter offer checkout.'],
+  ] as const)('maps %s to static copy', (code, expected) => {
+    expect(marketplaceOfferCheckoutFailureMessage(code)).toBe(expected);
+  });
+
+  it('uses the static checkout fallback for unknown codes', () => {
+    expect(marketplaceOfferCheckoutFailureMessage('UNEXPECTED')).toBe(MARKETPLACE_FAILURE_MESSAGES.checkout);
   });
 });
