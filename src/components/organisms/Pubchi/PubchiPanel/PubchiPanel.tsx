@@ -65,7 +65,8 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = form.watch(QUERY_FORM_FIELDS.QUESTION);
   const postReference = parsePostReference(question);
-  const suggestionTarget: PubchiTarget | undefined = prefill?.target;
+  const [suggestionTarget, setSuggestionTarget] = useState<PubchiTarget | undefined>();
+  const [prefilledQuestion, setPrefilledQuestion] = useState<string>();
   const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
   const [showDatabaseBlockedNotice, setShowDatabaseBlockedNotice] = useState(false);
   const initialTier = effectiveTier({
@@ -81,16 +82,28 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   });
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setSuggestionTarget(undefined);
+      setPrefilledQuestion(undefined);
+      return;
+    }
     const nextPrefill = PubchiController.consumePrefill(currentUserPubky);
     if (!nextPrefill) return;
     setEditFeed(undefined);
+    setSuggestionTarget(nextPrefill.target);
+    setPrefilledQuestion(nextPrefill.question);
     if (nextPrefill.feedId) {
       void FeedController.get({ feedId: nextPrefill.feedId }).then((feed) => setEditFeed(feed));
     }
     form.setValue(QUERY_FORM_FIELDS.QUESTION, nextPrefill.question, { shouldValidate: true });
     document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
   }, [currentUserPubky, form, open, prefill]);
+
+  useEffect(() => {
+    if (!prefilledQuestion || question === prefilledQuestion) return;
+    setSuggestionTarget(undefined);
+    setPrefilledQuestion(undefined);
+  }, [prefilledQuestion, question]);
 
   useEffect(() => {
     if (result?.kind !== 'feed-v2') return;
@@ -122,6 +135,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
 
   const actionsDisabled = loading || setupLoading || !signingAvailable;
   const errorCopy = pubchiErrorCopy(errorCode);
+  const clearPanelConversation = () => {
+    setSuggestionTarget(undefined);
+    setPrefilledQuestion(undefined);
+    clearConversation();
+  };
   const submitQuestion = async (
     purpose: Parameters<typeof submit>[0],
     requestOptions?: Parameters<typeof submit>[1],
@@ -223,7 +241,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                   <Typography size="sm" className="font-medium">
                     Conversation
                   </Typography>
-                  <Button type="button" variant="ghost" size="sm" onClick={clearConversation}>
+                  <Button type="button" variant="ghost" size="sm" onClick={clearPanelConversation}>
                     New conversation
                   </Button>
                 </div>
@@ -276,19 +294,22 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               <Typography size="xs" className="text-muted-foreground">
                 Build feed opens the feed builder — pick filters or describe the feed.
               </Typography>
-              {postReference || prefill?.target?.kind === 'post' ? (
+              {postReference || suggestionTarget?.kind === 'post' ? (
                 <div className="flex flex-wrap gap-2">
-                  {postReference ? (
+                  {postReference || suggestionTarget?.kind === 'post' ? (
                     <Button
                       type="button"
                       variant="secondary"
                       data-testid="pubchi-summarize-thread"
                       disabled={actionsDisabled}
                       onClick={() => {
-                        form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${postReference.uri}`, {
+                        const target = suggestionTarget?.kind === 'post' ? suggestionTarget : undefined;
+                        const uri = postReference?.uri ?? target?.uri;
+                        if (!uri) return;
+                        form.setValue(QUERY_FORM_FIELDS.QUESTION, `Summarize this thread ${uri}`, {
                           shouldValidate: true,
                         });
-                        void submitQuestion('ask', { target: suggestionTarget });
+                        void submitQuestion('ask', { target });
                       }}
                     >
                       Summarize thread
@@ -312,15 +333,14 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                   </Button>
                 </div>
               ) : null}
-              {!postReference && prefill?.target?.kind === 'user' ? (
+              {!postReference && suggestionTarget?.kind === 'user' ? (
                 <Button
                   type="button"
                   variant="secondary"
                   data-testid="pubchi-suggest-tags"
                   disabled={actionsDisabled}
                   onClick={() => {
-                    const target = prefill.target;
-                    if (!target) return;
+                    const target = suggestionTarget;
                     form.setValue(QUERY_FORM_FIELDS.QUESTION, 'Suggest tags for this user', { shouldValidate: true });
                     void submitQuestion('ask', { target });
                   }}

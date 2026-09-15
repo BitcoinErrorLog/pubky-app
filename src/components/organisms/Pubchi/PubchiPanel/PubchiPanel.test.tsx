@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
+import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PUBCHI_PANEL_SURFACE, PubchiPanel } from './PubchiPanel';
 
@@ -16,8 +17,7 @@ vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
 const submit = vi.fn();
 const reapprove = vi.fn();
 const setupDevice = vi.fn();
-const { consumePrefill, getFeed, openFeedBuilder, closeFeedBuilder, closeFlyout } = vi.hoisted(() => ({
-  consumePrefill: vi.fn(),
+const { getFeed, openFeedBuilder, closeFeedBuilder, closeFlyout } = vi.hoisted(() => ({
   getFeed: vi.fn(),
   openFeedBuilder: vi.fn(),
   closeFeedBuilder: vi.fn(),
@@ -65,14 +65,20 @@ vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiEnabled: () => true,
 }));
 
-vi.mock('@/controllers/pubchi/pubchi', () => ({
-  PubchiController: {
-    consumePrefill,
-    closeFlyout: () => closeFlyout(),
-    openFeedBuilder: (...args: Parameters<typeof openFeedBuilder>) => openFeedBuilder(...args),
-    closeFeedBuilder: () => closeFeedBuilder(),
-  },
-}));
+vi.mock('@/controllers/pubchi/pubchi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/controllers/pubchi/pubchi')>();
+  return {
+    ...original,
+    PubchiController: {
+      ...original.PubchiController,
+      openFlyout: original.PubchiController.openFlyout,
+      consumePrefill: original.PubchiController.consumePrefill,
+      closeFlyout: () => closeFlyout(),
+      openFeedBuilder: (...args: Parameters<typeof openFeedBuilder>) => openFeedBuilder(...args),
+      closeFeedBuilder: () => closeFeedBuilder(),
+    },
+  };
+});
 
 vi.mock('@/controllers/feed/feed', () => ({
   FeedController: {
@@ -100,8 +106,13 @@ vi.mock('../PubchiFeedBuilder/PubchiFeedBuilder', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' }),
+  useAuthStore: Object.assign(
+    (selector: (state: { currentUserPubky: string }) => unknown) =>
+      selector({ currentUserPubky: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' }),
+    {
+      getState: () => ({ currentUserPubky: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' }),
+    },
+  ),
 }));
 
 vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
@@ -124,7 +135,6 @@ describe('PubchiPanel', () => {
     hookState.errorCode = undefined;
     hookState.form.setValue.mockReset();
     hookState.form.watch = () => '';
-    consumePrefill.mockReset();
     getFeed.mockReset();
     openFeedBuilder.mockReset();
     closeFeedBuilder.mockReset();
@@ -137,10 +147,11 @@ describe('PubchiPanel', () => {
   });
 
   it('consumes flyout prefill without submitting a query', () => {
-    consumePrefill.mockReturnValue({
+    const prefill = {
       question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
-      source: 'post-menu',
-    });
+      source: 'post-menu' as const,
+    };
+    PubchiController.openFlyout(prefill);
 
     render(<PubchiPanel open onOpenChange={() => {}} />);
 
@@ -158,8 +169,7 @@ describe('PubchiPanel', () => {
       question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
       source: 'post-menu' as const,
     };
-    consumePrefill.mockReturnValue(prefill);
-    usePubchiStore.getState().openFlyout(prefill, 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo');
+    PubchiController.openFlyout(prefill);
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
@@ -170,21 +180,67 @@ describe('PubchiPanel', () => {
     const question = `Summarize this thread ${target.uri}`;
     hookState.form.watch = () => question;
     const prefill = { question, source: 'post-menu' as const, target };
-    consumePrefill.mockReturnValue(prefill);
-    usePubchiStore.getState().openFlyout(prefill, 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo');
+    PubchiController.openFlyout(prefill);
     render(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(screen.getByTestId('pubchi-suggest-tags')).toBeEnabled();
+    expect(screen.getByTestId('pubchi-summarize-thread')).toBeEnabled();
     fireEvent.click(screen.getByTestId('pubchi-suggest-tags'));
     expect(submit).toHaveBeenCalledWith('ask', { target });
+    expect(hookState.form.setValue).toHaveBeenCalledWith('question', 'Suggest tags for this post', {
+      shouldValidate: true,
+    });
   });
 
   it('submits the canonical user target supplied by the profile route', () => {
     const target = { kind: 'user' as const, uri: 'pubky://owner/pub/pubky.app/profile.json' };
     const prefill = { question: 'Suggest tags for this user', source: 'chip' as const, target };
-    consumePrefill.mockReturnValue(prefill);
-    usePubchiStore.getState().openFlyout(prefill, 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo');
+    hookState.form.watch = () => prefill.question;
+    PubchiController.openFlyout(prefill);
     render(<PubchiPanel open onOpenChange={() => {}} />);
     fireEvent.click(screen.getByTestId('pubchi-suggest-tags'));
     expect(submit).toHaveBeenCalledWith('ask', { target });
+  });
+
+  it('drops a consumed target when the question changes or the flyout closes', async () => {
+    const target = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/POST123456789' };
+    const question = `Summarize this thread ${target.uri}`;
+    let currentQuestion = question;
+    hookState.form.watch = () => currentQuestion;
+    PubchiController.openFlyout({ question, source: 'post-menu', target });
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-suggest-tags')).toBeInTheDocument();
+
+    currentQuestion = 'A different question';
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('pubchi-suggest-tags')).not.toBeInTheDocument());
+
+    currentQuestion = question;
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(screen.queryByTestId('pubchi-suggest-tags')).not.toBeInTheDocument();
+
+    PubchiController.openFlyout({ question, source: 'post-menu', target });
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(screen.getByTestId('pubchi-suggest-tags')).toBeInTheDocument();
+
+    view.rerender(<PubchiPanel open={false} onOpenChange={() => {}} />);
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('pubchi-suggest-tags')).not.toBeInTheDocument());
+  });
+
+  it('drops a consumed target when starting a new conversation', () => {
+    const owner = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+    const target = { kind: 'user' as const, uri: 'pubky://owner/pub/pubky.app/profile.json' };
+    const question = 'Suggest tags for this user';
+    hookState.form.watch = () => question;
+    usePubchiStore.getState().setConfig(null, owner);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'Previous question' }, owner);
+    PubchiController.openFlyout({ question, source: 'chip', target });
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-suggest-tags')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
+    expect(screen.queryByTestId('pubchi-suggest-tags')).not.toBeInTheDocument();
   });
 
   it('sends no model-controlled target when interpreting a create proposal', async () => {
@@ -218,10 +274,10 @@ describe('PubchiPanel', () => {
   it('clears the edited feed before submitting a new create question', async () => {
     const feed = { id: 'feed-a', name: 'Feed A' };
     getFeed.mockResolvedValue(feed);
-    consumePrefill.mockReturnValue({
+    PubchiController.openFlyout({
       question: 'Update feed A',
       feedId: 'feed-a',
-      source: 'feed-menu',
+      source: 'chip',
     });
     hookState.result = {
       kind: 'feed-v2',
