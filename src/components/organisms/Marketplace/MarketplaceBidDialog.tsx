@@ -22,6 +22,7 @@ export function MarketplaceBidDialog({
   onSessionRequired,
   onAccepted,
   auctionPhase = 'live',
+  isOwner = false,
 }: {
   aggregateId: string;
   projection: MarketplaceListingProjection | null;
@@ -31,6 +32,7 @@ export function MarketplaceBidDialog({
   onSessionRequired?: () => void;
   onAccepted: () => void | Promise<void>;
   auctionPhase?: AuctionPhase;
+  isOwner?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // `onAccepted` refreshes the projection, which is exactly the recovery a
@@ -47,6 +49,7 @@ export function MarketplaceBidDialog({
           viewerBid: projection.viewerBid,
         }
       : undefined,
+    isOwner,
   );
   const { requireAuth } = useRequireAuth();
 
@@ -77,10 +80,10 @@ export function MarketplaceBidDialog({
         <Button
           size="lg"
           className="flex-1 rounded-full"
-          disabled={auctionPhase === 'ended' || (!projection?.auction && !isSessionRequired)}
+          disabled={isOwner || auctionPhase === 'ended' || (!projection?.auction && !isSessionRequired)}
         >
           <Gavel className="mr-2 size-4" />
-          Place a bid
+          {isOwner ? 'You cannot bid on your own listing' : 'Place a bid'}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">

@@ -38,6 +38,7 @@ export function useMarketplaceBid(
     minimumIncrement: { amountMinor: number };
     viewerBid?: MarketplaceListingProjection['viewerBid'];
   },
+  isOwner = false,
 ): UseMarketplaceBidResult {
   const form = useForm<MarketplaceBidData>({
     resolver: zodResolver(marketplaceBidSchema),
@@ -46,6 +47,10 @@ export function useMarketplaceBid(
   });
 
   const submit = async (): Promise<boolean> => {
+    if (isOwner) {
+      toast({ variant: 'error', description: 'You cannot bid on your own listing' });
+      return false;
+    }
     if (expectedRevision === null || auctionPhase === 'ended') return false;
     let succeeded = false;
     await form.handleSubmit(async (data) => {
@@ -63,7 +68,8 @@ export function useMarketplaceBid(
         if (amountInputToMoney(data.maximumAmount, priceAsset).amountMinor < minimumMinor) {
           form.setError('maximumAmount', {
             message:
-              auction.viewerBid && minimumMinor > auction.currentPrice.amountMinor + auction.minimumIncrement.amountMinor
+              auction.viewerBid &&
+              minimumMinor > auction.currentPrice.amountMinor + auction.minimumIncrement.amountMinor
                 ? 'Your maximum must exceed your own current proxy maximum.'
                 : 'Your maximum must be at least the current visible price plus the minimum increment.',
           });

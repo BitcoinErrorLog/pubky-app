@@ -68,6 +68,12 @@ describe('useMarketplaceOffer', () => {
     expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
 
+  it('refuses an owned listing without calling the service', async () => {
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3, vi.fn(), USD_ASSET, true));
+    await expect(result.current.submit()).resolves.toBe(false);
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+  });
+
   it('refetches the projection and asks for a retry on a revision conflict', async () => {
     vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
       ok: false,

@@ -21,6 +21,7 @@ export function MarketplaceOfferDialog({
   isSessionRequired = false,
   onSessionRequired,
   onAccepted,
+  isOwner = false,
 }: {
   aggregateId: string;
   expectedRevision: number | null;
@@ -30,11 +31,12 @@ export function MarketplaceOfferDialog({
   isSessionRequired?: boolean;
   onSessionRequired?: () => void;
   onAccepted: () => void | Promise<void>;
+  isOwner?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // `onAccepted` refreshes the projection, which is exactly the recovery a
   // revision conflict needs: reload the terms/revision, then the user re-offers.
-  const offer = useMarketplaceOffer(aggregateId, expectedRevision, onAccepted, priceAsset);
+  const offer = useMarketplaceOffer(aggregateId, expectedRevision, onAccepted, priceAsset, isOwner);
   const { requireAuth } = useRequireAuth();
   const amount = offer.form.watch('amount');
   const comparableAsking = askingPriceComparableToAsset(askingPrice, priceAsset);
@@ -68,10 +70,10 @@ export function MarketplaceOfferDialog({
           size="lg"
           variant="secondary"
           className="flex-1 rounded-full"
-          disabled={expectedRevision === null && !isSessionRequired}
+          disabled={isOwner || (expectedRevision === null && !isSessionRequired)}
         >
           <HandCoins className="mr-2 size-4" />
-          Make offer
+          {isOwner ? 'You cannot buy your own listing' : 'Make offer'}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">

@@ -83,6 +83,9 @@ export function useMarketplaceOffers() {
         return false;
       }
       await refresh();
+      if (kind === 'offer.accept') {
+        toast({ title: 'Offer accepted — the buyer has 30 minutes to complete checkout.' });
+      }
       return true;
     } catch (actionError) {
       if (isMarketplaceSessionRequiredError(actionError)) {

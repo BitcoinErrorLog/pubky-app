@@ -29,6 +29,7 @@ export function useMarketplaceOffer(
   expectedRevision: number | null,
   onConflict: () => void | Promise<void>,
   priceAsset: CommerceAsset,
+  isOwner = false,
 ): UseMarketplaceOfferResult {
   const form = useForm<MarketplaceOfferData>({
     resolver: zodResolver(marketplaceOfferSchema),
@@ -37,6 +38,10 @@ export function useMarketplaceOffer(
   });
 
   const submit = async (): Promise<boolean> => {
+    if (isOwner) {
+      toast({ variant: 'error', description: 'You cannot buy your own listing' });
+      return false;
+    }
     if (expectedRevision === null) return false;
     let succeeded = false;
     await form.handleSubmit(async (data) => {

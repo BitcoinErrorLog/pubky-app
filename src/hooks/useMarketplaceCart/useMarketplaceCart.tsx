@@ -132,6 +132,10 @@ export function useMarketplaceCart() {
 
   const add = async (listingId: string, variantId: string, quantity = 1) => {
     const mutation = requireAuth(async () => {
+      if (currentUserPubky && listingId.startsWith(`${currentUserPubky}:`)) {
+        toast({ variant: 'error', description: 'You cannot buy your own listing' });
+        return;
+      }
       try {
         await CommerceController.commitUpsertCartItem(listingId, variantId, quantity);
         toast({

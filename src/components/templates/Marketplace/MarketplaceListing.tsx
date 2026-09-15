@@ -198,6 +198,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   };
   const addSelectedVariantToCart = () => {
     if (!selectedVariant) return;
+    if (isOwner) return;
     void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1);
   };
 
@@ -444,6 +445,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     aggregateId={aggregateId}
                     projection={negotiation.projection}
                     priceAsset={price}
+                    isOwner={isOwner}
                     isSessionRequired={negotiation.needsSession}
                     onSessionRequired={revealSessionRequired}
                     onAccepted={negotiation.refresh}
@@ -456,6 +458,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     size="lg"
                     className="flex-1 rounded-full"
                     disabled={
+                      isOwner ||
                       adapterMode === 'unavailable' ||
                       !isPurchasable ||
                       !availabilityReady ||
@@ -470,13 +473,15 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       ? 'Checking availability…'
                       : availabilityNeedsSession
                         ? 'Connect to see availability'
-                        : isSoldOut
-                          ? 'Sold out'
-                          : isPurchasable
-                            ? 'Add to cart'
-                            : 'Unavailable'}
+                        : isOwner
+                          ? 'You cannot buy your own listing'
+                          : isSoldOut
+                            ? 'Sold out'
+                            : isPurchasable
+                              ? 'Add to cart'
+                              : 'Unavailable'}
                   </Button>
-                  {record.sale.acceptsOffers && isPurchasable && availabilityReady && !isSoldOut && (
+                  {record.sale.acceptsOffers && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}
@@ -485,6 +490,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       isSessionRequired={negotiation.needsSession}
                       onSessionRequired={revealSessionRequired}
                       onAccepted={negotiation.refresh}
+                      isOwner={isOwner}
                     />
                   )}
                 </>

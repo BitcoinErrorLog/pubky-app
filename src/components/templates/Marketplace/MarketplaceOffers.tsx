@@ -123,6 +123,14 @@ export function MarketplaceOffers() {
                             Checkout for this offer is unavailable.
                           </Typography>
                         )}
+                      {offer.state === 'accepted' &&
+                        offer.sellerPubky === currentUserPubky &&
+                        offer.award?.state === 'active' &&
+                        offer.award.convertBy && (
+                          <Typography as="p" className="text-sm text-muted-foreground">
+                            Buyer checkout window closes {new Date(offer.award.convertBy).toLocaleString()}
+                          </Typography>
+                        )}
                       {offer.message && (
                         <Typography as="p" className="mt-2 text-sm">
                           “{offer.message}”

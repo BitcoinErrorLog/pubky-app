@@ -226,7 +226,12 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
               phaseLabel="Ends in"
             />
           )}
-          <DropClaimPanel record={record} claim={claim} remainingAllowance={drop.readyCheck?.remainingAllowance ?? null} />
+          <DropClaimPanel
+            record={record}
+            claim={claim}
+            remainingAllowance={drop.readyCheck?.remainingAllowance ?? null}
+            isOwner={currentUserPubky === sellerPubky}
+          />
         </>
       )}
 
