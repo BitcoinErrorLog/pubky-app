@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
@@ -72,6 +72,8 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
   const [showDatabaseBlockedNotice, setShowDatabaseBlockedNotice] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
+  const lastFeedResultRef = useRef<typeof result>(undefined);
+  const consumedFeedResultRef = useRef<typeof result>(undefined);
   const initialTier = effectiveTier({
     desired: config?.tier ?? 'read-only',
     ceiling: 'assisted',
@@ -117,7 +119,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   }, [prefilledQuestion, question]);
 
   useEffect(() => {
+    if (result === lastFeedResultRef.current) return;
+    lastFeedResultRef.current = result;
     if (result?.kind !== 'feed-v2') return;
+    if (consumedFeedResultRef.current === result) return;
+    consumedFeedResultRef.current = result;
     PubchiController.openFeedBuilder(result.result);
     onOpenChange(false);
     PubchiController.closeFlyout();
@@ -149,6 +155,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const clearPanelConversation = () => {
     setSuggestionTarget(undefined);
     setPrefilledQuestion(undefined);
+    consumedFeedResultRef.current = undefined;
     clearConversation();
   };
   const submitQuestion = async (
@@ -462,13 +469,17 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
           proposal={feedBuilderProposal}
           open={feedBuilderOpen}
           onOpenChange={(nextOpen) => {
-            if (!nextOpen) PubchiController.closeFeedBuilder();
+            if (!nextOpen) {
+              consumedFeedResultRef.current = undefined;
+              PubchiController.closeFeedBuilder();
+            }
           }}
           existingFeed={editFeed}
           initialQuestion={question.trim()}
           onInterpret={async (nextQuestion) => {
+            const previousQuestion = question;
             form.setValue(QUERY_FORM_FIELDS.QUESTION, nextQuestion, { shouldValidate: true });
-            await submit('build-feed', {
+            const interpreted = await submit('build-feed', {
               proposalVersion: 2,
               ...(editFeed
                 ? {
@@ -477,6 +488,9 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                   }
                 : {}),
             });
+            if (!interpreted) {
+              form.setValue(QUERY_FORM_FIELDS.QUESTION, previousQuestion, { shouldValidate: true });
+            }
           }}
         />
       ) : null}
