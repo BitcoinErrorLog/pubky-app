@@ -14,6 +14,8 @@ import { useTagSuggestionApplication } from '@/hooks/useTagSuggestionApplication
 import { linkifyPubkys } from '@/libs/pubchi/capabilities-v1';
 import type { ExecutionScope, PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
+import { copyToClipboard, truncateMiddle } from '@/libs/utils/utils';
+import { toast } from '@/molecules/Toaster/toast';
 
 type PubchiAnswerCardProps = {
   answer: PubchiAnswerV1;
@@ -80,6 +82,15 @@ export function PubchiAnswerCard({
             <CardTitle>Suggested tags</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {answer.target ? (
+              <Link
+                href={pubkyUriToAppHref(answer.target.uri, currentUserPubky) ?? answer.target.uri}
+                className="truncate text-sm underline"
+                title={answer.target.uri}
+              >
+                {truncateMiddle(answer.target.uri, 64)}
+              </Link>
+            ) : null}
             {answer.tag_suggestions.map((suggestion, index) => {
               const status = suggestion.already_applied ? 'superseded' : (statuses[index] ?? 'proposed');
               return (
@@ -90,20 +101,6 @@ export function PubchiAnswerCard({
                 >
                   <Typography className="font-medium">{suggestion.label}</Typography>
                   <Typography size="sm">{suggestion.rationale}</Typography>
-                  <div className="flex flex-wrap gap-2">
-                    {suggestion.evidence.map((uri) => {
-                      const href = pubkyUriToAppHref(uri, currentUserPubky);
-                      return href ? (
-                        <Link key={uri} href={href} className="text-sm break-all underline">
-                          {uri}
-                        </Link>
-                      ) : (
-                        <Typography key={uri} size="sm" className="break-all">
-                          {uri}
-                        </Typography>
-                      );
-                    })}
-                  </div>
                   {status === 'superseded' ? (
                     <Typography size="sm" data-testid={`pubchi-tag-already-applied-${index}`}>
                       Already applied
@@ -182,6 +179,7 @@ export function PubchiAnswerCard({
         </div>
       ) : null}
 
+      {hasInterpretationDetails(answer) ? (
       <Card>
         <CardHeader>
           <CardTitle>
@@ -215,8 +213,10 @@ export function PubchiAnswerCard({
                 )
               : answer.summary || 'No evidence was found for this question.'}
           </Typography>
+          <ToolTrace answer={answer} currentUserPubky={currentUserPubky} />
         </CardContent>
       </Card>
+      ) : null}
       {answer.citations?.length ? (
         <Card data-testid="pubchi-answer-citations">
           <CardHeader>
@@ -247,33 +247,66 @@ export function PubchiAnswerCard({
         </Typography>
       ) : null}
 
-      {answer.sources.length > 0 ? (
-        <Collapsible>
-          <CollapsibleTrigger className="text-left text-sm underline">Sources</CollapsibleTrigger>
-          <CollapsibleContent className="flex flex-col gap-1 pt-2">
-            {answer.sources.map((source) => {
-              const href = pubkyUriToAppHref(source, currentUserPubky);
-              return href ? (
-                <Link key={source} href={href} className="text-sm break-all underline">
-                  {source}
-                </Link>
-              ) : (
-                <Typography key={source} size="sm" className="break-all">
-                  {source}
-                </Typography>
-              );
-            })}
-          </CollapsibleContent>
-        </Collapsible>
-      ) : null}
+    </div>
+  );
+}
 
+function hasInterpretationDetails(answer: PubchiAnswerV1): boolean {
+  return (
+    answer.evidence.length > 0 ||
+    Boolean(answer.citations?.length) ||
+    answer.sources.length > 0 ||
+    Boolean(answer.continuation) ||
+    answer.tool_trace_summary.call_count > 0 ||
+    answer.tool_trace_summary.truncated ||
+    hasDeterministicRoute(answer.tool_trace_summary.tools)
+  );
+}
+
+function ToolTrace({ answer, currentUserPubky }: { answer: PubchiAnswerV1; currentUserPubky?: string | null }) {
+  const { tools, call_count: callCount, truncated } = answer.tool_trace_summary;
+  const callLabel = `${callCount} ${callCount === 1 ? 'call' : 'calls'}`;
+  const sourceLabel = tools.length > 0 ? `Sources: ${tools.join(', ')} · ${callLabel}` : 'Sources: none — answered from the model';
+  return (
+    <div data-testid="pubchi-tool-trace" className="mt-3 flex flex-col gap-2 border-t pt-3">
       <Collapsible>
-        <CollapsibleTrigger className="text-left text-sm underline">Tool trace</CollapsibleTrigger>
-        <CollapsibleContent>
+        <CollapsibleTrigger className="text-left text-sm font-medium">{sourceLabel}</CollapsibleTrigger>
+        <CollapsibleContent className="flex flex-col gap-2 pt-2">
+          <div className="flex items-center gap-2">
+            <Typography size="sm" data-testid="pubchi-run-id">
+              Run ID: {truncateMiddle(answer.run_id, 40)}
+            </Typography>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="pubchi-run-id-copy"
+              onClick={() => {
+                void copyToClipboard({ text: answer.run_id }).then(
+                  () => toast({ title: 'Copied', dismissButton: true }),
+                  () => undefined,
+                );
+              }}
+            >
+              Copy
+            </Button>
+          </div>
           <Typography size="sm">
-            {answer.tool_trace_summary.tools.join(', ') || 'none'} · {answer.tool_trace_summary.call_count} calls
-            {answer.tool_trace_summary.truncated ? ' · truncated' : ''}
+            {tools.join(', ') || 'none'} · {callLabel}
+            {truncated ? ' · truncated' : ''}
           </Typography>
+          {answer.sources.map((source) => {
+            const href = pubkyUriToAppHref(source, currentUserPubky);
+            return href ? (
+              <Link key={source} href={href} className="text-sm break-all underline">
+                {source}
+              </Link>
+            ) : (
+              <Typography key={source} size="sm" className="break-all">
+                {source}
+              </Typography>
+            );
+          })}
         </CollapsibleContent>
       </Collapsible>
     </div>
@@ -299,7 +332,7 @@ function groupEvidence(answer: PubchiAnswerV1): EvidenceGroup[] {
 function genericEvidenceGroups(evidence: PubchiEvidenceV1[]): EvidenceGroup[] {
   return (['post', 'claim', 'tag', 'user'] as const).flatMap((kind) => {
     const items = evidence.filter((item) => item.kind === kind);
-    return items.length > 0 ? [{ id: kind, label: `${kind}s`, items, more: 0 }] : [];
+    return items.length > 0 ? [{ id: kind, label: kind === 'claim' ? 'Evidence' : `${kind}s`, items, more: 0 }] : [];
   });
 }
 
@@ -429,5 +462,5 @@ function countLabel(tools: string[]): string {
   if (tools.includes('top_posts')) return 'Replies';
   if (tools.some((tool) => tool === 'recommend_follows' || tool === 'recommend' || tool === 'stale_follows'))
     return 'Count';
-  return 'Claimants';
+  return 'Evidence';
 }

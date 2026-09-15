@@ -54,7 +54,7 @@ describe('PubchiAnswerCard', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.getByText("Pubchi's reading of the evidence")).toBeInTheDocument();
     expect(screen.getByText('In your graph')).toBeInTheDocument();
-    expect(screen.getByText('Claimants: 1')).toBeInTheDocument();
+    expect(screen.getByText('Evidence: 1')).toBeInTheDocument();
   });
 
   it('groups service C3 sections before unsectioned evidence', () => {
@@ -82,7 +82,7 @@ describe('PubchiAnswerCard', () => {
     );
     expect(screen.getByTestId('pubchi-evidence-section-replies_to_you')).toHaveTextContent('Replies to you (1)');
     expect(screen.getByTestId('pubchi-evidence-section-tags_on_you')).toHaveTextContent('Tags on you (1)');
-    expect(screen.getByTestId('pubchi-evidence-section-claim')).toHaveTextContent('claims (1)');
+    expect(screen.getByTestId('pubchi-evidence-section-claim')).toHaveTextContent('Evidence (1)');
     expect(screen.getAllByText('and 2 more')).toHaveLength(3);
   });
 
@@ -98,7 +98,7 @@ describe('PubchiAnswerCard', () => {
     [['recommend_follows'], 'Count'],
     [['recommend'], 'Count'],
     [['stale_follows'], 'Count'],
-    [['unknown_route'], 'Claimants'],
+    [['unknown_route'], 'Evidence'],
   ])('labels %s counts as %s', (tools, label) => {
     render(
       <PubchiAnswerCard
@@ -134,9 +134,27 @@ describe('PubchiAnswerCard', () => {
     expect(screen.queryByText("Pubchi's reading of the evidence")).not.toBeInTheDocument();
   });
 
-  it('renders an honest empty state for an answer without evidence', () => {
+  it('does not repeat an answer with no supporting details', () => {
     render(<PubchiAnswerCard answer={{ ...answer, evidence: [], summary: '' }} currentUserPubky={owner} />);
-    expect(screen.getByText('No evidence was found for this question.')).toBeInTheDocument();
+    expect(screen.queryByText('No evidence was found for this question.')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pubchi-tool-trace')).not.toBeInTheDocument();
+  });
+
+  it('shows the run id and singular tool-call label in the visible source row', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          run_id: 'run-123',
+          tool_trace_summary: { tools: ['nexus_user_tags'], call_count: 1, truncated: false },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('pubchi-tool-trace')).toHaveTextContent('Sources: nexus_user_tags · 1 call');
+    fireEvent.click(screen.getByText('Sources: nexus_user_tags · 1 call'));
+    expect(screen.getByTestId('pubchi-run-id')).toHaveTextContent('run-123');
+    expect(screen.getByTestId('pubchi-run-id-copy')).toBeInTheDocument();
   });
 
   it('renders the service-provided scope line for an owner network', () => {
