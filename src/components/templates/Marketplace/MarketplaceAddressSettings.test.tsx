@@ -30,11 +30,13 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('MarketplaceAddressSettings', () => {
-  it('explains that the seller sees the address for the order', () => {
+  it('explains that sellers cannot yet read addresses in the Shop', () => {
     render(<MarketplaceAddressSettings />);
 
     expect(
-      screen.getByText('These delivery addresses are sent with your order and shown only to the seller of that order.'),
+      screen.getByText(
+        'Your delivery addresses are sent with your orders for the seller of each order only. Sellers cannot yet read them in the Shop; the packing slip asks the seller to confirm the destination with you.',
+      ),
     ).toBeInTheDocument();
   });
 

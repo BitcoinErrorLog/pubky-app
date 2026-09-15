@@ -14,7 +14,7 @@ vi.mock('next/navigation', () => ({
 const PASTED_ADDRESS = 'Ada Buyer\n123 Privacy Lane\n83820 Someville, US';
 
 const UNAVAILABLE_NOTE =
-  "The buyer's delivery address arrives with the order; this deployment does not yet expose it to the seller";
+  "The buyer's delivery address was sent with the order but is not yet exposed to the seller in this deployment";
 
 const LOCAL_ONLY_NOTE =
   'Kept only in this dialog on this device — not saved, not sent to the marketplace or any server. Anything you print (including print-to-PDF) will contain it.';

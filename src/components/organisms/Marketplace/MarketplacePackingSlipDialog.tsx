@@ -161,8 +161,8 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
               ) : (
                 <>
                   <p className="mt-1 text-xs leading-relaxed text-neutral-700">
-                    The buyer&apos;s delivery address arrives with the order; this deployment does not yet expose it to
-                    the seller — ask the buyer in your encrypted conversation and write it below.
+                    The buyer&apos;s delivery address was sent with the order but is not yet exposed to the seller in
+                    this deployment — ask the buyer in your encrypted conversation and write it below.
                   </p>
                   <div className="mt-3 space-y-4" aria-hidden="true">
                     <div className="border-b border-neutral-400" />
