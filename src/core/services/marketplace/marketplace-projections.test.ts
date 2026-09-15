@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
+import sellerOffersCapture from '@/test/fixtures/commerce/live/seller-offers-v062.json';
 import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE, createOfferFixture } from '@/test/fixtures/commerce/offers';
 import { createBitcoinQuotedOrderFixture, createOrderFixture } from '@/test/fixtures/commerce/orders';
 import { LIVE_OFFER_ORDER_WIRE_FIXTURE } from '@/test/fixtures/commerce/orders-award.wire';
@@ -133,6 +134,59 @@ describe('marketplace order projection — offer-priced orders', () => {
 });
 
 describe('marketplace offer projection — award degradation', () => {
+  const restoreRedactedIdentities = (value: unknown): unknown => {
+    if (typeof value === 'string') return value.replaceAll('…', 'z'.repeat(44));
+    if (Array.isArray(value)) return value.map(restoreRedactedIdentities);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, restoreRedactedIdentities(entry)]));
+    }
+    return value;
+  };
+
+  it('parses the captured seller list and preserves row-level award eligibility', () => {
+    const offers = sellerOffersCapture.offers.map((offer) =>
+      marketplaceOfferSchema.parse(toCamelCaseWire(restoreRedactedIdentities(offer))),
+    );
+
+    expect(offers).toHaveLength(sellerOffersCapture.offers.length);
+    expect(offers.find((offer) => offer.state === 'converted')?.award).toBeDefined();
+    expect(offers.filter((offer) => offer.state === 'pending').every((offer) => offer.award === undefined)).toBe(true);
+    const converted = offers.find((offer) => offer.state === 'converted');
+    expect(converted?.state).not.toBe('accepted');
+    expect(isMarketplaceAwardCheckoutEligible(converted?.award)).toBe(true);
+  });
+
+  it('does not offer checkout for a legacy expired row', () => {
+    const expired = restoreRedactedIdentities({
+      ...sellerOffersCapture.offers[0],
+      state: 'expired',
+      award: null,
+    });
+
+    const parsed = marketplaceOfferSchema.parse(toCamelCaseWire(expired));
+
+    expect(parsed.state).toBe('expired');
+    expect(parsed.award).toBeUndefined();
+    expect(isMarketplaceAwardCheckoutEligible(parsed.award)).toBe(false);
+  });
+
+  it('drops only the corrupted award while preserving the rest of the list', () => {
+    const offers = sellerOffersCapture.offers.map((offer) =>
+      marketplaceOfferSchema.parse(toCamelCaseWire(restoreRedactedIdentities(offer))),
+    );
+    const corrupted = {
+      ...offers[2],
+      award: { id: 'not-a-uuid' },
+    };
+
+    const parsed = offers.map((offer, index) => marketplaceOfferSchema.parse(index === 2 ? corrupted : offer));
+
+    expect(parsed).toHaveLength(offers.length);
+    expect(parsed[2].award).toBeUndefined();
+    expect(parsed[0].state).toBe('pending');
+    expect(parsed[1].state).toBe('pending');
+  });
+
   it('parses the accepted award wire fixture through casing and the offer schema', () => {
     const parsed = marketplaceOfferSchema.safeParse(
       toCamelCaseWire({

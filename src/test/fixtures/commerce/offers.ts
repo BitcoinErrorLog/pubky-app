@@ -64,6 +64,7 @@ const OFFER_STATE_MESSAGES = {
   rejected: 'Sorry, this is below what I can accept for this item.',
   withdrawn: 'Withdrawing this offer — found another option.',
   expired: 'This offer lapsed before the seller responded.',
+  converted: 'This offer has been converted into an order.',
 } as const satisfies Record<MarketplaceOffer['state'], string>;
 
 /** Every offer state the marketplace offer schema defines. */

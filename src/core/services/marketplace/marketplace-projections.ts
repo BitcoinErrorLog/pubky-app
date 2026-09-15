@@ -200,7 +200,7 @@ const marketplaceOfferProjectionSchema = z
     buyerPubky: commercePubkySchema,
     sellerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
-    state: z.enum(['pending', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired']),
+    state: z.enum(['pending', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired', 'converted']),
     offeredBy: commercePubkySchema,
     amount: marketplaceMoneySchema,
     quantity: z.number().int().positive(),
@@ -246,7 +246,7 @@ export const marketplaceOfferSchema = z.preprocess((input) => {
   if (!input || typeof input !== 'object') return input;
   const record = input as Record<string, unknown>;
   const award = record.award;
-  if (award === undefined || award === null || marketplaceOfferProjectionSchema.shape.award!.safeParse(award).success) {
+  if (award === undefined || marketplaceOfferProjectionSchema.shape.award!.safeParse(award).success) {
     return input;
   }
   const withoutAward = { ...record };
