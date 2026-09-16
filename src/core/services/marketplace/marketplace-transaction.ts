@@ -66,6 +66,8 @@ import {
   marketplaceOfferSchema,
   type MarketplaceOrder,
   marketplaceOrderSchema,
+  type MarketplaceParticipantOrder,
+  marketplaceParticipantOrderSchema,
   type MarketplacePayment,
   marketplacePaymentSchema,
   type MarketplacePublicDrop,
@@ -281,11 +283,11 @@ export class MarketplaceTransactionService {
    * sub-objects. `receipt_id` stays null until payment confirmation issues
    * the durable receipt.
    */
-  static async getOrders(actor: string): Promise<MarketplaceOrder[]> {
+  static async getOrders(actor: string): Promise<MarketplaceParticipantOrder[]> {
     const raw = await this.readProjection('getOrders', actor, '/v1/orders');
     return this.parseProjection(
       'getOrders',
-      z.object({ orders: z.array(marketplaceOrderSchema) }),
+      z.object({ orders: z.array(marketplaceParticipantOrderSchema) }),
       raw,
       'Marketplace returned invalid orders.',
     ).orders;

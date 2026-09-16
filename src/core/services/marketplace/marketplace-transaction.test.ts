@@ -485,6 +485,34 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(orders[0].payment).not.toHaveProperty('locksBundleId');
   });
 
+  it('strips delivery addresses from participant list projections', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        orders: [
+          orderWire({
+            delivery_address: {
+              format: 'plaintext_v1',
+              address: {
+                name: 'Alice Buyer',
+                line1: '1 Market Street',
+                line2: '',
+                city: 'New York',
+                region: 'NY',
+                postal_code: '10001',
+                country_code: 'US',
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const [order] = await MarketplaceTransactionService.getOrders(ACTOR);
+
+    expect(order).not.toHaveProperty('deliveryAddress');
+  });
+
   it('reads the captured wire orders, including the locked and all-null quotes', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, LIVE_ORDERS_WIRE_FIXTURE));

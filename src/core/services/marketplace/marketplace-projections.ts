@@ -507,6 +507,32 @@ export const marketplaceOrderSchema = z.preprocess((input) => {
 }, marketplaceOrderProjectionSchema);
 
 /**
+ * Participant-list orders deliberately exclude the seller-only delivery
+ * address. `.strip()` drops an accidentally disclosed wire field while
+ * preserving the rest of a valid list so a server regression cannot spread
+ * the address into list consumers.
+ */
+export const marketplaceParticipantOrderProjectionSchema = marketplaceOrderProjectionSchema
+  .omit({ deliveryAddress: true })
+  .strip();
+
+export const marketplaceParticipantOrderSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object') return input;
+  const record = input as Record<string, unknown>;
+  const bitcoinQuote = record.bitcoinQuote;
+  if (
+    bitcoinQuote === undefined ||
+    bitcoinQuote === null ||
+    marketplaceBitcoinQuoteSchema.safeParse(bitcoinQuote).success
+  ) {
+    return input;
+  }
+  const withoutBitcoinQuote = { ...record };
+  delete withoutBitcoinQuote.bitcoinQuote;
+  return withoutBitcoinQuote;
+}, marketplaceParticipantOrderProjectionSchema);
+
+/**
  * The PUBLIC drop projection (`GET /v0/drops/{seller}/{dropId}`, ADR 0026):
  * the transaction service's authoritative drop state, with stock redaction
  * applied SERVER-side per the seller's `stockDisplay` policy — `exact`
@@ -582,6 +608,7 @@ export function isRecognizedMarketplaceNotification(
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;
 export type MarketplaceOfferAward = z.infer<typeof marketplaceOfferProjectionSchema>['award'];
 export type MarketplaceOrder = z.infer<typeof marketplaceOrderSchema>;
+export type MarketplaceParticipantOrder = z.infer<typeof marketplaceParticipantOrderSchema>;
 export type MarketplacePublicDrop = z.infer<typeof marketplacePublicDropSchema>;
 export type MarketplaceSellerDrop = z.infer<typeof marketplaceSellerDropSchema>;
 export type MarketplaceDropReadyCheck = z.infer<typeof marketplaceDropReadyCheckSchema>;
