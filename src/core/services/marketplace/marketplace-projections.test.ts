@@ -118,26 +118,23 @@ describe('marketplace seller delivery address projection', () => {
       },
       { format: 'unsupported' },
     ],
-  ])(
-    'parses %s delivery addresses without failing the order',
-    (_name, deliveryAddress, expected) => {
-      const parsed = marketplaceOrderSchema.safeParse({
-        ...createOrderFixture('paid'),
-        ...(deliveryAddress === undefined ? {} : { deliveryAddress }),
-      });
-      const participantParsed = marketplaceParticipantOrderSchema.safeParse({
-        ...createOrderFixture('paid'),
-        ...(deliveryAddress === undefined ? {} : { deliveryAddress }),
-      });
+  ])('parses %s delivery addresses without failing the order', (_name, deliveryAddress, expected) => {
+    const parsed = marketplaceOrderSchema.safeParse({
+      ...createOrderFixture('paid'),
+      ...(deliveryAddress === undefined ? {} : { deliveryAddress }),
+    });
+    const participantParsed = marketplaceParticipantOrderSchema.safeParse({
+      ...createOrderFixture('paid'),
+      ...(deliveryAddress === undefined ? {} : { deliveryAddress }),
+    });
 
-      expect(parsed.success).toBe(true);
-      if (parsed.success) {
-        expect(parsed.data.deliveryAddress).toEqual(expected);
-      }
-      expect(participantParsed.success).toBe(true);
-      if (participantParsed.success) expect('deliveryAddress' in participantParsed.data).toBe(false);
-    },
-  );
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.deliveryAddress).toEqual(expected);
+    }
+    expect(participantParsed.success).toBe(true);
+    if (participantParsed.success) expect('deliveryAddress' in participantParsed.data).toBe(false);
+  });
 });
 
 describe('marketplace order projection — Bitcoin quote', () => {

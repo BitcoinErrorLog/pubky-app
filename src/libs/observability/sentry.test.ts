@@ -1,4 +1,4 @@
-import { readdirSync,readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SpanJSON, TransactionEvent } from '@sentry/core';
 import * as Sentry from '@sentry/nextjs';
@@ -27,12 +27,18 @@ const SENTRY_ATTACHMENT_PATTERNS = [
 function getProductionSourceFiles(): string[] {
   const sourceRoot = join(process.cwd(), 'src');
   return readdirSync(sourceRoot, { recursive: true })
-    .filter((path): path is string => typeof path === 'string' && /\.(?:ts|tsx)$/.test(path) && !/\.test\.[tj]sx?$/.test(path))
+    .filter(
+      (path): path is string =>
+        typeof path === 'string' && /\.(?:ts|tsx)$/.test(path) && !/\.test\.[tj]sx?$/.test(path),
+    )
     .map((path) => join(sourceRoot, path));
 }
 
 function hasUnallowlistedAttachmentProducer(source: string): boolean {
-  return SENTRY_ATTACHMENT_PATTERNS.some((pattern) => pattern.test(source)) && !source.includes(SENTRY_ATTACHMENT_SAFE_POLICY_MARKER);
+  return (
+    SENTRY_ATTACHMENT_PATTERNS.some((pattern) => pattern.test(source)) &&
+    !source.includes(SENTRY_ATTACHMENT_SAFE_POLICY_MARKER)
+  );
 }
 
 /**
@@ -105,7 +111,9 @@ async function withEnabledSentryCapture(
   const captureException = vi.fn(() => {
     const capturedEvent = runBeforeSend(
       asOpaque<Sentry.ErrorEvent>({
-        breadcrumbs: [{ message: 'Packing slip rendered', data: { deliveryAddress: '1 Market Street / New York / 10001' } }],
+        breadcrumbs: [
+          { message: 'Packing slip rendered', data: { deliveryAddress: '1 Market Street / New York / 10001' } },
+        ],
         extra: { deliveryAddress: { line1: '1 Market Street / New York / 10001' } },
         contexts: { 'error.context': scope.setContext.mock.calls[0]?.[1] },
       }),
@@ -265,9 +273,9 @@ describe('delivery address telemetry protection', () => {
 
     expect(hasUnallowlistedAttachmentProducer(rejectedAttachmentFixture)).toBe(true);
     expect(productionSources).not.toHaveLength(0);
-    expect(
-      productionSources.filter((path) => hasUnallowlistedAttachmentProducer(readFileSync(path, 'utf8'))),
-    ).toEqual([]);
+    expect(productionSources.filter((path) => hasUnallowlistedAttachmentProducer(readFileSync(path, 'utf8')))).toEqual(
+      [],
+    );
   });
 });
 

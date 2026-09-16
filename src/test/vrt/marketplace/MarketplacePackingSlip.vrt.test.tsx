@@ -16,7 +16,8 @@ const fixtures = vi.hoisted(async () => {
   const { createOrderFixture } = await import('@/test/fixtures/commerce/orders');
   const { marketplaceDeliveryAddressSchema } = await import('@/services/marketplace/marketplace-projections');
   const { toCamelCaseWire } = await import('@/libs/commerce/wire-casing');
-  const { default: sellerPaidShippingAddress } = await import('@/test/fixtures/commerce/seller-paid-shipping-address.json');
+  const { default: sellerPaidShippingAddress } =
+    await import('@/test/fixtures/commerce/seller-paid-shipping-address.json');
   const deliveryAddress = marketplaceDeliveryAddressSchema.parse(toCamelCaseWire(sellerPaidShippingAddress));
   return {
     paidOrder: createOrderFixture('paid'),
@@ -41,7 +42,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', async () => ({
-  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: (await fixtures).sellerPaidShippingOrder.sellerPubky }),
+  useAuthStore: createMarketplaceVrtAuthStore({
+    currentUserPubky: (await fixtures).sellerPaidShippingOrder.sellerPubky,
+  }),
 }));
 
 vi.mock('@/controllers/commerce/commerce', async () => ({

@@ -36,7 +36,8 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { address, setAddress, clear, sellerOrder } = usePackingSlipAddress({ order, enabled: open });
   const pastedAddress = address.trim();
-  const serviceAddress = sellerOrder?.deliveryAddress?.format === 'plaintext_v1' ? sellerOrder.deliveryAddress.address : null;
+  const serviceAddress =
+    sellerOrder?.deliveryAddress?.format === 'plaintext_v1' ? sellerOrder.deliveryAddress.address : null;
   // Pickup orders (local pickup design §A5): nothing is posted, so the
   // delivery-address block and the paste field are suppressed — a pickup
   // order never had an address, and the meeting point is only ever visible

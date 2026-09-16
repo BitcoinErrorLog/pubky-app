@@ -188,7 +188,9 @@ describe('MarketplacePackingSlipDialog — seller delivery projection', () => {
 
     const dialog = screen.getByRole('dialog');
     await waitFor(() =>
-      expect(within(dialog).getByText('Delivery address unavailable for this order — paste it below.')).toBeInTheDocument(),
+      expect(
+        within(dialog).getByText('Delivery address unavailable for this order — paste it below.'),
+      ).toBeInTheDocument(),
     );
     expect(within(dialog).getByLabelText('Paste delivery address (optional)')).toBeInTheDocument();
   });

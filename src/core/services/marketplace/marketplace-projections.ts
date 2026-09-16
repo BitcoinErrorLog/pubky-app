@@ -333,15 +333,21 @@ const marketplaceDeliveryAddressUnsupportedSchema = z.object({
  * values are quarantined as `unsupported` so an order remains readable while
  * the client never renders an unrecognized address format.
  */
-export const marketplaceDeliveryAddressSchema = z.preprocess((input) => {
-  if (input === undefined || input === null) return undefined;
-  if (typeof input !== 'object') return { format: 'unsupported' };
-  const record = input as Record<string, unknown>;
-  return record.format === 'plaintext_v1' ? input : { format: 'unsupported' };
-}, z
-  .discriminatedUnion('format', [marketplaceDeliveryAddressPlaintextSchema, marketplaceDeliveryAddressUnsupportedSchema])
-  .optional()
-  .catch({ format: 'unsupported' }));
+export const marketplaceDeliveryAddressSchema = z.preprocess(
+  (input) => {
+    if (input === undefined || input === null) return undefined;
+    if (typeof input !== 'object') return { format: 'unsupported' };
+    const record = input as Record<string, unknown>;
+    return record.format === 'plaintext_v1' ? input : { format: 'unsupported' };
+  },
+  z
+    .discriminatedUnion('format', [
+      marketplaceDeliveryAddressPlaintextSchema,
+      marketplaceDeliveryAddressUnsupportedSchema,
+    ])
+    .optional()
+    .catch({ format: 'unsupported' }),
+);
 
 export type MarketplaceDeliveryAddress = z.infer<typeof marketplaceDeliveryAddressSchema>;
 
