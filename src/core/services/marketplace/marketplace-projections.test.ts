@@ -87,8 +87,10 @@ describe('marketplace seller delivery address projection', () => {
       });
 
       expect(parsed.success).toBe(true);
-      if (parsed.success && deliveryAddress !== undefined) {
-        expect(parsed.data.deliveryAddress).toEqual({ format: 'unsupported' });
+      if (parsed.success) {
+        expect(parsed.data.deliveryAddress).toEqual(
+          deliveryAddress === undefined ? undefined : { format: 'unsupported' },
+        );
       }
     },
   );
