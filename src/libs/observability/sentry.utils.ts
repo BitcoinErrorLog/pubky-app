@@ -210,6 +210,14 @@ export function scrubSensitiveData(event: Sentry.ErrorEvent): Sentry.ErrorEvent 
     event.user = sanitizeForSentry(event.user) as Sentry.ErrorEvent['user'];
   }
 
+  // Attachments can carry arbitrary caller-provided bytes. The application
+  // does not attach files to Sentry, so retaining one cannot be justified
+  // against the risk of transmitting a delivery address.
+  const eventWithAttachments = event as Sentry.ErrorEvent & { attachments?: unknown };
+  if (eventWithAttachments.attachments) {
+    eventWithAttachments.attachments = SENSITIVE_VALUE_REDACTED;
+  }
+
   return event;
 }
 

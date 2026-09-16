@@ -9,7 +9,7 @@ import { RUNTIME_CONFIG_WINDOW_KEY } from '@/libs/runtime-config/runtime-config'
 import { NETWORK_RUNTIME_DEFAULTS } from '@/libs/runtime-config/runtime-config.schema';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { getSentryInitBase } from './sentry';
-import { scrubSensitiveData, shouldDropAppErrorFromSentry } from './sentry.utils';
+import { shouldDropAppErrorFromSentry } from './sentry.utils';
 
 const TEST_PUBKY = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
 
@@ -64,11 +64,15 @@ function runBeforeSendSpan(span: SpanJSON): SpanJSON {
 }
 
 async function withEnabledSentryCapture(
-  run: (params: { captureAppError: (error: AppError) => void; captureException: ReturnType<typeof vi.fn> }) => void,
+  run: (params: {
+    captureAppError: (error: AppError) => void;
+    captureException: ReturnType<typeof vi.fn>;
+    capturedEvents: Sentry.ErrorEvent[];
+  }) => void,
 ) {
   vi.resetModules();
 
-  const captureException = vi.fn();
+  const capturedEvents: Sentry.ErrorEvent[] = [];
   type MockScope = {
     setTag: ReturnType<typeof vi.fn>;
     setContext: ReturnType<typeof vi.fn>;
@@ -78,6 +82,17 @@ async function withEnabledSentryCapture(
     setContext: vi.fn(),
   } satisfies MockScope;
   const withScope = vi.fn((callback: (scope: MockScope) => void) => callback(scope));
+  const captureException = vi.fn(() => {
+    const capturedEvent = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        breadcrumbs: [{ message: 'Packing slip rendered', data: { deliveryAddress: '1 Market Street / New York / 10001' } }],
+        extra: { deliveryAddress: { line1: '1 Market Street / New York / 10001' } },
+        contexts: { 'error.context': scope.setContext.mock.calls[0]?.[1] },
+        attachments: [{ filename: 'packing-slip.txt', data: '1 Market Street / New York / 10001' }],
+      }),
+    );
+    capturedEvents.push(capturedEvent);
+  });
 
   vi.doMock('@sentry/nextjs', () => ({
     withScope,
@@ -95,7 +110,7 @@ async function withEnabledSentryCapture(
 
   try {
     const { captureAppError } = await import('./sentry');
-    run({ captureAppError, captureException });
+    run({ captureAppError, captureException, capturedEvents });
   } finally {
     removeRuntimeConfig();
     vi.doUnmock('@sentry/nextjs');
@@ -204,17 +219,25 @@ describe('shouldEnableSentry', () => {
 });
 
 describe('delivery address telemetry protection', () => {
-  it('redacts distinctive addresses from breadcrumbs and attachments', () => {
+  it('removes distinctive addresses from captured error events', async () => {
     const distinctiveAddress = '1 Market Street / New York / 10001';
-    const event = asOpaque<Sentry.ErrorEvent>({
-      breadcrumbs: [{ message: 'Packing slip rendered', data: { deliveryAddress: distinctiveAddress } }],
-      extra: { deliveryAddress: { line1: distinctiveAddress } },
+
+    await withEnabledSentryCapture(({ captureAppError, captureException, capturedEvents }) => {
+      captureAppError(
+        new AppError({
+          category: ErrorCategory.Client,
+          code: ClientErrorCode.BAD_REQUEST,
+          message: 'Packing slip failed',
+          service: ErrorService.Marketplace,
+          operation: 'renderPackingSlip',
+          context: { deliveryAddress: distinctiveAddress },
+        }),
+      );
+
+      expect(captureException).toHaveBeenCalledTimes(1);
+      expect(capturedEvents).toHaveLength(1);
+      expect(JSON.stringify(capturedEvents[0])).not.toContain(distinctiveAddress);
     });
-
-    const sanitized = scrubSensitiveData(event);
-
-    expect(JSON.stringify(sanitized?.breadcrumbs)).not.toContain(distinctiveAddress);
-    expect(JSON.stringify(sanitized?.extra)).not.toContain(distinctiveAddress);
   });
 });
 
