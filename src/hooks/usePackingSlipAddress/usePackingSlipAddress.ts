@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 export type UsePackingSlipAddressResult = {
   /** The pasted delivery address, or '' when nothing is staged. */
@@ -10,6 +13,8 @@ export type UsePackingSlipAddressResult = {
   setAddress: (next: string) => void;
   /** Drop the staged address (the dialog calls this on close). */
   clear: () => void;
+  /** The seller-only order detail, held in memory for this print dialog. */
+  sellerOrder: MarketplaceOrder | null;
 };
 
 /**
@@ -23,19 +28,60 @@ export type UsePackingSlipAddressResult = {
  * the dialog clears it on close.
  *
  * This does not weaken the delivery-address boundary (ADR-0019 §8,
- * docs/ecommerce/shipping.md): the address still never comes from a
- * transaction-service read. The seller obtains it from the buyer directly
- * (e.g. the encrypted conversation) and pastes it here for one print job.
+ * docs/ecommerce/shipping.md): a service-provided address is accepted only
+ * from the seller's paid/processing shipping order projection. The pasted
+ * fallback remains local-only and is never sent anywhere.
  */
-export function usePackingSlipAddress(): UsePackingSlipAddressResult {
+export function usePackingSlipAddress({
+  order,
+  enabled = false,
+}: {
+  order?: MarketplaceOrder;
+  enabled?: boolean;
+} = {}): UsePackingSlipAddressResult {
   const [address, setAddress] = useState('');
+  const [sellerOrder, setSellerOrder] = useState<MarketplaceOrder | null>(null);
   const pathname = usePathname();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
 
   // Route change: the address must not outlive the screen it was pasted on.
   // This also fires on mount, which is a no-op against the initial ''.
   useEffect(() => {
     setAddress('');
-  }, [pathname]);
+    setSellerOrder(null);
+  }, [pathname, currentUserPubky]);
+
+  useEffect(() => {
+    setSellerOrder(null);
+    if (
+      !enabled ||
+      !order ||
+      currentUserPubky !== order.sellerPubky ||
+      order.fulfillment !== 'shipping' ||
+      !['paid', 'processing'].includes(order.state)
+    ) {
+      return;
+    }
+
+    let active = true;
+    void CommerceController.getMarketplaceOrder(order.id)
+      .then((freshOrder) => {
+        if (
+          active &&
+          freshOrder &&
+          freshOrder.sellerPubky === currentUserPubky &&
+          freshOrder.fulfillment === 'shipping' &&
+          ['paid', 'processing'].includes(freshOrder.state)
+        ) {
+          setSellerOrder(freshOrder);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [currentUserPubky, enabled, order]);
 
   // Print completion: the address's only job was the printed slip.
   useEffect(() => {
@@ -44,7 +90,10 @@ export function usePackingSlipAddress(): UsePackingSlipAddressResult {
     return () => window.removeEventListener('afterprint', clearAfterPrint);
   }, []);
 
-  const clear = () => setAddress('');
+  const clear = () => {
+    setAddress('');
+    setSellerOrder(null);
+  };
 
-  return { address, setAddress, clear };
+  return { address, setAddress, clear, sellerOrder };
 }

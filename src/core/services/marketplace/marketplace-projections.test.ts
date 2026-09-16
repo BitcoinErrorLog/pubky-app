@@ -9,9 +9,11 @@ import {
   createAuctionProjectionFixture,
   createViewerBidAuctionProjectionFixture,
 } from '@/test/fixtures/commerce/projections';
+import sellerPaidShippingAddress from '@/test/fixtures/commerce/seller-paid-shipping-address.json';
 import {
   isMarketplaceAwardCheckoutEligible,
   marketplaceBitcoinQuoteSchema,
+  marketplaceDeliveryAddressSchema,
   marketplaceListingProjectionSchema,
   marketplaceOfferSchema,
   marketplaceOrderProjectionSchema,
@@ -53,6 +55,43 @@ describe('marketplace order projection — taxation removed', () => {
       expect(parsed.data.total.amountMinor).toBe(parsed.data.subtotal.amountMinor + parsed.data.shipping.amountMinor);
     }
   });
+});
+
+describe('marketplace seller delivery address projection', () => {
+  it('parses the captured plaintext_v1 contract fixture through wire casing', () => {
+    const parsed = marketplaceDeliveryAddressSchema.safeParse(toCamelCaseWire(sellerPaidShippingAddress));
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toEqual({
+        format: 'plaintext_v1',
+        address: {
+          name: 'Alice Buyer',
+          line1: '1 Market Street',
+          line2: '',
+          city: 'New York',
+          region: 'NY',
+          postalCode: '10001',
+          countryCode: 'US',
+        },
+      });
+    }
+  });
+
+  it.each([undefined, { address: { name: 'legacy' } }, { format: 'ciphertext_v1', value: 'secret' }])(
+    'quarantines %j as unsupported',
+    (deliveryAddress) => {
+      const parsed = marketplaceOrderSchema.safeParse({
+        ...createOrderFixture('paid'),
+        ...(deliveryAddress === undefined ? {} : { deliveryAddress }),
+      });
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success && deliveryAddress !== undefined) {
+        expect(parsed.data.deliveryAddress).toEqual({ format: 'unsupported' });
+      }
+    },
+  );
 });
 
 describe('marketplace order projection — Bitcoin quote', () => {

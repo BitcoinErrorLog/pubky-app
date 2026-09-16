@@ -321,6 +321,16 @@ describe('MarketplaceTransactionService read projections', () => {
     };
   }
 
+  it('sends cache: no-store on seller order reads', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { orders: [orderWire()] }));
+
+    await MarketplaceTransactionService.getOrders(ACTOR);
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(init.cache).toBe('no-store');
+  });
+
   it('reads the listing projection with the bearer session and camel-cases the auction state', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(

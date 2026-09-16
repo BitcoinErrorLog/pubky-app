@@ -1079,7 +1079,11 @@ export class MarketplaceTransactionService {
     const url = `${getMarketplaceUrl()}${path}`;
     const response = await safeFetch(
       url,
-      { method: 'GET', headers: { authorization: `Bearer ${session.token}` } },
+      {
+        method: 'GET',
+        headers: { authorization: `Bearer ${session.token}` },
+        cache: 'no-store',
+      },
       ErrorService.Marketplace,
       operation,
     );

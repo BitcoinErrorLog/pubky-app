@@ -307,6 +307,40 @@ export const marketplaceBitcoinQuoteSchema = z
   })
   .passthrough();
 
+const marketplaceDeliveryAddressValueSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    line1: z.string().trim().min(1).max(200),
+    line2: z.string().trim().max(200),
+    city: z.string().trim().min(1).max(100),
+    region: z.string().trim().min(1).max(100),
+    postalCode: z.string().trim().min(1).max(32),
+    countryCode: z.string().regex(/^[A-Z]{2}$/),
+  })
+  .strict();
+
+const marketplaceDeliveryAddressPlaintextSchema = z.object({
+  format: z.literal('plaintext_v1'),
+  address: marketplaceDeliveryAddressValueSchema,
+});
+
+const marketplaceDeliveryAddressUnsupportedSchema = z.object({
+  format: z.literal('unsupported'),
+});
+
+/**
+ * Seller-only delivery address projection. Unknown and legacy untagged
+ * values are quarantined as `unsupported` so an order remains readable while
+ * the client never renders an unrecognized address format.
+ */
+export const marketplaceDeliveryAddressSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object') return input;
+  const record = input as Record<string, unknown>;
+  return record.format === 'plaintext_v1' ? input : { format: 'unsupported' };
+}, z.discriminatedUnion('format', [marketplaceDeliveryAddressPlaintextSchema, marketplaceDeliveryAddressUnsupportedSchema]));
+
+export type MarketplaceDeliveryAddress = z.infer<typeof marketplaceDeliveryAddressSchema>;
+
 export const marketplaceOrderProjectionSchema = z
   .object({
     id: z.uuid(),
@@ -441,6 +475,12 @@ export const marketplaceOrderProjectionSchema = z
     paykitSellerConfirmationEnteredAt: z.string().nullable().optional(),
     paykitSellerConfirmationDeadline: z.string().nullable().optional(),
     paykitTotalSats: z.number().int().nonnegative().nullable().optional(),
+    /**
+     * Seller-only interim projection: readable only by the order's seller
+     * while the order is paid/processing and shipping; encryption to the
+     * seller key is scheduled (ADR-0019 §8 interim).
+     */
+    deliveryAddress: marketplaceDeliveryAddressSchema.optional(),
     // Drop orders (ADR 0026): the bound drop aggregate and, once paid, the
     // gapless edition number assigned inside the exactly-once confirmation.
     dropAggregateId: z.string().nullable().optional(),

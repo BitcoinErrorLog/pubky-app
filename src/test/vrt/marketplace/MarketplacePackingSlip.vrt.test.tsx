@@ -6,12 +6,10 @@ import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.view
 import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/MarketplacePackingSlipDialog';
 
 // The seller's print-friendly packing slip. The slip renders ONLY what the
-// seller's client legitimately holds — the participant order projection — so
-// the empty-field baseline must show the truthful "Deliver to" notice (the
-// current deployment does not expose the address in seller reads) with ruled
-// lines instead of an address block. The pasted-address scene covers the
-// optional local-only paste field: the pasted text renders onto the slip but
-// is never persisted or sent anywhere.
+// seller's client legitimately holds — the seller's single-order projection
+// when eligible, or the truthful unavailable notice with ruled lines. The
+// pasted-address scene covers the optional local-only fallback: pasted text
+// renders onto the slip but is never persisted or sent anywhere.
 const fixtures = vi.hoisted(async () => {
   const { createOrderFixture } = await import('@/test/fixtures/commerce/orders');
   return {

@@ -9,7 +9,7 @@ import { RUNTIME_CONFIG_WINDOW_KEY } from '@/libs/runtime-config/runtime-config'
 import { NETWORK_RUNTIME_DEFAULTS } from '@/libs/runtime-config/runtime-config.schema';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { getSentryInitBase } from './sentry';
-import { shouldDropAppErrorFromSentry } from './sentry.utils';
+import { scrubSensitiveData, shouldDropAppErrorFromSentry } from './sentry.utils';
 
 const TEST_PUBKY = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
 
@@ -200,6 +200,21 @@ describe('shouldEnableSentry', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('delivery address telemetry protection', () => {
+  it('redacts distinctive addresses from breadcrumbs and attachments', () => {
+    const distinctiveAddress = '1 Market Street / New York / 10001';
+    const event = asOpaque<Sentry.ErrorEvent>({
+      breadcrumbs: [{ message: 'Packing slip rendered', data: { deliveryAddress: distinctiveAddress } }],
+      extra: { deliveryAddress: { line1: distinctiveAddress } },
+    });
+
+    const sanitized = scrubSensitiveData(event);
+
+    expect(JSON.stringify(sanitized?.breadcrumbs)).not.toContain(distinctiveAddress);
+    expect(JSON.stringify(sanitized?.extra)).not.toContain(distinctiveAddress);
   });
 });
 
