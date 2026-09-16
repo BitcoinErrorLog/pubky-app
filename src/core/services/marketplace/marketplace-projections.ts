@@ -334,10 +334,14 @@ const marketplaceDeliveryAddressUnsupportedSchema = z.object({
  * the client never renders an unrecognized address format.
  */
 export const marketplaceDeliveryAddressSchema = z.preprocess((input) => {
-  if (!input || typeof input !== 'object') return input;
+  if (input === undefined || input === null) return undefined;
+  if (typeof input !== 'object') return { format: 'unsupported' };
   const record = input as Record<string, unknown>;
   return record.format === 'plaintext_v1' ? input : { format: 'unsupported' };
-}, z.discriminatedUnion('format', [marketplaceDeliveryAddressPlaintextSchema, marketplaceDeliveryAddressUnsupportedSchema]));
+}, z
+  .discriminatedUnion('format', [marketplaceDeliveryAddressPlaintextSchema, marketplaceDeliveryAddressUnsupportedSchema])
+  .optional()
+  .catch({ format: 'unsupported' }));
 
 export type MarketplaceDeliveryAddress = z.infer<typeof marketplaceDeliveryAddressSchema>;
 
