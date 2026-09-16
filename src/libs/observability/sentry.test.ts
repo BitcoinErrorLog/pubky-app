@@ -1,3 +1,5 @@
+import { readdirSync,readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { SpanJSON, TransactionEvent } from '@sentry/core';
 import * as Sentry from '@sentry/nextjs';
 import { describe, expect, it, vi } from 'vitest';
@@ -14,6 +16,24 @@ import { shouldDropAppErrorFromSentry } from './sentry.utils';
 const TEST_PUBKY = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
 
 const TEST_DSN = 'https://public@example.com/1';
+const SENTRY_ATTACHMENT_SAFE_POLICY_MARKER = 'sentry-attachment-safe-policy';
+const SENTRY_ATTACHMENT_PATTERNS = [
+  /\bSentry\.addAttachment\s*\(/,
+  /\bscope\.addAttachment\s*\(/,
+  /\baddAttachment\s*\(/,
+  /\b(?:captureException|captureEvent|captureMessage)\s*\([\s\S]*?,\s*\{[\s\S]*?\battachments\s*:/,
+] as const;
+
+function getProductionSourceFiles(): string[] {
+  const sourceRoot = join(process.cwd(), 'src');
+  return readdirSync(sourceRoot, { recursive: true })
+    .filter((path): path is string => typeof path === 'string' && /\.(?:ts|tsx)$/.test(path) && !/\.test\.[tj]sx?$/.test(path))
+    .map((path) => join(sourceRoot, path));
+}
+
+function hasUnallowlistedAttachmentProducer(source: string): boolean {
+  return SENTRY_ATTACHMENT_PATTERNS.some((pattern) => pattern.test(source)) && !source.includes(SENTRY_ATTACHMENT_SAFE_POLICY_MARKER);
+}
 
 /**
  * Inject a window runtime config (the client-side source the sentry gates read).
@@ -88,7 +108,6 @@ async function withEnabledSentryCapture(
         breadcrumbs: [{ message: 'Packing slip rendered', data: { deliveryAddress: '1 Market Street / New York / 10001' } }],
         extra: { deliveryAddress: { line1: '1 Market Street / New York / 10001' } },
         contexts: { 'error.context': scope.setContext.mock.calls[0]?.[1] },
-        attachments: [{ filename: 'packing-slip.txt', data: '1 Market Street / New York / 10001' }],
       }),
     );
     capturedEvents.push(capturedEvent);
@@ -238,6 +257,17 @@ describe('delivery address telemetry protection', () => {
       expect(capturedEvents).toHaveLength(1);
       expect(JSON.stringify(capturedEvents[0])).not.toContain(distinctiveAddress);
     });
+  });
+
+  it('rejects unallowlisted production Sentry attachment producers', () => {
+    const productionSources = getProductionSourceFiles();
+    const rejectedAttachmentFixture = 'scope.addAttachment(file)';
+
+    expect(hasUnallowlistedAttachmentProducer(rejectedAttachmentFixture)).toBe(true);
+    expect(productionSources).not.toHaveLength(0);
+    expect(
+      productionSources.filter((path) => hasUnallowlistedAttachmentProducer(readFileSync(path, 'utf8'))),
+    ).toEqual([]);
   });
 });
 
