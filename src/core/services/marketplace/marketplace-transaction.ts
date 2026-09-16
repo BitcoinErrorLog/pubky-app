@@ -325,6 +325,7 @@ export class MarketplaceTransactionService {
   static async getOrder(actor: string, orderId: string): Promise<MarketplaceOrder | null> {
     const raw = await this.readProjection('getOrder', actor, `/v1/orders/${encodeURIComponent(orderId)}`, {
       nullOnNotFound: true,
+      noStore: true,
     });
     if (raw === null) return null;
     return this.parseProjection('getOrder', marketplaceOrderSchema, raw, 'Marketplace returned an invalid order.');
@@ -1074,7 +1075,7 @@ export class MarketplaceTransactionService {
     operation: string,
     actor: string,
     path: string,
-    options: { nullOnNotFound?: boolean; nullOnForbidden?: boolean } = {},
+    options: { noStore?: boolean; nullOnNotFound?: boolean; nullOnForbidden?: boolean } = {},
   ): Promise<unknown> {
     this.assertTransactionServiceMode(operation);
     const session = this.requireSession(operation, actor);
@@ -1084,7 +1085,7 @@ export class MarketplaceTransactionService {
       {
         method: 'GET',
         headers: { authorization: `Bearer ${session.token}` },
-        cache: 'no-store',
+        ...(options.noStore ? { cache: 'no-store' } : {}),
       },
       ErrorService.Marketplace,
       operation,

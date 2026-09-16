@@ -321,11 +321,21 @@ describe('MarketplaceTransactionService read projections', () => {
     };
   }
 
-  it('sends cache: no-store on seller order reads', async () => {
+  it('keeps participant order list reads cacheable', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { orders: [orderWire()] }));
 
     await MarketplaceTransactionService.getOrders(ACTOR);
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(init.cache).toBeUndefined();
+  });
+
+  it('sends cache: no-store on seller single-order reads', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, orderWire()));
+
+    await MarketplaceTransactionService.getOrder(ACTOR, ORDER_ID);
 
     const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(init.cache).toBe('no-store');
