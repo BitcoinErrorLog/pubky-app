@@ -25,11 +25,10 @@ This is load-bearing and verified against the service source
    `checkout.create` command payload (`payload.delivery_address`, validated
    field-by-field: name 1–100, line1 1–200, line2 0–200, city 1–100, region
    1–100, postal code 1–32, ISO 3166-1 alpha-2 country).
-2. The service stores it on the order row and echoes it back **once**, in the
-   checkout command result — which only the buyer, the command's author,
-   receives.
+2. The service stores it on the order row. Fresh checkout command results and
+   exact replays redact it before returning to the command's author.
 3. Ordinary read projections strip it: order lists, buyer reads, receipts,
-   notifications, and command results never carry it. The bound seller's
+   notifications, and all command results never carry it. The bound seller's
    single-order read is the narrow interim exception: it carries a tagged
    `plaintext_v1` value only while the order is `paid`/`processing` and
    `shipping`; unknown or untagged formats are unavailable. Encryption to the
@@ -121,15 +120,17 @@ and presets template them:
 
 ## Packing slip
 
-From a paid/processing/shipped order's **seller** view: a print-friendly
-slip (browser `@media print` CSS keyed on `data-packing-slip` in
-`globals.css` — no PDF dependency) with the order id, order date, line items
-and quantities, totals, the buyer's short pubky, shipment facts once
-tracking exists, the truthful no-address notice with ruled space to write
-the destination, and a notes area. Line items include the buyer's variant
-snapshot when the checkout carried one (see "Where shipping data lives"
-above); orders placed before the field existed have no variant line, and
-the slip shows exactly what the order record holds.
+From a seller's view: a print-friendly slip (browser `@media print` CSS
+keyed on `data-packing-slip` in `globals.css` — no PDF dependency) with the
+order id, order date, line items and quantities, totals, the buyer's short
+pubky, shipment facts once tracking exists, and a notes area. A paid or
+processing shipping order can show the tagged service-provided destination.
+Shipped, unsupported, absent, and non-shipping orders show the truthful
+no-address notice and retain ruled space plus the local paste fallback.
+Line items include the buyer's variant snapshot when the checkout carried one
+(see "Where shipping data lives" above); orders placed before the field
+existed have no variant line, and the slip shows exactly what the order record
+holds.
 
 ### Optional pasted-address field
 
