@@ -66,6 +66,8 @@ import {
   marketplaceOfferSchema,
   type MarketplaceOrder,
   marketplaceOrderSchema,
+  type MarketplaceParticipantOrder,
+  marketplaceParticipantOrderSchema,
   type MarketplacePayment,
   marketplacePaymentSchema,
   type MarketplacePublicDrop,
@@ -281,11 +283,11 @@ export class MarketplaceTransactionService {
    * sub-objects. `receipt_id` stays null until payment confirmation issues
    * the durable receipt.
    */
-  static async getOrders(actor: string): Promise<MarketplaceOrder[]> {
+  static async getOrders(actor: string): Promise<MarketplaceParticipantOrder[]> {
     const raw = await this.readProjection('getOrders', actor, '/v1/orders');
     return this.parseProjection(
       'getOrders',
-      z.object({ orders: z.array(marketplaceOrderSchema) }),
+      z.object({ orders: z.array(marketplaceParticipantOrderSchema) }),
       raw,
       'Marketplace returned invalid orders.',
     ).orders;
@@ -323,6 +325,7 @@ export class MarketplaceTransactionService {
   static async getOrder(actor: string, orderId: string): Promise<MarketplaceOrder | null> {
     const raw = await this.readProjection('getOrder', actor, `/v1/orders/${encodeURIComponent(orderId)}`, {
       nullOnNotFound: true,
+      noStore: true,
     });
     if (raw === null) return null;
     return this.parseProjection('getOrder', marketplaceOrderSchema, raw, 'Marketplace returned an invalid order.');
@@ -1072,14 +1075,18 @@ export class MarketplaceTransactionService {
     operation: string,
     actor: string,
     path: string,
-    options: { nullOnNotFound?: boolean; nullOnForbidden?: boolean } = {},
+    options: { noStore?: boolean; nullOnNotFound?: boolean; nullOnForbidden?: boolean } = {},
   ): Promise<unknown> {
     this.assertTransactionServiceMode(operation);
     const session = this.requireSession(operation, actor);
     const url = `${getMarketplaceUrl()}${path}`;
     const response = await safeFetch(
       url,
-      { method: 'GET', headers: { authorization: `Bearer ${session.token}` } },
+      {
+        method: 'GET',
+        headers: { authorization: `Bearer ${session.token}` },
+        ...(options.noStore ? { cache: 'no-store' } : {}),
+      },
       ErrorService.Marketplace,
       operation,
     );

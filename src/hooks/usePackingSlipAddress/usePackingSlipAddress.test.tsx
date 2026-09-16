@@ -11,6 +11,8 @@ describe('usePackingSlipAddress', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPathname.mockReturnValue('/marketplace/orders');
+    window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   it('starts empty and stages the pasted value in component state', () => {

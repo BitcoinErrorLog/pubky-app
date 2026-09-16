@@ -15,7 +15,9 @@ export const NEXUS_POST_TAGS_PATH_PATTERN = /^\/v0\/post\/[^/]+\/[^/]+\/tags$/;
 
 export const SENSITIVE_CONTEXT_KEYS = new Set([
   'avatar',
+  'address',
   'bio',
+  'deliveryaddress',
   'displayname',
   'email',
   'file',

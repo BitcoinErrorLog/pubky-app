@@ -35,7 +35,8 @@ import {
   type MarketplaceOffer,
   marketplaceOfferSchema,
   type MarketplaceOrder,
-  marketplaceOrderSchema,
+  type MarketplaceParticipantOrder,
+  marketplaceParticipantOrderSchema,
   type MarketplacePayment,
   marketplacePaymentSchema,
   type MarketplaceReceipt,
@@ -348,7 +349,7 @@ export class MarketplaceGatewayService {
     return parsed.data;
   }
 
-  static async getOrders(actor: string): Promise<MarketplaceOrder[]> {
+  static async getOrders(actor: string): Promise<MarketplaceParticipantOrder[]> {
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getOrders(actor);
     }
@@ -361,7 +362,7 @@ export class MarketplaceGatewayService {
       'getOrders',
     );
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getOrders', url);
-    const parsed = z.object({ orders: z.array(marketplaceOrderSchema) }).safeParse(raw);
+    const parsed = z.object({ orders: z.array(marketplaceParticipantOrderSchema) }).safeParse(raw);
     if (!parsed.success) {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid orders.', {
         service: ErrorService.Marketplace,

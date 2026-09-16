@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Printer } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
@@ -10,17 +10,16 @@ import { usePackingSlipAddress } from '@/hooks/usePackingSlipAddress/usePackingS
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { formatPublicKey } from '@/libs/utils/utils';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
  * A print-friendly packing slip for the seller, rendered purely from what the
  * seller's client legitimately holds: the order projection the transaction
  * service serves to participants.
  *
- * THE DELIVERY ADDRESS IS CURRENTLY ABSENT from the order data. The service
- * strips `delivery_address` from the participant projection used by the
- * seller's order reads (ADR-0019 §8). This client never invents a side
- * channel for it: by default the slip explains the deployment limitation and
- * leaves ruled space to write the destination by hand.
+ * The seller's paid/processing shipping single-order projection can carry a
+ * tagged `plaintext_v1` delivery address. Unknown and untagged formats are
+ * treated as unavailable and never rendered.
  *
  * As a convenience for sellers shipping many orders, the dialog offers an
  * OPTIONAL paste field: the seller copies the destination the buyer sent
@@ -34,13 +33,19 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
  */
 export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrder }) {
   const [open, setOpen] = useState(false);
-  const { address, setAddress, clear } = usePackingSlipAddress();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const { address, setAddress, clear, sellerOrder } = usePackingSlipAddress({ order, enabled: open });
   const pastedAddress = address.trim();
+  const serviceAddress = sellerOrder?.deliveryAddress?.format === 'plaintext_v1' ? sellerOrder.deliveryAddress.address : null;
   // Pickup orders (local pickup design §A5): nothing is posted, so the
   // delivery-address block and the paste field are suppressed — a pickup
   // order never had an address, and the meeting point is only ever visible
   // to the buyer in the app.
   const isPickup = order.fulfillment === 'pickup';
+
+  useEffect(() => {
+    setOpen(false);
+  }, [currentUserPubky]);
 
   const handleOpenChange = (next: boolean) => {
     // Closing the dialog always drops the staged address — it is staged for
@@ -71,7 +76,7 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
               never persisted, never sent — and Sentry Replay masks all
               inputs (`maskAllInputs`), with `data-sentry-mask` making that
               explicit for this field. Suppressed on pickup orders (§A5). */}
-          {!isPickup && (
+          {!isPickup && !serviceAddress && (
             <div className="space-y-1.5">
               <Label htmlFor="packing-slip-address">Paste delivery address (optional)</Label>
               <Textarea
@@ -154,6 +159,16 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
                 <p className="mt-1 text-xs leading-relaxed text-neutral-700">
                   Local pickup — meeting point is only visible to the buyer in the app.
                 </p>
+              ) : serviceAddress ? (
+                <div className="mt-1" data-sentry-mask>
+                  <p>{serviceAddress.name}</p>
+                  <p>{serviceAddress.line1}</p>
+                  {serviceAddress.line2 ? <p>{serviceAddress.line2}</p> : null}
+                  <p>
+                    {serviceAddress.city}, {serviceAddress.region} {serviceAddress.postalCode}
+                  </p>
+                  <p>{serviceAddress.countryCode}</p>
+                </div>
               ) : pastedAddress ? (
                 // The seller pasted the destination they got from the buyer
                 // directly — print it verbatim, preserving line breaks.
@@ -161,8 +176,7 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
               ) : (
                 <>
                   <p className="mt-1 text-xs leading-relaxed text-neutral-700">
-                    The buyer&apos;s delivery address was sent with the order but is not yet exposed to the seller in
-                    this deployment — ask the buyer in your encrypted conversation and write it below.
+                    Delivery address unavailable for this order — paste it below.
                   </p>
                   <div className="mt-3 space-y-4" aria-hidden="true">
                     <div className="border-b border-neutral-400" />

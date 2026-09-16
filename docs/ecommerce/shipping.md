@@ -11,7 +11,7 @@ Last updated: 2026-09-06.
 | Data                         | Lives                                                                      | Who can read it                                                                                                                                                   |
 | ---------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Buyer address book           | Account-scoped IndexedDB (`commerce_delivery_addresses`), this device only | Only this browser profile. Never on the homeserver, never in any public record, never in telemetry.                                                               |
-| Delivery address of an order | The transaction service's `orders.delivery_address` column                 | **Nobody, through reads.** Sent once inside the buyer's own `checkout.create` command; withheld from every read projection by design (ADR-0019 §8, below).        |
+| Delivery address of an order | The transaction service's `orders.delivery_address` column                 | The bound seller may read it only from the seller's single-order projection while the order is `paid`/`processing` and `shipping`; all other projections withhold it. Encryption to the seller key is scheduled (ADR-0019 §8 interim). |
 | Seller shipping presets      | Account-scoped IndexedDB (`commerce_shipping_presets`), this device only   | Only this browser profile. Presets are authoring convenience; nothing about them is published.                                                                    |
 | Listing shipping option      | The owner-signed listing record (`shippingOptions`, one flat-rate entry)   | Public, like the rest of the listing record. The sell studio now authors its label, price, and min/max day estimates (previously label and days were fixed copy). |
 | Shipment carrier + tracking  | The transaction service's order `shipment` object                          | Both order participants, via their scoped order reads. `carrier` and `tracking_number` are structured fields in the existing ship command contract.               |
@@ -25,33 +25,27 @@ This is load-bearing and verified against the service source
    `checkout.create` command payload (`payload.delivery_address`, validated
    field-by-field: name 1–100, line1 1–200, line2 0–200, city 1–100, region
    1–100, postal code 1–32, ISO 3166-1 alpha-2 country).
-2. The service stores it on the order row and echoes it back **once**, in the
-   checkout command result — which only the buyer, the command's author,
-   receives.
-3. **Every** read projection strips it: `OrderRow::projection()` removes
-   `delivery_address` before serving, and both the order list and
-   single-order reads (buyer's and seller's alike) serve projections
-   (ADR-0019 §8). There is no seller-facing read path for the address, and
-   auction-won orders carry no address at all (the winner never supplied
-   one).
-4. Consequently **the seller's client never legitimately holds the buyer's
-   address**, and this client does not invent a side channel for it.
+2. The service stores it on the order row. Fresh checkout command results and
+   exact replays redact it before returning to the command's author.
+3. Ordinary read projections strip it: order lists, buyer reads, receipts,
+   notifications, and all command results never carry it. The bound seller's
+   single-order read is the narrow interim exception: it carries a tagged
+   `plaintext_v1` value only while the order is `paid`/`processing` and
+   `shipping`; unknown or untagged formats are unavailable. Encryption to the
+   seller key is scheduled (ADR-0019 §8 interim).
+4. Consequently **the seller's client only legitimately holds the buyer's
+   address during that narrow seller order window**, and this client does not
+   invent any other read path.
 
 What that means for the tooling here:
 
 - The **address book** is buyer-side only and purely device-local. The
   checkout picker fills the same form checkout always had; the address still
   goes only into the buyer's own command.
-- The **packing slip** renders from the seller's participant order projection
-  and therefore is **never served** the buyer's address. It says so
-  explicitly ("Not printed: the delivery address is withheld from all
-  transaction-service reads — including yours as the seller — by design")
-  and, when the paste field is empty, leaves ruled space for the seller to
-  write the destination obtained from the buyer directly (e.g. the
-  end-to-end-encrypted conversation). Printing a fabricated or cached
-  address the seller was never served would falsify the privacy model, so
-  the slip does not invent a read path. The optional paste field below is a
-  print convenience only — still seller-supplied, never from the service.
+- The **packing slip** renders the tagged service-provided address when the
+  seller's paid/processing shipping order projection carries `plaintext_v1`.
+  If it is absent or unsupported, it says "Delivery address unavailable for
+  this order — paste it below." and keeps the optional local paste field.
 - The slip (and the order rows) now show the buyer's **variant snapshot**
   when the checkout carried one: `checkout.create` lines accept an optional
   `variant_id` plus up to three `{name, value}` option pairs (an ordered
@@ -126,15 +120,17 @@ and presets template them:
 
 ## Packing slip
 
-From a paid/processing/shipped order's **seller** view: a print-friendly
-slip (browser `@media print` CSS keyed on `data-packing-slip` in
-`globals.css` — no PDF dependency) with the order id, order date, line items
-and quantities, totals, the buyer's short pubky, shipment facts once
-tracking exists, the truthful no-address notice with ruled space to write
-the destination, and a notes area. Line items include the buyer's variant
-snapshot when the checkout carried one (see "Where shipping data lives"
-above); orders placed before the field existed have no variant line, and
-the slip shows exactly what the order record holds.
+From a seller's view: a print-friendly slip (browser `@media print` CSS
+keyed on `data-packing-slip` in `globals.css` — no PDF dependency) with the
+order id, order date, line items and quantities, totals, the buyer's short
+pubky, shipment facts once tracking exists, and a notes area. A paid or
+processing shipping order can show the tagged service-provided destination.
+Shipped, unsupported, absent, and non-shipping orders show the truthful
+no-address notice and retain ruled space plus the local paste fallback.
+Line items include the buyer's variant snapshot when the checkout carried one
+(see "Where shipping data lives" above); orders placed before the field
+existed have no variant line, and the slip shows exactly what the order record
+holds.
 
 ### Optional pasted-address field
 
@@ -161,12 +157,9 @@ Guarantees:
 
 ## Follow-ups (deliberately not built)
 
-- **Seller-facing address delivery.** The right mechanism for the seller to
-  receive the delivery address without weakening ADR-0019 §8 is a product
-  decision — candidates include buyer-initiated sharing over the existing
-  end-to-end-encrypted messaging, or a service-side sealed exchange. Until
-  then the packing slip's ruled space and optional local paste field are the
-  honest state: the seller supplies the destination; the service never does.
+- **Encrypted seller-facing address delivery.** The interim
+  `plaintext_v1` seller projection is deliberately bounded; encryption to the
+  seller key remains a separate program and is not implemented here.
 - **Service-side shipment enrichment** (shipped-at estimates, delivery-day
   windows, carrier enum server-side). The `carrier` field staying a free
   string is the service's contract; a server-side curated enum would be a

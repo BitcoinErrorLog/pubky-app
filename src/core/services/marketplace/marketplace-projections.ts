@@ -307,6 +307,44 @@ export const marketplaceBitcoinQuoteSchema = z
   })
   .passthrough();
 
+const marketplaceDeliveryAddressValueSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    line1: z.string().trim().min(1).max(200),
+    line2: z.string().trim().max(200),
+    city: z.string().trim().min(1).max(100),
+    region: z.string().trim().min(1).max(100),
+    postalCode: z.string().trim().min(1).max(32),
+    countryCode: z.string().regex(/^[A-Z]{2}$/),
+  })
+  .strict();
+
+const marketplaceDeliveryAddressPlaintextSchema = z.object({
+  format: z.literal('plaintext_v1'),
+  address: marketplaceDeliveryAddressValueSchema,
+});
+
+const marketplaceDeliveryAddressUnsupportedSchema = z.object({
+  format: z.literal('unsupported'),
+});
+
+/**
+ * Seller-only delivery address projection. Unknown and legacy untagged
+ * values are quarantined as `unsupported` so an order remains readable while
+ * the client never renders an unrecognized address format.
+ */
+export const marketplaceDeliveryAddressSchema = z.preprocess((input) => {
+  if (input === undefined || input === null) return undefined;
+  if (typeof input !== 'object') return { format: 'unsupported' };
+  const record = input as Record<string, unknown>;
+  return record.format === 'plaintext_v1' ? input : { format: 'unsupported' };
+}, z
+  .discriminatedUnion('format', [marketplaceDeliveryAddressPlaintextSchema, marketplaceDeliveryAddressUnsupportedSchema])
+  .optional()
+  .catch({ format: 'unsupported' }));
+
+export type MarketplaceDeliveryAddress = z.infer<typeof marketplaceDeliveryAddressSchema>;
+
 export const marketplaceOrderProjectionSchema = z
   .object({
     id: z.uuid(),
@@ -441,6 +479,12 @@ export const marketplaceOrderProjectionSchema = z
     paykitSellerConfirmationEnteredAt: z.string().nullable().optional(),
     paykitSellerConfirmationDeadline: z.string().nullable().optional(),
     paykitTotalSats: z.number().int().nonnegative().nullable().optional(),
+    /**
+     * Seller-only interim projection: readable only by the order's seller
+     * while the order is paid/processing and shipping; encryption to the
+     * seller key is scheduled (ADR-0019 §8 interim).
+     */
+    deliveryAddress: marketplaceDeliveryAddressSchema.optional(),
     // Drop orders (ADR 0026): the bound drop aggregate and, once paid, the
     // gapless edition number assigned inside the exactly-once confirmation.
     dropAggregateId: z.string().nullable().optional(),
@@ -465,6 +509,32 @@ export const marketplaceOrderSchema = z.preprocess((input) => {
   delete withoutBitcoinQuote.bitcoinQuote;
   return withoutBitcoinQuote;
 }, marketplaceOrderProjectionSchema);
+
+/**
+ * Participant-list orders deliberately exclude the seller-only delivery
+ * address. `.strip()` drops an accidentally disclosed wire field while
+ * preserving the rest of a valid list so a server regression cannot spread
+ * the address into list consumers.
+ */
+export const marketplaceParticipantOrderProjectionSchema = marketplaceOrderProjectionSchema
+  .omit({ deliveryAddress: true })
+  .strip();
+
+export const marketplaceParticipantOrderSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object') return input;
+  const record = input as Record<string, unknown>;
+  const bitcoinQuote = record.bitcoinQuote;
+  if (
+    bitcoinQuote === undefined ||
+    bitcoinQuote === null ||
+    marketplaceBitcoinQuoteSchema.safeParse(bitcoinQuote).success
+  ) {
+    return input;
+  }
+  const withoutBitcoinQuote = { ...record };
+  delete withoutBitcoinQuote.bitcoinQuote;
+  return withoutBitcoinQuote;
+}, marketplaceParticipantOrderProjectionSchema);
 
 /**
  * The PUBLIC drop projection (`GET /v0/drops/{seller}/{dropId}`, ADR 0026):
@@ -542,6 +612,7 @@ export function isRecognizedMarketplaceNotification(
 export type MarketplaceOffer = z.infer<typeof marketplaceOfferSchema>;
 export type MarketplaceOfferAward = z.infer<typeof marketplaceOfferProjectionSchema>['award'];
 export type MarketplaceOrder = z.infer<typeof marketplaceOrderSchema>;
+export type MarketplaceParticipantOrder = z.infer<typeof marketplaceParticipantOrderSchema>;
 export type MarketplacePublicDrop = z.infer<typeof marketplacePublicDropSchema>;
 export type MarketplaceSellerDrop = z.infer<typeof marketplaceSellerDropSchema>;
 export type MarketplaceDropReadyCheck = z.infer<typeof marketplaceDropReadyCheckSchema>;

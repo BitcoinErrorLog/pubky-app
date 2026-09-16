@@ -9,13 +9,16 @@ import {
   createAuctionProjectionFixture,
   createViewerBidAuctionProjectionFixture,
 } from '@/test/fixtures/commerce/projections';
+import sellerPaidShippingAddress from '@/test/fixtures/commerce/seller-paid-shipping-address.json';
 import {
   isMarketplaceAwardCheckoutEligible,
   marketplaceBitcoinQuoteSchema,
+  marketplaceDeliveryAddressSchema,
   marketplaceListingProjectionSchema,
   marketplaceOfferSchema,
   marketplaceOrderProjectionSchema,
   marketplaceOrderSchema,
+  marketplaceParticipantOrderSchema,
 } from './marketplace-projections';
 
 /**
@@ -53,6 +56,88 @@ describe('marketplace order projection — taxation removed', () => {
       expect(parsed.data.total.amountMinor).toBe(parsed.data.subtotal.amountMinor + parsed.data.shipping.amountMinor);
     }
   });
+});
+
+describe('marketplace seller delivery address projection', () => {
+  it('parses the captured plaintext_v1 contract fixture through wire casing', () => {
+    const parsed = marketplaceDeliveryAddressSchema.safeParse(toCamelCaseWire(sellerPaidShippingAddress));
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toEqual({
+        format: 'plaintext_v1',
+        address: {
+          name: 'Alice Buyer',
+          line1: '1 Market Street',
+          line2: '',
+          city: 'New York',
+          region: 'NY',
+          postalCode: '10001',
+          countryCode: 'US',
+        },
+      });
+    }
+  });
+
+  it.each([
+    ['absent undefined', undefined, undefined],
+    ['null', null, undefined],
+    ['string', '1 Market Street', { format: 'unsupported' }],
+    ['number', 12, { format: 'unsupported' }],
+    ['untagged object', { address: { name: 'legacy' } }, { format: 'unsupported' }],
+    ['unknown format', { format: 'ciphertext_v1', value: 'secret' }, { format: 'unsupported' }],
+    [
+      'malformed plaintext country code',
+      {
+        format: 'plaintext_v1',
+        address: {
+          name: 'Alice Buyer',
+          line1: '1 Market Street',
+          line2: '',
+          city: 'New York',
+          region: 'NY',
+          postalCode: '10001',
+          countryCode: 'USA',
+        },
+      },
+      { format: 'unsupported' },
+    ],
+    [
+      'malformed plaintext line one',
+      {
+        format: 'plaintext_v1',
+        address: {
+          name: 'Alice Buyer',
+          line1: 'a'.repeat(201),
+          line2: '',
+          city: 'New York',
+          region: 'NY',
+          postalCode: '10001',
+          countryCode: 'US',
+        },
+      },
+      { format: 'unsupported' },
+    ],
+  ])(
+    'parses %s delivery addresses without failing the order',
+    (_name, deliveryAddress, expected) => {
+      const parsed = marketplaceOrderSchema.safeParse({
+        ...createOrderFixture('paid'),
+        ...(deliveryAddress === undefined ? {} : { deliveryAddress }),
+      });
+      const participantParsed = marketplaceParticipantOrderSchema.safeParse({
+        ...createOrderFixture('paid'),
+        ...(deliveryAddress === undefined ? {} : { deliveryAddress }),
+      });
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.deliveryAddress).toEqual(expected);
+      }
+      expect(participantParsed.success).toBe(true);
+      if (participantParsed.success) expect('deliveryAddress' in participantParsed.data).toBe(false);
+    },
+  );
 });
 
 describe('marketplace order projection — Bitcoin quote', () => {
