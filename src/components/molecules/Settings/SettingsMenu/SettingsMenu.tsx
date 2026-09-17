@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { isNavItemActive } from '@/app/routes';
 import {
   FilterHeader,
   FilterItem,
@@ -22,7 +23,9 @@ export function SettingsMenu() {
       <FilterList>
         {SETTINGS_MENU_ITEMS.map((item) => {
           const Icon = item.icon;
-          const isSelected = pathname === item.path;
+          const isSelected = pathname
+            ? isNavItemActive(pathname, { href: item.path, activePrefix: item.activePrefix })
+            : false;
           return (
             <Link key={item.id} href={item.path} data-cy={`settings-menu-item-${item.id}`}>
               <FilterItem isSelected={isSelected} onClick={() => {}}>

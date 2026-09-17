@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
+import { isNavItemActive } from '@/app/routes';
 import { MobileTabBar } from '../../MobileTabBar/MobileTabBar';
 import type { MobileTabBarItem } from '../../MobileTabBar/MobileTabBar.types';
 import { SETTINGS_MOBILE_ITEMS } from './SettingsMobileMenu.constants';
@@ -28,7 +29,7 @@ export function SettingsMobileMenu() {
     key: item.path,
     icon: item.icon,
     label: item.label,
-    isActive: pathname === item.path,
+    isActive: pathname ? isNavItemActive(pathname, { href: item.path, activePrefix: item.activePrefix }) : false,
     onSelect: () => router.push(item.path),
   }));
 

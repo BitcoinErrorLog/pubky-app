@@ -4,4 +4,5 @@ export interface SettingsMenuItem {
   id: string;
   label: string;
   path: string;
+  activePrefix?: string;
 }
