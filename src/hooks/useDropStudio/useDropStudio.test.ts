@@ -84,6 +84,26 @@ async function fillValidForm(form: ReturnType<typeof useDropStudio>['form']) {
 describe('dropStudioSchema — composer validation mirrors the record contract', () => {
   const base = validFormData;
 
+  it.each([
+    ['', false, 'Total quantity is required.'],
+    ['0', false, 'Total quantity must be a positive whole number.'],
+    ['-1', false, 'Total quantity must be a positive whole number.'],
+    ['1.5', false, 'Total quantity must be a positive whole number.'],
+    ['abc', false, 'Total quantity must be a positive whole number.'],
+    ['1000001', false, 'Total quantity can be at most 1,000,000.'],
+    ['1', true, undefined],
+  ])('validates total quantity %j', (totalQuantity, success, message) => {
+    const result = dropStudioSchema.safeParse({
+      ...base,
+      totalQuantity,
+      ...(totalQuantity === '1' ? { perBuyerLimit: '1' } : {}),
+    });
+    expect(result.success).toBe(success);
+    if (!success) {
+      expect(result.error!.issues.find(({ path }) => path.join('.') === 'totalQuantity')?.message).toBe(message);
+    }
+  });
+
   it('accepts a complete, in-bounds drop', () => {
     expect(dropStudioSchema.safeParse(base).success).toBe(true);
   });
@@ -242,6 +262,17 @@ describe('useDropStudio — two-truth publish state machine', () => {
     expect(CommerceController.publishDrop).toHaveBeenCalledTimes(1);
     expect(CommerceController.syncDropRegistration).toHaveBeenCalledTimes(2);
     expect(result.current.publishStatus).toEqual({ record: 'ok', sync: 'ok' });
+  });
+
+  it('submits an empty end without an endsAt field', async () => {
+    const { result } = renderHook(() => useDropStudio());
+    await fillValidForm(result.current.form);
+    await act(async () => {
+      result.current.form.setValue('endsAtLocal', '', { shouldValidate: true });
+      await result.current.publish();
+    });
+
+    expect(CommerceController.publishDrop).toHaveBeenCalledWith(expect.not.objectContaining({ endsAt: expect.anything() }));
   });
 
   it('record PUT failure never attempts the sync and never indexes the id', async () => {

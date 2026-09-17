@@ -73,10 +73,15 @@ export const dropStudioSchema = z
     startsAtLocal: localDateTimeSchema('Launch time', false),
     /** Empty string means "no scheduled end" — the drop runs until sell-out or cancellation. */
     endsAtLocal: localDateTimeSchema('End time', true),
-    totalQuantity: wholeNumberSchema('Total quantity must be a positive whole number.').refine(
-      (value) => Number(value) <= DROP_MAX_TOTAL_QUANTITY,
-      `Total quantity can be at most ${DROP_MAX_TOTAL_QUANTITY.toLocaleString('en-US')}.`,
-    ),
+    totalQuantity: z
+      .string()
+      .trim()
+      .min(1, 'Total quantity is required.')
+      .regex(/^[1-9]\d*$/, 'Total quantity must be a positive whole number.')
+      .refine(
+        (value) => Number(value) <= DROP_MAX_TOTAL_QUANTITY,
+        `Total quantity can be at most ${DROP_MAX_TOTAL_QUANTITY.toLocaleString('en-US')}.`,
+      ),
     perBuyerLimit: wholeNumberSchema('Per-buyer limit must be a positive whole number.').refine(
       (value) => Number(value) <= DROP_MAX_PER_BUYER_LIMIT,
       `Per-buyer limit can be at most ${DROP_MAX_PER_BUYER_LIMIT}.`,

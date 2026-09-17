@@ -204,7 +204,7 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
             control={form.control}
             label="Total quantity"
             labelHint={`1 to ${DROP_MAX_TOTAL_QUANTITY.toLocaleString('en-US')} units across the whole drop`}
-            placeholder="100"
+            placeholder="How many units in total"
             disabled={isPublishing}
           />
           <ControlledInputField
@@ -504,16 +504,29 @@ function DropStudioScheduleField({
         name={name}
         control={form.control}
         render={({ field }) => (
-          <Input
-            id={`drop-${name}`}
-            type="datetime-local"
-            value={field.value}
-            onChange={field.onChange}
-            onBlur={field.onBlur}
-            max="9999-12-31T23:59"
-            disabled={disabled}
-            aria-invalid={!!error}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              id={`drop-${name}`}
+              type="datetime-local"
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              max="9999-12-31T23:59"
+              disabled={disabled}
+              aria-invalid={!!error}
+            />
+            {name === DROP_STUDIO_FIELDS.ENDS_AT && field.value !== '' && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled}
+                onClick={() => field.onChange('')}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
         )}
       />
       {!Number.isNaN(parsedMs) && (

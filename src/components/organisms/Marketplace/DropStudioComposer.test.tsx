@@ -10,7 +10,7 @@ vi.mock('./DropStudioPreviewCard', () => ({
   DropStudioPreviewCard: () => <div data-testid="drop-preview" />,
 }));
 
-function Harness({ valid }: { valid: boolean }) {
+function Harness({ valid, withEnd = false }: { valid: boolean; withEnd?: boolean }) {
   const form = useForm<DropStudioData>({
     defaultValues: valid
       ? {
@@ -18,6 +18,7 @@ function Harness({ valid }: { valid: boolean }) {
           title: 'Winter capsule',
           listingIds: ['item1'],
           startsAtLocal: '2026-09-20T10:00',
+          endsAtLocal: withEnd ? '2026-09-21T10:00' : '',
           totalQuantity: '10',
         }
       : {
@@ -64,6 +65,30 @@ function Harness({ valid }: { valid: boolean }) {
 }
 
 describe('DropStudioComposer publish guidance', () => {
+  it('renders the optional end empty by default', () => {
+    render(<Harness valid />);
+
+    expect(
+      screen.getByLabelText('End (optional — empty runs until sell-out or cancel)'),
+    ).toHaveValue('');
+    expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+  });
+
+  it('clears an explicit end time', async () => {
+    const user = userEvent.setup();
+    render(<Harness valid withEnd />);
+
+    expect(
+      screen.getByLabelText('End (optional — empty runs until sell-out or cancel)'),
+    ).toHaveValue('2026-09-21T10:00');
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+    expect(
+      screen.getByLabelText('End (optional — empty runs until sell-out or cancel)'),
+    ).toHaveValue('');
+    expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+  });
+
   it('scrolls and focuses the first invalid field and links the outstanding fields', async () => {
     const user = userEvent.setup();
     const scrollIntoView = vi.fn();
