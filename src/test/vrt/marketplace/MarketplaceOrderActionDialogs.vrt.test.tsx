@@ -137,4 +137,24 @@ describe('Marketplace order action dialogs — visual regression', () => {
     await openDialog(screen.getByRole('button', { name: 'Cancel order' }));
     await expect(screen.getByTestId('dialog-content')).toMatchScreenshot('dialog-order-cancel-shipping-open-desktop');
   });
+
+  it('renders the full desktop viewport with the shipping cancellation dialog open', async () => {
+    const { pendingShippingOrder } = await fixtures;
+
+    const screen = await renderForVRT(
+      <ActionsHarness>
+        <MarketplaceOrderActions
+          order={pendingShippingOrder}
+          isBuyer
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
+      </ActionsHarness>,
+      { viewport: { width: 1280, height: 900 } },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Cancel order' }));
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'dialog-order-cancel-shipping-open-desktop-viewport',
+    );
+  });
 });

@@ -282,7 +282,7 @@ export function MarketplaceOrderActions({
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg border-border bg-popover">
+        <DialogContent className="w-full max-w-lg border-border bg-popover" centered>
           <DialogHeader>
             <DialogTitle>{actionTitle(actionType)}</DialogTitle>
           </DialogHeader>
@@ -391,7 +391,7 @@ export function MarketplaceOrderActions({
           reputation asymmetry; a seller-actor confirm refused during an
           unresolved terms change gets the explanation, not an error toast. */}
       <Dialog open={handoverOpen} onOpenChange={setHandoverOpen}>
-        <DialogContent className="border-border bg-popover">
+        <DialogContent className="w-full max-w-lg border-border bg-popover" centered>
           <DialogHeader>
             <DialogTitle>Confirm the handover</DialogTitle>
           </DialogHeader>

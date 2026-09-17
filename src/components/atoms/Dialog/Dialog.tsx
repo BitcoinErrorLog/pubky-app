@@ -120,7 +120,9 @@ function DialogContent({
             overrideDefaults
               ? ''
               : cn(
-                  'max-h-[calc(100dvh-2rem)] max-w-[100vw] gap-6 overflow-y-auto border bg-background p-6 shadow-lg sm:max-w-[calc(100vw-2rem)] sm:rounded-xl sm:rounded-b-lg sm:p-8',
+                  centered
+                    ? 'max-h-[calc(100dvh-2rem)] max-w-[100vw] gap-6 overflow-y-auto border bg-background p-6 shadow-lg sm:rounded-xl sm:p-8'
+                    : 'max-h-[calc(100dvh-2rem)] max-w-[100vw] gap-6 overflow-y-auto border bg-background p-6 shadow-lg sm:max-w-[calc(100vw-2rem)] sm:rounded-xl sm:rounded-b-lg sm:p-8',
                   centered ? 'rounded-xl' : 'rounded-t-lg border-b-0 sm:border-b',
                 ),
             className,
