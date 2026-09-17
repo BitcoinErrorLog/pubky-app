@@ -504,12 +504,14 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     const order = createOrderFixture('pending_payment', { fulfillment: 'shipping' });
     const actOnOrder = vi.fn(async () => true);
     const user = userEvent.setup();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
     render(<MarketplaceOrderActions order={order} isBuyer canEditReview={false} actOnOrder={actOnOrder} />);
 
     await user.click(screen.getByRole('button', { name: 'Cancel order' }));
     expect(screen.getByRole('heading', { name: 'Cancel order' })).toBeInTheDocument();
     expect(screen.getByText(/Cancelling moves no money/)).toBeInTheDocument();
-    expect(screen.getByTestId('dialog-content')).toHaveClass('max-w-lg');
+    expect(screen.getByTestId('dialog-content')).toHaveClass('m-6', 'rounded-xl', 'w-full', 'max-w-lg');
+    expect(screen.getByTestId('dialog-content')).not.toHaveClass('sm:max-w-[calc(100vw-2rem)]');
 
     await user.type(screen.getByLabelText('Reason'), 'No longer needed');
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
