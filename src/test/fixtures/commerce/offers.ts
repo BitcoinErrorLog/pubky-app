@@ -82,7 +82,7 @@ export function createOfferFixture(
   overrides: Partial<MarketplaceOffer> = {},
 ): MarketplaceOffer {
   const stateIndex = OFFER_STATES.indexOf(state) + 1;
-  return {
+  const fixture = {
     id: uuid(stateIndex),
     aggregateId: `offer:${uuid(100 + stateIndex)}`,
     listingAggregateId: buildMarketplaceListingAggregateId(OFFER_FIXTURE_SELLER, 'leather_boots'),
@@ -97,6 +97,47 @@ export function createOfferFixture(
     expiresAt: '2026-08-21T12:00:00.000Z',
     updatedAt: '2026-08-19T20:00:00.000Z',
     ...overrides,
+  };
+  if (state !== 'converted' || fixture.award) return fixture;
+  return {
+    ...fixture,
+    award: {
+      id: uuid(900 + stateIndex),
+      state: 'converted',
+      convertedOrderId: uuid(901 + stateIndex),
+      listing: {
+        aggregateId: fixture.listingAggregateId,
+        sellerPubky: OFFER_FIXTURE_SELLER,
+        listingId: 'boots_01',
+        listingRevision: 1,
+        listingRecordSha256: 'a'.repeat(64),
+        title: 'Marketplace item',
+      },
+      variant: {
+        id: 'variant_42',
+        options: [],
+        sku: null,
+      },
+      unitPrice: {
+        amountMinor: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.unit_price.amount_minor,
+        currency: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.unit_price.currency,
+        exponent: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.unit_price.exponent,
+      },
+      quantity: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.quantity,
+      acceptedAt: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.accepted_at,
+      convertBy: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.convert_by,
+      subtotal: {
+        amountMinor: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.subtotal.amount_minor,
+        currency: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.subtotal.currency,
+        exponent: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.subtotal.exponent,
+      },
+      shipping: { amountMinor: 0, currency: 'USD', exponent: 2 },
+      merchandiseTotal: {
+        amountMinor: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.merchandise_total.amount_minor,
+        currency: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.merchandise_total.currency,
+        exponent: ACCEPTED_OFFER_AWARD_WIRE_FIXTURE.merchandise_total.exponent,
+      },
+    },
   };
 }
 

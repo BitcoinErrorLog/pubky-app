@@ -26,7 +26,7 @@ import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/Con
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
-import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
+import type { MarketplaceOffer, MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceOffers() {
@@ -34,10 +34,46 @@ export function MarketplaceOffers() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const offers = useMarketplaceOffers();
   const cart = useMarketplaceCart();
+  const [convertedOrderStates, setConvertedOrderStates] = useState<Record<string, MarketplaceOrder['state']>>({});
   const [countering, setCountering] = useState<MarketplaceOffer | null>(null);
   const { listings, isHydrating } = useOfferListings(offers.offers);
   const linkedOfferId = useOfferAnchor();
   const linkedOfferMissing = isLinkedOfferMissing(linkedOfferId, offers.offers, offers.isLoading, offers.error);
+
+  useEffect(() => {
+    let active = true;
+    const orderIds = offers.offers
+      .map(({ award }) => award?.convertedOrderId)
+      .filter((orderId): orderId is string => Boolean(orderId));
+    if (!orderIds.length) {
+      setConvertedOrderStates({});
+      return () => {
+        active = false;
+      };
+    }
+    void Promise.all(
+      [...new Set(orderIds)].map(async (orderId) => {
+        try {
+          const order = await CommerceController.getMarketplaceOrder(orderId);
+          return order ? ([orderId, order.state] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((states) => {
+      if (!active) return;
+      setConvertedOrderStates(
+        Object.fromEntries(
+          states.filter(
+            (state): state is readonly [string, MarketplaceOrder['state']] => state !== null,
+          ),
+        ),
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [offers.offers]);
 
   const submitCounter = async () => {
     if (!countering || !(await offers.counter(countering))) return;
@@ -89,6 +125,10 @@ export function MarketplaceOffers() {
             {offers.offers.map((offer) => {
               const actionable = offer.state === 'pending' || offer.state === 'countered';
               const incoming = offer.offeredBy !== currentUserPubky;
+              const convertedAward = offer.award?.state === 'converted' ? offer.award : null;
+              const convertedOrderState = convertedAward?.convertedOrderId
+                ? convertedOrderStates[convertedAward.convertedOrderId]
+                : undefined;
               return (
                 <Card key={offer.id} id={`offer-${offer.id}`} className="border py-5">
                   <CardContent className="grid gap-4 px-5 sm:grid-cols-[1fr_auto] sm:items-center">
@@ -129,6 +169,39 @@ export function MarketplaceOffers() {
                         offer.award.convertBy && (
                           <Typography as="p" className="text-sm text-muted-foreground">
                             Buyer checkout window closes {new Date(offer.award.convertBy).toLocaleString()}
+                          </Typography>
+                        )}
+                      {convertedAward && (
+                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                          Converted to an order
+                          {convertedAward.convertedOrderId && (
+                            <>
+                              {' · '}
+                              <Link
+                                href={`${MARKETPLACE_ROUTES.ORDERS}#${convertedAward.convertedOrderId}`}
+                                overrideDefaults
+                                className="underline"
+                              >
+                                View order
+                              </Link>
+                            </>
+                          )}
+                        </Typography>
+                      )}
+                      {convertedAward &&
+                        convertedOrderState === 'cancelled' &&
+                        convertedAward.listing.sellerPubky !== currentUserPubky && (
+                          <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                            <Link
+                              href={getMarketplaceListingRoute(
+                                convertedAward.listing.sellerPubky,
+                                convertedAward.listing.listingId,
+                              )}
+                              overrideDefaults
+                              className="underline"
+                            >
+                              Make a new offer to buy this item
+                            </Link>
                           </Typography>
                         )}
                       {offer.message && (

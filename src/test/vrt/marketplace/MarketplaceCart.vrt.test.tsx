@@ -102,6 +102,7 @@ interface CartItemLike {
 
 const view = vi.hoisted(() => ({
   items: [] as unknown[],
+  offers: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
   deployEnv: 'staging' as 'production' | 'staging' | undefined,
@@ -201,6 +202,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
   };
 });
 
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: view.offers, isLoading: false, error: null, needsSession: false }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
   const { useForm } = await import('react-hook-form');
   const { marketplaceCheckoutDefaults } = await import('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types');
@@ -247,6 +252,7 @@ beforeEach(async () => {
   view.adapterMode = 'sandbox';
   view.deployEnv = 'staging';
   view.addresses = [];
+  view.offers = [];
   view.selectedAddressId = null;
   view.isLoading = false;
 });
@@ -472,6 +478,17 @@ describe('Marketplace cart — visual regression', () => {
         id: 'award-cart-line',
         awardId: '00000000-0000-0000-0000-000000000902',
         pricingSource: 'offer',
+      },
+    ];
+    view.offers = [
+      {
+        award: {
+          id: '00000000-0000-0000-0000-000000000902',
+          unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
+          quantity: 1,
+          convertBy: '2026-09-15T12:00:00.000Z',
+          merchandiseTotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
+        },
       },
     ];
     view.isLoading = false;

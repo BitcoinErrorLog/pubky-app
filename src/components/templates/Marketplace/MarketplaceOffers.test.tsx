@@ -17,7 +17,11 @@ const getOrFetchListing = vi.hoisted(() => vi.fn());
 const getManyListings = vi.hoisted(() => vi.fn());
 
 vi.mock('@/controllers/commerce/commerce', () => ({
-  CommerceController: { getManyListings, getOrFetchListing },
+  CommerceController: {
+    getManyListings,
+    getOrFetchListing,
+    getMarketplaceOrder: vi.fn(async () => ({ state: 'cancelled' })),
+  },
 }));
 
 vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', () => ({
@@ -179,6 +183,46 @@ describe('Marketplace offers UX', () => {
     offerView.offers = [{ ...offer, buyerPubky: 'b'.repeat(52), offeredBy: seller, award: undefined }];
     render(<MarketplaceOffers />);
     expect(screen.queryByRole('button', { name: /Buy for/ })).not.toBeInTheDocument();
+  });
+
+  it('renders converted awards as an order link without a Buy control', async () => {
+    offerView.offers = [
+      {
+        ...offer,
+        state: 'converted',
+        award: {
+          id: '00000000-0000-4000-8000-000000000801',
+          state: 'converted',
+          listing: {
+            aggregateId: offer.listingAggregateId,
+            sellerPubky: seller,
+            listingId: 'boots',
+            title: 'Vintage boots',
+            listingRevision: 2,
+            listingRecordSha256: 'a'.repeat(64),
+          },
+          variant: { id: 'variant_42', sku: null, options: [] },
+          unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
+          quantity: 1,
+          acceptedAt: '2026-09-15T10:00:00.000Z',
+          convertBy: '2026-09-15T12:00:00.000Z',
+          convertedOrderId: '00000000-0000-4000-8000-000000000803',
+          subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
+          shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
+          merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
+        },
+      },
+    ] as MarketplaceOffer[];
+
+    render(<MarketplaceOffers />);
+
+    expect(screen.queryByRole('button', { name: /Buy for/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Converted to an order/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View order' })).toHaveAttribute(
+      'href',
+      '/marketplace/orders#00000000-0000-4000-8000-000000000803',
+    );
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Make a new offer to buy this item' })).toBeInTheDocument());
   });
 
   it('shows a static error and does not navigate when award cart setup fails', async () => {

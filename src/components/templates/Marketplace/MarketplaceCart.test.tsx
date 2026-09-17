@@ -15,6 +15,7 @@ beforeAll(() => {
 
 const view = vi.hoisted(() => ({
   items: [] as unknown[],
+  offers: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
   deployEnv: 'production' as 'production' | 'staging' | undefined,
@@ -131,6 +132,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
   };
 });
 
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: view.offers, isLoading: false, error: null, needsSession: false }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
   const { useForm } = await import('react-hook-form');
   const { zodResolver } = await import('@hookform/resolvers/zod');
@@ -205,6 +210,7 @@ describe('MarketplaceCart', () => {
     cartActions.remove.mockReset();
     cartActions.setFulfillmentChoice.mockReset();
     view.items = [];
+    view.offers = [];
     view.isLoading = false;
     view.adapterMode = 'sandbox';
     view.deployEnv = 'production';
@@ -481,6 +487,17 @@ describe('MarketplaceCart', () => {
         listing,
       },
     ];
+    view.offers = [
+      {
+        award: {
+          id: 'award-1',
+          unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
+          quantity: 1,
+          convertBy: '2026-09-15T12:00:00.000Z',
+          merchandiseTotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
+        },
+      },
+    ];
 
     render(<MarketplaceCart />);
 
@@ -488,6 +505,8 @@ describe('MarketplaceCart', () => {
     expect(awardGroup).toHaveAttribute('data-surface', 'marketplace-award-cart-group');
     expect(within(awardGroup).getByText('Accepted offer')).toBeInTheDocument();
     expect(within(awardGroup).getByText('Quantity and variant are fixed at the accepted offer.')).toBeInTheDocument();
+    expect(within(awardGroup).getByText('$6.00 × 1 = $6.00')).toBeInTheDocument();
+    expect(within(awardGroup).getByText(/Buy by/)).toBeInTheDocument();
     expect(within(awardGroup).getByRole('link', { name: 'Pay agreed price' })).toHaveAttribute(
       'href',
       '/marketplace/award-checkout?offer=award-1',

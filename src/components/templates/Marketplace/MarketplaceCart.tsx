@@ -26,6 +26,7 @@ import {
   useMarketplaceFirstMediaUrls,
   useMarketplaceMediaUrl,
 } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
@@ -46,6 +47,7 @@ export function MarketplaceCart() {
   const cartMediaUrls = useMarketplaceFirstMediaUrls(cartMediaUris);
   const ordinaryItems = cart.ordinaryItems ?? cart.items;
   const awardItems = cart.awardItems ?? [];
+  const offers = useMarketplaceOffers();
   const checkout = useMarketplaceCheckout(ordinaryItems, cart.clear);
   const adapterMode = getCommerceAdapterMode();
   const isSandbox = adapterMode === 'sandbox';
@@ -109,6 +111,7 @@ export function MarketplaceCart() {
               <div className="flex flex-col gap-4" data-testid="marketplace-cart-items">
                 {awardItems.map((item) => {
                   const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+                  const award = offers.offers.find(({ award }) => award?.id === item.awardId)?.award;
                   return (
                     <section
                       key={item.id}
@@ -129,6 +132,17 @@ export function MarketplaceCart() {
                               {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'} · Quantity{' '}
                               {item.quantity}
                             </Typography>
+                            {award && (
+                              <>
+                                <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                                  {formatCommerceMoney(award.unitPrice)} × {award.quantity} ={' '}
+                                  {formatCommerceMoney(award.merchandiseTotal)}
+                                </Typography>
+                                <Typography as="p" className="text-sm text-muted-foreground">
+                                  Buy by {new Date(award.convertBy).toLocaleString('en-US')}
+                                </Typography>
+                              </>
+                            )}
                             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
                               Quantity and variant are fixed at the accepted offer.
                             </Typography>
