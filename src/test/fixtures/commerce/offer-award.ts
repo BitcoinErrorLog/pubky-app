@@ -1,4 +1,4 @@
-import { marketplaceOfferSchema, type MarketplaceOffer } from '@/core/services/marketplace/marketplace-projections';
+import { type MarketplaceOffer, marketplaceOfferSchema } from '@/core/services/marketplace/marketplace-projections';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 
 const CONTRACT_FIXTURE_BUYER = 'y'.repeat(52);

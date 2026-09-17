@@ -198,7 +198,9 @@ describe('Marketplace offers UX', () => {
       'href',
       `/marketplace/orders#${convertedOffer.award?.convertedOrderId}`,
     );
-    await waitFor(() => expect(screen.getByRole('link', { name: 'Make a new offer to buy this item' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'Make a new offer to buy this item' })).toBeInTheDocument(),
+    );
   });
 
   it('shows a static error and does not navigate when award cart setup fails', async () => {

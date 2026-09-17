@@ -64,9 +64,7 @@ export function MarketplaceOffers() {
       if (!active) return;
       setConvertedOrderStates(
         Object.fromEntries(
-          states.filter(
-            (state): state is readonly [string, MarketplaceOrder['state']] => state !== null,
-          ),
+          states.filter((state): state is readonly [string, MarketplaceOrder['state']] => state !== null),
         ),
       );
     });

@@ -68,9 +68,7 @@ describe('DropStudioComposer publish guidance', () => {
   it('renders the optional end empty by default', () => {
     render(<Harness valid />);
 
-    expect(
-      screen.getByLabelText('End (optional — empty runs until sell-out or cancel)'),
-    ).toHaveValue('');
+    expect(screen.getByLabelText('End (optional — empty runs until sell-out or cancel)')).toHaveValue('');
     expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
   });
 
@@ -78,14 +76,12 @@ describe('DropStudioComposer publish guidance', () => {
     const user = userEvent.setup();
     render(<Harness valid withEnd />);
 
-    expect(
-      screen.getByLabelText('End (optional — empty runs until sell-out or cancel)'),
-    ).toHaveValue('2026-09-21T10:00');
+    expect(screen.getByLabelText('End (optional — empty runs until sell-out or cancel)')).toHaveValue(
+      '2026-09-21T10:00',
+    );
     await user.click(screen.getByRole('button', { name: 'Clear' }));
 
-    expect(
-      screen.getByLabelText('End (optional — empty runs until sell-out or cancel)'),
-    ).toHaveValue('');
+    expect(screen.getByLabelText('End (optional — empty runs until sell-out or cancel)')).toHaveValue('');
     expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
   });
 

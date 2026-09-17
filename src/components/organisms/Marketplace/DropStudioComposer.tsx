@@ -516,13 +516,7 @@ function DropStudioScheduleField({
               aria-invalid={!!error}
             />
             {name === DROP_STUDIO_FIELDS.ENDS_AT && field.value !== '' && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={disabled}
-                onClick={() => field.onChange('')}
-              >
+              <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => field.onChange('')}>
                 Clear
               </Button>
             )}

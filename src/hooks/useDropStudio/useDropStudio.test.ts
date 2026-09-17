@@ -272,7 +272,9 @@ describe('useDropStudio — two-truth publish state machine', () => {
       await result.current.publish();
     });
 
-    expect(CommerceController.publishDrop).toHaveBeenCalledWith(expect.not.objectContaining({ endsAt: expect.anything() }));
+    expect(CommerceController.publishDrop).toHaveBeenCalledWith(
+      expect.not.objectContaining({ endsAt: expect.anything() }),
+    );
   });
 
   it('record PUT failure never attempts the sync and never indexes the id', async () => {
