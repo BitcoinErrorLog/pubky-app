@@ -14,6 +14,7 @@ import { type OwnDropRow, useOwnDrops } from '@/hooks/useOwnDrops/useOwnDrops';
 import type { DropState } from '@/libs/commerce/transaction-contracts';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropStudioComposer } from '@/organisms/Marketplace/DropStudioComposer';
+import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
@@ -100,7 +101,7 @@ export function DropStudioHome() {
               ) : (
                 <ul className="flex flex-col gap-2">
                   {drops.rows.map((row) => (
-                    <DropStudioHomeRow key={row.dropId} row={row} />
+                    <DropStudioHomeRow key={row.dropId} row={row} onRetry={() => void drops.refresh()} />
                   ))}
                 </ul>
               )}
@@ -134,11 +135,12 @@ const DROP_STATE_LABELS: Record<DropState, string> = {
   ended_cancelled: 'Ended',
 };
 
-function DropStudioHomeRow({ row }: { row: OwnDropRow }) {
+function DropStudioHomeRow({ row, onRetry }: { row: OwnDropRow; onRetry: () => void }) {
   const startsAtMs = row.record ? Date.parse(row.record.startsAt) : null;
   const endsAtMs = row.record?.endsAt !== undefined ? Date.parse(row.record.endsAt) : null;
+  const projection = row.projection;
   return (
-    <li>
+    <li className="flex flex-col gap-3">
       <Link
         href={`${MARKETPLACE_ROUTES.SELL_DROPS}/${row.dropId}`}
         overrideDefaults
@@ -154,14 +156,29 @@ function DropStudioHomeRow({ row }: { row: OwnDropRow }) {
               : 'The record could not be read from your homeserver.'}
           </Typography>
         </div>
-        {row.drop ? (
-          <Badge variant={row.drop.state === 'live' ? 'default' : 'secondary'}>
-            {DROP_STATE_LABELS[row.drop.state]}
+        {projection.status === 'loaded' ? (
+          <Badge variant={projection.drop.state === 'live' ? 'default' : 'secondary'}>
+            {DROP_STATE_LABELS[projection.drop.state]}
           </Badge>
-        ) : (
+        ) : projection.status === 'unregistered' ? (
           <Badge variant="outline">Draft</Badge>
+        ) : (
+          <Badge variant="outline">Status unavailable</Badge>
         )}
       </Link>
+      {projection.status === 'session-unavailable' && <MarketplaceSessionRequiredCard />}
+      {projection.status === 'unavailable' && (
+        <Card className="border-dashed py-4">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 px-5">
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Status unavailable — retry.
+            </Typography>
+            <button type="button" className="text-sm font-medium underline" onClick={onRetry}>
+              Retry
+            </button>
+          </CardContent>
+        </Card>
+      )}
     </li>
   );
 }

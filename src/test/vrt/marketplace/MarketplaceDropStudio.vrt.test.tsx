@@ -8,6 +8,8 @@ import { DropStudioHome } from '@/organisms/Marketplace/DropStudioHome';
 
 const view = vi.hoisted(() => ({
   filled: false,
+  catalog: 'loaded' as 'loaded' | 'unavailable',
+  projection: 'loaded' as 'loaded' | 'session-unavailable',
   publishStatus: { record: 'idle', sync: 'idle' } as { record: string; sync: string },
   publishErrors: [] as string[],
   publishedDropId: null as string | null,
@@ -60,7 +62,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: 'y'.repeat(52) }),
+  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: 'y'.repeat(52), selectSession: () => null }),
 }));
 
 vi.mock('@/hooks/useOwnDrops/useOwnDrops', () => ({
@@ -77,7 +79,10 @@ vi.mock('@/hooks/useOwnDrops/useOwnDrops', () => ({
           startsAt: '2026-01-01T10:00:00.000Z',
           endsAt: '2026-01-02T10:00:00.000Z',
         },
-        drop: { dropId: 'drop-live', state: 'live', revision: 3 },
+        projection:
+          view.projection === 'loaded'
+            ? { status: 'loaded', drop: { dropId: 'drop-live', state: 'live', revision: 3 } }
+            : { status: 'session-unavailable' },
       },
       {
         dropId: 'drop-unregistered',
@@ -86,7 +91,7 @@ vi.mock('@/hooks/useOwnDrops/useOwnDrops', () => ({
           title: 'Spring preview',
           startsAt: '2025-12-20T10:00:00.000Z',
         },
-        drop: null,
+        projection: { status: 'unregistered' },
       },
     ],
   }),
@@ -113,7 +118,8 @@ vi.mock('@/hooks/useDropStudio/useDropStudio', async () => {
           : defaults,
       }),
       listings: listingsFixture,
-      isLoadingListings: false,
+      catalog: view.catalog,
+      retryCatalog: () => undefined,
       isDurable: true,
       registration: { item1: 'registered', item2: 'unregistered' },
       registerListing: async () => undefined,
@@ -133,6 +139,8 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 describe('Marketplace Drop Studio — visual regression', () => {
   it('renders the drops home with the composer blank at desktop viewport', async () => {
     view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'loaded';
     view.publishStatus = { record: 'idle', sync: 'idle' };
     view.publishedDropId = null;
 
@@ -142,6 +150,8 @@ describe('Marketplace Drop Studio — visual regression', () => {
 
   it('renders the drops home at mobile viewport', async () => {
     view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'loaded';
     view.publishStatus = { record: 'idle', sync: 'idle' };
     view.publishedDropId = null;
 
@@ -151,6 +161,8 @@ describe('Marketplace Drop Studio — visual regression', () => {
 
   it('renders the filled composer with mixed listing registration states at desktop viewport', async () => {
     view.filled = true;
+    view.catalog = 'loaded';
+    view.projection = 'loaded';
     view.publishStatus = { record: 'idle', sync: 'idle' };
     view.publishedDropId = null;
 
@@ -160,6 +172,8 @@ describe('Marketplace Drop Studio — visual regression', () => {
 
   it('renders the record-ok / sync-failed two-truth panel with its retry affordance', async () => {
     view.filled = true;
+    view.catalog = 'loaded';
+    view.projection = 'loaded';
     view.publishStatus = { record: 'ok', sync: 'failed' };
     view.publishedDropId = 'drop123';
 
@@ -180,6 +194,8 @@ describe('Marketplace Drop Studio — visual regression', () => {
 
   it('renders a failed publish with the required-fields summary at desktop viewport', async () => {
     view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'loaded';
     view.publishStatus = { record: 'idle', sync: 'idle' };
     view.publishErrors = ['title:Enter a title.', 'listingIds:Select at least one listing.'];
     view.publishedDropId = null;
@@ -194,5 +210,44 @@ describe('Marketplace Drop Studio — visual regression', () => {
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-publish-invalid-desktop');
     view.publishErrors = [];
+  });
+
+  it('renders the hydrated picker at desktop viewport', async () => {
+    view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'loaded';
+
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(screen.getByText('Numbered print — Genesis')).toBeVisible();
+    Array.from(screen.container.querySelectorAll('span'))
+      .find((element) => element.textContent === 'Numbered print — Genesis')
+      ?.scrollIntoView({ block: 'start' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-hydrated-picker-desktop');
+  });
+
+  it('renders catalog unavailable without advising the seller to create a listing', async () => {
+    view.filled = false;
+    view.catalog = 'unavailable';
+    view.projection = 'loaded';
+
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(screen.getByText('Your catalog could not be loaded — retry.')).toBeVisible();
+    Array.from(screen.container.querySelectorAll('p'))
+      .find((element) => element.textContent === 'Your catalog could not be loaded — retry.')
+      ?.scrollIntoView({ block: 'start' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-catalog-unavailable-desktop');
+  });
+
+  it('renders session-unavailable without calling a protected drop Draft', async () => {
+    view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'session-unavailable';
+
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(screen.getByText('Approve purchases in Pubky Ring')).toBeVisible();
+    Array.from(screen.container.querySelectorAll('h2'))
+      .find((element) => element.textContent === 'Approve purchases in Pubky Ring')
+      ?.scrollIntoView({ block: 'start' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-session-unavailable-desktop');
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { type FieldErrors, useForm, type UseFormReturn, useWatch } from 'react-hook-form';
@@ -24,7 +24,10 @@ export interface UseDropStudioResult {
   form: UseFormReturn<DropStudioData>;
   /** The seller's own ACTIVE listings — the only ones a drop may bundle. */
   listings: CommerceListingModelSchema[];
-  isLoadingListings: boolean;
+  /** Whether the canonical seller catalog is loading, loaded, or unreadable. */
+  catalog: 'loading' | 'loaded' | 'unavailable';
+  /** Re-runs the owner-scoped local-first catalog read. */
+  retryCatalog: () => void;
   /** Whether drops can operate at all (durable transaction service only). */
   isDurable: boolean;
   /** Registration state per SELECTED listing id (transaction-service truth). */
@@ -44,11 +47,34 @@ export interface UseDropStudioResult {
 export function useDropStudio(): UseDropStudioResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const isDurable = isDurableCommerceMode(getCommerceAdapterMode());
+  const [catalog, setCatalog] = useState<'loading' | 'loaded' | 'unavailable'>('loading');
+  const [catalogRefresh, setCatalogRefresh] = useState(0);
   const localListings = useLiveQuery(
     () => (currentUserPubky ? CommerceController.getListingsBySeller(currentUserPubky) : []),
     [currentUserPubky],
   );
   const listings = (localListings ?? []).filter(({ state }) => state === 'active');
+
+  useEffect(() => {
+    let active = true;
+    if (!currentUserPubky) {
+      setCatalog('loaded');
+      return;
+    }
+    setCatalog('loading');
+    void CommerceController.refreshListingsBySeller(currentUserPubky).then(
+      () => {
+        if (!active) return;
+        setCatalog('loaded');
+      },
+      () => {
+        if (active) setCatalog('unavailable');
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [catalogRefresh, currentUserPubky]);
 
   const form = useForm<DropStudioData>({
     resolver: zodResolver(dropStudioSchema),
@@ -61,22 +87,6 @@ export function useDropStudio(): UseDropStudioResult {
   const [registration, setRegistration] = useState<Record<string, DropStudioListingRegistration>>({});
   const checkedIdsRef = useRef(new Set<string>());
 
-  const checkRegistration = useCallback(
-    async (listingId: string) => {
-      if (!currentUserPubky) return;
-      setRegistration((previous) => ({ ...previous, [listingId]: 'checking' }));
-      let next: DropStudioListingRegistration;
-      try {
-        const projection = await CommerceController.getMarketplaceListingProjection(currentUserPubky, listingId);
-        next = projection ? 'registered' : 'unregistered';
-      } catch {
-        next = 'unknown';
-      }
-      setRegistration((previous) => ({ ...previous, [listingId]: next }));
-    },
-    [currentUserPubky],
-  );
-
   // One bounded projection read per newly selected listing (≤20 selectable):
   // registration is transaction-service truth, so it is only knowable — and
   // only required — in durable mode.
@@ -85,9 +95,17 @@ export function useDropStudio(): UseDropStudioResult {
     for (const listingId of selectedListingIds) {
       if (checkedIdsRef.current.has(listingId)) continue;
       checkedIdsRef.current.add(listingId);
-      void checkRegistration(listingId);
+      setRegistration((previous) => ({ ...previous, [listingId]: 'checking' }));
+      void CommerceController.getMarketplaceListingProjection(currentUserPubky, listingId).then(
+        (projection) => {
+          setRegistration((previous) => ({ ...previous, [listingId]: projection ? 'registered' : 'unregistered' }));
+        },
+        () => {
+          setRegistration((previous) => ({ ...previous, [listingId]: 'unknown' }));
+        },
+      );
     }
-  }, [selectedListingIds, isDurable, currentUserPubky, checkRegistration]);
+  }, [selectedListingIds, isDurable, currentUserPubky]);
 
   const registerListing = async (listingId: string): Promise<void> => {
     if (!currentUserPubky) return;
@@ -176,7 +194,8 @@ export function useDropStudio(): UseDropStudioResult {
   return {
     form,
     listings,
-    isLoadingListings: localListings === undefined,
+    catalog,
+    retryCatalog: () => setCatalogRefresh((previous) => previous + 1),
     isDurable,
     registration,
     registerListing,
