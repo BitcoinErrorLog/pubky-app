@@ -14,12 +14,17 @@ import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
-import { pubchiQueryFormDefaults, QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
+import {
+  PUBCHI_QUESTION_MAX_LENGTH_MESSAGE,
+  pubchiQueryFormDefaults,
+  QUERY_FORM_FIELDS,
+} from '@/hooks/usePubchiQuery/usePubchiQuery.types';
 import { PUBCHI_DEGRADED_SESSION_MESSAGE } from '@/libs/pubchi/capabilities';
 import { parsePostReference } from '@/libs/pubchi/capabilities-v1';
 import { effectiveTier } from '@/libs/pubchi/effective-tier';
 import { pubchiErrorCopy } from '@/libs/pubchi/error-copy';
 import { isPubchiPanelEnabled } from '@/libs/pubchi/flags';
+import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
 import type { PubchiTarget } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { copyToClipboard, truncateMiddle } from '@/libs/utils/utils';
@@ -68,6 +73,8 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const clearConversation = usePubchiStore((state) => state.clearConversation);
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = useWatch({ control: form.control, name: QUERY_FORM_FIELDS.QUESTION }) ?? '';
+  const questionLength = Array.from(question).length;
+  const questionOverLimit = questionLength > PUBCHI_QUESTION_MAX_LENGTH;
   const postReference = parsePostReference(question);
   const [suggestionTarget, setSuggestionTarget] = useState<PubchiTarget | undefined>();
   const [prefilledQuestion, setPrefilledQuestion] = useState<string>();
@@ -152,7 +159,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     return null;
   }
 
-  const actionsDisabled = loading || setupLoading || !signingAvailable;
+  const actionsDisabled = loading || setupLoading || !signingAvailable || questionOverLimit;
   const errorCopy = pubchiErrorCopy(errorCode);
   const clearPanelConversation = () => {
     setSuggestionTarget(undefined);
@@ -296,9 +303,18 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                 label="Question"
                 placeholder="Ask about your graph…"
               />
-              <Typography size="xs" className="text-muted-foreground">
-                {question.length}/500
+              <Typography
+                size="xs"
+                data-testid="pubchi-question-count"
+                className={questionOverLimit ? 'text-destructive' : 'text-muted-foreground'}
+              >
+                {questionLength}/{PUBCHI_QUESTION_MAX_LENGTH}
               </Typography>
+              {questionOverLimit ? (
+                <Typography size="sm" data-testid="pubchi-question-over-limit" className="text-destructive">
+                  {PUBCHI_QUESTION_MAX_LENGTH_MESSAGE}
+                </Typography>
+              ) : null}
               <PubchiCapabilities
                 compact
                 tier={tier}

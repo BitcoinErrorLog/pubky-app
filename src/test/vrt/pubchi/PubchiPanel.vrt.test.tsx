@@ -1,3 +1,4 @@
+import { useForm } from 'react-hook-form';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import { PUBCHI_PANEL_SURFACE, PubchiPanel } from '@/organisms/Pubchi/PubchiPanel/PubchiPanel';
@@ -36,32 +37,32 @@ const ANSWER: PubchiQuerySuccess = {
 };
 
 vi.mock('@/hooks/usePubchiQuery/usePubchiQuery', () => ({
-  usePubchiQuery: () => ({
-    form: {
-      control: {},
-      getValues: () => ({ question: '' }),
-      watch: () => '',
-      trigger: async () => true,
-    },
-    submit: vi.fn(),
-    applyFeed: vi.fn(),
-    result: mockQuery.answer ? ANSWER : undefined,
-    errorCode: mockQuery.errorCode,
-    loading: mockQuery.loading,
-    elapsedMs: mockQuery.elapsedMs,
-    enabled: true,
-    pubchiAvailable: true,
-    signingAvailable: mockQuery.signingAvailable,
-    signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
-    setupDevice: vi.fn(),
-    setupLoading: false,
-  }),
+  usePubchiQuery: () => {
+    const form = useForm({ defaultValues: { question: '' } });
+    return {
+      form,
+      submit: vi.fn(),
+      applyFeed: vi.fn(),
+      result: mockQuery.answer ? ANSWER : undefined,
+      errorCode: mockQuery.errorCode,
+      loading: mockQuery.loading,
+      elapsedMs: mockQuery.elapsedMs,
+      enabled: true,
+      pubchiAvailable: true,
+      signingAvailable: mockQuery.signingAvailable,
+      signingUnavailableMessage: "This browser isn't set up for Pubchi yet. Set it up to start asking.",
+      setupDevice: vi.fn(),
+      setupLoading: false,
+    };
+  },
 }));
 
-vi.mock('@/libs/pubchi/flags', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/libs/pubchi/flags')>()),
+vi.mock('@/libs/pubchi/flags', () => ({
   isPubchiPanelEnabled: () => true,
   isPubchiEnabled: () => true,
+  getPubchiUrlFor: () => 'https://pubchi.example/v1/query',
+  getPubchiQueryUrl: () => 'https://pubchi.example/v1/query',
+  pubchiEndpointFor: () => '/v1/query',
 }));
 
 const enrollment = {

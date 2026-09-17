@@ -88,6 +88,9 @@ export function PubchiBrainEditor({
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <Label htmlFor="pubchi-context-about">About you</Label>
+          <Typography size="sm" className="text-muted-foreground">
+            A few lines about you (role, interests). Used to personalise answers.
+          </Typography>
           <textarea
             id="pubchi-context-about"
             value={draft.about}
@@ -101,6 +104,9 @@ export function PubchiBrainEditor({
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="pubchi-context-instructions">How to answer</Label>
+          <Typography size="sm" className="text-muted-foreground">
+            Style rules for replies (tone, length, language).
+          </Typography>
           <textarea
             id="pubchi-context-instructions"
             value={draft.instructions}
@@ -117,6 +123,16 @@ export function PubchiBrainEditor({
         {contextError ? (
           <Typography size="sm" className="text-destructive">That value looks like a secret or key and cannot be saved.</Typography>
         ) : null}
+        <div className="rounded-lg border border-border p-4" data-testid="pubchi-brain-preview">
+          <Typography className="font-medium">How your Pubchi will answer</Typography>
+          <Typography size="sm" className="mt-1 text-muted-foreground">
+            Example question: What are people saying about bitcoin this week?
+          </Typography>
+          <Typography size="sm" className="mt-3">
+            {previewAnswer(draft.instructions)}
+          </Typography>
+          <Typography size="xs" className="mt-2 text-muted-foreground">Example, generated locally</Typography>
+        </div>
         {contextEditable ? (
           <Button
             type="button"
@@ -138,16 +154,6 @@ export function PubchiBrainEditor({
           onApproved={(session) => onReapprove(session)}
         />
       ) : null}
-      <div className="rounded-lg border border-border p-4" data-testid="pubchi-brain-preview">
-        <Typography className="font-medium">How your Pubchi will answer</Typography>
-        <Typography size="sm" className="mt-1 text-muted-foreground">
-          Example question: What are people saying about bitcoin this week?
-        </Typography>
-        <Typography size="sm" className="mt-3">
-          {previewAnswer(draft.instructions)}
-        </Typography>
-        <Typography size="xs" className="mt-2 text-muted-foreground">Example, generated locally</Typography>
-      </div>
     </section>
   );
 }

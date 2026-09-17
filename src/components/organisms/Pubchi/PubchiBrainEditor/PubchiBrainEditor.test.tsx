@@ -40,4 +40,28 @@ describe('PubchiBrainEditor', () => {
     expect(screen.getByTestId('ring-approval-dialog')).toBeInTheDocument();
     expect(onReapprove).not.toHaveBeenCalled();
   });
+
+  it('places guidance under each field and the preview above Save', () => {
+    render(
+      <PubchiBrainEditor
+        context={{ schema: 'pubchi-owner-context', version: 1, about: '', instructions: '', updated_at: 1 }}
+        contextEditable
+        onSaveContext={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('A few lines about you (role, interests). Used to personalise answers.')).toBeInTheDocument();
+    expect(screen.getByText('Style rules for replies (tone, length, language).')).toBeInTheDocument();
+
+    const editor = screen.getByTestId(PUBCHI_BRAIN_EDITOR_SURFACE);
+    const about = screen.getByLabelText('About you');
+    const instructions = screen.getByLabelText('How to answer');
+    const preview = screen.getByTestId('pubchi-brain-preview');
+    const save = screen.getByRole('button', { name: 'Save private context' });
+
+    expect(about.compareDocumentPosition(instructions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(instructions.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(preview.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(editor).toContainElement(preview);
+  });
 });
