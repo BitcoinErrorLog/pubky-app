@@ -9,7 +9,7 @@ import { hasHttpStatus, isMarketplaceSessionRequiredError } from '@/libs/error/e
 import type { MarketplaceSellerDrop } from '@/services/marketplace/marketplace-projections';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
-export type OwnDropProjection =
+type OwnDropProjection =
   | { status: 'loaded'; drop: MarketplaceSellerDrop }
   | { status: 'unregistered' }
   | {

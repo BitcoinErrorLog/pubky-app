@@ -12,11 +12,7 @@ import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
-import {
-  CommerceCatalogEntryModel,
-  CommerceListingModel,
-  CommerceShopModel,
-} from '@/models/commerce/commerce.models';
+import { CommerceCatalogEntryModel, CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -342,9 +338,9 @@ describe('CommerceApplication', () => {
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
-    vi
-      .spyOn(MarketplaceGatewayService, 'execute')
-      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementation(async (_actor, command) =>
+      listingRegisteredResponse(command),
+    );
 
     await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: true });
 
@@ -417,9 +413,9 @@ describe('CommerceApplication', () => {
       registration_status: undefined,
     });
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
-    vi
-      .spyOn(MarketplaceGatewayService, 'execute')
-      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementation(async (_actor, command) =>
+      listingRegisteredResponse(command),
+    );
 
     await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
@@ -433,9 +429,9 @@ describe('CommerceApplication', () => {
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
-      vi
-        .spyOn(MarketplaceGatewayService, 'execute')
-        .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementation(async (_actor, command) =>
+      listingRegisteredResponse(command),
+    );
 
     await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
     await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
@@ -502,7 +498,11 @@ describe('CommerceApplication', () => {
 
     await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
     expect(getListing).toHaveBeenCalledTimes(2);
-    expect(getListing).toHaveBeenNthCalledWith(2, record.ownerPubky, `listing:${record.ownerPubky}_${record.listingId}`);
+    expect(getListing).toHaveBeenNthCalledWith(
+      2,
+      record.ownerPubky,
+      `listing:${record.ownerPubky}_${record.listingId}`,
+    );
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
       registration_status: 'registered',
     });
@@ -586,16 +586,16 @@ describe('CommerceApplication', () => {
       'forbidden',
       () =>
         Promise.resolve({
-        ok: false as const,
-        error: { code: 'FORBIDDEN', message: 'The actor cannot register this listing.' },
+          ok: false as const,
+          error: { code: 'FORBIDDEN', message: 'The actor cannot register this listing.' },
         }),
     ],
     [
       'revision conflict on a real edit',
       () =>
         Promise.resolve({
-        ok: false as const,
-        error: { code: 'REVISION_CONFLICT', message: 'The listing revision is stale.', currentRevision: 4 },
+          ok: false as const,
+          error: { code: 'REVISION_CONFLICT', message: 'The listing revision is stale.', currentRevision: 4 },
         }),
     ],
     ['5xx', () => Promise.reject(new Error('Marketplace request failed with status 503'))],
@@ -941,6 +941,25 @@ describe('CommerceApplication', () => {
       expect(
         (await LocalCommerceService.getListing(`${capturedSeller}:45b2aedff744407ea2d67c8069ed112e`))?.revision,
       ).toBe(3);
+    });
+
+    it('replaces a non-empty stale active cache row with the newer canonical record state', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      await CommerceCatalogEntryModel.table.clear();
+      await CommerceListingModel.table.clear();
+      const listingId = '45b2aedff744407ea2d67c8069ed112e';
+      const stale = { ...capturedById.get(listingId)!, revision: 1, state: 'active' as const };
+      const canonical = { ...capturedById.get(listingId)!, revision: 3, state: 'paused' as const };
+      const directoryEntry = { ...SELLER_REFRESH_FIXTURE.nexus.find((entry) => entry.id === listingId)!, revision: 3 };
+      await LocalCommerceService.upsertListing(stale, 'synced');
+      vi.spyOn(NexusMarketplaceService, 'fetchListingStream').mockResolvedValue([directoryEntry]);
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(canonical);
+
+      await CommerceApplication.refreshListingsBySeller(capturedSeller);
+
+      expect(await LocalCommerceService.getListingsBySeller(capturedSeller)).toMatchObject([
+        { listing_id: listingId, revision: 3, state: 'paused' },
+      ]);
     });
 
     it('pages a complete seller refresh and keeps the highest duplicate revision', async () => {
