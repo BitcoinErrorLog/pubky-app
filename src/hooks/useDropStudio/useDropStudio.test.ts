@@ -53,7 +53,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
-    getOrFetchListingsBySeller: vi.fn(),
+    refreshListingsBySeller: vi.fn(),
     getMarketplaceListingProjection: vi.fn(),
     ensureListingRegistered: vi.fn(),
     syncListingRegistration: vi.fn(),
@@ -224,7 +224,7 @@ describe('useDropStudio — two-truth publish state machine', () => {
     } as never);
     vi.mocked(CommerceController.publishDrop).mockResolvedValue(undefined as never);
     vi.mocked(CommerceController.syncDropRegistration).mockResolvedValue({ ok: true, revision: 1 } as never);
-    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockResolvedValue(listingsFixture as never);
+    vi.mocked(CommerceController.refreshListingsBySeller).mockResolvedValue(undefined);
     localListings.value = listingsFixture;
   });
 
@@ -334,7 +334,7 @@ describe('useDropStudio — two-truth publish state machine', () => {
     expect(result.current.registration.item1).toBe('registered');
   });
 
-  it('hydrates an empty local catalog from the seller directory so active records are selectable', async () => {
+  it('refreshes an incomplete local catalog so canonical active records are selectable', async () => {
     localListings.value = [];
     const activeListings = ['come and buy', 'Offer Test', 'Verify 10 Sep', "Casio AE-1200WHB-3BVDF Men's Watch"].map(
       (title, index) => ({
@@ -343,28 +343,60 @@ describe('useDropStudio — two-truth publish state machine', () => {
         record: { ...listingsFixture[0].record, title },
       }),
     );
-    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockResolvedValue(activeListings as never);
+    vi.mocked(CommerceController.refreshListingsBySeller).mockImplementation(async () => {
+      localListings.value = activeListings;
+    });
 
     const { result } = renderHook(() => useDropStudio());
     await waitFor(() => expect(result.current.catalog).toBe('loaded'));
 
-    expect(CommerceController.getOrFetchListingsBySeller).toHaveBeenCalledWith(SELLER);
+    expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledWith(SELLER);
     expect(result.current.listings.map((listing) => listing.record.title)).toEqual(
       activeListings.map((listing) => listing.record.title),
     );
   });
 
-  it('retries a failed catalog read', async () => {
+  it('refreshes a non-empty partial cache before deriving picker eligibility', async () => {
+    const staleListing = { ...listingsFixture[0], listing_id: 'stale-listing', state: 'inactive' as const };
+    const canonicalListing = { ...listingsFixture[0], listing_id: 'canonical-listing' };
+    localListings.value = [staleListing];
+    vi.mocked(CommerceController.refreshListingsBySeller).mockImplementation(async () => {
+      localListings.value = [staleListing, canonicalListing];
+    });
+
+    const { result } = renderHook(() => useDropStudio());
+    await waitFor(() => expect(result.current.catalog).toBe('loaded'));
+
+    expect(result.current.listings.map((listing) => listing.listing_id)).toEqual(['canonical-listing']);
+  });
+
+  it('removes a stale active listing from the picker after refresh', async () => {
+    const staleActive = { ...listingsFixture[0], revision: 1, state: 'active' as const };
+    const canonicalPaused = { ...listingsFixture[0], revision: 2, state: 'paused' as const };
+    localListings.value = [staleActive];
+    vi.mocked(CommerceController.refreshListingsBySeller).mockImplementation(async () => {
+      localListings.value = [canonicalPaused];
+    });
+
+    const { result } = renderHook(() => useDropStudio());
+    await waitFor(() => expect(result.current.catalog).toBe('loaded'));
+
+    expect(result.current.listings).toEqual([]);
+  });
+
+  it('retries a failed catalog refresh', async () => {
     localListings.value = [];
-    vi.mocked(CommerceController.getOrFetchListingsBySeller)
+    vi.mocked(CommerceController.refreshListingsBySeller)
       .mockRejectedValueOnce(new Error('catalog unavailable'))
-      .mockResolvedValueOnce(listingsFixture as never);
+      .mockImplementationOnce(async () => {
+        localListings.value = listingsFixture;
+      });
 
     const { result } = renderHook(() => useDropStudio());
     await waitFor(() => expect(result.current.catalog).toBe('unavailable'));
     act(() => result.current.retryCatalog());
     await waitFor(() => expect(result.current.catalog).toBe('loaded'));
 
-    expect(CommerceController.getOrFetchListingsBySeller).toHaveBeenCalledTimes(2);
+    expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledTimes(2);
   });
 });

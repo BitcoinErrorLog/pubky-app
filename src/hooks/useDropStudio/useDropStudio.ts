@@ -49,26 +49,22 @@ export function useDropStudio(): UseDropStudioResult {
   const isDurable = isDurableCommerceMode(getCommerceAdapterMode());
   const [catalog, setCatalog] = useState<'loading' | 'loaded' | 'unavailable'>('loading');
   const [catalogRefresh, setCatalogRefresh] = useState(0);
-  const [hydratedListings, setHydratedListings] = useState<CommerceListingModelSchema[] | null>(null);
   const localListings = useLiveQuery(
     () => (currentUserPubky ? CommerceController.getListingsBySeller(currentUserPubky) : []),
     [currentUserPubky],
   );
-  const catalogListings = localListings && localListings.length > 0 ? localListings : (hydratedListings ?? []);
-  const listings = catalogListings.filter(({ state }) => state === 'active');
+  const listings = (localListings ?? []).filter(({ state }) => state === 'active');
 
   useEffect(() => {
     let active = true;
     if (!currentUserPubky) {
       setCatalog('loaded');
-      setHydratedListings(null);
       return;
     }
     setCatalog('loading');
-    void CommerceController.getOrFetchListingsBySeller(currentUserPubky).then(
-      (nextListings) => {
+    void CommerceController.refreshListingsBySeller(currentUserPubky).then(
+      () => {
         if (!active) return;
-        setHydratedListings(nextListings);
         setCatalog('loaded');
       },
       () => {
