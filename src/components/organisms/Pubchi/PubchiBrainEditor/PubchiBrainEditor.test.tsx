@@ -18,7 +18,7 @@ describe('PubchiBrainEditor', () => {
 
     expect(screen.getByTestId(PUBCHI_BRAIN_EDITOR_SURFACE)).toHaveAttribute('data-surface', PUBCHI_BRAIN_EDITOR_SURFACE);
     expect(screen.getByText(/reads these before every answer/)).toBeInTheDocument();
-    expect(screen.getByText(/stored in your homeserver's private area/i)).toBeInTheDocument();
+    expect(screen.getByText(/stored in your homeserver's private area.*used when you ask questions; not used for tag suggestions or feed building/i)).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-brain-preview')).toHaveTextContent('I’ll keep this to two sentences.');
     expect(screen.getByPlaceholderText(/Bitcoin developer in Lisbon/)).toBeInTheDocument();
   });
@@ -39,5 +39,29 @@ describe('PubchiBrainEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve in Ring' }));
     expect(screen.getByTestId('ring-approval-dialog')).toBeInTheDocument();
     expect(onReapprove).not.toHaveBeenCalled();
+  });
+
+  it('places guidance under each field and the preview above Save', () => {
+    render(
+      <PubchiBrainEditor
+        context={{ schema: 'pubchi-owner-context', version: 1, about: '', instructions: '', updated_at: 1 }}
+        contextEditable
+        onSaveContext={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('A few lines about you (role, interests). Used to personalise answers.')).toBeInTheDocument();
+    expect(screen.getByText('Style rules for replies (tone, length, language).')).toBeInTheDocument();
+
+    const editor = screen.getByTestId(PUBCHI_BRAIN_EDITOR_SURFACE);
+    const about = screen.getByLabelText('About you');
+    const instructions = screen.getByLabelText('How to answer');
+    const preview = screen.getByTestId('pubchi-brain-preview');
+    const save = screen.getByRole('button', { name: 'Save private context' });
+
+    expect(about.compareDocumentPosition(instructions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(instructions.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(preview.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(editor).toContainElement(preview);
   });
 });

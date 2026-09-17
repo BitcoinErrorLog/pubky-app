@@ -121,7 +121,15 @@ vi.mock('@/stores/auth/auth.store', () => ({
 }));
 
 vi.mock('@/molecules/ControlledTextareaField/ControlledTextareaField', () => ({
-  ControlledTextareaField: () => <textarea data-testid="pubchi-question" />,
+  ControlledTextareaField: () => (
+    <textarea
+      data-testid="pubchi-question"
+      value={watchedQuestion.value}
+      onChange={(event) => {
+        watchedQuestion.value = event.target.value;
+      }}
+    />
+  ),
 }));
 
 describe('PubchiPanel', () => {
@@ -381,6 +389,27 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
     expect(screen.getByRole('button', { name: 'Quick questions' })).toBeInTheDocument();
     expect(screen.queryByTestId('pubchi-who-tagged-me')).not.toBeInTheDocument();
+  });
+
+  it('flags an over-length question live and clears the state when shortened', () => {
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+    const question = screen.getByTestId('pubchi-question');
+
+    fireEvent.change(question, { target: { value: 'a'.repeat(501) } });
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-question-count')).toHaveClass('text-destructive');
+    expect(screen.getByTestId('pubchi-question-over-limit')).toHaveTextContent(
+      'Questions are limited to 500 characters.',
+    );
+    expect(screen.getByTestId('pubchi-ask')).toBeDisabled();
+
+    fireEvent.change(question, { target: { value: 'a'.repeat(500) } });
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(screen.getByTestId('pubchi-question-count')).not.toHaveClass('text-destructive');
+    expect(screen.queryByTestId('pubchi-question-over-limit')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-ask')).not.toBeDisabled();
   });
 
   it('closes the flyout while keeping the create feed dialog open', () => {
