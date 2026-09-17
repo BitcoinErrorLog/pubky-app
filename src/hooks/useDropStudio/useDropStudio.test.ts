@@ -40,9 +40,10 @@ const listingsFixture = vi.hoisted(() => [
     updated_at: 0,
   },
 ]);
+const localListings = vi.hoisted(() => ({ value: listingsFixture }));
 
 vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: () => listingsFixture,
+  useLiveQuery: () => localListings.value,
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -52,6 +53,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    getOrFetchListingsBySeller: vi.fn(),
     getMarketplaceListingProjection: vi.fn(),
     ensureListingRegistered: vi.fn(),
     syncListingRegistration: vi.fn(),
@@ -222,6 +224,8 @@ describe('useDropStudio — two-truth publish state machine', () => {
     } as never);
     vi.mocked(CommerceController.publishDrop).mockResolvedValue(undefined as never);
     vi.mocked(CommerceController.syncDropRegistration).mockResolvedValue({ ok: true, revision: 1 } as never);
+    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockResolvedValue(listingsFixture as never);
+    localListings.value = listingsFixture;
   });
 
   it('reports record ✓ and service ✓ separately on a clean publish, remembering the drop id', async () => {
@@ -328,5 +332,39 @@ describe('useDropStudio — two-truth publish state machine', () => {
     expect(CommerceController.ensureListingRegistered).toHaveBeenCalledTimes(1);
     expect(CommerceController.syncListingRegistration).toHaveBeenCalledWith(SELLER, 'item1');
     expect(result.current.registration.item1).toBe('registered');
+  });
+
+  it('hydrates an empty local catalog from the seller directory so active records are selectable', async () => {
+    localListings.value = [];
+    const activeListings = ['come and buy', 'Offer Test', 'Verify 10 Sep', "Casio AE-1200WHB-3BVDF Men's Watch"].map(
+      (title, index) => ({
+        ...listingsFixture[0],
+        listing_id: `listing-${index}`,
+        record: { ...listingsFixture[0].record, title },
+      }),
+    );
+    vi.mocked(CommerceController.getOrFetchListingsBySeller).mockResolvedValue(activeListings as never);
+
+    const { result } = renderHook(() => useDropStudio());
+    await waitFor(() => expect(result.current.catalog).toBe('loaded'));
+
+    expect(CommerceController.getOrFetchListingsBySeller).toHaveBeenCalledWith(SELLER);
+    expect(result.current.listings.map((listing) => listing.record.title)).toEqual(
+      activeListings.map((listing) => listing.record.title),
+    );
+  });
+
+  it('retries a failed catalog read', async () => {
+    localListings.value = [];
+    vi.mocked(CommerceController.getOrFetchListingsBySeller)
+      .mockRejectedValueOnce(new Error('catalog unavailable'))
+      .mockResolvedValueOnce(listingsFixture as never);
+
+    const { result } = renderHook(() => useDropStudio());
+    await waitFor(() => expect(result.current.catalog).toBe('unavailable'));
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalog).toBe('loaded'));
+
+    expect(CommerceController.getOrFetchListingsBySeller).toHaveBeenCalledTimes(2);
   });
 });

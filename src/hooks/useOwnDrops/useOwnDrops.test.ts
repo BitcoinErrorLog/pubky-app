@@ -2,6 +2,9 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { rememberOwnDrop } from '@/hooks/useDropStudio/drop-index';
+import { AppError } from '@/libs/error/error';
+import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { useOwnDrops } from './useOwnDrops';
 
 const SELLER = vi.hoisted(() => 'y'.repeat(52));
@@ -56,10 +59,9 @@ describe('useOwnDrops', () => {
     expect(result.current.rows[0]).toMatchObject({
       dropId: 'newer',
       record: { title: 'New drop' },
-      drop: { state: 'announced' },
+      projection: { status: 'loaded', drop: { state: 'announced' } },
     });
-    // The service has no aggregate → drop is null, rendered as "unregistered".
-    expect(result.current.rows[1]).toMatchObject({ dropId: 'older', drop: null });
+    expect(result.current.rows[1]).toMatchObject({ dropId: 'older', projection: { status: 'unregistered' } });
   });
 
   it('keeps a row when the homeserver record read fails — honest absence, never a hidden drop', async () => {
@@ -71,7 +73,11 @@ describe('useOwnDrops', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.rows).toEqual([
-      { dropId: 'orphan', record: null, drop: expect.objectContaining({ state: 'live' }) },
+      {
+        dropId: 'orphan',
+        record: null,
+        projection: { status: 'loaded', drop: expect.objectContaining({ state: 'live' }) },
+      },
     ]);
   });
 
@@ -88,7 +94,7 @@ describe('useOwnDrops', () => {
 
     expect(CommerceController.getOwnDrop).not.toHaveBeenCalled();
     expect(result.current.isDurable).toBe(false);
-    expect(result.current.rows[0]).toMatchObject({ dropId: 'drop1', drop: null });
+    expect(result.current.rows[0]).toMatchObject({ dropId: 'drop1', projection: { status: 'unavailable' } });
   });
 
   it('renders an empty list when this device has published nothing', async () => {
@@ -132,5 +138,64 @@ describe('useOwnDrops', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.rows.map((row) => row.dropId)).toEqual(['local_only']);
+  });
+
+  it.each([
+    ['live', 'SESSION_EXPIRED', 'session-unavailable'],
+    ['ended_closed', 'SESSION_EXPIRED', 'session-unavailable'],
+    ['live', 'INTERNAL_ERROR', 'unavailable'],
+    ['ended_closed', 'INTERNAL_ERROR', 'unavailable'],
+  ] as const)('never treats a %s drop as Draft after a %s projection failure', async (state, code, status) => {
+    rememberOwnDrop(SELLER, 'drop1');
+    vi.mocked(CommerceController.fetchDrop).mockResolvedValue({
+      dropId: 'drop1',
+      startsAt: '2026-08-01T10:00:00.000Z',
+    } as never);
+    const error =
+      code === 'SESSION_EXPIRED'
+        ? new AppError({
+            category: ErrorCategory.Auth,
+            code: AuthErrorCode.SESSION_EXPIRED,
+            message: 'session expired',
+            service: ErrorService.Marketplace,
+            operation: 'getDrop',
+          })
+        : new AppError({
+            category: ErrorCategory.Server,
+            code: ServerErrorCode.INTERNAL_ERROR,
+            message: 'service failed',
+            service: ErrorService.Marketplace,
+            operation: 'getDrop',
+          });
+    vi.mocked(CommerceController.getOwnDrop).mockRejectedValue(error);
+
+    const { result } = renderHook(() => useOwnDrops());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.rows[0]).toMatchObject({ dropId: 'drop1', projection: { status } });
+    expect(result.current.rows[0].projection).not.toMatchObject({ status: 'unregistered' });
+  });
+
+  it('renders only a confirmed 404 projection miss as unregistered', async () => {
+    rememberOwnDrop(SELLER, 'drop1');
+    vi.mocked(CommerceController.fetchDrop).mockResolvedValue({
+      dropId: 'drop1',
+      startsAt: '2026-08-01T10:00:00.000Z',
+    } as never);
+    vi.mocked(CommerceController.getOwnDrop).mockRejectedValue(
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.NOT_FOUND,
+        message: 'not found',
+        service: ErrorService.Marketplace,
+        operation: 'getDrop',
+        context: { statusCode: 404 },
+      }),
+    );
+
+    const { result } = renderHook(() => useOwnDrops());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.rows[0]).toMatchObject({ projection: { status: 'unregistered' } });
   });
 });
