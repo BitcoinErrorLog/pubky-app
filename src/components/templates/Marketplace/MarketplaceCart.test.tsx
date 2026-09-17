@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
 import { MarketplaceCart } from './MarketplaceCart';
 
 beforeAll(() => {
@@ -15,6 +16,7 @@ beforeAll(() => {
 
 const view = vi.hoisted(() => ({
   items: [] as unknown[],
+  offers: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
   deployEnv: 'production' as 'production' | 'staging' | undefined,
@@ -131,6 +133,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
   };
 });
 
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: view.offers, isLoading: false, error: null, needsSession: false }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
   const { useForm } = await import('react-hook-form');
   const { zodResolver } = await import('@hookform/resolvers/zod');
@@ -205,6 +211,7 @@ describe('MarketplaceCart', () => {
     cartActions.remove.mockReset();
     cartActions.setFulfillmentChoice.mockReset();
     view.items = [];
+    view.offers = [];
     view.isLoading = false;
     view.adapterMode = 'sandbox';
     view.deployEnv = 'production';
@@ -469,6 +476,7 @@ describe('MarketplaceCart', () => {
 
   it('renders award lines in their own fixed-term group and excludes them from Place order totals', () => {
     seededCart();
+    const offer = parseContractFaithfulOffer('accepted', 'active');
     view.items = [
       ...(view.items as unknown[]),
       {
@@ -476,11 +484,12 @@ describe('MarketplaceCart', () => {
         listingId: listing.id,
         variantId: 'variant_42',
         quantity: 1,
-        awardId: 'award-1',
+        awardId: offer.award?.id,
         pricingSource: 'offer',
         listing,
       },
     ];
+    view.offers = [offer];
 
     render(<MarketplaceCart />);
 
@@ -488,9 +497,11 @@ describe('MarketplaceCart', () => {
     expect(awardGroup).toHaveAttribute('data-surface', 'marketplace-award-cart-group');
     expect(within(awardGroup).getByText('Accepted offer')).toBeInTheDocument();
     expect(within(awardGroup).getByText('Quantity and variant are fixed at the accepted offer.')).toBeInTheDocument();
+    expect(within(awardGroup).getByText('$1.00 × 1 = $2.00')).toBeInTheDocument();
+    expect(within(awardGroup).getByText(/Buy by/)).toBeInTheDocument();
     expect(within(awardGroup).getByRole('link', { name: 'Pay agreed price' })).toHaveAttribute(
       'href',
-      '/marketplace/award-checkout?offer=award-1',
+      `/marketplace/award-checkout?offer=${offer.award?.id}`,
     );
     expect(within(awardGroup).queryByRole('button', { name: /Increase|Decrease/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Place sandbox order' })).toBeInTheDocument();

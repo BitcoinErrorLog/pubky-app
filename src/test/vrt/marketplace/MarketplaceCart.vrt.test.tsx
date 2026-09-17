@@ -1,6 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
 import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
@@ -102,6 +103,7 @@ interface CartItemLike {
 
 const view = vi.hoisted(() => ({
   items: [] as unknown[],
+  offers: [] as unknown[],
   isLoading: false,
   adapterMode: 'sandbox' as string,
   deployEnv: 'staging' as 'production' | 'staging' | undefined,
@@ -201,6 +203,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
   };
 });
 
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: view.offers, isLoading: false, error: null, needsSession: false }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
   const { useForm } = await import('react-hook-form');
   const { marketplaceCheckoutDefaults } = await import('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types');
@@ -247,6 +253,7 @@ beforeEach(async () => {
   view.adapterMode = 'sandbox';
   view.deployEnv = 'staging';
   view.addresses = [];
+  view.offers = [];
   view.selectedAddressId = null;
   view.isLoading = false;
 });
@@ -465,15 +472,17 @@ describe('Marketplace cart — visual regression', () => {
 
   it('renders an accepted-offer group without mixing it into ordinary checkout', async () => {
     const { singleSeller } = await fixtures;
+    const offer = parseContractFaithfulOffer('accepted', 'active');
     view.items = [
       ...singleSeller,
       {
         ...singleSeller[0],
         id: 'award-cart-line',
-        awardId: '00000000-0000-0000-0000-000000000902',
+        awardId: offer.award?.id,
         pricingSource: 'offer',
       },
     ];
+    view.offers = [offer];
     view.isLoading = false;
 
     await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });

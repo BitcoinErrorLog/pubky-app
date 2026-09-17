@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
+import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
 import { asInvalid } from '@/test-utils/type-assertions';
 import {
   isLinkedOfferMissing,
@@ -17,7 +18,11 @@ const getOrFetchListing = vi.hoisted(() => vi.fn());
 const getManyListings = vi.hoisted(() => vi.fn());
 
 vi.mock('@/controllers/commerce/commerce', () => ({
-  CommerceController: { getManyListings, getOrFetchListing },
+  CommerceController: {
+    getManyListings,
+    getOrFetchListing,
+    getMarketplaceOrder: vi.fn(async () => ({ state: 'cancelled' })),
+  },
 }));
 
 vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', () => ({
@@ -179,6 +184,21 @@ describe('Marketplace offers UX', () => {
     offerView.offers = [{ ...offer, buyerPubky: 'b'.repeat(52), offeredBy: seller, award: undefined }];
     render(<MarketplaceOffers />);
     expect(screen.queryByRole('button', { name: /Buy for/ })).not.toBeInTheDocument();
+  });
+
+  it('renders converted awards as an order link without a Buy control', async () => {
+    const convertedOffer = parseContractFaithfulOffer('converted', 'converted');
+    offerView.offers = [convertedOffer];
+
+    render(<MarketplaceOffers />);
+
+    expect(screen.queryByRole('button', { name: /Buy for/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Converted to an order/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View order' })).toHaveAttribute(
+      'href',
+      `/marketplace/orders#${convertedOffer.award?.convertedOrderId}`,
+    );
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Make a new offer to buy this item' })).toBeInTheDocument());
   });
 
   it('shows a static error and does not navigate when award cart setup fails', async () => {

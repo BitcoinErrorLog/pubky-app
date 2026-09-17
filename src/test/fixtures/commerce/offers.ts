@@ -1,5 +1,6 @@
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
+import { parseContractFaithfulOffer } from './offer-award';
 
 export const OFFER_FIXTURE_BUYER = 'b'.repeat(52);
 export const OFFER_FIXTURE_SELLER = 's'.repeat(52);
@@ -82,7 +83,7 @@ export function createOfferFixture(
   overrides: Partial<MarketplaceOffer> = {},
 ): MarketplaceOffer {
   const stateIndex = OFFER_STATES.indexOf(state) + 1;
-  return {
+  const fixture = {
     id: uuid(stateIndex),
     aggregateId: `offer:${uuid(100 + stateIndex)}`,
     listingAggregateId: buildMarketplaceListingAggregateId(OFFER_FIXTURE_SELLER, 'leather_boots'),
@@ -98,6 +99,8 @@ export function createOfferFixture(
     updatedAt: '2026-08-19T20:00:00.000Z',
     ...overrides,
   };
+  if (state !== 'converted' || fixture.award) return fixture;
+  return parseContractFaithfulOffer('converted', 'converted');
 }
 
 /** One offer per schema state, authored by `offeredBy` (defaults to the buyer). */
