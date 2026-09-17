@@ -12,6 +12,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard/useCopyToClipboard';
 import { formatPublicKey } from '@/libs/utils/utils';
 import { FacehashAvatar } from '@/molecules/FacehashAvatar/FacehashAvatar';
+import { initialFromName } from '@/organisms/AvatarWithFallback/AvatarWithFallback.utils';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 
 type PubchiSummary = {
@@ -65,7 +66,7 @@ export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'H
         >
           <Avatar size="lg" className="shrink-0">
             <AvatarFallback className="overflow-hidden border-none">
-              <FacehashAvatar seed={pubchi.bot} initial={displayName.slice(0, 1).toUpperCase()} />
+              <FacehashAvatar seed={pubchi.bot} initial={initialFromName(displayName)} />
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">

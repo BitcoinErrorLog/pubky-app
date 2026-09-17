@@ -10,6 +10,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard/useCopyToClipboard';
 import { formatPublicKey, formatUSDate } from '@/libs/utils/utils';
 import { FacehashAvatar } from '@/molecules/FacehashAvatar/FacehashAvatar';
+import { initialFromName } from '@/organisms/AvatarWithFallback/AvatarWithFallback.utils';
 
 export const PUBCHI_PROFILE_CARD_SURFACE = 'pubchi-profile-card';
 
@@ -44,7 +45,7 @@ export function PubchiProfileCard({
 }: PubchiProfileCardProps) {
   const { copyToClipboard } = useCopyToClipboard();
   const displayBot = formatPublicKey({ key: bot });
-  const fallbackInitial = displayName.slice(0, 1).toUpperCase();
+  const fallbackInitial = initialFromName(displayName);
 
   return (
     <Card

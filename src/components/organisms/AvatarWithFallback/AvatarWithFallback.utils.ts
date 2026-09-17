@@ -1,5 +1,4 @@
 import { getCdnUrl } from '@/config/nexus';
-import { extractInitials } from '@/libs/utils/utils';
 import type { ResolveAvatarFallbackInitialProps, ResolveAvatarFallbackSeedProps } from './AvatarWithFallback.types';
 
 /**
@@ -7,6 +6,14 @@ import type { ResolveAvatarFallbackInitialProps, ResolveAvatarFallbackSeedProps 
  * Must be exactly 52 alphanumeric characters (lowercase letters and digits).
  */
 const USER_ID_PATTERN = /^[a-z0-9]{52}$/;
+
+const INITIAL_SKIP_PATTERN = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\u200d\ufe0e\ufe0f]/u;
+
+export function initialFromName(name: string | undefined | null): string {
+  const codePoints = Array.from(name?.trim() ?? '');
+  const initial = codePoints.find((codePoint) => !/\s/u.test(codePoint) && !INITIAL_SKIP_PATTERN.test(codePoint));
+  return initial?.toUpperCase() ?? '';
+}
 
 /**
  * Extracts the userId from an avatar URL.
@@ -61,10 +68,10 @@ export function resolveAvatarFallbackInitial({
   seed,
   defaultInitial = 'U',
 }: ResolveAvatarFallbackInitialProps): string {
-  const nameInitial = extractInitials({ name: name ?? '', maxLength: 1 });
+  const nameInitial = initialFromName(name);
   if (nameInitial) return nameInitial;
 
-  const seedInitial = typeof seed === 'string' ? seed.trim().charAt(0).toUpperCase() : '';
+  const seedInitial = initialFromName(seed);
   if (seedInitial) return seedInitial;
 
   return defaultInitial;

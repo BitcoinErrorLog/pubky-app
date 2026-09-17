@@ -14,11 +14,11 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { USER_MAX_LINKS } from '@/config/user';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useProfileForm } from '@/hooks/useProfileForm/useProfileForm';
-import { extractInitials } from '@/libs/utils/utils';
 import { FacehashAvatar } from '@/molecules/FacehashAvatar/FacehashAvatar';
 import { InputField } from '@/molecules/InputField/InputField';
 import { ProfileNavigation } from '@/molecules/ProfileNavigation/ProfileNavigation';
 import { TextareaField } from '@/molecules/TextareaField/TextareaField';
+import { initialFromName } from '@/organisms/AvatarWithFallback/AvatarWithFallback.utils';
 import { ProfileFormSkeleton } from '@/organisms/ProfileFormSkeleton/ProfileFormSkeleton';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
@@ -41,13 +41,7 @@ export const CreateProfileForm = () => {
       : { mode: 'create', pubky, setShowWelcomeDialog },
   );
   const avatarFallbackSeed = pubky || state.name || 'user';
-  const avatarFallbackInitial =
-    extractInitials({
-      name: state.name,
-      maxLength: 1,
-    }) ||
-    avatarFallbackSeed.charAt(0).toUpperCase() ||
-    'U';
+  const avatarFallbackInitial = initialFromName(state.name) || initialFromName(avatarFallbackSeed) || 'U';
   // Revisit mode only: isLoading stays true until the current profile hydrates the form.
   // Rendering the interactive form before then would let edits (text, avatar file) be
   // silently overwritten or resurface once hydration lands, so show the skeleton instead.

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   extractUserIdFromAvatarUrl,
+  initialFromName,
   resolveAvatarFallbackInitial,
   resolveAvatarFallbackSeed,
 } from './AvatarWithFallback.utils';
@@ -230,5 +231,18 @@ describe('resolveAvatarFallbackInitial', () => {
 
   it('falls back to default initial when name and seed are missing', () => {
     expect(resolveAvatarFallbackInitial({ name: '', seed: '' })).toBe('U');
+  });
+});
+
+describe('initialFromName', () => {
+  it.each([
+    ['𝔟𝔦𝔱𝔠𝔢𝔩𝔦𝔲𝔪 🍄', '𝔟'],
+    ['🍄 name', 'N'],
+    ['gil', 'G'],
+    ['', ''],
+    ['Éva', 'É'],
+    ['e\u0301va', 'E'],
+  ])('returns the first usable code point for %s', (name, expected) => {
+    expect(initialFromName(name)).toBe(expected);
   });
 });

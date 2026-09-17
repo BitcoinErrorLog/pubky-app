@@ -12,10 +12,10 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { USER_MAX_LINKS } from '@/config/user';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useProfileForm } from '@/hooks/useProfileForm/useProfileForm';
-import { extractInitials } from '@/libs/utils/utils';
 import { FacehashAvatar } from '@/molecules/FacehashAvatar/FacehashAvatar';
 import { InputField } from '@/molecules/InputField/InputField';
 import { TextareaField } from '@/molecules/TextareaField/TextareaField';
+import { initialFromName } from '@/organisms/AvatarWithFallback/AvatarWithFallback.utils';
 import { ProfileFormSkeleton } from '@/organisms/ProfileFormSkeleton/ProfileFormSkeleton';
 import { DialogAddLink } from '../../DialogAddLink/DialogAddLink';
 import { DialogCropImage } from '../../DialogCropImage/DialogCropImage';
@@ -28,13 +28,7 @@ export const EditProfileForm = () => {
     userDetails,
   });
   const avatarFallbackSeed = currentUserPubky || state.name || 'user';
-  const avatarFallbackInitial =
-    extractInitials({
-      name: state.name,
-      maxLength: 1,
-    }) ||
-    avatarFallbackSeed.charAt(0).toUpperCase() ||
-    'U';
+  const avatarFallbackInitial = initialFromName(state.name) || initialFromName(avatarFallbackSeed) || 'U';
   if (state.isLoading) {
     return <ProfileFormSkeleton />;
   }
