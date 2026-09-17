@@ -32,6 +32,17 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/offers',
 }));
 
+vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/controllers/commerce/commerce')>();
+  return {
+    ...actual,
+    CommerceController: {
+      ...actual.CommerceController,
+      getMarketplaceOrder: vi.fn(async () => ({ state: 'cancelled' })),
+    },
+  };
+});
+
 vi.mock('@/stores/auth/auth.store', async () => ({
   useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: (await fixtures).seller }),
 }));

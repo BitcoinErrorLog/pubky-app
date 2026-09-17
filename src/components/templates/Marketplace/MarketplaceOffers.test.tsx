@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
+import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
 import { asInvalid } from '@/test-utils/type-assertions';
 import {
   isLinkedOfferMissing,
@@ -186,33 +187,8 @@ describe('Marketplace offers UX', () => {
   });
 
   it('renders converted awards as an order link without a Buy control', async () => {
-    offerView.offers = [
-      {
-        ...offer,
-        state: 'converted',
-        award: {
-          id: '00000000-0000-4000-8000-000000000801',
-          state: 'converted',
-          listing: {
-            aggregateId: offer.listingAggregateId,
-            sellerPubky: seller,
-            listingId: 'boots',
-            title: 'Vintage boots',
-            listingRevision: 2,
-            listingRecordSha256: 'a'.repeat(64),
-          },
-          variant: { id: 'variant_42', sku: null, options: [] },
-          unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
-          quantity: 1,
-          acceptedAt: '2026-09-15T10:00:00.000Z',
-          convertBy: '2026-09-15T12:00:00.000Z',
-          convertedOrderId: '00000000-0000-4000-8000-000000000803',
-          subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
-          shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
-          merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
-        },
-      },
-    ] as MarketplaceOffer[];
+    const convertedOffer = parseContractFaithfulOffer('converted', 'converted');
+    offerView.offers = [convertedOffer];
 
     render(<MarketplaceOffers />);
 
@@ -220,7 +196,7 @@ describe('Marketplace offers UX', () => {
     expect(screen.getByText(/Converted to an order/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View order' })).toHaveAttribute(
       'href',
-      '/marketplace/orders#00000000-0000-4000-8000-000000000803',
+      `/marketplace/orders#${convertedOffer.award?.convertedOrderId}`,
     );
     await waitFor(() => expect(screen.getByRole('link', { name: 'Make a new offer to buy this item' })).toBeInTheDocument());
   });
