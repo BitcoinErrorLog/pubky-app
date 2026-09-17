@@ -467,7 +467,19 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     expect(screen.getByText(/Cancelling moves no money/)).toBeInTheDocument();
   });
 
-  it('renders the degraded cancel_requested outcome honestly (the lost race, §7.2)', async () => {
+  it('confirms a cancelled pickup order with the completed-cancellation toast', async () => {
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'paid', isBuyer: true });
+
+    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
+    await user.type(screen.getByLabelText('Reason'), 'The spot does not work for me');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith({ title: 'Order cancelled' }));
+  });
+
+  it('reports a cancel_requested pickup outcome as a cancellation request', async () => {
     pickupControllerState.cancelResponse = {
       ok: true,
       result: { kind: 'order', order: { state: 'cancel_requested' } },
@@ -480,10 +492,15 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     await user.type(screen.getByLabelText('Reason'), 'The spot does not work for me');
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
 
-    await waitFor(() => expect(toast).toHaveBeenCalledWith({ title: 'Order cancelled' }));
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith({
+        variant: 'info',
+        title: 'Cancellation requested',
+      }),
+    );
   });
 
-  it('uses the shared compact cancellation dialog and confirmation toast for shipping orders', async () => {
+  it('uses the shared compact cancellation dialog and request toast for shipping orders', async () => {
     const order = createOrderFixture('pending_payment', { fulfillment: 'shipping' });
     const actOnOrder = vi.fn(async () => true);
     const user = userEvent.setup();
@@ -501,6 +518,9 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
       expect(actOnOrder).toHaveBeenCalledWith(order, 'order.cancel_request', { reason: 'No longer needed' }),
     );
     const { toast } = await import('@/molecules/Toaster/use-toast');
-    expect(toast).toHaveBeenCalledWith({ title: 'Order cancelled' });
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'info',
+      title: 'Cancellation requested',
+    });
   });
 });

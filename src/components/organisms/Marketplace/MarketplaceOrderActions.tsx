@@ -133,16 +133,27 @@ export function MarketplaceOrderActions({
     if (isPickup && actionType === 'cancel') {
       if (!(await action.form.trigger('reason'))) return;
       const outcome = await pickup.cancelOrder(action.form.getValues('reason'));
-      if (outcome) {
+      if (outcome === 'cancelled') {
         toast({
           title: 'Order cancelled',
+        });
+        setOpen(false);
+      } else if (outcome === 'cancel_requested') {
+        toast({
+          variant: 'info',
+          title: 'Cancellation requested',
         });
         setOpen(false);
       }
       return;
     }
     if (await action.submit()) {
-      if (actionType === 'cancel') toast({ title: 'Order cancelled' });
+      if (actionType === 'cancel') {
+        toast({
+          variant: 'info',
+          title: 'Cancellation requested',
+        });
+      }
       setOpen(false);
     }
   };
@@ -278,7 +289,7 @@ export function MarketplaceOrderActions({
           {actionType === 'cancel' && (
             <Typography as="p" className="text-sm text-muted-foreground">
               Cancelling moves no money. If you already paid, the refund is arranged with the seller and recorded as
-              external evidence.
+              external evidence. Cancellation requests may need seller approval before the order is cancelled.
             </Typography>
           )}
           {['cancel', 'return'].includes(actionType) && (
