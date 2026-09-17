@@ -12,6 +12,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { FeedController } from '@/controllers/feed/feed';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
+import { useDiscoveredTagSuggestions } from '@/hooks/useDiscoveredTagSuggestions/useDiscoveredTagSuggestions';
 import { usePubchiEnrollment } from '@/hooks/usePubchiEnrollment/usePubchiEnrollment';
 import { usePubchiQuery } from '@/hooks/usePubchiQuery/usePubchiQuery';
 import { pubchiQueryFormDefaults, QUERY_FORM_FIELDS } from '@/hooks/usePubchiQuery/usePubchiQuery.types';
@@ -30,6 +31,7 @@ import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalD
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { PubchiAnswerCard } from '../PubchiAnswerCard/PubchiAnswerCard';
+import { PubchiAppliedTagSuggestions } from '../PubchiAppliedTagSuggestions/PubchiAppliedTagSuggestions';
 import { PubchiCapabilities } from '../PubchiCapabilities/PubchiCapabilities';
 import { PubchiFeedBuilder } from '../PubchiFeedBuilder/PubchiFeedBuilder';
 import { PubchiFlyoutHeader } from '../PubchiFlyoutHeader/PubchiFlyoutHeader';
@@ -70,6 +72,13 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const question = useWatch({ control: form.control, name: QUERY_FORM_FIELDS.QUESTION }) ?? '';
   const postReference = parsePostReference(question);
   const [suggestionTarget, setSuggestionTarget] = useState<PubchiTarget | undefined>();
+  const discoveredTargetUri = suggestionTarget?.kind === 'post' ? suggestionTarget.uri : undefined;
+  const liveTagSuggestionRecordId = result?.kind === 'answer' ? result.binding?.recordId : undefined;
+  const {
+    suggestions: discoveredSuggestions,
+    revert: revertDiscoveredSuggestion,
+    reconcile: reconcileDiscoveredSuggestion,
+  } = useDiscoveredTagSuggestions(currentUserPubky, discoveredTargetUri, open, liveTagSuggestionRecordId);
   const [prefilledQuestion, setPrefilledQuestion] = useState<string>();
   const [editFeed, setEditFeed] = useState<FeedModelSchema | undefined>();
   const [showDatabaseBlockedNotice, setShowDatabaseBlockedNotice] = useState(false);
@@ -392,6 +401,13 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
             ) : null}
 
             {loading ? <PubchiAnswerSkeleton elapsedMs={elapsedMs} /> : null}
+            {discoveredTargetUri ? (
+              <PubchiAppliedTagSuggestions
+                suggestions={discoveredSuggestions}
+                onRevert={(applicationId) => void revertDiscoveredSuggestion(applicationId)}
+                onReconcile={(applicationId) => void reconcileDiscoveredSuggestion(applicationId)}
+              />
+            ) : null}
             {!loading && result?.kind === 'answer' ? (
               <>
                 <PubchiAnswerCard

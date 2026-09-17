@@ -66,6 +66,7 @@ import {
   type PubchiBotV1,
   type PubchiConfigV1,
   type PubchiOwnerContextV1,
+  type PubchiTagApplication,
   REQUEST_TTL_SECONDS,
   scanForbiddenPublicState,
   signDeviceDelegationV1,
@@ -88,6 +89,7 @@ import type {
   ConfirmPubchiBackupParams,
   CreatedPubchi,
   CreatePubchiParams,
+  DiscoveredTagSuggestion,
   LoadedPubchi,
   PubchiAskBody,
   PubchiBindingRecordResult,
@@ -102,6 +104,46 @@ type UnpublishOptions = {
   attemptRemote: boolean;
   includeLocalKeys?: boolean;
 };
+
+type TagSuggestionReceiptStatus = 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted';
+type TagSuggestionPublicState = 'absent' | 'present-canonical' | 'indeterminate';
+type TagSuggestionReconciliation = {
+  status: Exclude<DiscoveredTagSuggestion['status'], 'applying'>;
+  receiptStatus?: Exclude<TagSuggestionReceiptStatus, 'applying'>;
+};
+
+function reconcileTagSuggestionState({
+  receiptStatus,
+  tagState,
+  operation,
+  alreadyExisted,
+  reportOutsideRemoval,
+}: {
+  receiptStatus: TagSuggestionReceiptStatus;
+  tagState: TagSuggestionPublicState;
+  operation: 'apply' | 'revert';
+  alreadyExisted: boolean | null | undefined;
+  reportOutsideRemoval: boolean;
+}): TagSuggestionReconciliation {
+  if (receiptStatus === 'superseded') return { status: 'superseded' };
+  if (receiptStatus === 'reverted') return { status: 'reverted' };
+  if (tagState === 'indeterminate') return { status: 'reconciliation-pending' };
+  if (receiptStatus === 'applied' && tagState === 'present-canonical') return { status: 'applied' };
+  if (receiptStatus === 'applied' && operation === 'revert') return { status: 'reverted', receiptStatus: 'reverted' };
+  if (receiptStatus === 'applied' && reportOutsideRemoval) return { status: 'reverted-outside' };
+  if (receiptStatus === 'failed' && tagState === 'absent') return { status: 'failed' };
+  if (
+    (receiptStatus === 'failed' || receiptStatus === 'applying') &&
+    tagState === 'present-canonical' &&
+    alreadyExisted !== null &&
+    alreadyExisted !== undefined
+  ) {
+    const status = alreadyExisted ? 'superseded' : 'applied';
+    return { status, receiptStatus: status };
+  }
+  if (receiptStatus === 'applying' && tagState === 'absent') return { status: 'failed', receiptStatus: 'failed' };
+  return { status: 'reconciliation-pending' };
+}
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1104,9 +1146,7 @@ export class PubchiApplication {
     recordId: string,
     suggestionIndex: number,
     owner: string,
-  ): Promise<
-    'proposed' | 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted' | 'reconciliation-pending'
-  > {
+  ): Promise<'proposed' | 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted' | 'reconciliation-pending'> {
     const record = await getPubchiDatabase().tagApplications.get(recordId);
     const binding = record ? tagApplicationBinding(record) : undefined;
     if (!record || !binding || binding.owner !== owner) {
@@ -1145,75 +1185,32 @@ export class PubchiApplication {
       const operation = record.operations?.[suggestionIndex] ?? 'apply';
       const receiptStatus = receipt.status;
 
-      if (tagState === 'indeterminate') {
+      const alreadyExisted = record.already_existed?.[suggestionIndex];
+      const reconciled = reconcileTagSuggestionState({
+        receiptStatus: receiptStatus as TagSuggestionReceiptStatus,
+        tagState,
+        operation,
+        alreadyExisted,
+        reportOutsideRemoval: false,
+      });
+      if (reconciled.status === 'reconciliation-pending') {
         await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
         return 'reconciliation-pending';
       }
-      const tagPresent = tagState === 'present-canonical';
-      if (receiptStatus === 'superseded') {
-        await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'superseded');
-        return 'superseded';
-      }
-      if (receiptStatus === 'reverted') {
-        await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'reverted');
-        return 'reverted';
-      }
-      if (receiptStatus === 'applied' && tagPresent) {
-        await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'applied');
-        return 'applied';
-      }
-      if (receiptStatus === 'applied' && !tagPresent && operation === 'revert') {
-        await this.finalizeTagSuggestionApplication(recordId, suggestionIndex, applicationId, 'reverted');
-        return 'reverted';
-      }
-      // Reconciliation table: a failed receipt is terminal only when the
-      // canonical public tag is absent. A present tag can self-heal the
-      // receipt when the durable outcome proves whether it pre-existed.
-      if (receiptStatus === 'failed') {
-        if (!tagPresent) {
-          await this.updateTagSuggestionStatus(recordId, suggestionIndex, 'failed');
-          return 'failed';
-        }
-        const alreadyExisted = record.already_existed?.[suggestionIndex];
-        if (alreadyExisted === null || alreadyExisted === undefined) {
-          await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
-          return 'reconciliation-pending';
-        }
-        const status = alreadyExisted ? 'superseded' : 'applied';
+      if (reconciled.status === 'reverted-outside') throw new TypeError('Unexpected outside-removal state');
+      if (reconciled.receiptStatus) {
         await this.finalizeTagSuggestionApplication(
           recordId,
           suggestionIndex,
           applicationId,
-          status,
+          reconciled.receiptStatus,
           tag.tagUrl,
           alreadyExisted,
         );
-        return status;
+      } else {
+        await this.updateTagSuggestionStatus(recordId, suggestionIndex, reconciled.status);
       }
-      if (receiptStatus === 'applying' && tagPresent && operation === 'apply') {
-        // A crash after the tag write but before its outcome is persisted cannot prove
-        // authorship. Leave it pending: public tags have no production provenance field.
-        const alreadyExisted = record.already_existed?.[suggestionIndex];
-        if (alreadyExisted === null || alreadyExisted === undefined) {
-          await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
-          return 'reconciliation-pending';
-        }
-        const status = alreadyExisted ? 'superseded' : 'applied';
-        await this.finalizeTagSuggestionApplication(
-          recordId,
-          suggestionIndex,
-          applicationId,
-          status,
-          tag.tagUrl,
-          alreadyExisted,
-        );
-        return status;
-      }
-      if (receiptStatus === 'applying' && !tagPresent) {
-        await this.finalizeTagSuggestionApplication(recordId, suggestionIndex, applicationId, 'failed');
-        return 'failed';
-      }
-      throw new TypeError('Tag suggestion state cannot be reconciled');
+      return reconciled.status;
     } catch {
       await this.markTagSuggestionReconciliationPending(recordId, suggestionIndex);
       return 'reconciliation-pending';
@@ -1261,6 +1258,260 @@ export class PubchiApplication {
       });
     }
     return { binding, applicationId, suggestion };
+  }
+
+  static async discoverTagSuggestions(
+    owner: string,
+    targetUri: string,
+    isCurrent: () => boolean = () => true,
+    liveRecordId?: string,
+  ): Promise<DiscoveredTagSuggestion[]> {
+    const liveIds = new Set<string>();
+    const liveRecord = liveRecordId ? await getPubchiDatabase().tagApplications.get(liveRecordId) : undefined;
+    if (liveRecord) {
+      const binding = tagApplicationBinding(liveRecord);
+      if (binding?.target.uri === targetUri) {
+        for (const suggestion of binding.response.tag_suggestions ?? []) {
+          liveIds.add(await this.tagSuggestionApplicationId(binding, suggestion.label));
+          if (!isCurrent()) return [];
+        }
+      }
+    }
+    if (!isCurrent()) return [];
+    const directory = `pubky://${owner}${PUBCHI_PRIVATE_DIRECTORY}tag-applications/`;
+    const files = (await HomeserverService.list({ baseDirectory: directory, limit: 50 })).slice(0, 50);
+    const discovered: Array<DiscoveredTagSuggestion | undefined> = new Array(files.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(4, files.length) }, async () => {
+      for (;;) {
+        if (!isCurrent()) return;
+        const index = next++;
+        const file = files[index];
+        if (!file) return;
+        const match = file.match(
+          new RegExp(
+            `^pubky://${owner}${PUBCHI_PRIVATE_DIRECTORY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}tag-applications/([a-f0-9]{64})\\.json$`,
+          ),
+        );
+        if (!match) continue;
+        if (liveIds.has(match[1])) continue;
+        try {
+          const raw = await HomeserverService.requestRawText(file);
+          if (!isCurrent()) return;
+          if (new TextEncoder().encode(raw).byteLength > 64 * 1024) continue;
+          const parsed = parsePubchiTagApplication(JSON.parse(raw));
+          if (
+            !parsed.ok ||
+            parsed.value.owner !== owner ||
+            parsed.value.target.uri !== targetUri ||
+            parsed.value.application_id !== match[1]
+          )
+            continue;
+          const receipt = parsed.value;
+          if (liveIds.has(receipt.application_id)) continue;
+          const targetMatch =
+            receipt.target.kind === 'post'
+              ? /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/posts\/([^/]+)$/.exec(receipt.target.uri)
+              : /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/profile\.json$/.exec(receipt.target.uri);
+          if (!targetMatch) continue;
+          const tag = TagNormalizer.from({
+            taggedKind: receipt.target.kind === 'post' ? TagKind.POST : TagKind.USER,
+            taggedId: receipt.target.kind === 'post' ? `${targetMatch[1]}:${targetMatch[2]}` : targetMatch[1],
+            label: receipt.label,
+            taggerId: owner,
+          });
+          const tagState = await this.readTagSuggestionPublicTag(tag.tagUrl, tag.tagJson);
+          if (!isCurrent()) return;
+          const { status } = reconcileTagSuggestionState({
+            receiptStatus: receipt.status,
+            tagState,
+            operation: 'apply',
+            alreadyExisted: receipt.already_existed,
+            reportOutsideRemoval: true,
+          });
+          discovered[index] = {
+            applicationId: receipt.application_id,
+            owner: receipt.owner,
+            target: receipt.target,
+            label: receipt.label,
+            status,
+            alreadyExisted: receipt.already_existed ?? null,
+          };
+        } catch {}
+      }
+    });
+    await Promise.all(workers);
+    return discovered.filter((suggestion): suggestion is DiscoveredTagSuggestion => suggestion !== undefined);
+  }
+
+  static async prepareDiscoveredTagSuggestionRevert(owner: string, targetUri: string, applicationId: string) {
+    const receipt = await this.readDiscoveredTagSuggestionReceipt(owner, applicationId);
+    if (
+      receipt.owner !== owner ||
+      receipt.target.uri !== targetUri ||
+      receipt.application_id !== applicationId ||
+      receipt.status !== 'applied' ||
+      receipt.already_existed !== false
+    ) {
+      throw new TypeError('Receipt cannot be reverted');
+    }
+    const tagParams = this.discoveredTagSuggestionParams(receipt);
+    const tag = TagNormalizer.from(tagParams);
+    if (receipt.tag_uri !== undefined && receipt.tag_uri !== tag.tagUrl)
+      throw new TypeError('Receipt tag URI is not canonical');
+    if ((await this.readTagSuggestionPublicTag(tag.tagUrl, tag.tagJson)) !== 'present-canonical')
+      throw new TypeError('Receipt tag is not canonical');
+    return { receipt, tagParams };
+  }
+
+  static async finalizeDiscoveredTagSuggestionRevert(
+    owner: string,
+    targetUri: string,
+    applicationId: string,
+    expectedReceipt: PubchiTagApplication,
+    isCurrent: () => boolean = () => true,
+  ): Promise<DiscoveredTagSuggestion | undefined> {
+    if (!isCurrent()) return undefined;
+    const receipt = await this.readDiscoveredTagSuggestionReceipt(owner, applicationId);
+    if (!isCurrent()) return undefined;
+    if (
+      receipt.owner !== owner ||
+      receipt.target.uri !== targetUri ||
+      receipt.application_id !== applicationId ||
+      receipt.status !== 'applied' ||
+      receipt.already_existed !== false ||
+      !this.sameDiscoveredTagSuggestionAuthority(receipt, expectedReceipt)
+    )
+      throw new TypeError('Receipt cannot be finalized');
+    const url = `pubky://${owner}${PUBCHI_PRIVATE_DIRECTORY}tag-applications/${applicationId}.json`;
+    const updated = { ...receipt, status: 'reverted' as const, reverted_at: Math.floor(Date.now() / 1000) };
+    if (new TextEncoder().encode(JSON.stringify(updated)).byteLength > 64 * 1024)
+      throw new TypeError('Receipt exceeds limit');
+    if (!isCurrent()) return undefined;
+    await HomeserverService.request({
+      method: HttpMethod.PUT,
+      url,
+      bodyJson: updated,
+    });
+    return this.toDiscoveredTagSuggestion(updated, 'reverted');
+  }
+
+  static async reconcileDiscoveredTagSuggestion(
+    owner: string,
+    targetUri: string,
+    applicationId: string,
+    isCurrent: () => boolean = () => true,
+  ): Promise<DiscoveredTagSuggestion | undefined> {
+    if (!isCurrent()) return undefined;
+    const receipt = await this.readDiscoveredTagSuggestionReceipt(owner, applicationId);
+    if (!isCurrent()) return undefined;
+    if (receipt.owner !== owner || receipt.target.uri !== targetUri || receipt.application_id !== applicationId)
+      throw new TypeError('Receipt cannot be reconciled');
+    const tag = TagNormalizer.from(this.discoveredTagSuggestionParams(receipt));
+    const tagState = await this.readTagSuggestionPublicTag(tag.tagUrl, tag.tagJson);
+    if (!isCurrent()) return undefined;
+    const reconciled = reconcileTagSuggestionState({
+      receiptStatus: receipt.status,
+      tagState,
+      operation: 'apply',
+      alreadyExisted: receipt.already_existed,
+      reportOutsideRemoval: true,
+    });
+    if (!reconciled.receiptStatus) return this.toDiscoveredTagSuggestion(receipt, reconciled.status);
+    return this.writeDiscoveredTagSuggestionStatus(
+      owner,
+      targetUri,
+      applicationId,
+      reconciled.receiptStatus,
+      receipt,
+      isCurrent,
+    );
+  }
+
+  private static async writeDiscoveredTagSuggestionStatus(
+    owner: string,
+    targetUri: string,
+    applicationId: string,
+    status: Exclude<TagSuggestionReceiptStatus, 'applying'>,
+    expectedReceipt: PubchiTagApplication,
+    isCurrent: () => boolean,
+  ): Promise<DiscoveredTagSuggestion | undefined> {
+    if (!isCurrent()) return undefined;
+    const receipt = await this.readDiscoveredTagSuggestionReceipt(owner, applicationId);
+    if (!isCurrent()) return undefined;
+    if (
+      receipt.owner !== owner ||
+      receipt.target.uri !== targetUri ||
+      receipt.application_id !== applicationId ||
+      !this.sameDiscoveredTagSuggestionAuthority(receipt, expectedReceipt)
+    )
+      throw new TypeError('Receipt changed during reconciliation');
+    const updated = { ...receipt, status };
+    if (new TextEncoder().encode(JSON.stringify(updated)).byteLength > 64 * 1024)
+      throw new TypeError('Receipt exceeds limit');
+    if (!isCurrent()) return undefined;
+    await HomeserverService.request({
+      method: HttpMethod.PUT,
+      url: `pubky://${owner}${PUBCHI_PRIVATE_DIRECTORY}tag-applications/${applicationId}.json`,
+      bodyJson: updated,
+    });
+    return this.toDiscoveredTagSuggestion(updated, status);
+  }
+
+  private static async readDiscoveredTagSuggestionReceipt(
+    owner: string,
+    applicationId: string,
+  ): Promise<PubchiTagApplication> {
+    const url = `pubky://${owner}${PUBCHI_PRIVATE_DIRECTORY}tag-applications/${applicationId}.json`;
+    const raw = await HomeserverService.requestRawText(url);
+    if (new TextEncoder().encode(raw).byteLength > 64 * 1024) throw new TypeError('Receipt exceeds limit');
+    const parsed = parsePubchiTagApplication(JSON.parse(raw));
+    if (!parsed.ok) throw new TypeError('Receipt is invalid');
+    return parsed.value;
+  }
+
+  private static discoveredTagSuggestionParams(receipt: PubchiTagApplication) {
+    const match = /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/posts\/([^/]+)$/.exec(receipt.target.uri);
+    if (!match || receipt.target.kind !== 'post') throw new TypeError('Receipt target is invalid');
+    return {
+      taggedKind: TagKind.POST,
+      taggedId: `${match[1]}:${match[2]}`,
+      label: receipt.label,
+      taggerId: receipt.owner,
+    };
+  }
+
+  private static sameDiscoveredTagSuggestionAuthority(
+    receipt: PubchiTagApplication,
+    expected: PubchiTagApplication,
+  ): boolean {
+    return (
+      receipt.owner === expected.owner &&
+      receipt.bot === expected.bot &&
+      receipt.application_id === expected.application_id &&
+      receipt.run_id === expected.run_id &&
+      receipt.target.kind === expected.target.kind &&
+      receipt.target.uri === expected.target.uri &&
+      receipt.target.snapshot_sha256 === expected.target.snapshot_sha256 &&
+      receipt.label === expected.label &&
+      receipt.suggestion_sha256 === expected.suggestion_sha256 &&
+      receipt.status === expected.status &&
+      receipt.already_existed === expected.already_existed
+    );
+  }
+
+  private static toDiscoveredTagSuggestion(
+    receipt: PubchiTagApplication,
+    status: DiscoveredTagSuggestion['status'],
+  ): DiscoveredTagSuggestion {
+    return {
+      applicationId: receipt.application_id,
+      owner: receipt.owner,
+      target: receipt.target,
+      label: receipt.label,
+      status,
+      alreadyExisted: receipt.already_existed ?? null,
+    };
   }
 
   private static async readTagSuggestionReceipt(
