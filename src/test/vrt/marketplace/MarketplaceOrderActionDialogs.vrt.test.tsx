@@ -14,6 +14,8 @@ const fixtures = vi.hoisted(async () => {
   return {
     deliveredOrder: createOrderFixture('delivered'),
     paidOrder: createOrderFixture('paid'),
+    pickupOrder: createOrderFixture('paid', { fulfillment: 'pickup' }),
+    pendingShippingOrder: createOrderFixture('pending_payment', { fulfillment: 'shipping' }),
     returnReceivedOrder: createOrderFixture('return_received'),
   };
 });
@@ -103,5 +105,36 @@ describe('Marketplace order action dialogs — visual regression', () => {
     );
     await openDialog(screen.getByRole('button', { name: 'Record external refund' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-order-refund-open-desktop');
+  });
+
+  it('renders the open pickup cancellation dialog', async () => {
+    const { pickupOrder } = await fixtures;
+
+    const screen = await renderForVRT(
+      <ActionsHarness>
+        <MarketplaceOrderActions order={pickupOrder} isBuyer canEditReview={false} actOnOrder={async () => false} />
+      </ActionsHarness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Cancel order' }));
+    await expect(screen.getByTestId('dialog-content')).toMatchScreenshot('dialog-order-cancel-pickup-open-desktop');
+  });
+
+  it('renders the open shipping cancellation-request dialog', async () => {
+    const { pendingShippingOrder } = await fixtures;
+
+    const screen = await renderForVRT(
+      <ActionsHarness>
+        <MarketplaceOrderActions
+          order={pendingShippingOrder}
+          isBuyer
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
+      </ActionsHarness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Cancel order' }));
+    await expect(screen.getByTestId('dialog-content')).toMatchScreenshot('dialog-order-cancel-shipping-open-desktop');
   });
 });
