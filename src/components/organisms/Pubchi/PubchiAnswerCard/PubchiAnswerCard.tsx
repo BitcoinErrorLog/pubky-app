@@ -16,9 +16,11 @@ import type { ExecutionScope, PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pu
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { copyToClipboard, truncateMiddle } from '@/libs/utils/utils';
 import { toast } from '@/molecules/Toaster/toast';
+import { initialFromName } from '@/organisms/AvatarWithFallback/AvatarWithFallback.utils';
 
 type PubchiAnswerCardProps = {
   answer: PubchiAnswerV1;
+  replyText?: string;
   binding?: PubchiRequestBinding;
   currentUserPubky?: string | null;
   cursorSource?: 'device' | 'remote' | 'none';
@@ -47,6 +49,7 @@ type EvidenceGroup = {
 
 export function PubchiAnswerCard({
   answer,
+  replyText,
   binding,
   currentUserPubky,
   cursorSource = 'none',
@@ -196,7 +199,8 @@ export function PubchiAnswerCard({
               {formatScopeLine(answer.scope)}
             </Typography>
           ) : null}
-          <Typography size="sm">
+          {answer.summary.trim() !== replyText?.trim() ? (
+            <Typography size="sm">
             {answer.summary && (answer.basis === undefined || answer.basis === 'graph' || answer.basis === 'mixed')
               ? linkifyPubkys(answer.summary).map((part, index) =>
                   typeof part === 'string' ? (
@@ -212,7 +216,8 @@ export function PubchiAnswerCard({
                   ),
                 )
               : answer.summary || 'No evidence was found for this question.'}
-          </Typography>
+            </Typography>
+          ) : null}
           <ToolTrace answer={answer} currentUserPubky={currentUserPubky} />
         </CardContent>
       </Card>
@@ -423,7 +428,7 @@ function EvidenceItem({
                   className="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs"
                   aria-hidden="true"
                 >
-                  {(names.get(claimant) ?? claimant).slice(0, 1).toUpperCase()}
+                  {initialFromName(names.get(claimant) ?? claimant)}
                 </span>
                 {names.get(claimant) ?? claimant}
               </Link>

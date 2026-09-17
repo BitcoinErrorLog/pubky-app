@@ -428,6 +428,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               <>
                 <PubchiAnswerCard
                   answer={result.result}
+                  replyText={conversation.turns.at(-1)?.role === 'assistant' ? conversation.turns.at(-1)?.text : undefined}
                   binding={result.binding}
                   currentUserPubky={currentUserPubky}
                   cursorSource={cursorSource}

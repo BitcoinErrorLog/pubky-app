@@ -140,6 +140,33 @@ describe('PubchiAnswerCard', () => {
     expect(screen.queryByTestId('pubchi-tool-trace')).not.toBeInTheDocument();
   });
 
+  it('omits a graph summary when it matches the conversation reply', () => {
+    render(
+      <>
+        <div>Alice is active.</div>
+        <PubchiAnswerCard
+          answer={{ ...answer, tool_trace_summary: { tools: ['top_posts'], call_count: 1, truncated: false } }}
+          replyText=" Alice is active. "
+          currentUserPubky={owner}
+        />
+      </>,
+    );
+    expect(screen.getAllByText('Alice is active.')).toHaveLength(1);
+    expect(screen.getByText('What the graph shows')).toBeInTheDocument();
+  });
+
+  it('keeps a graph summary when the conversation reply is rewritten', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{ ...answer, tool_trace_summary: { tools: ['top_posts'], call_count: 1, truncated: false } }}
+        replyText="The graph found Alice."
+        currentUserPubky={owner}
+      />,
+    );
+    expect(screen.getByText('Alice is active.')).toBeInTheDocument();
+    expect(screen.getByText('What the graph shows')).toBeInTheDocument();
+  });
+
   it('shows the run id and singular tool-call label in the visible source row', () => {
     render(
       <PubchiAnswerCard
