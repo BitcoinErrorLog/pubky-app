@@ -564,11 +564,11 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
             <iframe
               ref={paykitIframeRef}
               key={paykitSetupUrl}
-              src={paykitSetupUrl}
+              src={`${paykitSetupUrl}#embed`}
               title="Connect Bitkit"
               sandbox="allow-scripts allow-same-origin allow-forms"
               referrerPolicy="no-referrer"
-              className="h-[min(28rem,60vh)] w-full rounded-lg border bg-white"
+              className="h-[min(28rem,60vh)] w-full rounded-lg border bg-popover"
             />
           )}
           {paykitSetupStatus !== 'idle' && (

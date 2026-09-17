@@ -244,7 +244,12 @@ describe('MarketplacePaymentSettings', () => {
     expect(mockedController.getPaykitSetupUrl).toHaveBeenCalledTimes(1);
     const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
     const setupUrl = new URL(iframe.getAttribute('src')!);
+    const productionSetupUrl = String(mockedController.getPaykitSetupUrl.mock.results[0]?.value);
     expect(setupUrl.origin).toBe('https://paykit.example');
+    expect(iframe.getAttribute('src')).toBe(`${productionSetupUrl}#embed`);
+    expect(setupUrl.search).toBe(new URL(productionSetupUrl).search);
+    expect(setupUrl.hash).toBe('#embed');
+    expect(setupUrl.searchParams.has('embed')).toBe(false);
     const state = String(setupUrl.searchParams.get('state'));
     expect(setupUrl.searchParams.get('creator')).toBe('gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco');
     expect(state).toHaveLength(22);
