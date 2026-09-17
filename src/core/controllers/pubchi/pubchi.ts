@@ -2,6 +2,7 @@ import { type Capabilities, Session } from '@synonymdev/pubky';
 import { PubchiApplication } from '@/application/pubchi/pubchi';
 import type {
   CreatedPubchi,
+  DiscoveredTagSuggestion,
   LoadedPubchi,
   PubchiBindingRecordResult,
   PubchiQuerySuccess,
@@ -302,8 +303,7 @@ export class PubchiController {
       label: prepared.suggestion.label,
       taggerId: owner,
     };
-    await TagController.materializeForDelete(tagParams);
-    await TagController.commitDelete(tagParams);
+    await this.deleteTagSuggestion(tagParams);
     try {
       await PubchiApplication.finalizeTagSuggestionApplication(
         recordId,
@@ -324,9 +324,7 @@ export class PubchiController {
   static async reconcileTagSuggestion(
     recordId: string,
     suggestionIndex: number,
-  ): Promise<
-    'proposed' | 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted' | 'reconciliation-pending'
-  > {
+  ): Promise<'proposed' | 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted' | 'reconciliation-pending'> {
     return PubchiApplication.reconcileTagSuggestionApplication(
       recordId,
       suggestionIndex,
@@ -339,6 +337,58 @@ export class PubchiController {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
     if (!record || record.owner !== owner) return {};
     return PubchiApplication.rehydrateTagSuggestionStatuses(recordId, owner);
+  }
+
+  static async discoverTagSuggestions(
+    targetUri: string,
+    isCurrent?: () => boolean,
+    liveRecordId?: string,
+  ): Promise<DiscoveredTagSuggestion[]> {
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const tokenIsCurrent = () => useAuthStore.getState().currentUserPubky === owner && (isCurrent?.() ?? true);
+    const results = await PubchiApplication.discoverTagSuggestions(owner, targetUri, tokenIsCurrent, liveRecordId);
+    return tokenIsCurrent() ? results : [];
+  }
+
+  static async reconcileDiscoveredTagSuggestion(
+    targetUri: string,
+    applicationId: string,
+    isCurrent: () => boolean = () => true,
+  ): Promise<DiscoveredTagSuggestion | undefined> {
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const tokenIsCurrent = () => useAuthStore.getState().currentUserPubky === owner && isCurrent();
+    return PubchiApplication.reconcileDiscoveredTagSuggestion(owner, targetUri, applicationId, tokenIsCurrent);
+  }
+
+  static async revertDiscoveredTagSuggestion(
+    targetUri: string,
+    applicationId: string,
+    isCurrent: () => boolean = () => true,
+  ): Promise<DiscoveredTagSuggestion | undefined> {
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const tokenIsCurrent = () => useAuthStore.getState().currentUserPubky === owner && isCurrent();
+    if (!tokenIsCurrent()) return undefined;
+    const prepared = await PubchiApplication.prepareDiscoveredTagSuggestionRevert(owner, targetUri, applicationId);
+    if (!tokenIsCurrent()) return undefined;
+    await this.deleteTagSuggestion(prepared.tagParams, tokenIsCurrent);
+    if (!tokenIsCurrent()) return undefined;
+    return PubchiApplication.finalizeDiscoveredTagSuggestionRevert(
+      owner,
+      targetUri,
+      applicationId,
+      prepared.receipt,
+      tokenIsCurrent,
+    );
+  }
+
+  private static async deleteTagSuggestion(
+    tagParams: Parameters<typeof TagController.commitDelete>[0],
+    isCurrent: () => boolean = () => true,
+  ): Promise<void> {
+    if (!isCurrent()) return;
+    await TagController.materializeForDelete(tagParams);
+    if (!isCurrent()) return;
+    await TagController.commitDelete(tagParams);
   }
 
   static async loadPubchiCursor(): Promise<string | null> {

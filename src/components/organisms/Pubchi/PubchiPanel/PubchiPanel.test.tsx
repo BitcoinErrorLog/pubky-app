@@ -22,11 +22,22 @@ const submit = vi.fn();
 const reapprove = vi.fn();
 const setupDevice = vi.fn();
 const watchedQuestion = vi.hoisted(() => ({ value: '' }));
-const { getFeed, openFeedBuilder, closeFeedBuilder, closeFlyout } = vi.hoisted(() => ({
+const {
+  getFeed,
+  openFeedBuilder,
+  closeFeedBuilder,
+  closeFlyout,
+  discoverTagSuggestions,
+  reconcileDiscoveredTagSuggestion,
+  revertDiscoveredTagSuggestion,
+} = vi.hoisted(() => ({
   getFeed: vi.fn(),
   openFeedBuilder: vi.fn(),
   closeFeedBuilder: vi.fn(),
   closeFlyout: vi.fn(),
+  discoverTagSuggestions: vi.fn().mockResolvedValue([]),
+  reconcileDiscoveredTagSuggestion: vi.fn(),
+  revertDiscoveredTagSuggestion: vi.fn(),
 }));
 const builderProps = vi.hoisted(() => ({ current: undefined as Record<string, unknown> | undefined }));
 const hookState = {
@@ -79,6 +90,14 @@ vi.mock('@/controllers/pubchi/pubchi', async (importOriginal) => {
       openFlyout: original.PubchiController.openFlyout,
       consumePrefill: original.PubchiController.consumePrefill,
       closeFlyout: () => closeFlyout(),
+      discoverTagSuggestions: (...args: Parameters<typeof original.PubchiController.discoverTagSuggestions>) =>
+        discoverTagSuggestions(...args),
+      reconcileDiscoveredTagSuggestion: (
+        ...args: Parameters<typeof original.PubchiController.reconcileDiscoveredTagSuggestion>
+      ) => reconcileDiscoveredTagSuggestion(...args),
+      revertDiscoveredTagSuggestion: (
+        ...args: Parameters<typeof original.PubchiController.revertDiscoveredTagSuggestion>
+      ) => revertDiscoveredTagSuggestion(...args),
       openFeedBuilder: (...args: Parameters<typeof openFeedBuilder>) => openFeedBuilder(...args),
       closeFeedBuilder: () => closeFeedBuilder(),
     },
@@ -156,6 +175,9 @@ describe('PubchiPanel', () => {
     openFeedBuilder.mockReset();
     closeFeedBuilder.mockReset();
     closeFlyout.mockReset();
+    discoverTagSuggestions.mockReset().mockResolvedValue([]);
+    reconcileDiscoveredTagSuggestion.mockReset();
+    revertDiscoveredTagSuggestion.mockReset();
     openFeedBuilder.mockImplementation((proposal) => usePubchiStore.getState().openFeedBuilder(proposal));
     closeFeedBuilder.mockImplementation(() => usePubchiStore.getState().closeFeedBuilder());
     closeFlyout.mockImplementation(() => usePubchiStore.getState().closeFlyout());
@@ -207,6 +229,42 @@ describe('PubchiPanel', () => {
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', 'Suggest tags for this post', {
       shouldValidate: true,
     });
+  });
+
+  it('renders target receipts with Revert and Already applied actions', async () => {
+    const target = {
+      kind: 'post' as const,
+      uri: 'pubky://o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo/pub/pubky.app/posts/0035Q0HAH8V6G',
+    };
+    const applied = 'a'.repeat(64);
+    const superseded = 'b'.repeat(64);
+    discoverTagSuggestions.mockResolvedValue([
+      {
+        applicationId: applied,
+        owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        target,
+        label: 'builder',
+        status: 'applied',
+        alreadyExisted: false,
+      },
+      {
+        applicationId: superseded,
+        owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+        target,
+        label: 'rust',
+        status: 'superseded',
+        alreadyExisted: true,
+      },
+    ]);
+    const question = `Suggest tags for this post ${target.uri}`;
+    watchedQuestion.value = question;
+    PubchiController.openFlyout({ question, source: 'post-menu', target });
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(await screen.findAllByTestId(/^pubchi-applied-row-/)).toHaveLength(2);
+    expect(screen.getByTestId(`pubchi-tag-revert-${applied}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`pubchi-tag-already-applied-${superseded}`)).toBeInTheDocument();
   });
 
   it('submits the canonical user target supplied by the profile route', () => {

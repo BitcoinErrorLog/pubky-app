@@ -32,6 +32,15 @@ export type PubchiRequestBinding = {
   recordId: string;
 };
 
+export type DiscoveredTagSuggestion = {
+  applicationId: string;
+  owner: Pubky;
+  target: PubchiTarget;
+  label: string;
+  status: 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted' | 'reverted-outside' | 'reconciliation-pending';
+  alreadyExisted: boolean | null;
+};
+
 export type PubchiQueryApplicationParams = {
   owner: Pubky;
   question: string;

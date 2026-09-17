@@ -1,7 +1,8 @@
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
 import { PubchiAnswerCard } from '@/organisms/Pubchi/PubchiAnswerCard/PubchiAnswerCard';
-import type { PubchiRequestBinding } from '@/application/pubchi/pubchi.types';
+import { PubchiAppliedTagSuggestions } from '@/organisms/Pubchi/PubchiAppliedTagSuggestions/PubchiAppliedTagSuggestions';
+import type { DiscoveredTagSuggestion, PubchiRequestBinding } from '@/application/pubchi/pubchi.types';
 import type { PubchiAnswerV1 } from '@/libs/pubchi/schemas';
 import { matchVrtFrameScreenshot, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -51,6 +52,25 @@ const binding: PubchiRequestBinding = {
   recordId: 'vrt-record',
 };
 
+const discoveredSuggestions: DiscoveredTagSuggestion[] = [
+  {
+    applicationId: 'a'.repeat(64),
+    owner: answer.owner,
+    target: typedAnswer.target!,
+    label: 'pubky-app',
+    status: 'applied',
+    alreadyExisted: false,
+  },
+  {
+    applicationId: 'b'.repeat(64),
+    owner: answer.owner,
+    target: typedAnswer.target!,
+    label: 'local-first',
+    status: 'superseded',
+    alreadyExisted: true,
+  },
+];
+
 describe('Pubchi C5 tag suggestions — visual regression', () => {
   it('renders the production answer card on desktop', async () => {
     const screen = await renderForVRT(
@@ -67,5 +87,15 @@ describe('Pubchi C5 tag suggestions — visual regression', () => {
       viewport: VRT_VIEWPORT_MOBILE,
     });
     await matchVrtFrameScreenshot('pubchi-tag-suggestions-mobile');
+  });
+
+  it('renders discovered target receipts on desktop', async () => {
+    const screen = await renderForVRT(
+      <PubchiAppliedTagSuggestions suggestions={discoveredSuggestions} onRevert={() => {}} onReconcile={() => {}} />,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await expect.element(screen.getByTestId('pubchi-applied-section')).toBeVisible();
+    expect(document.querySelector('[data-surface="pubchi-applied-section"]')).toBeTruthy();
+    await matchVrtFrameScreenshot('pubchi-applied-tag-suggestions-desktop');
   });
 });
