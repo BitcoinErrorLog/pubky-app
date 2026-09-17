@@ -4,12 +4,14 @@ import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { MuteListSyncCoordinator } from '@/coordinators/mute-list-sync/mute-list-sync';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
+import { PubchiCoordinator } from '@/coordinators/pubchi/pubchi';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
 
 function getAppCoordinators() {
   return {
     notification: NotificationCoordinator.getInstance(),
+    pubchi: PubchiCoordinator.getInstance(),
     stream: StreamCoordinator.getInstance(),
     ttl: TtlCoordinator.getInstance(),
     muteListSync: MuteListSyncCoordinator.getInstance(),
@@ -27,6 +29,7 @@ function applyRouteToCoordinators(pathname: string): void {
 function startAppCoordinators(): void {
   const coordinators = getAppCoordinators();
   void coordinators.notification.start();
+  coordinators.pubchi.start();
   void coordinators.stream.start();
   coordinators.ttl.start();
   coordinators.muteListSync.start();
@@ -35,6 +38,7 @@ function startAppCoordinators(): void {
 function stopAppCoordinators(): void {
   const coordinators = getAppCoordinators();
   coordinators.notification.stop();
+  coordinators.pubchi.stop();
   coordinators.stream.stop();
   coordinators.ttl.stop();
   coordinators.muteListSync.stop();
@@ -47,8 +51,8 @@ function stopAppCoordinators(): void {
  * This component has no UI - it only manages coordinator lifecycles.
  *
  * Responsibilities:
- * - Initialize coordinators on mount (NotificationCoordinator, StreamCoordinator,
- *   MuteListSyncCoordinator, TtlCoordinator)
+ * - Initialize coordinators on mount (NotificationCoordinator, PubchiCoordinator,
+ *   StreamCoordinator, MuteListSyncCoordinator, TtlCoordinator)
  * - Start coordination when the component is mounted
  * - Track route changes and inform coordinators
  * - Stop coordination and cleanup when unmounted
