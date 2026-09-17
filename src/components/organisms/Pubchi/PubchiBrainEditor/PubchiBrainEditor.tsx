@@ -67,7 +67,7 @@ export function PubchiBrainEditor({
           <Typography className="font-medium">Private context</Typography>
         </div>
         <Typography size="sm" className="mt-1 text-muted-foreground">
-          Stored in your homeserver&apos;s private area and sent only inside your signed questions. Never public.
+          Stored in your homeserver&apos;s private area and sent only inside your signed questions. Never public. Used when you ask questions; not used for tag suggestions or feed building.
         </Typography>
       </div>
       {!contextEditable ? (

@@ -18,7 +18,7 @@ describe('PubchiBrainEditor', () => {
 
     expect(screen.getByTestId(PUBCHI_BRAIN_EDITOR_SURFACE)).toHaveAttribute('data-surface', PUBCHI_BRAIN_EDITOR_SURFACE);
     expect(screen.getByText(/reads these before every answer/)).toBeInTheDocument();
-    expect(screen.getByText(/stored in your homeserver's private area/i)).toBeInTheDocument();
+    expect(screen.getByText(/stored in your homeserver's private area.*used when you ask questions; not used for tag suggestions or feed building/i)).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-brain-preview')).toHaveTextContent('I’ll keep this to two sentences.');
     expect(screen.getByPlaceholderText(/Bitcoin developer in Lisbon/)).toBeInTheDocument();
   });
