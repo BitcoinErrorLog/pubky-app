@@ -1,23 +1,27 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { readOwnDropIndex } from '@/hooks/useDropStudio/drop-index';
 import type { CommerceDropRecord } from '@/libs/commerce/marketplace-records';
+import { hasHttpStatus, isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { MarketplaceSellerDrop } from '@/services/marketplace/marketplace-projections';
 import { useAuthStore } from '@/stores/auth/auth.store';
+
+export type OwnDropProjection =
+  | { status: 'loaded'; drop: MarketplaceSellerDrop }
+  | { status: 'unregistered' }
+  | {
+      status: 'session-unavailable' | 'unavailable';
+    };
 
 export interface OwnDropRow {
   dropId: string;
   /** The seller-signed homeserver record, or null when it could not be read. */
   record: CommerceDropRecord | null;
-  /**
-   * The transaction service's authoritative seller read. Null means the drop
-   * is NOT registered with the service — rendered as "unregistered", never
-   * guessed into a state.
-   */
-  drop: MarketplaceSellerDrop | null;
+  /** The transaction-service read, preserving absence separately from failures. */
+  projection: OwnDropProjection;
 }
 
 export interface UseOwnDropsResult {
@@ -43,38 +47,46 @@ export function useOwnDrops(): UseOwnDropsResult {
   const isDurable = isDurableCommerceMode(getCommerceAdapterMode());
   const [rows, setRows] = useState<OwnDropRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
-  const load = useCallback(async (): Promise<void> => {
+  useEffect(() => {
+    let active = true;
     if (!currentUserPubky) {
       setRows([]);
       setIsLoading(false);
       return;
     }
-    const listed = await CommerceController.listOwnDropIds().catch(() => [] as string[]);
-    const remembered = readOwnDropIndex(currentUserPubky);
-    const dropIds = [...new Set([...listed, ...remembered])];
-    const loaded = await Promise.all(
-      dropIds.map(async (dropId): Promise<OwnDropRow> => {
-        const [record, drop] = await Promise.all([
-          CommerceController.fetchDrop(currentUserPubky, dropId).catch(() => null),
-          isDurable ? CommerceController.getOwnDrop(dropId).catch(() => null) : Promise.resolve(null),
-        ]);
-        return { dropId, record, drop };
-      }),
-    );
-    loaded.sort((a, b) => {
-      const aStart = a.record ? Date.parse(a.record.startsAt) : 0;
-      const bStart = b.record ? Date.parse(b.record.startsAt) : 0;
-      return bStart - aStart;
-    });
-    setRows(loaded);
-    setIsLoading(false);
-  }, [currentUserPubky, isDurable]);
-
-  useEffect(() => {
     setIsLoading(true);
-    void load();
-  }, [load]);
+    void (async () => {
+      const listed = await CommerceController.listOwnDropIds().catch(() => [] as string[]);
+      const remembered = readOwnDropIndex(currentUserPubky);
+      const dropIds = [...new Set([...listed, ...remembered])];
+      const loaded = await Promise.all(
+        dropIds.map(async (dropId): Promise<OwnDropRow> => {
+          const record = await CommerceController.fetchDrop(currentUserPubky, dropId).catch(() => null);
+          if (!isDurable) return { dropId, record, projection: { status: 'unavailable' } };
+          try {
+            const drop = await CommerceController.getOwnDrop(dropId);
+            return drop
+              ? { dropId, record, projection: { status: 'loaded', drop } }
+              : { dropId, record, projection: { status: 'unregistered' } };
+          } catch (error) {
+            if (isMarketplaceSessionRequiredError(error))
+              return { dropId, record, projection: { status: 'session-unavailable' } };
+            if (hasHttpStatus(error, 404)) return { dropId, record, projection: { status: 'unregistered' } };
+            return { dropId, record, projection: { status: 'unavailable' } };
+          }
+        }),
+      );
+      loaded.sort((a, b) => Date.parse(b.record?.startsAt ?? '') - Date.parse(a.record?.startsAt ?? ''));
+      if (!active) return;
+      setRows(loaded);
+      setIsLoading(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [currentUserPubky, isDurable, refreshVersion]);
 
-  return { rows, isLoading, isDurable, refresh: load };
+  return { rows, isLoading, isDurable, refresh: async () => setRefreshVersion((previous) => previous + 1) };
 }
