@@ -115,4 +115,14 @@ describe('Marketplace drop mission control — visual regression', () => {
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-mission-control-cancelled-desktop');
   });
+
+  it('renders the ENDED closed state honestly at desktop viewport', async () => {
+    view.drop = { ...baseDrop, state: 'ended_closed', remaining: 2, paidQuantity: 98, buyerCount: 74 };
+
+    const screen = await renderForVRT(<DropMissionControl dropId="drop1" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-mission-control-closed-desktop');
+  });
 });
