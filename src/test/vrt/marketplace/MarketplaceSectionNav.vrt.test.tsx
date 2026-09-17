@@ -3,6 +3,8 @@ import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectio
 import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 
+const state = vi.hoisted(() => ({ activityCount: 2 }));
+
 vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/offers',
 }));
@@ -12,7 +14,7 @@ vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
 }));
 
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
-  useMarketplaceActivityUnread: () => 2,
+  useMarketplaceActivityUnread: () => state.activityCount,
 }));
 
 describe('Marketplace section navigation — visual regression', () => {
@@ -34,6 +36,17 @@ describe('Marketplace section navigation — visual regression', () => {
       { viewport: VRT_VIEWPORT_MOBILE },
     );
     await expect(expectVrtSurface('marketplace-section-nav')).toMatchScreenshot('section-nav-offers-mobile');
+  });
+
+  it('keeps Seller studio reachable with a two-digit activity badge at 1024px', async () => {
+    state.activityCount = 12;
+    await renderForVRT(
+      <div className="w-full p-6">
+        <MarketplaceSectionNav />
+      </div>,
+      { viewport: { width: 1024, height: 768 } },
+    );
+    await expect(expectVrtSurface('marketplace-section-nav')).toMatchScreenshot('section-nav-activity-12-1024');
   });
 
   it('rejects a missing production surface marker', () => {

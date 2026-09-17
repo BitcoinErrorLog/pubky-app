@@ -48,44 +48,49 @@ export function MarketplaceSectionNav() {
       aria-label="Marketplace sections"
       data-testid="marketplace-section-nav"
       data-surface="marketplace-section-nav"
-      className="flex w-full gap-2 overflow-x-auto border-b pb-2"
+      className="w-full overflow-x-auto border-b pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      {ITEMS.map(({ label, href, icon: Icon, badge, activePrefixes }) => {
-        const prefixes = activePrefixes ?? [href];
-        const active =
-          typeof pathname === 'string' &&
-          prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-        const count = badge === 'cart' ? cartCount : badge === 'activity' ? activityUnreadCount : 0;
-        return (
-          <Link
-            key={label}
-            href={href}
-            overrideDefaults
-            aria-current={active ? 'page' : undefined}
-            className={cn(
-              'relative inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors',
-              active
-                ? 'border-brand bg-brand/10 text-brand'
-                : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
-            )}
-          >
-            <Icon className="size-4" aria-hidden="true" />
-            {label}
-            {count > 0 && (
-              <Badge
-                data-testid={`marketplace-section-nav-${badge}-badge`}
-                aria-label={`${count} ${badge === 'cart' ? 'cart items' : 'unread activity'}`}
-                className="h-5 min-w-5 rounded-full bg-brand px-1.5 shadow-sm"
-                variant="secondary"
-              >
-                <Typography className={cn('font-semibold text-primary-foreground', count > 21 && 'text-xs')} size="xs">
-                  {count > 21 ? '21+' : count}
-                </Typography>
-              </Badge>
-            )}
-          </Link>
-        );
-      })}
+      <div className="flex min-w-max gap-2">
+        {ITEMS.map(({ label, href, icon: Icon, badge, activePrefixes }) => {
+          const prefixes = activePrefixes ?? [href];
+          const active =
+            typeof pathname === 'string' &&
+            prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+          const count = badge === 'cart' ? cartCount : badge === 'activity' ? activityUnreadCount : 0;
+          return (
+            <Link
+              key={label}
+              href={href}
+              overrideDefaults
+              aria-current={active ? 'page' : undefined}
+              className={cn(
+                'relative inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors',
+                active
+                  ? 'border-brand bg-brand/10 text-brand'
+                  : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+              )}
+            >
+              <Icon className="size-4" aria-hidden="true" />
+              {label}
+              {count > 0 && (
+                <Badge
+                  data-testid={`marketplace-section-nav-${badge}-badge`}
+                  aria-label={`${count} ${badge === 'cart' ? 'cart items' : 'unread activity'}`}
+                  className="h-5 min-w-5 rounded-full bg-brand px-1.5 shadow-sm"
+                  variant="secondary"
+                >
+                  <Typography
+                    className={cn('font-semibold text-primary-foreground', count > 21 && 'text-xs')}
+                    size="xs"
+                  >
+                    {count > 21 ? '21+' : count}
+                  </Typography>
+                </Badge>
+              )}
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }
