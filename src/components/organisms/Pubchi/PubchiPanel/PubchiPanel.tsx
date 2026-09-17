@@ -75,7 +75,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const clearConversation = usePubchiStore((state) => state.clearConversation);
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = useWatch({ control: form.control, name: QUERY_FORM_FIELDS.QUESTION }) ?? '';
-  const questionLength = Array.from(question).length;
+  const questionLength = question.length;
   const questionOverLimit = questionLength > PUBCHI_QUESTION_MAX_LENGTH;
   const postReference = parsePostReference(question);
   const [suggestionTarget, setSuggestionTarget] = useState<PubchiTarget | undefined>();

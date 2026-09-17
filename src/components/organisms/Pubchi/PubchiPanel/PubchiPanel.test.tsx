@@ -453,7 +453,7 @@ describe('PubchiPanel', () => {
     const view = render(<PubchiPanel open onOpenChange={() => {}} />);
     const question = screen.getByTestId('pubchi-question');
 
-    fireEvent.change(question, { target: { value: 'a'.repeat(501) } });
+    fireEvent.change(question, { target: { value: '😀'.repeat(251) } });
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(screen.getByTestId('pubchi-question-count')).toHaveClass('text-destructive');
@@ -462,7 +462,7 @@ describe('PubchiPanel', () => {
     );
     expect(screen.getByTestId('pubchi-ask')).toBeDisabled();
 
-    fireEvent.change(question, { target: { value: 'a'.repeat(500) } });
+    fireEvent.change(question, { target: { value: '😀'.repeat(250) } });
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(screen.getByTestId('pubchi-question-count')).not.toHaveClass('text-destructive');
