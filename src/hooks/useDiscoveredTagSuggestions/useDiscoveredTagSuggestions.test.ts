@@ -2,9 +2,11 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DiscoveredTagSuggestion } from '@/application/pubchi/pubchi.types';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
+import { toast } from '@/molecules/Toaster/toast';
 import { useDiscoveredTagSuggestions } from './useDiscoveredTagSuggestions';
 
 vi.mock('@/libs/pubchi/flags', () => ({ isPubchiEnabled: () => true }));
+vi.mock('@/molecules/Toaster/toast', () => ({ toast: vi.fn() }));
 
 vi.mock('@/controllers/pubchi/pubchi', () => ({
   PubchiController: {
@@ -130,5 +132,17 @@ describe('useDiscoveredTagSuggestions', () => {
     await pending;
 
     expect(result.current.suggestions).toEqual([]);
+  });
+
+  it('keeps the row and shows an error toast when revert finalization rejects', async () => {
+    vi.mocked(PubchiController.revertDiscoveredTagSuggestion).mockRejectedValueOnce(new Error('finalize failed'));
+    const { result } = renderHook(() => useDiscoveredTagSuggestions('owner-1', first.target.uri, true));
+    await waitFor(() => expect(result.current.suggestions).toHaveLength(1));
+
+    await act(async () => result.current.revert(first.applicationId));
+
+    expect(result.current.suggestions).toEqual([first]);
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith({ variant: 'error', description: 'Could not remove this tag. Try again.' });
   });
 });

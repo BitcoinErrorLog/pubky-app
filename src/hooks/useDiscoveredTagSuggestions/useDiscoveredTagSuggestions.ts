@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DiscoveredTagSuggestion } from '@/application/pubchi/pubchi.types';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
+import { toast } from '@/molecules/Toaster/toast';
 
 function invalidateGeneration(generation: { current: number }, token: number) {
   if (generation.current === token) generation.current = token + 1;
@@ -64,16 +65,24 @@ export function useDiscoveredTagSuggestions(
     if (!open || !owner || !targetUri) return;
     const token = generation.current;
     const isCurrent = () => generation.current === token;
-    const next = await PubchiController.reconcileDiscoveredTagSuggestion(targetUri, applicationId, isCurrent);
-    if (isCurrent() && next) update(next);
+    try {
+      const next = await PubchiController.reconcileDiscoveredTagSuggestion(targetUri, applicationId, isCurrent);
+      if (isCurrent() && next) update(next);
+    } catch {
+      if (isCurrent()) toast({ variant: 'error', description: 'Could not check this tag. Try again.' });
+    }
   };
 
   const revert = async (applicationId: string) => {
     if (!open || !owner || !targetUri) return;
     const token = generation.current;
     const isCurrent = () => generation.current === token;
-    const next = await PubchiController.revertDiscoveredTagSuggestion(targetUri, applicationId, isCurrent);
-    if (isCurrent() && next) update(next);
+    try {
+      const next = await PubchiController.revertDiscoveredTagSuggestion(targetUri, applicationId, isCurrent);
+      if (isCurrent() && next) update(next);
+    } catch {
+      if (isCurrent()) toast({ variant: 'error', description: 'Could not remove this tag. Try again.' });
+    }
   };
 
   return { suggestions, revert, reconcile };
