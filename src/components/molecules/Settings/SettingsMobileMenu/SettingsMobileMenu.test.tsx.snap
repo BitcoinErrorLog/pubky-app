@@ -178,6 +178,39 @@ exports[`SettingsMobileMenu - Snapshots > matches snapshot 1`] = `
         </svg>
       </button>
     </div>
+    <div
+      class="flex flex-1 justify-center border-b px-0 py-1.5 border-border"
+      data-testid="container"
+    >
+      <button
+        aria-label="Delivery addresses"
+        class="px-2.5 py-2"
+        data-slot="button"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-map-pin text-muted-foreground"
+          fill="none"
+          height="20"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="20"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"
+          />
+          <circle
+            cx="12"
+            cy="10"
+            r="3"
+          />
+        </svg>
+      </button>
+    </div>
   </div>
 </div>
 `;
