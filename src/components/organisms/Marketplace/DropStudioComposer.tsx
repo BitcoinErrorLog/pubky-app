@@ -111,7 +111,32 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
           A drop bundles up to {DROP_MAX_LISTINGS} of your published listings. Each one must be registered with the
           transaction service before launch — the service is what enforces the clock and the caps.
         </Typography>
-        {listings.length === 0 ? (
+        {studio.catalog === 'loading' ? (
+          <Card className="border-dashed py-4">
+            <CardContent className="flex items-center gap-2 px-5 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+              Loading your listings…
+            </CardContent>
+          </Card>
+        ) : studio.catalog === 'unavailable' ? (
+          <Card className="border-dashed py-4">
+            <CardContent className="flex flex-col gap-3 px-5">
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your catalog could not be loaded — retry.
+              </Typography>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="w-fit rounded-full"
+                onClick={studio.retryCatalog}
+              >
+                <RefreshCw className="mr-1.5 size-3.5" />
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
+        ) : listings.length === 0 ? (
           <Card className="border-dashed py-4">
             <CardContent className="flex flex-col gap-2 px-5">
               <Typography as="p" className="text-sm text-muted-foreground">
