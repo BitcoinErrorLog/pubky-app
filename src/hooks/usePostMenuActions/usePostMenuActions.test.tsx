@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { toast } from '@/molecules/Toaster/toast';
@@ -208,6 +208,30 @@ describe('usePostMenuActions', () => {
           uri: 'pubky://author123/pub/pubky.app/posts/post456',
         },
       },
+    });
+  });
+
+  it('shows summarization after bootstrap hydrates the store without mounting a Pubchi surface', async () => {
+    const { result } = renderHook(() =>
+      usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      usePubchiStore.getState().setPubchi(
+        {
+          bot: mockAuthorId,
+          displayName: 'Pubchi',
+          createdAt: 1,
+          backupConfirmedAt: 1,
+          verified: true,
+        },
+        mockCurrentUserId,
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.menuItems.some((entry) => entry.id === POST_MENU_ACTION_IDS.SUMMARIZE_WITH_PUBCHI)).toBe(true);
     });
   });
 
