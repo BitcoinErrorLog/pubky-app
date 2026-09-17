@@ -119,11 +119,11 @@ export function MarketplaceOrderActions({
   const pickup = usePickupOrderActions(order, reloadOrders);
   const [handoverOpen, setHandoverOpen] = useState(false);
   const [termsBlocked, setTermsBlocked] = useState(false);
-  // The unilateral exits (§A3): a post-payment terms change, or the bounded
-  // withdrawal window (first reveal stamped, no handover confirm yet).
-  const unilateralCancelOpen = Boolean(order.pickupTermsChanged) || Boolean(order.firstRevealedAt);
   const canReveal =
-    isBuyer && isPickup && order.receiptId !== null && !['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+    isBuyer &&
+    isPickup &&
+    order.receiptId !== null &&
+    !['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
 
   const submit = async () => {
     // Pickup cancellations keep the reason field but run the pickup-aware
@@ -136,20 +136,26 @@ export function MarketplaceOrderActions({
       if (outcome === 'cancelled') {
         toast({
           title: 'Order cancelled',
-          description:
-            'Cancelling moved no money. If you already paid, the refund is arranged with the seller and recorded as external evidence.',
         });
         setOpen(false);
       } else if (outcome === 'cancel_requested') {
         toast({
-          variant: 'warning',
-          description: 'Instant cancellation was not available; your cancellation request now awaits the seller.',
+          variant: 'info',
+          title: 'Cancellation requested',
         });
         setOpen(false);
       }
       return;
     }
-    if (await action.submit()) setOpen(false);
+    if (await action.submit()) {
+      if (actionType === 'cancel') {
+        toast({
+          variant: 'info',
+          title: 'Cancellation requested',
+        });
+      }
+      setOpen(false);
+    }
   };
 
   const confirmHandover = async () => {
@@ -276,17 +282,14 @@ export function MarketplaceOrderActions({
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="border-border bg-popover">
+        <DialogContent className="max-w-lg border-border bg-popover">
           <DialogHeader>
-            <DialogTitle>{actionTitle(actionType, isPickup)}</DialogTitle>
+            <DialogTitle>{actionTitle(actionType)}</DialogTitle>
           </DialogHeader>
-          {isPickup && actionType === 'cancel' && (
+          {actionType === 'cancel' && (
             <Typography as="p" className="text-sm text-muted-foreground">
-              This requests a cancellation — cancelling moves no money. If you already paid, the refund is arranged
-              with the seller and recorded as external evidence.{' '}
-              {unilateralCancelOpen
-                ? 'The seller changed the pickup terms after you paid, or you have seen the meeting point and the handover is not confirmed yet — so this completes immediately, with no seller approval needed, and it does not count against the seller.'
-                : 'It completes immediately only if the seller changes the pickup terms after you paid, or once you have seen the meeting point (before the handover is confirmed); otherwise the seller is asked to approve.'}
+              Cancelling moves no money. If you already paid, the refund is arranged with the seller and recorded as
+              external evidence. Cancellation requests may need seller approval before the order is cancelled.
             </Typography>
           )}
           {['cancel', 'return'].includes(actionType) && (
@@ -372,7 +375,11 @@ export function MarketplaceOrderActions({
             <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button className="rounded-full" onClick={submit} disabled={isPickup && actionType === 'cancel' && pickup.isActing}>
+            <Button
+              className="rounded-full"
+              onClick={submit}
+              disabled={isPickup && actionType === 'cancel' && pickup.isActing}
+            >
               Confirm
             </Button>
           </DialogFooter>
@@ -481,10 +488,10 @@ function externalRefundReferenceLabel(paymentMethod: MarketplaceOrder['paymentMe
   }
 }
 
-function actionTitle(action: MarketplaceOrderActionData['action'], isPickup = false): string {
+function actionTitle(action: MarketplaceOrderActionData['action']): string {
   switch (action) {
     case 'cancel':
-      return isPickup ? 'Cancel this pickup order' : 'Request cancellation';
+      return 'Cancel order';
     case 'ship':
       return 'Add shipment tracking';
     case 'return':

@@ -17,7 +17,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOwnMarketplaceReview: vi.fn(async () => null),
     commitMarkReady: vi.fn(async () => ({ ok: true })),
     commitConfirmPickup: vi.fn(async () => ({ ok: true })),
-    executeMarketplaceCommand: vi.fn(async () => ({ ok: true, result: { kind: 'order', order: { state: 'cancelled' } } })),
+    executeMarketplaceCommand: vi.fn(async () => ({
+      ok: true,
+      result: { kind: 'order', order: { state: 'cancelled' } },
+    })),
     fetchPickupReveal: vi.fn(async () => {
       throw new Error('not under test here');
     }),
@@ -275,7 +278,12 @@ describe('MarketplaceOrderActions refund reference labels', () => {
   ] as const)('uses the %s rail label', async (paymentMethod, label) => {
     const order = createOrderFixture('return_received', { paymentMethod });
     render(
-      <MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={vi.fn(async () => true)} />,
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
     );
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Record external refund' }));
@@ -291,8 +299,12 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
 
   beforeEach(() => {
     mockedController.commitMarkReady.mockClear().mockResolvedValue({ ok: true } as never);
-    mockedController.commitConfirmPickup.mockClear().mockImplementation(async () => pickupControllerState.confirmResponse as never);
-    mockedController.executeMarketplaceCommand.mockClear().mockImplementation(async () => pickupControllerState.cancelResponse as never);
+    mockedController.commitConfirmPickup
+      .mockClear()
+      .mockImplementation(async () => pickupControllerState.confirmResponse as never);
+    mockedController.executeMarketplaceCommand
+      .mockClear()
+      .mockImplementation(async () => pickupControllerState.cancelResponse as never);
     pickupControllerState.confirmResponse = { ok: true };
     pickupControllerState.cancelResponse = { ok: true, result: { kind: 'order', order: { state: 'cancelled' } } };
   });
@@ -341,7 +353,12 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
   it('keeps the packing-slip affordance on shipped orders', () => {
     const order = createOrderFixture('paid', { fulfillment: 'shipping' });
     render(
-      <MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={vi.fn(async () => true)} />,
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
     );
     expect(screen.getByRole('button', { name: 'Packing slip' })).toBeInTheDocument();
   });
@@ -426,12 +443,9 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     renderPickupActions({ state: 'paid', isBuyer: true, overrides: { pickupTermsChanged: true } });
 
     await user.click(screen.getByRole('button', { name: 'Cancel order' }));
-    expect(screen.getByText('Cancel this pickup order')).toBeInTheDocument();
-    // Framed as a REQUEST that completes immediately only under the §A3
-    // conditions — the service can still degrade to cancel_requested.
-    expect(screen.getByText(/This requests a cancellation — cancelling moves no money/)).toBeInTheDocument();
-    // The projection flagged a terms change: the immediate-exit copy (§A3).
-    expect(screen.getByText(/this completes immediately, with no seller approval needed/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Cancel order' })).toBeInTheDocument();
+    expect(screen.getByText(/Cancelling moves no money/)).toBeInTheDocument();
+    expect(screen.getByTestId('dialog-content')).toHaveClass('max-w-lg');
 
     await user.type(screen.getByLabelText('Reason'), 'The new spot is unreachable for me');
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -441,6 +455,8 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
         expect.objectContaining({ kind: 'order.cancel_request' }),
       );
     });
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(toast).toHaveBeenCalledWith({ title: 'Order cancelled' });
   });
 
   it('asks for seller approval on the pickup cancel dialog while no unilateral exit is open', async () => {
@@ -448,14 +464,22 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     renderPickupActions({ state: 'paid', isBuyer: true });
 
     await user.click(screen.getByRole('button', { name: 'Cancel order' }));
-    expect(screen.getByText(/This requests a cancellation — cancelling moves no money/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/It completes immediately only if the seller changes the pickup terms after you paid/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/otherwise the seller is asked to approve/)).toBeInTheDocument();
+    expect(screen.getByText(/Cancelling moves no money/)).toBeInTheDocument();
   });
 
-  it('renders the degraded cancel_requested outcome honestly (the lost race, §7.2)', async () => {
+  it('confirms a cancelled pickup order with the completed-cancellation toast', async () => {
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const user = userEvent.setup();
+    renderPickupActions({ state: 'paid', isBuyer: true });
+
+    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
+    await user.type(screen.getByLabelText('Reason'), 'The spot does not work for me');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith({ title: 'Order cancelled' }));
+  });
+
+  it('reports a cancel_requested pickup outcome as a cancellation request', async () => {
     pickupControllerState.cancelResponse = {
       ok: true,
       result: { kind: 'order', order: { state: 'cancel_requested' } },
@@ -468,13 +492,35 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     await user.type(screen.getByLabelText('Reason'), 'The spot does not work for me');
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
 
-    await waitFor(() => {
-      expect(toast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          variant: 'warning',
-          description: 'Instant cancellation was not available; your cancellation request now awaits the seller.',
-        }),
-      );
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith({
+        variant: 'info',
+        title: 'Cancellation requested',
+      }),
+    );
+  });
+
+  it('uses the shared compact cancellation dialog and request toast for shipping orders', async () => {
+    const order = createOrderFixture('pending_payment', { fulfillment: 'shipping' });
+    const actOnOrder = vi.fn(async () => true);
+    const user = userEvent.setup();
+    render(<MarketplaceOrderActions order={order} isBuyer canEditReview={false} actOnOrder={actOnOrder} />);
+
+    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
+    expect(screen.getByRole('heading', { name: 'Cancel order' })).toBeInTheDocument();
+    expect(screen.getByText(/Cancelling moves no money/)).toBeInTheDocument();
+    expect(screen.getByTestId('dialog-content')).toHaveClass('max-w-lg');
+
+    await user.type(screen.getByLabelText('Reason'), 'No longer needed');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    await waitFor(() =>
+      expect(actOnOrder).toHaveBeenCalledWith(order, 'order.cancel_request', { reason: 'No longer needed' }),
+    );
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'info',
+      title: 'Cancellation requested',
     });
   });
 });

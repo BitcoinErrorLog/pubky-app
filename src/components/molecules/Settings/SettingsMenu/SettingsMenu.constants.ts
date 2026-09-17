@@ -1,5 +1,5 @@
-import { Bell, CircleHelp, MegaphoneOff, Shield, UserRound } from 'lucide-react';
-import { SETTINGS_ROUTES } from '@/app/routes';
+import { Bell, CircleHelp, MapPin, MegaphoneOff, Shield, UserRound } from 'lucide-react';
+import { MARKETPLACE_ROUTES, SETTINGS_ROUTES } from '@/app/routes';
 import type { SettingsMenuItem } from './SettingsMenu.types';
 
 export const SETTINGS_MENU_ITEMS: SettingsMenuItem[] = [
@@ -32,5 +32,12 @@ export const SETTINGS_MENU_ITEMS: SettingsMenuItem[] = [
     id: 'help',
     label: 'Help',
     path: SETTINGS_ROUTES.HELP,
+  },
+  {
+    icon: MapPin,
+    id: 'deliveryAddresses',
+    label: 'Delivery addresses',
+    path: MARKETPLACE_ROUTES.SETTINGS_ADDRESSES,
+    activePrefix: MARKETPLACE_ROUTES.SETTINGS,
   },
 ];

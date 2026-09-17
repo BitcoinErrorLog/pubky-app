@@ -21,6 +21,10 @@ describe('SettingsMenu', () => {
     expect(screen.getByText('Privacy & Safety')).toBeInTheDocument();
     expect(screen.getByText('Muted Users')).toBeInTheDocument();
     expect(screen.getByText('Help')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Delivery addresses/i })).toHaveAttribute(
+      'href',
+      '/marketplace/settings/addresses',
+    );
   });
 });
 

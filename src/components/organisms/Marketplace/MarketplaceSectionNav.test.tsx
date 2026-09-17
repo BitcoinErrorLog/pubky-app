@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceSectionNav } from './MarketplaceSectionNav';
 
-const state = vi.hoisted(() => ({ pathname: '/marketplace/offers' as string | null }));
+const state = vi.hoisted(() => ({ pathname: '/marketplace/offers' as string | null, activityCount: 22 }));
 
 vi.mock('next/navigation', () => ({
   usePathname: () => state.pathname,
@@ -13,12 +13,13 @@ vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
 }));
 
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
-  useMarketplaceActivityUnread: () => 22,
+  useMarketplaceActivityUnread: () => state.activityCount,
 }));
 
 describe('MarketplaceSectionNav', () => {
   beforeEach(() => {
     state.pathname = '/marketplace/offers';
+    state.activityCount = 22;
   });
 
   it('highlights the active section and wires both badges', () => {
@@ -43,5 +44,16 @@ describe('MarketplaceSectionNav', () => {
 
     expect(screen.getAllByRole('link')).toHaveLength(7);
     expect(screen.getAllByRole('link').every((link) => !link.hasAttribute('aria-current'))).toBe(true);
+  });
+
+  it('keeps the last item reachable when activity badges widen the row', () => {
+    state.activityCount = 12;
+    render(<MarketplaceSectionNav />);
+
+    const nav = screen.getByTestId('marketplace-section-nav');
+    expect(nav).toHaveClass('overflow-x-auto');
+    expect(nav.firstElementChild).toHaveClass('min-w-max');
+    expect(screen.getByRole('link', { name: 'Seller studio' })).toHaveClass('shrink-0');
+    expect(screen.getByTestId('marketplace-section-nav-activity-badge')).toHaveTextContent('12');
   });
 });
