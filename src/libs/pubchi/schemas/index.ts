@@ -143,6 +143,7 @@ export {
   type VerifySignedRequestInput,
   verifySignedRequestObjectV1,
 } from './request';
+export { type AppSnapshotSource, type AppSnapshotTarget,projectTargetSnapshot } from './snapshot';
 export { parsePubchiTagApplication, type PubchiTagApplication, PubchiTagApplicationSchema } from './tag-application';
 export {
   type OwnerBindingV1,

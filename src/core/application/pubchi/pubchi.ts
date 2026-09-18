@@ -63,6 +63,7 @@ import {
   parsePubchiOwnerContextV1,
   parsePubchiTagApplication,
   parseQueryResultV1,
+  projectTargetSnapshot,
   type PubchiBotV1,
   type PubchiConfigV1,
   type PubchiOwnerContextV1,
@@ -1003,22 +1004,7 @@ export class PubchiApplication {
       if (!source || Array.isArray(source) || typeof source !== 'object')
         throw new TypeError('Target is not an object');
       const value = source as Record<string, unknown>;
-      const projection =
-        binding.target.kind === 'post'
-          ? {
-              kind: 'post',
-              uri: binding.target.uri,
-              author: /^pubky:\/\/([^/]+)\//.exec(binding.target.uri)?.[1] ?? '',
-              content: typeof value.content === 'string' ? value.content : '',
-              post_kind: typeof value.kind === 'string' ? value.kind : '',
-            }
-          : {
-              kind: 'user',
-              uri: binding.target.uri,
-              pubky: /^pubky:\/\/([^/]+)\//.exec(binding.target.uri)?.[1] ?? '',
-              name: typeof value.name === 'string' ? value.name : '',
-              bio: typeof value.bio === 'string' ? value.bio : null,
-            };
+      const projection = projectTargetSnapshot(binding.target, value);
       if ((await sha256Hex(canonicalJson(projection))) !== expected) throw new TypeError('Target digest changed');
     } catch (cause) {
       if (cause instanceof AppError && !hasHttpStatus(cause, HttpStatusCode.NOT_FOUND)) throw cause;
