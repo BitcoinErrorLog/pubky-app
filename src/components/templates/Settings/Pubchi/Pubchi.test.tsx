@@ -1,9 +1,30 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PUBCHI_SETTINGS_SURFACE, PubchiSettings, saveBrain } from './Pubchi';
 
+const dialogState = vi.hoisted(() => ({
+  approvalResult: undefined as boolean | undefined,
+}));
+
 vi.mock('@/organisms/RingApprovalDialog/RingApprovalDialog', () => ({
-  RingApprovalDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="ring-approval-dialog" /> : null),
+  RingApprovalDialog: ({
+    open,
+    onApproved,
+  }: {
+    open: boolean;
+    onApproved: (session: never) => Promise<boolean>;
+  }) =>
+    open ? (
+      <button
+        type="button"
+        data-testid="ring-approval-dialog"
+        onClick={() => {
+          void onApproved({} as never).then((result) => {
+            dialogState.approvalResult = result;
+          });
+        }}
+      />
+    ) : null,
 }));
 
 const hookState = vi.hoisted(() => ({
@@ -79,6 +100,7 @@ vi.mock('@/organisms/Pubchi/PubchiPreferencesForm/PubchiPreferencesForm', () => 
 
 describe('PubchiSettings', () => {
   beforeEach(() => {
+    dialogState.approvalResult = undefined;
     hookState.needsReapproval = false;
     hookState.reapprove.mockReset();
     hookState.revokeDevice.mockReset();
@@ -145,6 +167,21 @@ describe('PubchiSettings', () => {
     expect(screen.getAllByTestId('ring-approval-dialog')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Re-approve in Ring' }));
     expect(screen.getAllByTestId('ring-approval-dialog')).toHaveLength(1);
+  });
+
+  it.each([
+    ['success', true],
+    ['failure', false],
+  ] as const)('passes the Ring adoption %s result to the dialog', async (_outcome, result) => {
+    hookState.needsReapproval = true;
+    hookState.reapprove.mockResolvedValue(result);
+
+    render(<PubchiSettings />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Re-approve' }));
+    fireEvent.click(screen.getByTestId('ring-approval-dialog'));
+
+    await waitFor(() => expect(dialogState.approvalResult).toBe(result));
   });
 
   it('keeps the default public web context disabled on the first brain save', async () => {

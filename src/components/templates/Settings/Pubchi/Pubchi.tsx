@@ -271,7 +271,7 @@ export function PubchiSettings() {
         open={approvalOpen}
         onOpenChange={setApprovalOpen}
         onApproved={async (session) => {
-          await reapprove(session);
+          return await reapprove(session);
         }}
       />
     </div>
