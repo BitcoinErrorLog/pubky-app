@@ -39,6 +39,7 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
     CommerceController: {
       ...actual.CommerceController,
       getMarketplaceOrder: vi.fn(async () => ({ state: 'cancelled' })),
+      getManyListings: vi.fn(async () => new Map()),
     },
   };
 });
