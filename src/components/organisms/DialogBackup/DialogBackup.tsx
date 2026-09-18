@@ -69,7 +69,7 @@ export function DialogBackup({ open, onOpenChange }: DialogBackupProps = {}) {
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-sm p-6 md:max-w-xl md:p-8" hiddenTitle={'Back up your pubky'}>
+      <DialogContent className="max-w-sm p-6 md:max-w-xl md:p-8" hiddenTitle={'Back up your pubky'} centered>
         <DialogHeader>
           <DialogTitle id="backup-dialog-title" className="text-xl md:text-2xl">
             {'Back up your pubky'}

@@ -117,7 +117,11 @@ export function DialogRestoreEncryptedFile({ onRestore }: { onRestore: () => voi
           <span>{'Use encrypted file'}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-full gap-6 overflow-hidden p-8" hiddenTitle={'Restore with encrypted file'}>
+      <DialogContent
+        className="max-w-full gap-6 overflow-hidden p-8"
+        hiddenTitle={'Restore with encrypted file'}
+        centered
+      >
         <DialogHeader className="space-y-1.5 pr-6">
           <DialogTitle className="text-2xl leading-8 font-bold sm:text-xl sm:leading-7">
             {'Restore with encrypted file'}

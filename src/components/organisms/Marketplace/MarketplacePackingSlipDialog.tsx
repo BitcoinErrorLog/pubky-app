@@ -67,7 +67,7 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
         <Printer className="size-4" />
       </Button>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-2xl border-border bg-popover">
+        <DialogContent className="max-w-2xl border-border bg-popover" centered>
           <DialogHeader>
             <DialogTitle>Packing slip</DialogTitle>
           </DialogHeader>
