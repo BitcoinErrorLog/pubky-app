@@ -82,7 +82,7 @@ export function DialogAddLink({ onSave, disabled = false }: DialogAddLinkProps) 
           <span>{'Add link'}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent avoidKeyboard className="w-xl max-w-xl" hiddenTitle={'Add link'}>
+      <DialogContent avoidKeyboard className="w-xl max-w-xl" hiddenTitle={'Add link'} centered>
         <DialogHeader className="pr-6">
           <DialogTitle>{'Add link'}</DialogTitle>
         </DialogHeader>

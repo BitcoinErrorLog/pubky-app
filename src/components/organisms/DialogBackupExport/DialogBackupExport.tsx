@@ -69,7 +69,7 @@ export function DialogBackupExport({ mnemonic, children }: DialogBackupExportPro
           <Button>Continue</Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-md" hiddenTitle={dialogTitle}>
+      <DialogContent className="max-w-md" hiddenTitle={dialogTitle} centered>
         {/* Desktop version - hidden on mobile, shown on desktop */}
         <div className="hidden flex-col gap-6 lg:flex">
           <DialogHeader>

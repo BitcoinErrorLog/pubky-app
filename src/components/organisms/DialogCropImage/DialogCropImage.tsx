@@ -82,6 +82,7 @@ export function DialogCropImage({ open, imageSrc, fileName, fileType, onClose, o
         className="max-w-xl gap-6 rounded-2xl border-border bg-popover p-8 sm:p-6"
         showCloseButton={false}
         hiddenTitle="Cropped Image"
+        centered
       >
         <DialogHeader className="gap-1">
           <DialogTitle className="text-2xl sm:text-xl">Cropped Image</DialogTitle>

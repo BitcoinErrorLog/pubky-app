@@ -30,6 +30,7 @@ export function EmojiPickerDialog({
         className="max-w-sm overflow-hidden p-0 outline-none sm:p-0"
         showCloseButton={false}
         hiddenTitle="Emoji Picker"
+        centered
         // The dialog is portaled to <body>, but React synthetic events still
         // bubble up the React tree — so an emoji click would otherwise reach a
         // clickable/linked ancestor (e.g. a collection card's `Link`) and

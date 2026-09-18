@@ -54,7 +54,7 @@ export function DialogBackupPhrase({ children }: DialogBackupPhraseProps) {
           <Button id="backup-recovery-phrase-btn">{'Continue'}</Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-sm md:max-w-2xl" hiddenTitle={'Backup recovery phrase'}>
+      <DialogContent className="max-w-sm md:max-w-2xl" hiddenTitle={'Backup recovery phrase'} centered>
         {step === 1 && (
           <RecoveryStep1
             recoveryWords={recoveryWords}
