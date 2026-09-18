@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
 import { MarketplaceCart } from './MarketplaceCart';
 
@@ -261,7 +262,7 @@ describe('MarketplaceCart', () => {
       expect(screen.getByRole('note')).toHaveTextContent(
         'Real money. Payments are final and go directly to the seller.',
       );
-      expect(screen.getByText(/Your delivery address is sent with your order/)).toBeInTheDocument();
+      expect(screen.getByText(MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE)).toBeInTheDocument();
     },
   );
 
@@ -293,7 +294,7 @@ describe('MarketplaceCart', () => {
 
     render(<MarketplaceCart />);
 
-    expect(screen.getAllByText(/Your delivery address is sent with your order/)).toHaveLength(1);
+    expect(screen.getAllByText(MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE)).toHaveLength(1);
     expect(screen.queryByText(/not sent/)).not.toBeInTheDocument();
   });
 

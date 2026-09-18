@@ -112,6 +112,8 @@ const view = vi.hoisted(() => ({
   hasMarketplaceSession: false,
   addresses: [] as unknown[],
   selectedAddressId: null as string | null,
+  fulfillmentEffective: {} as Record<string, 'shipping' | 'pickup'>,
+  requiresDeliveryAddress: true,
 }));
 
 // Two saved delivery addresses for the picker baseline (device-local rows;
@@ -224,9 +226,9 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       selectAddress: vi.fn(),
       // The fixture listings ship only, so no fulfillment choice renders.
       fulfillmentOptionsForSeller: () => ['shipping' as const],
-      fulfillmentForSeller: () => 'shipping' as const,
+      fulfillmentForSeller: (sellerPubky: string) => view.fulfillmentEffective[sellerPubky] ?? 'shipping',
       setFulfillmentChoice: vi.fn(),
-      requiresDeliveryAddress: true,
+      requiresDeliveryAddress: view.requiresDeliveryAddress,
       hasFulfillmentConflict: false,
       orderCount: 1,
     }),
@@ -257,6 +259,8 @@ beforeEach(async () => {
   view.addresses = [];
   view.offers = [];
   view.selectedAddressId = null;
+  view.fulfillmentEffective = {};
+  view.requiresDeliveryAddress = true;
   view.isLoading = false;
 });
 

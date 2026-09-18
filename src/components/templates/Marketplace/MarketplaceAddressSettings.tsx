@@ -14,6 +14,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import {
   bareDeliveryAddressId,
   useMarketplaceAddressBook,
@@ -94,9 +95,7 @@ export function MarketplaceAddressSettings() {
               Delivery addresses
             </Heading>
             <Typography as="p" className="mt-2 max-w-xl text-muted-foreground">
-              Your delivery address is sent with your order and shown only to the seller of that order. Encrypting it to
-              the seller&apos;s key is scheduled. The order&apos;s seller can see the address on the packing slip only
-              while a shipping order is paid or processing.
+              {MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE}
             </Typography>
           </div>
           {editingId === null && (

@@ -15,6 +15,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMode } from '@/config/commerce';
+import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import {
   type MarketplaceCartGroup,
   marketplaceCartShippingTotals,
@@ -390,8 +391,7 @@ export function MarketplaceCart() {
                     </div>
                   )}
                   <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-                    Your delivery address is sent with your order and shown only to the seller of that order. Encrypting
-                    it to the seller&apos;s key is scheduled.
+                    {MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE}
                   </Typography>
                   <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
                   <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />

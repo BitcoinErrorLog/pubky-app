@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import { MarketplaceAddressSettings } from './MarketplaceAddressSettings';
 
 const routerPush = vi.hoisted(() => vi.fn());
@@ -33,12 +34,7 @@ describe('MarketplaceAddressSettings', () => {
   it('uses the checkout disclosure and limits packing-slip access to eligible shipping orders', () => {
     render(<MarketplaceAddressSettings />);
 
-    expect(
-      screen.getByText(
-        /Your delivery address is sent with your order and shown only to the seller of that order. Encrypting it to the seller's key is scheduled./,
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/packing slip only while a shipping order is paid or processing/)).toBeInTheDocument();
+    expect(screen.getByText(MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE)).toBeInTheDocument();
     expect(screen.getByText('Saved address book on this device')).toBeInTheDocument();
     expect(screen.queryByText('Private to this device')).not.toBeInTheDocument();
   });
