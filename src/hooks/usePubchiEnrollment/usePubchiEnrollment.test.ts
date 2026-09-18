@@ -1,12 +1,12 @@
-import type { Session } from '@synonymdev/pubky';
 import { createElement } from 'react';
+import type { Session } from '@synonymdev/pubky';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
 import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import type { OwnerBindingV1, PubchiConfigV1 } from '@/libs/pubchi/schemas';
+import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { usePubchiEnrollment } from './usePubchiEnrollment';
 import { ENROLL_FORM_FIELDS } from './usePubchiEnrollment.types';

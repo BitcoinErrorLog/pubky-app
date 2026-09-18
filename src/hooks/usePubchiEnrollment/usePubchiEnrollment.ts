@@ -19,7 +19,6 @@ import { readPendingDelegationDeletes } from '@/libs/pubchi/pending-delegation-d
 import type { OwnerBindingV1, PubchiConfigV1, PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 import { toast } from '@/molecules/Toaster/toast';
-import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import {
@@ -555,13 +554,7 @@ export function usePubchiEnrollment() {
             approvalCancelRef.current = null;
           }
         }
-      } catch (error) {
-        if (
-          approvalGenerationRef.current !== generation ||
-          (error instanceof Error && error.name === AUTH_FLOW_CANCELED_ERROR_NAME)
-        ) {
-          return false;
-        }
+      } catch {
         return false;
       } finally {
         if (approvalFlowRef.current === flow) approvalFlowRef.current = null;
