@@ -15,6 +15,16 @@ const view = vi.hoisted(() => ({
   publishedDropId: null as string | null,
 }));
 
+function installStableDatetimePlaceholderStyle() {
+  const styleId = 'marketplace-drop-studio-vrt-datetime';
+  document.getElementById(styleId)?.remove();
+  const style = document.createElement('style');
+  style.id = styleId;
+  style.textContent =
+    'input[type="datetime-local"][value=""]:not(:focus)::-webkit-datetime-edit { visibility: hidden; }';
+  document.head.appendChild(style);
+}
+
 // Media-less fixtures keep every capture network-free: the preview card and
 // listing rows render their gradient/text fallbacks byte-identically.
 const listingsFixture = vi.hoisted(() => [
@@ -144,7 +154,9 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.publishStatus = { record: 'idle', sync: 'idle' };
     view.publishedDropId = null;
 
+    installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    expect(screen.container.querySelectorAll('input[type="datetime-local"][value=""]')).toHaveLength(2);
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-blank-desktop');
   });
 
@@ -155,7 +167,9 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.publishStatus = { record: 'idle', sync: 'idle' };
     view.publishedDropId = null;
 
+    installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    expect(screen.container.querySelectorAll('input[type="datetime-local"][value=""]')).toHaveLength(2);
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-blank-mobile');
   });
 
@@ -166,6 +180,7 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.publishStatus = { record: 'idle', sync: 'idle' };
     view.publishedDropId = null;
 
+    installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-filled-desktop');
   });
@@ -177,6 +192,7 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.publishStatus = { record: 'ok', sync: 'failed' };
     view.publishedDropId = 'drop123';
 
+    installStableDatetimePlaceholderStyle();
     // Keep pointer events on: this scene must open the native <details> so the
     // two-truth rows and retry control are in frame. disableHover would set
     // pointer-events:none on the VRT root and make the trigger click time out.
@@ -200,6 +216,7 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.publishErrors = ['title:Enter a title.', 'listingIds:Select at least one listing.'];
     view.publishedDropId = null;
 
+    installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect.element(screen.getByText('Required to publish')).toBeVisible();
     await expect.element(screen.getByRole('link', { name: 'Drop title' })).toBeVisible();
@@ -217,6 +234,7 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.catalog = 'loaded';
     view.projection = 'loaded';
 
+    installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByText('Numbered print — Genesis')).toBeVisible();
     Array.from(screen.container.querySelectorAll('span'))
@@ -230,6 +248,7 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.catalog = 'unavailable';
     view.projection = 'loaded';
 
+    installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByText('Your catalog could not be loaded — retry.')).toBeVisible();
     Array.from(screen.container.querySelectorAll('p'))
@@ -243,6 +262,7 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.catalog = 'loaded';
     view.projection = 'session-unavailable';
 
+    installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(screen.getByText('Approve purchases in Pubky Ring')).toBeVisible();
     Array.from(screen.container.querySelectorAll('h2'))
