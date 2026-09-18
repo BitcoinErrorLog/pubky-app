@@ -290,7 +290,7 @@ describe('Marketplace cart — visual regression', () => {
     const surface = document.querySelector('[data-surface="marketplace-cart"]');
     if (!(surface instanceof HTMLElement)) throw new Error('VRT geometry rejected: production cart surface is missing');
 
-    const labels = ['1 Approve in Pubky Ring', '2 Delivery address', 'Guarantee', '3 Place order'];
+    const labels = ['1 Approve in Pubky Ring', '2 Delivery address', '3 Place order', 'Guarantee'];
     const regions = labels.map((label) => {
       const region = surface.querySelector(`[aria-label="${label}"]`);
       if (!(region instanceof HTMLElement)) throw new Error(`VRT geometry rejected: missing ${label} region`);
