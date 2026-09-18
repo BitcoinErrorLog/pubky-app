@@ -14,6 +14,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import {
   bareDeliveryAddressId,
   useMarketplaceAddressBook,
@@ -89,13 +90,12 @@ export function MarketplaceAddressSettings() {
         </Link>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <Badge className="mb-4">Private to this device</Badge>
+            <Badge className="mb-4">Saved address book on this device</Badge>
             <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
               Delivery addresses
             </Heading>
             <Typography as="p" className="mt-2 max-w-xl text-muted-foreground">
-              Your delivery addresses are sent with your orders for the seller of each order only. Sellers cannot yet
-              read them in the Shop; the packing slip asks the seller to confirm the destination with you.
+              {MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE}
             </Typography>
           </div>
           {editingId === null && (

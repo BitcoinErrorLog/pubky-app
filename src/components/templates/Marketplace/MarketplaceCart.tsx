@@ -15,6 +15,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMode } from '@/config/commerce';
+import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import {
   type MarketplaceCartGroup,
   marketplaceCartShippingTotals,
@@ -390,8 +391,7 @@ export function MarketplaceCart() {
                     </div>
                   )}
                   <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-                    Your delivery address is sent with your order and shown only to the seller of that order. Encrypting
-                    it to the seller&apos;s key is scheduled.
+                    {MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE}
                   </Typography>
                   <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
                   <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
@@ -434,55 +434,7 @@ export function MarketplaceCart() {
                 data-testid="marketplace-cart-summary"
               >
                 <CardContent className="grid gap-6 px-6">
-                  <section className="grid gap-4" aria-label="Guarantee">
-                    <Heading level={2} size="sm" className="text-xl font-semibold">
-                      Guarantee
-                    </Heading>
-                    {!checkout.requiresDeliveryAddress && (
-                      <div className="rounded-xl border bg-card/60 p-4">
-                        <Typography as="p" className="text-sm font-medium">
-                          Local pickup
-                        </Typography>
-                        <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                          No delivery address is needed — every item in this cart is collected in person. The
-                          seller&apos;s meeting point is revealed on the order as soon as your payment confirms.
-                        </Typography>
-                      </div>
-                    )}
-                    <Controller
-                      name="acceptsGuarantee"
-                      control={checkout.form.control}
-                      render={({ field, fieldState }) => (
-                        <div className="grid gap-2">
-                          <Label className="items-start gap-3">
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              onBlur={field.onBlur}
-                              aria-invalid={fieldState.error ? true : undefined}
-                            />
-                            <span>
-                              {/* The guarantee copy must stay truthful per mode: only
-                            locks-paykit has live payment rails, and even there the
-                            marketplace never holds or moves funds itself. */}
-                              {isSandbox
-                                ? 'I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.'
-                                : isLocksPaykitCommerceMode(adapterMode)
-                                  ? 'I accept guarantee policy v1. This is not legal escrow — payment goes from your wallet directly to the seller, and this marketplace never holds funds.'
-                                  : 'I accept guarantee policy v1. This is not legal escrow, and no payment rails are live in this deployment — no real funds move.'}
-                            </span>
-                          </Label>
-                          {fieldState.error && (
-                            <Typography as="p" role="alert" className="text-sm text-destructive">
-                              {fieldState.error.message}
-                            </Typography>
-                          )}
-                        </div>
-                      )}
-                    />
-                  </section>
-
-                  <section className="grid gap-3 border-t pt-4" aria-label="3 Place order">
+                  <section className="grid gap-3" aria-label="3 Place order">
                     <Heading level={2} size="sm" className="text-xl font-semibold">
                       3 Place order
                     </Heading>
@@ -579,6 +531,50 @@ export function MarketplaceCart() {
                             : 'Fill in delivery details and accept the guarantee to place the order.'}
                       </Typography>
                     )}
+                  </section>
+                  <section className="grid gap-4 border-t pt-4" aria-label="Guarantee">
+                    <Heading level={2} size="sm" className="text-xl font-semibold">
+                      Guarantee
+                    </Heading>
+                    {!checkout.requiresDeliveryAddress && (
+                      <div className="rounded-xl border bg-card/60 p-4">
+                        <Typography as="p" className="text-sm font-medium">
+                          Local pickup
+                        </Typography>
+                        <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                          No delivery address is needed — every item in this cart is collected in person. The
+                          seller&apos;s meeting point is revealed on the order as soon as your payment confirms.
+                        </Typography>
+                      </div>
+                    )}
+                    <Controller
+                      name="acceptsGuarantee"
+                      control={checkout.form.control}
+                      render={({ field, fieldState }) => (
+                        <div className="grid gap-2">
+                          <Label className="items-start gap-3">
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              onBlur={field.onBlur}
+                              aria-invalid={fieldState.error ? true : undefined}
+                            />
+                            <span>
+                              {isSandbox
+                                ? 'I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.'
+                                : isLocksPaykitCommerceMode(adapterMode)
+                                  ? 'I accept guarantee policy v1. This is not legal escrow — payment goes from your wallet directly to the seller, and this marketplace never holds funds.'
+                                  : 'I accept guarantee policy v1. This is not legal escrow, and no payment rails are live in this deployment — no real funds move.'}
+                            </span>
+                          </Label>
+                          {fieldState.error && (
+                            <Typography as="p" role="alert" className="text-sm text-destructive">
+                              {fieldState.error.message}
+                            </Typography>
+                          )}
+                        </div>
+                      )}
+                    />
                   </section>
                 </CardContent>
               </Card>

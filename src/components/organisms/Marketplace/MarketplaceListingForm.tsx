@@ -39,6 +39,7 @@ import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { isListingMediaPublishReady } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMarketplaceShippingPresets } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets';
 import {
   presetToShippingFields,
@@ -216,9 +217,13 @@ export function MarketplaceListingForm({
           : pickerError === 'limit-reached'
             ? `Listings support up to ${maxPhotos} photos.`
             : null;
-  const sectionStatuses = getListingSectionStatuses(formValues, mediaItems.length);
-  const publishMinimumMet = isCreateMarketplaceListingPublishReady(formValues, mediaItems.length);
-  const remainingRequired = createMarketplaceListingPublishChecklist(formValues, mediaItems.length);
+  const photosReady = isListingMediaPublishReady(mediaItems);
+  const sectionStatuses = getListingSectionStatuses(formValues, mediaItems.length, photosReady);
+  const publishMinimumMet = isCreateMarketplaceListingPublishReady(formValues, mediaItems.length) && photosReady;
+  const remainingRequired = [
+    ...createMarketplaceListingPublishChecklist(formValues, mediaItems.length),
+    ...(mediaItems.length > 0 && !photosReady ? ['Photo descriptions'] : []),
+  ];
   const optionalLaterItems = getOptionalLaterItems(formValues);
   const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(LISTING_FORM_SECTIONS[0].id);
   const activeSectionIndex = LISTING_FORM_SECTIONS.findIndex((section) => section.id === activeSectionId);
@@ -923,6 +928,7 @@ function listingChecklistSection(item: string): ListingFormSectionId {
 function getListingSectionStatuses(
   values: CreateMarketplaceListingData,
   photoCount: number,
+  photosReady: boolean,
 ): Record<ListingFormSectionId, boolean> {
   const categoryResolved = Boolean(resolveCommerceCategory(values.categoryId));
   const priceValid = amountInputSchemaForAsset(assetForListingCurrency(values.currency)).safeParse(
@@ -949,11 +955,11 @@ function getListingSectionStatuses(
       values.packageHeight.trim().length > 0);
 
   return {
-    'listing-section-photos': photoCount > 0,
+    'listing-section-photos': photosReady,
     'listing-section-item': itemComplete,
     'listing-section-price': priceValid && variantsValid,
     'listing-section-shipping': shippingComplete,
-    'listing-section-review': isCreateMarketplaceListingPublishReady(values, photoCount),
+    'listing-section-review': isCreateMarketplaceListingPublishReady(values, photoCount) && photosReady,
   };
 }
 

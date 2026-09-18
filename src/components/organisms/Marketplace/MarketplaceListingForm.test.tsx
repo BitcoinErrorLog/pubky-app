@@ -312,6 +312,26 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     expect(screen.getByText('Required to publish').parentElement).toHaveTextContent('Description');
   });
 
+  it('uses photo descriptions in the photos badge and publish requirements', () => {
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+        }}
+        media={buildMedia([photoItem('one')])}
+      />,
+    );
+
+    expect(document.getElementById('listing-section-photos')).toHaveAttribute('data-section-complete', 'false');
+    expect(document.getElementById('listing-section-review')).toHaveAttribute('data-section-complete', 'false');
+    expect(screen.getByText('Required to publish').parentElement).toHaveTextContent('Photo descriptions');
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeDisabled();
+  });
+
   it('keeps physical listings unpublished until shipping fields are filled or pickup is chosen', () => {
     const first = render(
       <FormHarness

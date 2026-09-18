@@ -6,6 +6,8 @@ import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 
+const VRT_VIEWPORT_LAPTOP = { width: 1280, height: 800 };
+
 // Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
 // estimates render from this fixed value, never from the network.
 vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
@@ -110,6 +112,8 @@ const view = vi.hoisted(() => ({
   hasMarketplaceSession: false,
   addresses: [] as unknown[],
   selectedAddressId: null as string | null,
+  fulfillmentEffective: {} as Record<string, 'shipping' | 'pickup'>,
+  requiresDeliveryAddress: true,
 }));
 
 // Two saved delivery addresses for the picker baseline (device-local rows;
@@ -222,9 +226,9 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       selectAddress: vi.fn(),
       // The fixture listings ship only, so no fulfillment choice renders.
       fulfillmentOptionsForSeller: () => ['shipping' as const],
-      fulfillmentForSeller: () => 'shipping' as const,
+      fulfillmentForSeller: (sellerPubky: string) => view.fulfillmentEffective[sellerPubky] ?? 'shipping',
       setFulfillmentChoice: vi.fn(),
-      requiresDeliveryAddress: true,
+      requiresDeliveryAddress: view.requiresDeliveryAddress,
       hasFulfillmentConflict: false,
       orderCount: 1,
     }),
@@ -255,6 +259,8 @@ beforeEach(async () => {
   view.addresses = [];
   view.offers = [];
   view.selectedAddressId = null;
+  view.fulfillmentEffective = {};
+  view.requiresDeliveryAddress = true;
   view.isLoading = false;
 });
 
@@ -290,7 +296,7 @@ describe('Marketplace cart — visual regression', () => {
     const surface = document.querySelector('[data-surface="marketplace-cart"]');
     if (!(surface instanceof HTMLElement)) throw new Error('VRT geometry rejected: production cart surface is missing');
 
-    const labels = ['1 Approve in Pubky Ring', '2 Delivery address', 'Guarantee', '3 Place order'];
+    const labels = ['1 Approve in Pubky Ring', '2 Delivery address', '3 Place order', 'Guarantee'];
     const regions = labels.map((label) => {
       const region = surface.querySelector(`[aria-label="${label}"]`);
       if (!(region instanceof HTMLElement)) throw new Error(`VRT geometry rejected: missing ${label} region`);
@@ -338,6 +344,25 @@ describe('Marketplace cart — visual regression', () => {
 
     await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     expectDesktopSummaryGeometry(VRT_VIEWPORT_DESKTOP.height);
+  });
+
+  it('keeps total and Place order above the pickup guarantee at laptop width', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.fulfillmentEffective = { [singleSeller[0].listing.record.ownerPubky]: 'pickup' };
+    view.requiresDeliveryAddress = false;
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_LAPTOP });
+    await captureCart('cart-pickup-laptop-1280');
+    expectDesktopSummaryGeometry(VRT_VIEWPORT_LAPTOP.height);
+
+    const order = screen.container.querySelector('[aria-label="3 Place order"]');
+    const guarantee = screen.container.querySelector('[aria-label="Guarantee"]');
+    if (!(order instanceof HTMLElement) || !(guarantee instanceof HTMLElement)) {
+      throw new Error('VRT geometry rejected: order summary or guarantee is missing');
+    }
+    expect(order.getBoundingClientRect().bottom).toBeLessThanOrEqual(guarantee.getBoundingClientRect().top);
   });
 
   it('rejects the old row-coupled desktop summary geometry', async () => {
