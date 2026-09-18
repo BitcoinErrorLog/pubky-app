@@ -67,6 +67,7 @@ const enrollment = {
   }>,
   currentSigner: THIS_SIGNER as string | undefined,
   loading: false,
+  enrollmentLoaded: true,
   enabled: true,
 };
 
