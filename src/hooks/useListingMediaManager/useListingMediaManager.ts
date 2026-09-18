@@ -28,6 +28,10 @@ export type PrepareListingMediaResult =
   | { ok: true; media: ListingMediaRecord[]; uploads: Array<{ record: ListingMediaRecord; bytes: Uint8Array }> }
   | { ok: false; reason: 'no-photos' | 'missing-alt-text' | 'decode-failed' };
 
+export function isListingMediaPublishReady(items: ListingMediaItem[]): boolean {
+  return items.length > 0 && items.every((item) => item.altText.trim().length > 0);
+}
+
 export interface UseListingMediaManagerResult {
   items: ListingMediaItem[];
   maxPhotos: number;
@@ -172,7 +176,7 @@ export function useListingMediaManager(maxSize = IMAGE_MAX_RAW_SIZE): UseListing
   const prepare = async (ownerPubky: string): Promise<PrepareListingMediaResult> => {
     const current = itemsRef.current;
     if (current.length === 0) return { ok: false, reason: 'no-photos' };
-    if (current.some((item) => item.altText.trim().length === 0)) {
+    if (!isListingMediaPublishReady(current)) {
       return { ok: false, reason: 'missing-alt-text' };
     }
 

@@ -6,6 +6,8 @@ import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 
+const VRT_VIEWPORT_LAPTOP = { width: 1280, height: 800 };
+
 // Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
 // estimates render from this fixed value, never from the network.
 vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
@@ -338,6 +340,25 @@ describe('Marketplace cart — visual regression', () => {
 
     await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     expectDesktopSummaryGeometry(VRT_VIEWPORT_DESKTOP.height);
+  });
+
+  it('keeps total and Place order above the pickup guarantee at laptop width', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.fulfillmentEffective = { [singleSeller[0].listing.record.ownerPubky]: 'pickup' };
+    view.requiresDeliveryAddress = false;
+
+    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_LAPTOP });
+    await captureCart('cart-pickup-laptop-1280');
+    expectDesktopSummaryGeometry(VRT_VIEWPORT_LAPTOP.height);
+
+    const order = screen.container.querySelector('[aria-label="3 Place order"]');
+    const guarantee = screen.container.querySelector('[aria-label="Guarantee"]');
+    if (!(order instanceof HTMLElement) || !(guarantee instanceof HTMLElement)) {
+      throw new Error('VRT geometry rejected: order summary or guarantee is missing');
+    }
+    expect(order.getBoundingClientRect().bottom).toBeLessThanOrEqual(guarantee.getBoundingClientRect().top);
   });
 
   it('rejects the old row-coupled desktop summary geometry', async () => {

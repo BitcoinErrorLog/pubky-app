@@ -39,6 +39,7 @@ import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { isListingMediaPublishReady } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMarketplaceShippingPresets } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets';
 import {
   presetToShippingFields,
@@ -216,7 +217,7 @@ export function MarketplaceListingForm({
           : pickerError === 'limit-reached'
             ? `Listings support up to ${maxPhotos} photos.`
             : null;
-  const photosReady = mediaItems.length > 0 && mediaItems.every((item) => item.altText.trim().length > 0);
+  const photosReady = isListingMediaPublishReady(mediaItems);
   const sectionStatuses = getListingSectionStatuses(formValues, mediaItems.length, photosReady);
   const publishMinimumMet = isCreateMarketplaceListingPublishReady(formValues, mediaItems.length) && photosReady;
   const remainingRequired = [
