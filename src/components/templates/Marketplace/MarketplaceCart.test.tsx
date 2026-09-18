@@ -396,7 +396,7 @@ describe('MarketplaceCart', () => {
               label === 'Guarantee' ||
               label === '3 Place order',
           ),
-      ).toEqual(['1 Approve in Pubky Ring', '2 Delivery address', 'Guarantee', '3 Place order']);
+      ).toEqual(['1 Approve in Pubky Ring', '2 Delivery address', '3 Place order', 'Guarantee']);
     });
   });
 
@@ -623,7 +623,7 @@ describe('MarketplaceCart local pickup (Wave 7, §A2)', () => {
         .getAllByRole('region')
         .map((region) => region.getAttribute('aria-label'))
         .filter((label) => label === '1 Approve in Pubky Ring' || label === 'Guarantee' || label === '3 Place order'),
-    ).toEqual(['1 Approve in Pubky Ring', 'Guarantee', '3 Place order']);
+    ).toEqual(['1 Approve in Pubky Ring', '3 Place order', 'Guarantee']);
   });
 
   it('states the (seller, fulfillment) split plainly before submit', () => {
