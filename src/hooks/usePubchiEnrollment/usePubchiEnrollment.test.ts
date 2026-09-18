@@ -975,6 +975,27 @@ describe('usePubchiEnrollment', () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
+  it('leaves failed Ring adoption feedback to the approval dialog', async () => {
+    const session = { info: { publicKey: { z32: () => OWNER } } };
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: Promise.resolve(session),
+      cancelAuthFlow: vi.fn(),
+    });
+    mocks.adopt.mockRejectedValue(new Error('adoption failed'));
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(() => usePubchiEnrollment());
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalled());
+
+    await act(async () => {
+      await expect(result.current.reapprove()).resolves.toBe(false);
+    });
+
+    expect(mocks.adopt).toHaveBeenCalledWith(session);
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
   it('clears degraded state after re-approving with Pubchi coverage', async () => {
     const session = { info: { publicKey: { z32: () => OWNER } } };
     const cancel = vi.fn();

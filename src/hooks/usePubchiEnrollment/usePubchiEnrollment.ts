@@ -562,8 +562,6 @@ export function usePubchiEnrollment() {
         ) {
           return false;
         }
-        const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
-        toast({ variant: 'error', title: message, dismissButton: true });
         return false;
       } finally {
         if (approvalFlowRef.current === flow) approvalFlowRef.current = null;

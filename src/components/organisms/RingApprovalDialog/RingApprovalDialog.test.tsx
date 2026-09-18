@@ -162,6 +162,12 @@ describe('RingApprovalDialog', () => {
 
     expect(await screen.findByText(/Could not apply the Ring approval/)).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      title: 'Could not apply Ring approval',
+      dismissButton: true,
+    });
   });
 
   it('shows timeout copy when Ring approval expires', async () => {
