@@ -1,5 +1,8 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import type { Session } from '@synonymdev/pubky';
+import { createElement } from 'react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RingApprovalDialog } from '@/organisms/RingApprovalDialog/RingApprovalDialog';
 import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -920,6 +923,69 @@ describe('usePubchiEnrollment', () => {
     expect(openSpy).toHaveBeenCalledWith('pubkyauth://cap', '_blank', 'noopener,noreferrer');
     expect(mocks.adopt).toHaveBeenCalledWith(session);
     expect(cancel).toHaveBeenCalled();
+  });
+
+  it('adopts a resolved dialog approval through the real enrollment hook', async () => {
+    let resolveApproval!: (session: Session) => void;
+    let reapproval!: Promise<boolean>;
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: new Promise<Session>((resolve) => {
+        resolveApproval = resolve;
+      }),
+      cancelAuthFlow: vi.fn(),
+    });
+    mocks.adopt.mockResolvedValue(undefined);
+
+    function ApprovalDialogWithEnrollment() {
+      const { reapprove } = usePubchiEnrollment();
+      return createElement(RingApprovalDialog, {
+        open: true,
+        onOpenChange: vi.fn(),
+        onApproved: (session) => {
+            reapproval = reapprove(session);
+            return reapproval;
+        },
+      });
+    }
+
+    render(createElement(ApprovalDialogWithEnrollment));
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Authorize with Pubky Ring' })).toBeInTheDocument());
+
+    const session = { info: { publicKey: { z32: () => OWNER } } } as Session;
+    act(() => {
+      resolveApproval(session);
+    });
+
+    await waitFor(() => expect(reapproval).toBeDefined());
+    await expect(reapproval).resolves.toBe(true);
+    expect(mocks.adopt).toHaveBeenCalledTimes(1);
+    expect(mocks.adopt).toHaveBeenCalledWith(session);
+  });
+
+  it('discards a cancelled dialog approval through the real enrollment hook', async () => {
+    let resolveApproval!: (session: Session) => void;
+    mocks.reconcile.mockResolvedValue(undefined);
+    mocks.getUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyauth://cap',
+      awaitApproval: new Promise<Session>((resolve) => {
+        resolveApproval = resolve;
+      }),
+      cancelAuthFlow: vi.fn(),
+    });
+
+    function ApprovalDialogWithEnrollment() {
+      const { reapprove } = usePubchiEnrollment();
+      return createElement(RingApprovalDialog, { open: true, onOpenChange: vi.fn(), onApproved: reapprove });
+    }
+
+    render(createElement(ApprovalDialogWithEnrollment));
+    await waitFor(() => expect(screen.getByTestId('pubchi-reapprove-cancel')).toBeInTheDocument());
+    screen.getByTestId('pubchi-reapprove-cancel').click();
+    resolveApproval({ info: { publicKey: { z32: () => OWNER } } } as Session);
+
+    await waitFor(() => expect(mocks.adopt).not.toHaveBeenCalled());
   });
 
   it('shares one in-flight approval when reapprove is called twice', async () => {

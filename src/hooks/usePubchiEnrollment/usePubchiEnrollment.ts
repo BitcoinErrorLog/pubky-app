@@ -514,7 +514,7 @@ export function usePubchiEnrollment() {
     const generation = approvalGenerationRef.current;
     const ownerAtStart = readCurrentOwner(owner);
     let flow!: Promise<boolean>;
-    flow = (async (): Promise<boolean> => {
+    flow = Promise.resolve().then(async (): Promise<boolean> => {
       try {
         const { authorizationUrl, awaitApproval, cancelAuthFlow } = approvedSession
           ? { authorizationUrl: '', awaitApproval: Promise.resolve(approvedSession), cancelAuthFlow: () => {} }
@@ -566,7 +566,7 @@ export function usePubchiEnrollment() {
       } finally {
         if (approvalFlowRef.current === flow) approvalFlowRef.current = null;
       }
-    })();
+    });
     approvalFlowRef.current = flow;
     return flow;
   };
