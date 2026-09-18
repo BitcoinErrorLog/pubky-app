@@ -19,7 +19,6 @@ import { readPendingDelegationDeletes } from '@/libs/pubchi/pending-delegation-d
 import type { OwnerBindingV1, PubchiConfigV1, PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
 import { toast } from '@/molecules/Toaster/toast';
-import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import {
@@ -72,8 +71,7 @@ export function usePubchiEnrollment() {
 
   useEffect(() => {
     return () => {
-      approvalCancelRef.current?.();
-      approvalCancelRef.current = null;
+      cancelReapproval();
       backupController.clear();
       if (phraseTimerRef.current) clearTimeout(phraseTimerRef.current);
     };
@@ -513,20 +511,32 @@ export function usePubchiEnrollment() {
   const reapprove = async (approvedSession?: Session): Promise<boolean> => {
     if (approvalFlowRef.current) return approvalFlowRef.current;
     const generation = approvalGenerationRef.current;
+    const ownerAtStart = readCurrentOwner(owner);
     let flow!: Promise<boolean>;
-    flow = (async (): Promise<boolean> => {
+    flow = Promise.resolve().then(async (): Promise<boolean> => {
       try {
         const { authorizationUrl, awaitApproval, cancelAuthFlow } = approvedSession
           ? { authorizationUrl: '', awaitApproval: Promise.resolve(approvedSession), cancelAuthFlow: () => {} }
           : await PubchiController.getCapabilityApprovalUrl();
+        const isCurrentApproval = () =>
+          approvalGenerationRef.current === generation &&
+          approvalFlowRef.current === flow &&
+          readCurrentOwner(ownerAtStart) === ownerAtStart;
+        if (!isCurrentApproval()) {
+          cancelAuthFlow();
+          return false;
+        }
         approvalCancelRef.current = cancelAuthFlow;
         if (authorizationUrl) window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
         try {
           const approved = await awaitApproval;
-          if (approvalGenerationRef.current !== generation || approvalFlowRef.current !== flow) return false;
+          if (!isCurrentApproval()) return false;
           await PubchiController.adoptCapabilityApproval(approved);
+          if (!isCurrentApproval()) return false;
           await PubchiController.ensureDeviceReady();
+          if (!isCurrentApproval()) return false;
           setDevices(await PubchiController.listDeviceKeys());
+          if (!isCurrentApproval()) return false;
           setPendingRevocations(owner ? readPendingDelegationDeletes(owner).map((item) => item.signer) : []);
           setDeviceListingHadFailures(
             typeof PubchiController.hadDeviceListingFailures === 'function' &&
@@ -534,6 +544,7 @@ export function usePubchiEnrollment() {
           );
           if (owner) {
             const key = await getCurrentDeviceKey(owner);
+            if (!isCurrentApproval()) return false;
             setCurrentSigner(key?.signer);
           }
           return true;
@@ -543,20 +554,12 @@ export function usePubchiEnrollment() {
             approvalCancelRef.current = null;
           }
         }
-      } catch (error) {
-        if (
-          approvalGenerationRef.current !== generation ||
-          (error instanceof Error && error.name === AUTH_FLOW_CANCELED_ERROR_NAME)
-        ) {
-          return false;
-        }
-        const message = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
-        toast({ variant: 'error', title: message, dismissButton: true });
+      } catch {
         return false;
       } finally {
         if (approvalFlowRef.current === flow) approvalFlowRef.current = null;
       }
-    })();
+    });
     approvalFlowRef.current = flow;
     return flow;
   };
