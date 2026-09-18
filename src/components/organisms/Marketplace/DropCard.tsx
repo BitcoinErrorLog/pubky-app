@@ -54,9 +54,6 @@ export function DropCard({ entry, bucket }: { entry: NexusDropStreamEntry; bucke
             compact
           />
         )}
-        <Typography as="p" className="text-xs text-muted-foreground">
-          Open the drop page to confirm its current state before claiming.
-        </Typography>
       </div>
     </Link>
   );
