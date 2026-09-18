@@ -72,8 +72,7 @@ export function usePubchiEnrollment() {
 
   useEffect(() => {
     return () => {
-      approvalCancelRef.current?.();
-      approvalCancelRef.current = null;
+      cancelReapproval();
       backupController.clear();
       if (phraseTimerRef.current) clearTimeout(phraseTimerRef.current);
     };
@@ -513,20 +512,32 @@ export function usePubchiEnrollment() {
   const reapprove = async (approvedSession?: Session): Promise<boolean> => {
     if (approvalFlowRef.current) return approvalFlowRef.current;
     const generation = approvalGenerationRef.current;
+    const ownerAtStart = readCurrentOwner(owner);
     let flow!: Promise<boolean>;
     flow = (async (): Promise<boolean> => {
       try {
         const { authorizationUrl, awaitApproval, cancelAuthFlow } = approvedSession
           ? { authorizationUrl: '', awaitApproval: Promise.resolve(approvedSession), cancelAuthFlow: () => {} }
           : await PubchiController.getCapabilityApprovalUrl();
+        const isCurrentApproval = () =>
+          approvalGenerationRef.current === generation &&
+          approvalFlowRef.current === flow &&
+          readCurrentOwner(ownerAtStart) === ownerAtStart;
+        if (!isCurrentApproval()) {
+          cancelAuthFlow();
+          return false;
+        }
         approvalCancelRef.current = cancelAuthFlow;
         if (authorizationUrl) window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
         try {
           const approved = await awaitApproval;
-          if (approvalGenerationRef.current !== generation || approvalFlowRef.current !== flow) return false;
+          if (!isCurrentApproval()) return false;
           await PubchiController.adoptCapabilityApproval(approved);
+          if (!isCurrentApproval()) return false;
           await PubchiController.ensureDeviceReady();
+          if (!isCurrentApproval()) return false;
           setDevices(await PubchiController.listDeviceKeys());
+          if (!isCurrentApproval()) return false;
           setPendingRevocations(owner ? readPendingDelegationDeletes(owner).map((item) => item.signer) : []);
           setDeviceListingHadFailures(
             typeof PubchiController.hadDeviceListingFailures === 'function' &&
@@ -534,6 +545,7 @@ export function usePubchiEnrollment() {
           );
           if (owner) {
             const key = await getCurrentDeviceKey(owner);
+            if (!isCurrentApproval()) return false;
             setCurrentSigner(key?.signer);
           }
           return true;

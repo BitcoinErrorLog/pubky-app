@@ -15,6 +15,7 @@ import { BalancedQrCard } from '@/molecules/BalancedQrCard/BalancedQrCard';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/toast';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 export const PUBCHI_RING_CAPABILITIES = APP_SIGNIN_CAPABILITIES;
 
@@ -39,8 +40,10 @@ export function RingApprovalDialog({
   const [expired, setExpired] = useState(false);
   const [adoptionError, setAdoptionError] = useState(false);
   const approvalRef = useRef<TGenerateAuthUrlResult | undefined>(undefined);
+  const approvalGenerationRef = useRef(0);
 
   const cancel = () => {
+    approvalGenerationRef.current += 1;
     approvalRef.current?.cancelAuthFlow();
     onOpenChangeRef.current(false);
   };
@@ -52,7 +55,12 @@ export function RingApprovalDialog({
 
   useEffect(() => {
     if (!open) return;
-    let active = true;
+    const generation = ++approvalGenerationRef.current;
+    const ownerAtStart = useAuthStore.getState().currentUserPubky;
+    let adopted = false;
+    const isCurrentApproval = () =>
+      approvalGenerationRef.current === generation &&
+      useAuthStore.getState().currentUserPubky === ownerAtStart;
     approvalRef.current = undefined;
     setLoading(true);
     setExpired(false);
@@ -61,41 +69,42 @@ export function RingApprovalDialog({
     void PubchiController.getCapabilityApprovalUrl(capabilities)
       .then((nextApproval) => {
         approvalRef.current = nextApproval;
-        if (!active) {
+        if (!isCurrentApproval()) {
           nextApproval.cancelAuthFlow();
           return;
         }
         setApproval(nextApproval);
         nextApproval.awaitApproval
           .then(async (session) => {
-            if (!active) return;
+            if (!isCurrentApproval() || adopted) return;
+            adopted = true;
             try {
               const result = await onApprovedRef.current(session);
               if (result === false) throw new Error('Ring approval adoption failed');
-              if (!active) return;
+              if (!isCurrentApproval()) return;
               toast({ variant: 'default', title: 'Ring approval applied', dismissButton: true });
               onOpenChangeRef.current(false);
             } catch {
-              if (!active) return;
+              if (!isCurrentApproval()) return;
               setAdoptionError(true);
               toast({ variant: 'error', title: 'Could not apply Ring approval', dismissButton: true });
             }
           })
           .catch(() => {
-            setExpired(true);
+            if (isCurrentApproval()) setExpired(true);
           })
           .finally(() => {
-            setLoading(false);
+            if (isCurrentApproval()) setLoading(false);
           });
       })
       .catch(() => {
-        if (active) {
+        if (isCurrentApproval()) {
           setExpired(true);
           setLoading(false);
         }
       });
     return () => {
-      active = false;
+      if (approvalGenerationRef.current === generation) approvalGenerationRef.current += 1;
       approvalRef.current?.cancelAuthFlow();
       approvalRef.current = undefined;
     };

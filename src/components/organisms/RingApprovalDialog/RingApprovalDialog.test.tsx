@@ -124,19 +124,25 @@ describe('RingApprovalDialog', () => {
 
   it('cancels the active flow when explicitly cancelled', async () => {
     const cancelAuthFlow = vi.fn();
+    let resolveApproval!: (session: Session) => void;
     vi.mocked(PubchiController.getCapabilityApprovalUrl).mockResolvedValue({
       authorizationUrl: 'pubkyauth://approve?token=cancel',
-      awaitApproval: new Promise<Session>(() => {}),
+      awaitApproval: new Promise<Session>((resolve) => {
+        resolveApproval = resolve;
+      }),
       cancelAuthFlow,
     });
+    const onApproved = vi.fn();
     const onOpenChange = vi.fn();
-    render(<RingApprovalDialog open onOpenChange={onOpenChange} onApproved={vi.fn()} />);
+    render(<RingApprovalDialog open onOpenChange={onOpenChange} onApproved={onApproved} />);
 
     await waitFor(() => expect(screen.getByTestId('pubchi-reapprove-cancel')).toBeInTheDocument());
     screen.getByTestId('pubchi-reapprove-cancel').click();
+    resolveApproval(asOpaque<Session>({ pubky: 'owner' }));
 
     expect(cancelAuthFlow).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(onApproved).not.toHaveBeenCalled());
   });
 
   it('keeps the dialog open and shows adoption errors', async () => {
