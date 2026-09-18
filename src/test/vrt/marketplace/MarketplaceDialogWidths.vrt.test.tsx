@@ -28,6 +28,19 @@ function DialogWidthFixture({ title, className }: { title: string; className: st
 
 describe('Marketplace dialog widths — visual regression', () => {
   for (const [name, title, className] of dialogFixtures) {
+    it(`measures the ${name} dialog panel at 1280×800`, async () => {
+      const screen = await renderForVRT(<DialogWidthFixture title={title} className={className} />, {
+        viewport: { width: 1280, height: 800 },
+      });
+      const panel = document.querySelector<HTMLElement>('[data-testid="dialog-content"]');
+      if (!panel) throw new Error('dialog panel missing');
+      const rect = panel.getBoundingClientRect();
+      const expectedX = (window.innerWidth - rect.width) / 2;
+      const deltaPx = Math.abs(rect.x - expectedX);
+      console.log(`DIALOG_MEASURE ${name} viewport=${window.innerWidth}x${window.innerHeight} x=${rect.x} width=${rect.width} expectedX=${expectedX} deltaPx=${deltaPx}`);
+      expect(deltaPx).toBeLessThanOrEqual(2);
+    });
+
     it(`renders the ${name} dialog centered at 1280px`, async () => {
       const screen = await renderForVRT(<DialogWidthFixture title={title} className={className} />, {
         viewport: { width: 1280, height: 900 },
