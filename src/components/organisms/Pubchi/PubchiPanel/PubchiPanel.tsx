@@ -142,6 +142,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     if (result?.kind !== 'feed-v2') return;
     if (consumedFeedResultRef.current === result) return;
     consumedFeedResultRef.current = result;
+    if (result.result.mode === 'create') setEditFeed(undefined);
     PubchiController.openFeedBuilder(result.result);
     onOpenChange(false);
     PubchiController.closeFlyout();
@@ -185,6 +186,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     return submit(purpose, requestOptions);
   };
   const openFeedBuilder = () => {
+    setEditFeed(undefined);
     const initialQuestion = question.trim();
     const owner = currentUserPubky ?? 'a'.repeat(52);
     PubchiController.openFeedBuilder({
@@ -365,10 +367,10 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                     type="button"
                     variant="secondary"
                     data-testid="pubchi-suggest-tags"
-                    disabled={actionsDisabled || !suggestionTarget}
+                    disabled={actionsDisabled || suggestionTarget?.kind !== 'post'}
                     onClick={() => {
                       const target = suggestionTarget;
-                      if (!target) return;
+                      if (!target || target.kind !== 'post') return;
                       form.setValue(QUERY_FORM_FIELDS.QUESTION, `Suggest tags for this ${target.kind}`, {
                         shouldValidate: true,
                       });
@@ -384,9 +386,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
                   type="button"
                   variant="secondary"
                   data-testid="pubchi-suggest-tags"
-                  disabled={actionsDisabled}
+                  disabled
+                  aria-disabled="true"
                   onClick={() => {
                     const target = suggestionTarget;
+                    if (target.kind !== 'post') return;
                     form.setValue(QUERY_FORM_FIELDS.QUESTION, 'Suggest tags for this user', { shouldValidate: true });
                     void submitQuestion('ask', { target });
                   }}

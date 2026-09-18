@@ -267,14 +267,15 @@ describe('PubchiPanel', () => {
     expect(screen.getByTestId(`pubchi-tag-already-applied-${superseded}`)).toBeInTheDocument();
   });
 
-  it('submits the canonical user target supplied by the profile route', () => {
+  it('does not suggest tags for a user target', () => {
     const target = { kind: 'user' as const, uri: 'pubky://owner/pub/pubky.app/profile.json' };
     const prefill = { question: 'Suggest tags for this user', source: 'chip' as const, target };
     watchedQuestion.value = prefill.question;
     PubchiController.openFlyout(prefill);
     render(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(screen.getByTestId('pubchi-suggest-tags')).toBeDisabled();
     fireEvent.click(screen.getByTestId('pubchi-suggest-tags'));
-    expect(submit).toHaveBeenCalledWith('ask', { target });
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('drops a consumed target when the question changes or the flyout closes', async () => {
@@ -435,6 +436,41 @@ describe('PubchiPanel', () => {
     fireEvent.click(screen.getByTestId('pubchi-ask'));
     await vi.waitFor(() => expect(builderProps.current?.existingFeed).toBeUndefined());
     expect(submit).toHaveBeenCalledWith('ask', undefined);
+  });
+
+  it('clears an edited feed before opening a create proposal', async () => {
+    const feed = { id: 'feed-a', name: 'Feed A' };
+    getFeed.mockResolvedValue(feed);
+    PubchiController.openFlyout({
+      question: 'Update feed A',
+      feedId: 'feed-a',
+      source: 'chip',
+    });
+    const updateProposal = {
+      schema: 'pubchi-feed-proposal',
+      version: 2,
+      bot: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+      owner: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
+      generated_at: 1,
+      mode: 'update',
+      target_feed_id: 'feed-a',
+      feed: { name: 'Feed A', icon: '', feed: { reach: 'all', sort: 'recent', layout: 'columns' } },
+      mapping: { status: 'exact', unmapped: [] },
+      warnings: [],
+      installed_user_feed_id: 'feed-a',
+    };
+    hookState.result = { kind: 'feed-v2', applyAllowed: false, result: updateProposal } as PubchiQuerySuccess;
+    const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+    await vi.waitFor(() => expect(builderProps.current?.existingFeed).toBe(feed));
+    fireEvent.click(screen.getByText('Close feed builder'));
+
+    hookState.result = {
+      kind: 'feed-v2',
+      applyAllowed: false,
+      result: { ...updateProposal, mode: 'create', target_feed_id: null, installed_user_feed_id: null },
+    } as PubchiQuerySuccess;
+    view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
+    await vi.waitFor(() => expect(builderProps.current?.existingFeed).toBeUndefined());
   });
 
   it('mounts the production panel surface', () => {
