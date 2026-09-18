@@ -73,7 +73,7 @@ vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async
               kind: 'new',
               file: new File(['x'], 'one.jpg', { type: 'image/jpeg' }),
               previewUrl: 'blob:one',
-              altText: '',
+              altText: 'Vintage leather boot',
             },
           ],
           maxPhotos: 8,

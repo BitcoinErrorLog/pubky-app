@@ -139,22 +139,26 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
-vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', () => ({
-  useListingMediaManager: () => ({
-    items: view.mediaItems,
-    maxPhotos: 8,
-    error: null,
-    inputRef: { current: null },
-    onInputChange: vi.fn(),
-    choose: vi.fn(),
-    removeItem: vi.fn(),
-    moveItem: vi.fn(),
-    setAltText: vi.fn(),
-    seed: vi.fn(),
-    reset: vi.fn(),
-    prepare: vi.fn(async () => ({ ok: false as const, reason: 'no-photos' as const })),
-  }),
-}));
+vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useListingMediaManager/useListingMediaManager')>();
+  return {
+    ...actual,
+    useListingMediaManager: () => ({
+      items: view.mediaItems,
+      maxPhotos: 8,
+      error: null,
+      inputRef: { current: null },
+      onInputChange: vi.fn(),
+      choose: vi.fn(),
+      removeItem: vi.fn(),
+      moveItem: vi.fn(),
+      setAltText: vi.fn(),
+      seed: vi.fn(),
+      reset: vi.fn(),
+      prepare: vi.fn(async () => ({ ok: false as const, reason: 'no-photos' as const })),
+    }),
+  };
+});
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
