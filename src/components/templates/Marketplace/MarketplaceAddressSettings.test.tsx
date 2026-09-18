@@ -30,14 +30,17 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('MarketplaceAddressSettings', () => {
-  it('explains that sellers cannot yet read addresses in the Shop', () => {
+  it('uses the checkout disclosure and limits packing-slip access to eligible shipping orders', () => {
     render(<MarketplaceAddressSettings />);
 
     expect(
       screen.getByText(
-        'Your delivery addresses are sent with your orders for the seller of each order only. Sellers cannot yet read them in the Shop; the packing slip asks the seller to confirm the destination with you.',
+        /Your delivery address is sent with your order and shown only to the seller of that order. Encrypting it to the seller's key is scheduled./,
       ),
     ).toBeInTheDocument();
+    expect(screen.getByText(/packing slip only while a shipping order is paid or processing/)).toBeInTheDocument();
+    expect(screen.getByText('Saved address book on this device')).toBeInTheDocument();
+    expect(screen.queryByText('Private to this device')).not.toBeInTheDocument();
   });
 
   it('returns to the originating drop after saving a new address', async () => {

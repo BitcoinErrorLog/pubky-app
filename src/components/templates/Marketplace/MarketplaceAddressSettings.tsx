@@ -89,13 +89,14 @@ export function MarketplaceAddressSettings() {
         </Link>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <Badge className="mb-4">Private to this device</Badge>
+            <Badge className="mb-4">Saved address book on this device</Badge>
             <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
               Delivery addresses
             </Heading>
             <Typography as="p" className="mt-2 max-w-xl text-muted-foreground">
-              Your delivery addresses are sent with your orders for the seller of each order only. Sellers cannot yet
-              read them in the Shop; the packing slip asks the seller to confirm the destination with you.
+              Your delivery address is sent with your order and shown only to the seller of that order. Encrypting it to
+              the seller&apos;s key is scheduled. The order&apos;s seller can see the address on the packing slip only
+              while a shipping order is paid or processing.
             </Typography>
           </div>
           {editingId === null && (
