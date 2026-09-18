@@ -125,7 +125,9 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
     await user.click(screen.getByRole('button', { name: 'Publish listing' }));
 
     await vi.waitFor(() => {
-      expect(routerPush).toHaveBeenCalledWith(`${getMarketplaceListingEditRoute('seller', 'boots_01')}#listing-section-shipping`);
+      expect(routerPush).toHaveBeenCalledWith(
+        `${getMarketplaceListingEditRoute('seller', 'boots_01')}#listing-section-shipping`,
+      );
     });
   });
 });
