@@ -13,7 +13,7 @@ export const PubchiTagApplicationSchema = z
     owner: zPubky,
     bot: zPubky,
     run_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-    target: PubchiTargetSchema.extend({ snapshot_sha256: z.string().regex(SHA256_HEX_RE) }).strict(),
+    target: PubchiTargetSchema.extend({ snapshot_sha256: z.string().regex(SHA256_HEX_RE) }).passthrough(),
     label: z.string().min(1).max(80),
     source: z.enum(['vocab', 'open']),
     evidence: z

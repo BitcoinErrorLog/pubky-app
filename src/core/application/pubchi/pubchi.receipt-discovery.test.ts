@@ -212,7 +212,11 @@ describe('Pubchi durable tag receipt discovery', () => {
       taggerId: owner,
     };
     const tagUrl = TagNormalizer.from(params).tagUrl;
-    let stored = receipt(id, { tag_uri: tagUrl, ext: { another_writer: true } });
+    let stored = receipt(id, {
+      target: { kind: 'post', uri: targetUri, snapshot_sha256: 'c'.repeat(64), another_writer: true },
+      tag_uri: tagUrl,
+      ext: { another_writer: true },
+    });
     vi.spyOn(HomeserverService, 'requestRawText').mockImplementation(async (url) => {
       if (url === receiptUrl(id)) return JSON.stringify(stored);
       return JSON.stringify({ uri: targetUri, label: 'label-a', created_at: 1 });
@@ -231,7 +235,11 @@ describe('Pubchi durable tag receipt discovery', () => {
     expect(materialize).toHaveBeenCalledWith(params);
     expect(remove).toHaveBeenCalledWith(params);
     expect(TagNormalizer.from(remove.mock.calls[0]![0]).tagUrl).toBe(tagUrl);
-    expect(stored).toMatchObject({ status: 'reverted', ext: { another_writer: true } });
+    expect(stored).toMatchObject({
+      status: 'reverted',
+      target: { another_writer: true },
+      ext: { another_writer: true },
+    });
   });
 
   it.each([
