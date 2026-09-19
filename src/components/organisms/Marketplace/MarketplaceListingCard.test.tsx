@@ -122,6 +122,10 @@ describe('MarketplaceListingCard', () => {
   });
 
   it('shows the live current bid and bid count once the transaction service answered with bids', () => {
+    liveBid.bid = {
+      currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 },
+      bidCount: 4,
+    };
     render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
 
     expect(screen.getByText('Current bid')).toBeInTheDocument();
@@ -145,6 +149,10 @@ describe('MarketplaceListingCard', () => {
   });
 
   it('never shows live bid state on fixed-price listings even if a bid value leaks in', () => {
+    liveBid.bid = {
+      currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 },
+      bidCount: 2,
+    };
     render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
 
     expect(screen.getByText('$125.00')).toBeInTheDocument();

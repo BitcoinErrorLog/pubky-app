@@ -53,9 +53,13 @@ function registerAuctionCommand() {
         startsAt: NOW.toISOString(),
         endsAt: new Date(NOW.getTime() + 10 * 60 * 1_000).toISOString(),
         minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
-        reservePrice: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
         antiSnipingWindowSeconds: 60,
         antiSnipingExtensionSeconds: 120,
+      },
+      auctionReserve: {
+        expectedRecordRevision: 0,
+        recordRevision: 1,
+        reservePrice: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
       },
     },
   });
@@ -681,7 +685,6 @@ describe('MarketplaceTransactionService', () => {
           auction: {
             currentPrice: { amountMinor: 4_500 },
             leaderPubky: BUYER,
-            reserveMet: false,
             bidCount: 1,
           },
         },
@@ -696,7 +699,6 @@ describe('MarketplaceTransactionService', () => {
           auction: {
             currentPrice: { amountMinor: 8_500 },
             leaderPubky: BUYER,
-            reserveMet: true,
             bidCount: 2,
           },
         },
