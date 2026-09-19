@@ -16,17 +16,56 @@ import {
   PUBKY_REDACTED,
   PUBKY_URI_PATTERN,
   RAW_PUBKY_PATTERN,
+  SENTRY_LIMIT_REDACTED,
+  SENTRY_REDACTION_MAX_DEPTH,
+  SENTRY_REDACTION_MAX_NODES,
+  SENTRY_REDACTION_MAX_STRING_LENGTH,
   SENSITIVE_CONTEXT_KEYS,
   SENSITIVE_VALUE_REDACTED,
 } from './sentry.constants';
 
-function normalizeContextKey(key: string): string {
-  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+type NormalizedContextKey = {
+  containsNonAscii: boolean;
+  value: string;
+};
+
+function isZeroWidthCodePoint(codePoint: number): boolean {
+  return (
+    codePoint === 0x200b || codePoint === 0x200c || codePoint === 0x200d || codePoint === 0x2060 || codePoint === 0xfeff
+  );
+}
+
+function normalizeContextKey(key: string): NormalizedContextKey {
+  let containsNonAscii = false;
+  let value = '';
+
+  for (const character of key.normalize('NFKC').normalize('NFD')) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint === undefined || isZeroWidthCodePoint(codePoint) || /\p{Mark}/u.test(character)) {
+      continue;
+    }
+    if (codePoint > 0x7f) {
+      containsNonAscii = true;
+      continue;
+    }
+    const lowerCodePoint = codePoint >= 0x41 && codePoint <= 0x5a ? codePoint + 0x20 : codePoint;
+    if ((lowerCodePoint >= 0x61 && lowerCodePoint <= 0x7a) || (lowerCodePoint >= 0x30 && lowerCodePoint <= 0x39)) {
+      value += String.fromCodePoint(lowerCodePoint);
+    }
+  }
+
+  return { containsNonAscii, value };
 }
 
 function isSensitiveContextKey(key: string): boolean {
+  if (key.length > SENTRY_REDACTION_MAX_STRING_LENGTH) return true;
+
   const normalizedKey = normalizeContextKey(key);
-  return SENSITIVE_CONTEXT_KEYS.has(normalizedKey) || PUBKY_IDENTIFIER_KEYS.has(normalizedKey);
+  return (
+    normalizedKey.containsNonAscii ||
+    SENSITIVE_CONTEXT_KEYS.has(normalizedKey.value) ||
+    PUBKY_IDENTIFIER_KEYS.has(normalizedKey.value)
+  );
 }
 
 function isPlainObject(value: object): value is Record<string, unknown> {
@@ -34,7 +73,9 @@ function isPlainObject(value: object): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-function scrubSensitiveString(value: string): string {
+function scrubSensitiveStringPatterns(value: string): string {
+  if (value.length > SENTRY_REDACTION_MAX_STRING_LENGTH) return SENTRY_LIMIT_REDACTED;
+
   const scrubbed = value
     .replace(PUBKY_URI_PATTERN, PUBKY_REDACTED)
     .replace(PUBKY_HTTP_HOST_PATTERN, PUBKY_REDACTED)
@@ -43,13 +84,7 @@ function scrubSensitiveString(value: string): string {
     .replace(EMAIL_PATTERN, EMAIL_REDACTED)
     .replace(PHONE_PATTERN, PHONE_REDACTED);
 
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed === null || typeof parsed !== 'object') return scrubbed;
-    return JSON.stringify(sanitizeForSentry(parsed));
-  } catch {
-    return scrubbed;
-  }
+  return scrubbed;
 }
 
 function getEndpointPath(endpoint: unknown): string | null {
@@ -91,19 +126,70 @@ export function shouldDropAppErrorFromSentry(error: AppError): boolean {
 }
 
 function isSensitiveFieldValue(parent: Record<string, unknown>, key: string): boolean {
-  if (normalizeContextKey(key) !== 'value') return false;
+  if (normalizeContextKey(key).value !== 'value') return false;
   if (typeof parent.field !== 'string') return false;
   return isSensitiveContextKey(parent.field);
 }
 
 type SanitizationState = {
   active: WeakSet<object>;
+  nodes: number;
   sanitized: WeakMap<object, unknown>;
 };
 
-function sanitizeRecursively(value: unknown, state: SanitizationState): unknown {
+class SentrySanitizationError extends Error {}
+
+function readEnumerableKeys(value: Record<string, unknown>): string[] {
+  try {
+    return Object.keys(value);
+  } catch {
+    throw new SentrySanitizationError('Unable to read telemetry payload');
+  }
+}
+
+function readProperty(value: Record<string, unknown>, key: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor && !('value' in descriptor)) {
+      throw new SentrySanitizationError('Telemetry payload contains an accessor');
+    }
+    return value[key];
+  } catch (error) {
+    if (error instanceof SentrySanitizationError) throw error;
+    throw new SentrySanitizationError('Unable to read telemetry property');
+  }
+}
+
+function sanitizeString(value: string, state: SanitizationState, depth: number): string {
+  if (value.length > SENTRY_REDACTION_MAX_STRING_LENGTH) return SENTRY_LIMIT_REDACTED;
+
+  const scrubbed = scrubSensitiveStringPatterns(value);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return scrubbed;
+  }
+  if (parsed === null || typeof parsed !== 'object') return scrubbed;
+
+  const sanitized = sanitizeRecursively(parsed, state, depth + 1);
+  if (sanitized === SENTRY_LIMIT_REDACTED) return SENTRY_LIMIT_REDACTED;
+  try {
+    const serialized = JSON.stringify(sanitized);
+    return serialized.length > SENTRY_REDACTION_MAX_STRING_LENGTH ? SENTRY_LIMIT_REDACTED : serialized;
+  } catch {
+    throw new SentrySanitizationError('Unable to serialize telemetry payload');
+  }
+}
+
+function sanitizeRecursively(value: unknown, state: SanitizationState, depth: number): unknown {
+  if (depth > SENTRY_REDACTION_MAX_DEPTH || state.nodes >= SENTRY_REDACTION_MAX_NODES) {
+    return SENTRY_LIMIT_REDACTED;
+  }
+  state.nodes += 1;
+
   if (typeof value === 'string') {
-    return scrubSensitiveString(value);
+    return sanitizeString(value, state, depth);
   }
 
   if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') {
@@ -122,12 +208,26 @@ function sanitizeRecursively(value: unknown, state: SanitizationState): unknown 
     return state.sanitized.get(value);
   }
 
-  if (Array.isArray(value)) {
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    throw new SentrySanitizationError('Unable to inspect telemetry payload');
+  }
+
+  if (isArray) {
+    const arrayValue = value as unknown[];
+    if (arrayValue.length > SENTRY_REDACTION_MAX_NODES - state.nodes) {
+      state.nodes = SENTRY_REDACTION_MAX_NODES;
+      state.sanitized.set(value, SENTRY_LIMIT_REDACTED);
+      return SENTRY_LIMIT_REDACTED;
+    }
+
     const sanitized: unknown[] = [];
     state.sanitized.set(value, sanitized);
     state.active.add(value);
-    for (const item of value) {
-      sanitized.push(sanitizeRecursively(item, state));
+    for (const item of arrayValue) {
+      sanitized.push(sanitizeRecursively(item, state, depth + 1));
     }
     state.active.delete(value);
     return sanitized;
@@ -137,14 +237,22 @@ function sanitizeRecursively(value: unknown, state: SanitizationState): unknown 
     return SENSITIVE_VALUE_REDACTED;
   }
 
+  const keys = readEnumerableKeys(value);
+  if (keys.length > SENTRY_REDACTION_MAX_NODES - state.nodes) {
+    state.nodes = SENTRY_REDACTION_MAX_NODES;
+    state.sanitized.set(value, SENTRY_LIMIT_REDACTED);
+    return SENTRY_LIMIT_REDACTED;
+  }
+
   const sanitized: Record<string, unknown> = {};
   state.sanitized.set(value, sanitized);
   state.active.add(value);
-  for (const [key, item] of Object.entries(value)) {
+  for (const key of keys) {
+    const item = readProperty(value, key);
     const sanitizedItem =
       isSensitiveContextKey(key) || isSensitiveFieldValue(value as Record<string, unknown>, key)
         ? SENSITIVE_VALUE_REDACTED
-        : sanitizeRecursively(item, state);
+        : sanitizeRecursively(item, state, depth + 1);
     Object.defineProperty(sanitized, key, {
       configurable: true,
       enumerable: true,
@@ -157,11 +265,24 @@ function sanitizeRecursively(value: unknown, state: SanitizationState): unknown 
   return sanitized;
 }
 
-export function sanitizeForSentry(value: unknown): unknown {
-  return sanitizeRecursively(value, {
+function createSanitizationState(): SanitizationState {
+  return {
     active: new WeakSet<object>(),
+    nodes: 0,
     sanitized: new WeakMap<object, unknown>(),
-  });
+  };
+}
+
+function sanitizeForSentryHook(value: unknown, state = createSanitizationState()): unknown {
+  return sanitizeRecursively(value, state, 0);
+}
+
+export function sanitizeForSentry(value: unknown): unknown {
+  try {
+    return sanitizeForSentryHook(value);
+  } catch {
+    return SENSITIVE_VALUE_REDACTED;
+  }
 }
 
 /**
@@ -171,19 +292,19 @@ export function sanitizeForSentry(value: unknown): unknown {
  * from the hint are protected by the event scrub below, while this hint scrub protects retained
  * carriers and removes attachments before Sentry builds the outgoing envelope.
  */
-function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined): void {
+function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined, state: SanitizationState): void {
   if (!hint) return;
 
   if (hint.data !== undefined) {
-    hint.data = sanitizeForSentry(hint.data);
+    hint.data = sanitizeForSentryHook(hint.data, state);
   }
 
   if (hint.captureContext !== undefined) {
-    hint.captureContext = sanitizeForSentry(hint.captureContext) as Sentry.EventHint['captureContext'];
+    hint.captureContext = sanitizeForSentryHook(hint.captureContext, state) as Sentry.EventHint['captureContext'];
   }
 
   if (hint.originalException !== undefined) {
-    hint.originalException = sanitizeForSentry(hint.originalException);
+    hint.originalException = sanitizeForSentryHook(hint.originalException, state);
   }
 
   // Attachments are opaque uploads whose filename and payload are both user-controlled.
@@ -201,14 +322,17 @@ function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined): void {
 
 const STRUCTURAL_NAME_CONTEXTS = new Set(['browser', 'device', 'gpu', 'os', 'runtime']);
 
-function scrubEventContexts(contexts: Sentry.ErrorEvent['contexts']): Sentry.ErrorEvent['contexts'] {
+function scrubEventContexts(
+  contexts: Sentry.ErrorEvent['contexts'],
+  state: SanitizationState,
+): Sentry.ErrorEvent['contexts'] {
   if (!contexts) return contexts;
 
   const sanitized: NonNullable<Sentry.ErrorEvent['contexts']> = {};
   for (const [name, context] of Object.entries(contexts)) {
     if (context === undefined) continue;
 
-    const sanitizedContext = sanitizeForSentry(context) as Sentry.Context;
+    const sanitizedContext = sanitizeForSentryHook(context, state) as Sentry.Context;
 
     // SDK-owned contexts use `name` structurally. Apply keyed redaction to every context first,
     // then restore only this documented field after pattern-scrubbing its string value.
@@ -218,7 +342,7 @@ function scrubEventContexts(contexts: Sentry.ErrorEvent['contexts']): Sentry.Err
       sanitizedContext &&
       typeof sanitizedContext === 'object'
     ) {
-      sanitizedContext.name = scrubSensitiveString(context.name);
+      sanitizedContext.name = scrubSensitiveStringPatterns(context.name);
     }
     sanitized[name] = sanitizedContext;
   }
@@ -233,49 +357,62 @@ function scrubEventContexts(contexts: Sentry.ErrorEvent['contexts']): Sentry.Err
  * second line of defense for application payloads we attach ourselves.
  */
 export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.EventHint): Sentry.ErrorEvent | null {
-  scrubSensitiveEventHint(hint);
+  try {
+    const state = createSanitizationState();
+    scrubSensitiveEventHint(hint, state);
 
-  event.message = event.message ? scrubSensitiveString(event.message) : event.message;
+    event.message = event.message ? (sanitizeForSentryHook(event.message, state) as string) : event.message;
 
-  if (event.exception) {
-    event.exception = sanitizeForSentry(event.exception) as Sentry.ErrorEvent['exception'];
+    if (event.exception) {
+      event.exception = sanitizeForSentryHook(event.exception, state) as Sentry.ErrorEvent['exception'];
+    }
+
+    if (event.breadcrumbs) {
+      event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
+        const sanitized = scrubBreadcrumbStrict(breadcrumb, state);
+        return sanitized ? [sanitized] : [];
+      });
+    }
+
+    if (event.contexts) {
+      event.contexts = scrubEventContexts(event.contexts, state);
+    }
+
+    if (event.extra) {
+      event.extra = sanitizeForSentryHook(event.extra, state) as Record<string, unknown>;
+    }
+
+    if (event.request) {
+      event.request = sanitizeForSentryHook(event.request, state) as Sentry.ErrorEvent['request'];
+    }
+
+    if (event.user) {
+      event.user = sanitizeForSentryHook(event.user, state) as Sentry.ErrorEvent['user'];
+    }
+
+    return event;
+  } catch {
+    return null;
   }
-
-  if (event.breadcrumbs) {
-    event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
-      const sanitized = scrubBreadcrumb(breadcrumb);
-      return sanitized ? [sanitized] : [];
-    });
-  }
-
-  if (event.contexts) {
-    event.contexts = scrubEventContexts(event.contexts);
-  }
-
-  if (event.extra) {
-    event.extra = sanitizeForSentry(event.extra) as Record<string, unknown>;
-  }
-
-  if (event.request) {
-    event.request = sanitizeForSentry(event.request) as Sentry.ErrorEvent['request'];
-  }
-
-  if (event.user) {
-    event.user = sanitizeForSentry(event.user) as Sentry.ErrorEvent['user'];
-  }
-
-  return event;
 }
 
 /**
  * Last-chance breadcrumb ingress filter. Breadcrumb data is application-controlled and can
  * contain arbitrary nested values, so it uses the same fail-closed recursive redactor as events.
  */
-export function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null {
-  const sanitized = sanitizeForSentry(breadcrumb);
+function scrubBreadcrumbStrict(breadcrumb: Sentry.Breadcrumb, state: SanitizationState): Sentry.Breadcrumb | null {
+  const sanitized = sanitizeForSentryHook(breadcrumb, state);
   return sanitized !== null && typeof sanitized === 'object' && isPlainObject(sanitized)
     ? (sanitized as Sentry.Breadcrumb)
     : null;
+}
+
+export function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null {
+  try {
+    return scrubBreadcrumbStrict(breadcrumb, createSanitizationState());
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -288,37 +425,42 @@ export function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrum
  * SDK-structural context fields keep their schema (for example `browser.name`); their strings
  * are still pattern-scrubbed. `event.spans[]` is handled per-span by `beforeSendSpan`.
  */
-export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent {
-  if (typeof event.transaction === 'string') {
-    event.transaction = scrubSensitiveString(event.transaction);
+export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent | null {
+  try {
+    const state = createSanitizationState();
+    if (typeof event.transaction === 'string') {
+      event.transaction = sanitizeForSentryHook(event.transaction, state) as string;
+    }
+
+    if (event.request) {
+      event.request = sanitizeForSentryHook(event.request, state) as typeof event.request;
+    }
+
+    if (event.breadcrumbs) {
+      event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
+        const sanitized = scrubBreadcrumbStrict(breadcrumb, state);
+        return sanitized ? [sanitized] : [];
+      });
+    }
+
+    if (event.contexts) {
+      event.contexts = scrubEventContexts(event.contexts, state);
+    }
+
+    if (event.extra) {
+      event.extra = sanitizeForSentryHook(event.extra, state) as typeof event.extra;
+    }
+
+    if (event.user) {
+      event.user = sanitizeForSentryHook(event.user, state) as typeof event.user;
+    }
+
+    // Tags are app-controlled operational labels; do not walk them as user payload.
+
+    return event;
+  } catch {
+    return null;
   }
-
-  if (event.request) {
-    event.request = sanitizeForSentry(event.request) as typeof event.request;
-  }
-
-  if (event.breadcrumbs) {
-    event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
-      const sanitized = scrubBreadcrumb(breadcrumb);
-      return sanitized ? [sanitized] : [];
-    });
-  }
-
-  if (event.contexts) {
-    event.contexts = scrubEventContexts(event.contexts);
-  }
-
-  if (event.extra) {
-    event.extra = sanitizeForSentry(event.extra) as typeof event.extra;
-  }
-
-  if (event.user) {
-    event.user = sanitizeForSentry(event.user) as typeof event.user;
-  }
-
-  // Tags are app-controlled operational labels; do not walk them as user payload.
-
-  return event;
 }
 
 /**
@@ -330,7 +472,7 @@ export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent
  */
 export function scrubSpanJson(span: SpanJSON): SpanJSON {
   if (typeof span.description === 'string') {
-    span.description = scrubSensitiveString(span.description);
+    span.description = scrubSensitiveStringPatterns(span.description);
   }
 
   if (span.data) {

@@ -4,6 +4,10 @@ export const PUBKY_REDACTED = '[redacted: pubky identifier]';
 export const EMAIL_REDACTED = '[redacted: email]';
 export const PHONE_REDACTED = '[redacted: phone]';
 export const SENSITIVE_VALUE_REDACTED = '[redacted: sensitive field]';
+export const SENTRY_LIMIT_REDACTED = '[redacted:limit]';
+export const SENTRY_REDACTION_MAX_DEPTH = 20;
+export const SENTRY_REDACTION_MAX_NODES = 1_000;
+export const SENTRY_REDACTION_MAX_STRING_LENGTH = 16_384;
 
 export const RAW_PUBKY_PATTERN = new RegExp(`\\b[${Z32_ALPHABET}]{52}\\b`, 'gi');
 export const PUBKY_URI_PATTERN = /\bpubky:\/\/[^\s"'<>]+/gi;

@@ -10,6 +10,12 @@ import { HttpStatusCode } from '@/libs/http/http.types';
 import { RUNTIME_CONFIG_WINDOW_KEY } from '@/libs/runtime-config/runtime-config';
 import { NETWORK_RUNTIME_DEFAULTS } from '@/libs/runtime-config/runtime-config.schema';
 import { asOpaque } from '@/test-utils/type-assertions';
+import {
+  SENTRY_LIMIT_REDACTED,
+  SENTRY_REDACTION_MAX_DEPTH,
+  SENTRY_REDACTION_MAX_NODES,
+  SENTRY_REDACTION_MAX_STRING_LENGTH,
+} from './sentry.constants';
 import { getSentryInitBase } from './sentry';
 import { shouldDropAppErrorFromSentry } from './sentry.utils';
 
@@ -68,6 +74,13 @@ function runBeforeSend(event: Sentry.ErrorEvent, hint: Sentry.EventHint = {}): S
 
   expect(result).not.toBeNull();
   return result as Sentry.ErrorEvent;
+}
+
+function runBeforeSendDroppable(event: Sentry.ErrorEvent, hint: Sentry.EventHint = {}): Sentry.ErrorEvent | null {
+  const beforeSend = getSentryInitBase().beforeSend;
+
+  expect(beforeSend).toBeTypeOf('function');
+  return beforeSend!(event, hint) as Sentry.ErrorEvent | null;
 }
 
 function runBeforeBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb {
@@ -553,6 +566,76 @@ describe('Sentry PII scrubbing', () => {
     });
   });
 
+  it('bounds depth, node count, and string length with fail-closed limit markers', () => {
+    let deeplyNested: unknown = { token: 'deep-secret' };
+    for (let depth = 0; depth <= SENTRY_REDACTION_MAX_DEPTH; depth += 1) {
+      deeplyNested = { child: deeplyNested };
+    }
+
+    const widePayload = Array.from({ length: SENTRY_REDACTION_MAX_NODES + 10 }, (_, index) => `node-${index}`);
+    const oversizedString = 'x'.repeat(SENTRY_REDACTION_MAX_STRING_LENGTH + 1);
+
+    const depthEvent = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: { deeplyNested } }));
+    const nodeEvent = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: { widePayload } }));
+    const stringEvent = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: { oversizedString } }));
+
+    expect(JSON.stringify(depthEvent.extra)).toContain(SENTRY_LIMIT_REDACTED);
+    expect(JSON.stringify(depthEvent.extra)).not.toContain('deep-secret');
+    expect(nodeEvent.extra?.widePayload).toBe(SENTRY_LIMIT_REDACTED);
+    expect(stringEvent.extra?.oversizedString).toBe(SENTRY_LIMIT_REDACTED);
+  });
+
+  it('drops events when getters or proxies throw during sanitization', () => {
+    const throwingGetter = {
+      get safe(): string {
+        throw new Error('getter probe');
+      },
+    };
+    const throwingProxy = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('proxy probe');
+        },
+      },
+    );
+
+    expect(() => runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingGetter }))).not.toThrow();
+    expect(runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingGetter }))).toBeNull();
+    expect(() => runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingProxy }))).not.toThrow();
+    expect(runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingProxy }))).toBeNull();
+  });
+
+  it('redacts NFKC, zero-width, combining-mark, and Cyrillic homoglyph key bypasses', () => {
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: {
+          ｔｏｋｅｎ: 'fullwidth-secret',
+          'to\u200bken': 'zero-width-secret',
+          'to\u0301ken': 'combining-secret',
+          tоken: 'cyrillic-secret',
+        },
+      }),
+    );
+
+    expect(event.extra).toEqual({
+      ｔｏｋｅｎ: '[redacted: sensitive field]',
+      'to\u200bken': '[redacted: sensitive field]',
+      'to\u0301ken': '[redacted: sensitive field]',
+      tоken: '[redacted: sensitive field]',
+    });
+  });
+
+  it('handles circular event payloads without throwing or retaining the cycle', () => {
+    const circular: Record<string, unknown> = { token: 'cycle-secret' };
+    circular.self = circular;
+
+    const event = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: circular }));
+
+    expect(event.extra?.token).toBe('[redacted: sensitive field]');
+    expect(event.extra?.self).toBe('[redacted: circular reference]');
+  });
+
   it('covers every event carrier with a sensitive value while preserving SDK contexts', () => {
     const event = runBeforeSend(
       asOpaque<Sentry.ErrorEvent>({
@@ -748,6 +831,34 @@ describe('Sentry breadcrumb ingress scrubbing', () => {
     };
 
     expect(runBeforeBreadcrumb(breadcrumb)).toEqual(breadcrumb);
+  });
+
+  it('drops breadcrumbs when getters or proxies throw during sanitization', () => {
+    const beforeBreadcrumb = getSentryInitBase().beforeBreadcrumb;
+    const throwingGetter = asOpaque<Sentry.Breadcrumb>({
+      category: 'request',
+      data: {
+        get safe(): string {
+          throw new Error('getter probe');
+        },
+      },
+    });
+    const throwingProxy = asOpaque<Sentry.Breadcrumb>(
+      new Proxy(
+        {},
+        {
+          ownKeys() {
+            throw new Error('proxy probe');
+          },
+        },
+      ),
+    );
+
+    expect(beforeBreadcrumb).toBeTypeOf('function');
+    expect(() => beforeBreadcrumb!(throwingGetter)).not.toThrow();
+    expect(beforeBreadcrumb!(throwingGetter)).toBeNull();
+    expect(() => beforeBreadcrumb!(throwingProxy)).not.toThrow();
+    expect(beforeBreadcrumb!(throwingProxy)).toBeNull();
   });
 });
 
