@@ -16,12 +16,15 @@ export const NEXUS_POST_TAGS_PATH_PATTERN = /^\/v0\/post\/[^/]+\/[^/]+\/tags$/;
 export const SENSITIVE_CONTEXT_KEYS = new Set([
   'accesstoken',
   'apikey',
+  'auth',
   'authorization',
   'avatar',
   'address',
   'bio',
   'clientsecret',
   'cookie',
+  'credential',
+  'credentials',
   'deliveryaddress',
   'displayname',
   'email',
@@ -32,6 +35,7 @@ export const SENSITIVE_CONTEXT_KEYS = new Set([
   'lastname',
   'name',
   'password',
+  'passwd',
   'phone',
   'phonenumber',
   'privatekey',
@@ -50,6 +54,7 @@ export const SENSITIVE_CONTEXT_KEYS = new Set([
   'user',
   'userid',
   'username',
+  'xapikey',
 ]);
 
 export const PUBKY_IDENTIFIER_KEYS = new Set([

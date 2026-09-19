@@ -96,7 +96,12 @@ function isSensitiveFieldValue(parent: Record<string, unknown>, key: string): bo
   return isSensitiveContextKey(parent.field);
 }
 
-export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()): unknown {
+type SanitizationState = {
+  active: WeakSet<object>;
+  sanitized: WeakMap<object, unknown>;
+};
+
+function sanitizeRecursively(value: unknown, state: SanitizationState): unknown {
   if (typeof value === 'string') {
     return scrubSensitiveString(value);
   }
@@ -109,13 +114,23 @@ export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()):
     return value;
   }
 
-  if (seen.has(value)) {
+  if (state.active.has(value)) {
     return '[redacted: circular reference]';
   }
-  seen.add(value);
+
+  if (state.sanitized.has(value)) {
+    return state.sanitized.get(value);
+  }
 
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeForSentry(item, seen));
+    const sanitized: unknown[] = [];
+    state.sanitized.set(value, sanitized);
+    state.active.add(value);
+    for (const item of value) {
+      sanitized.push(sanitizeRecursively(item, state));
+    }
+    state.active.delete(value);
+    return sanitized;
   }
 
   if (!isPlainObject(value)) {
@@ -123,22 +138,38 @@ export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()):
   }
 
   const sanitized: Record<string, unknown> = {};
+  state.sanitized.set(value, sanitized);
+  state.active.add(value);
   for (const [key, item] of Object.entries(value)) {
-    sanitized[key] =
+    const sanitizedItem =
       isSensitiveContextKey(key) || isSensitiveFieldValue(value as Record<string, unknown>, key)
         ? SENSITIVE_VALUE_REDACTED
-        : sanitizeForSentry(item, seen);
+        : sanitizeRecursively(item, state);
+    Object.defineProperty(sanitized, key, {
+      configurable: true,
+      enumerable: true,
+      value: sanitizedItem,
+      writable: true,
+    });
   }
+  state.active.delete(value);
 
   return sanitized;
+}
+
+export function sanitizeForSentry(value: unknown): unknown {
+  return sanitizeRecursively(value, {
+    active: new WeakSet<object>(),
+    sanitized: new WeakMap<object, unknown>(),
+  });
 }
 
 /**
  * Removes sensitive values from Sentry's last-chance hook input.
  *
- * `EventHint` is SDK-local and is not serialized directly, but integrations can retain values
- * from it while constructing the event. Sanitizing its data carriers alongside the final event
- * makes the `beforeSend` boundary safe even when a new integration forwards hint metadata.
+ * Sentry invokes `beforeSend` after integrations and event processors. Values they already copied
+ * from the hint are protected by the event scrub below, while this hint scrub protects retained
+ * carriers and removes attachments before Sentry builds the outgoing envelope.
  */
 function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined): void {
   if (!hint) return;
@@ -168,22 +199,7 @@ function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined): void {
   }
 }
 
-const SDK_STRUCTURAL_CONTEXTS = new Set([
-  'app',
-  'browser',
-  'cloud_resource',
-  'culture',
-  'device',
-  'flags',
-  'gpu',
-  'os',
-  'profile',
-  'replay',
-  'response',
-  'runtime',
-  'state',
-  'trace',
-]);
+const STRUCTURAL_NAME_CONTEXTS = new Set(['browser', 'device', 'gpu', 'os', 'runtime']);
 
 function scrubEventContexts(contexts: Sentry.ErrorEvent['contexts']): Sentry.ErrorEvent['contexts'] {
   if (!contexts) return contexts;
@@ -192,60 +208,21 @@ function scrubEventContexts(contexts: Sentry.ErrorEvent['contexts']): Sentry.Err
   for (const [name, context] of Object.entries(contexts)) {
     if (context === undefined) continue;
 
-    if (SDK_STRUCTURAL_CONTEXTS.has(name)) {
-      sanitized[name] = deepScrubTelemetryStrings(context, new WeakSet<object>());
-    } else {
-      sanitized[name] = sanitizeForSentry(context) as Sentry.Context;
+    const sanitizedContext = sanitizeForSentry(context) as Sentry.Context;
+
+    // SDK-owned contexts use `name` structurally. Apply keyed redaction to every context first,
+    // then restore only this documented field after pattern-scrubbing its string value.
+    if (
+      STRUCTURAL_NAME_CONTEXTS.has(name) &&
+      typeof context.name === 'string' &&
+      sanitizedContext &&
+      typeof sanitizedContext === 'object'
+    ) {
+      sanitizedContext.name = scrubSensitiveString(context.name);
     }
+    sanitized[name] = sanitizedContext;
   }
   return sanitized;
-}
-
-/**
- * String-only deep walker for SDK-owned telemetry payloads (transactions, spans).
- *
- * Mutates `value` in place: every string descendant is replaced with the scrubbed string;
- * non-string scalars pass through unchanged. The same input reference is returned so callers
- * can keep their existing object identity (Sentry's `beforeSendTransaction` / `beforeSendSpan`
- * contracts expect a value to be returned, and aliased references in span/trace data must
- * observe the first-pass scrubbed value).
- *
- * Crucially, this walker does NOT apply key-based redaction. SDK-owned payloads use keys like
- * `name` (input attributes, browser/runtime/os/device contexts) for structural data, so the
- * keyed `sanitizeForSentry` walker would corrupt them. Use `sanitizeForSentry` only on
- * AppError-shaped attachments (`extra`, `user`, `error.context`).
- *
- * Arrays are handled before generic objects. The shared `seen` WeakSet guards against cycles
- * and ensures aliased subtrees aren't double-walked. On a re-visit the original reference is
- * returned unchanged — its strings were scrubbed during the first visit (mutate-in-place).
- */
-function deepScrubTelemetryStrings<T>(value: T, seen: WeakSet<object>): T {
-  if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value)) return value;
-  seen.add(value);
-
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      const item = value[i];
-      if (typeof item === 'string') {
-        value[i] = scrubSensitiveString(item);
-      } else if (item !== null && typeof item === 'object') {
-        deepScrubTelemetryStrings(item, seen);
-      }
-    }
-    return value;
-  }
-
-  const obj = value as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    const item = obj[key];
-    if (typeof item === 'string') {
-      obj[key] = scrubSensitiveString(item);
-    } else if (item !== null && typeof item === 'object') {
-      deepScrubTelemetryStrings(item, seen);
-    }
-  }
-  return value;
 }
 
 /**
@@ -304,40 +281,31 @@ export function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrum
 /**
  * Defensive PII filter for transaction events.
  *
- * Tracing payloads are SDK-owned. `event.transaction`, `event.request`, and the root span data
- * at `event.contexts.trace.data` carry user-controlled URL strings (pageload/navigation routes,
- * fetch URLs) where pubky URIs and homeserver hostnames land verbatim. We mutate in place via
- * the string-only walker so aliased references converge on the scrubbed value.
+ * `event.transaction` is a structural string and receives pattern scrubbing. Request data,
+ * breadcrumbs, application contexts, extra/user data, and trace data can contain arbitrary
+ * application values, so they receive recursive pattern and keyed redaction.
  *
- * `event.extra`, `event.user`, and `event.contexts['error.context']` are the AppError-shaped
- * carriers that may surface on transactions when `Sentry.setUser` / `setExtra` / scope contexts
- * have been set application-side; those are routed through the keyed `sanitizeForSentry`
- * walker (copy-on-write) so we redact whole values keyed by sensitive name (e.g. `email`,
- * `displayName`).
- *
- * SDK-structural contexts (`browser`, `runtime`, `os`, `device`) are deliberately not walked —
- * the keyed walker would clobber `name: 'Chrome'` / `name: 'node'`, and the string-only walker
- * adds no value there. `event.spans[]` is handled per-span by `beforeSendSpan` and must not be
- * mutated here. Absent fields are not created.
+ * SDK-structural context fields keep their schema (for example `browser.name`); their strings
+ * are still pattern-scrubbed. `event.spans[]` is handled per-span by `beforeSendSpan`.
  */
 export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent {
-  const seen = new WeakSet<object>();
-
   if (typeof event.transaction === 'string') {
     event.transaction = scrubSensitiveString(event.transaction);
   }
 
-  if (event.request && typeof event.request === 'object') {
-    deepScrubTelemetryStrings(event.request, seen);
+  if (event.request) {
+    event.request = sanitizeForSentry(event.request) as typeof event.request;
   }
 
-  if (
-    event.contexts &&
-    event.contexts.trace &&
-    event.contexts.trace.data &&
-    typeof event.contexts.trace.data === 'object'
-  ) {
-    deepScrubTelemetryStrings(event.contexts.trace.data, seen);
+  if (event.breadcrumbs) {
+    event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
+      const sanitized = scrubBreadcrumb(breadcrumb);
+      return sanitized ? [sanitized] : [];
+    });
+  }
+
+  if (event.contexts) {
+    event.contexts = scrubEventContexts(event.contexts);
   }
 
   if (event.extra) {
@@ -348,10 +316,6 @@ export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent
     event.user = sanitizeForSentry(event.user) as typeof event.user;
   }
 
-  if (event.contexts?.['error.context']) {
-    event.contexts['error.context'] = sanitizeForSentry(event.contexts['error.context']) as Sentry.Context;
-  }
-
   // Tags are app-controlled operational labels; do not walk them as user payload.
 
   return event;
@@ -360,21 +324,17 @@ export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent
 /**
  * Defensive PII filter for span events.
  *
- * Span `description` (often a URL) and `span.data` (containing keys such as `http.url`,
- * `url.full`, `http.target`, `db.statement`) are user-controlled string surfaces. Walked
- * via the string-only walker; never apply key-based redaction (the SDK uses structural
- * keys here that overlap with our keyed walker's sensitive set). Always return the same
- * span object — `SpanJSON` is non-nullable in the v10.51 contract.
+ * Span `description` (often a URL) receives pattern scrubbing. `span.data` can contain
+ * arbitrary application attributes, so it receives recursive pattern and keyed redaction.
+ * The same span object is returned, as required by the v10.51 hook contract.
  */
 export function scrubSpanJson(span: SpanJSON): SpanJSON {
-  const seen = new WeakSet<object>();
-
   if (typeof span.description === 'string') {
     span.description = scrubSensitiveString(span.description);
   }
 
-  if (span.data && typeof span.data === 'object') {
-    deepScrubTelemetryStrings(span.data, seen);
+  if (span.data) {
+    span.data = sanitizeForSentry(span.data) as SpanJSON['data'];
   }
 
   return span;
