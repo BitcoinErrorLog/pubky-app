@@ -2864,6 +2864,25 @@ export class CommerceApplication {
     const requiresPut =
       !exists || current.revision !== record.revision || findForbiddenPublicReserveKey(current) !== null;
     if (requiresPut) {
+      if (exists) {
+        const latest = await CommerceHomeserverService.fetchJson(url);
+        if (canonicalJson(latest) !== canonicalJson(current)) {
+          throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed. Reload and try again.', {
+            service: ErrorService.Homeserver,
+            operation: 'putVerifiedPublicListing',
+          });
+        }
+      } else {
+        try {
+          await CommerceHomeserverService.fetchJson(url);
+          throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed. Reload and try again.', {
+            service: ErrorService.Homeserver,
+            operation: 'putVerifiedPublicListing',
+          });
+        } catch (error) {
+          if (!(isAppError(error) && isNotFound(error))) throw error;
+        }
+      }
       await CommerceHomeserverService.putJson(url, candidate);
     }
 
@@ -2984,6 +3003,16 @@ export class CommerceApplication {
     const now = new Date().toISOString();
     const writeId = reusingExistingCommand ? parsedCurrent!.writeId : crypto.randomUUID();
     const issuedAt = reusingExistingCommand ? parsedCurrent!.updatedAt : now;
+    if (
+      reusingExistingCommand &&
+      reservePrice !== undefined &&
+      canonicalJson(reservePrice) !== canonicalJson(parsedCurrent!.reservePrice)
+    ) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'The pending reserve differs from this edit. Reload and try again.', {
+        service: ErrorService.Homeserver,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
     const candidate = reusingExistingCommand
       ? parsedCurrent!
       : commerceAuctionReserveRecordSchema.parse(

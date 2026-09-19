@@ -208,7 +208,7 @@ describe('CommerceApplication', () => {
     });
     const [listing] = await CommerceApplication.getListingsBySeller(record.ownerPubky);
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
-    vi.mocked(CommerceHomeserverService.fetchJson).mockResolvedValueOnce(record);
+    vi.mocked(CommerceHomeserverService.fetchJson).mockResolvedValueOnce(record).mockResolvedValueOnce(record);
     vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
@@ -426,7 +426,8 @@ describe('CommerceApplication', () => {
         serverRevision: 7,
         reserveRecordRevision: 0,
         reservePrice: reserve,
-      } as never);
+      } as never)
+      .mockResolvedValue(null);
     const publicProjection = vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
     const execute = vi
       .spyOn(MarketplaceGatewayService, 'execute')
@@ -481,7 +482,20 @@ describe('CommerceApplication', () => {
     expect(execute.mock.calls[1][1].commandId).toBe(execute.mock.calls[0][1].commandId);
     expect(execute.mock.calls[1][1].issuedAt).toBe(execute.mock.calls[0][1].issuedAt);
     expect(execute.mock.calls[1][1].expectedRevision).toBe(execute.mock.calls[0][1].expectedRevision);
+    expect(execute.mock.calls[1][1].payload).toMatchObject({
+      auctionReserve: (execute.mock.calls[0][1].payload as { auctionReserve: unknown }).auctionReserve,
+    });
     expect(publicProjection).not.toHaveBeenCalled();
+
+    vi.mocked(CommerceApplication.hasActiveMarketplaceSession).mockReturnValue(true);
+    await expect(
+      CommerceApplication.commitUpsertListing(listing, {
+        amountMinor: reserve.amountMinor + 1_000,
+        currency: reserve.currency,
+        exponent: reserve.exponent,
+      }),
+    ).rejects.toMatchObject({ code: ClientErrorCode.CONFLICT });
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 
   it('refuses a public PUT when the fresh listing revision is not the expected base', async () => {
@@ -489,6 +503,23 @@ describe('CommerceApplication', () => {
     record.revision = 2;
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
     vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ ...record, revision: 3 });
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
+
+    await expect(CommerceApplication.commitUpsertListing(record)).rejects.toMatchObject({
+      code: ClientErrorCode.CONFLICT,
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('refuses a public PUT when the listing changes after the fresh base GET', async () => {
+    const record = createCommerceListingFixture();
+    const base = { ...record };
+    record.revision = 2;
+    record.title = 'Seller edit';
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+    vi.spyOn(CommerceHomeserverService, 'fetchJson')
+      .mockResolvedValueOnce(base)
+      .mockResolvedValueOnce({ ...base, title: 'Concurrent edit' });
     const put = vi.spyOn(CommerceHomeserverService, 'putJson');
 
     await expect(CommerceApplication.commitUpsertListing(record)).rejects.toMatchObject({
