@@ -359,6 +359,10 @@ describe('MarketplaceTransactionService read projections', () => {
         sold_quantity: 0,
         unit_price: { amount_minor: 12_500, currency: 'USD', exponent: 2 },
         sale_format: 'auction',
+        reserve_price: { amount_minor: 20_000, currency: 'USD', exponent: 2 },
+        reserve_met: false,
+        reserve_record_revision: 1,
+        last_reserve_command_id: '00000000-0000-4000-8000-000000000001',
         auction: {
           starts_at: '2026-08-20T09:00:00.000Z',
           ends_at: '2026-08-21T09:00:00.000Z',
@@ -389,6 +393,8 @@ describe('MarketplaceTransactionService read projections', () => {
         minimumNextBid: { amountMinor: 7_001 },
       },
     });
+    expect(listing).not.toHaveProperty('reservePrice');
+    expect(listing).not.toHaveProperty('reserveMet');
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://127.0.0.1:8080/v1/listings/${encodeURIComponent(AGGREGATE_ID)}`);
     expect(init.headers).toEqual({ authorization: SESSION_BEARER });

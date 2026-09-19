@@ -239,6 +239,28 @@ export class MarketplaceTransactionService {
       nullOnNotFound: true,
     });
     if (raw === null) return null;
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      (raw as Record<string, unknown>).sellerPubky === actor &&
+      'reservePrice' in raw
+    ) {
+      const seller = this.parseProjection(
+        'getListing',
+        marketplaceSellerListingProjectionSchema,
+        raw,
+        'Marketplace returned an invalid seller listing projection.',
+      );
+      const {
+        reservePrice: _reservePrice,
+        reserveMet: _reserveMet,
+        reserveRecordRevision: _reserveRecordRevision,
+        lastReserveCommandId: _lastReserveCommandId,
+        ...publicProjection
+      } = seller;
+      return marketplaceListingProjectionSchema.parse(publicProjection);
+    }
     return this.parseProjection(
       'getListing',
       marketplaceListingProjectionSchema,
