@@ -345,6 +345,43 @@ describe('CommerceApplication', () => {
     );
   });
 
+  it('registers a sandbox auction with an explicit null private reserve', async () => {
+    const record = createCommerceListingFixture();
+    record.sale = {
+      format: 'auction',
+      startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      startsAt: '2026-08-19T20:00:00.000Z',
+      endsAt: '2026-08-29T20:00:00.000Z',
+      antiSnipingWindowSeconds: 120,
+      antiSnipingExtensionSeconds: 120,
+    };
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    const execute = vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
+
+    await CommerceApplication.commitUpsertListing(record);
+
+    expect(execute).toHaveBeenCalledWith(
+      record.ownerPubky,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          auctionReserve: {
+            expectedRecordRevision: 0,
+            recordRevision: 1,
+            reservePrice: null,
+          },
+        }),
+      }),
+    );
+  });
+
   it('persists registered after a successful publish and never sends registration_status to the homeserver', async () => {
     const record = createCommerceListingFixture();
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');

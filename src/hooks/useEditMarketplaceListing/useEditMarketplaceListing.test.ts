@@ -355,6 +355,14 @@ describe('useEditMarketplaceListing', () => {
       exponent: 2,
     });
 
+    act(() => {
+      result.current.form.setValue('reservePrice', '');
+    });
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(vi.mocked(CommerceController.commitUpsertListing).mock.calls[1][1]).toBeNull();
+
     unmount();
     vi.mocked(CommerceController.commitUpsertListing).mockClear();
     vi.mocked(CommerceController.getMarketplaceSellerListingProjection).mockResolvedValue(null);
