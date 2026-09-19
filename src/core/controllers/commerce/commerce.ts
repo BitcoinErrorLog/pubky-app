@@ -531,6 +531,16 @@ export class CommerceController {
     );
   }
 
+  static async getMarketplaceSellerListingProjection(ownerPubky: unknown, listingId: unknown) {
+    const owner = CommerceRecordNormalizer.pubky(ownerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    this.assertCurrentUserOwns(owner);
+    return await CommerceApplication.getMarketplaceSellerListingProjection(
+      owner,
+      buildMarketplaceListingAggregateId(owner, id),
+    );
+  }
+
   /** The auction's visible-price bid history (durable service, signed-in). */
   static async getMarketplaceListingBids(ownerPubky: unknown, listingId: unknown) {
     const owner = CommerceRecordNormalizer.pubky(ownerPubky);

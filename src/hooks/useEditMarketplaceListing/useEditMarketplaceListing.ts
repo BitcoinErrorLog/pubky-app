@@ -91,8 +91,13 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
       setStatus('not-owner');
       return;
     }
-    CommerceController.getOrFetchListing(sellerPubky, listingId)
-      .then((loaded) => {
+    Promise.all([
+      CommerceController.getOrFetchListing(sellerPubky, listingId),
+      isDurableCommerceMode(getCommerceAdapterMode())
+        ? CommerceController.getMarketplaceSellerListingProjection(sellerPubky, listingId)
+        : Promise.resolve(null),
+    ])
+      .then(([loaded, sellerProjection]) => {
         if (!active) return;
         if (loaded.fulfillmentMethods.includes('digital')) {
           setStatus('unsupported');
@@ -105,7 +110,7 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
           return;
         }
         setRecord(loaded);
-        form.reset(formDataFromRecord(loaded, currency, measurementSystem));
+        form.reset(formDataFromRecord(loaded, currency, measurementSystem, sellerProjection?.reservePrice ?? null));
         media.seed(loaded.media);
         setStatus('ready');
       })
@@ -153,7 +158,11 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
       try {
         await uploadListingMedia(preparedMedia.uploads);
         const updated = buildUpdatedRecord(record, data, preparedMedia.media);
-        await CommerceController.commitUpsertListing(updated);
+        const reservePrice =
+          updated.sale.format === 'auction' && data.reservePrice !== ''
+            ? amountInputToMoney(data.reservePrice, assetForListingCurrency(data.currency))
+            : null;
+        await CommerceController.commitUpsertListing(updated, reservePrice);
         setRecord(updated);
         savedListingId = `${currentUserPubky}:${updated.listingId}`;
         toast({ title: 'Listing updated', description: `Revision ${updated.revision} is now published.` });
@@ -234,6 +243,7 @@ function formDataFromRecord(
   record: CommerceListingRecord,
   currency: ListingCurrencyChoice,
   measurementSystem: MeasurementSystem,
+  reservePrice: { amountMinor: number; currency: string; exponent: number } | null,
 ): CreateMarketplaceListingData {
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   // Auctions are shipping-only (local pickup design §A2): an auction record
@@ -264,6 +274,7 @@ function formDataFromRecord(
     saleFormat: record.sale.format,
     currency,
     price: amountInputFromMoney(price),
+    reservePrice: reservePrice ? amountInputFromMoney(reservePrice) : '',
     variants: record.variants.map((variant) => ({
       sku: variant.sku ?? '',
       size: variant.options.size ?? '',

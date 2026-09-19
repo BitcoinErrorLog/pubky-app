@@ -839,6 +839,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getListing(actorPubky, aggregateId);
   }
 
+  static async getMarketplaceSellerListingProjection(actorPubky: string, aggregateId: string) {
+    return await MarketplaceGatewayService.getSellerListing(actorPubky, aggregateId);
+  }
+
   static async getMarketplaceListingBids(actorPubky: string | null, aggregateId: string) {
     return await MarketplaceGatewayService.getListingBids(actorPubky, aggregateId);
   }

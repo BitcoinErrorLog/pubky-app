@@ -76,6 +76,7 @@ vi.mock('@/stores/commerce/commerce.store', () => ({
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getOrFetchListing: vi.fn(),
+    getMarketplaceSellerListingProjection: vi.fn(),
     commitCreateMedia: vi.fn(),
     commitUpsertListing: vi.fn(),
     getMarketplaceMediaOwnerHomeserver: vi.fn(async () => null),
@@ -97,6 +98,7 @@ describe('useEditMarketplaceListing', () => {
     vi.clearAllMocks();
     authState.currentUserPubky = OWNER;
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(structuredClone(publishedRecord));
+    vi.mocked(CommerceController.getMarketplaceSellerListingProjection).mockResolvedValue(null);
   });
 
   it('hydrates the form and photos from the published record', async () => {
@@ -325,10 +327,14 @@ describe('useEditMarketplaceListing', () => {
       ],
     };
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(auctionRecord);
+    vi.mocked(CommerceController.getMarketplaceSellerListingProjection).mockResolvedValue({
+      reservePrice: { amountMinor: 200_000, currency: 'USD', exponent: 2 },
+    } as never);
 
     const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.saleTermsLocked).toBe(true);
+    expect(result.current.form.getValues('reservePrice')).toBe('2000.00');
 
     act(() => {
       result.current.form.setValue('description', 'Updated description with more provenance detail.');
@@ -342,6 +348,11 @@ describe('useEditMarketplaceListing', () => {
 
     const updated = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
     expect(updated).toMatchObject({ revision: 3, sale: auctionRecord.sale });
+    expect(vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][1]).toEqual({
+      amountMinor: 200_000,
+      currency: 'USD',
+      exponent: 2,
+    });
   });
 
   it('refuses to edit another seller’s listing', async () => {

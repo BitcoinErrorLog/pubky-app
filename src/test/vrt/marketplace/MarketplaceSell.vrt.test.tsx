@@ -284,6 +284,31 @@ describe('Marketplace sell studio — visual regression', () => {
     await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-draft-restored-desktop');
   });
 
+  it('renders the seller-private auction reserve at desktop viewport', async () => {
+    view.drafts = [
+      {
+        ...draftFixture,
+        data: {
+          ...draftFixture.data,
+          form: {
+            ...draftFixture.data.form,
+            saleFormat: 'auction',
+            reservePrice: '200.00',
+            fulfillment: 'shipping',
+          },
+        },
+      },
+    ];
+    view.mediaItems = [];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      const input = screen.container.querySelector<HTMLInputElement>('#reservePrice');
+      if (input?.value !== '200.00') throw new Error('Private reserve has not populated the form yet.');
+    });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-auction-private-reserve-desktop');
+  });
+
   it('renders the form with additional variants added at desktop viewport', async () => {
     view.drafts = [];
     view.mediaItems = [];
