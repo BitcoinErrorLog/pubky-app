@@ -357,14 +357,11 @@ describe('marketplace offer projection — award degradation', () => {
 });
 
 describe('marketplace listing projection — viewer bid', () => {
-  it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])(
-    'rejects a nested public %s leak',
-    (key) => {
-      const fixture = createAuctionProjectionFixture() as Record<string, unknown>;
-      fixture.extension = { nested: [{ [key]: null }] };
-      expect(marketplaceListingProjectionSchema.safeParse(fixture).success).toBe(false);
-    },
-  );
+  it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])('rejects a nested public %s leak', (key) => {
+    const fixture = createAuctionProjectionFixture() as Record<string, unknown>;
+    fixture.extension = { nested: [{ [key]: null }] };
+    expect(marketplaceListingProjectionSchema.safeParse(fixture).success).toBe(false);
+  });
 
   it('accepts reserve authority only in the seller projection', () => {
     const fixture = {

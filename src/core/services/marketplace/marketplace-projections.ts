@@ -115,7 +115,8 @@ const normalizeViewerBid = (input: unknown): unknown => {
 
 export const marketplaceListingProjectionSchema = z.preprocess(
   normalizeViewerBid,
-  z.unknown()
+  z
+    .unknown()
     .superRefine((input, context) => {
       const forbiddenKey = findForbiddenPublicReserveKey(input);
       if (forbiddenKey) {

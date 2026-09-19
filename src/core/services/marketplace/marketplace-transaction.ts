@@ -251,9 +251,14 @@ export class MarketplaceTransactionService {
     actor: string,
     aggregateId: string,
   ): Promise<MarketplaceSellerListingProjection | null> {
-    const raw = await this.readProjection('getSellerListing', actor, `/v1/listings/${encodeURIComponent(aggregateId)}`, {
-      nullOnNotFound: true,
-    });
+    const raw = await this.readProjection(
+      'getSellerListing',
+      actor,
+      `/v1/listings/${encodeURIComponent(aggregateId)}`,
+      {
+        nullOnNotFound: true,
+      },
+    );
     if (raw === null) return null;
     return this.parseProjection(
       'getSellerListing',

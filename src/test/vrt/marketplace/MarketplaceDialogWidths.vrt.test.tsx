@@ -37,7 +37,9 @@ describe('Marketplace dialog widths — visual regression', () => {
       const rect = panel.getBoundingClientRect();
       const expectedX = (window.innerWidth - rect.width) / 2;
       const deltaPx = Math.abs(rect.x - expectedX);
-      console.log(`DIALOG_MEASURE ${name} viewport=${window.innerWidth}x${window.innerHeight} x=${rect.x} width=${rect.width} expectedX=${expectedX} deltaPx=${deltaPx}`);
+      console.log(
+        `DIALOG_MEASURE ${name} viewport=${window.innerWidth}x${window.innerHeight} x=${rect.x} width=${rect.width} expectedX=${expectedX} deltaPx=${deltaPx}`,
+      );
       expect(deltaPx).toBeLessThanOrEqual(2);
     });
 

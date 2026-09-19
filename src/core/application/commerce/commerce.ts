@@ -2848,10 +2848,14 @@ export class CommerceApplication {
       });
     }
     if (canonicalJson(verified) !== canonicalJson(candidate)) {
-      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The published listing did not match the verified candidate.', {
-        service: ErrorService.Homeserver,
-        operation: 'putVerifiedPublicListing',
-      });
+      throw Err.server(
+        ServerErrorCode.INVALID_RESPONSE,
+        'The published listing did not match the verified candidate.',
+        {
+          service: ErrorService.Homeserver,
+          operation: 'putVerifiedPublicListing',
+        },
+      );
     }
   }
 
@@ -2938,10 +2942,7 @@ export class CommerceApplication {
     if (!reusingPending) {
       await CommerceHomeserverService.putJson(reserveUrl, candidate);
       const verified = await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId);
-      if (
-        verified.writeId !== candidate.writeId ||
-        canonicalJson(verified) !== canonicalJson(candidate)
-      ) {
+      if (verified.writeId !== candidate.writeId || canonicalJson(verified) !== canonicalJson(candidate)) {
         throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The private reserve record could not be verified.', {
           service: ErrorService.Homeserver,
           operation: 'prepareAuctionRegistration',

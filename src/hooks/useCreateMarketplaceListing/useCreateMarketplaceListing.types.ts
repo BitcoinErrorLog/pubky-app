@@ -277,12 +277,7 @@ export const createMarketplaceListingSchema = z
     validateCategoryAndAttributes(data, context);
     validateMoneyField(data.price, data.currency, [CREATE_MARKETPLACE_LISTING_FIELDS.PRICE], context);
     if (data.saleFormat === 'auction' && data.reservePrice !== '') {
-      validateMoneyField(
-        data.reservePrice,
-        data.currency,
-        [CREATE_MARKETPLACE_LISTING_FIELDS.RESERVE_PRICE],
-        context,
-      );
+      validateMoneyField(data.reservePrice, data.currency, [CREATE_MARKETPLACE_LISTING_FIELDS.RESERVE_PRICE], context);
       const asset = assetForListingCurrency(data.currency);
       const priceValid = amountInputSchemaForAsset(asset).safeParse(data.price).success;
       const reserveValid = amountInputSchemaForAsset(asset).safeParse(data.reservePrice).success;

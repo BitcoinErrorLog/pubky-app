@@ -117,36 +117,54 @@ describe('listing registration response correlation', () => {
 
   it.each(['NOT_MODIFIED', 'NOOP'])('requires service proof for benign refusal code %s', (code) => {
     expect(
-      isSuccessfulListingRegistrationResponse({
-        ok: false,
-        error: { code, message: 'Already converged.' },
-      }, aggregateId, response.commandId),
+      isSuccessfulListingRegistrationResponse(
+        {
+          ok: false,
+          error: { code, message: 'Already converged.' },
+        },
+        aggregateId,
+        response.commandId,
+      ),
     ).toBe(false);
     expect(
-      isSuccessfulListingRegistrationResponse({
-        ok: false,
-        error: { code, message: 'Already converged.' },
-      }, aggregateId, response.commandId, true),
+      isSuccessfulListingRegistrationResponse(
+        {
+          ok: false,
+          error: { code, message: 'Already converged.' },
+        },
+        aggregateId,
+        response.commandId,
+        true,
+      ),
     ).toBe(true);
   });
 
   it('rejects a benign refusal with a mismatched aggregate', () => {
     expect(
-      isSuccessfulListingRegistrationResponse({
-        ok: false,
-        aggregateId: 'listing:other',
-        error: { code: 'NO_OP', message: 'Already converged.' },
-      } as never, aggregateId, response.commandId, true),
+      isSuccessfulListingRegistrationResponse(
+        {
+          ok: false,
+          aggregateId: 'listing:other',
+          error: { code: 'NO_OP', message: 'Already converged.' },
+        } as never,
+        aggregateId,
+        response.commandId,
+        true,
+      ),
     ).toBe(false);
   });
 
   it('rejects a successful response missing correlation ids', () => {
     expect(
-      isSuccessfulListingRegistrationResponse({
-        ...response,
-        aggregateId: undefined,
-        commandId: undefined,
-      } as never, aggregateId, response.commandId),
+      isSuccessfulListingRegistrationResponse(
+        {
+          ...response,
+          aggregateId: undefined,
+          commandId: undefined,
+        } as never,
+        aggregateId,
+        response.commandId,
+      ),
     ).toBe(false);
   });
 });
@@ -203,8 +221,9 @@ describe('pickup_details.set command contract', () => {
 
   it('rejects a negative expected version and unknown payload fields', () => {
     expect(
-      setPickupDetailsCommandSchema.safeParse(pickupCommand('pickup_details.set', { expectedVersion: -1, details: spotDetails }))
-        .success,
+      setPickupDetailsCommandSchema.safeParse(
+        pickupCommand('pickup_details.set', { expectedVersion: -1, details: spotDetails }),
+      ).success,
     ).toBe(false);
     expect(
       setPickupDetailsCommandSchema.safeParse(
@@ -258,7 +277,12 @@ describe('pickup_details command result narrowing', () => {
   it('narrows the set result to the new details version', () => {
     const result = asPickupDetailsCommandResult({
       ...response,
-      result: { kind: 'pickup_details', listingAggregateId: LISTING_AGGREGATE_ID, version: 3, updatedAt: '2026-08-19T22:00:00.000Z' },
+      result: {
+        kind: 'pickup_details',
+        listingAggregateId: LISTING_AGGREGATE_ID,
+        version: 3,
+        updatedAt: '2026-08-19T22:00:00.000Z',
+      },
     });
     expect(result).toMatchObject({ kind: 'pickup_details', version: 3, listingAggregateId: LISTING_AGGREGATE_ID });
   });
@@ -413,12 +437,12 @@ describe('checkout.create fulfillment and address rules (§A2)', () => {
   });
 
   it('requires a delivery address when any line ships (absent fulfillment means shipping)', () => {
-    expect(createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([pickupLine, shippingLine], false)).success).toBe(
-      false,
-    );
-    expect(createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([pickupLine, shippingLine], true)).success).toBe(
-      true,
-    );
+    expect(
+      createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([pickupLine, shippingLine], false)).success,
+    ).toBe(false);
+    expect(
+      createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([pickupLine, shippingLine], true)).success,
+    ).toBe(true);
   });
 
   it('keeps legacy checkouts valid: no line fulfillment plus an address', () => {
