@@ -265,7 +265,10 @@ export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.Event
   }
 
   if (event.breadcrumbs) {
-    event.breadcrumbs = event.breadcrumbs.map(scrubBreadcrumb);
+    event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
+      const sanitized = scrubBreadcrumb(breadcrumb);
+      return sanitized ? [sanitized] : [];
+    });
   }
 
   if (event.contexts) {
