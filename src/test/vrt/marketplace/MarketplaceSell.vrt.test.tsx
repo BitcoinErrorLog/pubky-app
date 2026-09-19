@@ -306,7 +306,7 @@ describe('Marketplace sell studio — visual regression', () => {
       const input = screen.container.querySelector<HTMLInputElement>('#reservePrice');
       if (input?.value !== '200.00') throw new Error('Private reserve has not populated the form yet.');
     });
-    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-auction-private-reserve-desktop');
+    await expect(expectVrtSurface('listing-section-price')).toMatchScreenshot('sell-auction-private-reserve-desktop');
   });
 
   it('renders the form with additional variants added at desktop viewport', async () => {
