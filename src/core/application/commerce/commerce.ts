@@ -2501,7 +2501,7 @@ export class CommerceApplication {
 
   static async commitUpsertListing(
     record: CommerceListingRecord,
-    reservePrice: CommerceMoney | null = null,
+    reservePrice?: CommerceMoney | null,
   ): Promise<{ registered: boolean }> {
     if (isDurableCommerceMode(getCommerceAdapterMode()) && !this.hasActiveMarketplaceSession()) {
       throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Connect a marketplace session to publish a listing.', {
@@ -2847,6 +2847,12 @@ export class CommerceApplication {
         operation: 'putVerifiedPublicListing',
       });
     }
+    if (canonicalJson(verified) !== canonicalJson(candidate)) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The published listing did not match the verified candidate.', {
+        service: ErrorService.Homeserver,
+        operation: 'putVerifiedPublicListing',
+      });
+    }
   }
 
   private static async fetchAuctionReserveRecord(
@@ -2859,7 +2865,7 @@ export class CommerceApplication {
 
   private static async prepareAuctionRegistration(
     listing: CommerceListingRecord,
-    reservePrice: CommerceMoney | null,
+    reservePrice: CommerceMoney | null | undefined,
   ): Promise<MarketplaceCommand> {
     if (listing.sale.format !== 'auction') {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Auction reserve requires an auction listing.', {
@@ -2882,7 +2888,19 @@ export class CommerceApplication {
         });
       }
       current = fetched;
+      if (new TextEncoder().encode(JSON.stringify(fetched)).byteLength > 65_536) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record is too large.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
       parsedCurrent = commerceAuctionReserveRecordSchema.parse(fetched);
+      if (parsedCurrent.ownerPubky !== listing.ownerPubky || parsedCurrent.listingId !== listing.listingId) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record identity does not match.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
     } catch (error) {
       if (!(isAppError(error) && isNotFound(error) && expectedRecordRevision === 0)) throw error;
     }
@@ -2892,6 +2910,7 @@ export class CommerceApplication {
       parsedCurrent.recordRevision === expectedRecordRevision + 1;
     const now = new Date().toISOString();
     const writeId = reusingPending ? parsedCurrent!.writeId : crypto.randomUUID();
+    const issuedAt = reusingPending ? parsedCurrent!.updatedAt : now;
     const candidate = commerceAuctionReserveRecordSchema.parse(
       mergeOpenWorldRecords(current, {
         schemaVersion: 1,
@@ -2901,7 +2920,11 @@ export class CommerceApplication {
         listingRevision: listing.revision,
         recordRevision: expectedRecordRevision + 1,
         writeId,
-        reservePrice: reusingPending ? parsedCurrent!.reservePrice : reservePrice,
+        reservePrice: reusingPending
+          ? parsedCurrent!.reservePrice
+          : reservePrice === undefined
+            ? (parsedCurrent?.reservePrice ?? projection?.reservePrice ?? null)
+            : reservePrice,
         createdAt: parsedCurrent?.createdAt ?? now,
         updatedAt: now,
       }),
@@ -2917,9 +2940,7 @@ export class CommerceApplication {
       const verified = await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId);
       if (
         verified.writeId !== candidate.writeId ||
-        verified.listingRevision !== candidate.listingRevision ||
-        verified.recordRevision !== candidate.recordRevision ||
-        JSON.stringify(verified.reservePrice) !== JSON.stringify(candidate.reservePrice)
+        canonicalJson(verified) !== canonicalJson(candidate)
       ) {
         throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The private reserve record could not be verified.', {
           service: ErrorService.Homeserver,
@@ -2934,7 +2955,7 @@ export class CommerceApplication {
       commandId: writeId,
       aggregateId,
       expectedRevision: projection?.serverRevision ?? 0,
-      issuedAt: now,
+      issuedAt,
       kind: 'listing.register',
       payload: {
         sellerPubky: listing.ownerPubky,
@@ -3121,4 +3142,15 @@ function mergeOpenWorldRecords(
       isPlainRecord(prior) && isPlainRecord(value) ? mergeOpenWorldRecords(prior, value) : structuredClone(value);
   }
   return merged;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isPlainRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }

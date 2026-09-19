@@ -404,7 +404,7 @@ describe('CommerceApplication', () => {
 
     const reserve = { amountMinor: 8_000, currency: 'USD', exponent: 2 };
     await expect(CommerceApplication.commitUpsertListing(listing, reserve)).resolves.toEqual({ registered: true });
-    await expect(CommerceApplication.commitUpsertListing(listing, reserve)).resolves.toEqual({ registered: true });
+    await expect(CommerceApplication.commitUpsertListing(listing)).resolves.toEqual({ registered: true });
 
     const privateWrites = writes.filter(([url]) => url.includes('/priv/'));
     const publicWrites = writes.filter(([url]) => url.includes('/pub/'));
@@ -421,6 +421,7 @@ describe('CommerceApplication', () => {
       },
     });
     expect(execute.mock.calls[1][1].commandId).toBe(execute.mock.calls[0][1].commandId);
+    expect(execute.mock.calls[1][1].issuedAt).toBe(execute.mock.calls[0][1].issuedAt);
   });
 
   it('persists unregistered after registration rejects and stamps registered on a successful retry', async () => {
