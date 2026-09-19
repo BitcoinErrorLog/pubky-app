@@ -91,13 +91,12 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
       setStatus('not-owner');
       return;
     }
-    Promise.all([
-      CommerceController.getOrFetchListing(sellerPubky, listingId),
-      isDurableCommerceMode(getCommerceAdapterMode())
-        ? CommerceController.getMarketplaceSellerListingProjection(sellerPubky, listingId)
-        : Promise.resolve(null),
-    ])
-      .then(([loaded, sellerProjection]) => {
+    CommerceController.getOrFetchListing(sellerPubky, listingId)
+      .then(async (loaded) => {
+        const sellerProjection =
+          loaded.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())
+            ? await CommerceController.getMarketplaceSellerListingProjection(sellerPubky, listingId)
+            : null;
         if (!active) return;
         if (loaded.fulfillmentMethods.includes('digital')) {
           setStatus('unsupported');

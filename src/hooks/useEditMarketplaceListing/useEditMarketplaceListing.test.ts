@@ -117,6 +117,7 @@ describe('useEditMarketplaceListing', () => {
       expect.objectContaining({ kind: 'existing', key: 'image_01', altText: 'Brown leather boots' }),
     ]);
     expect(result.current.saleTermsLocked).toBe(false);
+    expect(CommerceController.getMarketplaceSellerListingProjection).not.toHaveBeenCalled();
   });
 
   it('republishes the same listing with a bumped revision and reused media', async () => {
