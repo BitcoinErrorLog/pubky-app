@@ -70,6 +70,17 @@ function runBeforeSend(event: Sentry.ErrorEvent, hint: Sentry.EventHint = {}): S
   return result as Sentry.ErrorEvent;
 }
 
+function runBeforeBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb {
+  const beforeBreadcrumb = getSentryInitBase().beforeBreadcrumb;
+
+  expect(beforeBreadcrumb).toBeTypeOf('function');
+
+  const result = beforeBreadcrumb!(breadcrumb);
+
+  expect(result).not.toBeNull();
+  return result as Sentry.Breadcrumb;
+}
+
 function runBeforeSendTransaction(event: TransactionEvent): TransactionEvent {
   const beforeSendTransaction = getSentryInitBase().beforeSendTransaction;
 
@@ -433,6 +444,8 @@ describe('Sentry PII scrubbing', () => {
       data: { ...sensitiveFields },
       captureContext: { extra: { ...sensitiveFields } },
       originalException: { ...sensitiveFields },
+      attachments: [{ filename: 'alice@example.com.txt', data: '{"token":"secret"}' }],
+      syntheticException: new Error('Bearer secret-token'),
     });
 
     runBeforeSend(asOpaque<Sentry.ErrorEvent>({ message: 'safe error' }), hint);
@@ -440,6 +453,8 @@ describe('Sentry PII scrubbing', () => {
     expect(hint.data).toEqual(redactedFields);
     expect(hint.captureContext).toEqual({ extra: redactedFields });
     expect(hint.originalException).toEqual(redactedFields);
+    expect(hint.attachments).toEqual([]);
+    expect(hint.syntheticException).toBeNull();
   });
 
   it('preserves benign EventHint fields', () => {
@@ -460,6 +475,78 @@ describe('Sentry PII scrubbing', () => {
     expect(hint.data).toEqual(benignFields);
     expect(hint.captureContext).toEqual({ extra: benignFields });
     expect(hint.originalException).toEqual(benignFields);
+  });
+
+  it('redacts nested case-variant keys inside stringified JSON on event and hint fields', () => {
+    const hint = asOpaque<Sentry.EventHint>({
+      data: '{"outer":{"ToKeN":"hint-secret"},"statusCode":200}',
+    });
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: {
+          payload: '{"nested":{"AUTHORIZATION":"Bearer event-secret"},"retryable":true}',
+        },
+      }),
+      hint,
+    );
+
+    expect(hint.data).toBe('{"outer":{"ToKeN":"[redacted: sensitive field]"},"statusCode":200}');
+    expect(event.extra?.payload).toBe('{"nested":{"AUTHORIZATION":"[redacted: sensitive field]"},"retryable":true}');
+  });
+
+  it('fails closed for unknown non-plain and function-valued event and hint shapes', () => {
+    class UnsupportedPayload {
+      token = 'class-secret';
+    }
+
+    const hint = asOpaque<Sentry.EventHint>({
+      data: () => 'function-secret',
+      captureContext: new UnsupportedPayload(),
+      originalException: new Error('error-secret'),
+    });
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: {
+          date: new Date('2026-09-19T00:00:00.000Z'),
+          instance: new UnsupportedPayload(),
+        },
+      }),
+      hint,
+    );
+
+    expect(hint.data).toBe('[redacted: sensitive field]');
+    expect(hint.captureContext).toBe('[redacted: sensitive field]');
+    expect(hint.originalException).toBe('[redacted: sensitive field]');
+    expect(event.extra).toEqual({
+      date: '[redacted: sensitive field]',
+      instance: '[redacted: sensitive field]',
+    });
+  });
+
+  it('covers every event carrier with a sensitive value while preserving SDK contexts', () => {
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        message: 'Contact event@example.com',
+        exception: { values: [{ type: 'Error', value: `Failed for ${TEST_PUBKY}` }] },
+        breadcrumbs: [{ data: { ToKeN: 'breadcrumb-secret' } }],
+        contexts: {
+          browser: { name: 'Chrome', version: '123' },
+          custom: { AuThOrIzAtIoN: 'Bearer context-secret' },
+        },
+        extra: { SeCrEt: 'extra-secret' },
+        request: { headers: { AUTHORIZATION: 'Bearer request-secret' } },
+        user: { email: 'user@example.com' },
+      }),
+    );
+
+    expect(event.message).toBe('Contact [redacted: email]');
+    expect(event.exception?.values?.[0]?.value).toBe('Failed for [redacted: pubky identifier]');
+    expect(event.breadcrumbs?.[0]?.data?.ToKeN).toBe('[redacted: sensitive field]');
+    expect(event.contexts?.custom?.AuThOrIzAtIoN).toBe('[redacted: sensitive field]');
+    expect(event.contexts?.browser).toEqual({ name: 'Chrome', version: '123' });
+    expect(event.extra?.SeCrEt).toBe('[redacted: sensitive field]');
+    expect(event.request?.headers?.AUTHORIZATION).toBe('[redacted: sensitive field]');
+    expect(event.user?.email).toBe('[redacted: sensitive field]');
   });
 
   it('redacts identifiers from messages, exception values, and breadcrumb messages', () => {
@@ -588,12 +675,49 @@ describe('Sentry PII scrubbing', () => {
 });
 
 describe('Sentry tracing hooks wired into init base', () => {
+  it('exposes beforeBreadcrumb as a function on getSentryInitBase()', () => {
+    expect(getSentryInitBase().beforeBreadcrumb).toBeTypeOf('function');
+  });
+
   it('exposes beforeSendTransaction as a function on getSentryInitBase()', () => {
     expect(getSentryInitBase().beforeSendTransaction).toBeTypeOf('function');
   });
 
   it('exposes beforeSendSpan as a function on getSentryInitBase()', () => {
     expect(getSentryInitBase().beforeSendSpan).toBeTypeOf('function');
+  });
+});
+
+describe('Sentry breadcrumb ingress scrubbing', () => {
+  it('redacts breadcrumb messages, nested data, and stringified JSON before storage', () => {
+    const breadcrumb = runBeforeBreadcrumb({
+      category: 'request',
+      message: 'Contact breadcrumb@example.com',
+      data: {
+        nested: { ReFrEsH_ToKeN: 'breadcrumb-secret' },
+        payload: '{"ApiKey":"json-secret","statusCode":200}',
+      },
+    });
+
+    expect(breadcrumb).toEqual({
+      category: 'request',
+      message: 'Contact [redacted: email]',
+      data: {
+        nested: { ReFrEsH_ToKeN: '[redacted: sensitive field]' },
+        payload: '{"ApiKey":"[redacted: sensitive field]","statusCode":200}',
+      },
+    });
+  });
+
+  it('preserves benign breadcrumb fields', () => {
+    const breadcrumb = {
+      category: 'navigation',
+      message: 'Opened settings',
+      data: { operation: 'settings.open', statusCode: 200, retryable: false },
+      level: 'info' as const,
+    };
+
+    expect(runBeforeBreadcrumb(breadcrumb)).toEqual(breadcrumb);
   });
 });
 

@@ -29,14 +29,27 @@ function isSensitiveContextKey(key: string): boolean {
   return SENSITIVE_CONTEXT_KEYS.has(normalizedKey) || PUBKY_IDENTIFIER_KEYS.has(normalizedKey);
 }
 
+function isPlainObject(value: object): value is Record<string, unknown> {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 function scrubSensitiveString(value: string): string {
-  return value
+  const scrubbed = value
     .replace(PUBKY_URI_PATTERN, PUBKY_REDACTED)
     .replace(PUBKY_HTTP_HOST_PATTERN, PUBKY_REDACTED)
     .replace(PUBKY_COMPACT_URI_PATTERN, PUBKY_REDACTED)
     .replace(RAW_PUBKY_PATTERN, PUBKY_REDACTED)
     .replace(EMAIL_PATTERN, EMAIL_REDACTED)
     .replace(PHONE_PATTERN, PHONE_REDACTED);
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed === null || typeof parsed !== 'object') return scrubbed;
+    return JSON.stringify(sanitizeForSentry(parsed));
+  } catch {
+    return scrubbed;
+  }
 }
 
 function getEndpointPath(endpoint: unknown): string | null {
@@ -88,8 +101,8 @@ export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()):
     return scrubSensitiveString(value);
   }
 
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeForSentry(item, seen));
+  if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') {
+    return SENSITIVE_VALUE_REDACTED;
   }
 
   if (typeof value !== 'object' || value === null) {
@@ -101,8 +114,12 @@ export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()):
   }
   seen.add(value);
 
-  if (value instanceof Date) {
-    return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForSentry(item, seen));
+  }
+
+  if (!isPlainObject(value)) {
+    return SENSITIVE_VALUE_REDACTED;
   }
 
   const sanitized: Record<string, unknown> = {};
@@ -126,17 +143,62 @@ export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()):
 function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined): void {
   if (!hint) return;
 
-  if (hint.data && typeof hint.data === 'object') {
+  if (hint.data !== undefined) {
     hint.data = sanitizeForSentry(hint.data);
   }
 
-  if (hint.captureContext && typeof hint.captureContext === 'object') {
+  if (hint.captureContext !== undefined) {
     hint.captureContext = sanitizeForSentry(hint.captureContext) as Sentry.EventHint['captureContext'];
   }
 
-  if (hint.originalException && typeof hint.originalException === 'object') {
+  if (hint.originalException !== undefined) {
     hint.originalException = sanitizeForSentry(hint.originalException);
   }
+
+  // Attachments are opaque uploads whose filename and payload are both user-controlled.
+  // They cannot be inspected safely (payloads may be binary), so fail closed by dropping them.
+  if (hint.attachments !== undefined) {
+    hint.attachments = [];
+  }
+
+  // Error is a non-plain object and its message/stack can contain secrets. The event already
+  // contains the sanitized exception details, so the safest hint representation is no exception.
+  if (hint.syntheticException !== undefined) {
+    hint.syntheticException = null;
+  }
+}
+
+const SDK_STRUCTURAL_CONTEXTS = new Set([
+  'app',
+  'browser',
+  'cloud_resource',
+  'culture',
+  'device',
+  'flags',
+  'gpu',
+  'os',
+  'profile',
+  'replay',
+  'response',
+  'runtime',
+  'state',
+  'trace',
+]);
+
+function scrubEventContexts(contexts: Sentry.ErrorEvent['contexts']): Sentry.ErrorEvent['contexts'] {
+  if (!contexts) return contexts;
+
+  const sanitized: NonNullable<Sentry.ErrorEvent['contexts']> = {};
+  for (const [name, context] of Object.entries(contexts)) {
+    if (context === undefined) continue;
+
+    if (SDK_STRUCTURAL_CONTEXTS.has(name)) {
+      sanitized[name] = deepScrubTelemetryStrings(context, new WeakSet<object>());
+    } else {
+      sanitized[name] = sanitizeForSentry(context) as Sentry.Context;
+    }
+  }
+  return sanitized;
 }
 
 /**
@@ -198,29 +260,16 @@ export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.Event
 
   event.message = event.message ? scrubSensitiveString(event.message) : event.message;
 
-  // captureException populates event.exception.values[].value with the error message.
-  // Unlike event.breadcrumbs, event.exception IS wrapped as { values: Exception[] } in-SDK.
-  if (event.exception?.values) {
-    event.exception.values = event.exception.values.map((exception) => {
-      return {
-        ...exception,
-        value: exception.value ? scrubSensitiveString(exception.value) : exception.value,
-      };
-    });
+  if (event.exception) {
+    event.exception = sanitizeForSentry(event.exception) as Sentry.ErrorEvent['exception'];
   }
 
   if (event.breadcrumbs) {
-    event.breadcrumbs = event.breadcrumbs.map((crumb) => {
-      return {
-        ...crumb,
-        message: crumb.message ? scrubSensitiveString(crumb.message) : crumb.message,
-        data: crumb.data ? (sanitizeForSentry(crumb.data) as Sentry.Breadcrumb['data']) : crumb.data,
-      };
-    });
+    event.breadcrumbs = event.breadcrumbs.map(scrubBreadcrumb);
   }
 
-  if (event.contexts?.['error.context']) {
-    event.contexts['error.context'] = sanitizeForSentry(event.contexts['error.context']) as Sentry.Context;
+  if (event.contexts) {
+    event.contexts = scrubEventContexts(event.contexts);
   }
 
   if (event.extra) {
@@ -236,6 +285,17 @@ export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.Event
   }
 
   return event;
+}
+
+/**
+ * Last-chance breadcrumb ingress filter. Breadcrumb data is application-controlled and can
+ * contain arbitrary nested values, so it uses the same fail-closed recursive redactor as events.
+ */
+export function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null {
+  const sanitized = sanitizeForSentry(breadcrumb);
+  return sanitized !== null && typeof sanitized === 'object' && isPlainObject(sanitized)
+    ? (sanitized as Sentry.Breadcrumb)
+    : null;
 }
 
 /**

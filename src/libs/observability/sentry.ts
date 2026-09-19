@@ -3,6 +3,7 @@ import { Env } from '@/libs/env/env';
 import { AppError } from '@/libs/error/error';
 import {
   sanitizeForSentry,
+  scrubBreadcrumb,
   scrubSensitiveData,
   scrubSpanJson,
   scrubTransactionEvent,
@@ -105,6 +106,7 @@ export function getSentryInitBase(): Sentry.NodeOptions & Sentry.BrowserOptions 
       'AbortError',
       'Non-Error promise rejection captured',
     ],
+    beforeBreadcrumb: scrubBreadcrumb,
     beforeSend: scrubSensitiveData,
     beforeSendTransaction: scrubTransactionEvent,
     beforeSendSpan: scrubSpanJson,
