@@ -117,6 +117,29 @@ export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()):
 }
 
 /**
+ * Removes sensitive values from Sentry's last-chance hook input.
+ *
+ * `EventHint` is SDK-local and is not serialized directly, but integrations can retain values
+ * from it while constructing the event. Sanitizing its data carriers alongside the final event
+ * makes the `beforeSend` boundary safe even when a new integration forwards hint metadata.
+ */
+function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined): void {
+  if (!hint) return;
+
+  if (hint.data && typeof hint.data === 'object') {
+    hint.data = sanitizeForSentry(hint.data);
+  }
+
+  if (hint.captureContext && typeof hint.captureContext === 'object') {
+    hint.captureContext = sanitizeForSentry(hint.captureContext) as Sentry.EventHint['captureContext'];
+  }
+
+  if (hint.originalException && typeof hint.originalException === 'object') {
+    hint.originalException = sanitizeForSentry(hint.originalException);
+  }
+}
+
+/**
  * String-only deep walker for SDK-owned telemetry payloads (transactions, spans).
  *
  * Mutates `value` in place: every string descendant is replaced with the scrubbed string;
@@ -170,7 +193,9 @@ function deepScrubTelemetryStrings<T>(value: T, seen: WeakSet<object>): T {
  * The browser/server initializers also set sendDefaultPii: false; this hook is a
  * second line of defense for application payloads we attach ourselves.
  */
-export function scrubSensitiveData(event: Sentry.ErrorEvent): Sentry.ErrorEvent | null {
+export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.EventHint): Sentry.ErrorEvent | null {
+  scrubSensitiveEventHint(hint);
+
   event.message = event.message ? scrubSensitiveString(event.message) : event.message;
 
   // captureException populates event.exception.values[].value with the error message.

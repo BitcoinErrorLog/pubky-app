@@ -59,12 +59,12 @@ function injectRuntimeConfig(overrides: Record<string, unknown> = {}): () => voi
   };
 }
 
-function runBeforeSend(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
+function runBeforeSend(event: Sentry.ErrorEvent, hint: Sentry.EventHint = {}): Sentry.ErrorEvent {
   const beforeSend = getSentryInitBase().beforeSend;
 
   expect(beforeSend).toBeTypeOf('function');
 
-  const result = beforeSend!(event, {} as Sentry.EventHint);
+  const result = beforeSend!(event, hint);
 
   expect(result).not.toBeNull();
   return result as Sentry.ErrorEvent;
@@ -385,6 +385,83 @@ describe('captureAppError filtering', () => {
 });
 
 describe('Sentry PII scrubbing', () => {
+  it('strips every sensitive field from EventHint data carriers before sending', () => {
+    const sensitiveFields = {
+      accessToken: 'access-token',
+      apiKey: 'api-key',
+      authorization: 'Bearer access-token',
+      avatar: 'avatar.png',
+      bio: 'private bio',
+      clientSecret: 'client-secret',
+      cookie: 'session=value',
+      displayName: 'Alice',
+      email: 'alice@example.com',
+      file: 'passport.png',
+      firstName: 'Alice',
+      image: 'avatar.png',
+      key: 'private-key',
+      lastName: 'Example',
+      name: 'Alice Example',
+      password: 'password',
+      phone: '+1 555-123-4567',
+      phoneNumber: '+1 555-123-4567',
+      privateKey: 'private-key',
+      publicKey: TEST_PUBKY,
+      pubky: TEST_PUBKY,
+      refreshToken: 'refresh-token',
+      secret: 'secret',
+      secretKey: 'secret-key',
+      sessionToken: 'session-token',
+      setCookie: 'session=value',
+      signature: 'signature',
+      token: 'token',
+      user: 'alice',
+      userId: TEST_PUBKY,
+      username: 'alice',
+      author: TEST_PUBKY,
+      authorId: TEST_PUBKY,
+      followee: TEST_PUBKY,
+      follower: TEST_PUBKY,
+      mutee: TEST_PUBKY,
+      muter: TEST_PUBKY,
+      taggerId: TEST_PUBKY,
+    };
+    const redactedFields = Object.fromEntries(
+      Object.keys(sensitiveFields).map((key) => [key, '[redacted: sensitive field]']),
+    );
+    const hint = asOpaque<Sentry.EventHint>({
+      data: { ...sensitiveFields },
+      captureContext: { extra: { ...sensitiveFields } },
+      originalException: { ...sensitiveFields },
+    });
+
+    runBeforeSend(asOpaque<Sentry.ErrorEvent>({ message: 'safe error' }), hint);
+
+    expect(hint.data).toEqual(redactedFields);
+    expect(hint.captureContext).toEqual({ extra: redactedFields });
+    expect(hint.originalException).toEqual(redactedFields);
+  });
+
+  it('preserves benign EventHint fields', () => {
+    const benignFields = {
+      operation: 'profile.fetch',
+      requestId: 'req_123',
+      retryable: false,
+      statusCode: 503,
+    };
+    const hint = asOpaque<Sentry.EventHint>({
+      data: { ...benignFields },
+      captureContext: { extra: { ...benignFields } },
+      originalException: { ...benignFields },
+    });
+
+    runBeforeSend(asOpaque<Sentry.ErrorEvent>({ message: 'safe error' }), hint);
+
+    expect(hint.data).toEqual(benignFields);
+    expect(hint.captureContext).toEqual({ extra: benignFields });
+    expect(hint.originalException).toEqual(benignFields);
+  });
+
   it('redacts identifiers from messages, exception values, and breadcrumb messages', () => {
     const event = runBeforeSend(
       asOpaque<Sentry.ErrorEvent>({
