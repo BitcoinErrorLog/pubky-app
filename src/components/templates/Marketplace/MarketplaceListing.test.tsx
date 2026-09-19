@@ -271,7 +271,6 @@ describe('MarketplaceListing', () => {
         sale: {
           format: 'auction',
           startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
-          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
           minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
           startsAt: auctionStartsAt,
           endsAt: auctionEndsAt,
@@ -294,7 +293,6 @@ describe('MarketplaceListing', () => {
         sale: {
           format: 'auction',
           startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
-          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
           minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
           startsAt: new Date(Date.now() - 2 * 60_000).toISOString(),
           endsAt: scheduledEndsAt,
@@ -312,7 +310,6 @@ describe('MarketplaceListing', () => {
         currentPrice: { amountMinor: 6_900, currency: 'USD', exponent: 2 },
         leaderPubky: 'b'.repeat(52),
         bidCount: 4,
-        reserveMet: true,
       },
     });
 

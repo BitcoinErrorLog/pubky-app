@@ -25,7 +25,6 @@ function auctionProjection(overrides: Record<string, unknown> = {}) {
     currentPrice: usd(8_500),
     leaderPubky: BIDDER_A,
     bidCount: 2,
-    reserveMet: true,
     ...overrides,
   };
 }

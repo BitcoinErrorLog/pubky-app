@@ -9,7 +9,6 @@ import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 export interface MarketplaceLiveBid {
   currentPrice: CommerceMoney;
   bidCount: number;
-  reserveMet: boolean;
 }
 
 export interface UseMarketplaceLiveBidResult {
@@ -60,7 +59,6 @@ export function useMarketplaceLiveBid(
         setBid({
           currentPrice: projection.auction.currentPrice,
           bidCount: projection.auction.bidCount,
-          reserveMet: projection.auction.reserveMet,
         });
       })
       .catch(() => {

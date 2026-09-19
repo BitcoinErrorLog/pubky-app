@@ -386,7 +386,6 @@ describe('MarketplaceTransactionService read projections', () => {
       aggregateId: AGGREGATE_ID,
       serverRevision: 4,
       state: 'available',
-      auction: { currentPrice: { amountMinor: 13_000 }, leaderPubky: OTHER_ACTOR, bidCount: 3, reserveMet: true },
       viewerBid: {
         maximumAmount: { amountMinor: 7_000 },
         minimumNextBid: { amountMinor: 7_001 },

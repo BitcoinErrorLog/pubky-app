@@ -63,7 +63,6 @@ function auctionProjection(overrides: Partial<NonNullable<MarketplaceListingProj
       currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 },
       leaderPubky: null,
       bidCount: 4,
-      reserveMet: true,
       ...overrides,
     },
   } as MarketplaceListingProjection;
@@ -98,7 +97,6 @@ describe('useMarketplaceLiveBid', () => {
       expect(result.current.bid).toEqual({
         currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 },
         bidCount: 4,
-        reserveMet: true,
       }),
     );
     expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalledExactlyOnceWith(SELLER, 'camera');

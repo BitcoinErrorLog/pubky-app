@@ -246,7 +246,6 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
       ? {
           format: 'auction',
           startingPrice: { amountMinor: entry.amountMinor, currency: 'USD', exponent: 2 },
-          reservePrice: { amountMinor: entry.amountMinor + 2_000, currency: 'USD', exponent: 2 },
           buyNowPrice: { amountMinor: entry.amountMinor + 8_000, currency: 'USD', exponent: 2 },
           minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
           startsAt: '2026-08-19T20:00:00.000Z',

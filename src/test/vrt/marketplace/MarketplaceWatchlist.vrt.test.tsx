@@ -35,7 +35,6 @@ const fixtures = vi.hoisted(async () => {
       auction: {
         startsAt: new Date(NOW - 72 * HOUR).toISOString(),
         endsAt: new Date(NOW + 3 * HOUR).toISOString(),
-        reservePrice: null,
         buyNowPrice: null,
         minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
       },
@@ -202,7 +201,7 @@ vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
     ref: () => {},
     bid:
       listingId === 'signet_ring'
-        ? { currentPrice: { amountMinor: 14_500, currency: 'USD', exponent: 2 }, bidCount: 5, reserveMet: true }
+        ? { currentPrice: { amountMinor: 14_500, currency: 'USD', exponent: 2 }, bidCount: 5 }
         : null,
   }),
 }));

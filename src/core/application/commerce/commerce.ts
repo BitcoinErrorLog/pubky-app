@@ -22,6 +22,9 @@ import {
 } from '@/libs/commerce/attestation';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import {
+  assertReserveFreePublicRecord,
+  type CommerceAuctionReserveRecord,
+  commerceAuctionReserveRecordSchema,
   type CommerceDigitalLock,
   type CommerceDropRecord,
   commerceListingFulfillmentMethods,
@@ -30,6 +33,7 @@ import {
   commerceReviewRecordSchema,
   type CommerceShopRecord,
   type CommerceWatchlistRecord,
+  stripForbiddenPublicReserveKeys,
 } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import {
@@ -56,7 +60,7 @@ import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
 } from '@/libs/commerce/transaction-commands';
-import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
+import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -2491,7 +2495,10 @@ export class CommerceApplication {
     await LocalCommerceService.completeSyncJob(job.id);
   }
 
-  static async commitUpsertListing(record: CommerceListingRecord): Promise<{ registered: boolean }> {
+  static async commitUpsertListing(
+    record: CommerceListingRecord,
+    reservePrice: CommerceMoney | null = null,
+  ): Promise<{ registered: boolean }> {
     if (isDurableCommerceMode(getCommerceAdapterMode()) && !this.hasActiveMarketplaceSession()) {
       throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Connect a marketplace session to publish a listing.', {
         service: ErrorService.Marketplace,
@@ -2511,9 +2518,12 @@ export class CommerceApplication {
 
     const registrationStatus = getCommerceAdapterMode() === 'unavailable' ? 'unavailable' : 'unregistered';
     await LocalCommerceService.stageListingSync(record, publishJob, registrationStatus);
-    await CommerceHomeserverService.putJson(url, { ...record });
+    const registration =
+      record.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())
+        ? await this.prepareAuctionRegistration(record, reservePrice)
+        : null;
+    await this.putVerifiedPublicListing(record, url);
     await LocalCommerceService.upsertListing(record, 'synced');
-    await LocalCommerceService.completeSyncJob(publishJob.id);
 
     // Registration is idempotent (skipped when the aggregate already has a server
     // revision), so retrying the whole commit after a failure here is safe.
@@ -2530,11 +2540,12 @@ export class CommerceApplication {
     // listing.sync once a marketplace session exists.
     if (getCommerceAdapterMode() !== 'unavailable') {
       try {
-        await this.registerListing(record);
+        await this.registerListing(record, registration);
         await LocalCommerceService.setListingRegistrationStatus(
           `${record.ownerPubky}:${record.listingId}`,
           'registered',
         );
+        await LocalCommerceService.completeSyncJob(publishJob.id);
       } catch (error) {
         await LocalCommerceService.setListingRegistrationStatus(
           `${record.ownerPubky}:${record.listingId}`,
@@ -2546,6 +2557,8 @@ export class CommerceApplication {
         });
         return { registered: false };
       }
+    } else {
+      await LocalCommerceService.completeSyncJob(publishJob.id);
     }
     return { registered: getCommerceAdapterMode() !== 'unavailable' };
   }
@@ -2797,9 +2810,177 @@ export class CommerceApplication {
     return await MarketplaceMediaService.fetchMedia(uri);
   }
 
-  private static async registerListing(listing: CommerceListingRecord): Promise<void> {
+  private static async putVerifiedPublicListing(record: CommerceListingRecord, url: string): Promise<void> {
+    let current: Record<string, unknown> = {};
+    try {
+      const fetched = await CommerceHomeserverService.fetchJson(url);
+      if (!isPlainRecord(fetched)) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The published listing is not a JSON object.', {
+          service: ErrorService.Homeserver,
+          operation: 'putVerifiedPublicListing',
+        });
+      }
+      current = fetched;
+    } catch (error) {
+      if (!(isAppError(error) && isNotFound(error) && record.revision === 1)) throw error;
+    }
+
+    const scrubbed = stripForbiddenPublicReserveKeys(current);
+    const candidate = mergeOpenWorldRecords(isPlainRecord(scrubbed) ? scrubbed : {}, record);
+    assertReserveFreePublicRecord(candidate);
+    await CommerceHomeserverService.putJson(url, candidate);
+
+    const verified = await CommerceHomeserverService.fetchJson(url);
+    assertReserveFreePublicRecord(verified);
+    if (
+      !isPlainRecord(verified) ||
+      verified.ownerPubky !== record.ownerPubky ||
+      verified.listingId !== record.listingId ||
+      verified.revision !== record.revision
+    ) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The published listing could not be verified.', {
+        service: ErrorService.Homeserver,
+        operation: 'putVerifiedPublicListing',
+      });
+    }
+  }
+
+  private static async fetchAuctionReserveRecord(
+    ownerPubky: string,
+    listingId: string,
+  ): Promise<CommerceAuctionReserveRecord> {
+    const url = CommerceRecordNormalizer.auctionReserveUri(ownerPubky, listingId);
+    return commerceAuctionReserveRecordSchema.parse(await CommerceHomeserverService.fetchJson(url));
+  }
+
+  private static async prepareAuctionRegistration(
+    listing: CommerceListingRecord,
+    reservePrice: CommerceMoney | null,
+  ): Promise<MarketplaceCommand> {
+    if (listing.sale.format !== 'auction') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Auction reserve requires an auction listing.', {
+        service: ErrorService.Marketplace,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
+    const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
+    const projection = await MarketplaceGatewayService.getSellerListing(listing.ownerPubky, aggregateId);
+    const expectedRecordRevision = projection?.reserveRecordRevision ?? 0;
+    const reserveUrl = CommerceRecordNormalizer.auctionReserveUri(listing.ownerPubky, listing.listingId);
+    let current: Record<string, unknown> = {};
+    let parsedCurrent: CommerceAuctionReserveRecord | null = null;
+    try {
+      const fetched = await CommerceHomeserverService.fetchJson(reserveUrl);
+      if (!isPlainRecord(fetched)) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record is not a JSON object.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
+      current = fetched;
+      parsedCurrent = commerceAuctionReserveRecordSchema.parse(fetched);
+    } catch (error) {
+      if (!(isAppError(error) && isNotFound(error) && expectedRecordRevision === 0)) throw error;
+    }
+
+    const reusingPending =
+      parsedCurrent?.listingRevision === listing.revision &&
+      parsedCurrent.recordRevision === expectedRecordRevision + 1;
+    const now = new Date().toISOString();
+    const writeId = reusingPending ? parsedCurrent!.writeId : crypto.randomUUID();
+    const candidate = commerceAuctionReserveRecordSchema.parse(
+      mergeOpenWorldRecords(current, {
+        schemaVersion: 1,
+        recordType: 'auction_reserve',
+        ownerPubky: listing.ownerPubky,
+        listingId: listing.listingId,
+        listingRevision: listing.revision,
+        recordRevision: expectedRecordRevision + 1,
+        writeId,
+        reservePrice: reusingPending ? parsedCurrent!.reservePrice : reservePrice,
+        createdAt: parsedCurrent?.createdAt ?? now,
+        updatedAt: now,
+      }),
+    );
+    if (new TextEncoder().encode(JSON.stringify(candidate)).byteLength > 65_536) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record is too large.', {
+        service: ErrorService.Homeserver,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
+    if (!reusingPending) {
+      await CommerceHomeserverService.putJson(reserveUrl, candidate);
+      const verified = await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId);
+      if (
+        verified.writeId !== candidate.writeId ||
+        verified.listingRevision !== candidate.listingRevision ||
+        verified.recordRevision !== candidate.recordRevision ||
+        JSON.stringify(verified.reservePrice) !== JSON.stringify(candidate.reservePrice)
+      ) {
+        throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The private reserve record could not be verified.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
+    }
+
+    const unitPrice = listing.sale.startingPrice;
+    return CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: writeId,
+      aggregateId,
+      expectedRevision: projection?.serverRevision ?? 0,
+      issuedAt: now,
+      kind: 'listing.register',
+      payload: {
+        sellerPubky: listing.ownerPubky,
+        listingId: listing.listingId,
+        title: listing.title,
+        listingRevision: listing.revision,
+        contentHash: listing.media[0].contentHash,
+        quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
+        unitPrice,
+        shippingMinor: commerceListingShippingMinor(listing.shippingOptions),
+        saleFormat: 'auction',
+        fulfillmentMethods: commerceListingFulfillmentMethods(listing.fulfillmentMethods),
+        auctionTerms: {
+          startsAt: listing.sale.startsAt,
+          endsAt: listing.sale.endsAt,
+          minimumIncrement: listing.sale.minimumIncrement,
+          antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
+          antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
+        },
+        auctionReserve: {
+          expectedRecordRevision,
+          recordRevision: expectedRecordRevision + 1,
+          reservePrice: candidate.reservePrice,
+        },
+      },
+    });
+  }
+
+  private static async registerListing(
+    listing: CommerceListingRecord,
+    preparedAuctionCommand: MarketplaceCommand | null = null,
+  ): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
+    if (listing.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())) {
+      const command =
+        preparedAuctionCommand ??
+        (await this.prepareAuctionRegistration(
+          listing,
+          (await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId)).reservePrice,
+        ));
+      const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+      if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
+        throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+          service: ErrorService.Marketplace,
+          operation: 'registerListing',
+        });
+      }
+      return;
+    }
     if (existing?.serverRevision) {
       // Already registered: EDITS must still reach the authority. `listing.sync`
       // is convergent — the service re-reads the seller-signed record and
@@ -2846,7 +3027,6 @@ export class CommerceApplication {
                 startsAt: listing.sale.startsAt,
                 endsAt: listing.sale.endsAt,
                 minimumIncrement: listing.sale.minimumIncrement,
-                reservePrice: listing.sale.reservePrice,
                 antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
                 antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
               }
@@ -2920,4 +3100,21 @@ export class CommerceApplication {
       payload: { sellerPubky, listingId },
     });
   }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeOpenWorldRecords(
+  existing: Record<string, unknown>,
+  managed: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [key, value] of Object.entries(managed)) {
+    const prior = merged[key];
+    merged[key] =
+      isPlainRecord(prior) && isPlainRecord(value) ? mergeOpenWorldRecords(prior, value) : structuredClone(value);
+  }
+  return merged;
 }

@@ -122,7 +122,6 @@ describe('MarketplaceListingCard', () => {
   });
 
   it('shows the live current bid and bid count once the transaction service answered with bids', () => {
-    liveBid.bid = { currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 }, bidCount: 4, reserveMet: true };
     render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
 
     expect(screen.getByText('Current bid')).toBeInTheDocument();
@@ -136,7 +135,6 @@ describe('MarketplaceListingCard', () => {
     liveBid.bid = {
       currentPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
       bidCount: 0,
-      reserveMet: false,
     };
     render(<MarketplaceListingCard listing={catalogItem(2)} shopName="Proof of Film" />);
 
@@ -147,7 +145,6 @@ describe('MarketplaceListingCard', () => {
   });
 
   it('never shows live bid state on fixed-price listings even if a bid value leaks in', () => {
-    liveBid.bid = { currentPrice: { amountMinor: 9_900, currency: 'USD', exponent: 2 }, bidCount: 2, reserveMet: true };
     render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
 
     expect(screen.getByText('$125.00')).toBeInTheDocument();
@@ -175,7 +172,6 @@ describe('MarketplaceListingCard - Snapshots', () => {
         auction: {
           startsAt: '2026-08-19T20:00:00.000Z',
           endsAt: '2026-08-29T20:00:00.000Z',
-          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
           buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
           minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
         },

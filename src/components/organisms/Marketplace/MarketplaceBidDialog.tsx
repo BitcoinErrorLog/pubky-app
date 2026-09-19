@@ -99,8 +99,7 @@ export function MarketplaceBidDialog({
               {formatCommerceMoney(projection.auction.currentPrice)}
             </Typography>
             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              {projection.auction.bidCount} {projection.auction.bidCount === 1 ? 'bid' : 'bids'} ·{' '}
-              {projection.auction.reserveMet ? 'Reserve met' : 'Reserve not met'}
+              {projection.auction.bidCount} {projection.auction.bidCount === 1 ? 'bid' : 'bids'}
             </Typography>
             <Typography as="p" className="mt-2 text-sm text-muted-foreground">
               Minimum maximum:{' '}

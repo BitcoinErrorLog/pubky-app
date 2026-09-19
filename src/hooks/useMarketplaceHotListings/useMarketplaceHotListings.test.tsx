@@ -38,7 +38,6 @@ function auctionEntry(listingId: string, endsAt: string) {
     auction: {
       startsAt: '2026-08-19T20:00:00.000Z',
       endsAt,
-      reservePrice: null,
       buyNowPrice: null,
       minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
     },

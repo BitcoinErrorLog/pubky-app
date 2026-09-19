@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import * as commerceConfig from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
@@ -67,6 +67,19 @@ const SELLER_REFRESH_FIXTURE = JSON.parse(
 };
 
 describe('CommerceApplication', () => {
+  beforeEach(() => {
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async (url) => {
+      if (vi.isMockFunction(CommerceHomeserverService.putJson)) {
+        const latest = vi
+          .mocked(CommerceHomeserverService.putJson)
+          .mock.calls.toReversed()
+          .find(([writtenUrl]) => writtenUrl === url);
+        if (latest) return latest[1];
+      }
+      return createCommerceListingFixture();
+    });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -349,6 +362,65 @@ describe('CommerceApplication', () => {
       registration_status: 'registered',
       sync_status: 'synced',
     });
+  });
+
+  it('scrubs nested public reserve keys and reuses the verified private reserve on retry', async () => {
+    const listing = createCommerceListingFixture();
+    listing.sale = {
+      format: 'auction',
+      startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+      minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      startsAt: '2026-08-19T20:00:00.000Z',
+      endsAt: '2026-08-29T20:00:00.000Z',
+      antiSnipingWindowSeconds: 120,
+      antiSnipingExtensionSeconds: 120,
+    };
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getSellerListing').mockResolvedValue(null);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    const execute = vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
+    const writes: Array<[string, Record<string, unknown>]> = [];
+    vi.spyOn(CommerceHomeserverService, 'putJson').mockImplementation(async (url, body) => {
+      writes.push([url, body]);
+    });
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async (url) => {
+      const written = writes.toReversed().find(([writtenUrl]) => writtenUrl === url);
+      if (written) return written[1];
+      if (url.includes('/auction_reserves/')) {
+        throw Err.client(ClientErrorCode.NOT_FOUND, 'Not found', {
+          service: ErrorService.Homeserver,
+          operation: 'fetchJson',
+        });
+      }
+      return {
+        ...listing,
+        futureField: { keep: true, nested: [{ reserve_price: null, keepToo: 'yes' }] },
+      };
+    });
+
+    const reserve = { amountMinor: 8_000, currency: 'USD', exponent: 2 };
+    await expect(CommerceApplication.commitUpsertListing(listing, reserve)).resolves.toEqual({ registered: true });
+    await expect(CommerceApplication.commitUpsertListing(listing, reserve)).resolves.toEqual({ registered: true });
+
+    const privateWrites = writes.filter(([url]) => url.includes('/priv/'));
+    const publicWrites = writes.filter(([url]) => url.includes('/pub/'));
+    expect(privateWrites).toHaveLength(1);
+    expect(privateWrites[0][1]).toMatchObject({ reservePrice: reserve, recordRevision: 1 });
+    expect(publicWrites).toHaveLength(2);
+    expect(publicWrites[0][1]).toMatchObject({ futureField: { keep: true, nested: [{ keepToo: 'yes' }] } });
+    expect(JSON.stringify(publicWrites)).not.toMatch(/reserve(?:Price|_price|Met|_met)/);
+    expect(execute.mock.calls[0][1]).toMatchObject({
+      kind: 'listing.register',
+      payload: {
+        auctionTerms: expect.not.objectContaining({ reservePrice: expect.anything() }),
+        auctionReserve: { expectedRecordRevision: 0, recordRevision: 1, reservePrice: reserve },
+      },
+    });
+    expect(execute.mock.calls[1][1].commandId).toBe(execute.mock.calls[0][1].commandId);
   });
 
   it('persists unregistered after registration rejects and stamps registered on a successful retry', async () => {
