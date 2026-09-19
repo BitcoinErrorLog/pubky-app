@@ -45,7 +45,6 @@ export function createAuctionProjectionFixture(
       currentPrice: usd(6_900),
       leaderPubky: PROJECTION_FIXTURE_LEADER,
       bidCount: 4,
-      reserveMet: true,
     },
     ...overrides,
   });

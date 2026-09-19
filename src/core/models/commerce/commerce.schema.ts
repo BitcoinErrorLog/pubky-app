@@ -75,14 +75,13 @@ export interface CommerceReputationSnippet {
 
 /**
  * Auction sale terms as carried by the Nexus listing index. Money terms are
- * denominated in the listing's primary asset. `reservePrice` and
- * `buyNowPrice` are optional terms of the auction itself; the other three
+ * denominated in the listing's primary asset. `buyNowPrice` is an optional
+ * public term of the auction itself; the other fields
  * are always present when the index knows the terms at all.
  */
 export interface CommerceCatalogAuctionTerms {
   startsAt: string;
   endsAt: string;
-  reservePrice: CommerceMoney | null;
   buyNowPrice: CommerceMoney | null;
   minimumIncrement: CommerceMoney;
 }

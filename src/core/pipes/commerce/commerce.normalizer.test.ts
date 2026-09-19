@@ -121,7 +121,6 @@ describe('CommerceRecordNormalizer', () => {
       expect(entry.auction).toEqual({
         startsAt: '2026-08-19T20:00:00.000Z',
         endsAt: '2026-08-29T20:00:00.000Z',
-        reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
         buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
         minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
       });
@@ -130,12 +129,11 @@ describe('CommerceRecordNormalizer', () => {
     it('keeps optional auction terms null without inventing values', () => {
       const [entry] = CommerceRecordNormalizer.nexusListingStream([
         createNexusAuctionListingDetailsFixture({
-          auction_reserve_price_minor: null,
           auction_buy_now_price_minor: null,
         }),
       ]);
 
-      expect(entry.auction).toMatchObject({ reservePrice: null, buyNowPrice: null });
+      expect(entry.auction).toMatchObject({ buyNowPrice: null });
     });
 
     it('accepts an auction row with all-null terms as indexed before Nexus carried them', () => {
@@ -143,7 +141,6 @@ describe('CommerceRecordNormalizer', () => {
         createNexusAuctionListingDetailsFixture({
           auction_starts_at: null,
           auction_ends_at: null,
-          auction_reserve_price_minor: null,
           auction_buy_now_price_minor: null,
           auction_minimum_increment_minor: null,
         }),
@@ -175,7 +172,6 @@ describe('CommerceRecordNormalizer', () => {
             const {
               auction_starts_at: _startsAt,
               auction_ends_at: _endsAt,
-              auction_reserve_price_minor: _reserve,
               auction_buy_now_price_minor: _buyNow,
               auction_minimum_increment_minor: _increment,
               ...withoutTerms

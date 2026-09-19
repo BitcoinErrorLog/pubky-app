@@ -53,9 +53,13 @@ function registerAuctionCommand() {
         startsAt: NOW.toISOString(),
         endsAt: new Date(NOW.getTime() + 10 * 60 * 1_000).toISOString(),
         minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
-        reservePrice: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
         antiSnipingWindowSeconds: 60,
         antiSnipingExtensionSeconds: 120,
+      },
+      auctionReserve: {
+        expectedRecordRevision: 0,
+        recordRevision: 1,
+        reservePrice: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
       },
     },
   });
@@ -346,7 +350,12 @@ function clearPickupDetailsCommand(aggregateId: string, expectedVersion: number,
 
 function fulfillmentCheckoutCommand(
   commandId: string,
-  lines: Array<{ aggregateId: string; expectedRevision: number; quantity?: number; fulfillment?: 'shipping' | 'pickup' }>,
+  lines: Array<{
+    aggregateId: string;
+    expectedRevision: number;
+    quantity?: number;
+    fulfillment?: 'shipping' | 'pickup';
+  }>,
   withDeliveryAddress: boolean,
 ) {
   const base = checkoutCommand();
@@ -390,8 +399,14 @@ async function createConfirmedPickupOrder(
 ) {
   const listingId = options.listingId ?? 'boots_pickup';
   const aggregateId = buildMarketplaceListingAggregateId(SELLER, listingId);
-  await service.execute(SELLER, registerFulfillmentCommand(SELLER, listingId, ['pickup'], nextId(), options.quantity ?? 1));
-  await service.execute(SELLER, setPickupDetailsCommand(aggregateId, 0, nextId(), options.details ?? PICKUP_SPOT_DETAILS));
+  await service.execute(
+    SELLER,
+    registerFulfillmentCommand(SELLER, listingId, ['pickup'], nextId(), options.quantity ?? 1),
+  );
+  await service.execute(
+    SELLER,
+    setPickupDetailsCommand(aggregateId, 0, nextId(), options.details ?? PICKUP_SPOT_DETAILS),
+  );
   const checkoutId = nextId();
   const checkout = await service.execute(
     BUYER,
@@ -681,7 +696,6 @@ describe('MarketplaceTransactionService', () => {
           auction: {
             currentPrice: { amountMinor: 4_500 },
             leaderPubky: BUYER,
-            reserveMet: false,
             bidCount: 1,
           },
         },
@@ -696,7 +710,6 @@ describe('MarketplaceTransactionService', () => {
           auction: {
             currentPrice: { amountMinor: 8_500 },
             leaderPubky: BUYER,
-            reserveMet: true,
             bidCount: 2,
           },
         },
@@ -1359,7 +1372,11 @@ describe('MarketplaceTransactionService', () => {
       await expect(
         service.execute(
           BUYER,
-          fulfillmentCheckoutCommand(nextId(), [{ aggregateId: AGGREGATE_ID, expectedRevision: 1, fulfillment: 'pickup' }], false),
+          fulfillmentCheckoutCommand(
+            nextId(),
+            [{ aggregateId: AGGREGATE_ID, expectedRevision: 1, fulfillment: 'pickup' }],
+            false,
+          ),
         ),
       ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_COMMAND' } });
       // Pickup-only listing, choice omitted (defaults to shipping).
@@ -1562,7 +1579,11 @@ describe('MarketplaceTransactionService', () => {
       await cancelledService.execute(SELLER, setPickupDetailsCommand(aggregateId, 0, cancelledNextId()));
       const pendingCheckout = await cancelledService.execute(
         BUYER,
-        fulfillmentCheckoutCommand(cancelledNextId(), [{ aggregateId, expectedRevision: 1, fulfillment: 'pickup' }], false),
+        fulfillmentCheckoutCommand(
+          cancelledNextId(),
+          [{ aggregateId, expectedRevision: 1, fulfillment: 'pickup' }],
+          false,
+        ),
       );
       if (!pendingCheckout.ok || pendingCheckout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
       const pendingOrder = pendingCheckout.result.orders[0];
@@ -1670,7 +1691,10 @@ describe('MarketplaceTransactionService', () => {
         const aggregateB = buildMarketplaceListingAggregateId(SELLER, 'spot_b');
         await service.execute(SELLER, registerFulfillmentCommand(SELLER, 'spot_a', ['pickup'], nextId()));
         await service.execute(SELLER, registerFulfillmentCommand(SELLER, 'spot_b', ['pickup'], nextId()));
-        await service.execute(SELLER, setPickupDetailsCommand(aggregateA, 0, nextId(), spotPickupDetails('Alpha spot')));
+        await service.execute(
+          SELLER,
+          setPickupDetailsCommand(aggregateA, 0, nextId(), spotPickupDetails('Alpha spot')),
+        );
         await service.execute(SELLER, setPickupDetailsCommand(aggregateB, 0, nextId(), spotPickupDetails('Beta spot')));
         await service.execute(
           SELLER,
@@ -1743,16 +1767,10 @@ describe('MarketplaceTransactionService', () => {
       const { service: shippingService } = createService();
       const shippedOrder = await createPaidOrder(shippingService);
       await expect(
-        shippingService.execute(
-          SELLER,
-          orderCommand('fulfillment.mark_ready', shippedOrder.id, 2, {}, 5_304),
-        ),
+        shippingService.execute(SELLER, orderCommand('fulfillment.mark_ready', shippedOrder.id, 2, {}, 5_304)),
       ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
       await expect(
-        shippingService.execute(
-          BUYER,
-          orderCommand('fulfillment.confirm_pickup', shippedOrder.id, 2, {}, 5_305),
-        ),
+        shippingService.execute(BUYER, orderCommand('fulfillment.confirm_pickup', shippedOrder.id, 2, {}, 5_305)),
       ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
     });
 
@@ -1761,10 +1779,7 @@ describe('MarketplaceTransactionService', () => {
       const buyerFromPaid = createDurableService();
       const first = await createConfirmedPickupOrder(buyerFromPaid.service, nextCommandIds(3_000));
       await expect(
-        buyerFromPaid.service.execute(
-          BUYER,
-          orderCommand('fulfillment.confirm_pickup', first.order.id, 2, {}, 3_050),
-        ),
+        buyerFromPaid.service.execute(BUYER, orderCommand('fulfillment.confirm_pickup', first.order.id, 2, {}, 3_050)),
       ).resolves.toMatchObject({ ok: true, result: { order: { state: 'delivered' } } });
       expect(buyerFromPaid.repository.getHandover(first.order.id)).toEqual({
         orderId: first.order.id,
@@ -1774,15 +1789,12 @@ describe('MarketplaceTransactionService', () => {
       });
       // A duplicate confirm cannot write a second handover row.
       await expect(
-        buyerFromPaid.service.execute(
-          BUYER,
-          orderCommand('fulfillment.confirm_pickup', first.order.id, 3, {}, 3_051),
-        ),
+        buyerFromPaid.service.execute(BUYER, orderCommand('fulfillment.confirm_pickup', first.order.id, 3, {}, 3_051)),
       ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
       expect(buyerFromPaid.repository.getHandover(first.order.id)?.confirmedBy).toBe(BUYER);
-      expect(
-        buyerFromPaid.repository.getEvents().filter(({ kind }) => kind === 'fulfillment.delivered'),
-      ).toHaveLength(1);
+      expect(buyerFromPaid.repository.getEvents().filter(({ kind }) => kind === 'fulfillment.delivered')).toHaveLength(
+        1,
+      );
 
       // Seller confirms from `ready_for_pickup`: seller-attested.
       const sellerFromReady = createDurableService();
@@ -1959,10 +1971,7 @@ describe('MarketplaceTransactionService', () => {
       const { repository, service } = createDurableService();
       const nextId = nextCommandIds(4_300);
       const aggregateId = buildMarketplaceListingAggregateId(SELLER, 'cleared_pre_checkout');
-      await service.execute(
-        SELLER,
-        registerFulfillmentCommand(SELLER, 'cleared_pre_checkout', ['pickup'], nextId()),
-      );
+      await service.execute(SELLER, registerFulfillmentCommand(SELLER, 'cleared_pre_checkout', ['pickup'], nextId()));
       await service.execute(SELLER, setPickupDetailsCommand(aggregateId, 0, nextId()));
       await service.execute(SELLER, clearPickupDetailsCommand(aggregateId, 1, nextId()));
       const checkout = await service.execute(
@@ -2051,9 +2060,9 @@ describe('MarketplaceTransactionService', () => {
         ok: true,
         revision: 2,
       });
-      await expect(
-        service.execute(SELLER, clearPickupDetailsCommand(aggregateId, 1, nextId())),
-      ).resolves.toMatchObject({ ok: false, error: { code: 'REVISION_CONFLICT', currentRevision: 2 } });
+      await expect(service.execute(SELLER, clearPickupDetailsCommand(aggregateId, 1, nextId()))).resolves.toMatchObject(
+        { ok: false, error: { code: 'REVISION_CONFLICT', currentRevision: 2 } },
+      );
     });
 
     it('clear retains versions pinned by paid non-terminal orders, hard-deletes the rest, and serves the pinned snapshot flagged withdrawn', async () => {
@@ -2062,7 +2071,10 @@ describe('MarketplaceTransactionService', () => {
       const aggregateId = buildMarketplaceListingAggregateId(SELLER, 'boots_pickup');
       await service.execute(SELLER, registerFulfillmentCommand(SELLER, 'boots_pickup', ['pickup'], nextId()));
       await service.execute(SELLER, setPickupDetailsCommand(aggregateId, 0, nextId(), spotPickupDetails('First spot')));
-      await service.execute(SELLER, setPickupDetailsCommand(aggregateId, 1, nextId(), spotPickupDetails('Second spot')));
+      await service.execute(
+        SELLER,
+        setPickupDetailsCommand(aggregateId, 1, nextId(), spotPickupDetails('Second spot')),
+      );
       // Payment pins v2.
       const checkoutId = nextId();
       const checkout = await service.execute(
@@ -2097,7 +2109,10 @@ describe('MarketplaceTransactionService', () => {
         withdrawnBySeller: true,
       });
       await expect(
-        service.execute(BUYER, orderCommand('order.cancel_request', order.id, 2, { reason: 'Details withdrawn' }, 6_101)),
+        service.execute(
+          BUYER,
+          orderCommand('order.cancel_request', order.id, 2, { reason: 'Details withdrawn' }, 6_101),
+        ),
       ).resolves.toMatchObject({ ok: true, result: { order: { state: 'cancelled' } } });
     });
 

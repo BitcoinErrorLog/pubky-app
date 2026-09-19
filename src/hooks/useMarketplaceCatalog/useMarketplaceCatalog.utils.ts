@@ -91,7 +91,6 @@ export function catalogItemFromListingModel(listing: CommerceListingModelSchema)
       ? {
           startsAt: record.sale.startsAt,
           endsAt: record.sale.endsAt,
-          reservePrice: record.sale.reservePrice ?? null,
           buyNowPrice: record.sale.buyNowPrice ?? null,
           minimumIncrement: record.sale.minimumIncrement,
         }

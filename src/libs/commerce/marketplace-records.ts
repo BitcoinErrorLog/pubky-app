@@ -35,6 +35,59 @@ import {
   commerceTimestampSchema,
 } from './transaction-contracts';
 
+export const MARKETPLACE_FORBIDDEN_PUBLIC_RESERVE_KEYS = [
+  'reservePrice',
+  'reserve_price',
+  'reserveMet',
+  'reserve_met',
+] as const;
+
+const marketplaceForbiddenPublicReserveKeys = new Set<string>(MARKETPLACE_FORBIDDEN_PUBLIC_RESERVE_KEYS);
+
+export function findForbiddenPublicReserveKey(input: unknown): string | null {
+  if (Array.isArray(input)) {
+    for (const value of input) {
+      const found = findForbiddenPublicReserveKey(value);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (input === null || typeof input !== 'object') return null;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (marketplaceForbiddenPublicReserveKeys.has(key)) return key;
+    const found = findForbiddenPublicReserveKey(value);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function stripForbiddenPublicReserveKeys(input: unknown): unknown {
+  if (Array.isArray(input)) return input.map(stripForbiddenPublicReserveKeys);
+  if (input === null || typeof input !== 'object') return input;
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>)
+      .filter(([key]) => !marketplaceForbiddenPublicReserveKeys.has(key))
+      .map(([key, value]) => [key, stripForbiddenPublicReserveKeys(value)]),
+  );
+}
+
+export function assertReserveFreePublicRecord(input: unknown): void {
+  const forbiddenKey = findForbiddenPublicReserveKey(input);
+  if (forbiddenKey) {
+    throw new TypeError(`Public marketplace records cannot contain ${forbiddenKey}`);
+  }
+}
+
+const reserveFreePublicRecordInputSchema = z.unknown().superRefine((input, context) => {
+  const forbiddenKey = findForbiddenPublicReserveKey(input);
+  if (forbiddenKey) {
+    context.addIssue({
+      code: 'custom',
+      message: `Public marketplace records cannot contain ${forbiddenKey}`,
+    });
+  }
+});
+
 // Forward-compat contract (social/v1 alignment): every record schema in this
 // file is OPEN-WORLD — unknown members pass through parsing and MUST survive
 // a read-modify-write (edit paths spread the fetched record before applying
@@ -140,7 +193,6 @@ const auctionSaleSchema = z
   .object({
     format: z.literal('auction'),
     startingPrice: commercePositiveMoneySchema,
-    reservePrice: commercePositiveMoneySchema.optional(),
     buyNowPrice: commercePositiveMoneySchema.optional(),
     minimumIncrement: commercePositiveMoneySchema,
     startsAt: commerceTimestampSchema,
@@ -645,15 +697,16 @@ const commerceCollectionRecordSchemaInner = commercePublicRecordBaseSchema
 // public tombstones would leak deletion metadata forever, and receipt JWSes
 // keep a buyer's history verifiable after a listing disappears.
 
-export const commercePublicRecordSchema = z.preprocess(
-  stripSerializedNulls,
-  z.union([
-    commerceShopRecordSchemaInner,
-    commerceListingRecordSchemaInner,
-    commerceReviewRecordSchemaInner,
-    commerceCollectionRecordSchemaInner,
-  ]),
-);
+export const commercePublicRecordSchema = reserveFreePublicRecordInputSchema
+  .transform(stripSerializedNulls)
+  .pipe(
+    z.union([
+      commerceShopRecordSchemaInner,
+      commerceListingRecordSchemaInner,
+      commerceReviewRecordSchemaInner,
+      commerceCollectionRecordSchemaInner,
+    ]),
+  );
 
 function validateRecordDates(record: { createdAt: string; updatedAt: string }, context: z.RefinementCtx): void {
   if (Date.parse(record.updatedAt) < Date.parse(record.createdAt)) {
@@ -688,7 +741,6 @@ function validateAuction(auction: z.infer<typeof auctionSaleSchema>, context: z.
   }
 
   const prices = [
-    ['reservePrice', auction.reservePrice],
     ['buyNowPrice', auction.buyNowPrice],
     ['minimumIncrement', auction.minimumIncrement],
   ] as const;
@@ -702,13 +754,6 @@ function validateAuction(auction: z.infer<typeof auctionSaleSchema>, context: z.
     }
   }
 
-  if (auction.reservePrice && auction.reservePrice.amountMinor < auction.startingPrice.amountMinor) {
-    context.addIssue({
-      code: 'custom',
-      message: 'Reserve price must not be below the starting price',
-      path: ['sale', 'reservePrice'],
-    });
-  }
   if (auction.buyNowPrice && auction.buyNowPrice.amountMinor <= auction.startingPrice.amountMinor) {
     context.addIssue({
       code: 'custom',
@@ -888,7 +933,9 @@ const commerceOrderReceiptRecordSchemaInner = commercePublicRecordBaseSchema
   });
 
 export const commerceShopRecordSchema = z.preprocess(stripSerializedNulls, commerceShopRecordSchemaInner);
-export const commerceListingRecordSchema = z.preprocess(stripSerializedNulls, commerceListingRecordSchemaInner);
+export const commerceListingRecordSchema = reserveFreePublicRecordInputSchema
+  .transform(stripSerializedNulls)
+  .pipe(commerceListingRecordSchemaInner);
 export const commerceReviewRecordSchema = z.preprocess(stripSerializedNulls, commerceReviewRecordSchemaInner);
 export const commerceReviewResponseRecordSchema = z.preprocess(
   stripSerializedNulls,
@@ -902,6 +949,23 @@ export const commerceOrderReceiptRecordSchema = z.preprocess(
 );
 export const commerceDropRecordSchema = z.preprocess(stripSerializedNulls, commerceDropRecordSchemaInner);
 
+export const commerceAuctionReserveRecordSchema = z
+  .object({
+    schemaVersion: z.literal(COMMERCE_CONTRACT_VERSION),
+    recordType: z.literal('auction_reserve'),
+    ownerPubky: commercePubkySchema,
+    listingId: commerceEntityIdSchema,
+    listingRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    recordRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    writeId: z.uuid(),
+    reservePrice: commercePositiveMoneySchema.nullable(),
+    createdAt: commerceTimestampSchema,
+    updatedAt: commerceTimestampSchema,
+    ext: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough()
+  .superRefine((record, context) => validateRecordDates(record, context));
+
 export type CommerceShopRecord = z.infer<typeof commerceShopRecordSchema>;
 export type CommerceListingRecord = z.infer<typeof commerceListingRecordSchema>;
 export type CommerceReviewRecord = z.infer<typeof commerceReviewRecordSchema>;
@@ -910,6 +974,7 @@ export type CommerceCollectionRecord = z.infer<typeof commerceCollectionRecordSc
 export type CommerceWatchlistRecord = z.infer<typeof commerceWatchlistRecordSchema>;
 export type CommerceOrderReceiptRecord = z.infer<typeof commerceOrderReceiptRecordSchema>;
 export type CommerceDropRecord = z.infer<typeof commerceDropRecordSchema>;
+export type CommerceAuctionReserveRecord = z.infer<typeof commerceAuctionReserveRecordSchema>;
 export type CommerceWatchlistRecordItem = CommerceWatchlistRecord['items'][number];
 export type CommerceWatchlistRecordTombstone = CommerceWatchlistRecord['tombstones'][number];
 export type CommercePublicRecord = z.infer<typeof commercePublicRecordSchema>;

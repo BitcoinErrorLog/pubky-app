@@ -268,13 +268,11 @@ export interface MarketplaceListingAggregate {
     startsAt: string;
     endsAt: string;
     minimumIncrement: MarketplaceListingAggregate['unitPrice'];
-    reservePrice?: MarketplaceListingAggregate['unitPrice'];
     antiSnipingWindowSeconds: number;
     antiSnipingExtensionSeconds: number;
     currentPrice: MarketplaceListingAggregate['unitPrice'];
     leaderPubky: string | null;
     bidCount: number;
-    reserveMet: boolean;
   } | null;
   updatedAt: string;
 }
@@ -982,6 +980,7 @@ export class MarketplaceTransactionService {
    * (`{ sandboxPaymentsEnabled: false }`) — documented per test.
    */
   private sandboxPaymentsEnabled: boolean;
+  private readonly auctionReserves = new Map<string, MarketplaceListingAggregate['unitPrice'] | null>();
 
   constructor(
     private readonly repository: InMemoryMarketplaceRepository,
@@ -1266,15 +1265,13 @@ export class MarketplaceTransactionService {
             currentPrice: current?.auction?.currentPrice ?? payload.unitPrice,
             leaderPubky: current?.auction?.leaderPubky ?? null,
             bidCount: current?.auction?.bidCount ?? 0,
-            reserveMet:
-              current?.auction?.reserveMet ??
-              (payload.auctionTerms.reservePrice
-                ? payload.unitPrice.amountMinor >= payload.auctionTerms.reservePrice.amountMinor
-                : true),
           }
         : null,
       updatedAt: occurredAt,
     };
+    if (payload.saleFormat === 'auction') {
+      this.auctionReserves.set(command.aggregateId, payload.auctionReserve?.reservePrice ?? null);
+    }
     const event = this.createEvent(actorPubky, command, listing.serverRevision, 'listing.registered', occurredAt);
     this.repository.putListing(listing);
     this.repository.appendEvent(event);
@@ -1698,7 +1695,6 @@ export class MarketplaceTransactionService {
         currentPrice,
         leaderPubky: leader.bidderPubky,
         bidCount: listing.auction.bidCount + 1,
-        reserveMet: listing.auction.reservePrice ? visibleAmount >= listing.auction.reservePrice.amountMinor : true,
       },
       updatedAt: occurredAt,
     };
@@ -1745,7 +1741,10 @@ export class MarketplaceTransactionService {
       return failure('AUCTION_CLOSED', 'The auction has not ended yet.');
     }
 
-    const sold = Boolean(listing.auction.leaderPubky && listing.auction.reserveMet);
+    const reserve = this.auctionReserves.get(command.aggregateId) ?? null;
+    const sold = Boolean(
+      listing.auction.leaderPubky && (!reserve || listing.auction.currentPrice.amountMinor >= reserve.amountMinor),
+    );
     const occurredAt = now.toISOString();
     const reservation: MarketplaceReservation | null =
       sold && listing.auction.leaderPubky

@@ -44,7 +44,6 @@ describe('useMarketplaceProjection', () => {
         currentPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
         leaderPubky: null,
         bidCount: 0,
-        reserveMet: false,
       },
     });
   });

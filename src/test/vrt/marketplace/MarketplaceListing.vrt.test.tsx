@@ -80,7 +80,6 @@ const fixtures = vi.hoisted(async () => {
         sale: {
           format: 'auction',
           startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
-          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
           minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
           startsAt: '2026-08-19T20:00:00.000Z',
           endsAt: '2026-08-29T20:00:00.000Z',
@@ -96,7 +95,6 @@ const fixtures = vi.hoisted(async () => {
         sale: {
           format: 'auction',
           startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
-          reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
           minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
           startsAt: '2026-08-19T20:00:00.000Z',
           endsAt: '2026-08-29T20:00:00.000Z',

@@ -9,7 +9,6 @@ import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 export interface MarketplaceLiveBid {
   currentPrice: CommerceMoney;
   bidCount: number;
-  reserveMet: boolean;
 }
 
 export interface UseMarketplaceLiveBidResult {
@@ -20,7 +19,7 @@ export interface UseMarketplaceLiveBidResult {
 }
 
 /**
- * Lazily fetches live auction state (current bid, bid count, reserve status)
+ * Lazily fetches public live auction state (current bid and bid count)
  * for ONE catalog card from the durable transaction service's public listing
  * projection — the only authoritative source for bids, which the Nexus index
  * deliberately never carries.
@@ -60,7 +59,6 @@ export function useMarketplaceLiveBid(
         setBid({
           currentPrice: projection.auction.currentPrice,
           bidCount: projection.auction.bidCount,
-          reserveMet: projection.auction.reserveMet,
         });
       })
       .catch(() => {

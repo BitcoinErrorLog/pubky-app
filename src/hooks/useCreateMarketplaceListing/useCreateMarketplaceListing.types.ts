@@ -12,6 +12,7 @@ import {
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import {
   amountInputSchemaForAsset,
+  amountInputToMoney,
   assetForListingCurrency,
   type ListingCurrencyChoice,
 } from '@/libs/commerce/pricing';
@@ -38,6 +39,7 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   SALE_FORMAT: 'saleFormat',
   CURRENCY: 'currency',
   PRICE: 'price',
+  RESERVE_PRICE: 'reservePrice',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
   SHIPPING_LABEL: 'shippingLabel',
@@ -255,6 +257,7 @@ export const createMarketplaceListingSchema = z
     saleFormat: z.enum(['fixed_price', 'auction']),
     currency: z.enum(['USD', 'BTC']),
     price: z.string().trim(),
+    reservePrice: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['shipping', 'pickup', 'shipping_and_pickup']),
     shippingLabel: z.string().trim().max(100, 'Keep the shipping label under 100 characters.'),
@@ -273,6 +276,23 @@ export const createMarketplaceListingSchema = z
   .superRefine((data, context) => {
     validateCategoryAndAttributes(data, context);
     validateMoneyField(data.price, data.currency, [CREATE_MARKETPLACE_LISTING_FIELDS.PRICE], context);
+    if (data.saleFormat === 'auction' && data.reservePrice !== '') {
+      validateMoneyField(data.reservePrice, data.currency, [CREATE_MARKETPLACE_LISTING_FIELDS.RESERVE_PRICE], context);
+      const asset = assetForListingCurrency(data.currency);
+      const priceValid = amountInputSchemaForAsset(asset).safeParse(data.price).success;
+      const reserveValid = amountInputSchemaForAsset(asset).safeParse(data.reservePrice).success;
+      if (
+        priceValid &&
+        reserveValid &&
+        amountInputToMoney(data.reservePrice, asset).amountMinor < amountInputToMoney(data.price, asset).amountMinor
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: [CREATE_MARKETPLACE_LISTING_FIELDS.RESERVE_PRICE],
+          message: 'Reserve price cannot be below the starting price.',
+        });
+      }
+    }
     data.variants.forEach((variant, index) => {
       if (variant.priceOverride) {
         validateMoneyField(variant.priceOverride, data.currency, ['variants', index, 'priceOverride'], context);
@@ -379,6 +399,7 @@ export const createMarketplaceListingDraftSchema = z
     /** Legacy drafts stored the bitcoin choice as 'SATS'; accepted here and migrated to 'BTC' on restore. */
     currency: z.enum(['USD', 'BTC', 'SATS']),
     price: z.string(),
+    reservePrice: z.string(),
     variants: z.array(
       z.object({
         sku: z.string(),
@@ -514,6 +535,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   saleFormat: 'fixed_price',
   currency: 'USD',
   price: '',
+  reservePrice: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
   fulfillment: 'shipping',
   shippingLabel: 'Seller shipping',

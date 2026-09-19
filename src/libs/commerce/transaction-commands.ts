@@ -18,9 +18,16 @@ const auctionTermsSchema = z
     startsAt: z.iso.datetime({ offset: true }),
     endsAt: z.iso.datetime({ offset: true }),
     minimumIncrement: commercePositiveMoneySchema,
-    reservePrice: commercePositiveMoneySchema.optional(),
     antiSnipingWindowSeconds: z.number().int().min(0).max(3_600),
     antiSnipingExtensionSeconds: z.number().int().min(0).max(3_600),
+  })
+  .strict();
+
+const auctionReserveSchema = z
+  .object({
+    expectedRecordRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    recordRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    reservePrice: commercePositiveMoneySchema.nullable(),
   })
   .strict();
 
@@ -39,6 +46,7 @@ const registerListingPayloadSchema = z
     shippingMinor: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
     saleFormat: z.enum(['fixed_price', 'auction']).default('fixed_price'),
     auctionTerms: auctionTermsSchema.optional(),
+    auctionReserve: auctionReserveSchema.optional(),
     // The fulfillment methods the owner-signed record publishes (local
     // pickup design §A1). Public catalog data echoed at register/sync;
     // defaults to shipping-only so pre-pickup clients are unaffected.
@@ -46,11 +54,14 @@ const registerListingPayloadSchema = z
   })
   .strict()
   .superRefine((payload, context) => {
-    if ((payload.saleFormat === 'auction') !== (payload.auctionTerms !== undefined)) {
+    if (
+      (payload.saleFormat === 'auction') !==
+      (payload.auctionTerms !== undefined && payload.auctionReserve !== undefined)
+    ) {
       context.addIssue({
         code: 'custom',
-        path: ['auctionTerms'],
-        message: 'Auction format and terms must be configured together.',
+        path: ['auctionReserve'],
+        message: 'Auction format, terms, and seller-private reserve must be configured together.',
       });
     }
     if (payload.auctionTerms) {
@@ -61,7 +72,7 @@ const registerListingPayloadSchema = z
           message: 'Auction end must follow start.',
         });
       }
-      for (const price of [payload.auctionTerms.minimumIncrement, payload.auctionTerms.reservePrice]) {
+      for (const price of [payload.auctionTerms.minimumIncrement, payload.auctionReserve?.reservePrice]) {
         if (price && (price.currency !== payload.unitPrice.currency || price.exponent !== payload.unitPrice.exponent)) {
           context.addIssue({
             code: 'custom',
@@ -69,6 +80,26 @@ const registerListingPayloadSchema = z
             message: 'Auction amounts must use the listing asset and exponent.',
           });
         }
+      }
+      if (
+        payload.auctionReserve?.reservePrice &&
+        payload.auctionReserve.reservePrice.amountMinor < payload.unitPrice.amountMinor
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['auctionReserve', 'reservePrice'],
+          message: 'Reserve price must not be below the starting price.',
+        });
+      }
+      if (
+        payload.auctionReserve &&
+        payload.auctionReserve.recordRevision !== payload.auctionReserve.expectedRecordRevision + 1
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['auctionReserve', 'recordRevision'],
+          message: 'Reserve record revision must advance by one.',
+        });
       }
     }
     // Auction listings are shipping-only (§A2 v1 scope): an auction order

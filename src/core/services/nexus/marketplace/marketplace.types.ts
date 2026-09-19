@@ -174,7 +174,6 @@ export type NexusListingDetails = {
   price_exponent: number;
   auction_starts_at: string | null;
   auction_ends_at: string | null;
-  auction_reserve_price_minor: number | null;
   auction_buy_now_price_minor: number | null;
   auction_minimum_increment_minor: number | null;
   fulfillment_methods: NexusFulfillmentMethod[];

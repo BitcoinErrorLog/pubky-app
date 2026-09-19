@@ -287,8 +287,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               {negotiation.projection?.auction && (
                 <Typography as="p" className="mt-1 text-sm text-muted-foreground">
                   {negotiation.projection.auction.bidCount}{' '}
-                  {negotiation.projection.auction.bidCount === 1 ? 'bid' : 'bids'} ·{' '}
-                  {negotiation.projection.auction.reserveMet ? 'Reserve met' : 'Reserve not met'}
+                  {negotiation.projection.auction.bidCount === 1 ? 'bid' : 'bids'}
                 </Typography>
               )}
             </div>

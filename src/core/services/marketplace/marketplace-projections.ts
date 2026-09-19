@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
+import { findForbiddenPublicReserveKey } from '@/libs/commerce/marketplace-records';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
 import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
@@ -53,7 +54,6 @@ const marketplaceListingProjectionBaseSchema = z
         currentPrice: marketplaceMoneySchema,
         leaderPubky: commercePubkySchema.nullable(),
         bidCount: z.number().int().nonnegative(),
-        reserveMet: z.boolean(),
       })
       .passthrough()
       .nullable(),
@@ -69,7 +69,7 @@ const marketplaceListingProjectionBaseSchema = z
   })
   .passthrough();
 
-export const marketplaceListingProjectionSchema = z.preprocess((input) => {
+const normalizeViewerBid = (input: unknown): unknown => {
   if (!input || typeof input !== 'object') return input;
   const record = input as Record<string, unknown>;
   const viewerBid = record.viewerBid;
@@ -111,7 +111,34 @@ export const marketplaceListingProjectionSchema = z.preprocess((input) => {
   const withoutViewerBid = { ...record };
   delete withoutViewerBid.viewerBid;
   return withoutViewerBid;
-}, marketplaceListingProjectionBaseSchema);
+};
+
+const reserveFreeProjectionInputSchema = z.unknown().superRefine((input, context) => {
+  const forbiddenKey = findForbiddenPublicReserveKey(input);
+  if (forbiddenKey) {
+    context.addIssue({
+      code: 'custom',
+      message: `Non-seller listing projection cannot contain ${forbiddenKey}`,
+    });
+  }
+});
+
+export const marketplaceListingProjectionSchema = z.preprocess(
+  normalizeViewerBid,
+  reserveFreeProjectionInputSchema.pipe(marketplaceListingProjectionBaseSchema),
+);
+
+export const marketplaceSellerListingProjectionSchema = z.preprocess(
+  normalizeViewerBid,
+  marketplaceListingProjectionBaseSchema
+    .extend({
+      reservePrice: marketplaceMoneySchema.nullable(),
+      reserveMet: z.boolean(),
+      reserveRecordRevision: z.number().int().positive(),
+      lastReserveCommandId: z.uuid(),
+    })
+    .passthrough(),
+);
 
 /**
  * The auction's public bid history: the VISIBLE price progression only.
@@ -129,13 +156,16 @@ export const marketplaceBidHistorySchema = z.object({
       createdAt: z.string(),
     }),
   ),
-  auction: z
-    .object({
-      endsAt: z.string(),
-      status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']),
-      bidCount: z.number().int().nonnegative(),
-    })
-    .passthrough()
+  auction: reserveFreeProjectionInputSchema
+    .pipe(
+      z
+        .object({
+          endsAt: z.string(),
+          status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']),
+          bidCount: z.number().int().nonnegative(),
+        })
+        .passthrough(),
+    )
     .nullable(),
   serverTime: z.string(),
 });
@@ -600,6 +630,7 @@ export const marketplaceReceiptSchema = z.object({
 });
 
 export type MarketplaceListingProjection = z.infer<typeof marketplaceListingProjectionSchema>;
+export type MarketplaceSellerListingProjection = z.infer<typeof marketplaceSellerListingProjectionSchema>;
 export type MarketplaceNotification = z.infer<typeof marketplaceNotificationSchema> & { kind?: never };
 export type MarketplaceUnrecognizedNotification = {
   kind: 'unrecognized';

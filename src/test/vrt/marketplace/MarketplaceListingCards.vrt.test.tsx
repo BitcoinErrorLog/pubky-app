@@ -60,7 +60,6 @@ const fixtures = vi.hoisted(async () => {
       auction: {
         startsAt: '2026-08-19T20:00:00.000Z',
         endsAt: '2026-08-29T20:00:00.000Z',
-        reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
         buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
         minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
       },
@@ -105,7 +104,6 @@ const fixtures = vi.hoisted(async () => {
       auction: {
         startsAt: '2026-08-19T20:00:00.000Z',
         endsAt: '2026-08-22T20:00:00.000Z',
-        reservePrice: null,
         buyNowPrice: null,
         minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
       },
@@ -132,7 +130,6 @@ const fixtures = vi.hoisted(async () => {
       auction: {
         startsAt: '2026-08-19T20:00:00.000Z',
         endsAt: '2026-08-29T20:00:00.000Z',
-        reservePrice: { amountMinor: 6_500, currency: 'USD', exponent: 2 },
         buyNowPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
         minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
       },
@@ -212,7 +209,6 @@ vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
         ? {
             currentPrice: { amountMinor: 7_500, currency: 'USD', exponent: 2 },
             bidCount: 4,
-            reserveMet: true,
           }
         : null,
   }),

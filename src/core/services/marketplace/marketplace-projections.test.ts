@@ -12,6 +12,7 @@ import {
 import sellerPaidShippingAddress from '@/test/fixtures/commerce/seller-paid-shipping-address.json';
 import {
   isMarketplaceAwardCheckoutEligible,
+  marketplaceBidHistorySchema,
   marketplaceBitcoinQuoteSchema,
   marketplaceDeliveryAddressSchema,
   marketplaceListingProjectionSchema,
@@ -19,6 +20,7 @@ import {
   marketplaceOrderProjectionSchema,
   marketplaceOrderSchema,
   marketplaceParticipantOrderSchema,
+  marketplaceSellerListingProjectionSchema,
 } from './marketplace-projections';
 
 /**
@@ -356,6 +358,24 @@ describe('marketplace offer projection — award degradation', () => {
 });
 
 describe('marketplace listing projection — viewer bid', () => {
+  it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])('rejects a nested public %s leak', (key) => {
+    const fixture = createAuctionProjectionFixture() as Record<string, unknown>;
+    fixture.extension = { nested: [{ [key]: null }] };
+    expect(marketplaceListingProjectionSchema.safeParse(fixture).success).toBe(false);
+  });
+
+  it('accepts reserve authority only in the seller projection', () => {
+    const fixture = {
+      ...createAuctionProjectionFixture(),
+      reservePrice: { amountMinor: 8_000, currency: 'USD', exponent: 2 },
+      reserveMet: false,
+      reserveRecordRevision: 1,
+      lastReserveCommandId: '00000000-0000-4000-8000-000000000001',
+    };
+    expect(marketplaceListingProjectionSchema.safeParse(fixture).success).toBe(false);
+    expect(marketplaceSellerListingProjectionSchema.safeParse(fixture).success).toBe(true);
+  });
+
   it('parses the live bidder viewer_bid shape', () => {
     const parsed = marketplaceListingProjectionSchema.safeParse(createViewerBidAuctionProjectionFixture());
 
@@ -440,4 +460,24 @@ describe('marketplace listing projection — viewer bid', () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data.viewerBid).toBeDefined();
   });
+});
+
+describe('marketplace bid history reserve secrecy', () => {
+  it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])(
+    'rejects nested %s from the public auction summary',
+    (key) => {
+      expect(
+        marketplaceBidHistorySchema.safeParse({
+          bids: [],
+          auction: {
+            endsAt: '2026-08-21T09:00:00.000Z',
+            status: 'active',
+            bidCount: 0,
+            extension: [{ [key]: null }],
+          },
+          serverTime: '2026-08-20T09:00:00.000Z',
+        }).success,
+      ).toBe(false);
+    },
+  );
 });

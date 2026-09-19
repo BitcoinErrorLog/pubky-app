@@ -123,7 +123,6 @@ export function createNexusListingDetailsFixture(overrides: Partial<NexusListing
     price_exponent: 2,
     auction_starts_at: null,
     auction_ends_at: null,
-    auction_reserve_price_minor: null,
     auction_buy_now_price_minor: null,
     auction_minimum_increment_minor: null,
     // What the wire carries for the default shipped listing above: the
@@ -154,7 +153,6 @@ export function createNexusAuctionListingDetailsFixture(
     price_amount_minor: 4_500,
     auction_starts_at: '2026-08-19T20:00:00.000Z',
     auction_ends_at: '2026-08-29T20:00:00.000Z',
-    auction_reserve_price_minor: 6_500,
     auction_buy_now_price_minor: 12_500,
     auction_minimum_increment_minor: 500,
     ...overrides,
@@ -334,7 +332,6 @@ export function createCommerceSandboxCatalogFixture(): CommerceSandboxCatalogFix
         ? {
             format: 'auction',
             startingPrice: { amountMinor: entry.amountMinor, currency: 'USD', exponent: 2 },
-            reservePrice: { amountMinor: entry.amountMinor + 2_000, currency: 'USD', exponent: 2 },
             buyNowPrice: { amountMinor: entry.amountMinor + 8_000, currency: 'USD', exponent: 2 },
             minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
             startsAt: '2026-08-19T20:00:00.000Z',

@@ -407,6 +407,15 @@ export function MarketplaceListingForm({
               placeholder={pricePlaceholder}
               disabled={isPublishing || saleTermsLocked}
             />
+            {saleFormat === 'auction' && (
+              <ControlledInputField
+                name={CREATE_MARKETPLACE_LISTING_FIELDS.RESERVE_PRICE}
+                control={form.control}
+                label={`Reserve price (${priceUnit})`}
+                placeholder="Optional"
+                disabled={isPublishing || saleTermsLocked}
+              />
+            )}
           </div>
           {currency === 'BTC' && (
             <Typography as="p" className="text-sm text-muted-foreground">

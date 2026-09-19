@@ -22,6 +22,9 @@ import {
 } from '@/libs/commerce/attestation';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import {
+  assertReserveFreePublicRecord,
+  type CommerceAuctionReserveRecord,
+  commerceAuctionReserveRecordSchema,
   type CommerceDigitalLock,
   type CommerceDropRecord,
   commerceListingFulfillmentMethods,
@@ -30,6 +33,8 @@ import {
   commerceReviewRecordSchema,
   type CommerceShopRecord,
   type CommerceWatchlistRecord,
+  findForbiddenPublicReserveKey,
+  stripForbiddenPublicReserveKeys,
 } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import {
@@ -56,7 +61,7 @@ import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
 } from '@/libs/commerce/transaction-commands';
-import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
+import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -154,6 +159,8 @@ export interface CommerceCatalogStreamFilters {
   /** Seller-declared item location: ISO-3166-1 alpha-2 country code. */
   country?: string;
 }
+
+const AUCTION_RESERVE_EXPECTED_SERVICE_REVISION_EXT_KEY = 'expectedServiceRevision';
 
 /**
  * The three honest states a rating header can be in: `rated` (the index
@@ -833,6 +840,10 @@ export class CommerceApplication {
 
   static async getMarketplaceListingProjection(actorPubky: string | null, aggregateId: string) {
     return await MarketplaceGatewayService.getListing(actorPubky, aggregateId);
+  }
+
+  static async getMarketplaceSellerListingProjection(actorPubky: string, aggregateId: string) {
+    return await MarketplaceGatewayService.getSellerListing(actorPubky, aggregateId);
   }
 
   static async getMarketplaceListingBids(actorPubky: string | null, aggregateId: string) {
@@ -2491,7 +2502,10 @@ export class CommerceApplication {
     await LocalCommerceService.completeSyncJob(job.id);
   }
 
-  static async commitUpsertListing(record: CommerceListingRecord): Promise<{ registered: boolean }> {
+  static async commitUpsertListing(
+    record: CommerceListingRecord,
+    reservePrice?: CommerceMoney | null,
+  ): Promise<{ registered: boolean }> {
     if (isDurableCommerceMode(getCommerceAdapterMode()) && !this.hasActiveMarketplaceSession()) {
       throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Connect a marketplace session to publish a listing.', {
         service: ErrorService.Marketplace,
@@ -2511,9 +2525,12 @@ export class CommerceApplication {
 
     const registrationStatus = getCommerceAdapterMode() === 'unavailable' ? 'unavailable' : 'unregistered';
     await LocalCommerceService.stageListingSync(record, publishJob, registrationStatus);
-    await CommerceHomeserverService.putJson(url, { ...record });
+    const registration =
+      record.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())
+        ? await this.prepareAuctionRegistration(record, reservePrice)
+        : null;
+    await this.putVerifiedPublicListing(record, url);
     await LocalCommerceService.upsertListing(record, 'synced');
-    await LocalCommerceService.completeSyncJob(publishJob.id);
 
     // Registration is idempotent (skipped when the aggregate already has a server
     // revision), so retrying the whole commit after a failure here is safe.
@@ -2530,11 +2547,12 @@ export class CommerceApplication {
     // listing.sync once a marketplace session exists.
     if (getCommerceAdapterMode() !== 'unavailable') {
       try {
-        await this.registerListing(record);
+        await this.registerListing(record, registration);
         await LocalCommerceService.setListingRegistrationStatus(
           `${record.ownerPubky}:${record.listingId}`,
           'registered',
         );
+        await LocalCommerceService.completeSyncJob(publishJob.id);
       } catch (error) {
         await LocalCommerceService.setListingRegistrationStatus(
           `${record.ownerPubky}:${record.listingId}`,
@@ -2546,6 +2564,8 @@ export class CommerceApplication {
         });
         return { registered: false };
       }
+    } else {
+      await LocalCommerceService.completeSyncJob(publishJob.id);
     }
     return { registered: getCommerceAdapterMode() !== 'unavailable' };
   }
@@ -2797,8 +2817,317 @@ export class CommerceApplication {
     return await MarketplaceMediaService.fetchMedia(uri);
   }
 
-  private static async registerListing(listing: CommerceListingRecord): Promise<void> {
+  private static async putVerifiedPublicListing(record: CommerceListingRecord, url: string): Promise<void> {
+    let current: Record<string, unknown> = {};
+    let exists = false;
+    try {
+      const fetched = await CommerceHomeserverService.fetchJson(url);
+      if (!isPlainRecord(fetched)) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The published listing is not a JSON object.', {
+          service: ErrorService.Homeserver,
+          operation: 'putVerifiedPublicListing',
+        });
+      }
+      current = fetched;
+      exists = true;
+    } catch (error) {
+      if (!(isAppError(error) && isNotFound(error) && record.revision === 1)) throw error;
+    }
+
+    const scrubbed = stripForbiddenPublicReserveKeys(current);
+    const candidate = mergeOpenWorldRecords(isPlainRecord(scrubbed) ? scrubbed : {}, record);
+    assertReserveFreePublicRecord(candidate);
+    if (exists) {
+      if (current.ownerPubky !== record.ownerPubky || current.listingId !== record.listingId) {
+        throw Err.client(ClientErrorCode.CONFLICT, 'The published listing identity changed. Reload and try again.', {
+          service: ErrorService.Homeserver,
+          operation: 'putVerifiedPublicListing',
+        });
+      }
+      const currentRevision = current.revision;
+      const expectedBaseRevision = record.revision - 1;
+      if (currentRevision === record.revision) {
+        if (canonicalJson(scrubbed) !== canonicalJson(candidate)) {
+          throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed. Reload and try again.', {
+            service: ErrorService.Homeserver,
+            operation: 'putVerifiedPublicListing',
+          });
+        }
+      } else if (currentRevision !== expectedBaseRevision) {
+        throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed. Reload and try again.', {
+          service: ErrorService.Homeserver,
+          operation: 'putVerifiedPublicListing',
+        });
+      }
+    }
+
+    const requiresPut =
+      !exists || current.revision !== record.revision || findForbiddenPublicReserveKey(current) !== null;
+    if (requiresPut) {
+      if (exists) {
+        const latest = await CommerceHomeserverService.fetchJson(url);
+        if (canonicalJson(latest) !== canonicalJson(current)) {
+          throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed. Reload and try again.', {
+            service: ErrorService.Homeserver,
+            operation: 'putVerifiedPublicListing',
+          });
+        }
+      } else {
+        try {
+          await CommerceHomeserverService.fetchJson(url);
+          throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed. Reload and try again.', {
+            service: ErrorService.Homeserver,
+            operation: 'putVerifiedPublicListing',
+          });
+        } catch (error) {
+          if (!(isAppError(error) && isNotFound(error))) throw error;
+        }
+      }
+      await CommerceHomeserverService.putJson(url, candidate);
+    }
+
+    const verified = requiresPut ? await CommerceHomeserverService.fetchJson(url) : current;
+    assertReserveFreePublicRecord(verified);
+    if (
+      !isPlainRecord(verified) ||
+      verified.ownerPubky !== record.ownerPubky ||
+      verified.listingId !== record.listingId ||
+      verified.revision !== record.revision
+    ) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The published listing could not be verified.', {
+        service: ErrorService.Homeserver,
+        operation: 'putVerifiedPublicListing',
+      });
+    }
+    if (canonicalJson(verified) !== canonicalJson(candidate)) {
+      throw Err.server(
+        ServerErrorCode.INVALID_RESPONSE,
+        'The published listing did not match the verified candidate.',
+        {
+          service: ErrorService.Homeserver,
+          operation: 'putVerifiedPublicListing',
+        },
+      );
+    }
+  }
+
+  private static async fetchAuctionReserveRecord(
+    ownerPubky: string,
+    listingId: string,
+  ): Promise<CommerceAuctionReserveRecord> {
+    const url = CommerceRecordNormalizer.auctionReserveUri(ownerPubky, listingId);
+    return commerceAuctionReserveRecordSchema.parse(await CommerceHomeserverService.fetchJson(url));
+  }
+
+  private static async prepareAuctionRegistration(
+    listing: CommerceListingRecord,
+    reservePrice: CommerceMoney | null | undefined,
+  ): Promise<MarketplaceCommand> {
+    if (listing.sale.format !== 'auction') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Auction reserve requires an auction listing.', {
+        service: ErrorService.Marketplace,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
+    const projection = await MarketplaceGatewayService.getSellerListing(listing.ownerPubky, aggregateId);
+    const serviceRecordRevision = projection?.reserveRecordRevision ?? 0;
+    const reserveUrl = CommerceRecordNormalizer.auctionReserveUri(listing.ownerPubky, listing.listingId);
+    let current: Record<string, unknown> = {};
+    let parsedCurrent: CommerceAuctionReserveRecord | null = null;
+    try {
+      const fetched = await CommerceHomeserverService.fetchJson(reserveUrl);
+      if (!isPlainRecord(fetched)) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record is not a JSON object.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
+      current = fetched;
+      if (new TextEncoder().encode(JSON.stringify(fetched)).byteLength > 65_536) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record is too large.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
+      parsedCurrent = commerceAuctionReserveRecordSchema.parse(fetched);
+      if (parsedCurrent.ownerPubky !== listing.ownerPubky || parsedCurrent.listingId !== listing.listingId) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record identity does not match.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
+    } catch (error) {
+      if (!(isAppError(error) && isNotFound(error) && serviceRecordRevision === 0)) throw error;
+    }
+
+    const reusingPending =
+      parsedCurrent?.listingRevision === listing.revision && parsedCurrent.recordRevision === serviceRecordRevision + 1;
+    const replayingAcknowledged =
+      parsedCurrent !== null &&
+      projection !== null &&
+      parsedCurrent.listingRevision === listing.revision &&
+      parsedCurrent.recordRevision === serviceRecordRevision &&
+      parsedCurrent.writeId === projection.lastReserveCommandId;
+    const hasExpectedBase =
+      parsedCurrent !== null &&
+      projection !== null &&
+      parsedCurrent.listingRevision === listing.revision - 1 &&
+      parsedCurrent.recordRevision === serviceRecordRevision &&
+      parsedCurrent.writeId === projection.lastReserveCommandId;
+    const isFreshCreate = parsedCurrent === null && serviceRecordRevision === 0 && listing.revision === 1;
+    if (!reusingPending && !replayingAcknowledged && !hasExpectedBase && !isFreshCreate) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'The private reserve changed. Reload and try again.', {
+        service: ErrorService.Homeserver,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
+    const reusingExistingCommand = reusingPending || replayingAcknowledged;
+    const pendingExpectedRevision = parsedCurrent?.ext?.[AUCTION_RESERVE_EXPECTED_SERVICE_REVISION_EXT_KEY];
+    if (
+      reusingExistingCommand &&
+      (typeof pendingExpectedRevision !== 'number' ||
+        !Number.isSafeInteger(pendingExpectedRevision) ||
+        pendingExpectedRevision < 0)
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The pending reserve command revision is invalid.', {
+        service: ErrorService.Homeserver,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
+    const expectedServiceRevision = reusingExistingCommand
+      ? pendingExpectedRevision
+      : (projection?.serverRevision ?? 0);
+    const commandExpectedRecordRevision = replayingAcknowledged ? serviceRecordRevision - 1 : serviceRecordRevision;
+    const commandRecordRevision = replayingAcknowledged ? serviceRecordRevision : serviceRecordRevision + 1;
+    const now = new Date().toISOString();
+    const writeId = reusingExistingCommand ? parsedCurrent!.writeId : crypto.randomUUID();
+    const issuedAt = reusingExistingCommand ? parsedCurrent!.updatedAt : now;
+    if (
+      reusingExistingCommand &&
+      reservePrice !== undefined &&
+      canonicalJson(reservePrice) !== canonicalJson(parsedCurrent!.reservePrice)
+    ) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'The pending reserve differs from this edit. Reload and try again.', {
+        service: ErrorService.Homeserver,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
+    const candidate = reusingExistingCommand
+      ? parsedCurrent!
+      : commerceAuctionReserveRecordSchema.parse(
+          mergeOpenWorldRecords(current, {
+            schemaVersion: 1,
+            recordType: 'auction_reserve',
+            ownerPubky: listing.ownerPubky,
+            listingId: listing.listingId,
+            listingRevision: listing.revision,
+            recordRevision: commandRecordRevision,
+            writeId,
+            reservePrice:
+              reservePrice === undefined
+                ? (parsedCurrent?.reservePrice ?? projection?.reservePrice ?? null)
+                : reservePrice,
+            createdAt: parsedCurrent?.createdAt ?? now,
+            updatedAt: now,
+            ext: {
+              ...(parsedCurrent?.ext ?? {}),
+              [AUCTION_RESERVE_EXPECTED_SERVICE_REVISION_EXT_KEY]: expectedServiceRevision,
+            },
+          }),
+        );
+    if (new TextEncoder().encode(JSON.stringify(candidate)).byteLength > 65_536) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private reserve record is too large.', {
+        service: ErrorService.Homeserver,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
+    if (!reusingExistingCommand) {
+      if (parsedCurrent) {
+        const latest = await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId);
+        if (canonicalJson(latest) !== canonicalJson(parsedCurrent)) {
+          throw Err.client(ClientErrorCode.CONFLICT, 'The private reserve changed. Reload and try again.', {
+            service: ErrorService.Homeserver,
+            operation: 'prepareAuctionRegistration',
+          });
+        }
+      } else {
+        try {
+          await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId);
+          throw Err.client(ClientErrorCode.CONFLICT, 'The private reserve changed. Reload and try again.', {
+            service: ErrorService.Homeserver,
+            operation: 'prepareAuctionRegistration',
+          });
+        } catch (error) {
+          if (!(isAppError(error) && isNotFound(error))) throw error;
+        }
+      }
+      await CommerceHomeserverService.putJson(reserveUrl, candidate);
+      const verified = await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId);
+      if (verified.writeId !== candidate.writeId || canonicalJson(verified) !== canonicalJson(candidate)) {
+        throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'The private reserve record could not be verified.', {
+          service: ErrorService.Homeserver,
+          operation: 'prepareAuctionRegistration',
+        });
+      }
+    }
+
+    const unitPrice = listing.sale.startingPrice;
+    return CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: writeId,
+      aggregateId,
+      expectedRevision: expectedServiceRevision,
+      issuedAt,
+      kind: 'listing.register',
+      payload: {
+        sellerPubky: listing.ownerPubky,
+        listingId: listing.listingId,
+        title: listing.title,
+        listingRevision: listing.revision,
+        contentHash: listing.media[0].contentHash,
+        quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
+        unitPrice,
+        shippingMinor: commerceListingShippingMinor(listing.shippingOptions),
+        saleFormat: 'auction',
+        fulfillmentMethods: commerceListingFulfillmentMethods(listing.fulfillmentMethods),
+        auctionTerms: {
+          startsAt: listing.sale.startsAt,
+          endsAt: listing.sale.endsAt,
+          minimumIncrement: listing.sale.minimumIncrement,
+          antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
+          antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
+        },
+        auctionReserve: {
+          expectedRecordRevision: commandExpectedRecordRevision,
+          recordRevision: commandRecordRevision,
+          reservePrice: candidate.reservePrice,
+        },
+      },
+    });
+  }
+
+  private static async registerListing(
+    listing: CommerceListingRecord,
+    preparedAuctionCommand: MarketplaceCommand | null = null,
+  ): Promise<void> {
+    const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
+    if (listing.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())) {
+      const command =
+        preparedAuctionCommand ??
+        (await this.prepareAuctionRegistration(
+          listing,
+          (await this.fetchAuctionReserveRecord(listing.ownerPubky, listing.listingId)).reservePrice,
+        ));
+      const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+      if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
+        throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
+          service: ErrorService.Marketplace,
+          operation: 'registerListing',
+        });
+      }
+      return;
+    }
     const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
     if (existing?.serverRevision) {
       // Already registered: EDITS must still reach the authority. `listing.sync`
@@ -2846,9 +3175,16 @@ export class CommerceApplication {
                 startsAt: listing.sale.startsAt,
                 endsAt: listing.sale.endsAt,
                 minimumIncrement: listing.sale.minimumIncrement,
-                reservePrice: listing.sale.reservePrice,
                 antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
                 antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
+              }
+            : undefined,
+        auctionReserve:
+          listing.sale.format === 'auction'
+            ? {
+                expectedRecordRevision: 0,
+                recordRevision: 1,
+                reservePrice: null,
               }
             : undefined,
       },
@@ -2920,4 +3256,53 @@ export class CommerceApplication {
       payload: { sellerPubky, listingId },
     });
   }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeOpenWorldRecords(
+  existing: Record<string, unknown>,
+  managed: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [key, value] of Object.entries(managed)) {
+    const prior = merged[key];
+    if (isPlainRecord(prior) && isPlainRecord(value)) {
+      merged[key] = mergeOpenWorldRecords(prior, value);
+    } else if (Array.isArray(prior) && Array.isArray(value)) {
+      merged[key] = mergeOpenWorldRecordArray(prior, value);
+    } else {
+      merged[key] = structuredClone(value);
+    }
+  }
+  return merged;
+}
+
+function mergeOpenWorldRecordArray(existing: unknown[], managed: unknown[]): unknown[] {
+  const hasStableIds = managed.every((value) => isPlainRecord(value) && typeof value.id === 'string');
+  if (!hasStableIds) return structuredClone(managed);
+
+  const existingById = new Map(
+    existing
+      .filter((value): value is Record<string, unknown> => isPlainRecord(value) && typeof value.id === 'string')
+      .map((value) => [value.id as string, value]),
+  );
+  return managed.map((value) => {
+    const managedRecord = value as Record<string, unknown>;
+    const prior = existingById.get(managedRecord.id as string);
+    return prior ? mergeOpenWorldRecords(prior, managedRecord) : structuredClone(managedRecord);
+  });
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isPlainRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }

@@ -41,6 +41,7 @@ import {
   marketplacePaymentSchema,
   type MarketplaceReceipt,
   marketplaceReceiptSchema,
+  type MarketplaceSellerListingProjection,
   parseMarketplaceNotificationEntries,
 } from './marketplace-projections';
 import { MarketplaceTransactionService } from './marketplace-transaction';
@@ -112,6 +113,7 @@ export type {
   MarketplacePublicDrop,
   MarketplaceReceipt,
   MarketplaceSellerDrop,
+  MarketplaceSellerListingProjection,
   MarketplaceUnrecognizedNotification,
 } from './marketplace-projections';
 
@@ -202,6 +204,14 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data;
+  }
+
+  static async getSellerListing(
+    actor: string,
+    aggregateId: string,
+  ): Promise<MarketplaceSellerListingProjection | null> {
+    this.assertDurableServiceOnly('getSellerListing');
+    return await MarketplaceTransactionService.getSellerListing(actor, aggregateId);
   }
 
   /**

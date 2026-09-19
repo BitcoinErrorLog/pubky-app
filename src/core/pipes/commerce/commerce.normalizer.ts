@@ -106,7 +106,6 @@ export type CommerceShippingPresetInput = z.infer<typeof commerceShippingPresetI
 const NEXUS_AUCTION_TERM_FIELDS = [
   'auction_starts_at',
   'auction_ends_at',
-  'auction_reserve_price_minor',
   'auction_buy_now_price_minor',
   'auction_minimum_increment_minor',
 ] as const;
@@ -163,7 +162,6 @@ const nexusListingDetailsSchema: z.ZodType<NexusListingDetails> = z
     price_exponent: z.number().int(),
     auction_starts_at: commerceTimestampSchema.nullable(),
     auction_ends_at: commerceTimestampSchema.nullable(),
-    auction_reserve_price_minor: z.number().int().positive().nullable(),
     auction_buy_now_price_minor: z.number().int().positive().nullable(),
     auction_minimum_increment_minor: z.number().int().positive().nullable(),
     // The record's fulfillment vocabulary, echoed: a both-ways pickup
@@ -484,10 +482,6 @@ export class CommerceRecordNormalizer {
     return {
       startsAt: auction_starts_at,
       endsAt: auction_ends_at,
-      reservePrice:
-        listing.auction_reserve_price_minor === null
-          ? null
-          : this.toCatalogMoney(listing, listing.auction_reserve_price_minor),
       buyNowPrice:
         listing.auction_buy_now_price_minor === null
           ? null
@@ -512,6 +506,10 @@ export class CommerceRecordNormalizer {
 
   static listingUri(ownerPubky: unknown, listingId: unknown): string {
     return listingUriBuilder(this.pubky(ownerPubky), this.entityId(listingId));
+  }
+
+  static auctionReserveUri(ownerPubky: unknown, listingId: unknown): string {
+    return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/auction_reserves/${this.entityId(listingId)}.json`;
   }
 
   static mediaUri(ownerPubky: unknown, mediaId: unknown): string {

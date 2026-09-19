@@ -76,6 +76,8 @@ import {
   marketplaceReceiptSchema,
   type MarketplaceSellerDrop,
   marketplaceSellerDropSchema,
+  type MarketplaceSellerListingProjection,
+  marketplaceSellerListingProjectionSchema,
   parseMarketplaceNotificationEntries,
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
@@ -237,11 +239,65 @@ export class MarketplaceTransactionService {
       nullOnNotFound: true,
     });
     if (raw === null) return null;
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      (raw as Record<string, unknown>).sellerPubky === actor &&
+      'reservePrice' in raw
+    ) {
+      const seller = this.parseProjection(
+        'getListing',
+        marketplaceSellerListingProjectionSchema,
+        raw,
+        'Marketplace returned an invalid seller listing projection.',
+      );
+      const {
+        reservePrice: _reservePrice,
+        reserveMet: _reserveMet,
+        reserveRecordRevision: _reserveRecordRevision,
+        lastReserveCommandId: _lastReserveCommandId,
+        ...publicProjection
+      } = seller;
+      return marketplaceListingProjectionSchema.parse(publicProjection);
+    }
     return this.parseProjection(
       'getListing',
       marketplaceListingProjectionSchema,
       raw,
       'Marketplace returned an invalid listing projection.',
+    );
+  }
+
+  static async getSellerListing(
+    actor: string,
+    aggregateId: string,
+  ): Promise<MarketplaceSellerListingProjection | null> {
+    const raw = await this.readProjection(
+      'getSellerListing',
+      actor,
+      `/v1/listings/${encodeURIComponent(aggregateId)}`,
+      {
+        nullOnNotFound: true,
+      },
+    );
+    if (raw === null) return null;
+    if (
+      !raw ||
+      typeof raw !== 'object' ||
+      Array.isArray(raw) ||
+      (raw as Record<string, unknown>).sellerPubky !== actor
+    ) {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'Only the listing seller may read the private reserve projection.', {
+        service: ErrorService.Marketplace,
+        operation: 'getSellerListing',
+      });
+    }
+    return this.parseProjection(
+      'getSellerListing',
+      marketplaceSellerListingProjectionSchema,
+      raw,
+      'Marketplace returned an invalid seller listing projection.',
     );
   }
 

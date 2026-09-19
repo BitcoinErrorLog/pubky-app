@@ -184,7 +184,11 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
       try {
         await uploadListingMedia(preparedMedia.uploads);
         const listing = buildListingRecord(currentUserPubky, data, preparedMedia.media, pendingListingIdRef.current);
-        const { registered } = await CommerceController.commitUpsertListing(listing);
+        const reservePrice =
+          data.saleFormat === 'auction' && data.reservePrice !== ''
+            ? amountInputToMoney(data.reservePrice, assetForListingCurrency(data.currency))
+            : null;
+        const { registered } = await CommerceController.commitUpsertListing(listing, reservePrice);
         await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;
         pendingListingIdRef.current = null;

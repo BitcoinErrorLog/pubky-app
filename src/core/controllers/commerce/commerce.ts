@@ -10,6 +10,7 @@ import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
+import { commercePositiveMoneySchema } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -526,6 +527,16 @@ export class CommerceController {
     // bind its bearer session and degrades with session guidance otherwise.
     return await CommerceApplication.getMarketplaceListingProjection(
       useAuthStore.getState().currentUserPubky,
+      buildMarketplaceListingAggregateId(owner, id),
+    );
+  }
+
+  static async getMarketplaceSellerListingProjection(ownerPubky: unknown, listingId: unknown) {
+    const owner = CommerceRecordNormalizer.pubky(ownerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    this.assertCurrentUserOwns(owner);
+    return await CommerceApplication.getMarketplaceSellerListingProjection(
+      owner,
       buildMarketplaceListingAggregateId(owner, id),
     );
   }
@@ -1259,11 +1270,12 @@ export class CommerceController {
     await this.withPending(`shop:${record.ownerPubky}`, () => CommerceApplication.commitUpsertShop(record));
   }
 
-  static async commitUpsertListing(input: unknown): Promise<{ registered: boolean }> {
+  static async commitUpsertListing(input: unknown, reservePrice?: unknown): Promise<{ registered: boolean }> {
     const record = CommerceRecordNormalizer.listing(input);
+    const reserve = reservePrice === undefined ? undefined : commercePositiveMoneySchema.nullable().parse(reservePrice);
     this.assertCurrentUserOwns(record.ownerPubky);
     return await this.withPending(`${record.ownerPubky}:${record.listingId}`, () =>
-      CommerceApplication.commitUpsertListing(record),
+      CommerceApplication.commitUpsertListing(record, reserve),
     );
   }
 
