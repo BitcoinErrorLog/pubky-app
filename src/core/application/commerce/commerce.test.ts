@@ -76,7 +76,10 @@ describe('CommerceApplication', () => {
           .find(([writtenUrl]) => writtenUrl === url);
         if (latest) return latest[1];
       }
-      return createCommerceListingFixture();
+      throw Err.client(ClientErrorCode.NOT_FOUND, 'Not found', {
+        service: ErrorService.Homeserver,
+        operation: 'fetchJson',
+      });
     });
   });
 
@@ -205,6 +208,7 @@ describe('CommerceApplication', () => {
     });
     const [listing] = await CommerceApplication.getListingsBySeller(record.ownerPubky);
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    vi.mocked(CommerceHomeserverService.fetchJson).mockResolvedValueOnce(record);
     vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
@@ -442,6 +446,9 @@ describe('CommerceApplication', () => {
       }
       return {
         ...listing,
+        media: listing.media.map((entry) => ({ ...entry, futureMedia: { keep: null } })),
+        variants: listing.variants.map((entry) => ({ ...entry, futureVariant: ['keep'] })),
+        shippingOptions: listing.shippingOptions.map((entry) => ({ ...entry, futureShipping: { keep: true } })),
         futureField: { keep: true, nested: [{ reserve_price: null, keepToo: 'yes' }] },
       };
     });
@@ -456,8 +463,13 @@ describe('CommerceApplication', () => {
       recordRevision: 1,
       ext: { expectedServiceRevision: 0 },
     });
-    expect(publicWrites).toHaveLength(2);
-    expect(publicWrites[0][1]).toMatchObject({ futureField: { keep: true, nested: [{ keepToo: 'yes' }] } });
+    expect(publicWrites).toHaveLength(1);
+    expect(publicWrites[0][1]).toMatchObject({
+      media: [{ futureMedia: { keep: null } }],
+      variants: [{ futureVariant: ['keep'] }],
+      shippingOptions: [{ futureShipping: { keep: true } }],
+      futureField: { keep: true, nested: [{ keepToo: 'yes' }] },
+    });
     expect(JSON.stringify(publicWrites)).not.toMatch(/reserve(?:Price|_price|Met|_met)/);
     expect(execute.mock.calls[0][1]).toMatchObject({
       kind: 'listing.register',
@@ -470,6 +482,106 @@ describe('CommerceApplication', () => {
     expect(execute.mock.calls[1][1].issuedAt).toBe(execute.mock.calls[0][1].issuedAt);
     expect(execute.mock.calls[1][1].expectedRevision).toBe(execute.mock.calls[0][1].expectedRevision);
     expect(publicProjection).not.toHaveBeenCalled();
+  });
+
+  it('refuses a public PUT when the fresh listing revision is not the expected base', async () => {
+    const record = createCommerceListingFixture();
+    record.revision = 2;
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ ...record, revision: 3 });
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
+
+    await expect(CommerceApplication.commitUpsertListing(record)).rejects.toMatchObject({
+      code: ClientErrorCode.CONFLICT,
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('does not clobber a stale private reserve record', async () => {
+    const listing = createCommerceListingFixture();
+    listing.revision = 2;
+    listing.sale = {
+      format: 'auction',
+      startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      startsAt: '2026-08-19T20:00:00.000Z',
+      endsAt: '2026-08-29T20:00:00.000Z',
+      antiSnipingWindowSeconds: 120,
+      antiSnipingExtensionSeconds: 120,
+    };
+    const writeId = '00000000-0000-4000-8000-000000000001';
+    const privateRecord = {
+      schemaVersion: 1,
+      recordType: 'auction_reserve',
+      ownerPubky: listing.ownerPubky,
+      listingId: listing.listingId,
+      listingRevision: 1,
+      recordRevision: 1,
+      writeId,
+      reservePrice: { amountMinor: 8_000, currency: 'USD', exponent: 2 },
+      createdAt: listing.createdAt,
+      updatedAt: listing.updatedAt,
+    };
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getSellerListing').mockResolvedValue({
+      serverRevision: 4,
+      reserveRecordRevision: 2,
+      reservePrice: privateRecord.reservePrice,
+      lastReserveCommandId: writeId,
+    } as never);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(privateRecord);
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
+
+    await expect(CommerceApplication.commitUpsertListing(listing)).rejects.toMatchObject({
+      code: ClientErrorCode.CONFLICT,
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('does not clobber a private reserve changed between GET and conditional PUT', async () => {
+    const listing = createCommerceListingFixture();
+    listing.revision = 2;
+    listing.sale = {
+      format: 'auction',
+      startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      startsAt: '2026-08-19T20:00:00.000Z',
+      endsAt: '2026-08-29T20:00:00.000Z',
+      antiSnipingWindowSeconds: 120,
+      antiSnipingExtensionSeconds: 120,
+    };
+    const writeId = '00000000-0000-4000-8000-000000000001';
+    const privateRecord = {
+      schemaVersion: 1,
+      recordType: 'auction_reserve',
+      ownerPubky: listing.ownerPubky,
+      listingId: listing.listingId,
+      listingRevision: 1,
+      recordRevision: 1,
+      writeId,
+      reservePrice: { amountMinor: 8_000, currency: 'USD', exponent: 2 },
+      createdAt: listing.createdAt,
+      updatedAt: listing.updatedAt,
+      ext: { device: 'first' },
+    };
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getSellerListing').mockResolvedValue({
+      serverRevision: 4,
+      reserveRecordRevision: 1,
+      reservePrice: privateRecord.reservePrice,
+      lastReserveCommandId: writeId,
+    } as never);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson')
+      .mockResolvedValueOnce(privateRecord)
+      .mockResolvedValueOnce({ ...privateRecord, ext: { device: 'second' } });
+    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
+
+    await expect(CommerceApplication.commitUpsertListing(listing)).rejects.toMatchObject({
+      code: ClientErrorCode.CONFLICT,
+    });
+    expect(put).not.toHaveBeenCalled();
   });
 
   it('persists unregistered after registration rejects and stamps registered on a successful retry', async () => {
