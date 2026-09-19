@@ -61,6 +61,8 @@ import {
   marketplaceDropReadyCheckSchema,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
+  type MarketplaceSellerListingProjection,
+  marketplaceSellerListingProjectionSchema,
   type MarketplaceNotificationEntry,
   type MarketplaceOffer,
   marketplaceOfferSchema,
@@ -242,6 +244,22 @@ export class MarketplaceTransactionService {
       marketplaceListingProjectionSchema,
       raw,
       'Marketplace returned an invalid listing projection.',
+    );
+  }
+
+  static async getSellerListing(
+    actor: string,
+    aggregateId: string,
+  ): Promise<MarketplaceSellerListingProjection | null> {
+    const raw = await this.readProjection('getSellerListing', actor, `/v1/listings/${encodeURIComponent(aggregateId)}`, {
+      nullOnNotFound: true,
+    });
+    if (raw === null) return null;
+    return this.parseProjection(
+      'getSellerListing',
+      marketplaceSellerListingProjectionSchema,
+      raw,
+      'Marketplace returned an invalid seller listing projection.',
     );
   }
 

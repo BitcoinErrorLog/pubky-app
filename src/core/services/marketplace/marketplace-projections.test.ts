@@ -15,6 +15,7 @@ import {
   marketplaceBitcoinQuoteSchema,
   marketplaceDeliveryAddressSchema,
   marketplaceListingProjectionSchema,
+  marketplaceSellerListingProjectionSchema,
   marketplaceOfferSchema,
   marketplaceOrderProjectionSchema,
   marketplaceOrderSchema,
@@ -356,6 +357,27 @@ describe('marketplace offer projection — award degradation', () => {
 });
 
 describe('marketplace listing projection — viewer bid', () => {
+  it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])(
+    'rejects a nested public %s leak',
+    (key) => {
+      const fixture = createAuctionProjectionFixture() as Record<string, unknown>;
+      fixture.extension = { nested: [{ [key]: null }] };
+      expect(marketplaceListingProjectionSchema.safeParse(fixture).success).toBe(false);
+    },
+  );
+
+  it('accepts reserve authority only in the seller projection', () => {
+    const fixture = {
+      ...createAuctionProjectionFixture(),
+      reservePrice: { amountMinor: 8_000, currency: 'USD', exponent: 2 },
+      reserveMet: false,
+      reserveRecordRevision: 1,
+      lastReserveCommandId: '00000000-0000-4000-8000-000000000001',
+    };
+    expect(marketplaceListingProjectionSchema.safeParse(fixture).success).toBe(false);
+    expect(marketplaceSellerListingProjectionSchema.safeParse(fixture).success).toBe(true);
+  });
+
   it('parses the live bidder viewer_bid shape', () => {
     const parsed = marketplaceListingProjectionSchema.safeParse(createViewerBidAuctionProjectionFixture());
 

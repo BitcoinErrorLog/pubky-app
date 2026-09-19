@@ -338,6 +338,11 @@ describe('listing.register fulfillment methods (mirrors the service register val
         antiSnipingWindowSeconds: 300,
         antiSnipingExtensionSeconds: 300,
       },
+      auctionReserve: {
+        expectedRecordRevision: 0,
+        recordRevision: 1,
+        reservePrice: { amountMinor: 15_000, currency: 'USD', exponent: 2 },
+      },
     };
     expect(
       registerListingCommandSchema.safeParse(registerCommand({ ...auction, fulfillmentMethods: ['shipping'] })).success,
@@ -348,6 +353,15 @@ describe('listing.register fulfillment methods (mirrors the service register val
     expect(
       registerListingCommandSchema.safeParse(
         registerCommand({ ...auction, fulfillmentMethods: ['shipping', 'pickup'] }),
+      ).success,
+    ).toBe(false);
+    expect(
+      registerListingCommandSchema.safeParse(
+        registerCommand({
+          ...auction,
+          auctionTerms: { ...auction.auctionTerms, reservePrice: auction.auctionReserve.reservePrice },
+          fulfillmentMethods: ['shipping'],
+        }),
       ).success,
     ).toBe(false);
   });
