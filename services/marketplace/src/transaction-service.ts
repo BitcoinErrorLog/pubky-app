@@ -268,7 +268,6 @@ export interface MarketplaceListingAggregate {
     startsAt: string;
     endsAt: string;
     minimumIncrement: MarketplaceListingAggregate['unitPrice'];
-    reservePrice?: MarketplaceListingAggregate['unitPrice'];
     antiSnipingWindowSeconds: number;
     antiSnipingExtensionSeconds: number;
     currentPrice: MarketplaceListingAggregate['unitPrice'];

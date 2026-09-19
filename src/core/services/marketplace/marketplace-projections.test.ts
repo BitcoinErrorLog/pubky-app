@@ -12,6 +12,7 @@ import {
 import sellerPaidShippingAddress from '@/test/fixtures/commerce/seller-paid-shipping-address.json';
 import {
   isMarketplaceAwardCheckoutEligible,
+  marketplaceBidHistorySchema,
   marketplaceBitcoinQuoteSchema,
   marketplaceDeliveryAddressSchema,
   marketplaceListingProjectionSchema,
@@ -459,4 +460,24 @@ describe('marketplace listing projection — viewer bid', () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data.viewerBid).toBeDefined();
   });
+});
+
+describe('marketplace bid history reserve secrecy', () => {
+  it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])(
+    'rejects nested %s from the public auction summary',
+    (key) => {
+      expect(
+        marketplaceBidHistorySchema.safeParse({
+          bids: [],
+          auction: {
+            endsAt: '2026-08-21T09:00:00.000Z',
+            status: 'active',
+            bidCount: 0,
+            extension: [{ [key]: null }],
+          },
+          serverTime: '2026-08-20T09:00:00.000Z',
+        }).success,
+      ).toBe(false);
+    },
+  );
 });

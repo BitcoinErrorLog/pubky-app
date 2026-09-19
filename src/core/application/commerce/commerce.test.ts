@@ -378,7 +378,14 @@ describe('CommerceApplication', () => {
     };
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
-    vi.spyOn(MarketplaceGatewayService, 'getSellerListing').mockResolvedValue(null);
+    const reserve = { amountMinor: 8_000, currency: 'USD', exponent: 2 };
+    vi.spyOn(MarketplaceGatewayService, 'getSellerListing')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        serverRevision: 7,
+        reserveRecordRevision: 0,
+        reservePrice: reserve,
+      } as never);
     const publicProjection = vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
     const execute = vi
       .spyOn(MarketplaceGatewayService, 'execute')
@@ -401,15 +408,17 @@ describe('CommerceApplication', () => {
         futureField: { keep: true, nested: [{ reserve_price: null, keepToo: 'yes' }] },
       };
     });
-
-    const reserve = { amountMinor: 8_000, currency: 'USD', exponent: 2 };
     await expect(CommerceApplication.commitUpsertListing(listing, reserve)).resolves.toEqual({ registered: true });
     await expect(CommerceApplication.commitUpsertListing(listing)).resolves.toEqual({ registered: true });
 
     const privateWrites = writes.filter(([url]) => url.includes('/priv/'));
     const publicWrites = writes.filter(([url]) => url.includes('/pub/'));
     expect(privateWrites).toHaveLength(1);
-    expect(privateWrites[0][1]).toMatchObject({ reservePrice: reserve, recordRevision: 1 });
+    expect(privateWrites[0][1]).toMatchObject({
+      reservePrice: reserve,
+      recordRevision: 1,
+      ext: { expectedServiceRevision: 0 },
+    });
     expect(publicWrites).toHaveLength(2);
     expect(publicWrites[0][1]).toMatchObject({ futureField: { keep: true, nested: [{ keepToo: 'yes' }] } });
     expect(JSON.stringify(publicWrites)).not.toMatch(/reserve(?:Price|_price|Met|_met)/);
@@ -422,6 +431,7 @@ describe('CommerceApplication', () => {
     });
     expect(execute.mock.calls[1][1].commandId).toBe(execute.mock.calls[0][1].commandId);
     expect(execute.mock.calls[1][1].issuedAt).toBe(execute.mock.calls[0][1].issuedAt);
+    expect(execute.mock.calls[1][1].expectedRevision).toBe(execute.mock.calls[0][1].expectedRevision);
     expect(publicProjection).not.toHaveBeenCalled();
   });
 

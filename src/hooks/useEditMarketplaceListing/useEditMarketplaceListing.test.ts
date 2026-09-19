@@ -332,7 +332,7 @@ describe('useEditMarketplaceListing', () => {
       reservePrice: { amountMinor: 200_000, currency: 'USD', exponent: 2 },
     } as never);
 
-    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    const { result, unmount } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.saleTermsLocked).toBe(true);
     expect(result.current.form.getValues('reservePrice')).toBe('2000.00');
@@ -354,6 +354,16 @@ describe('useEditMarketplaceListing', () => {
       currency: 'USD',
       exponent: 2,
     });
+
+    unmount();
+    vi.mocked(CommerceController.commitUpsertListing).mockClear();
+    vi.mocked(CommerceController.getMarketplaceSellerListingProjection).mockResolvedValue(null);
+    const withoutProjection = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(withoutProjection.result.current.status).toBe('ready'));
+    await act(async () => {
+      await withoutProjection.result.current.submit();
+    });
+    expect(vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][1]).toBeUndefined();
   });
 
   it('refuses to edit another seller’s listing', async () => {

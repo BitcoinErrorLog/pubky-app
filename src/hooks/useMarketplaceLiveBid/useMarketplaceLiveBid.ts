@@ -19,7 +19,7 @@ export interface UseMarketplaceLiveBidResult {
 }
 
 /**
- * Lazily fetches live auction state (current bid, bid count, reserve status)
+ * Lazily fetches public live auction state (current bid and bid count)
  * for ONE catalog card from the durable transaction service's public listing
  * projection — the only authoritative source for bids, which the Nexus index
  * deliberately never carries.

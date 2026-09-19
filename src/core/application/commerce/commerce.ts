@@ -159,6 +159,8 @@ export interface CommerceCatalogStreamFilters {
   country?: string;
 }
 
+const AUCTION_RESERVE_EXPECTED_SERVICE_REVISION_EXT_KEY = 'expectedServiceRevision';
+
 /**
  * The three honest states a rating header can be in: `rated` (the index
  * holds reviews), `new_seller` (a reputation-aware index confirmed zero
@@ -2912,6 +2914,19 @@ export class CommerceApplication {
     const reusingPending =
       parsedCurrent?.listingRevision === listing.revision &&
       parsedCurrent.recordRevision === expectedRecordRevision + 1;
+    const pendingExpectedRevision = parsedCurrent?.ext?.[AUCTION_RESERVE_EXPECTED_SERVICE_REVISION_EXT_KEY];
+    if (
+      reusingPending &&
+      (typeof pendingExpectedRevision !== 'number' ||
+        !Number.isSafeInteger(pendingExpectedRevision) ||
+        pendingExpectedRevision < 0)
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The pending reserve command revision is invalid.', {
+        service: ErrorService.Homeserver,
+        operation: 'prepareAuctionRegistration',
+      });
+    }
+    const expectedServiceRevision = reusingPending ? pendingExpectedRevision : (projection?.serverRevision ?? 0);
     const now = new Date().toISOString();
     const writeId = reusingPending ? parsedCurrent!.writeId : crypto.randomUUID();
     const issuedAt = reusingPending ? parsedCurrent!.updatedAt : now;
@@ -2931,6 +2946,10 @@ export class CommerceApplication {
             : reservePrice,
         createdAt: parsedCurrent?.createdAt ?? now,
         updatedAt: now,
+        ext: {
+          ...(parsedCurrent?.ext ?? {}),
+          [AUCTION_RESERVE_EXPECTED_SERVICE_REVISION_EXT_KEY]: expectedServiceRevision,
+        },
       }),
     );
     if (new TextEncoder().encode(JSON.stringify(candidate)).byteLength > 65_536) {
@@ -2955,7 +2974,7 @@ export class CommerceApplication {
       version: 1,
       commandId: writeId,
       aggregateId,
-      expectedRevision: projection?.serverRevision ?? 0,
+      expectedRevision: expectedServiceRevision,
       issuedAt,
       kind: 'listing.register',
       payload: {
@@ -3055,6 +3074,14 @@ export class CommerceApplication {
                 minimumIncrement: listing.sale.minimumIncrement,
                 antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
                 antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
+              }
+            : undefined,
+        auctionReserve:
+          listing.sale.format === 'auction'
+            ? {
+                expectedRecordRevision: 0,
+                recordRevision: 1,
+                reservePrice: null,
               }
             : undefined,
       },

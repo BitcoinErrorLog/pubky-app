@@ -282,6 +282,17 @@ export class MarketplaceTransactionService {
       },
     );
     if (raw === null) return null;
+    if (
+      !raw ||
+      typeof raw !== 'object' ||
+      Array.isArray(raw) ||
+      (raw as Record<string, unknown>).sellerPubky !== actor
+    ) {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'Only the listing seller may read the private reserve projection.', {
+        service: ErrorService.Marketplace,
+        operation: 'getSellerListing',
+      });
+    }
     return this.parseProjection(
       'getSellerListing',
       marketplaceSellerListingProjectionSchema,

@@ -113,20 +113,19 @@ const normalizeViewerBid = (input: unknown): unknown => {
   return withoutViewerBid;
 };
 
+const reserveFreeProjectionInputSchema = z.unknown().superRefine((input, context) => {
+  const forbiddenKey = findForbiddenPublicReserveKey(input);
+  if (forbiddenKey) {
+    context.addIssue({
+      code: 'custom',
+      message: `Non-seller listing projection cannot contain ${forbiddenKey}`,
+    });
+  }
+});
+
 export const marketplaceListingProjectionSchema = z.preprocess(
   normalizeViewerBid,
-  z
-    .unknown()
-    .superRefine((input, context) => {
-      const forbiddenKey = findForbiddenPublicReserveKey(input);
-      if (forbiddenKey) {
-        context.addIssue({
-          code: 'custom',
-          message: `Non-seller listing projection cannot contain ${forbiddenKey}`,
-        });
-      }
-    })
-    .pipe(marketplaceListingProjectionBaseSchema),
+  reserveFreeProjectionInputSchema.pipe(marketplaceListingProjectionBaseSchema),
 );
 
 export const marketplaceSellerListingProjectionSchema = z.preprocess(
@@ -157,13 +156,16 @@ export const marketplaceBidHistorySchema = z.object({
       createdAt: z.string(),
     }),
   ),
-  auction: z
-    .object({
-      endsAt: z.string(),
-      status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']),
-      bidCount: z.number().int().nonnegative(),
-    })
-    .passthrough()
+  auction: reserveFreeProjectionInputSchema
+    .pipe(
+      z
+        .object({
+          endsAt: z.string(),
+          status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']),
+          bidCount: z.number().int().nonnegative(),
+        })
+        .passthrough(),
+    )
     .nullable(),
   serverTime: z.string(),
 });

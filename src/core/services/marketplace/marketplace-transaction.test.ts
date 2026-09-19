@@ -409,6 +409,20 @@ describe('MarketplaceTransactionService read projections', () => {
     await expect(MarketplaceTransactionService.getListing(ACTOR, AGGREGATE_ID)).resolves.toBeNull();
   });
 
+  it('rejects a seller projection whose seller does not match the bearer actor', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        seller_pubky: OTHER_ACTOR,
+        reserve_price: { amount_minor: 20_000, currency: 'USD', exponent: 2 },
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getSellerListing(ACTOR, AGGREGATE_ID)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+
   it('reads participant offers and maps the negotiation view', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(
