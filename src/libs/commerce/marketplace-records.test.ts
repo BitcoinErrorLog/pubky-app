@@ -3,6 +3,7 @@ import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/c
 import receiptAttestationV1 from '@/test/fixtures/commerce/receipt-attestation-v1.json';
 import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
 import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
+import { asInvalid } from '@/test-utils/type-assertions';
 import { verifyOrderReceiptClaims, verifyOwnOrderReceipt } from './attestation';
 import {
   commerceAuctionReserveRecordSchema,
@@ -453,7 +454,7 @@ describe('auction listing rules', () => {
   it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])(
     'rejects %s recursively, including a nested array smuggle',
     (key) => {
-      const listing = makeAuctionListing() as unknown as Record<string, unknown>;
+      const listing = asInvalid<Record<string, unknown>>(makeAuctionListing());
       listing.futureExtension = { nested: [{ [key]: null }] };
       expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
     },

@@ -31,7 +31,6 @@ import {
   type MarketplaceBidHistory,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
-  type MarketplaceSellerListingProjection,
   type MarketplaceNotificationEntry,
   type MarketplaceOffer,
   marketplaceOfferSchema,
@@ -42,6 +41,7 @@ import {
   marketplacePaymentSchema,
   type MarketplaceReceipt,
   marketplaceReceiptSchema,
+  type MarketplaceSellerListingProjection,
   parseMarketplaceNotificationEntries,
 } from './marketplace-projections';
 import { MarketplaceTransactionService } from './marketplace-transaction';

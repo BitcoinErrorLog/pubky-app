@@ -15,11 +15,11 @@ import {
   marketplaceBitcoinQuoteSchema,
   marketplaceDeliveryAddressSchema,
   marketplaceListingProjectionSchema,
-  marketplaceSellerListingProjectionSchema,
   marketplaceOfferSchema,
   marketplaceOrderProjectionSchema,
   marketplaceOrderSchema,
   marketplaceParticipantOrderSchema,
+  marketplaceSellerListingProjectionSchema,
 } from './marketplace-projections';
 
 /**

@@ -61,8 +61,6 @@ import {
   marketplaceDropReadyCheckSchema,
   type MarketplaceListingProjection,
   marketplaceListingProjectionSchema,
-  type MarketplaceSellerListingProjection,
-  marketplaceSellerListingProjectionSchema,
   type MarketplaceNotificationEntry,
   type MarketplaceOffer,
   marketplaceOfferSchema,
@@ -78,6 +76,8 @@ import {
   marketplaceReceiptSchema,
   type MarketplaceSellerDrop,
   marketplaceSellerDropSchema,
+  type MarketplaceSellerListingProjection,
+  marketplaceSellerListingProjectionSchema,
   parseMarketplaceNotificationEntries,
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
