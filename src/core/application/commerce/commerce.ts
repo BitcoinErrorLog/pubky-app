@@ -2989,7 +2989,6 @@ export class CommerceApplication {
     preparedAuctionCommand: MarketplaceCommand | null = null,
   ): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
-    const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
     if (listing.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())) {
       const command =
         preparedAuctionCommand ??
@@ -3006,6 +3005,7 @@ export class CommerceApplication {
       }
       return;
     }
+    const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
     if (existing?.serverRevision) {
       // Already registered: EDITS must still reach the authority. `listing.sync`
       // is convergent — the service re-reads the seller-signed record and

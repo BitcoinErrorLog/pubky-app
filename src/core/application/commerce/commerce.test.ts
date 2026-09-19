@@ -379,7 +379,7 @@ describe('CommerceApplication', () => {
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
     vi.spyOn(MarketplaceGatewayService, 'getSellerListing').mockResolvedValue(null);
-    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    const publicProjection = vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
     const execute = vi
       .spyOn(MarketplaceGatewayService, 'execute')
       .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
@@ -422,6 +422,7 @@ describe('CommerceApplication', () => {
     });
     expect(execute.mock.calls[1][1].commandId).toBe(execute.mock.calls[0][1].commandId);
     expect(execute.mock.calls[1][1].issuedAt).toBe(execute.mock.calls[0][1].issuedAt);
+    expect(publicProjection).not.toHaveBeenCalled();
   });
 
   it('persists unregistered after registration rejects and stamps registered on a successful retry', async () => {
