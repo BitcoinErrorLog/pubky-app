@@ -5,6 +5,7 @@ import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attest
 import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
 import { verifyOrderReceiptClaims, verifyOwnOrderReceipt } from './attestation';
 import {
+  commerceAuctionReserveRecordSchema,
   commerceCollectionRecordSchema,
   commerceDropRecordSchema,
   commerceListingFulfillmentMethods,
@@ -128,7 +129,6 @@ function makeAuctionListing(): CommerceListingRecord {
   listing.sale = {
     format: 'auction',
     startingPrice: usd(5_000),
-    reservePrice: usd(8_000),
     buyNowPrice: usd(20_000),
     minimumIncrement: usd(500),
     startsAt: '2026-08-20T20:00:00.000Z',
@@ -429,11 +429,10 @@ describe('auction listing rules', () => {
     expect(commerceListingRecordSchema.safeParse(makeAuctionListing()).success).toBe(true);
   });
 
-  it('rejects reversed dates, low reserve, low buy-now, and mixed assets', () => {
+  it('rejects reversed dates, low buy-now, and mixed assets', () => {
     const listing = makeAuctionListing();
     if (listing.sale.format !== 'auction') throw new TypeError('Expected auction fixture');
     listing.sale.endsAt = listing.sale.startsAt;
-    listing.sale.reservePrice = usd(4_999);
     listing.sale.buyNowPrice = usd(5_000);
     listing.sale.minimumIncrement = { amountMinor: 1, currency: 'BTC', exponent: 8 };
 
@@ -449,6 +448,32 @@ describe('auction listing rules', () => {
     });
 
     expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
+  });
+
+  it.each(['reservePrice', 'reserve_price', 'reserveMet', 'reserve_met'])(
+    'rejects %s recursively, including a nested array smuggle',
+    (key) => {
+      const listing = makeAuctionListing() as unknown as Record<string, unknown>;
+      listing.futureExtension = { nested: [{ [key]: null }] };
+      expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
+    },
+  );
+
+  it('accepts the seller-private reserve record while preserving unknown fields and null reserve', () => {
+    const record = {
+      schemaVersion: COMMERCE_CONTRACT_VERSION,
+      recordType: 'auction_reserve',
+      ownerPubky: SELLER_PUBKY,
+      listingId: 'boots_01',
+      listingRevision: 1,
+      recordRevision: 1,
+      writeId: '00000000-0000-4000-8000-000000000001',
+      reservePrice: null,
+      createdAt: CREATED_AT,
+      updatedAt: UPDATED_AT,
+      futureField: { value: null },
+    };
+    expect(commerceAuctionReserveRecordSchema.parse(record)).toEqual(record);
   });
 });
 
