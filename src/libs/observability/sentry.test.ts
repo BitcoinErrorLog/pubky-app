@@ -10,13 +10,13 @@ import { HttpStatusCode } from '@/libs/http/http.types';
 import { RUNTIME_CONFIG_WINDOW_KEY } from '@/libs/runtime-config/runtime-config';
 import { NETWORK_RUNTIME_DEFAULTS } from '@/libs/runtime-config/runtime-config.schema';
 import { asOpaque } from '@/test-utils/type-assertions';
+import { getSentryInitBase } from './sentry';
 import {
   SENTRY_LIMIT_REDACTED,
   SENTRY_REDACTION_MAX_DEPTH,
   SENTRY_REDACTION_MAX_NODES,
   SENTRY_REDACTION_MAX_STRING_LENGTH,
 } from './sentry.constants';
-import { getSentryInitBase } from './sentry';
 import { shouldDropAppErrorFromSentry } from './sentry.utils';
 
 const TEST_PUBKY = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
