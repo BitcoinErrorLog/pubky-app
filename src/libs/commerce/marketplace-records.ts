@@ -697,17 +697,16 @@ const commerceCollectionRecordSchemaInner = commercePublicRecordBaseSchema
 // public tombstones would leak deletion metadata forever, and receipt JWSes
 // keep a buyer's history verifiable after a listing disappears.
 
-export const commercePublicRecordSchema = z.preprocess(
-  stripSerializedNulls,
-  reserveFreePublicRecordInputSchema.pipe(
+export const commercePublicRecordSchema = reserveFreePublicRecordInputSchema
+  .transform(stripSerializedNulls)
+  .pipe(
     z.union([
       commerceShopRecordSchemaInner,
       commerceListingRecordSchemaInner,
       commerceReviewRecordSchemaInner,
       commerceCollectionRecordSchemaInner,
     ]),
-  ),
-);
+  );
 
 function validateRecordDates(record: { createdAt: string; updatedAt: string }, context: z.RefinementCtx): void {
   if (Date.parse(record.updatedAt) < Date.parse(record.createdAt)) {

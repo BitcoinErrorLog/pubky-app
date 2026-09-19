@@ -14,6 +14,7 @@ import {
   commerceListingRecordSchema,
   commerceListingShippingMinor,
   commerceOrderReceiptRecordSchema,
+  commercePublicRecordSchema,
   commerceReviewRecordSchema,
   commerceShopRecordSchema,
   locksPublicUriSchema,
@@ -457,6 +458,7 @@ describe('auction listing rules', () => {
       const listing = asInvalid<Record<string, unknown>>(makeAuctionListing());
       listing.futureExtension = { nested: [{ [key]: null }] };
       expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
+      expect(commercePublicRecordSchema.safeParse(listing).success).toBe(false);
     },
   );
 
