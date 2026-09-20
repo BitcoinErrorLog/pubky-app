@@ -168,6 +168,7 @@ describe('Header Components', () => {
   const mockPush = vi.fn();
   const mockSetShowSignInDialog = vi.fn();
   const mockRouter = {
+    bfcacheId: 'test',
     push: mockPush,
     back: vi.fn(),
     forward: vi.fn(),
@@ -702,6 +703,7 @@ describe('Header Components', () => {
 describe('Header Components - Snapshots', () => {
   const mockPush = vi.fn();
   const mockRouter = {
+    bfcacheId: 'test',
     push: mockPush,
     back: vi.fn(),
     forward: vi.fn(),

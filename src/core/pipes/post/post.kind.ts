@@ -1,4 +1,4 @@
-import LinkifyIt from 'linkify-it';
+import { LinkifyIt } from 'linkify-it';
 import { PubkyAppPostKind } from 'pubky-app-specs';
 
 type TInferPostKindParams = {
@@ -23,7 +23,8 @@ const stripMarkdownLinks = (content: string): string => {
 };
 
 const hasSupportedUrl = (content: string): boolean => {
-  const linkify = new LinkifyIt();
+  // linkify-it v6 disables fuzzy links by default; preserve protocol-less URL detection.
+  const linkify = new LinkifyIt({ fuzzyLink: true });
   IGNORED_PROTOCOLS.forEach((protocol) => linkify.add(protocol, null));
 
   const strippedContent = stripMarkdownLinks(content);

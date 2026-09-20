@@ -28,6 +28,7 @@ describe('DialogReportPostIssueStep', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useRouter).mockReturnValue({
+      bfcacheId: 'test',
       push: mockPush,
       replace: vi.fn(),
       prefetch: vi.fn(),
