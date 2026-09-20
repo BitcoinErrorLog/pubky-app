@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({ activityCount: 2 }));
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/offers',
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
@@ -15,6 +16,10 @@ vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
 
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
   useMarketplaceActivityUnread: () => state.activityCount,
+}));
+
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ isAuthenticated: true, requireAuth: vi.fn() }),
 }));
 
 describe('Marketplace section navigation — visual regression', () => {

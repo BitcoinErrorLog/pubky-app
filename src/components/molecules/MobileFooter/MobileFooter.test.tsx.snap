@@ -1,5 +1,38 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`MobileFooter - Snapshots > matches snapshot for account menu trigger 1`] = `
+<button
+  aria-expanded="false"
+  aria-haspopup="menu"
+  aria-label="Account menu"
+  class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none relative size-12 shrink-0 rounded-full"
+  data-cy="footer-nav-profile-btn"
+  data-size="icon"
+  data-slot="button"
+  data-state="closed"
+  data-variant="ghost"
+  id="radix-normalized"
+  type="button"
+>
+  <div
+    class="cursor-pointer"
+    data-size="lg"
+    data-testid="avatar-with-fallback"
+  >
+    <span
+      data-testid="avatar-fallback"
+    >
+      TU
+    </span>
+    <span
+      data-testid="avatar-name"
+    >
+      Test User
+    </span>
+  </div>
+</button>
+`;
+
 exports[`MobileFooter - Snapshots > matches snapshot for navigation links 1`] = `
 <a
   aria-label="Home"
@@ -26,32 +59,6 @@ exports[`MobileFooter - Snapshots > matches snapshot for navigation links 1`] = 
       d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
     />
   </svg>
-</a>
-`;
-
-exports[`MobileFooter - Snapshots > matches snapshot for profile link 1`] = `
-<a
-  aria-label="Profile"
-  class="relative shrink-0 rounded-full"
-  data-cy="footer-nav-profile-btn"
-  href="/profile"
->
-  <div
-    class="cursor-pointer"
-    data-size="lg"
-    data-testid="avatar-with-fallback"
-  >
-    <span
-      data-testid="avatar-fallback"
-    >
-      TU
-    </span>
-    <span
-      data-testid="avatar-name"
-    >
-      Test User
-    </span>
-  </div>
 </a>
 `;
 
@@ -142,29 +149,6 @@ exports[`MobileFooter - Snapshots > matches snapshot with custom className 1`] =
       </svg>
     </a>
     <a
-      aria-label="Messages"
-      class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
-      href="/messages"
-    >
-      <svg
-        aria-hidden="true"
-        class="lucide lucide-message-circle h-6 w-6"
-        fill="none"
-        height="24"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-        width="24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"
-        />
-      </svg>
-    </a>
-    <a
       aria-label="Collections"
       class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
       href="/collections"
@@ -196,39 +180,18 @@ exports[`MobileFooter - Snapshots > matches snapshot with custom className 1`] =
         />
       </svg>
     </a>
-    <a
-      aria-label="Settings"
-      class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
-      href="/settings/account"
-    >
-      <svg
-        aria-hidden="true"
-        class="lucide lucide-settings h-6 w-6"
-        fill="none"
-        height="24"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-        width="24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"
-        />
-        <circle
-          cx="12"
-          cy="12"
-          r="3"
-        />
-      </svg>
-    </a>
-    <a
-      aria-label="Profile"
-      class="relative shrink-0 rounded-full"
+    <button
+      aria-expanded="false"
+      aria-haspopup="menu"
+      aria-label="Account menu"
+      class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none relative size-12 shrink-0 rounded-full"
       data-cy="footer-nav-profile-btn"
-      href="/profile"
+      data-size="icon"
+      data-slot="button"
+      data-state="closed"
+      data-variant="ghost"
+      id="radix-normalized"
+      type="button"
     >
       <div
         class="cursor-pointer"
@@ -246,7 +209,7 @@ exports[`MobileFooter - Snapshots > matches snapshot with custom className 1`] =
           Test User
         </span>
       </div>
-    </a>
+    </button>
   </div>
 </div>
 `;
@@ -338,29 +301,6 @@ exports[`MobileFooter - Snapshots > matches snapshot with default props 1`] = `
       </svg>
     </a>
     <a
-      aria-label="Messages"
-      class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
-      href="/messages"
-    >
-      <svg
-        aria-hidden="true"
-        class="lucide lucide-message-circle h-6 w-6"
-        fill="none"
-        height="24"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-        width="24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"
-        />
-      </svg>
-    </a>
-    <a
       aria-label="Collections"
       class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
       href="/collections"
@@ -392,39 +332,18 @@ exports[`MobileFooter - Snapshots > matches snapshot with default props 1`] = `
         />
       </svg>
     </a>
-    <a
-      aria-label="Settings"
-      class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
-      href="/settings/account"
-    >
-      <svg
-        aria-hidden="true"
-        class="lucide lucide-settings h-6 w-6"
-        fill="none"
-        height="24"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-        width="24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"
-        />
-        <circle
-          cx="12"
-          cy="12"
-          r="3"
-        />
-      </svg>
-    </a>
-    <a
-      aria-label="Profile"
-      class="relative shrink-0 rounded-full"
+    <button
+      aria-expanded="false"
+      aria-haspopup="menu"
+      aria-label="Account menu"
+      class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none relative size-12 shrink-0 rounded-full"
       data-cy="footer-nav-profile-btn"
-      href="/profile"
+      data-size="icon"
+      data-slot="button"
+      data-state="closed"
+      data-variant="ghost"
+      id="radix-normalized"
+      type="button"
     >
       <div
         class="cursor-pointer"
@@ -442,7 +361,7 @@ exports[`MobileFooter - Snapshots > matches snapshot with default props 1`] = `
           Test User
         </span>
       </div>
-    </a>
+    </button>
   </div>
 </div>
 `;
@@ -534,29 +453,6 @@ exports[`MobileFooter - Snapshots > matches snapshot with different active path 
       </svg>
     </a>
     <a
-      aria-label="Messages"
-      class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
-      href="/messages"
-    >
-      <svg
-        aria-hidden="true"
-        class="lucide lucide-message-circle h-6 w-6"
-        fill="none"
-        height="24"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-        width="24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"
-        />
-      </svg>
-    </a>
-    <a
       aria-label="Collections"
       class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
       href="/collections"
@@ -588,39 +484,18 @@ exports[`MobileFooter - Snapshots > matches snapshot with different active path 
         />
       </svg>
     </a>
-    <a
-      aria-label="Settings"
-      class="rounded-full p-3 transition-all border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10"
-      href="/settings/account"
-    >
-      <svg
-        aria-hidden="true"
-        class="lucide lucide-settings h-6 w-6"
-        fill="none"
-        height="24"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-        width="24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"
-        />
-        <circle
-          cx="12"
-          cy="12"
-          r="3"
-        />
-      </svg>
-    </a>
-    <a
-      aria-label="Profile"
-      class="relative shrink-0 rounded-full"
+    <button
+      aria-expanded="false"
+      aria-haspopup="menu"
+      aria-label="Account menu"
+      class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none relative size-12 shrink-0 rounded-full"
       data-cy="footer-nav-profile-btn"
-      href="/profile"
+      data-size="icon"
+      data-slot="button"
+      data-state="closed"
+      data-variant="ghost"
+      id="radix-normalized"
+      type="button"
     >
       <div
         class="cursor-pointer"
@@ -638,7 +513,7 @@ exports[`MobileFooter - Snapshots > matches snapshot with different active path 
           Test User
         </span>
       </div>
-    </a>
+    </button>
   </div>
 </div>
 `;

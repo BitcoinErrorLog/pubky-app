@@ -1,8 +1,39 @@
 'use client';
 
-import { ChevronRight, Grid2X2, List, Search, SlidersHorizontal } from 'lucide-react';
-import { Button } from '@/atoms/Button/Button';
-import { Input } from '@/atoms/Input/Input';
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  Bitcoin,
+  CalendarClock,
+  Check,
+  ChevronDown,
+  Clock,
+  DollarSign,
+  Gavel,
+  Grip,
+  Layers,
+  LayoutGrid,
+  MapPin,
+  Package,
+  RotateCcw,
+  Rows4,
+  Sparkles,
+  Star,
+  Timer,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Button, buttonVariants } from '@/atoms/Button/Button';
+import { Card } from '@/atoms/Card/Card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/atoms/DropdownMenu/DropdownMenu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import {
@@ -15,17 +46,36 @@ import {
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { collectMarketplaceAttributeFacets } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { cn } from '@/libs/utils/utils';
-import { MarketplaceSavedSearches } from '@/organisms/Marketplace/MarketplaceSavedSearches';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import type { CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
+import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
+import { MARKETPLACE_CATEGORY_ICONS } from './MarketplaceCategoryIcons';
 
 /** Facetable attribute keys, shown when the current category defines them. */
 const FACET_KEYS = ['size', 'brand', 'color'] as const;
 /** Most facet value chips rendered per attribute key. */
 const MAX_FACET_VALUES = 10;
 
+// Match Arena's SidebarButton filter pills using the shared button styles.
+const FILTER_TRIGGER_CLASS = cn(
+  buttonVariants({ variant: 'dark-outline', size: 'sm' }),
+  'max-w-64 gap-1.5 border-border bg-white/5 text-xs font-bold text-foreground focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 data-[state=open]:text-white [&>svg:last-child]:size-3.5',
+);
+const CATEGORY_MENU_CLASS =
+  'w-64 max-h-[min(70vh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto border-border bg-background p-3';
+const CATEGORY_ITEM_CLASS =
+  'gap-2 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-white/8 hover:text-white focus:bg-white/8 focus:text-white data-[highlighted]:bg-white/8 data-[highlighted]:text-white data-[state=open]:bg-white/8 data-[state=open]:text-white data-[state=checked]:bg-white/8 data-[state=checked]:text-white aria-[current=true]:bg-white/8 aria-[current=true]:text-white';
+
+const FILTER_MENU_CLASS = cn(
+  CATEGORY_MENU_CLASS,
+  'max-h-[min(70vh,var(--radix-select-content-available-height))] border shadow-xl ring-0 [&_[data-state=checked]_svg]:text-white',
+);
+const FILTER_ITEM_CLASS = cn(CATEGORY_ITEM_CLASS, 'cursor-pointer rounded-sm pr-8 pl-2');
+
 export interface MarketplaceFiltersProps {
   resultCount: number;
+  searchControl?: ReactNode;
+  sellControl?: ReactNode;
   /**
    * Items matching every filter except the attribute facets — the pool the
    * facet chips are computed from (see `useMarketplaceCatalog`).
@@ -54,24 +104,39 @@ export function collectMarketplaceCountryFacets(items: MarketplaceCatalogItem[])
 
 export function MarketplaceFilters({
   resultCount,
+  searchControl,
+  sellControl,
   facetPool = [],
   countryFacetPool = facetPool,
 }: MarketplaceFiltersProps) {
-  const query = useCommerceStore((state) => state.query);
+  const hasActiveFilters = useCommerceStore((state) =>
+    Boolean(
+      state.query ||
+      state.categoryId ||
+      state.saleFormat !== 'all' ||
+      state.countryCode ||
+      state.conditions.length ||
+      state.minimumPriceMinor !== null ||
+      state.maximumPriceMinor !== null ||
+      state.sort !== 'recommended' ||
+      Object.keys(state.attributeFilters).length > 0,
+    ),
+  );
+  const resetFilters = useCommerceStore((state) => state.resetFilters);
   const categoryId = useCommerceStore((state) => state.categoryId);
   const attributeFilters = useCommerceStore((state) => state.attributeFilters);
   const saleFormat = useCommerceStore((state) => state.saleFormat);
   const countryCode = useCommerceStore((state) => state.countryCode);
   const sort = useCommerceStore((state) => state.sort);
+  const displayCurrency = useMarketplaceDisplayStore((state) => state.displayCurrency);
+  const setDisplayCurrency = useMarketplaceDisplayStore((state) => state.setDisplayCurrency);
   const layout = useCommerceStore((state) => state.layout);
-  const setQuery = useCommerceStore((state) => state.setQuery);
   const setCategoryId = useCommerceStore((state) => state.setCategoryId);
   const setAttributeFilter = useCommerceStore((state) => state.setAttributeFilter);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const setCountryCode = useCommerceStore((state) => state.setCountryCode);
   const setSort = useCommerceStore((state) => state.setSort);
   const setLayout = useCommerceStore((state) => state.setLayout);
-  const resetFilters = useCommerceStore((state) => state.resetFilters);
 
   // The seller-declared item locations actually present in the visible
   // catalog, with counts. The active selection stays listed even when it
@@ -83,50 +148,53 @@ export function MarketplaceFilters({
 
   return (
     <section aria-label="Marketplace filters" className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <label className="relative min-w-0 flex-1">
-          <span className="sr-only">Search marketplace</span>
-          <Search
-            aria-hidden="true"
-            className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search items, styles, or sellers"
-            className="h-11 rounded-full bg-card pr-4 pl-10"
-          />
-        </label>
-
-        <div className="flex flex-wrap items-center gap-2">
+      <Card className="flex-row flex-wrap items-center gap-2 p-4">
+        {searchControl ?? (
+          <Typography className="min-w-48 flex-1 text-sm text-muted-foreground">
+            {resultCount.toLocaleString('en-US')} {resultCount === 1 ? 'item' : 'items'}
+          </Typography>
+        )}
+        <div className="contents">
           <Select value={saleFormat} onValueChange={(value) => setSaleFormat(value as CommerceSaleFormatFilter)}>
-            <SelectTrigger
-              aria-label="Sale format"
-              className="h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
-            >
+            <SelectTrigger aria-label="Sale format" className={FILTER_TRIGGER_CLASS}>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All formats</SelectItem>
-              <SelectItem value="fixed_price">Buy now</SelectItem>
-              <SelectItem value="auction">Auctions</SelectItem>
+            <SelectContent position="popper" align="start" className={FILTER_MENU_CLASS}>
+              <SelectItem className={FILTER_ITEM_CLASS} value="all">
+                <LayoutGrid aria-hidden="true" className="size-4" />
+                Type
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="fixed_price">
+                <Star aria-hidden="true" className="size-4" />
+                Buy now
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="auction">
+                <Gavel aria-hidden="true" className="size-4" />
+                Auctions
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="drops">
+                <CalendarClock aria-hidden="true" className="size-4" />
+                Drops
+              </SelectItem>
             </SelectContent>
           </Select>
+          <MarketplaceCategoryNavigation categoryId={categoryId} onSelect={setCategoryId} />
 
           <Select
             value={countryCode ?? 'anywhere'}
             onValueChange={(value) => setCountryCode(value === 'anywhere' ? null : value)}
           >
-            <SelectTrigger
-              aria-label="Item location"
-              className="h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
-            >
+            <SelectTrigger aria-label="Item location" className={FILTER_TRIGGER_CLASS}>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="anywhere">Anywhere</SelectItem>
+            <SelectContent position="popper" align="start" className={FILTER_MENU_CLASS}>
+              <SelectItem className={FILTER_ITEM_CLASS} value="anywhere">
+                <MapPin aria-hidden="true" className="size-4" />
+                Anywhere
+              </SelectItem>
               {countryOptions.map(([code, count]) => (
-                <SelectItem key={code} value={code}>
+                <SelectItem className={FILTER_ITEM_CLASS} key={code} value={code}>
+                  <MapPin aria-hidden="true" className="size-4" />
                   {countryLabel(code)} · {count}
                 </SelectItem>
               ))}
@@ -134,60 +202,94 @@ export function MarketplaceFilters({
           </Select>
 
           <Select value={sort} onValueChange={(value) => setSort(value as CommerceSort)}>
-            <SelectTrigger
-              aria-label="Sort marketplace"
-              className="h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
-            >
+            <SelectTrigger aria-label="Sort marketplace" className={FILTER_TRIGGER_CLASS}>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="recommended">Recommended</SelectItem>
-              <SelectItem value="newest">Newest</SelectItem>
-              <SelectItem value="price_low">Price: low</SelectItem>
-              <SelectItem value="price_high">Price: high</SelectItem>
-              <SelectItem value="ending_soon">Ending soon</SelectItem>
+            <SelectContent position="popper" align="start" className={FILTER_MENU_CLASS}>
+              <SelectItem className={FILTER_ITEM_CLASS} value="recommended">
+                <Sparkles aria-hidden="true" className="size-4" />
+                Recommended
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="newest">
+                <Clock aria-hidden="true" className="size-4" />
+                Newest
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="price_low">
+                <ArrowUpNarrowWide aria-hidden="true" className="size-4" />
+                Price: low
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="price_high">
+                <ArrowDownWideNarrow aria-hidden="true" className="size-4" />
+                Price: high
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="ending_soon">
+                <Timer aria-hidden="true" className="size-4" />
+                Ending soon
+              </SelectItem>
             </SelectContent>
           </Select>
-
-          <MarketplaceSavedSearches />
-
-          <div
-            role="group"
-            className="hidden items-center rounded-full border bg-card p-1 sm:flex"
-            aria-label="Listing layout"
+          <Select value={layout} onValueChange={(value) => setLayout(value === 'list' ? 'list' : 'grid')}>
+            <SelectTrigger
+              aria-label={`Listing layout: ${layout === 'list' ? 'List' : 'Grid'}`}
+              className={cn(FILTER_TRIGGER_CLASS, 'hidden sm:flex')}
+            >
+              {layout === 'list' ? (
+                <Rows4 aria-hidden="true" className="size-4" />
+              ) : (
+                <Grip aria-hidden="true" className="size-4" />
+              )}
+            </SelectTrigger>
+            <SelectContent position="popper" align="start" className={FILTER_MENU_CLASS}>
+              <SelectItem className={FILTER_ITEM_CLASS} value="grid">
+                <Grip aria-hidden="true" className="size-4" />
+                Grid
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="list">
+                <Rows4 aria-hidden="true" className="size-4" />
+                List
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={displayCurrency}
+            onValueChange={(value) => setDisplayCurrency(value === 'BTC' ? 'BTC' : 'USD')}
           >
-            <Button
-              variant={layout === 'grid' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="size-8 rounded-full"
-              aria-label="Grid view"
-              aria-pressed={layout === 'grid'}
-              onClick={() => setLayout('grid')}
+            <SelectTrigger
+              aria-label={`Display currency: ${displayCurrency === 'BTC' ? 'Bitcoin' : 'US dollars'}`}
+              className={FILTER_TRIGGER_CLASS}
             >
-              <Grid2X2 className="size-4" />
-            </Button>
-            <Button
-              variant={layout === 'list' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="size-8 rounded-full"
-              aria-label="List view"
-              aria-pressed={layout === 'list'}
-              onClick={() => setLayout('list')}
-            >
-              <List className="size-4" />
-            </Button>
-          </div>
+              {displayCurrency === 'BTC' ? (
+                <Bitcoin aria-hidden="true" className="size-4" />
+              ) : (
+                <DollarSign aria-hidden="true" className="size-4" />
+              )}
+            </SelectTrigger>
+            <SelectContent position="popper" align="end" className={FILTER_MENU_CLASS}>
+              <SelectItem className={FILTER_ITEM_CLASS} value="USD">
+                <DollarSign aria-hidden="true" className="size-4" />
+                US dollars
+              </SelectItem>
+              <SelectItem className={FILTER_ITEM_CLASS} value="BTC">
+                <Bitcoin aria-hidden="true" className="size-4" />
+                Bitcoin
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-      </div>
-
-      <MarketplaceCategoryNavigation
-        categoryId={categoryId}
-        onSelect={setCategoryId}
-        showClear={
-          !!(query || categoryId || saleFormat !== 'all' || countryCode || Object.keys(attributeFilters).length > 0)
-        }
-        onClear={resetFilters}
-      />
+        {hasActiveFilters && (
+          <Button
+            variant="dark-outline"
+            size="icon"
+            className="size-8 shrink-0 rounded-full border-border bg-white/5 text-foreground"
+            aria-label="Reset search and filters"
+            title="Reset search and filters"
+            onClick={resetFilters}
+          >
+            <RotateCcw className="size-4" />
+          </Button>
+        )}
+        {sellControl}
+      </Card>
 
       <MarketplaceAttributeFacets
         categoryId={categoryId}
@@ -195,87 +297,97 @@ export function MarketplaceFilters({
         attributeFilters={attributeFilters}
         onToggle={setAttributeFilter}
       />
-
-      <div className="flex items-center justify-between gap-4">
-        <Typography as="p" className="text-sm text-muted-foreground" aria-live="polite">
-          {resultCount.toLocaleString('en-US')} {resultCount === 1 ? 'item' : 'items'}
-        </Typography>
-        <div className={cn('flex items-center gap-2 text-sm text-muted-foreground', resultCount === 0 && 'text-brand')}>
-          <SlidersHorizontal aria-hidden="true" className="size-4" />
-          Curated local marketplace
-        </div>
-      </div>
     </section>
   );
 }
 
-/**
- * Category tree navigation as drill-down chips: a breadcrumb of the current
- * path (each step clickable to jump back up) followed by the current node's
- * children. Filtering by a category includes everything beneath it — the
- * catalog filter matches by id prefix.
- */
 function MarketplaceCategoryNavigation({
   categoryId,
   onSelect,
-  showClear,
-  onClear,
 }: {
   categoryId: string | null;
   onSelect: (categoryId: string | null) => void;
-  showClear: boolean;
-  onClear: () => void;
 }) {
-  const resolved = categoryId ? resolveCommerceCategory(categoryId) : null;
-  const path = resolved?.path ?? [];
-  const children = resolved && resolved.node.legacy ? [] : commerceCategoryChildren(categoryId);
-
+  const selected = categoryId ? resolveCommerceCategory(categoryId) : null;
+  const Icon = selected ? (MARKETPLACE_CATEGORY_ICONS[selected.node.label] ?? Package) : Layers;
   return (
-    <div className="flex items-center gap-2 overflow-x-auto pb-1" data-cy="marketplace-category-navigation">
-      <Button
-        size="sm"
-        variant={categoryId === null ? 'default' : 'secondary'}
-        className="shrink-0 rounded-full"
-        aria-pressed={categoryId === null}
-        onClick={() => onSelect(null)}
-      >
-        All
-      </Button>
-      {path.map((node, index) => (
-        <span key={node.id} className="flex shrink-0 items-center gap-2">
-          {index > 0 && <ChevronRight aria-hidden="true" className="size-3.5 text-muted-foreground" />}
-          <Button
-            size="sm"
-            variant={index === path.length - 1 ? 'default' : 'secondary'}
-            className="shrink-0 rounded-full"
-            aria-pressed={index === path.length - 1}
-            onClick={() => onSelect(node.id)}
-          >
-            {node.label}
-          </Button>
-        </span>
-      ))}
-      {path.length > 0 && children.length > 0 && (
-        <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-      )}
-      {children.map((child) => (
-        <Button
-          key={child.id}
-          size="sm"
-          variant="secondary"
-          className="shrink-0 rounded-full"
-          onClick={() => onSelect(child.id)}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="dark-outline" size="sm" className={FILTER_TRIGGER_CLASS} aria-label="Category">
+          <Icon aria-hidden="true" className="size-4" />
+          <span className="max-w-40 truncate">{selected?.node.label ?? 'Category'}</span>
+          <ChevronDown aria-hidden="true" className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className={CATEGORY_MENU_CLASS}>
+        <DropdownMenuItem
+          aria-current={!categoryId ? 'true' : undefined}
+          className={CATEGORY_ITEM_CLASS}
+          onSelect={() => onSelect(null)}
         >
-          {child.label}
-        </Button>
-      ))}
-      {showClear && (
-        <Button size="sm" variant="ghost" className="shrink-0 rounded-full" onClick={onClear}>
-          Clear
-        </Button>
-      )}
-    </div>
+          <Layers className="size-4" aria-hidden="true" />
+          All Categories
+          {!categoryId && <Check className="ml-auto size-4 text-white" aria-hidden="true" />}
+        </DropdownMenuItem>
+        <CategoryMenuItems parentId={null} categoryId={categoryId} onSelect={onSelect} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
+}
+
+function CategoryMenuItems({
+  parentId,
+  categoryId,
+  onSelect,
+}: {
+  parentId: string | null;
+  categoryId: string | null;
+  onSelect: (categoryId: string | null) => void;
+}) {
+  return commerceCategoryChildren(parentId).map((node) => {
+    const Icon = MARKETPLACE_CATEGORY_ICONS[node.label] ?? Package;
+    const selected = categoryId === node.id;
+    const content = (
+      <>
+        <Icon className="size-4" aria-hidden="true" />
+        <span className="flex-1">{node.label}</span>
+        {selected && <Check className="size-4 text-white" aria-hidden="true" />}
+      </>
+    );
+    if (!commerceCategoryChildren(node.id).length) {
+      return (
+        <DropdownMenuItem
+          key={node.id}
+          aria-current={selected ? 'true' : undefined}
+          className={CATEGORY_ITEM_CLASS}
+          onSelect={() => onSelect(node.id)}
+        >
+          {content}
+        </DropdownMenuItem>
+      );
+    }
+    return (
+      <DropdownMenuSub key={node.id}>
+        <DropdownMenuSubTrigger aria-current={selected ? 'true' : undefined} className={CATEGORY_ITEM_CLASS}>
+          {content}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuPortal>
+          <DropdownMenuSubContent className={CATEGORY_MENU_CLASS} sideOffset={6} collisionPadding={8}>
+            <DropdownMenuItem
+              aria-current={selected ? 'true' : undefined}
+              className={CATEGORY_ITEM_CLASS}
+              onSelect={() => onSelect(node.id)}
+            >
+              <Icon className="size-4" aria-hidden="true" />
+              All {node.label}
+              {selected && <Check className="ml-auto size-4 text-white" aria-hidden="true" />}
+            </DropdownMenuItem>
+            <CategoryMenuItems parentId={node.id} categoryId={categoryId} onSelect={onSelect} />
+          </DropdownMenuSubContent>
+        </DropdownMenuPortal>
+      </DropdownMenuSub>
+    );
+  });
 }
 
 /**

@@ -2,58 +2,56 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import { collectMarketplaceCountryFacets, MarketplaceFilters } from './MarketplaceFilters';
 
 describe('MarketplaceFilters', () => {
   beforeEach(() => {
     useCommerceStore.getState().reset();
+    useMarketplaceDisplayStore.setState({ displayCurrency: 'USD' });
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  it('updates search, category, and layout UI state accessibly', async () => {
-    const user = userEvent.setup();
-    render(<MarketplaceFilters resultCount={8} />);
+  it('renders the designer filter controls around supplied search and sell controls', () => {
+    render(
+      <MarketplaceFilters
+        resultCount={8}
+        searchControl={<input aria-label="Filter marketplace" />}
+        sellControl={<button type="button">Sell an item</button>}
+      />,
+    );
 
-    await user.type(screen.getByRole('textbox', { name: 'Search marketplace' }), 'boots');
-    await user.click(screen.getByRole('button', { name: 'Fashion' }));
-    await user.click(screen.getByRole('button', { name: 'List view' }));
-
-    expect(useCommerceStore.getState()).toMatchObject({
-      query: 'boots',
-      categoryId: 'fashion',
-      layout: 'list',
-    });
-    expect(screen.getByText('8 items')).toHaveAttribute('aria-live', 'polite');
-  });
-
-  it('keeps filter labels readable with a wrapping content-width trigger row', () => {
-    render(<MarketplaceFilters resultCount={8} />);
-
-    expect(screen.getByText('All formats')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Filter marketplace' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sell an item' })).toBeInTheDocument();
+    expect(screen.getByText('Type')).toBeInTheDocument();
     expect(screen.getByText('Anywhere')).toBeInTheDocument();
     expect(screen.getByText('Recommended')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Category' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Listing layout: Grid' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Display currency: US dollars' })).toBeInTheDocument();
 
     const triggers = screen.getAllByRole('combobox');
-    expect(triggers).toHaveLength(3);
+    expect(triggers).toHaveLength(5);
     for (const trigger of triggers) {
-      expect(trigger).toHaveClass('min-w-32', 'shrink-0', 'whitespace-nowrap');
-      expect(trigger).not.toHaveClass('truncate');
+      expect(trigger).toHaveClass('font-bold');
     }
-    expect(triggers[0].parentElement).toHaveClass('flex-wrap');
+    expect(screen.getByTestId('card')).toHaveClass('flex-wrap');
   });
 
-  it('exposes the active category and layout as pressed toggles', async () => {
+  it('updates layout and display currency through compact selectors', async () => {
     const user = userEvent.setup();
     render(<MarketplaceFilters resultCount={8} />);
 
-    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
-    await user.click(screen.getByRole('button', { name: 'Fashion' }));
-    expect(screen.getByRole('button', { name: 'Fashion' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+    await user.click(screen.getByRole('combobox', { name: 'Listing layout: Grid' }));
+    await user.click(screen.getByRole('option', { name: 'List' }));
+    expect(useCommerceStore.getState().layout).toBe('list');
 
-    expect(screen.getByRole('group', { name: 'Listing layout' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Grid view' })).toHaveAttribute('aria-pressed', 'true');
-    await user.click(screen.getByRole('button', { name: 'List view' }));
-    expect(screen.getByRole('button', { name: 'List view' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('combobox', { name: 'Display currency: US dollars' }));
+    await user.click(screen.getByRole('option', { name: 'Bitcoin' }));
+    expect(useMarketplaceDisplayStore.getState().displayCurrency).toBe('BTC');
   });
 
   it('clears active discovery filters without changing layout', async () => {
@@ -64,7 +62,7 @@ describe('MarketplaceFilters', () => {
     useCommerceStore.getState().setAttributeFilter('size', 'L');
     render(<MarketplaceFilters resultCount={1} />);
 
-    await user.click(screen.getByRole('button', { name: 'Clear' }));
+    await user.click(screen.getByRole('button', { name: 'Reset search and filters' }));
 
     expect(useCommerceStore.getState()).toMatchObject({
       query: '',
@@ -75,19 +73,13 @@ describe('MarketplaceFilters', () => {
     });
   });
 
-  it('drills into the category tree via breadcrumb and child chips', async () => {
+  it('selects a top-level category from the nested designer menu', async () => {
     const user = userEvent.setup();
     render(<MarketplaceFilters resultCount={8} />);
 
-    await user.click(screen.getByRole('button', { name: 'Fashion' }));
-    expect(useCommerceStore.getState().categoryId).toBe('fashion');
-    // Children of the selected node appear as chips.
-    await user.click(screen.getByRole('button', { name: 'Men' }));
-    expect(useCommerceStore.getState().categoryId).toBe('fashion-men');
-    await user.click(screen.getByRole('button', { name: 'Footwear' }));
-    expect(useCommerceStore.getState().categoryId).toBe('fashion-men-footwear');
-    // The breadcrumb jumps back up the path.
-    await user.click(screen.getByRole('button', { name: 'Fashion' }));
+    await user.click(screen.getByRole('button', { name: 'Category' }));
+    await user.hover(screen.getByRole('menuitem', { name: /Fashion/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'All Fashion' }));
     expect(useCommerceStore.getState().categoryId).toBe('fashion');
   });
 

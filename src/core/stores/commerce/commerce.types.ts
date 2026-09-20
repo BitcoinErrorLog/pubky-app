@@ -1,4 +1,4 @@
-export type CommerceSaleFormatFilter = 'all' | 'fixed_price' | 'auction';
+export type CommerceSaleFormatFilter = 'all' | 'fixed_price' | 'auction' | 'drops';
 
 /**
  * Public facts about the marketplace transaction-service session, set by the

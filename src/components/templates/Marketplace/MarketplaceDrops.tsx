@@ -39,7 +39,7 @@ export function MarketplaceDrops() {
       showLeftMobileButton={false}
       showRightMobileButton={false}
       className="pb-28 lg:pb-16"
-      classNameWrapperContent="max-w-6xl"
+      classNameWrapperContent="max-w-7xl"
     >
       <Container
         overrideDefaults

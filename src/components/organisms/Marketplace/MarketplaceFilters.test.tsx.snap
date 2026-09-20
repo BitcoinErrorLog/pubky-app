@@ -6,54 +6,27 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
   class="flex flex-col gap-4"
 >
   <div
-    class="flex flex-col gap-3 lg:flex-row lg:items-center"
+    class="flex rounded-xl bg-card text-card-foreground shadow-sm flex-row flex-wrap items-center gap-2 p-4"
+    data-slot="card"
+    data-testid="card"
   >
-    <label
-      class="relative min-w-0 flex-1"
+    <p
+      class="font-medium min-w-48 flex-1 text-sm text-muted-foreground"
+      data-testid="typography"
     >
-      <span
-        class="sr-only"
-      >
-        Search marketplace
-      </span>
-      <svg
-        aria-hidden="true"
-        class="lucide lucide-search absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-        fill="none"
-        height="24"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-        width="24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="m21 21-4.34-4.34"
-        />
-        <circle
-          cx="11"
-          cy="11"
-          r="8"
-        />
-      </svg>
-      <input
-        class="flex w-full min-w-0 border border-input px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-input disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 hover:ring-0 hover:outline-none focus:ring-0 focus:ring-offset-0 focus:outline-none aria-invalid:border-destructive aria-invalid:ring-destructive/40 h-11 rounded-full bg-card pr-4 pl-10"
-        data-testid="input"
-        placeholder="Search items, styles, or sellers"
-        value=""
-      />
-    </label>
+      8
+       
+      items
+    </p>
     <div
-      class="flex flex-wrap items-center gap-2"
+      class="contents"
     >
       <button
         aria-autocomplete="none"
         aria-controls="radix-normalized"
         aria-expanded="false"
         aria-label="Sale format"
-        class="flex w-fit cursor-pointer items-center justify-between gap-2.5 bg-transparent py-2 text-base font-bold text-foreground transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
+        class="w-fit py-2 select-none disabled:cursor-not-allowed aria-invalid:ring-1 data-placeholder:text-muted-foreground data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer rounded-full border shadow-xs hover:text-white hover:bg-neutral-800 h-8 px-3 has-[>svg]:px-3.5 max-w-64 gap-1.5 border-border bg-white/5 text-xs font-bold text-foreground focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 data-[state=open]:text-white [&>svg:last-child]:size-3.5"
         data-size="default"
         data-slot="select-trigger"
         data-state="closed"
@@ -65,7 +38,49 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
           data-slot="select-value"
           style="pointer-events: none;"
         >
-          All formats
+          <svg
+            aria-hidden="true"
+            class="lucide lucide-layout-grid size-4"
+            fill="none"
+            height="24"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect
+              height="7"
+              rx="1"
+              width="7"
+              x="3"
+              y="3"
+            />
+            <rect
+              height="7"
+              rx="1"
+              width="7"
+              x="14"
+              y="3"
+            />
+            <rect
+              height="7"
+              rx="1"
+              width="7"
+              x="14"
+              y="14"
+            />
+            <rect
+              height="7"
+              rx="1"
+              width="7"
+              x="3"
+              y="14"
+            />
+          </svg>
+          Type
         </span>
         <svg
           aria-hidden="true"
@@ -86,11 +101,63 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
         </svg>
       </button>
       <button
+        aria-expanded="false"
+        aria-haspopup="menu"
+        aria-label="Category"
+        class="inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer rounded-full border shadow-xs hover:text-white hover:bg-neutral-800 h-8 px-3 has-[>svg]:px-3.5 max-w-64 gap-1.5 border-border bg-white/5 text-xs font-bold text-foreground focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 data-[state=open]:text-white [&>svg:last-child]:size-3.5"
+        data-size="sm"
+        data-slot="button"
+        data-state="closed"
+        data-variant="dark-outline"
+        id="radix-normalized"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-shirt size-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"
+          />
+        </svg>
+        <span
+          class="max-w-40 truncate"
+        >
+          Fashion
+        </span>
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-chevron-down size-3.5"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="m6 9 6 6 6-6"
+          />
+        </svg>
+      </button>
+      <button
         aria-autocomplete="none"
         aria-controls="radix-normalized"
         aria-expanded="false"
         aria-label="Item location"
-        class="flex w-fit cursor-pointer items-center justify-between gap-2.5 bg-transparent py-2 text-base font-bold text-foreground transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
+        class="w-fit py-2 select-none disabled:cursor-not-allowed aria-invalid:ring-1 data-placeholder:text-muted-foreground data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer rounded-full border shadow-xs hover:text-white hover:bg-neutral-800 h-8 px-3 has-[>svg]:px-3.5 max-w-64 gap-1.5 border-border bg-white/5 text-xs font-bold text-foreground focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 data-[state=open]:text-white [&>svg:last-child]:size-3.5"
         data-size="default"
         data-slot="select-trigger"
         data-state="closed"
@@ -102,6 +169,28 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
           data-slot="select-value"
           style="pointer-events: none;"
         >
+          <svg
+            aria-hidden="true"
+            class="lucide lucide-map-pin size-4"
+            fill="none"
+            height="24"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"
+            />
+            <circle
+              cx="12"
+              cy="10"
+              r="3"
+            />
+          </svg>
           Anywhere
         </span>
         <svg
@@ -127,7 +216,7 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
         aria-controls="radix-normalized"
         aria-expanded="false"
         aria-label="Sort marketplace"
-        class="flex w-fit cursor-pointer items-center justify-between gap-2.5 bg-transparent py-2 text-base font-bold text-foreground transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
+        class="w-fit py-2 select-none disabled:cursor-not-allowed aria-invalid:ring-1 data-placeholder:text-muted-foreground data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer rounded-full border shadow-xs hover:text-white hover:bg-neutral-800 h-8 px-3 has-[>svg]:px-3.5 max-w-64 gap-1.5 border-border bg-white/5 text-xs font-bold text-foreground focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 data-[state=open]:text-white [&>svg:last-child]:size-3.5"
         data-size="default"
         data-slot="select-trigger"
         data-state="closed"
@@ -139,6 +228,34 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
           data-slot="select-value"
           style="pointer-events: none;"
         >
+          <svg
+            aria-hidden="true"
+            class="lucide lucide-sparkles size-4"
+            fill="none"
+            height="24"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
+            />
+            <path
+              d="M20 2v4"
+            />
+            <path
+              d="M22 4h-4"
+            />
+            <circle
+              cx="4"
+              cy="20"
+              r="2"
+            />
+          </svg>
           Recommended
         </span>
         <svg
@@ -159,185 +276,162 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
           />
         </svg>
       </button>
-      <div
-        aria-label="Listing layout"
-        class="hidden items-center rounded-full border bg-card p-1 sm:flex"
-        role="group"
-      >
-        <button
-          aria-label="Grid view"
-          aria-pressed="true"
-          class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent size-8 rounded-full"
-          data-size="icon"
-          data-slot="button"
-          data-variant="secondary"
-        >
-          <svg
-            aria-hidden="true"
-            class="lucide lucide-grid2x2 lucide-grid-2x2 size-4"
-            fill="none"
-            height="24"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-            width="24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M12 3v18"
-            />
-            <path
-              d="M3 12h18"
-            />
-            <rect
-              height="18"
-              rx="2"
-              width="18"
-              x="3"
-              y="3"
-            />
-          </svg>
-        </button>
-        <button
-          aria-label="List view"
-          aria-pressed="false"
-          class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none size-8 rounded-full"
-          data-size="icon"
-          data-slot="button"
-          data-variant="ghost"
-        >
-          <svg
-            aria-hidden="true"
-            class="lucide lucide-list size-4"
-            fill="none"
-            height="24"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-            width="24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M3 5h.01"
-            />
-            <path
-              d="M3 12h.01"
-            />
-            <path
-              d="M3 19h.01"
-            />
-            <path
-              d="M8 5h13"
-            />
-            <path
-              d="M8 12h13"
-            />
-            <path
-              d="M8 19h13"
-            />
-          </svg>
-        </button>
-      </div>
-    </div>
-  </div>
-  <div
-    class="flex items-center gap-2 overflow-x-auto pb-1"
-    data-cy="marketplace-category-navigation"
-  >
-    <button
-      aria-pressed="false"
-      class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
-      data-size="sm"
-      data-slot="button"
-      data-variant="secondary"
-    >
-      All
-    </button>
-    <span
-      class="flex shrink-0 items-center gap-2"
-    >
       <button
-        aria-pressed="true"
-        class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-brand/16 text-brand hover:!bg-brand/30 border-brand h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
-        data-size="sm"
-        data-slot="button"
-        data-variant="default"
+        aria-autocomplete="none"
+        aria-controls="radix-normalized"
+        aria-expanded="false"
+        aria-label="Listing layout: Grid"
+        class="w-fit py-2 select-none disabled:cursor-not-allowed aria-invalid:ring-1 data-placeholder:text-muted-foreground data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer rounded-full border shadow-xs hover:text-white hover:bg-neutral-800 h-8 px-3 has-[>svg]:px-3.5 max-w-64 gap-1.5 border-border bg-white/5 text-xs font-bold text-foreground focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 data-[state=open]:text-white [&>svg:last-child]:size-3.5 hidden sm:flex"
+        data-size="default"
+        data-slot="select-trigger"
+        data-state="closed"
+        dir="ltr"
+        role="combobox"
+        type="button"
       >
-        Fashion
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-grip size-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="12"
+            cy="5"
+            r="1"
+          />
+          <circle
+            cx="19"
+            cy="5"
+            r="1"
+          />
+          <circle
+            cx="5"
+            cy="5"
+            r="1"
+          />
+          <circle
+            cx="12"
+            cy="12"
+            r="1"
+          />
+          <circle
+            cx="19"
+            cy="12"
+            r="1"
+          />
+          <circle
+            cx="5"
+            cy="12"
+            r="1"
+          />
+          <circle
+            cx="12"
+            cy="19"
+            r="1"
+          />
+          <circle
+            cx="19"
+            cy="19"
+            r="1"
+          />
+          <circle
+            cx="5"
+            cy="19"
+            r="1"
+          />
+        </svg>
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-chevron-down pointer-events-none size-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="m6 9 6 6 6-6"
+          />
+        </svg>
       </button>
-    </span>
-    <svg
-      aria-hidden="true"
-      class="lucide lucide-chevron-right size-3.5 shrink-0 text-muted-foreground"
-      fill="none"
-      height="24"
-      stroke="currentColor"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width="2"
-      viewBox="0 0 24 24"
-      width="24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="m9 18 6-6-6-6"
-      />
-    </svg>
+      <button
+        aria-autocomplete="none"
+        aria-controls="radix-normalized"
+        aria-expanded="false"
+        aria-label="Display currency: US dollars"
+        class="w-fit py-2 select-none disabled:cursor-not-allowed aria-invalid:ring-1 data-placeholder:text-muted-foreground data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer rounded-full border shadow-xs hover:text-white hover:bg-neutral-800 h-8 px-3 has-[>svg]:px-3.5 max-w-64 gap-1.5 border-border bg-white/5 text-xs font-bold text-foreground focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 data-[state=open]:text-white [&>svg:last-child]:size-3.5"
+        data-size="default"
+        data-slot="select-trigger"
+        data-state="closed"
+        dir="ltr"
+        role="combobox"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-dollar-sign size-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <line
+            x1="12"
+            x2="12"
+            y1="2"
+            y2="22"
+          />
+          <path
+            d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+          />
+        </svg>
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-chevron-down pointer-events-none size-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="m6 9 6 6 6-6"
+          />
+        </svg>
+      </button>
+    </div>
     <button
-      class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
-      data-size="sm"
+      aria-label="Reset search and filters"
+      class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-white hover:bg-neutral-800 size-8 shrink-0 rounded-full border-border bg-white/5 text-foreground"
+      data-size="icon"
       data-slot="button"
-      data-variant="secondary"
-    >
-      Men
-    </button>
-    <button
-      class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
-      data-size="sm"
-      data-slot="button"
-      data-variant="secondary"
-    >
-      Women
-    </button>
-    <button
-      class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
-      data-size="sm"
-      data-slot="button"
-      data-variant="secondary"
-    >
-      Kids
-    </button>
-    <button
-      class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none h-8 gap-1.5 px-3 has-[>svg]:px-3.5 shrink-0 rounded-full"
-      data-size="sm"
-      data-slot="button"
-      data-variant="ghost"
-    >
-      Clear
-    </button>
-  </div>
-  <div
-    class="flex items-center justify-between gap-4"
-  >
-    <p
-      aria-live="polite"
-      class="font-medium text-sm text-muted-foreground"
-      data-testid="typography"
-    >
-      8
-       
-      items
-    </p>
-    <div
-      class="flex items-center gap-2 text-sm text-muted-foreground"
+      data-variant="dark-outline"
+      title="Reset search and filters"
     >
       <svg
         aria-hidden="true"
-        class="lucide lucide-sliders-horizontal size-4"
+        class="lucide lucide-rotate-ccw size-4"
         fill="none"
         height="24"
         stroke="currentColor"
@@ -349,35 +443,13 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
         xmlns="http://www.w3.org/2000/svg"
       >
         <path
-          d="M10 5H3"
+          d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
         />
         <path
-          d="M12 19H3"
-        />
-        <path
-          d="M14 3v4"
-        />
-        <path
-          d="M16 17v4"
-        />
-        <path
-          d="M21 12h-9"
-        />
-        <path
-          d="M21 19h-5"
-        />
-        <path
-          d="M21 5h-7"
-        />
-        <path
-          d="M8 10v4"
-        />
-        <path
-          d="M8 12H3"
+          d="M3 3v5h5"
         />
       </svg>
-      Curated local marketplace
-    </div>
+    </button>
   </div>
 </section>
 `;

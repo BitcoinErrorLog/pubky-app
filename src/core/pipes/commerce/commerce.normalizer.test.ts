@@ -17,6 +17,20 @@ describe('CommerceRecordNormalizer', () => {
     expect(CommerceRecordNormalizer.listing(listing)).toEqual(listing);
   });
 
+  it('loads an existing saved search that uses the pre-drops sale-format value', () => {
+    const existing = {
+      query: 'camera',
+      categoryId: null,
+      saleFormat: 'all',
+      conditions: [],
+      minimumPriceMinor: null,
+      maximumPriceMinor: null,
+      sort: 'recommended',
+    };
+
+    expect(CommerceRecordNormalizer.savedSearchParams(existing)).toEqual(existing);
+  });
+
   it('returns structured validation issues without copying the rejected payload', () => {
     // An invalid enum value carrying a sensitive string: the error must be
     // structured, never a copy of the payload. (Unknown fields no longer

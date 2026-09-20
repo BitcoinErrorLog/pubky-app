@@ -42,7 +42,7 @@ describe('MarketplaceSectionNav', () => {
     state.pathname = null;
     render(<MarketplaceSectionNav />);
 
-    expect(screen.getAllByRole('link')).toHaveLength(7);
+    expect(screen.getAllByRole('link')).toHaveLength(8);
     expect(screen.getAllByRole('link').every((link) => !link.hasAttribute('aria-current'))).toBe(true);
   });
 
@@ -55,5 +55,14 @@ describe('MarketplaceSectionNav', () => {
     expect(nav.firstElementChild).toHaveClass('min-w-max');
     expect(screen.getByRole('link', { name: 'Seller studio' })).toHaveClass('shrink-0');
     expect(screen.getByTestId('marketplace-section-nav-activity-badge')).toHaveTextContent('12');
+  });
+
+  it('delegates guarded home navigation without requiring an app router', () => {
+    const onNavigate = vi.fn();
+    render(<MarketplaceSectionNav onNavigate={onNavigate} />);
+
+    screen.getByRole('link', { name: 'Orders' }).click();
+
+    expect(onNavigate).toHaveBeenCalledWith('/marketplace/orders');
   });
 });

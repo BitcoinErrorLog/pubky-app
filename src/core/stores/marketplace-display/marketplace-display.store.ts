@@ -18,6 +18,7 @@ export const useMarketplaceDisplayStore = create<MarketplaceDisplayStore>()(
     persist(
       (set) => ({
         ...marketplaceDisplayInitialState,
+        setDisplayCurrency: (displayCurrency) => set({ displayCurrency }),
         setShowFxEstimate: (showFxEstimate) =>
           set({ showFxEstimate }, false, MarketplaceDisplayActionTypes.SET_SHOW_FX_ESTIMATE),
         setMeasurementSystem: (measurementSystem) =>
@@ -26,6 +27,7 @@ export const useMarketplaceDisplayStore = create<MarketplaceDisplayStore>()(
       {
         name: MARKETPLACE_DISPLAY_PERSIST_KEY,
         partialize: (state) => ({
+          displayCurrency: state.displayCurrency,
           showFxEstimate: state.showFxEstimate,
           measurementSystem: state.measurementSystem,
         }),

@@ -483,7 +483,7 @@ export const commerceActivityCheckpointTableSchema = '&id, owner_id, last_read_a
 export interface CommerceSavedSearchParams {
   query: string;
   categoryId: string | null;
-  saleFormat: 'all' | 'fixed_price' | 'auction';
+  saleFormat: 'all' | 'fixed_price' | 'auction' | 'drops';
   conditions: ('new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'for_parts')[];
   minimumPriceMinor: number | null;
   maximumPriceMinor: number | null;

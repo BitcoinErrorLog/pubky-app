@@ -4,7 +4,7 @@ import { COMMERCE_CATALOG_SKELETON_COUNT } from '@/config/commerce';
 
 export function MarketplaceSkeleton({ count = COMMERCE_CATALOG_SKELETON_COUNT }: { count?: number }) {
   return (
-    <div data-testid="marketplace-skeleton" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+    <div data-testid="marketplace-skeleton" className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
       {Array.from({ length: count }, (_, index) => (
         <Card key={index} className="gap-0 overflow-hidden py-0">
           <Skeleton className="aspect-[4/5] w-full rounded-none" />

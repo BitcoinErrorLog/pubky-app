@@ -180,7 +180,9 @@ export class CommerceController {
     countryCode?: string | null;
   }): Promise<void> {
     await CommerceApplication.fetchCatalogListings({
-      ...(filters.saleFormat !== 'all' ? { saleFormat: filters.saleFormat } : {}),
+      ...(filters.saleFormat === 'fixed_price' || filters.saleFormat === 'auction'
+        ? { saleFormat: filters.saleFormat }
+        : {}),
       ...(filters.conditions.length === 1 ? { condition: filters.conditions[0] } : {}),
       ...(filters.sort === 'ending_soon' ? { endingSoonest: true } : {}),
       ...(filters.countryCode ? { country: filters.countryCode } : {}),

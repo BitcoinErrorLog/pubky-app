@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/atoms/Popover/Popover
 import { Typography } from '@/atoms/Typography/Typography';
 import { COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS } from '@/config/commerce';
 import { useMarketplaceSavedSearches } from '@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import type { CommerceSavedSearchModelSchema } from '@/models/commerce/commerce.schema';
 
 /**
@@ -16,17 +17,31 @@ import type { CommerceSavedSearchModelSchema } from '@/models/commerce/commerce.
  * trigger shows an honest aggregate NEW badge (matches counted past the
  * acknowledged watermark from a real catalog check — see
  * `useMarketplaceSavedSearches`); the popover holds apply-on-click rows, a
- * delete affordance per search, and the save-current-search flow. Renders
- * nothing when signed out: saved searches are account-scoped local data.
+ * delete affordance per search, and the save-current-search flow. Prompts
+ * sign-in when signed out: saved searches are account-scoped local data.
  */
 export function MarketplaceSavedSearches() {
   const { searches, isSignedIn, saveCurrentSearch, applySearch, deleteSearch } = useMarketplaceSavedSearches();
+  const { requireAuth } = useRequireAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isNaming, setIsNaming] = useState(false);
   const [name, setName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  if (!isSignedIn) return null;
+  if (!isSignedIn) {
+    return (
+      <Button
+        variant="secondary"
+        size="sm"
+        className="-mr-px shrink-0 rounded-full text-xs font-bold"
+        aria-label="Saved searches"
+        data-cy="marketplace-saved-searches"
+        onClick={() => requireAuth(() => setIsOpen(true))}
+      >
+        <Bookmark className="size-4" />
+      </Button>
+    );
+  }
 
   const totalNew = searches.reduce((sum, search) => sum + search.new_count, 0);
 
@@ -55,30 +70,33 @@ export function MarketplaceSavedSearches() {
       <PopoverTrigger asChild>
         <Button
           variant="secondary"
-          className="h-11 rounded-full px-4"
+          size="sm"
+          className="-mr-px shrink-0 rounded-full text-xs font-bold"
           aria-label={totalNew > 0 ? `Saved searches, ${totalNew} new matches` : 'Saved searches'}
           data-cy="marketplace-saved-searches"
         >
           <Bookmark className="size-4" />
-          <span className="ml-1.5 hidden sm:inline">Saved</span>
           {totalNew > 0 && (
             <Badge className="ml-1.5 bg-brand px-1.5 py-0 text-[10px] text-primary-foreground">{totalNew} NEW</Badge>
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-3">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <Typography as="h2" className="text-sm font-semibold">
-              Saved searches
-            </Typography>
-            {!isNaming && (
-              <Button size="sm" variant="secondary" className="rounded-full" onClick={() => setIsNaming(true)}>
-                <BookmarkPlus className="mr-1.5 size-4" />
-                Save current
-              </Button>
-            )}
-          </div>
+      <PopoverContent align="end" className="w-80 p-5">
+        <div className="flex flex-col gap-4">
+          <Typography as="h2" className="text-sm font-semibold">
+            Saved searches
+          </Typography>
+          {!isNaming && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="gap-2 self-start rounded-full"
+              onClick={() => setIsNaming(true)}
+            >
+              <BookmarkPlus className="size-4" />
+              Save Current Search
+            </Button>
+          )}
 
           {isNaming && (
             <form
@@ -148,10 +166,6 @@ export function MarketplaceSavedSearches() {
               No saved searches yet. Set filters or a search term, then save the combination.
             </Typography>
           )}
-
-          <Typography as="p" className="text-xs text-muted-foreground">
-            Checked when you visit — NEW counts matches newer than your last look at each search.
-          </Typography>
         </div>
       </PopoverContent>
     </Popover>

@@ -92,7 +92,7 @@ export function MarketplaceOrders() {
       showLeftMobileButton={false}
       showRightMobileButton={false}
       className="pb-28"
-      classNameWrapperContent="max-w-5xl"
+      classNameWrapperContent="max-w-7xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6" data-surface="marketplace-orders">
         <MarketplaceSectionNav />

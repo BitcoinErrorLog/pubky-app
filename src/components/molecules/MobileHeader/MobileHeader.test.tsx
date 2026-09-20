@@ -109,8 +109,8 @@ describe('MobileHeader', () => {
   it('applies correct classes to inner container', () => {
     render(<MobileHeader />);
 
-    const innerContainer = screen.getByTestId('logo').parentElement;
-    expect(innerContainer).toHaveClass('flex', 'w-full', 'items-center', 'justify-between', 'p-6');
+    const innerContainer = screen.getByTestId('logo').parentElement?.parentElement;
+    expect(innerContainer).toHaveClass('relative', 'flex', 'w-full', 'items-center', 'justify-between', 'p-6');
   });
 
   it('applies correct classes to left button', () => {
