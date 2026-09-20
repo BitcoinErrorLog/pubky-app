@@ -10,6 +10,7 @@ import type {
 import { PostStreamApplication } from '@/application/stream/posts/post';
 import { TagApplication } from '@/application/tag/tag';
 import { NEXUS_STREAM_MAX_LIMIT } from '@/config/nexus';
+import { POST_TAGS_PER_PAGE } from '@/config/tags';
 import { ModerationController } from '@/controllers/moderation/moderation';
 import type {
   TDeletePostParams,
@@ -33,10 +34,11 @@ import type { PostRelationshipsModelSchema } from '@/models/post/relationships/p
 import type { TagCollectionModelSchema } from '@/models/shared/tag/tag.schema';
 import { buildAuthorCollectionsStreamId } from '@/models/stream/post/postStream.types';
 import { CollectionPostContent } from '@/pipes/post/post.collection';
+import { PostNormalizer } from '@/pipes/post/post.normalizer';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPostService } from '@/services/local/post/post';
 import { LocalStreamPostsService } from '@/services/local/stream/posts/posts';
-import { LocalPostTagService } from '@/services/local/tag/post/tag.post';
+import { LocalTagCacheService } from '@/services/local/tag/tag-cache';
 import type { NexusTag, NexusTaggers } from '@/services/nexus/nexus.types';
 import { NexusPostService } from '@/services/nexus/post/post';
 import type { TCompositeId } from '@/services/nexus/post/post.types';
@@ -74,13 +76,10 @@ export class PostApplication {
     return await LocalPostService.readCounts(compositeId);
   }
 
-  /**
-   * Reads post tags for a specific post from local database
-   * @param compositeId - Composite post ID in format "authorId:postId"
-   * @returns Post tags
-   */
+  /** Release-UI compatibility over the upstream tag cache. */
   static async getTags({ compositeId }: TCompositeId): Promise<TagCollectionModelSchema<string>[]> {
-    return await LocalPostService.readTags(compositeId);
+    const record = await LocalTagCacheService.read({ kind: 'post', id: compositeId });
+    return record ? [record] : [];
   }
 
   /**
@@ -104,30 +103,32 @@ export class PostApplication {
   }
 
   /**
-   * Fetch more post tags from Nexus with pagination and persist to local DB
-   * @param compositeId - Composite post ID in format "authorId:postId"
-   * @param skip - Number of tags to skip
-   * @param limit - Maximum number of tags to return
-   * @returns Array of tags from Nexus
-   */
-  static async fetchTags({ compositeId, skip, limit, viewerId }: TFetchMorePostTagsParams): Promise<NexusTag[]> {
-    const nexusTags = await NexusPostService.getPostTags({ compositeId, skip, limit, viewerId });
-
-    // Persist new tags to local DB (merge with existing)
-    if (nexusTags.length > 0) {
-      await LocalPostTagService.mergeTags({ postId: compositeId, tags: nexusTags, viewerId: viewerId ?? null });
-    }
-
-    return nexusTags;
-  }
-
-  /**
    * Fetch taggers for a specific tag label on a post from Nexus API
    * @param params - Parameters containing composite post ID, label, and pagination options
    * @returns Tagger payload for the label ({ users, relationship })
    */
   static async fetchTaggers(params: TFetchPostTaggersParams): Promise<NexusTaggers> {
     return await NexusPostService.getPostTaggers(params);
+  }
+
+  /** Release-UI pagination adapter over the upstream tag cache. */
+  static async fetchTags({
+    compositeId,
+    skip = 0,
+    limit = POST_TAGS_PER_PAGE,
+    viewerId,
+  }: TFetchMorePostTagsParams): Promise<NexusTag[]> {
+    const [revision, tags] = await Promise.all([
+      LocalTagCacheService.captureRevisions('post', [compositeId]).then((rows) => rows.get(compositeId) ?? null),
+      NexusPostService.getPostTags({ compositeId, skip, limit, viewerId }),
+    ]);
+    await LocalTagCacheService.savePage({ kind: 'post', id: compositeId }, tags, {
+      skip,
+      limit,
+      revision,
+      viewerId,
+    });
+    return tags;
   }
 
   /**
@@ -137,7 +138,11 @@ export class PostApplication {
    * @param viewerId - Optional viewer ID for relationship data
    * @returns Post details or null if not found
    */
-  static async getOrFetch({ compositeId, viewerId }: TGetOrFetchPostParams): Promise<PostDetailsModelSchema | null> {
+  static async getOrFetch({
+    compositeId,
+    viewerId,
+    isCurrent,
+  }: TGetOrFetchPostParams & { isCurrent?: () => boolean }): Promise<PostDetailsModelSchema | null> {
     const localPost = await LocalPostService.readDetails({ postId: compositeId });
     if (localPost) return localPost;
 
@@ -145,6 +150,7 @@ export class PostApplication {
     await PostStreamApplication.fetchMissingPostsFromNexus({
       cacheMissPostIds: [compositeId],
       viewerId,
+      isCurrent,
     });
 
     // Return the persisted post details
@@ -159,10 +165,15 @@ export class PostApplication {
    * @param viewerId - Optional viewer ID for relationship data
    * @returns Post details or null if not found on Nexus
    */
-  static async fetch({ compositeId, viewerId }: TGetOrFetchPostParams): Promise<PostDetailsModelSchema | null> {
+  static async fetch({
+    compositeId,
+    viewerId,
+    isCurrent,
+  }: TGetOrFetchPostParams & { isCurrent?: () => boolean }): Promise<PostDetailsModelSchema | null> {
     await PostStreamApplication.fetchMissingPostsFromNexus({
       cacheMissPostIds: [compositeId],
       viewerId,
+      isCurrent,
     });
 
     return await LocalPostService.readDetails({ postId: compositeId });
@@ -196,7 +207,8 @@ export class PostApplication {
   static async fetchAuthoredCollections({
     authorId,
     viewerId,
-  }: TAuthoredCollectionsParams): Promise<CollectionPost[] | null> {
+    isCurrent,
+  }: TAuthoredCollectionsParams & { isCurrent?: () => boolean }): Promise<CollectionPost[] | null> {
     const streamId = buildAuthorCollectionsStreamId(authorId);
     const { cacheMissPostIds } = await PostStreamApplication.fetchStreamSlice({
       streamId,
@@ -204,19 +216,21 @@ export class PostApplication {
       streamTail: NOT_FOUND_CACHED_STREAM,
       limit: NEXUS_STREAM_MAX_LIMIT,
       viewerId: viewerId ?? null,
+      isCurrent,
     });
 
     if (cacheMissPostIds.length > 0) {
       await PostStreamApplication.fetchMissingPostsFromNexus({
         cacheMissPostIds,
         viewerId,
+        isCurrent,
       });
     }
 
     return await this.getAuthoredCollections({ authorId, viewerId });
   }
 
-  static async commitCreate({ postUrl, compositePostId, post, fileAttachments, tags }: TCreatePostInput) {
+  static async commitCreate({ postUrl, compositePostId, post, fileAttachments, tags, isCurrent }: TCreatePostInput) {
     const hasFiles = fileAttachments != null && fileAttachments.length > 0;
 
     if (hasFiles) {
@@ -238,8 +252,9 @@ export class PostApplication {
 
       if (hasFiles) {
         try {
-          const fileUris = fileAttachments.map((f) => f.fileResult.meta.url);
-          await FileApplication.commitDelete(fileUris);
+          // Known record + blob URLs: also cleans up partial uploads (blob PUT
+          // ok, record PUT failed) that a record-based delete cannot reach
+          await FileApplication.commitDeleteUploaded(fileAttachments);
         } catch (fileRollbackError) {
           Logger.error('[PostApplication.commitCreate] Failed to rollback file attachments', {
             compositePostId,
@@ -252,7 +267,7 @@ export class PostApplication {
     }
 
     if (tags && tags.length > 0) {
-      await TagApplication.commitCreate({ tagList: tags });
+      await TagApplication.commitCreate({ tagList: tags, isCurrent });
     }
   }
 
@@ -267,7 +282,8 @@ export class PostApplication {
    * Failures during cover delete are logged and swallowed so they do not fail
    * an already-successful post delete. External http(s) covers are never deleted.
    *
-   * Regular attachment cleanup still runs only when `!hadConnections`.
+   * Regular attachment cleanup still runs only when `!hadConnections`, and is
+   * likewise best-effort.
    */
   static async commitDelete({ compositePostId }: TDeletePostParams) {
     const post = await PostDetailsModel.findById(compositePostId);
@@ -291,8 +307,16 @@ export class PostApplication {
     const postUrl = post.uri;
     await HomeserverService.request({ method: HttpMethod.DELETE, url: postUrl });
 
+    // Best-effort: the post delete already succeeded on the homeserver, so a
+    // file-cleanup failure (e.g. files already deleted by an earlier edit whose
+    // Nexus state was reverted locally) must not surface as a delete failure.
     if (!hadConnections && post.attachments && post.attachments.length > 0) {
-      await FileApplication.commitDelete(post.attachments);
+      await FileApplication.commitDelete(post.attachments).catch((cleanupError) => {
+        Logger.warn('[PostApplication.commitDelete] Failed to cleanup post attachments', {
+          compositePostId,
+          cleanupError,
+        });
+      });
     }
 
     // Cover is no longer referenced after delete; if this delete fails, the post
@@ -308,16 +332,73 @@ export class PostApplication {
     }
   }
 
-  static async commitEdit({ compositePostId, post, postUrl }: TEditPostInput) {
+  /**
+   * Edit a post: optimistic local write, then homeserver PUT.
+   *
+   * Attachment changes: `fileAttachments` (new uploads) are committed to the
+   * homeserver before the post PUT so the edited post never references files
+   * that don't exist yet; they are deleted again if the PUT fails. `removedUris`
+   * are deleted only after a successful PUT, best-effort — a cleanup failure
+   * must not surface as an edit failure (the old files may remain orphaned).
+   *
+   * The local row always converges to the envelope being PUT (content,
+   * attachments, and kind), so content-only callers are no-op writes for the
+   * attachment/kind columns.
+   */
+  static async commitEdit({ compositePostId, post, postUrl, fileAttachments, removedUris }: TEditPostInput) {
     const originalPost = await LocalPostService.readDetails({ postId: compositePostId });
-    await LocalPostService.edit({ compositePostId, content: post.content });
+
+    const hasNewFiles = fileAttachments != null && fileAttachments.length > 0;
+
+    // Rollback helper for freshly uploaded files: uses the known record + blob
+    // URLs so it also cleans up partial uploads (blob PUT ok, record PUT failed)
+    // that a record-based delete cannot reach. Best-effort — the triggering
+    // error is what gets rethrown.
+    const rollbackUploadedFiles = async () => {
+      if (!hasNewFiles) return;
+      await FileApplication.commitDeleteUploaded(fileAttachments).catch((cleanupError) => {
+        Logger.error('[PostApplication.commitEdit] Failed to rollback new file attachments', {
+          compositePostId,
+          cleanupError,
+        });
+      });
+    };
+
+    if (hasNewFiles) {
+      try {
+        await FileApplication.commitCreate({ fileAttachments });
+      } catch (error) {
+        // Uploads run in parallel and can partially succeed; sweep everything
+        // best-effort before rethrowing (nothing else has happened yet).
+        await rollbackUploadedFiles();
+        throw error;
+      }
+    }
+
+    try {
+      await LocalPostService.edit({
+        compositePostId,
+        content: post.content,
+        attachments: post.attachments ?? null,
+        kind: PostNormalizer.postKindToLowerCase(post.kind),
+      });
+    } catch (error) {
+      // Local write failed after the uploads — remove them or they orphan
+      await rollbackUploadedFiles();
+      throw error;
+    }
 
     try {
       await HomeserverService.request({ method: HttpMethod.PUT, url: postUrl, bodyJson: post.toJson() });
     } catch (error) {
       if (originalPost) {
         try {
-          await LocalPostService.edit({ compositePostId, content: originalPost.content });
+          await LocalPostService.edit({
+            compositePostId,
+            content: originalPost.content,
+            attachments: originalPost.attachments,
+            kind: originalPost.kind,
+          });
         } catch (rollbackError) {
           Logger.error('[PostApplication.commitEdit] Failed to rollback local post edit', {
             compositePostId,
@@ -325,7 +406,39 @@ export class PostApplication {
           });
         }
       }
+
+      await rollbackUploadedFiles();
+
       throw error;
+    }
+
+    // A kind change strands the post in the old kind's filtered streams —
+    // permanently, since stream persistence only merges and never evicts.
+    // Remove it from every cached old-kind stream after the edit is fully
+    // committed (best-effort); runs after the PUT so a failed edit never
+    // touches stream membership.
+    const nextKind = PostNormalizer.postKindToLowerCase(post.kind);
+    if (originalPost && originalPost.kind !== nextKind) {
+      await LocalPostService.removeFromKindStreams({ compositePostId, kind: originalPost.kind }).catch(
+        (cleanupError) => {
+          Logger.warn('[PostApplication.commitEdit] Failed to remove post from old kind streams', {
+            compositePostId,
+            oldKind: originalPost.kind,
+            cleanupError,
+          });
+        },
+      );
+    }
+
+    const deletableRemovedUris = removedUris?.filter(isHomeserverFileUri) ?? [];
+    if (deletableRemovedUris.length > 0) {
+      await FileApplication.commitDelete(deletableRemovedUris).catch((cleanupError) => {
+        Logger.warn('[PostApplication.commitEdit] Failed to cleanup removed attachments', {
+          compositePostId,
+          removedUris: deletableRemovedUris,
+          cleanupError,
+        });
+      });
     }
   }
 }

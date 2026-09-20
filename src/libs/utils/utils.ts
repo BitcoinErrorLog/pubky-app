@@ -1,6 +1,5 @@
-import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import type { SnapshotSerializer } from 'vitest';
+import { STARTER_PACK_RESERVED_TAGS } from '@/config/nexus';
 import { DEFAULT_DISPLAY_PUBLIC_KEY_LENGTH, TAG_MAX_LENGTH } from '@/config/posts';
 import { parseCompositeId } from '@/models/models.utils';
 import type { PostInputVariant } from '@/organisms/PostInput/PostInput.types';
@@ -13,9 +12,7 @@ import type {
   GetDisplayTagsOptions,
 } from './utils.types';
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+export { cn } from 'cn';
 
 const PUBKY_PREFIX = 'pubky';
 const LEGACY_PUBKY_PREFIX = 'pk:';
@@ -31,6 +28,8 @@ export function withPubkyPrefix(key: string): string {
 
 export function stripPubkyPrefix(key: string): string {
   if (!key) return '';
+  // A raw key can itself start with "pubky"; only strip a display prefix.
+  if (isPubkyIdentifier(key)) return key;
   if (key.startsWith(PUBKY_PREFIX)) return key.slice(PUBKY_PREFIX.length);
   if (key.startsWith(LEGACY_PUBKY_PREFIX)) return key.slice(LEGACY_PUBKY_PREFIX.length);
   return key;
@@ -151,6 +150,18 @@ export async function copyToClipboard({ text }: CopyToClipboardProps) {
   } finally {
     document.body.removeChild(textarea);
   }
+}
+
+/**
+ * Read text from the clipboard. Throws when the Clipboard API is unavailable
+ * (non-secure context, unsupported browser) or the read is denied.
+ */
+export async function readFromClipboard(): Promise<string> {
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+    throw new Error('Clipboard API not supported');
+  }
+
+  return navigator.clipboard.readText();
 }
 
 const customCases = [
@@ -569,6 +580,26 @@ export function getCharacterCount(text: string): number {
 }
 
 /**
+ * Counts the characters the composer actually enforces, i.e. UTF-16 code units.
+ *
+ * `maxLength` and `usePostInput`'s write handlers all compare `.length`, so an astral character
+ * (an emoji) occupies two units and input stops at that count. `getCharacterCount` counts code
+ * points instead, so it reads one lower per emoji: a draft can sit at the enforced limit with a
+ * code-point count still below it. Derive the counter, its destructive state and
+ * `useCharacterLimitWarning` from this measure so all three agree with what the field accepts.
+ *
+ * @param text - The string to measure
+ * @returns The number of UTF-16 code units in the string
+ *
+ * @example
+ * getEnforcedCharacterCount('Hello') // 5
+ * getEnforcedCharacterCount('👍') // 2
+ */
+export function getEnforcedCharacterCount(text: string): number {
+  return text.length;
+}
+
+/**
  * Remove banned characters from tag input
  * Used to sanitize tag input on every keystroke and paste
  *
@@ -582,6 +613,22 @@ export function getCharacterCount(text: string): number {
  */
 export function sanitizeTagInput(value: string): string {
   return value.replace(TAG_BANNED_CHARS, '');
+}
+
+/**
+ * Convert a tag label to the canonical form used by local storage and Nexus.
+ *
+ * @param value - The raw tag label
+ * @returns The trimmed, lowercase tag label
+ */
+export function canonicalizeTagLabel(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Whether Nexus reserves this label from starter-pack interest streams. */
+export function isStarterPackReservedTag(value: string): boolean {
+  const canonical = canonicalizeTagLabel(value);
+  return STARTER_PACK_RESERVED_TAGS.some((label) => label === canonical);
 }
 
 /**
@@ -604,13 +651,14 @@ export function isValidTagLabel(value: string): boolean {
  * @param isSubmitting - Whether a submission is currently in progress
  * @param isArticle - Whether the post is an article (optional)
  * @param articleTitle - The title of the article (optional)
+ * @param hasBlockingUploads - Whether inline image uploads are still in flight (optional)
  * @returns true if the post can be submitted, false otherwise
  *
  * @remarks
  * - Reposts allow empty content
  * - Posts and replies require either content or attachments
  * - Articles require both content and title
- * - Cannot submit if already submitting
+ * - Cannot submit if already submitting or while inline image uploads are in flight
  *
  * @example
  * canSubmitPost('post', 'Hello world', [], false) // true
@@ -623,12 +671,13 @@ export function isValidTagLabel(value: string): boolean {
 export function canSubmitPost(
   variant: PostInputVariant,
   content: string,
-  attachments: File[],
+  attachments: ReadonlyArray<unknown>,
   isSubmitting: boolean,
   isArticle?: boolean,
   articleTitle?: string,
+  hasBlockingUploads?: boolean,
 ): boolean {
-  if (isSubmitting) return false;
+  if (isSubmitting || hasBlockingUploads) return false;
 
   // Reposts allow empty content, posts and replies require content or attachments
   if (variant === 'repost') return true;
@@ -638,9 +687,7 @@ export function canSubmitPost(
     return !!content.trim() && !!articleTitle?.trim();
   }
 
-  // Edit mode requires content to submit
-  if (variant === 'edit') return !!content.trim();
-
+  // Posts, replies, and edits require content or attachments (edits count kept + new)
   return Boolean(content.trim()) || attachments.length > 0;
 }
 

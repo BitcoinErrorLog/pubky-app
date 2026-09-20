@@ -6,6 +6,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
+import { getTtlPostMs } from '@/libs/runtime-config/runtime-config';
 import { CompositeIdDomain } from '@/models/models.types';
 import { buildCompositeIdFromPubkyUri, parseCompositeId } from '@/models/models.utils';
 import { PostCountsModel } from '@/models/post/counts/postCounts';
@@ -18,9 +19,9 @@ import { PostRelationshipsModel } from '@/models/post/relationships/postRelation
 import type { PostRelationshipsModelSchema } from '@/models/post/relationships/postRelationships.schema';
 import { PostTagsModel } from '@/models/post/tags/postTags';
 import { PostTtlModel } from '@/models/post/ttl/postTtl';
-import type { TagCollectionModelSchema } from '@/models/shared/tag/tag.schema';
 import {
   buildAuthorCollectionsStreamId,
+  getPostStreamKind,
   type PostStreamId,
   PostStreamTypes,
 } from '@/models/stream/post/postStream.types';
@@ -128,38 +129,119 @@ export class LocalPostService {
     return PostRelationshipsModel.getReplies(postId);
   }
 
-  /**
-   * Reads tags for a specific post from local database
-   * @param postId - Composite post ID (author:postId)
-   * @returns Array of tag collections or empty array if not found
-   */
-  static async readTags(postId: string): Promise<TagCollectionModelSchema<string>[]> {
-    const tags = await PostTagsModel.findById(postId);
-    if (!tags) return [];
-    return [tags] as unknown as TagCollectionModelSchema<string>[];
-  }
-
   static async updatePostCounts({ postCompositeId, countChanges }: TPostCountsParams) {
     await PostCountsModel.updateCounts({ postCompositeId, countChanges });
   }
 
   /**
-   * Edit a post's content in the local database.
+   * Upserts a post TTL record so the post becomes stale again after `retryDelayMs`.
+   * Used when Nexus omits a subscribed post (deleted, or not indexed yet) so the
+   * coordinator retries it on a cooldown instead of every tick.
+   *
+   * The timestamp is calculated as: now - (postTtlMs - retryDelayMs). With
+   * `unlessWrittenSince`, a row written at or after that time (a local edit, or
+   * another successful refresh, landed while the batch was in flight) is kept, so
+   * the cooldown never shortens real freshness. The check and the write share one
+   * transaction.
+   */
+  static async upsertTtlWithDelay(
+    compositePostId: string,
+    retryDelayMs: number,
+    options: { unlessWrittenSince?: number } = {},
+  ): Promise<void> {
+    const lastUpdatedAt = Date.now() - (getTtlPostMs() - retryDelayMs);
+    await db.transaction('rw', PostTtlModel.table, async () => {
+      if (options.unlessWrittenSince !== undefined) {
+        const existing = await PostTtlModel.findById(compositePostId);
+        if (existing && existing.lastUpdatedAt >= options.unlessWrittenSince) return;
+      }
+      await PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt });
+    });
+  }
+
+  /**
+   * Edit a post's content (and optionally attachments/kind) in the local database.
    *
    * @param params.compositePostId - Composite post ID (author:postId)
    * @param params.content - New content for the post
+   * @param params.attachments - New attachment URIs (`null` clears them); `undefined` leaves the column untouched
+   * @param params.kind - New lowercase kind; `undefined` leaves the column untouched
    *
    * @throws {DatabaseError} When database operations fail
    */
-  static async edit({ compositePostId, content }: { compositePostId: string; content: string }) {
+  static async edit({
+    compositePostId,
+    content,
+    attachments,
+    kind,
+  }: {
+    compositePostId: string;
+    content: string;
+    attachments?: string[] | null;
+    kind?: string;
+  }) {
     try {
-      await PostDetailsModel.update(compositePostId, { content });
+      const changes: Partial<PostDetailsModelSchema> = { content };
+      if (attachments !== undefined) {
+        changes.attachments = attachments;
+      }
+      if (kind !== undefined) {
+        changes.kind = kind;
+      }
+
+      await db.transaction('rw', [PostDetailsModel.table, PostTtlModel.table], async () => {
+        await PostDetailsModel.update(compositePostId, changes);
+        // Touch TTL so the coordinator considers the edited post fresh and
+        // doesn't overwrite the local edit with stale (pre-edit) Nexus data
+        await PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt: Date.now() });
+      });
       Logger.debug('Post edited successfully', { compositePostId });
     } catch (error) {
       throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to edit post', {
         service: ErrorService.Local,
         operation: 'edit',
         context: { compositePostId },
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Remove a post from every cached stream filtered to `kind`.
+   *
+   * Used after an edit changes a post's kind: the post would otherwise linger
+   * in the old kind's filtered feeds (e.g. a text post sitting in the Images
+   * tab after its image was removed) — permanently, since stream persistence
+   * only merges and never evicts. Scans all cached stream ids and matches
+   * their kind slot via the canonical `getPostStreamKind` parser, covering
+   * every kind-bearing shape (timeline, wot, tagged, sorted-author "Me",
+   * author-kind). The post is deliberately NOT inserted into the new kind's
+   * streams locally — correct placement needs Nexus stream ordering.
+   *
+   * @throws {DatabaseError} When database operations fail
+   */
+  static async removeFromKindStreams({ compositePostId, kind }: { compositePostId: string; kind: string }) {
+    try {
+      const [streamIds, unreadStreamIds] = await Promise.all([
+        PostStreamModel.table.toCollection().primaryKeys(),
+        UnreadPostStreamModel.table.toCollection().primaryKeys(),
+      ]);
+
+      const matchesKind = (streamId: unknown) => getPostStreamKind(String(streamId)) === kind;
+
+      await Promise.all([
+        ...streamIds
+          .filter(matchesKind)
+          .map((streamId) => PostStreamModel.removeItems(streamId as PostStreamId, [compositePostId])),
+        ...unreadStreamIds
+          .filter(matchesKind)
+          .map((streamId) => UnreadPostStreamModel.removeItems(streamId as PostStreamId, [compositePostId])),
+      ]);
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to remove post from kind streams', {
+        service: ErrorService.Local,
+        operation: 'removeFromKindStreams',
+        context: { compositePostId, kind },
         cause: error,
       });
     }
@@ -231,7 +313,14 @@ export class LocalPostService {
             PostDetailsModel.create(postDetails),
             PostRelationshipsModel.create(postRelationships),
             PostCountsModel.create(postCounts),
-            PostTagsModel.create({ id: compositePostId, tags: [] }),
+            // A new post has no tags on Nexus yet. Seed an initialized, complete, fresh window
+            // for its author so the first card mount does not force a tag request and the
+            // TTL pass does not flag it immediately.
+            PostTagsModel.create({
+              id: compositePostId,
+              tags: [],
+              cache: { cursor: 0, exhausted: true, fetchedAt: Date.now(), revision: 0, viewerId: authorId },
+            }),
           ]);
 
           const ops: Promise<unknown>[] = [];

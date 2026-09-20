@@ -4,7 +4,6 @@ import { db } from '@/database/franky/franky';
 import { MarketplaceTagsModel } from '@/models/marketplace/tags/marketplaceTags';
 import type { Pubky } from '@/models/models.types';
 import { buildMarketplaceTagRowId, LocalMarketplaceTagService } from '@/services/local/tag/marketplace/tag.marketplace';
-import type { TLocalTagParams } from '@/services/local/tag/tag.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 
 const testData = {
@@ -17,7 +16,10 @@ const testData = {
 const listingRowId = buildMarketplaceTagRowId(TagKind.LISTING, `${testData.sellerPubky}:${testData.listingId}`);
 const shopRowId = buildMarketplaceTagRowId(TagKind.SHOP, testData.sellerPubky);
 
-const createTagParams = (label: string, taggedId: string = listingRowId): TLocalTagParams => ({
+const createTagParams = (
+  label: string,
+  taggedId: string = listingRowId,
+): Parameters<typeof LocalMarketplaceTagService.create>[0] => ({
   taggedId,
   label,
   taggerId: testData.taggerPubky,

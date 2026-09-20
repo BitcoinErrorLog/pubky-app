@@ -1073,7 +1073,7 @@ describe('AuthController', () => {
       expect(generateSignupAuthUrlSpy).toHaveBeenCalledWith('INVITE-CODE');
     });
 
-    it('should free stale auth flows when multiple requests overlap (StrictMode)', async () => {
+    it('rejects a superseded start before it can create a stale auth flow', async () => {
       mockClearDatabase.mockResolvedValue(undefined);
 
       const cancelAuthFlowA = vi.fn();
@@ -1096,6 +1096,7 @@ describe('AuthController', () => {
 
       const firstCall = AuthController.getSignupAuthUrl('CODE-A');
       const secondCall = AuthController.getSignupAuthUrl('CODE-B');
+      const firstResult = expect(firstCall).rejects.toMatchObject({ name: 'AuthFlowCanceled' });
 
       resolveFirst!({
         authorizationUrl: 'https://example.com/auth?token=A',
@@ -1104,9 +1105,9 @@ describe('AuthController', () => {
       });
 
       await secondCall;
-      await firstCall;
+      await firstResult;
 
-      expect(cancelAuthFlowA).toHaveBeenCalled();
+      expect(cancelAuthFlowA).not.toHaveBeenCalled();
       expect(cancelAuthFlowB).not.toHaveBeenCalled();
     });
   });

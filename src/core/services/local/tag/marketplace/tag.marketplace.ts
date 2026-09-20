@@ -11,6 +11,7 @@ import type { TLocalTagParams } from '@/services/local/tag/tag.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 
 export type MarketplaceTagKind = TagKind.LISTING | TagKind.SHOP;
+type MarketplaceLocalTagParams = Pick<TLocalTagParams, 'taggedId' | 'label' | 'taggerId'>;
 
 /**
  * Builds the `marketplace_tags` row id for a tag target.
@@ -45,7 +46,7 @@ export class LocalMarketplaceTagService {
    * @param params.taggerId - Pubky of the user adding the tag
    * @returns true if local state changed; false if the tagger already had this tag
    */
-  static async create({ taggedId, label, taggerId }: TLocalTagParams): Promise<boolean> {
+  static async create({ taggedId, label, taggerId }: MarketplaceLocalTagParams): Promise<boolean> {
     let mutated = false;
     try {
       mutated = await db.transaction('rw', [MarketplaceTagsModel.table], async () => {
@@ -81,7 +82,7 @@ export class LocalMarketplaceTagService {
    * @param params.taggerId - Pubky of the user removing the tag
    * @returns true if a tag was removed, false if nothing to delete (idempotent)
    */
-  static async delete({ taggedId, label, taggerId }: TLocalTagParams): Promise<boolean> {
+  static async delete({ taggedId, label, taggerId }: MarketplaceLocalTagParams): Promise<boolean> {
     const tagsData = await MarketplaceTagsModel.findById(taggedId);
     if (!tagsData) {
       return false;

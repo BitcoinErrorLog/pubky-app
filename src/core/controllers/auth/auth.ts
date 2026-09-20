@@ -20,6 +20,7 @@ import type {
 } from '@/controllers/auth/auth.types';
 import { withAuthFinalizationLock } from '@/controllers/auth/auth-finalization-lock';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { captureViewerSession } from '@/controllers/tag/tag-cache.utils';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
@@ -59,10 +60,17 @@ import { useSettingsStore } from '@/stores/settings/settings.store';
 import type { SettingsState } from '@/stores/settings/settings.types';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
 
+const LOGOUT_TIMEOUT_MS = 5_000;
+
 export class AuthController {
   private constructor() {} // Prevent instantiation
 
   private static activeAuthFlow: { token: symbol; cancel: (() => void) | null } | null = null;
+
+  /** True while `token` identifies the flow that currently owns auth-flow state. */
+  private static ownsAuthFlow(token: symbol): boolean {
+    return this.activeAuthFlow?.token === token;
+  }
 
   /**
    * Covers QR wait AND both POSTs. wrapAuthFlow is not this lifetime: it
@@ -293,6 +301,7 @@ export class AuthController {
    * @param params.pubky - The user's public key identifier
    */
   private static async hydrateMeImAlive({ pubky }: { pubky: Pubky }) {
+    const isCurrent = captureViewerSession();
     const signInStore = useSignInStore.getState();
     const {
       meta: { url },
@@ -300,6 +309,7 @@ export class AuthController {
 
     // Progress callback to update signInStore from Controller layer (respecting architecture rules)
     const onProgress: BootstrapProgressCallback = (step) => {
+      if (!isCurrent()) return;
       switch (step) {
         case 'bootstrapFetched':
           signInStore.setBootstrapFetched(true); // Step 3 complete (60%)
@@ -322,7 +332,12 @@ export class AuthController {
     const preferences = (remoteSettings ?? localSettings).notifications;
     const allowedTypes = NotificationNormalizer.toEnabledTypes(preferences);
 
-    const notification = await BootstrapApplication.initialize({ pubky, lastReadUrl: url, allowedTypes }, onProgress);
+    if (!isCurrent()) return;
+    const notification = await BootstrapApplication.initialize(
+      { pubky, lastReadUrl: url, allowedTypes, isCurrent },
+      onProgress,
+    );
+    if (!isCurrent()) return;
     useNotificationStore.getState().setState(notification);
 
     // Pull the private cross-device watchlist and merge it into local state.
@@ -504,23 +519,31 @@ export class AuthController {
     generateFn: () => Promise<TGenerateAuthUrlResult>,
     { preserveLocalState = false }: { preserveLocalState?: boolean } = {},
   ): Promise<TGenerateAuthUrlResult> {
-    BootstrapApplication.cancelModerationFollow();
-    if (!preserveLocalState) {
-      await clearDatabase();
-      // Skip post-migration resync — full bootstrap below covers all data
-      useMigrationStore.getState().reset();
-    }
     const token = Symbol('auth-flow');
     this.cancelActiveAuthFlow();
     this.activeAuthFlow = { token, cancel: null };
-    const { authorizationUrl, awaitApproval, cancelAuthFlow } = await generateFn();
 
-    if (!this.activeAuthFlow || this.activeAuthFlow.token !== token) {
-      cancelAuthFlow();
-      return { authorizationUrl, awaitApproval, cancelAuthFlow };
+    BootstrapApplication.cancelModerationFollow();
+    if (!preserveLocalState) {
+      await clearDatabase();
+      if (!this.ownsAuthFlow(token)) throw createCanceledError();
+
+      // Skip post-migration resync — full bootstrap below covers all data
+      useMigrationStore.getState().reset();
+      // Settings are account-local: never push the previous account's settings into this identity.
+      useSettingsStore.getState().reset();
     }
 
-    this.activeAuthFlow.cancel = cancelAuthFlow;
+    const { authorizationUrl, awaitApproval, cancelAuthFlow } = await generateFn();
+
+    const activeAuthFlow = this.activeAuthFlow;
+    if (!activeAuthFlow || activeAuthFlow.token !== token) {
+      cancelAuthFlow();
+      awaitApproval.catch(() => undefined);
+      throw createCanceledError();
+    }
+
+    activeAuthFlow.cancel = cancelAuthFlow;
 
     const wrappedAwaitApproval = awaitApproval.finally(() => {
       if (this.activeAuthFlow?.token === token) {
@@ -1031,10 +1054,28 @@ export class AuthController {
       }
 
       if (session) {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
-          await AuthApplication.logout({ session });
-        } catch (error) {
-          Logger.warn('Homeserver logout failed, clearing local state anyway', { error });
+          const timeoutPromise = new Promise<boolean>((resolve) => {
+            timeoutId = setTimeout(() => resolve(true), LOGOUT_TIMEOUT_MS);
+          });
+          const timedOut = await Promise.race([
+            AuthApplication.logout({ session }).then(
+              () => false,
+              (error) => {
+                Logger.warn('Homeserver logout failed, clearing local state anyway', { error });
+                return false;
+              },
+            ),
+            timeoutPromise,
+          ]);
+          if (timedOut) {
+            Logger.warn('Homeserver sign-out did not answer in time, clearing local state anyway', {
+              timeoutMs: LOGOUT_TIMEOUT_MS,
+            });
+          }
+        } finally {
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
       }
 

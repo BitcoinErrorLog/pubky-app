@@ -8,12 +8,17 @@ export interface TCreatePostInput extends TLocalSavePostParams {
   postUrl: string;
   fileAttachments?: TFileAttachmentResult[];
   tags?: TCreateTagInput[];
+  isCurrent?: () => boolean;
 }
 
 export interface TEditPostInput {
   compositePostId: string;
   post: PubkyAppPost;
   postUrl: string;
+  /** New attachment files (already normalized). Uploaded before the post PUT; rolled back if the PUT fails. */
+  fileAttachments?: TFileAttachmentResult[];
+  /** Previously referenced file URIs to delete (best-effort) after a successful PUT. */
+  removedUris?: string[];
 }
 
 export type TGetOrFetchPostParams = {

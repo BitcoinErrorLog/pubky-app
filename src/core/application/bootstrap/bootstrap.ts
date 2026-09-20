@@ -24,6 +24,7 @@ import { LocalStreamUsersService } from '@/services/local/stream/users/users';
 import { LocalUserService } from '@/services/local/user/user';
 import { NexusBootstrapService } from '@/services/nexus/bootstrap/bootstrap';
 import { UserStreamTimeframe } from '@/services/nexus/nexus.types';
+import { getNexusResponseStartedAt } from '@/services/nexus/nexus.utils';
 import type { NotificationState } from '@/stores/notification/notification.types';
 
 /**
@@ -37,7 +38,6 @@ export class BootstrapApplication {
 
   private constructor() {}
 
-  /** Cancel detached moderation-follow work before account-local state changes ownership. */
   static cancelModerationFollow(): void {
     this.moderationFollowAbortController?.abort();
     this.moderationFollowAbortController = null;
@@ -64,76 +64,87 @@ export class BootstrapApplication {
     params: TBootstrapParams & { allowedTypes: NotificationType[] },
     onProgress?: BootstrapProgressCallback,
   ): Promise<Omit<NotificationState, 'marketplaceUnread'>> {
+    const pubky = params.pubky;
+    const [bootstrapData, userLastRead] = await Promise.all([
+      NexusBootstrapService.fetch(pubky),
+      this.fetchOrPutLastRead(params),
+      MuteApplication.fetchMutedUsers(pubky), // fetches and persists MUTED stream internally
+      FeedApplication.fetchFeeds(pubky),
+    ]);
+    if (params.isCurrent && !params.isCurrent()) {
+      return { unread: 0, lastRead: userLastRead, lastPolledTimestamp: undefined };
+    }
+    onProgress?.('bootstrapFetched'); // Step 3 complete (60%)
+
+    if (!bootstrapData.indexed) {
+      // Tell Nexus this user exists (best-effort, never rejects; see NexusBootstrapService.ingest).
+      void NexusBootstrapService.ingest(pubky);
+
+      const retryDelayMs = getTtlRetryDelayMs();
+      Logger.warn('User is not indexed in Nexus. Scheduling TTL retry', {
+        pubky,
+        retryDelayMs,
+      });
+
+      // Write TTL record to become stale after configured retry delay
+      await LocalUserService.upsertTtlWithDelay(pubky, retryDelayMs);
+
+      // Subscribe to TTL coordinator for periodic staleness checks
+      TtlCoordinator.getInstance().retryUserIndexing({ pubky });
+    }
+
+    const [{ unread, nextPollCursor }] = await Promise.all([
+      NotificationApplication.persistAndSummarize({
+        notifications: bootstrapData.notifications,
+        isCurrent: params.isCurrent,
+        lastRead: userLastRead,
+        allowedTypes: params.allowedTypes,
+      }),
+      LocalStreamUsersService.persistUsers(bootstrapData.users, {
+        revisions: new Map(),
+        viewerId: pubky,
+        isCurrent: params.isCurrent,
+        validatedAt: getNexusResponseStartedAt(bootstrapData),
+      }),
+      LocalStreamPostsService.persistPosts({
+        posts: bootstrapData.posts,
+        tagGuard: {
+          revisions: new Map(),
+          viewerId: pubky,
+          isCurrent: params.isCurrent,
+          validatedAt: getNexusResponseStartedAt(bootstrapData),
+        },
+      }),
+      LocalStreamPostsService.upsert({
+        streamId: PostStreamTypes.TIMELINE_ALL_ALL,
+        stream: bootstrapData.ids.stream,
+      }),
+      // The bootstrap page is the stream head now; ids an earlier head poll collected are
+      // at or below it, and merging them on top would put them above newer posts.
+      LocalStreamPostsService.clearUnreadStream({ streamId: PostStreamTypes.TIMELINE_ALL_ALL }),
+      LocalStreamUsersService.upsert({
+        streamId: UserStreamTypes.TODAY_INFLUENCERS_ALL,
+        stream: bootstrapData.ids.influencers,
+      }),
+      LocalStreamUsersService.upsert({
+        streamId: UserStreamTypes.RECOMMENDED,
+        stream: bootstrapData.ids.recommended,
+      }),
+      FileApplication.persistFiles(bootstrapData.files),
+      LocalHotService.upsert(buildHotTagsId(UserStreamTimeframe.TODAY, 'all'), bootstrapData.ids.hot_tags),
+      LocalStreamTagsService.upsert(TagStreamTypes.TODAY_ALL, bootstrapData.ids.hot_tags),
+    ]);
+    onProgress?.('dataPersisted'); // Step 4 complete (80%)
     this.cancelModerationFollow();
     const moderationFollowController = new AbortController();
     this.moderationFollowAbortController = moderationFollowController;
+    void this.ensureModerationFollow(pubky, moderationFollowController);
+    // TODO: We will not have that step, but we will add HomeserverSignIn step before step 1 to catch errors
+    onProgress?.('homeserverSynced'); // Step 5 complete (100%)
 
-    try {
-      const pubky = params.pubky;
-      const [bootstrapData, userLastRead] = await Promise.all([
-        NexusBootstrapService.fetch(pubky),
-        this.fetchOrPutLastRead(params),
-        MuteApplication.fetchMutedUsers(pubky), // fetches and persists MUTED stream internally
-        FeedApplication.fetchFeeds(pubky),
-      ]);
-      onProgress?.('bootstrapFetched'); // Step 3 complete (60%)
-
-      if (!bootstrapData.indexed) {
-        // Tell Nexus this user exists (best-effort, never rejects; see NexusBootstrapService.ingest).
-        void NexusBootstrapService.ingest(pubky);
-
-        const retryDelayMs = getTtlRetryDelayMs();
-        Logger.warn('User is not indexed in Nexus. Scheduling TTL retry', {
-          pubky,
-          retryDelayMs,
-        });
-
-        // Write TTL record to become stale after configured retry delay
-        await LocalUserService.upsertTtlWithDelay(pubky, retryDelayMs);
-
-        // Subscribe to TTL coordinator for periodic staleness checks
-        TtlCoordinator.getInstance().subscribeUser({ pubky });
-      }
-
-      const [{ unread, nextPollCursor }] = await Promise.all([
-        NotificationApplication.persistAndSummarize({
-          notifications: bootstrapData.notifications,
-          lastRead: userLastRead,
-          allowedTypes: params.allowedTypes,
-        }),
-        LocalStreamUsersService.persistUsers(bootstrapData.users),
-        LocalStreamPostsService.persistPosts({ posts: bootstrapData.posts }),
-        LocalStreamPostsService.upsert({
-          streamId: PostStreamTypes.TIMELINE_ALL_ALL,
-          stream: bootstrapData.ids.stream,
-        }),
-        LocalStreamUsersService.upsert({
-          streamId: UserStreamTypes.TODAY_INFLUENCERS_ALL,
-          stream: bootstrapData.ids.influencers,
-        }),
-        LocalStreamUsersService.upsert({
-          streamId: UserStreamTypes.RECOMMENDED,
-          stream: bootstrapData.ids.recommended,
-        }),
-        FileApplication.persistFiles(bootstrapData.files),
-        // Both features: hot tags and tag streams
-        LocalHotService.upsert(buildHotTagsId(UserStreamTimeframe.TODAY, 'all'), bootstrapData.ids.hot_tags),
-        LocalStreamTagsService.upsert(TagStreamTypes.TODAY_ALL, bootstrapData.ids.hot_tags),
-      ]);
-      onProgress?.('dataPersisted'); // Step 4 complete (80%)
-      void this.ensureModerationFollow(pubky, moderationFollowController);
-      // TODO: We will not have that step, but we will add HomeserverSignIn step before step 1 to catch errors
-      onProgress?.('homeserverSynced'); // Step 5 complete (100%)
-
-      return { unread, lastRead: userLastRead, lastPolledTimestamp: nextPollCursor };
-    } catch (error) {
-      moderationFollowController.abort();
-      this.clearModerationFollowController(moderationFollowController);
-      throw error;
-    }
+    return { unread, lastRead: userLastRead, lastPolledTimestamp: nextPollCursor };
   }
 
-  /** Keep the one-time default follow off the authentication critical path. */
   private static async ensureModerationFollow(pubky: string, controller: AbortController): Promise<void> {
     try {
       await UserApplication.ensureModerationFollow({
@@ -142,7 +153,6 @@ export class BootstrapApplication {
         signal: controller.signal,
       });
     } catch (error) {
-      // AppError factories already report at their origin. Only unexpected raw failures need a warning.
       if (!controller.signal.aborted && !isAppError(error)) {
         Logger.warn('Unexpected moderation-follow bootstrap failure', { error });
       }

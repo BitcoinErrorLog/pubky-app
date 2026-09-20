@@ -17,13 +17,11 @@ import type { PostCountsModelSchema } from '@/models/post/counts/postCounts.sche
 import { PostDetailsModel } from '@/models/post/details/postDetails';
 import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
 import type { PostRelationshipsModelSchema } from '@/models/post/relationships/postRelationships.schema';
-import type { TagCollectionModelSchema } from '@/models/shared/tag/tag.schema';
 import type { TFileAttachmentResult } from '@/pipes/file/file.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPostService } from '@/services/local/post/post';
 import { LocalStreamPostsService } from '@/services/local/stream/posts/posts';
-import { LocalPostTagService } from '@/services/local/tag/post/tag.post';
-import type { NexusTag, NexusTaggers } from '@/services/nexus/nexus.types';
+import type { NexusTaggers } from '@/services/nexus/nexus.types';
 import { NexusPostService } from '@/services/nexus/post/post';
 import { asOpaque } from '@/test-utils/type-assertions';
 
@@ -34,10 +32,10 @@ vi.mock('@/services/local/post/post', () => ({
     create: vi.fn(),
     delete: vi.fn(),
     edit: vi.fn(),
+    removeFromKindStreams: vi.fn(),
     readDetails: vi.fn(),
     readDetailsByIds: vi.fn(),
     readCounts: vi.fn(),
-    readTags: vi.fn(),
     readRelationships: vi.fn(),
   },
 }));
@@ -49,9 +47,7 @@ vi.mock('@/services/local/stream/posts/posts', () => ({
 }));
 
 vi.mock('@/services/local/tag/post/tag.post', () => ({
-  LocalPostTagService: {
-    mergeTags: vi.fn(),
-  },
+  LocalPostTagService: {},
 }));
 
 // Mock the HomeserverService
@@ -66,6 +62,7 @@ vi.mock('@/application/file/file', () => ({
   FileApplication: {
     commitCreate: vi.fn(),
     commitDelete: vi.fn(),
+    commitDeleteUploaded: vi.fn(),
   },
 }));
 
@@ -448,7 +445,7 @@ describe('Post Application', () => {
 
         const { commitCreateSpy, saveSpy, requestSpy, tagCreateSpy } = setupCreateSpies();
         const deleteSpy = vi.spyOn(LocalPostService, 'delete').mockResolvedValue(false);
-        const fileCommitDeleteSpy = vi.spyOn(FileApplication, 'commitDelete').mockResolvedValue(undefined);
+        const fileDeleteUploadedSpy = vi.spyOn(FileApplication, 'commitDeleteUploaded').mockResolvedValue(undefined);
         requestSpy.mockRejectedValue(new Error('Homeserver sync failed: 503 Service Unavailable'));
 
         await expect(PostApplication.commitCreate(mockData)).rejects.toThrow(
@@ -469,7 +466,8 @@ describe('Post Application', () => {
           }),
         });
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
-        expect(fileCommitDeleteSpy).toHaveBeenCalledWith(mockFileAttachments.map((f) => f.fileResult.meta.url));
+        // Rollback deletes by the known record + blob URLs, not by record URI
+        expect(fileDeleteUploadedSpy).toHaveBeenCalledWith(mockFileAttachments);
         expect(tagCreateSpy).not.toHaveBeenCalled();
       });
 
@@ -492,8 +490,8 @@ describe('Post Application', () => {
 
         const { commitCreateSpy, saveSpy, requestSpy } = setupCreateSpies();
         const deleteSpy = vi.spyOn(LocalPostService, 'delete').mockResolvedValue(false);
-        const fileCommitDeleteSpy = vi
-          .spyOn(FileApplication, 'commitDelete')
+        const fileDeleteUploadedSpy = vi
+          .spyOn(FileApplication, 'commitDeleteUploaded')
           .mockRejectedValue(new Error('File rollback failed'));
         requestSpy.mockRejectedValue(new Error('Homeserver sync failed: 401'));
 
@@ -502,7 +500,7 @@ describe('Post Application', () => {
         expect(commitCreateSpy).toHaveBeenCalledWith({ fileAttachments: mockFileAttachments });
         expect(saveSpy).toHaveBeenCalledOnce();
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
-        expect(fileCommitDeleteSpy).toHaveBeenCalledWith(mockFileAttachments.map((f) => f.fileResult.meta.url));
+        expect(fileDeleteUploadedSpy).toHaveBeenCalledWith(mockFileAttachments);
       });
     });
   });
@@ -694,7 +692,7 @@ describe('Post Application', () => {
         expect(fileCommitDeleteSpy).not.toHaveBeenCalled();
       });
 
-      it('should propagate file deletion error', async () => {
+      it('should not fail the delete when file cleanup fails (best-effort)', async () => {
         const mockData = { compositePostId: 'author:post-file-delete-fail' };
         const postWithFiles = {
           id: 'author:post-file-delete-fail',
@@ -710,7 +708,10 @@ describe('Post Application', () => {
         deleteSpy.mockResolvedValue(false);
         fileCommitDeleteSpy.mockRejectedValue(new Error('File deletion failed: permission denied'));
 
-        await expect(PostApplication.commitDelete(mockData)).rejects.toThrow('File deletion failed: permission denied');
+        // The post delete already succeeded on the homeserver — file cleanup
+        // failures are logged and swallowed (files may already be gone, e.g.
+        // deleted by an earlier edit whose Nexus state was reverted locally)
+        await expect(PostApplication.commitDelete(mockData)).resolves.toBeUndefined();
 
         expect(findByIdSpy).toHaveBeenCalledWith(mockData.compositePostId);
         expect(deleteSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId });
@@ -1008,9 +1009,7 @@ describe('Post Application', () => {
     it('should fetch post from Nexus using stream posts logic', async () => {
       const mockViewerId = 'test-viewer-id' as Pubky;
       const readSpyFirst = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
-      const fetchMissingSpy = vi
-        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
-        .mockResolvedValue(undefined);
+      const fetchMissingSpy = vi.spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus').mockResolvedValue(true);
       const readSpySecond = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(mockPostDetails);
 
       const result = await PostApplication.getOrFetch({
@@ -1030,9 +1029,7 @@ describe('Post Application', () => {
     it('should return null when post not found in Nexus', async () => {
       const mockViewerId = 'test-viewer-id' as Pubky;
       const readSpyFirst = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
-      const fetchMissingSpy = vi
-        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
-        .mockResolvedValue(undefined);
+      const fetchMissingSpy = vi.spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus').mockResolvedValue(true);
       const readSpySecond = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
 
       const result = await PostApplication.getOrFetch({
@@ -1062,9 +1059,7 @@ describe('Post Application', () => {
 
     it('should fetch post from Nexus and return persisted data', async () => {
       const mockViewerId = 'test-viewer-id' as Pubky;
-      const fetchMissingSpy = vi
-        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
-        .mockResolvedValue(undefined);
+      const fetchMissingSpy = vi.spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus').mockResolvedValue(true);
       const readSpy = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(mockPostDetails);
 
       const result = await PostApplication.fetch({
@@ -1083,9 +1078,7 @@ describe('Post Application', () => {
 
     it('should return null when post not found on Nexus', async () => {
       const mockViewerId = 'test-viewer-id' as Pubky;
-      const fetchMissingSpy = vi
-        .spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus')
-        .mockResolvedValue(undefined);
+      const fetchMissingSpy = vi.spyOn(PostStreamApplication, 'fetchMissingPostsFromNexus').mockResolvedValue(true);
       const readSpy = vi.spyOn(LocalPostService, 'readDetails').mockResolvedValueOnce(null);
 
       const result = await PostApplication.fetch({
@@ -1195,62 +1188,6 @@ describe('Post Application', () => {
 
       expect(getCountsSpy).toHaveBeenCalledWith('author:post123');
       expect(result).toEqual(mockCounts);
-    });
-  });
-
-  describe('getTags', () => {
-    it('should call LocalPostService.readTags', async () => {
-      const mockTags: TagCollectionModelSchema<string>[] = [
-        {
-          id: 'author:post123',
-          tags: [{ label: 'tag1', taggers: ['test-viewer-id'] as Pubky[], taggers_count: 0, relationship: false }],
-        },
-      ];
-
-      const getTagsSpy = vi.spyOn(LocalPostService, 'readTags').mockResolvedValue(mockTags);
-
-      const result = await PostApplication.getTags({ compositeId: 'author:post123' });
-
-      expect(getTagsSpy).toHaveBeenCalledWith('author:post123');
-      expect(result).toEqual(mockTags);
-    });
-  });
-
-  describe('fetchTags', () => {
-    const params = {
-      compositeId: 'author:post123',
-      skip: 0,
-      limit: 3,
-      viewerId: 'viewer123' as Pubky,
-    };
-
-    it('should return empty tags without merging local state', async () => {
-      const nexusSpy = vi.spyOn(NexusPostService, 'getPostTags').mockResolvedValue([]);
-      const mergeSpy = vi.spyOn(LocalPostTagService, 'mergeTags').mockResolvedValue(undefined);
-
-      const result = await PostApplication.fetchTags(params);
-
-      expect(result).toEqual([]);
-      expect(nexusSpy).toHaveBeenCalledWith(params);
-      expect(mergeSpy).not.toHaveBeenCalled();
-    });
-
-    it('should merge non-empty Nexus tags into local state', async () => {
-      const tags: NexusTag[] = [
-        { label: 'bitcoin', taggers: ['viewer123' as Pubky], taggers_count: 1, relationship: true },
-      ];
-      const nexusSpy = vi.spyOn(NexusPostService, 'getPostTags').mockResolvedValue(tags);
-      const mergeSpy = vi.spyOn(LocalPostTagService, 'mergeTags').mockResolvedValue(undefined);
-
-      const result = await PostApplication.fetchTags(params);
-
-      expect(result).toEqual(tags);
-      expect(nexusSpy).toHaveBeenCalledWith(params);
-      expect(mergeSpy).toHaveBeenCalledWith({
-        postId: params.compositeId,
-        tags,
-        viewerId: params.viewerId,
-      });
     });
   });
 
@@ -1389,6 +1326,10 @@ describe('Post Application', () => {
       readDetailsSpy: vi.spyOn(LocalPostService, 'readDetails').mockResolvedValue(mockPostDetails),
       editSpy: vi.spyOn(LocalPostService, 'edit').mockResolvedValue(undefined),
       requestSpy: vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined),
+      fileCreateSpy: vi.spyOn(FileApplication, 'commitCreate').mockResolvedValue(undefined),
+      fileDeleteSpy: vi.spyOn(FileApplication, 'commitDelete').mockResolvedValue(undefined),
+      fileDeleteUploadedSpy: vi.spyOn(FileApplication, 'commitDeleteUploaded').mockResolvedValue(undefined),
+      removeKindStreamsSpy: vi.spyOn(LocalPostService, 'removeFromKindStreams').mockResolvedValue(undefined),
     });
 
     it('should edit locally and sync to homeserver', async () => {
@@ -1398,7 +1339,12 @@ describe('Post Application', () => {
       await PostApplication.commitEdit(mockData);
 
       expect(readDetailsSpy).toHaveBeenCalledWith({ postId: mockData.compositePostId });
-      expect(editSpy).toHaveBeenCalledWith({ compositePostId: mockData.compositePostId, content: 'Edited content' });
+      expect(editSpy).toHaveBeenCalledWith({
+        compositePostId: mockData.compositePostId,
+        content: 'Edited content',
+        attachments: null,
+        kind: 'short',
+      });
       expect(requestSpy).toHaveBeenCalledWith({
         method: HttpMethod.PUT,
         url: mockData.postUrl,
@@ -1408,7 +1354,7 @@ describe('Post Application', () => {
 
     it('should rollback local edit when homeserver sync fails', async () => {
       const mockData = createMockEditInput();
-      const { readDetailsSpy, editSpy, requestSpy } = setupEditSpies();
+      const { readDetailsSpy, editSpy, requestSpy, fileDeleteSpy, fileDeleteUploadedSpy } = setupEditSpies();
       requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 401'));
 
       await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('Failed to PUT to homeserver: 401');
@@ -1418,11 +1364,18 @@ describe('Post Application', () => {
       expect(editSpy).toHaveBeenNthCalledWith(1, {
         compositePostId: mockData.compositePostId,
         content: 'Edited content',
+        attachments: null,
+        kind: 'short',
       });
       expect(editSpy).toHaveBeenNthCalledWith(2, {
         compositePostId: mockData.compositePostId,
         content: 'Original content',
+        attachments: null,
+        kind: 'short',
       });
+      // No new file uploads on this edit, so nothing to roll back on the file side
+      expect(fileDeleteSpy).not.toHaveBeenCalled();
+      expect(fileDeleteUploadedSpy).not.toHaveBeenCalled();
     });
 
     it('should propagate original error when edit rollback also fails', async () => {
@@ -1435,6 +1388,204 @@ describe('Post Application', () => {
 
       expect(readDetailsSpy).toHaveBeenCalledWith({ postId: mockData.compositePostId });
       expect(editSpy).toHaveBeenCalledTimes(2);
+    });
+
+    // --- Attachment edits ---
+    describe('with attachment changes', () => {
+      const newFileUri = 'pubky://author/pub/pubky.app/files/new1';
+      const oldFileUri = 'pubky://author/pub/pubky.app/files/old1';
+
+      const originalPostDetails: PostDetailsModelSchema = {
+        id: 'author:post123',
+        content: 'Original content',
+        kind: 'image',
+        uri: 'pubky://author/pub/pubky.app/posts/post123',
+        indexed_at: Date.now(),
+        attachments: [oldFileUri],
+      };
+
+      const createEditInputWithFiles = (): TEditPostInput => {
+        const mockPost = new PubkyAppPost('Edited content', PubkyAppPostKind.Image, undefined, undefined, [newFileUri]);
+        return {
+          compositePostId: 'author:post123',
+          post: mockPost,
+          postUrl: 'pubky://author/pub/pubky.app/posts/post123',
+          fileAttachments: [createMockFileAttachment('new1')],
+        };
+      };
+
+      it('should upload new files before the local edit, and edit locally before the homeserver PUT', async () => {
+        const mockData = createEditInputWithFiles();
+        const { editSpy, requestSpy, fileCreateSpy } = setupEditSpies();
+
+        await PostApplication.commitEdit(mockData);
+
+        expect(fileCreateSpy).toHaveBeenCalledWith({ fileAttachments: mockData.fileAttachments });
+        expect(editSpy).toHaveBeenCalledWith({
+          compositePostId: mockData.compositePostId,
+          content: 'Edited content',
+          attachments: [newFileUri],
+          kind: 'image',
+        });
+        expect(fileCreateSpy).toHaveBeenCalledBefore(editSpy);
+        expect(editSpy).toHaveBeenCalledBefore(requestSpy);
+      });
+
+      it('should rollback local edit with original content/attachments/kind and delete new files when PUT fails', async () => {
+        const mockData = createEditInputWithFiles();
+        const { readDetailsSpy, editSpy, requestSpy, fileDeleteSpy, fileDeleteUploadedSpy } = setupEditSpies();
+        readDetailsSpy.mockResolvedValue(originalPostDetails);
+        requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 500'));
+
+        await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('Failed to PUT to homeserver: 500');
+
+        expect(editSpy).toHaveBeenCalledTimes(2);
+        expect(editSpy).toHaveBeenNthCalledWith(2, {
+          compositePostId: mockData.compositePostId,
+          content: 'Original content',
+          attachments: [oldFileUri],
+          kind: 'image',
+        });
+        // Rollback deletes by the known record + blob URLs, not by record URI
+        expect(fileDeleteUploadedSpy).toHaveBeenCalledWith(mockData.fileAttachments);
+        expect(fileDeleteSpy).not.toHaveBeenCalled();
+      });
+
+      it('should sweep new files and skip the local edit when file upload fails', async () => {
+        const mockData = createEditInputWithFiles();
+        const { editSpy, requestSpy, fileCreateSpy, fileDeleteSpy, fileDeleteUploadedSpy } = setupEditSpies();
+        fileCreateSpy.mockRejectedValue(new Error('File upload failed: quota exceeded'));
+
+        await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('File upload failed: quota exceeded');
+
+        expect(fileDeleteUploadedSpy).toHaveBeenCalledWith(mockData.fileAttachments);
+        expect(fileDeleteSpy).not.toHaveBeenCalled();
+        expect(editSpy).not.toHaveBeenCalled();
+        expect(requestSpy).not.toHaveBeenCalled();
+      });
+
+      it('should propagate the upload error even when the sweep also fails', async () => {
+        const mockData = createEditInputWithFiles();
+        const { editSpy, fileCreateSpy, fileDeleteUploadedSpy } = setupEditSpies();
+        fileCreateSpy.mockRejectedValue(new Error('File upload failed: quota exceeded'));
+        fileDeleteUploadedSpy.mockRejectedValue(new Error('Sweep failed'));
+
+        await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('File upload failed: quota exceeded');
+
+        expect(fileDeleteUploadedSpy).toHaveBeenCalledWith(mockData.fileAttachments);
+        expect(editSpy).not.toHaveBeenCalled();
+      });
+
+      it('should delete uploaded files and skip the PUT when the local edit fails after uploads', async () => {
+        const mockData = createEditInputWithFiles();
+        const { editSpy, requestSpy, fileCreateSpy, fileDeleteSpy, fileDeleteUploadedSpy } = setupEditSpies();
+        editSpy.mockRejectedValue(new Error('Local edit write failed'));
+
+        await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('Local edit write failed');
+
+        expect(fileCreateSpy).toHaveBeenCalledWith({ fileAttachments: mockData.fileAttachments });
+        // Uploads succeeded but the local write failed: sweep them or they orphan
+        expect(fileDeleteUploadedSpy).toHaveBeenCalledWith(mockData.fileAttachments);
+        expect(fileDeleteSpy).not.toHaveBeenCalled();
+        // The PUT must never happen when the optimistic local write failed
+        expect(requestSpy).not.toHaveBeenCalled();
+      });
+
+      it('should rethrow the local edit failure without file cleanup when there are no new uploads', async () => {
+        const mockData = createMockEditInput();
+        const { editSpy, requestSpy, fileDeleteSpy, fileDeleteUploadedSpy } = setupEditSpies();
+        editSpy.mockRejectedValue(new Error('Local edit write failed'));
+
+        await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('Local edit write failed');
+
+        expect(fileDeleteUploadedSpy).not.toHaveBeenCalled();
+        expect(fileDeleteSpy).not.toHaveBeenCalled();
+        expect(requestSpy).not.toHaveBeenCalled();
+      });
+
+      it('should delete only removed homeserver file URIs after a successful PUT', async () => {
+        const mockData: TEditPostInput = {
+          ...createMockEditInput(),
+          removedUris: [oldFileUri, 'https://example.com/external.png'],
+        };
+        const { requestSpy, fileDeleteSpy } = setupEditSpies();
+
+        await PostApplication.commitEdit(mockData);
+
+        expect(fileDeleteSpy).toHaveBeenCalledWith([oldFileUri]);
+        expect(requestSpy).toHaveBeenCalledBefore(fileDeleteSpy);
+      });
+
+      it('should skip removed-attachment cleanup when no removed URI is a homeserver file', async () => {
+        const mockData: TEditPostInput = {
+          ...createMockEditInput(),
+          removedUris: ['https://example.com/external.png'],
+        };
+        const { fileDeleteSpy } = setupEditSpies();
+
+        await PostApplication.commitEdit(mockData);
+
+        expect(fileDeleteSpy).not.toHaveBeenCalled();
+      });
+
+      it('should not fail the edit when removed-attachment cleanup fails', async () => {
+        const mockData: TEditPostInput = {
+          ...createMockEditInput(),
+          removedUris: [oldFileUri],
+        };
+        const { editSpy, fileDeleteSpy } = setupEditSpies();
+        fileDeleteSpy.mockRejectedValue(new Error('cleanup failed'));
+
+        await expect(PostApplication.commitEdit(mockData)).resolves.toBeUndefined();
+
+        expect(fileDeleteSpy).toHaveBeenCalledWith([oldFileUri]);
+        // The local edit sticks; no rollback happens for a cleanup failure
+        expect(editSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('should remove the post from the old kind streams after a kind-changing edit succeeds', async () => {
+        // mockPostDetails.kind is 'short'; the edited envelope is Image
+        const mockData = createEditInputWithFiles();
+        const { requestSpy, removeKindStreamsSpy } = setupEditSpies();
+
+        await PostApplication.commitEdit(mockData);
+
+        expect(removeKindStreamsSpy).toHaveBeenCalledWith({
+          compositePostId: mockData.compositePostId,
+          kind: 'short',
+        });
+        expect(requestSpy).toHaveBeenCalledBefore(removeKindStreamsSpy);
+      });
+
+      it('should not touch kind streams when the kind is unchanged', async () => {
+        const mockData = createMockEditInput(); // Short envelope, 'short' stored kind
+        const { removeKindStreamsSpy } = setupEditSpies();
+
+        await PostApplication.commitEdit(mockData);
+
+        expect(removeKindStreamsSpy).not.toHaveBeenCalled();
+      });
+
+      it('should not touch kind streams when the PUT fails', async () => {
+        const mockData = createEditInputWithFiles();
+        const { requestSpy, removeKindStreamsSpy } = setupEditSpies();
+        requestSpy.mockRejectedValue(new Error('Failed to PUT to homeserver: 500'));
+
+        await expect(PostApplication.commitEdit(mockData)).rejects.toThrow('Failed to PUT to homeserver: 500');
+
+        expect(removeKindStreamsSpy).not.toHaveBeenCalled();
+      });
+
+      it('should not fail the edit when old-kind stream cleanup fails', async () => {
+        const mockData = createEditInputWithFiles();
+        const { editSpy, removeKindStreamsSpy } = setupEditSpies();
+        removeKindStreamsSpy.mockRejectedValue(new Error('stream cleanup failed'));
+
+        await expect(PostApplication.commitEdit(mockData)).resolves.toBeUndefined();
+
+        // The local edit sticks; no rollback happens for a cleanup failure
+        expect(editSpy).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

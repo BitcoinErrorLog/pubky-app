@@ -69,6 +69,9 @@ vi.mock('@synonymdev/pubky', () => {
     AuthFlowKind: {
       signin: () => 'signin-kind',
     },
+    AuthFlow: {
+      start: (...args: unknown[]) => mockState.startAuthFlow(...args),
+    },
     AuthToken: {
       fromBytes: (...args: unknown[]) => mockState.authTokenFromBytes(...args),
     },
@@ -219,9 +222,8 @@ describe('single-approval ceremony at the transport seams', () => {
     // the service's memory, not in its localStorage mirror, not in the
     // commerce store.
     expect(fetch).not.toHaveBeenCalled();
-    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
-      '@/services/marketplace/marketplace-session'
-    );
+    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } =
+      await import('@/services/marketplace/marketplace-session');
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
     expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
     const { useCommerceStore } = await import('@/stores/commerce/commerce.store');
@@ -231,7 +233,7 @@ describe('single-approval ceremony at the transport seams', () => {
     expect(signout).toHaveBeenCalledTimes(1);
   });
 
-  it('step-up approved by a different identity keeps the SIGNED-IN user\'s resting marketplace bearer', async () => {
+  it("step-up approved by a different identity keeps the SIGNED-IN user's resting marketplace bearer", async () => {
     // The device is signed in as A with A's own valid bearer at rest; the
     // signer approves the step-up as B (PUBKY). The gate runs BEFORE the
     // marketplace POST, so the only bearer at rest is A's — a mistaken scan
@@ -259,9 +261,8 @@ describe('single-approval ceremony at the transport seams', () => {
 
     // Seed A's bearer the way a restore leaves it: real service memory +
     // localStorage mirror + commerce store.
-    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
-      '@/services/marketplace/marketplace-session'
-    );
+    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } =
+      await import('@/services/marketplace/marketplace-session');
     window.localStorage.setItem(
       MARKETPLACE_SESSION_STORAGE_KEY,
       JSON.stringify({
@@ -302,9 +303,8 @@ describe('single-approval ceremony at the transport seams', () => {
     const strangerPubky = 'c'.repeat(52);
     mockState.currentUserPubky = signedInPubky;
 
-    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
-      '@/services/marketplace/marketplace-session'
-    );
+    const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } =
+      await import('@/services/marketplace/marketplace-session');
     window.localStorage.setItem(
       MARKETPLACE_SESSION_STORAGE_KEY,
       JSON.stringify({

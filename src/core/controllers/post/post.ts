@@ -1,4 +1,4 @@
-import { listingUriBuilder, postUriBuilder } from 'pubky-app-specs';
+import { listingUriBuilder, postUriBuilder, PubkyAppPostKind } from 'pubky-app-specs';
 import { FileApplication } from '@/application/file/file';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { PostApplication } from '@/application/post/post';
@@ -18,12 +18,14 @@ import type {
   TUpdateCollectionItemParams,
 } from '@/controllers/post/post.types';
 import type { TTagEventParams } from '@/controllers/tag/tag.types';
+import { captureViewerSession } from '@/controllers/tag/tag-cache.utils';
 import { ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { toAppError } from '@/libs/error/error.utils';
+import { isAppError, requiresLogin, toAppError } from '@/libs/error/error.utils';
 import { isHomeserverFileUri } from '@/libs/file/homeserverFileUri';
 import { Logger } from '@/libs/logger/logger';
+import { isAuthorFileUri } from '@/libs/post/articleInlineImages';
 import { isPostDeleted } from '@/libs/utils/utils';
 import { buildCompositeId, parseCompositeId } from '@/models/models.utils';
 import type { CollectionPost, TAuthoredCollectionsParams } from '@/models/post/collection/collectionPost.types';
@@ -33,7 +35,11 @@ import type { PostRelationshipsModelSchema } from '@/models/post/relationships/p
 import type { TagCollectionModelSchema } from '@/models/shared/tag/tag.schema';
 import type { TFileAttachmentResult } from '@/pipes/file/file.types';
 import { CollectionPostContent } from '@/pipes/post/post.collection';
-import { inferPostKindForCreate, resolveTagTargetCompositeIdForPostCreate } from '@/pipes/post/post.kind';
+import {
+  inferPostKindForCreate,
+  inferPostKindForEdit,
+  resolveTagTargetCompositeIdForPostCreate,
+} from '@/pipes/post/post.kind';
 import { PostNormalizer } from '@/pipes/post/post.normalizer';
 import { PostValidators } from '@/pipes/post/post.validators';
 import { TagNormalizer } from '@/pipes/tag/tag.normalizer';
@@ -76,12 +82,6 @@ export class PostController {
     return await PostApplication.getCounts({ compositeId });
   }
 
-  /**
-   * Read post tags for a specific post from local database
-   * @param params - Parameters object
-   * @param params.compositeId - Composite post ID in format "authorId:postId"
-   * @returns Post tags
-   */
   static async getTags({ compositeId }: TCompositeId): Promise<TagCollectionModelSchema<string>[]> {
     return await PostApplication.getTags({ compositeId });
   }
@@ -111,11 +111,11 @@ export class PostController {
    * Persists details, counts, relationships, tags, and author.
    * @param params - Parameters object
    * @param params.compositeId - Composite post ID in format "authorId:postId"
-   * @param params.viewerId - Optional viewer ID for relationship data
+   * @param params.viewerId - Viewer ID for relationship data; defaults to the signed-in user
    * @returns Post details or null if not found
    */
   static async getOrFetch(params: TGetOrFetchPostParams): Promise<PostDetailsModelSchema | null> {
-    return await PostApplication.getOrFetch(params);
+    return await PostApplication.getOrFetch({ ...this.withViewer(params), isCurrent: captureViewerSession() });
   }
 
   /**
@@ -123,11 +123,19 @@ export class PostController {
    * Use instead of `getOrFetch` when the caller already knows the post is not cached.
    * @param params - Parameters object
    * @param params.compositeId - Composite post ID in format "authorId:postId"
-   * @param params.viewerId - Optional viewer ID for relationship data
+   * @param params.viewerId - Viewer ID for relationship data; defaults to the signed-in user
    * @returns Post details or null if not found
    */
   static async fetch(params: TGetOrFetchPostParams): Promise<PostDetailsModelSchema | null> {
-    return await PostApplication.fetch(params);
+    return await PostApplication.fetch({ ...this.withViewer(params), isCurrent: captureViewerSession() });
+  }
+
+  /**
+   * Fills in the signed-in viewer when the caller did not supply one, so the post author and
+   * post relationships are persisted relative to the current user (#1803).
+   */
+  private static withViewer(params: TGetOrFetchPostParams): TGetOrFetchPostParams {
+    return { ...params, viewerId: params.viewerId ?? useAuthStore.getState().currentUserPubky };
   }
 
   static async getAuthoredCollections(params: TAuthoredCollectionsParams): Promise<CollectionPost[] | null> {
@@ -135,19 +143,7 @@ export class PostController {
   }
 
   static async fetchAuthoredCollections(params: TAuthoredCollectionsParams): Promise<CollectionPost[] | null> {
-    return await PostApplication.fetchAuthoredCollections(params);
-  }
-
-  /**
-   * Fetch more post tags from Nexus with pagination
-   * @param params - Parameters object
-   * @param params.compositeId - Composite post ID in format "authorId:postId"
-   * @param params.skip - Number of tags to skip
-   * @param params.limit - Maximum number of tags to return
-   * @returns Array of tags from Nexus
-   */
-  static async fetchTags({ compositeId, skip, limit, viewerId }: TFetchMorePostTagsParams): Promise<NexusTag[]> {
-    return await PostApplication.fetchTags({ compositeId, skip, limit, viewerId });
+    return await PostApplication.fetchAuthoredCollections({ ...params, isCurrent: captureViewerSession() });
   }
 
   /**
@@ -157,6 +153,10 @@ export class PostController {
    */
   static async fetchTaggers(params: TFetchPostTaggersParams): Promise<NexusTaggers> {
     return await PostApplication.fetchTaggers(params);
+  }
+
+  static async fetchTags(params: TFetchMorePostTagsParams): Promise<NexusTag[]> {
+    return await PostApplication.fetchTags(params);
   }
 
   /**
@@ -177,9 +177,11 @@ export class PostController {
     isArticle,
     tags,
     attachments,
+    attachmentUris,
     parentPostId,
     originalPostId,
   }: TCreatePostParams): Promise<string> {
+    const isCurrent = captureViewerSession();
     let parentUri: string | undefined = undefined;
     let repostedUri: string | undefined = undefined;
     let tagList: TCreateTagInput[] = [];
@@ -190,6 +192,21 @@ export class PostController {
     }
     if (originalPostId) {
       repostedUri = await PostValidators.validatePostId({ postId: originalPostId, message: 'Original post' });
+    }
+
+    // Ownership invariant: pre-uploaded attachment URIs must be homeserver
+    // files owned by the author. These URIs are not uploaded or rolled back
+    // here — the composer session that uploaded them owns their cleanup.
+    if (attachmentUris && !attachmentUris.every((uri) => isAuthorFileUri(uri, authorId))) {
+      throw Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        'Attachment URIs must be homeserver files owned by the author',
+        {
+          service: ErrorService.Local,
+          operation: 'commitCreate',
+          context: { authorId },
+        },
+      );
     }
 
     const postKind = inferPostKindForCreate({ content, attachments, isArticle });
@@ -204,6 +221,7 @@ export class PostController {
         parentUri,
         embed: repostedUri,
         attachments: fileAttachments,
+        attachmentUris,
       },
       authorId,
     );
@@ -237,6 +255,7 @@ export class PostController {
       postUrl: meta.url,
       fileAttachments,
       tags: tagList,
+      isCurrent,
     });
 
     return compositePostId;
@@ -260,6 +279,11 @@ export class PostController {
         await FileApplication.commitCreate({ fileAttachments: [fileAttachment] });
         coverImageUrl = fileAttachment.fileResult.meta.url;
       } catch (error) {
+        // Keep an expired-session failure classified instead of wrapping it as
+        // validation, so the caller can ask for a sign-in rather than reporting a
+        // retryable cover-upload failure (issue #2555).
+        if (isAppError(error) && requiresLogin(error)) throw error;
+
         throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Failed to upload collection cover image', {
           service: ErrorService.Local,
           operation: 'commitCreateCollection',
@@ -364,6 +388,10 @@ export class PostController {
         coverImageUrl = fileAttachment.fileResult.meta.url;
         uploadedCoverUri = coverImageUrl;
       } catch (error) {
+        // Same as `commitCreateCollection`: an expired session keeps its auth
+        // classification so the caller can prompt for sign-in (issue #2555).
+        if (isAppError(error) && requiresLogin(error)) throw error;
+
         throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Failed to upload collection cover image', {
           service: ErrorService.Local,
           operation: 'commitEditCollection',
@@ -532,11 +560,177 @@ export class PostController {
     await PostApplication.commitDelete({ compositePostId });
   }
 
-  static async commitEdit({ compositePostId, content }: TEditPostParams) {
+  /**
+   * Edit a post's content and, optionally, its attachments.
+   *
+   * Without `attachments` this is a content-only edit. With `attachments`,
+   * `kept` URIs are validated against the post's current attachments, `added`
+   * files are normalized here (no IO) and uploaded by the application layer,
+   * current attachments not in `kept` are deleted best-effort after a
+   * successful edit, and the post kind is recomputed to match the resulting
+   * attachment set (articles and collections keep their kind).
+   */
+  static async commitEdit({ compositePostId, content, attachments }: TEditPostParams) {
     const currentUserPubky = useAuthStore.getState().selectCurrentUserPubky();
-    const { post, meta } = await PostNormalizer.toEdit({ compositePostId, content, currentUserPubky });
 
-    await PostApplication.commitEdit({ compositePostId, post, postUrl: meta.url });
+    if (!attachments) {
+      const { post, meta } = await PostNormalizer.toEdit({ compositePostId, content, currentUserPubky });
+
+      await PostApplication.commitEdit({ compositePostId, post, postUrl: meta.url });
+      return;
+    }
+
+    // Reject non-authors up front, before the CPU-heavy file sanitization below
+    // (`PostNormalizer.toEdit` only enforces the author check later). Mirrors
+    // the explicit guard in `commitEditCollection`.
+    const { pubky: authorId } = parseCompositeId(compositePostId);
+    if (authorId !== currentUserPubky) {
+      throw Err.client(ClientErrorCode.NOT_FOUND, 'Current user is not the author of this post', {
+        service: ErrorService.Local,
+        operation: 'commitEdit',
+        context: { compositePostId, currentUserPubky },
+      });
+    }
+
+    const current = await PostApplication.getDetails({ compositeId: compositePostId });
+    if (!current || isPostDeleted(current.content)) {
+      throw Err.client(ClientErrorCode.NOT_FOUND, 'Post not found', {
+        service: ErrorService.Local,
+        operation: 'commitEdit',
+        context: { compositePostId },
+      });
+    }
+
+    const { original, kept, added, addedUris, nextOrder } = attachments;
+    const keptSet = new Set(kept);
+    if (keptSet.size !== kept.length || !kept.every((uri) => original.includes(uri))) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Kept attachments must be original post attachments', {
+        service: ErrorService.Local,
+        operation: 'commitEdit',
+        context: { compositePostId },
+      });
+    }
+
+    // Article inline-image path: every attachment is an already-uploaded URI
+    // and `nextOrder` is the exact slot-ordered list to persist.
+    if (nextOrder) {
+      if (added.length > 0) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'nextOrder edits must not include File uploads', {
+          service: ErrorService.Local,
+          operation: 'commitEdit',
+          context: { compositePostId },
+        });
+      }
+      if (addedUris && !addedUris.every((uri) => isAuthorFileUri(uri, authorId))) {
+        throw Err.validation(
+          ValidationErrorCode.INVALID_INPUT,
+          'Added attachment URIs must be homeserver files owned by the author',
+          {
+            service: ErrorService.Local,
+            operation: 'commitEdit',
+            context: { compositePostId },
+          },
+        );
+      }
+      const allowedUris = new Set([...kept, ...(addedUris ?? [])]);
+      if (!nextOrder.every((uri) => allowedUris.has(uri))) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'nextOrder entries must come from kept or addedUris', {
+          service: ErrorService.Local,
+          operation: 'commitEdit',
+          context: { compositePostId },
+        });
+      }
+
+      // Removals are diffed against the seeded snapshot (`original`), never
+      // the live row — only files the user actually saw and removed get
+      // deleted. Session uploads dropped before saving are not our concern
+      // here; the composer session cleans those up itself.
+      const nextOrderSet = new Set(nextOrder);
+      const orderRemovedUris = original.filter((uri) => !nextOrderSet.has(uri));
+
+      const kind = await this.inferKindForEdit({ content, currentKind: current.kind, kept, added: [] });
+
+      const { post, meta } = await PostNormalizer.toEdit({
+        compositePostId,
+        content,
+        currentUserPubky,
+        attachments: nextOrder.length > 0 ? nextOrder : null,
+        kind,
+      });
+
+      await PostApplication.commitEdit({
+        compositePostId,
+        post,
+        postUrl: meta.url,
+        removedUris: orderRemovedUris.length > 0 ? orderRemovedUris : undefined,
+      });
+      return;
+    }
+
+    // Removals are diffed against the seeded snapshot (`original`), never the
+    // live row — only files the user actually saw and removed get deleted.
+    const removedUris = original.filter((uri) => !keptSet.has(uri));
+
+    const fileAttachments =
+      added.length > 0 ? await this.normalizeFileAttachments({ attachments: added, pubky: authorId }) : [];
+    const nextUris = [...kept, ...fileAttachments.map((f) => f.fileResult.meta.url)];
+
+    const kind = await this.inferKindForEdit({ content, currentKind: current.kind, kept, added });
+
+    const { post, meta } = await PostNormalizer.toEdit({
+      compositePostId,
+      content,
+      currentUserPubky,
+      attachments: nextUris.length > 0 ? nextUris : null,
+      kind,
+    });
+
+    await PostApplication.commitEdit({
+      compositePostId,
+      post,
+      postUrl: meta.url,
+      fileAttachments: fileAttachments.length > 0 ? fileAttachments : undefined,
+      removedUris: removedUris.length > 0 ? removedUris : undefined,
+    });
+  }
+
+  /**
+   * Kind for an edited post whose attachment set changed. Articles and
+   * collections keep their kind. Kept attachments resolve their content types
+   * from local file metadata; if any kept attachment has no local row its type
+   * is unknown, so the current kind is preserved rather than guessed.
+   */
+  private static async inferKindForEdit({
+    content,
+    currentKind,
+    kept,
+    added,
+  }: {
+    content: string;
+    currentKind: string;
+    kept: string[];
+    added: File[];
+  }): Promise<PubkyAppPostKind> {
+    if (currentKind === 'long' || currentKind === 'collection') {
+      return PostNormalizer.mapKindToEnum(currentKind);
+    }
+
+    let keptContentTypes: string[] = [];
+    if (kept.length > 0) {
+      const metadata = await FileApplication.getMetadata({ fileAttachments: kept });
+      const typeByUri = new Map(metadata.map((file) => [file.uri, file.content_type]));
+      const resolvedTypes = kept.map((uri) => typeByUri.get(uri));
+      if (resolvedTypes.some((type) => !type)) {
+        return PostNormalizer.mapKindToEnum(currentKind);
+      }
+      keptContentTypes = resolvedTypes as string[];
+    }
+
+    return inferPostKindForEdit({
+      content,
+      attachmentContentTypes: [...keptContentTypes, ...added.map((file) => file.type)],
+      currentKind,
+    });
   }
 
   /**

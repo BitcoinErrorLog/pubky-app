@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getModerationId } from '@/config/moderation';
+import { USER_TAGS_PER_PAGE } from '@/config/tags';
 import { AppError } from '@/libs/error/error';
-import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import type { Pubky } from '@/models/models.types';
@@ -11,26 +11,23 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalFollowService } from '@/services/local/follow/follow';
 import { LocalProfileService } from '@/services/local/profile/profile';
 import { LocalStreamUsersService } from '@/services/local/stream/users/users';
+import { LocalTagCacheService } from '@/services/local/tag/tag-cache';
+import { LocalUserTagService } from '@/services/local/tag/user/tag.user';
 import { LocalUserService } from '@/services/local/user/user';
-import type {
-  NexusTag,
-  NexusTaggers,
-  NexusUser,
-  NexusUserCounts,
-  NexusUserDetails,
+import {
+  NexusSocialGraphStatus,
+  type NexusTaggers,
+  type NexusUser,
+  type NexusUserCounts,
+  type NexusUserDetails,
 } from '@/services/nexus/nexus.types';
 import { NexusUserStreamService } from '@/services/nexus/stream/users/userStream';
 import { NexusUserService } from '@/services/nexus/user/user';
 import { asInvalid, asOpaque } from '@/test-utils/type-assertions';
 import { UserApplication } from './user';
 
-vi.mock('@/config/moderation', () => ({ getModerationId: vi.fn() }));
-
-const getModerationIdMock = vi.mocked(getModerationId);
-
 afterEach(() => {
   vi.restoreAllMocks();
-  getModerationIdMock.mockReset();
 });
 
 describe('UserApplication.commitFollow', () => {
@@ -50,10 +47,9 @@ describe('UserApplication.commitFollow', () => {
       followJson,
       follower,
       followee,
-      activeStreamId: undefined,
     });
 
-    expect(createSpy).toHaveBeenCalledWith({ follower, followee, activeStreamId: undefined });
+    expect(createSpy).toHaveBeenCalledWith({ follower, followee });
     expect(deleteSpy).not.toHaveBeenCalled();
     expect(requestSpy).toHaveBeenCalledWith({ method: HttpMethod.PUT, url: followUrl, bodyJson: followJson });
   });
@@ -69,84 +65,11 @@ describe('UserApplication.commitFollow', () => {
       followJson,
       follower,
       followee,
-      activeStreamId: undefined,
     });
 
-    expect(deleteSpy).toHaveBeenCalledWith({ follower, followee, activeStreamId: undefined });
+    expect(deleteSpy).toHaveBeenCalledWith({ follower, followee });
     expect(createSpy).not.toHaveBeenCalled();
     expect(requestSpy).toHaveBeenCalledWith({ method: HttpMethod.DELETE, url: followUrl, bodyJson: followJson });
-  });
-
-  it('does not write a marker for an ordinary unfollow', async () => {
-    getModerationIdMock.mockReturnValue('another-followee' as Pubky);
-    const deleteSpy = vi.spyOn(LocalFollowService, 'delete').mockResolvedValue(undefined);
-    const requestSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
-
-    await UserApplication.commitFollow({
-      eventType: HttpMethod.DELETE,
-      followUrl,
-      followJson,
-      follower,
-      followee,
-      activeStreamId: undefined,
-    });
-
-    expect(deleteSpy).toHaveBeenCalledOnce();
-    expect(requestSpy).toHaveBeenCalledOnce();
-    expect(requestSpy).toHaveBeenCalledWith({ method: HttpMethod.DELETE, url: followUrl, bodyJson: followJson });
-  });
-
-  it('writes the durable marker before deleting the moderation-bot follow', async () => {
-    const moderationId = followee;
-    const markerUrl = `pubky://${follower}/pub/pubky.app/migrations/moderation-follow/v1/${moderationId}.json`;
-    const events: string[] = [];
-    getModerationIdMock.mockReturnValue(moderationId);
-    vi.spyOn(LocalFollowService, 'delete').mockImplementation(() => {
-      events.push('local-delete');
-      return Promise.resolve();
-    });
-    const requestSpy = vi.spyOn(HomeserverService, 'request').mockImplementation(({ method, url }) => {
-      events.push(`${method}:${url}`);
-      return Promise.resolve(undefined);
-    });
-
-    await UserApplication.commitFollow({
-      eventType: HttpMethod.DELETE,
-      followUrl,
-      followJson,
-      follower,
-      followee,
-      activeStreamId: undefined,
-    });
-
-    expect(events).toEqual([`${HttpMethod.PUT}:${markerUrl}`, 'local-delete', `${HttpMethod.DELETE}:${followUrl}`]);
-    expect(requestSpy).toHaveBeenNthCalledWith(1, {
-      method: HttpMethod.PUT,
-      url: markerUrl,
-      bodyJson: { moderationId, completedAt: expect.any(Number) },
-    });
-  });
-
-  it('leaves follow state unchanged when the moderation opt-out marker fails', async () => {
-    getModerationIdMock.mockReturnValue(followee);
-    const failure = new Error('marker-fail');
-    const deleteSpy = vi.spyOn(LocalFollowService, 'delete').mockResolvedValue(undefined);
-    const requestSpy = vi.spyOn(HomeserverService, 'request').mockRejectedValueOnce(failure);
-
-    await expect(
-      UserApplication.commitFollow({
-        eventType: HttpMethod.DELETE,
-        followUrl,
-        followJson,
-        follower,
-        followee,
-        activeStreamId: undefined,
-      }),
-    ).rejects.toBe(failure);
-
-    expect(deleteSpy).not.toHaveBeenCalled();
-    expect(requestSpy).toHaveBeenCalledOnce();
-    expect(requestSpy).not.toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.DELETE }));
   });
 
   it('should not update local state for non-mutate methods but still call homeserver', async () => {
@@ -160,7 +83,6 @@ describe('UserApplication.commitFollow', () => {
       followJson,
       follower,
       followee,
-      activeStreamId: undefined,
     });
 
     expect(createSpy).not.toHaveBeenCalled();
@@ -179,7 +101,6 @@ describe('UserApplication.commitFollow', () => {
         followJson,
         follower,
         followee,
-        activeStreamId: undefined,
       }),
     ).rejects.toThrow('local-fail');
 
@@ -198,7 +119,6 @@ describe('UserApplication.commitFollow', () => {
         followJson,
         follower,
         followee,
-        activeStreamId: undefined,
       }),
     ).rejects.toThrow('local-delete-fail');
 
@@ -217,7 +137,6 @@ describe('UserApplication.commitFollow', () => {
         followJson,
         follower,
         followee,
-        activeStreamId: undefined,
       }),
     ).rejects.toThrow('homeserver-fail');
 
@@ -228,8 +147,8 @@ describe('UserApplication.commitFollow', () => {
 describe('UserApplication.ensureModerationFollow', () => {
   const follower = '5a1diz4pghi47ywdfyfzpit5f3bdomzt4pugpbmq4rngdd4iub4y' as Pubky;
   const moderationId = 'euwmq57zefw5ynnkhh37b3gcmhs7g3cptdbw1doaxj1pbmzp3wro' as Pubky;
+  const previousModerationId = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Pubky;
   const followUrl = `pubky://${follower}/pub/pubky.app/follows/${moderationId}`;
-  const markerUrl = `pubky://${follower}/pub/pubky.app/migrations/moderation-follow/v1/${moderationId}.json`;
   const followJson = { created_at: 1234 };
 
   const mockFollowNormalizer = () => {
@@ -283,41 +202,44 @@ describe('UserApplication.ensureModerationFollow', () => {
     expect(exists).not.toHaveBeenCalled();
   });
 
-  it('honors a completed marker and preserves an explicit unfollow', async () => {
+  it('skips all work when settings already record the current moderation bot', async () => {
     const normalize = vi.spyOn(FollowNormalizer, 'to');
-    const exists = vi.spyOn(HomeserverService, 'exists').mockResolvedValue(true);
+    const exists = vi.spyOn(HomeserverService, 'exists');
     const request = vi.spyOn(HomeserverService, 'request');
-    const localCreate = vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
+    const localCreate = vi.spyOn(LocalFollowService, 'create');
 
-    await UserApplication.ensureModerationFollow({ follower, moderationId });
+    const result = await UserApplication.ensureModerationFollow({
+      follower,
+      moderationId,
+      moderationBot: moderationId,
+    });
 
-    expect(exists).toHaveBeenCalledOnce();
-    expect(exists).toHaveBeenCalledWith(markerUrl);
+    expect(result).toBeUndefined();
+    expect(exists).not.toHaveBeenCalled();
     expect(normalize).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
     expect(localCreate).not.toHaveBeenCalled();
   });
 
-  it('writes only the marker when the canonical follow already exists', async () => {
-    mockFollowNormalizer();
-    const localCreate = vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
-    const exists = vi.spyOn(HomeserverService, 'exists').mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    const request = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
+  it.each([undefined, previousModerationId])(
+    'returns the configured bot when the canonical follow already exists for state %s',
+    async (moderationBot) => {
+      mockFollowNormalizer();
+      const localCreate = vi.spyOn(LocalFollowService, 'create');
+      const exists = vi.spyOn(HomeserverService, 'exists').mockResolvedValue(true);
+      const request = vi.spyOn(HomeserverService, 'request');
 
-    await UserApplication.ensureModerationFollow({ follower, moderationId });
+      const result = await UserApplication.ensureModerationFollow({ follower, moderationId, moderationBot });
 
-    expect(exists).toHaveBeenNthCalledWith(1, markerUrl);
-    expect(exists).toHaveBeenNthCalledWith(2, followUrl);
-    expect(request).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenCalledWith({
-      method: HttpMethod.PUT,
-      url: markerUrl,
-      bodyJson: { moderationId, completedAt: expect.any(Number) },
-    });
-    expect(localCreate).not.toHaveBeenCalled();
-  });
+      expect(result).toBe(moderationId);
+      expect(exists).toHaveBeenCalledOnce();
+      expect(exists).toHaveBeenCalledWith(followUrl);
+      expect(request).not.toHaveBeenCalled();
+      expect(localCreate).not.toHaveBeenCalled();
+    },
+  );
 
-  it('creates the local follow, writes it remotely, then writes the marker', async () => {
+  it('creates the local and remote follow, then returns the configured bot', async () => {
     const events: string[] = [];
     const { toJson } = mockFollowNormalizer();
     const localCreate = vi.spyOn(LocalFollowService, 'create').mockImplementation(() => {
@@ -333,57 +255,38 @@ describe('UserApplication.ensureModerationFollow', () => {
       return Promise.resolve(undefined);
     });
 
-    await UserApplication.ensureModerationFollow({ follower, moderationId });
+    const result = await UserApplication.ensureModerationFollow({ follower, moderationId });
 
-    expect(events).toEqual([
-      `${HttpMethod.GET}:${markerUrl}`,
-      `${HttpMethod.GET}:${followUrl}`,
-      'local-follow',
-      `${HttpMethod.PUT}:${followUrl}`,
-      `${HttpMethod.PUT}:${markerUrl}`,
-    ]);
-    expect(localCreate).toHaveBeenCalledWith({ follower, followee: moderationId, activeStreamId: undefined });
-    expect(exists).toHaveBeenCalledTimes(2);
+    expect(events).toEqual([`${HttpMethod.GET}:${followUrl}`, 'local-follow', `${HttpMethod.PUT}:${followUrl}`]);
+    expect(result).toBe(moderationId);
+    expect(localCreate).toHaveBeenCalledWith({ follower, followee: moderationId });
+    expect(exists).toHaveBeenCalledOnce();
     expect(toJson).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenNthCalledWith(1, {
+    expect(request).toHaveBeenCalledWith({
       method: HttpMethod.PUT,
       url: followUrl,
       bodyJson: followJson,
     });
   });
 
-  it('stops after the marker probe when the bootstrap task is cancelled', async () => {
+  it('stops after the follow probe when the bootstrap task is cancelled', async () => {
     const controller = new AbortController();
-    const normalize = vi.spyOn(FollowNormalizer, 'to');
+    mockFollowNormalizer();
     const exists = vi.spyOn(HomeserverService, 'exists').mockImplementation(() => {
       controller.abort();
       return Promise.resolve(false);
     });
-    const request = vi.spyOn(HomeserverService, 'request');
-
-    await UserApplication.ensureModerationFollow({ follower, moderationId, signal: controller.signal });
-
-    expect(exists).toHaveBeenCalledOnce();
-    expect(normalize).not.toHaveBeenCalled();
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it('stops after the follow probe when the bootstrap task is cancelled', async () => {
-    const controller = new AbortController();
-    mockFollowNormalizer();
-    const exists = vi
-      .spyOn(HomeserverService, 'exists')
-      .mockResolvedValueOnce(false)
-      .mockImplementationOnce(() => {
-        controller.abort();
-        return Promise.resolve(false);
-      });
     const localCreate = vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
     const request = vi.spyOn(HomeserverService, 'request');
 
-    await UserApplication.ensureModerationFollow({ follower, moderationId, signal: controller.signal });
+    const result = await UserApplication.ensureModerationFollow({
+      follower,
+      moderationId,
+      signal: controller.signal,
+    });
 
-    expect(exists).toHaveBeenCalledTimes(2);
+    expect(result).toBeUndefined();
+    expect(exists).toHaveBeenCalledOnce();
     expect(localCreate).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
   });
@@ -404,7 +307,7 @@ describe('UserApplication.ensureModerationFollow', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it('stops before the marker when cancelled after the remote follow write and retries safely', async () => {
+  it('does not return processed state when cancelled after the remote follow write and retries safely', async () => {
     const controller = new AbortController();
     mockFollowNormalizer();
     vi.spyOn(HomeserverService, 'exists').mockResolvedValue(false);
@@ -414,22 +317,23 @@ describe('UserApplication.ensureModerationFollow', () => {
       return Promise.resolve(undefined);
     });
 
-    await UserApplication.ensureModerationFollow({ follower, moderationId, signal: controller.signal });
+    const cancelledResult = await UserApplication.ensureModerationFollow({
+      follower,
+      moderationId,
+      signal: controller.signal,
+    });
 
+    expect(cancelledResult).toBeUndefined();
     expect(request).toHaveBeenCalledOnce();
     expect(request).toHaveBeenCalledWith({ method: HttpMethod.PUT, url: followUrl, bodyJson: followJson });
 
-    vi.mocked(HomeserverService.exists).mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.mocked(HomeserverService.exists).mockReset().mockResolvedValueOnce(true);
     request.mockReset().mockResolvedValue(undefined);
 
-    await UserApplication.ensureModerationFollow({ follower, moderationId });
+    const retryResult = await UserApplication.ensureModerationFollow({ follower, moderationId });
 
-    expect(request).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenCalledWith({
-      method: HttpMethod.PUT,
-      url: markerUrl,
-      bodyJson: { moderationId, completedAt: expect.any(Number) },
-    });
+    expect(retryResult).toBe(moderationId);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('rejects a normalized follow resource owned by a different account', async () => {
@@ -450,32 +354,10 @@ describe('UserApplication.ensureModerationFollow', () => {
       code: ValidationErrorCode.INVALID_INPUT,
     });
 
-    expect(exists).toHaveBeenCalledOnce();
+    expect(exists).not.toHaveBeenCalled();
     expect(localCreate).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
     expect(toJson).not.toHaveBeenCalled();
-  });
-
-  it('aborts without writes when the marker read fails ambiguously', async () => {
-    const normalize = vi.spyOn(FollowNormalizer, 'to');
-    const failure = new AppError({
-      category: ErrorCategory.Client,
-      code: ClientErrorCode.BAD_REQUEST,
-      message: 'Unexpected marker response',
-      service: ErrorService.Homeserver,
-      operation: 'readMarker',
-      context: { statusCode: HttpStatusCode.BAD_REQUEST },
-    });
-    const exists = vi.spyOn(HomeserverService, 'exists').mockRejectedValue(failure);
-    const request = vi.spyOn(HomeserverService, 'request');
-    const localCreate = vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
-
-    await expect(UserApplication.ensureModerationFollow({ follower, moderationId })).rejects.toBe(failure);
-
-    expect(exists).toHaveBeenCalledOnce();
-    expect(normalize).not.toHaveBeenCalled();
-    expect(request).not.toHaveBeenCalled();
-    expect(localCreate).not.toHaveBeenCalled();
   });
 
   it('aborts without writes when the follow read fails ambiguously', async () => {
@@ -488,13 +370,13 @@ describe('UserApplication.ensureModerationFollow', () => {
       operation: 'readFollow',
       context: { statusCode: HttpStatusCode.SERVICE_UNAVAILABLE },
     });
-    const exists = vi.spyOn(HomeserverService, 'exists').mockResolvedValueOnce(false).mockRejectedValueOnce(failure);
+    const exists = vi.spyOn(HomeserverService, 'exists').mockRejectedValueOnce(failure);
     const request = vi.spyOn(HomeserverService, 'request');
     const localCreate = vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
 
     await expect(UserApplication.ensureModerationFollow({ follower, moderationId })).rejects.toBe(failure);
 
-    expect(exists).toHaveBeenCalledTimes(2);
+    expect(exists).toHaveBeenCalledOnce();
     expect(request).not.toHaveBeenCalled();
     expect(localCreate).not.toHaveBeenCalled();
   });
@@ -508,11 +390,11 @@ describe('UserApplication.ensureModerationFollow', () => {
 
     await expect(UserApplication.ensureModerationFollow({ follower, moderationId })).rejects.toBe(failure);
 
-    expect(exists).toHaveBeenCalledTimes(2);
+    expect(exists).toHaveBeenCalledOnce();
     expect(request).not.toHaveBeenCalled();
   });
 
-  it('does not write the marker when the homeserver follow write fails', async () => {
+  it('propagates a homeserver follow write failure without returning processed state', async () => {
     mockFollowNormalizer();
     const failure = new Error('follow write failed');
     vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
@@ -522,128 +404,51 @@ describe('UserApplication.ensureModerationFollow', () => {
     await expect(UserApplication.ensureModerationFollow({ follower, moderationId })).rejects.toBe(failure);
 
     expect(request).toHaveBeenCalledOnce();
-    expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.PUT, url: markerUrl }));
-  });
-
-  it('retries only the marker after a marker-write failure', async () => {
-    mockFollowNormalizer();
-    const failure = new Error('marker write failed');
-    const localCreate = vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
-    const exists = vi.spyOn(HomeserverService, 'exists').mockResolvedValue(false);
-    const request = vi
-      .spyOn(HomeserverService, 'request')
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(failure);
-
-    await expect(UserApplication.ensureModerationFollow({ follower, moderationId })).rejects.toBe(failure);
-
-    exists.mockReset();
-    exists.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    request.mockReset();
-    request.mockResolvedValueOnce(undefined);
-    await UserApplication.ensureModerationFollow({ follower, moderationId });
-
-    expect(localCreate).toHaveBeenCalledOnce();
-    expect(exists).toHaveBeenNthCalledWith(1, markerUrl);
-    expect(exists).toHaveBeenNthCalledWith(2, followUrl);
-    expect(request).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.PUT, url: markerUrl }));
-  });
-
-  it('does not re-follow when a manual unfollow records the marker after migration marker failure', async () => {
-    getModerationIdMock.mockReturnValue(moderationId);
-    mockFollowNormalizer();
-    let markerExists = false;
-    let followExists = false;
-    let failFirstMarker = true;
-    const exists = vi.spyOn(HomeserverService, 'exists').mockImplementation((url) => {
-      return Promise.resolve(url === markerUrl ? markerExists : followExists);
+    expect(request).toHaveBeenCalledWith({
+      method: HttpMethod.PUT,
+      url: followUrl,
+      bodyJson: followJson,
     });
-    const localCreate = vi.spyOn(LocalFollowService, 'create').mockResolvedValue(undefined);
-    const localDelete = vi.spyOn(LocalFollowService, 'delete').mockResolvedValue(undefined);
-    const request = vi.spyOn(HomeserverService, 'request').mockImplementation(({ method, url }) => {
-      if (method === HttpMethod.PUT && url === followUrl) {
-        followExists = true;
-        return Promise.resolve(undefined);
-      }
-      if (method === HttpMethod.PUT && url === markerUrl) {
-        if (failFirstMarker) {
-          failFirstMarker = false;
-          return Promise.reject(new Error('marker write failed'));
-        }
-        markerExists = true;
-        return Promise.resolve(undefined);
-      }
-      if (method === HttpMethod.DELETE && url === followUrl) {
-        followExists = false;
-      }
-      return Promise.resolve(undefined);
-    });
-
-    await expect(UserApplication.ensureModerationFollow({ follower, moderationId })).rejects.toThrow(
-      'marker write failed',
-    );
-    expect(followExists).toBe(true);
-    expect(markerExists).toBe(false);
-
-    await UserApplication.commitFollow({
-      eventType: HttpMethod.DELETE,
-      followUrl,
-      followJson,
-      follower,
-      followee: moderationId,
-      activeStreamId: undefined,
-    });
-    expect(markerExists).toBe(true);
-    expect(followExists).toBe(false);
-
-    await UserApplication.ensureModerationFollow({ follower, moderationId });
-
-    expect(localCreate).toHaveBeenCalledOnce();
-    expect(localDelete).toHaveBeenCalledOnce();
-    expect(exists).toHaveBeenLastCalledWith(markerUrl);
-    expect(request).toHaveBeenCalledTimes(4);
   });
 });
 
-describe('UserApplication.fetchTags', () => {
-  const userId = 'pubky_user' as Pubky;
+describe('UserApplication.getManyTagsOrFetch', () => {
+  const viewerId = 'pubky_viewer' as Pubky;
+  const cached = 'pubky_cached' as Pubky;
+  const missing = 'pubky_missing' as Pubky;
 
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it('fetches missing tag windows scoped to the viewer and persists them as that viewer', async () => {
+    vi.spyOn(LocalUserTagService, 'getNotPersistedUserTagsInCache').mockResolvedValue([missing]);
+    vi.spyOn(LocalTagCacheService, 'captureRevisions').mockResolvedValue(new Map([[missing, null]]));
+    const tagsSpy = vi.spyOn(NexusUserService, 'tags').mockResolvedValue([]);
+    const upsertSpy = vi.spyOn(LocalUserService, 'upsertTags').mockResolvedValue(undefined);
+    const readSpy = vi.spyOn(LocalUserService, 'readBulkTags').mockResolvedValue(new Map());
+
+    await UserApplication.getManyTagsOrFetch({ userIds: [cached, missing], viewerId });
+
+    expect(tagsSpy).toHaveBeenCalledExactlyOnceWith({
+      user_id: missing,
+      viewer_id: viewerId,
+      skip_tags: 0,
+      limit_tags: USER_TAGS_PER_PAGE,
+    });
+    expect(upsertSpy).toHaveBeenCalledExactlyOnceWith(missing, [], expect.objectContaining({ viewerId }));
+    expect(readSpy).toHaveBeenCalledWith({ userIds: [cached, missing] });
   });
 
-  it('should delegate to NexusUserService with correct params', async () => {
-    const mockTags = [
-      { label: 'developer', taggers: [] as Pubky[], taggers_count: 0, relationship: false },
-    ] as NexusTag[];
+  it('fetches and stores a viewerless window for guests', async () => {
+    vi.spyOn(LocalUserTagService, 'getNotPersistedUserTagsInCache').mockResolvedValue([missing]);
+    vi.spyOn(LocalTagCacheService, 'captureRevisions').mockResolvedValue(new Map([[missing, null]]));
+    const tagsSpy = vi.spyOn(NexusUserService, 'tags').mockResolvedValue([]);
+    const upsertSpy = vi.spyOn(LocalUserService, 'upsertTags').mockResolvedValue(undefined);
+    vi.spyOn(LocalUserService, 'readBulkTags').mockResolvedValue(new Map());
 
-    const nexusSpy = vi.spyOn(NexusUserService, 'tags').mockResolvedValue(mockTags);
+    await UserApplication.getManyTagsOrFetch({ userIds: [missing] });
 
-    const result = await UserApplication.fetchTags({
-      user_id: userId,
-      skip_tags: 5,
-      limit_tags: 20,
-    });
-
-    expect(result).toEqual(mockTags);
-    expect(nexusSpy).toHaveBeenCalledWith({
-      user_id: userId,
-      skip_tags: 5,
-      limit_tags: 20,
-    });
-  });
-
-  it('should propagate errors from service layer', async () => {
-    vi.spyOn(NexusUserService, 'tags').mockRejectedValue(new Error('Service unavailable'));
-
-    await expect(
-      UserApplication.fetchTags({
-        user_id: userId,
-        skip_tags: 0,
-        limit_tags: 10,
-      }),
-    ).rejects.toThrow('Service unavailable');
+    expect(tagsSpy).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ user_id: missing, viewer_id: undefined }),
+    );
+    expect(upsertSpy).toHaveBeenCalledExactlyOnceWith(missing, [], expect.objectContaining({ viewerId: undefined }));
   });
 });
 
@@ -655,7 +460,7 @@ describe('UserApplication.fetchTaggers', () => {
   });
 
   it('should delegate to NexusUserService with correct params', async () => {
-    const mockTaggers = [] as NexusTaggers[];
+    const mockTaggers: NexusTaggers = { users: [], relationship: false };
     const nexusSpy = vi.spyOn(NexusUserService, 'taggers').mockResolvedValue(mockTaggers);
 
     const result = await UserApplication.fetchTaggers({
@@ -975,6 +780,7 @@ describe('UserApplication.fetchCounts', () => {
 
 describe('UserApplication.getOrFetch', () => {
   const userId = 'pubky_user' as Pubky;
+  const viewerId = 'pubky_viewer' as Pubky;
   const mockUserDetails: NexusUserDetails = {
     id: userId,
     name: 'Test User',
@@ -1004,6 +810,7 @@ describe('UserApplication.getOrFetch', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(LocalTagCacheService, 'captureRevisions').mockResolvedValue(new Map([[userId, 7]]));
   });
 
   it('should return user details from local cache when available (local-first)', async () => {
@@ -1011,7 +818,7 @@ describe('UserApplication.getOrFetch', () => {
     const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds');
     const persistSpy = vi.spyOn(LocalStreamUsersService, 'persistUsers');
 
-    const result = await UserApplication.getOrFetch({ userId });
+    const result = await UserApplication.getOrFetch({ userId, viewerId });
 
     expect(result).toEqual(mockUserDetails);
     expect(localSpy).toHaveBeenCalledWith({ userId });
@@ -1020,6 +827,7 @@ describe('UserApplication.getOrFetch', () => {
   });
 
   it('should fetch from Nexus batch endpoint and persist when not in local cache', async () => {
+    const viewerId = 'pubky_viewer' as Pubky;
     const localSpy = vi
       .spyOn(LocalUserService, 'readDetails')
       .mockResolvedValueOnce(null)
@@ -1027,12 +835,21 @@ describe('UserApplication.getOrFetch', () => {
     const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([mockNexusUser]);
     const persistSpy = vi.spyOn(LocalStreamUsersService, 'persistUsers').mockResolvedValue([userId]);
 
-    const result = await UserApplication.getOrFetch({ userId });
+    const result = await UserApplication.getOrFetch({ userId, viewerId });
 
     expect(result).toEqual(mockUserDetails);
     expect(localSpy).toHaveBeenCalledTimes(2);
-    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId] });
-    expect(persistSpy).toHaveBeenCalledWith([mockNexusUser]);
+    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId], viewer_id: viewerId });
+    expect(LocalTagCacheService.captureRevisions).toHaveBeenCalledWith('user', [userId]);
+    expect(LocalTagCacheService.captureRevisions).toHaveBeenCalledBefore(fetchByIdsSpy);
+    expect(persistSpy).toHaveBeenCalledWith(
+      [mockNexusUser],
+      expect.objectContaining({
+        revisions: new Map([[userId, 7]]),
+        viewerId,
+        fetchStartedAt: expect.any(Number),
+      }),
+    );
   });
 
   it('should return null when Nexus returns empty array (user not indexed)', async () => {
@@ -1043,7 +860,8 @@ describe('UserApplication.getOrFetch', () => {
     const result = await UserApplication.getOrFetch({ userId });
 
     expect(result).toBeNull();
-    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId] });
+    // Guest: no viewer key is sent
+    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId], viewer_id: undefined });
     expect(persistSpy).not.toHaveBeenCalled();
   });
 
@@ -1095,6 +913,7 @@ describe('UserApplication.getOrFetch', () => {
 
 describe('UserApplication.fetch', () => {
   const userId = 'pubky_user' as Pubky;
+  const viewerId = 'pubky_viewer' as Pubky;
   const mockUserDetails: NexusUserDetails = {
     id: userId,
     name: 'Test User',
@@ -1121,33 +940,69 @@ describe('UserApplication.fetch', () => {
     tags: [{ label: 'developer', taggers: [], taggers_count: 0, relationship: false }],
     relationship: { following: false, followed_by: false },
   };
+  const followedNexusUser: NexusUser = {
+    ...mockNexusUser,
+    relationship: { following: true, followed_by: false },
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(LocalTagCacheService, 'captureRevisions').mockResolvedValue(new Map([[userId, 7]]));
   });
 
   it('should fetch from Nexus batch endpoint and persist', async () => {
+    const viewerId = 'pubky_viewer' as Pubky;
     const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([mockNexusUser]);
     const persistSpy = vi.spyOn(LocalStreamUsersService, 'persistUsers').mockResolvedValue([userId]);
     const localSpy = vi.spyOn(LocalUserService, 'readDetails').mockResolvedValue(mockUserDetails);
 
-    const result = await UserApplication.fetch({ userId });
+    const result = await UserApplication.fetch({ userId, viewerId });
 
     expect(result).toEqual(mockUserDetails);
-    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId] });
-    expect(persistSpy).toHaveBeenCalledWith([mockNexusUser]);
+    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId], viewer_id: viewerId });
+    expect(LocalTagCacheService.captureRevisions).toHaveBeenCalledWith('user', [userId]);
+    expect(LocalTagCacheService.captureRevisions).toHaveBeenCalledBefore(fetchByIdsSpy);
+    expect(persistSpy).toHaveBeenCalledWith(
+      [mockNexusUser],
+      expect.objectContaining({
+        revisions: new Map([[userId, 7]]),
+        viewerId,
+        fetchStartedAt: expect.any(Number),
+      }),
+    );
     expect(localSpy).toHaveBeenCalledTimes(1);
     expect(localSpy).toHaveBeenCalledWith({ userId });
+  });
+
+  it('should send the viewer to Nexus and persist the viewer-relative follow relationship (#1803)', async () => {
+    const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([followedNexusUser]);
+
+    await UserApplication.fetch({ userId, viewerId });
+
+    expect(fetchByIdsSpy.mock.calls[0][0].viewer_id).toBe(viewerId);
+    const relationship = await LocalUserService.readRelationships({ userId });
+    expect(relationship).toMatchObject({ following: true, followed_by: false });
+  });
+
+  it('should not cache a relationship row for a guest fetch (no viewer)', async () => {
+    const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([mockNexusUser]);
+
+    const result = await UserApplication.fetch({ userId, viewerId: undefined });
+
+    expect(fetchByIdsSpy.mock.calls[0][0].viewer_id).toBeUndefined();
+    expect(result).toEqual({ ...mockUserDetails, social_graph_status: null });
+    // Missing row → later signed-in reads are a cache miss and trigger a viewer-aware fetch
+    expect(await LocalUserService.readRelationships({ userId })).toBeNull();
   });
 
   it('should return null when Nexus returns empty array', async () => {
     const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([]);
     const persistSpy = vi.spyOn(LocalStreamUsersService, 'persistUsers');
 
-    const result = await UserApplication.fetch({ userId });
+    const result = await UserApplication.fetch({ userId, viewerId });
 
     expect(result).toBeNull();
-    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId] });
+    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId], viewer_id: viewerId });
     expect(persistSpy).not.toHaveBeenCalled();
   });
 
@@ -1155,7 +1010,7 @@ describe('UserApplication.fetch', () => {
     vi.spyOn(NexusUserStreamService, 'fetchByIds').mockRejectedValue(new Error('Network error'));
     const persistSpy = vi.spyOn(LocalStreamUsersService, 'persistUsers');
 
-    const result = await UserApplication.fetch({ userId });
+    const result = await UserApplication.fetch({ userId, viewerId });
 
     expect(result).toBeNull();
     expect(persistSpy).not.toHaveBeenCalled();
@@ -1166,6 +1021,112 @@ describe('UserApplication.fetch', () => {
     vi.spyOn(LocalStreamUsersService, 'persistUsers').mockResolvedValue([userId]);
     vi.spyOn(LocalUserService, 'readDetails').mockRejectedValue(new Error('IndexedDB error'));
 
-    await expect(UserApplication.fetch({ userId })).rejects.toThrow('IndexedDB error');
+    await expect(UserApplication.fetch({ userId, viewerId })).rejects.toThrow('IndexedDB error');
+  });
+});
+
+describe('UserApplication.fetch viewer scoping', () => {
+  const userId = 'pubky_user' as Pubky;
+  const viewerId = 'pubky_viewer' as Pubky;
+
+  beforeEach(() => {
+    vi.spyOn(LocalTagCacheService, 'captureRevisions').mockResolvedValue(new Map([[userId, 7]]));
+  });
+
+  it('forwards the viewer id so the relationship row is scoped to the viewer', async () => {
+    const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([]);
+
+    await UserApplication.fetch({ userId, viewerId });
+
+    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId], viewer_id: viewerId });
+  });
+
+  it('shares one request and persist between concurrent fetches for the same user and viewer', async () => {
+    let resolveFetch: (users: NexusUser[]) => void = () => {};
+    const fetchByIdsSpy = vi
+      .spyOn(NexusUserStreamService, 'fetchByIds')
+      .mockReturnValue(new Promise<NexusUser[]>((resolve) => (resolveFetch = resolve)));
+    const persistSpy = vi.spyOn(LocalStreamUsersService, 'persistUsers').mockResolvedValue([userId]);
+    vi.spyOn(LocalUserService, 'readDetails').mockResolvedValue(null);
+
+    const first = UserApplication.fetch({ userId, viewerId });
+    const second = UserApplication.fetch({ userId, viewerId });
+    resolveFetch([]);
+    await Promise.all([first, second]);
+
+    expect(fetchByIdsSpy).toHaveBeenCalledTimes(1);
+    expect(persistSpy).not.toHaveBeenCalled();
+
+    // Once settled, a later call fetches again
+    await UserApplication.fetch({ userId, viewerId });
+    expect(fetchByIdsSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not share a request between different viewers', async () => {
+    const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([]);
+
+    await Promise.all([UserApplication.fetch({ userId, viewerId }), UserApplication.fetch({ userId })]);
+
+    expect(fetchByIdsSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('getOrFetch forwards the viewer id on a cache miss', async () => {
+    vi.spyOn(LocalUserService, 'readDetails').mockResolvedValue(null);
+    const fetchByIdsSpy = vi.spyOn(NexusUserStreamService, 'fetchByIds').mockResolvedValue([]);
+
+    await UserApplication.getOrFetch({ userId, viewerId });
+
+    expect(fetchByIdsSpy).toHaveBeenCalledWith({ user_ids: [userId], viewer_id: viewerId });
+  });
+});
+
+describe('UserApplication.getSocialGraphStatus', () => {
+  const userId = 'pubky_user' as Pubky;
+
+  it('should delegate to LocalUserService.readSocialGraphStatus', async () => {
+    const readSpy = vi
+      .spyOn(LocalUserService, 'readSocialGraphStatus')
+      .mockResolvedValue({ status: NexusSocialGraphStatus.NETWORKED });
+
+    const result = await UserApplication.getSocialGraphStatus({ userId });
+
+    expect(result).toEqual({ status: NexusSocialGraphStatus.NETWORKED });
+    expect(readSpy).toHaveBeenCalledWith({ userId });
+  });
+
+  it('should return null when the tier is unknown locally', async () => {
+    vi.spyOn(LocalUserService, 'readSocialGraphStatus').mockResolvedValue(null);
+
+    const result = await UserApplication.getSocialGraphStatus({ userId });
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('UserApplication session replacement', () => {
+  it('starts a separate fetch after re-login and rejects the old response without deleting the new in-flight task', async () => {
+    vi.spyOn(LocalTagCacheService, 'captureRevisions').mockResolvedValue(new Map());
+    vi.spyOn(LocalUserService, 'readDetails').mockResolvedValue(null);
+    const persist = vi.spyOn(LocalStreamUsersService, 'persistUsers').mockResolvedValue([]);
+    const older = Promise.withResolvers<NexusUser[]>();
+    const newer = Promise.withResolvers<NexusUser[]>();
+    const fetch = vi
+      .spyOn(NexusUserStreamService, 'fetchByIds')
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    let oldSession = true;
+    const first = UserApplication.fetch({ userId: 'target', viewerId: 'same-viewer', isCurrent: () => oldSession });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    oldSession = false;
+    const second = UserApplication.fetch({ userId: 'target', viewerId: 'same-viewer', isCurrent: () => true });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    older.resolve([asOpaque<NexusUser>({ details: { id: 'target' } })]);
+    await first;
+    expect(persist).not.toHaveBeenCalled();
+    const third = UserApplication.fetch({ userId: 'target', viewerId: 'same-viewer', isCurrent: () => true });
+    newer.resolve([asOpaque<NexusUser>({ details: { id: 'target' } })]);
+    await Promise.all([second, third]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(persist).toHaveBeenCalledOnce();
   });
 });

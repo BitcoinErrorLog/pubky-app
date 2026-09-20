@@ -1,5 +1,10 @@
 import { SearchApplication } from '@/application/search/search';
-import type { TPrefixSearchParams, TSearchResult } from '@/services/nexus/search/search.types';
+import type {
+  TPrefixSearchParams,
+  TSearchResult,
+  TUsersByTagsSearchParams,
+  TUserTagSearchResult,
+} from '@/services/nexus/search/search.types';
 
 export class SearchController {
   private constructor() {}
@@ -23,7 +28,20 @@ export class SearchController {
   /**
    * Search tags by prefix
    */
-  static async getTagsByPrefix(params: TPrefixSearchParams): Promise<TSearchResult> {
+  static async fetchTagsByPrefix(params: TPrefixSearchParams): Promise<TSearchResult> {
     return await SearchApplication.fetchTagsByPrefix(params);
+  }
+
+  /** Release-UI alias retained until the search hook lands in the UI stage. */
+  static async getTagsByPrefix(params: TPrefixSearchParams): Promise<TSearchResult> {
+    return await this.fetchTagsByPrefix(params);
+  }
+
+  /**
+   * Search users by profile tags
+   * @returns User ids with tagger-count scores, ordered by score
+   */
+  static async fetchUsersByTags(params: TUsersByTagsSearchParams): Promise<TUserTagSearchResult[]> {
+    return await SearchApplication.fetchUsersByTags(params);
   }
 }

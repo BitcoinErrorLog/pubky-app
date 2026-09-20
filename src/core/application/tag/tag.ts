@@ -1,6 +1,8 @@
 import { TagKind, type TCreateTagListInput, type TDeleteTagInput } from '@/application/tag/tag.types';
+import { createTagMutationId } from '@/application/tag/tag.utils';
 import { AppError } from '@/libs/error/error';
 import { ClientErrorCode } from '@/libs/error/error.codes';
+import { isAppError } from '@/libs/error/error.utils';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import type { Pubky } from '@/models/models.types';
@@ -12,6 +14,8 @@ import {
 } from '@/services/local/tag/marketplace/tag.marketplace';
 import { LocalPostTagService } from '@/services/local/tag/post/tag.post';
 import { ViewerTagMarkerStorage } from '@/services/local/tag/post/viewerTagMarkerStorage';
+import type { TViewerTagMutationsParams } from '@/services/local/tag/tag.types';
+import { LocalTagCacheService } from '@/services/local/tag/tag-cache';
 import { LocalUserTagService } from '@/services/local/tag/user/tag.user';
 
 function isMarketplaceTagKind(kind: TagKind): kind is MarketplaceTagKind {
@@ -24,124 +28,104 @@ function isMarketplaceTagKind(kind: TagKind): kind is MarketplaceTagKind {
  */
 async function applyLocalTagWrite(
   op: 'create' | 'delete',
-  { taggedKind, taggedId, label, taggerId }: { taggedKind: TagKind; taggedId: string; label: string; taggerId: string },
+  {
+    taggedKind,
+    taggedId,
+    ...params
+  }: TViewerTagMutationsParams & {
+    label: string;
+    mutationId: string;
+    expectedMutationId?: string;
+    synced?: boolean;
+    isCurrent?: () => boolean;
+  },
 ): Promise<boolean> {
   if (isMarketplaceTagKind(taggedKind)) {
     const rowId = buildMarketplaceTagRowId(taggedKind, taggedId);
     return op === 'create'
-      ? LocalMarketplaceTagService.create({ taggerId, taggedId: rowId, label })
-      : LocalMarketplaceTagService.delete({ taggerId, taggedId: rowId, label });
+      ? LocalMarketplaceTagService.create({ ...params, taggedId: rowId })
+      : LocalMarketplaceTagService.delete({ ...params, taggedId: rowId });
   }
-  if (taggedKind === TagKind.POST) {
-    return op === 'create'
-      ? LocalPostTagService.create({ taggerId, taggedId, label })
-      : LocalPostTagService.delete({ taggerId, taggedId, label });
-  }
-  return op === 'create'
-    ? LocalUserTagService.create({ taggerId, taggedId, label })
-    : LocalUserTagService.delete({ taggerId, taggedId, label });
+  const local = taggedKind === TagKind.POST ? LocalPostTagService : LocalUserTagService;
+  return op === 'create' ? local.create({ ...params, taggedId }) : local.delete({ ...params, taggedId });
 }
 
-/**
- * Tag application service implementing local-first architecture with rollback.
- *
- * **Local-First Write Pattern:**
- * Both `create` and `delete` methods update the local IndexedDB first, then
- * synchronize with the homeserver. This keeps the UI responsive while still
- * compensating locally if the homeserver request fails.
- *
- * **Failure Handling:**
- * If the homeserver request fails after the local update, the failed write is
- * rolled back locally so counters and relationship state stay consistent with
- * Nexus.
- */
+/** Optimistic writes and conditional compensation share their operation ID in IndexedDB. */
 export class TagApplication {
-  /**
-   * Commits the create tag operation to the homeserver and local database.
-   * @param tagList - The list of tags to create
-   */
-  static async commitCreate({ tagList }: TCreateTagListInput) {
-    // Process tags one at a time so callers never observe hidden in-flight work
-    // from later entries after an earlier tag fails.
-    for (const { taggerId, taggedId, label, tagUrl, tagJson, taggedKind } of tagList) {
-      const didCreateLocally = await applyLocalTagWrite('create', { taggedKind, taggedId, label, taggerId });
+  static getViewerMutations({ taggedKind, taggedId, taggerId }: TViewerTagMutationsParams) {
+    if (taggedKind === TagKind.POST) {
+      return LocalTagCacheService.getViewerMutations({ kind: 'post', id: taggedId }, taggerId);
+    }
+    return LocalTagCacheService.getViewerMutations({ kind: 'user', id: taggedId }, taggerId);
+  }
 
+  static async commitCreate({ tagList, isCurrent }: TCreateTagListInput) {
+    // Sequential: a failed entry leaves no hidden in-flight writes for later tags.
+    for (const { taggerId, taggedId, label, tagUrl, tagJson, taggedKind } of tagList) {
+      if (isCurrent && !isCurrent()) return;
+      const mutationId = createTagMutationId();
+      const params = { taggerId, taggedId, label, mutationId, isCurrent };
+      const changed = await applyLocalTagWrite('create', { taggedKind, ...params });
+      if (isCurrent && !isCurrent()) return;
       try {
         await HomeserverService.request({ method: HttpMethod.PUT, url: tagUrl, bodyJson: tagJson });
       } catch (error) {
-        if (didCreateLocally) {
+        if (changed && (!isCurrent || isCurrent())) {
           try {
-            await applyLocalTagWrite('delete', { taggedKind, taggedId, label, taggerId });
-          } catch (rollbackError) {
-            Logger.error('[TagApplication.commitCreate] Failed to rollback local tag create', {
-              taggedId,
-              label,
-              taggerId,
+            await applyLocalTagWrite('delete', {
               taggedKind,
-              rollbackError,
+              ...params,
+              mutationId: createTagMutationId(),
+              expectedMutationId: mutationId,
+              synced: true,
             });
+          } catch (rollbackError) {
+            if (!isAppError(rollbackError))
+              Logger.error('Failed to rollback local tag create', { taggedId, label, rollbackError });
           }
         }
-
         throw error;
       }
+      if (changed && !isMarketplaceTagKind(taggedKind))
+        await LocalTagCacheService.completeMutation({ kind: taggedKind, id: taggedId }, { mutationId, isCurrent });
     }
   }
 
-  /**
-   * Commits the delete tag operation to the homeserver and local database.
-   * @param params - The parameters object
-   * @param params.taggerId - The ID of the user who is deleting the tag
-   * @param params.taggedId - The ID of the post or user who is being tagged
-   * @param params.label - The label of the tag
-   * @param params.tagUrl - The URL of the tag
-   * @param params.taggedKind - The kind of the tagged entity
-   */
-  static async commitDelete({ taggerId, taggedId, label, tagUrl, taggedKind }: TDeleteTagInput) {
-    const wasDeleted = await applyLocalTagWrite('delete', { taggedKind, taggedId, label, taggerId });
-
-    // Only send to homeserver if something was actually deleted locally
-    if (wasDeleted) {
-      try {
-        await HomeserverService.request({ method: HttpMethod.DELETE, url: tagUrl });
-      } catch (error) {
-        // 404 means the tag is already gone on the homeserver. Local just made the
-        // same change, so the two states match — accept the delete and skip rollback.
-        // Without this, the rollback re-creates the tag locally and the user is left
-        // with a "ghost" tag they can't remove (HS keeps returning 404).
-        if (error instanceof AppError && error.code === ClientErrorCode.NOT_FOUND) {
-          Logger.warn('[TagApplication.commitDelete] Homeserver returned 404; treating as already deleted', {
-            taggedId,
-            label,
-            taggerId,
-            taggedKind,
-          });
-          return;
+  static async commitDelete({ taggerId, taggedId, label, tagUrl, taggedKind, isCurrent }: TDeleteTagInput) {
+    if (isCurrent && !isCurrent()) return;
+    const mutationId = createTagMutationId();
+    const params = { taggerId, taggedId, label, mutationId, isCurrent };
+    const changed = await applyLocalTagWrite('delete', { taggedKind, ...params });
+    if (!changed || (isCurrent && !isCurrent())) return;
+    try {
+      await HomeserverService.request({ method: HttpMethod.DELETE, url: tagUrl });
+    } catch (error) {
+      // An already absent homeserver record agrees with the optimistic deletion.
+      if (!(error instanceof AppError && error.code === ClientErrorCode.NOT_FOUND)) {
+        if (!isCurrent || isCurrent()) {
+          try {
+            await applyLocalTagWrite('create', {
+              taggedKind,
+              ...params,
+              mutationId: createTagMutationId(),
+              expectedMutationId: mutationId,
+              synced: true,
+            });
+          } catch (rollbackError) {
+            if (!isAppError(rollbackError))
+              Logger.error('Failed to rollback local tag delete', { taggedId, label, rollbackError });
+          }
         }
-
-        try {
-          await applyLocalTagWrite('create', { taggedKind, taggedId, label, taggerId });
-        } catch (rollbackError) {
-          Logger.error('[TagApplication.commitDelete] Failed to rollback local tag delete', {
-            taggedId,
-            label,
-            taggerId,
-            taggedKind,
-            rollbackError,
-          });
-        }
-
         throw error;
       }
     }
+    if (!isMarketplaceTagKind(taggedKind)) {
+      await LocalTagCacheService.completeMutation({ kind: taggedKind, id: taggedId }, { mutationId, isCurrent });
+    }
   }
 
-  /**
-   * Clears all viewer-mutation tag markers (sessionStorage) for the given user.
-   * Called from logout / session-cleanup paths to drop stale markers before the
-   * next user signs in on the same tab.
-   */
-  static clearViewerMarkers(pubky: Pubky) {
+  /** Drop legacy marketplace viewer markers when an identity leaves this tab. */
+  static clearViewerMarkers(pubky: Pubky): void {
     ViewerTagMarkerStorage.clearForUser(pubky);
   }
 }
