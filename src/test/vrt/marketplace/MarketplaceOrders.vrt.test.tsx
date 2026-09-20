@@ -492,6 +492,7 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.adapterMode = 'transaction-service';
 
     await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await parkVrtHover();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot(
       'orders-review-edit-in-window-desktop',
       VRT_DENSE_CHROME_SCREENSHOT,
@@ -507,6 +508,7 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.adapterMode = 'transaction-service';
 
     await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await parkVrtHover();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot(
       'orders-review-edit-out-of-window-desktop',
       VRT_DENSE_CHROME_SCREENSHOT,

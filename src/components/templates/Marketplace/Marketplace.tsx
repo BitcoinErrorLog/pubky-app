@@ -26,7 +26,6 @@ import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropCard } from '@/organisms/Marketplace/DropCard';
-import { MarketplaceDropsShelfEntry } from '@/organisms/Marketplace/MarketplaceDropsShelfEntry';
 import { MarketplaceFilters } from '@/organisms/Marketplace/MarketplaceFilters';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceSavedSearches } from '@/organisms/Marketplace/MarketplaceSavedSearches';
@@ -247,12 +246,6 @@ export function Marketplace({
               </Button>
             }
           />
-
-          {/* Drops entry (ADR 0026): durable modes only — drops are enforced by
-              the transaction service's clock, so the shelf never appears where
-              no such authority exists. Keep it with the catalog tools rather
-              than above the marketplace promo. */}
-          {isDurableCommerceMode(adapterMode) && <MarketplaceDropsShelfEntry />}
 
           {adapterMode === 'unavailable' && (
             <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
