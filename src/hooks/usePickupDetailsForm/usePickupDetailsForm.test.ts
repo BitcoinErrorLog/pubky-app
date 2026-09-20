@@ -7,6 +7,7 @@ import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { usePickupDetailsForm } from './usePickupDetailsForm';
+import { pickupDetailsFormDefaults, pickupDetailsFormSchema } from './usePickupDetailsForm.types';
 
 const LISTING_ID = 'boots_01';
 
@@ -85,6 +86,14 @@ beforeEach(() => {
 });
 
 describe('usePickupDetailsForm', () => {
+  it('canonicalizes the UTC device timezone to a contract-valid IANA zone', () => {
+    const defaults = pickupDetailsFormDefaults('UTC');
+    defaults.spot = 'Harbor Market, stall 12';
+
+    expect(defaults.zone).toBe('Etc/UTC');
+    expect(pickupDetailsFormSchema.safeParse(defaults).success).toBe(true);
+  });
+
   it('hydrates from the owner read and saves with the current version as CAS', async () => {
     const { result } = await renderReadyForm();
 
@@ -112,9 +121,7 @@ describe('usePickupDetailsForm', () => {
         details: expect.objectContaining({ kind: 'spot', spot: 'Market square, east kiosk' }),
       }),
     );
-    expect(toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Pickup details saved' }),
-    );
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Pickup details saved' }));
   });
 
   it('refuses to save when the capability is off', async () => {
@@ -216,7 +223,8 @@ describe('usePickupDetailsForm', () => {
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
         variant: 'error',
-        description: 'The marketplace session expired. Approve the marketplace connection on your signer and try again.',
+        description:
+          'The marketplace session expired. Approve the marketplace connection on your signer and try again.',
       }),
     );
   });

@@ -179,7 +179,7 @@ export const SignInContent = () => {
             />
           </button>
           <div className="max-w-sm rounded-md border border-border bg-muted/40 p-3">
-            <code className="block break-all font-mono text-xs" data-cy="signin-requested-capabilities">
+            <code className="block font-mono text-xs break-all" data-cy="signin-requested-capabilities">
               {CAPABILITIES}
             </code>
             <Typography as="p" className="mt-1 text-xs text-muted-foreground">

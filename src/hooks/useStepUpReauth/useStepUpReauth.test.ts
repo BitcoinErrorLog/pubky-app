@@ -82,9 +82,7 @@ describe('useStepUpReauth', () => {
   it('surfaces the real failure message and retries with a FRESH flow', async () => {
     const first = createDeferredFlow('pubkyauth:///?caps=first');
     const second = createDeferredFlow('pubkyauth:///?caps=second');
-    vi.mocked(AuthController.getStepUpAuthUrl)
-      .mockResolvedValueOnce(first.flow)
-      .mockResolvedValueOnce(second.flow);
+    vi.mocked(AuthController.getStepUpAuthUrl).mockResolvedValueOnce(first.flow).mockResolvedValueOnce(second.flow);
     const { result } = renderHook(() => useStepUpReauth());
 
     act(() => result.current.start());
@@ -186,9 +184,7 @@ describe('useStepUpReauth', () => {
   it('a superseding start cancels the previous flow and ignores its late rejection', async () => {
     const first = createDeferredFlow('pubkyauth:///?caps=first');
     const second = createDeferredFlow('pubkyauth:///?caps=second');
-    vi.mocked(AuthController.getStepUpAuthUrl)
-      .mockResolvedValueOnce(first.flow)
-      .mockResolvedValueOnce(second.flow);
+    vi.mocked(AuthController.getStepUpAuthUrl).mockResolvedValueOnce(first.flow).mockResolvedValueOnce(second.flow);
     const { result } = renderHook(() => useStepUpReauth());
 
     act(() => result.current.start());

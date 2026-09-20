@@ -150,7 +150,6 @@ describe('marketplace transaction service integration', () => {
       error: { code: 'REVISION_CONFLICT', currentRevision: 2 },
     });
 
-
     // Sandbox-only affordances stay client-rejected in this mode — no bytes sent.
     await expect(
       MarketplaceGatewayService.execute(buyer, {

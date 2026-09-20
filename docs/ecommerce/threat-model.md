@@ -14,7 +14,6 @@ This threat model covers:
 - Locks browser SDK, Lock Server, and its PostgreSQL database;
 - Paykit Server, Paykit private messaging, Bitkit, Electrum, and Bitcoin observations;
 
-
 ## Security objectives
 
 1. A user can act only as their authenticated Pubky identity and authorized role.
@@ -23,28 +22,28 @@ This threat model covers:
 4. The browser cannot forge price, inventory, winner, settlement, refund, guarantee, or payout facts.
 5. Public Pubky records cannot expose private commerce data.
 6. Pubky secrets, wallet secrets, xpubs, Paykit/Locks secrets, bearer credentials, delivery details, messages, and evidence do not enter telemetry.
-8. A failed dependency, delayed event, restart, replay, or restore fails safely without inventing finality.
-9. Digital content is released only after a valid Locks entitlement and hash verification.
-10. Supply-chain and runtime configuration are pinned, validated, and fail closed.
+7. A failed dependency, delayed event, restart, replay, or restore fails safely without inventing finality.
+8. Digital content is released only after a valid Locks entitlement and hash verification.
+9. Supply-chain and runtime configuration are pinned, validated, and fail closed.
 
 ## Assets and classification
 
-| Asset                               | Classification                              | Authority                               | Required protection                                              |
-| ----------------------------------- | ------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------- |
-| Pubky recovery phrase/private key   | Secret; prohibited from marketplace systems | User/Ring                               | Never received, stored, logged, or requested                     |
-| Short-lived Pubky auth assertion    | Sensitive credential                        | Auth issuer                             | Audience/nonce/expiry binding, replay prevention                 |
-| Public shop/listing/review          | Public, signed                              | Owner homeserver                        | Signature/source validation, version/tombstone handling          |
-| Drafts/cart/saved search            | Private local                               | Account-scoped Dexie                    | Account isolation, purge/export, quota recovery                  |
+| Asset                                            | Classification                               | Authority                                | Required protection                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------ | -------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pubky recovery phrase/private key                | Secret; prohibited from marketplace systems  | User/Ring                                | Never received, stored, logged, or requested                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Short-lived Pubky auth assertion                 | Sensitive credential                         | Auth issuer                              | Audience/nonce/expiry binding, replay prevention                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Public shop/listing/review                       | Public, signed                               | Owner homeserver                         | Signature/source validation, version/tombstone handling                                                                                                                                                                                                                                                                                                                                                                                           |
+| Drafts/cart/saved search                         | Private local                                | Account-scoped Dexie                     | Account isolation, purge/export, quota recovery                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Messaging receiver Noise secret + link snapshots | Secret key material (decrypts conversations) | Account-scoped Dexie (this browser only) | AES-GCM-256 wrap at rest under a non-extractable keyring CryptoKey, AAD-bound to table + row id; wiped on sign-out; a lost wrapping key makes rows unrecoverable (treated as lost, user re-enables); never synced, exported, or logged; the wrap protects against at-rest IndexedDB/disk dumps and cross-profile copying, but NOT against same-origin script execution (XSS, malicious dependency), which can invoke the unwrap path — see WEB-02 |
-| Delivery/contact details            | Restricted personal data                    | Transaction Service                     | Encryption, participant authorization, redacted support views    |
-| Messages/offers/evidence            | Restricted private content                  | Transaction/encrypted messaging service | Participant ACL, safe attachments, retention policy              |
-| Order/event/ledger state            | Integrity-critical                          | Transaction Service/PostgreSQL          | Serializable command handling, constraints, immutable audit      |
-| Locks `bundle_id`/access credential | Bearer secret                               | Viewer/Lock Server                      | Encryption at rest, no URLs/logs, bounded exposure               |
-| Locks creator frontend session      | Sensitive credential                        | Lock Server                             | Account-scoped secure storage, clear on sign-out                 |
-| Paykit receiver/Noise state         | Secret                                      | Paykit Server/Bitkit                    | Never exposed to web app or generic API                          |
-| Bitkit account xpub/index           | Highly sensitive metadata                   | Bitkit/Paykit Server                    | Companion-claim path only; prohibited from app storage/telemetry |
-| Payment address/correlation/status  | Restricted financial metadata               | Paykit Server/Locks                     | Narrow signed APIs, opaque client status                         |
-| Logs/traces/metrics/backups         | Sensitive operational data                  | Operator                                | Redaction, access control, retention, encrypted backup           |
+| Delivery/contact details                         | Restricted personal data                     | Transaction Service                      | Encryption, participant authorization, redacted support views                                                                                                                                                                                                                                                                                                                                                                                     |
+| Messages/offers/evidence                         | Restricted private content                   | Transaction/encrypted messaging service  | Participant ACL, safe attachments, retention policy                                                                                                                                                                                                                                                                                                                                                                                               |
+| Order/event/ledger state                         | Integrity-critical                           | Transaction Service/PostgreSQL           | Serializable command handling, constraints, immutable audit                                                                                                                                                                                                                                                                                                                                                                                       |
+| Locks `bundle_id`/access credential              | Bearer secret                                | Viewer/Lock Server                       | Encryption at rest, no URLs/logs, bounded exposure                                                                                                                                                                                                                                                                                                                                                                                                |
+| Locks creator frontend session                   | Sensitive credential                         | Lock Server                              | Account-scoped secure storage, clear on sign-out                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Paykit receiver/Noise state                      | Secret                                       | Paykit Server/Bitkit                     | Never exposed to web app or generic API                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Bitkit account xpub/index                        | Highly sensitive metadata                    | Bitkit/Paykit Server                     | Companion-claim path only; prohibited from app storage/telemetry                                                                                                                                                                                                                                                                                                                                                                                  |
+| Payment address/correlation/status               | Restricted financial metadata                | Paykit Server/Locks                      | Narrow signed APIs, opaque client status                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Logs/traces/metrics/backups                      | Sensitive operational data                   | Operator                                 | Redaction, access control, retention, encrypted backup                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Trust boundaries
 
@@ -80,13 +79,13 @@ Assumptions:
 
 ### Identity and authorization
 
-| ID      | Threat                                        | Impact                                                 | Required mitigation and evidence                                                    |
-| ------- | --------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| AUTH-02 | Replayed assertion or command                 | Duplicate transaction or stale privilege               | One-time nonce/session binding; actor-scoped command ID; replay tests               |
-| AUTH-03 | Confused-deputy assertion for another service | Unauthorized marketplace access                        | Exact audience and origin binding; wrong-audience tests                             |
-| AUTH-04 | IDOR through order/listing/message IDs        | Private data disclosure or mutation                    | Object participation checked after lookup on every route; cross-user matrix tests   |
-| AUTH-05 | Stale suspension or revoked session           | Restricted user continues transacting                  | Server-side role/status checks per command; revocation propagation test             |
-| AUTH-06 | Account switch leaks Dexie projections        | Private data disclosure                                | Pubky-scoped database keys/cache and full sign-out cleanup test                     |
+| ID      | Threat                                        | Impact                                   | Required mitigation and evidence                                                  |
+| ------- | --------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------- |
+| AUTH-02 | Replayed assertion or command                 | Duplicate transaction or stale privilege | One-time nonce/session binding; actor-scoped command ID; replay tests             |
+| AUTH-03 | Confused-deputy assertion for another service | Unauthorized marketplace access          | Exact audience and origin binding; wrong-audience tests                           |
+| AUTH-04 | IDOR through order/listing/message IDs        | Private data disclosure or mutation      | Object participation checked after lookup on every route; cross-user matrix tests |
+| AUTH-05 | Stale suspension or revoked session           | Restricted user continues transacting    | Server-side role/status checks per command; revocation propagation test           |
+| AUTH-06 | Account switch leaks Dexie projections        | Private data disclosure                  | Pubky-scoped database keys/cache and full sign-out cleanup test                   |
 
 ### Public catalog and media
 
@@ -101,17 +100,17 @@ Assumptions:
 
 ### Transaction concurrency and integrity
 
-| ID    | Threat                                     | Impact                                         | Required mitigation and evidence                                                |
-| ----- | ------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------- |
-| TX-01 | 100 buyers reserve one unit                | Oversell                                       | PostgreSQL transaction/constraint; concurrency test yields exactly one winner   |
-| TX-02 | Offer acceptance races public sale         | Two buyers believe they won                    | Shared inventory aggregate/revision; one atomic reservation                     |
-| TX-03 | Duplicate checkout or callback             | Duplicate order/payment event                  | Actor-scoped idempotency record, canonical input hash, unique constraints       |
-| TX-04 | Changed replay under same command ID       | Confused result or tampering                   | Exact canonical request hash; conflict response; adversarial replay test        |
-| TX-05 | Stale expected revision                    | Lost update                                    | Compare expected/current revision atomically; return current projection         |
-| TX-07 | Fractional/overflow money                  | Incorrect totals/ledger                        | Integer safe minor units, explicit exponent/currency, bounds and rounding tests |
-| TX-08 | Unbalanced ledger transaction              | Incorrect statement/payout                     | Deferred balance constraint/application invariant; block commit and alert       |
-| TX-09 | Worker crash around side effect            | Lost or duplicated notification/adapter action | Transactional outbox, leases, at-least-once delivery, consumer dedupe           |
-| TX-10 | Backup restore replays external effect     | Duplicate external action                      | Environment/deployment epoch, idempotency retention, isolated restore drill     |
+| ID    | Threat                                 | Impact                                         | Required mitigation and evidence                                                |
+| ----- | -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| TX-01 | 100 buyers reserve one unit            | Oversell                                       | PostgreSQL transaction/constraint; concurrency test yields exactly one winner   |
+| TX-02 | Offer acceptance races public sale     | Two buyers believe they won                    | Shared inventory aggregate/revision; one atomic reservation                     |
+| TX-03 | Duplicate checkout or callback         | Duplicate order/payment event                  | Actor-scoped idempotency record, canonical input hash, unique constraints       |
+| TX-04 | Changed replay under same command ID   | Confused result or tampering                   | Exact canonical request hash; conflict response; adversarial replay test        |
+| TX-05 | Stale expected revision                | Lost update                                    | Compare expected/current revision atomically; return current projection         |
+| TX-07 | Fractional/overflow money              | Incorrect totals/ledger                        | Integer safe minor units, explicit exponent/currency, bounds and rounding tests |
+| TX-08 | Unbalanced ledger transaction          | Incorrect statement/payout                     | Deferred balance constraint/application invariant; block commit and alert       |
+| TX-09 | Worker crash around side effect        | Lost or duplicated notification/adapter action | Transactional outbox, leases, at-least-once delivery, consumer dedupe           |
+| TX-10 | Backup restore replays external effect | Duplicate external action                      | Environment/deployment epoch, idempotency retention, isolated restore drill     |
 
 ### Auctions and manipulation
 

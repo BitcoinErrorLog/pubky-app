@@ -488,7 +488,10 @@ beforeEach(() => {
 describe('Search (empty state) — visual regression', () => {
   it('renders the search empty state at desktop viewport', async () => {
     const screen = await renderForVRT(<SearchWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('search-empty-desktop', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'search-empty-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the search empty state at mobile viewport', async () => {
@@ -506,7 +509,10 @@ describe('Search (tagged results) — visual regression', () => {
 
   it('renders tagged search results at desktop viewport', async () => {
     const screen = await renderForVRT(<SearchWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('search-tagged-desktop', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'search-tagged-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders tagged search results at mobile viewport', async () => {
@@ -525,7 +531,10 @@ describe('Search (profile results) — visual regression', () => {
 
   it('renders profile search suggestions at desktop viewport', async () => {
     const screen = await renderForVRT(<SearchWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('search-profiles-desktop', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'search-profiles-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders profile search suggestions at mobile viewport', async () => {

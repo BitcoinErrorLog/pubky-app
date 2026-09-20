@@ -103,7 +103,10 @@ export function Marketplace({
     >
       <Container overrideDefaults className="flex w-full flex-col gap-5 px-4 sm:gap-8 sm:px-6 lg:px-8">
         {isStaging && (
-          <div role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <div
+            role="note"
+            className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+          >
             Staging environment — test rails, no real funds move
           </div>
         )}

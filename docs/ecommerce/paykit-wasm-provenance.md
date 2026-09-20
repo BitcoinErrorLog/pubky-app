@@ -6,17 +6,17 @@ Vendored: 2026-09-05 (rc50, picking up the homeserver write-abort fixes and addi
 
 ## Source
 
-| Field           | Value                                                                    |
-| --------------- | ------------------------------------------------------------------------ |
-| Repository      | `https://github.com/BitcoinErrorLog/paykit-rs-official`                  |
-| Branch          | `fix/wasm-homeserver-write-abort`                                        |
-| Commit          | `d4a73a5765e1f0b18ed451d78f98dab97c611a8c`                               |
-| Upstream        | `https://github.com/pubky/paykit-rs`                                     |
-| Upstream pin    | `c8892f638951f033acbcd12804a31667a81ddc14` (tag anchor v0.1.0-rc43)      |
-| Package path    | `paykit-wasm/pkg`                                                        |
-| Package name    | `paykit-wasm`                                                            |
-| Package version | `0.1.0-rc50`                                                             |
-| License         | MIT                                                                      |
+| Field           | Value                                                                          |
+| --------------- | ------------------------------------------------------------------------------ |
+| Repository      | `https://github.com/BitcoinErrorLog/paykit-rs-official`                        |
+| Branch          | `fix/wasm-homeserver-write-abort`                                              |
+| Commit          | `d4a73a5765e1f0b18ed451d78f98dab97c611a8c`                                     |
+| Upstream        | `https://github.com/pubky/paykit-rs`                                           |
+| Upstream pin    | `c8892f638951f033acbcd12804a31667a81ddc14` (tag anchor v0.1.0-rc43)            |
+| Package path    | `paykit-wasm/pkg`                                                              |
+| Package name    | `paykit-wasm`                                                                  |
+| Package version | `0.1.0-rc50`                                                                   |
+| License         | MIT                                                                            |
 | Previous pin    | `0a6c6e4521fd41f5081ad9f074020f4813d8a03e` (`0.1.0-rc44`, `feat/wasm-binding`) |
 
 The upstream pin matches the audited paykit-rs commit recorded in [`messaging/README.md`](messaging/README.md). The fork adds packaging-class fixes for the wasm32 target plus additive binding surfaces (session export/restore, zero-approval cookie resume, and — new in rc50 — payment endpoints, SB2, X25519, public storage, and sign-out). Upstream paykit-rs is pre-1.0 ("WIP - not for production") and claims no independent security review; the binding and this integration inherit that status.

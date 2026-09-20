@@ -224,7 +224,7 @@ describe('commerce state vocabularies', () => {
     auctionStateSchema,
     paymentStateSchema,
     orderStateSchema,
-    ])('rejects unknown states', (schema) => {
+  ])('rejects unknown states', (schema) => {
     expect(schema.safeParse('processing_payment').success).toBe(false);
   });
 

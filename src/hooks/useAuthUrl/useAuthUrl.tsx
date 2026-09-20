@@ -63,9 +63,7 @@ export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
             }
             toast({
               variant: 'error',
-              description: isWrongEnvironment
-                ? getWrongEnvironmentHomeserverMessage()
-                : 'Sign in failed. Try again.',
+              description: isWrongEnvironment ? getWrongEnvironmentHomeserverMessage() : 'Sign in failed. Try again.',
             });
             if (isMountedRef.current) {
               setUrl('');

@@ -99,19 +99,21 @@ describe('messaging keyring (wrapping-key custody)', () => {
     ]);
     const realGenerateKey = globalThis.crypto.subtle.generateKey.bind(globalThis.crypto.subtle);
     let seeded = false;
-    const generateSpy = vi
-      .spyOn(globalThis.crypto.subtle, 'generateKey')
-      .mockImplementation(((algorithm: AlgorithmIdentifier, extractable: boolean, keyUsages: KeyUsage[]) => {
-        const generated = realGenerateKey(algorithm, extractable, keyUsages) as Promise<CryptoKey>;
-        if (!seeded) {
-          seeded = true;
-          return generated.then(async (key) => {
-            await seedKeyringStore(foreignKey);
-            return key;
-          });
-        }
-        return generated;
-      }) as typeof globalThis.crypto.subtle.generateKey);
+    const generateSpy = vi.spyOn(globalThis.crypto.subtle, 'generateKey').mockImplementation(((
+      algorithm: AlgorithmIdentifier,
+      extractable: boolean,
+      keyUsages: KeyUsage[],
+    ) => {
+      const generated = realGenerateKey(algorithm, extractable, keyUsages) as Promise<CryptoKey>;
+      if (!seeded) {
+        seeded = true;
+        return generated.then(async (key) => {
+          await seedKeyringStore(foreignKey);
+          return key;
+        });
+      }
+      return generated;
+    }) as typeof globalThis.crypto.subtle.generateKey);
 
     const adopted = await getOrCreateWrappingKey();
     expect(generateSpy).toHaveBeenCalledTimes(1);
