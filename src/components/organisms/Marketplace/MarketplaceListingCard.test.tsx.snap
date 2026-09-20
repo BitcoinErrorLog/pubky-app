@@ -3,7 +3,7 @@
 exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapshot rendered from an index entry 1`] = `
 <a
   aria-label="View 35mm rangefinder camera"
-  class="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-110 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
+  class="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-105 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
   href="/marketplace/listing/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/rangefinder_camera"
   style="--card-hover-rotation: 0deg; --marketplace-card-index: 0;"
 >
@@ -209,7 +209,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
 exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing snapshot 1`] = `
 <a
   aria-label="View Vintage leather boots"
-  class="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-110 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
+  class="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-105 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
   href="/marketplace/listing/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/leather_boots"
   style="--card-hover-rotation: 0deg; --marketplace-card-index: 0;"
 >
