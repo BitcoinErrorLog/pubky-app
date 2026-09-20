@@ -21,11 +21,11 @@ vi.mock('next/navigation', () => ({
 /**
  * Pricing-currency and measurement-unit scenarios:
  *
- * - Catalog cards with the indicative secondary price: a USD-priced card
- *   showing "≈ ₿N" and a bitcoin-priced card (BTC at exponent 8, the
- *   shape the live regtest purchase paid) showing ₿ base units as its
- *   PRIMARY price with "≈ $X" beneath. The BTC/USD rate is mocked to a
- *   fixed value — the estimate never renders from the network in VRT.
+ * - Catalog cards in the selected USD display currency: a USD-priced card
+ *   remains in its listed currency and a bitcoin-priced card (BTC at exponent
+ *   8, the shape the live regtest purchase paid) renders the indicative USD
+ *   conversion. The BTC/USD rate is mocked to a fixed value — the estimate
+ *   never renders from the network in VRT.
  * - The sell studio's package-dimension fields in both measurement systems:
  *   metric (cm/g) and imperial (in/oz), with the bitcoin pricing currency
  *   selected in the imperial scenario to capture the ₿ price labels.
@@ -104,8 +104,12 @@ function FormHarness({ values }: { values: Partial<CreateMarketplaceListingData>
 }
 
 describe('Marketplace pricing and units — visual regression', () => {
-  it('renders USD and bitcoin cards with indicative secondary prices at desktop viewport', async () => {
-    useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
+  it('renders USD and bitcoin cards in the selected USD display currency at desktop viewport', async () => {
+    useMarketplaceDisplayStore.setState({
+      displayCurrency: 'USD',
+      showFxEstimate: true,
+      measurementSystem: 'metric',
+    });
     const { usdListing, btcListing } = await fixtures;
 
     const screen = await renderForVRT(
@@ -115,7 +119,7 @@ describe('Marketplace pricing and units — visual regression', () => {
       </main>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
-    await expect.element(screen.getByText('≈ ₿125,000')).toBeInTheDocument();
+    await expect.element(screen.getByText('$125.00')).toBeInTheDocument();
     await expect.element(screen.getByText('≈ $15.00')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('pricing-cards-indicative-desktop');
   });

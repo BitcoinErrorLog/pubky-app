@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceNotifications } from '@/templates/Marketplace/MarketplaceNotifications';
 
@@ -92,7 +92,10 @@ describe('Marketplace notifications — visual regression', () => {
     await setView({ notifications: kindsFirstThird });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-kinds-1-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-kinds-1-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the first third of every notification kind at mobile viewport', async () => {
@@ -100,7 +103,10 @@ describe('Marketplace notifications — visual regression', () => {
     await setView({ notifications: kindsFirstThird });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-kinds-1-mobile');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-kinds-1-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the second third of every notification kind at desktop viewport', async () => {
@@ -108,7 +114,10 @@ describe('Marketplace notifications — visual regression', () => {
     await setView({ notifications: kindsSecondThird });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-kinds-2-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-kinds-2-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the last third of every notification kind at desktop viewport', async () => {
@@ -116,7 +125,10 @@ describe('Marketplace notifications — visual regression', () => {
     await setView({ notifications: kindsLastThird });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-kinds-3-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-kinds-3-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the preferences card with muted channels and read items at desktop viewport', async () => {
@@ -124,7 +136,10 @@ describe('Marketplace notifications — visual regression', () => {
     await setView({ notifications: readPair, preferences: mutedPreferences });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-preferences-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-preferences-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the empty state at desktop viewport', async () => {
@@ -132,21 +147,30 @@ describe('Marketplace notifications — visual regression', () => {
     await setView({ preferences });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-empty-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-empty-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the error state at desktop viewport', async () => {
     await setView({ error: 'Commerce notifications are unavailable.' });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-error-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-error-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the loading state at desktop viewport', async () => {
     await setView({ isLoading: true });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-loading-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-loading-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the device-local watchlist alerts section above the service list at desktop viewport', async () => {
@@ -162,7 +186,10 @@ describe('Marketplace notifications — visual regression', () => {
     });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-watch-alerts-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-watch-alerts-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   // Durable transaction-service mode: real delivered notifications, but no
@@ -172,6 +199,9 @@ describe('Marketplace notifications — visual regression', () => {
     await setView({ notifications: kindsFirstThird, canMarkRead: false });
 
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('notifications-durable-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-durable-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 });

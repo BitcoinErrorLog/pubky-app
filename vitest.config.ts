@@ -57,6 +57,9 @@ function fontUrlImportPlugin(): PluginOption {
 }
 
 export default defineConfig({
+  // Release worktrees share node_modules, so allow each gate to isolate Vite's
+  // optimizer cache instead of racing another worktree's browser run.
+  cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
   plugins: [fontUrlImportPlugin(), react(), tsconfigPaths()],
   assetsInclude: assetIncludes,
   resolve: {
