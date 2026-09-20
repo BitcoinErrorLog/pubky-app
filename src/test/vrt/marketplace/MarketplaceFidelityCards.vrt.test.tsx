@@ -1,6 +1,6 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { DropCard } from '@/organisms/Marketplace/DropCard';
@@ -55,7 +55,12 @@ function FidelityCards() {
 
 describe('Marketplace fidelity cards — visual regression', () => {
   beforeEach(() => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.75);
     useMarketplaceDisplayStore.setState({ displayCurrency: 'USD' });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it.each([
