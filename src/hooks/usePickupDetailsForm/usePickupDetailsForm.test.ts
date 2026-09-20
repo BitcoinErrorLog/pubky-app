@@ -88,6 +88,7 @@ beforeEach(() => {
 describe('usePickupDetailsForm', () => {
   it('canonicalizes the UTC device timezone to a contract-valid IANA zone', () => {
     const defaults = pickupDetailsFormDefaults('UTC');
+    defaults.spot = 'Harbor Market, stall 12';
 
     expect(defaults.zone).toBe('Etc/UTC');
     expect(pickupDetailsFormSchema.safeParse(defaults).success).toBe(true);
