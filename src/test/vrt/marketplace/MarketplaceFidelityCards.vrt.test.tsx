@@ -55,7 +55,6 @@ function FidelityCards() {
 
 describe('Marketplace fidelity cards — visual regression', () => {
   beforeEach(() => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.75);
     useMarketplaceDisplayStore.setState({ displayCurrency: 'USD' });
   });
 
@@ -68,7 +67,12 @@ describe('Marketplace fidelity cards — visual regression', () => {
     ['mobile', { width: 390, height: 844 }],
   ] as const)('captures the second listing at rest and mid-hover on %s', async (name, viewport) => {
     const screen = await renderForVRT(<FidelityCards />, { viewport });
+    // Browser instances retain the pointer position between tests. Park it in
+    // the root's empty top-left padding so the "rest" capture cannot inherit a
+    // hover transform from whichever card occupied the prior pointer position.
+    await screen.getByTestId(VRT_ROOT_TESTID).hover({ position: { x: 1, y: 1 } });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-rest`);
+    vi.spyOn(Math, 'random').mockReturnValue(0.75);
     await screen.getByRole('link', { name: `View ${listings[2].title}` }).hover();
     await new Promise((resolve) => setTimeout(resolve, 150));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-listing-hover`);
@@ -79,6 +83,7 @@ describe('Marketplace fidelity cards — visual regression', () => {
     ['mobile', { width: 390, height: 844 }],
   ] as const)('captures the drop card mid-hover on %s', async (name, viewport) => {
     const screen = await renderForVRT(<FidelityCards />, { viewport });
+    vi.spyOn(Math, 'random').mockReturnValue(0.75);
     await screen.getByRole('link', { name: 'View After Hours — limited vinyl' }).hover();
     await new Promise((resolve) => setTimeout(resolve, 150));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-drop-hover`);

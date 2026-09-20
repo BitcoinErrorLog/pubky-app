@@ -2,7 +2,7 @@
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import { MarketplaceSell } from '@/templates/Marketplace/MarketplaceSell';
@@ -220,7 +220,10 @@ describe('Marketplace sell studio — visual regression', () => {
     view.mediaItems = [];
 
     await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-empty-form-mobile');
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot(
+      'sell-empty-form-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the publish-blocked payment state at desktop viewport', async () => {

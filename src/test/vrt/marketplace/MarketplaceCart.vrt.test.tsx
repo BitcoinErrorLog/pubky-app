@@ -2,7 +2,7 @@
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
-import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 
@@ -273,7 +273,7 @@ describe('Marketplace cart — visual regression', () => {
 
   async function captureCart(sceneName: string) {
     const surface = expectVrtSurface('marketplace-cart');
-    await expect(surface).toMatchScreenshot(sceneName);
+    await expect(surface).toMatchScreenshot(sceneName, VRT_DENSE_CHROME_SCREENSHOT);
   }
 
   function expectDesktopSummaryGeometry(viewportHeight: number) {
@@ -513,6 +513,6 @@ describe('Marketplace cart — visual regression', () => {
     await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     const surface = expectVrtSurface('marketplace-cart');
     expect(document.querySelector('[data-surface="marketplace-award-cart-group"]')).toBeTruthy();
-    await expect(surface).toMatchScreenshot('cart-award-group-desktop');
+    await expect(surface).toMatchScreenshot('cart-award-group-desktop', VRT_DENSE_CHROME_SCREENSHOT);
   });
 });

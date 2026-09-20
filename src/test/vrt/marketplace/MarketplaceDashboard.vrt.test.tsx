@@ -2,7 +2,7 @@
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceDashboard } from '@/templates/Marketplace/MarketplaceDashboard';
 
@@ -168,7 +168,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
     view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-populated-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'dashboard-populated-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders populated metrics and inventory at mobile viewport', async () => {
@@ -180,7 +183,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
     view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-populated-mobile');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'dashboard-populated-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   // A seller with published listings but NO shop record dead-ends buyers on
@@ -199,7 +205,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
         throw new Error('The shop prompt has not rendered yet.');
       }
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-no-shop-prompt-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'dashboard-no-shop-prompt-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the new-seller empty state at desktop viewport', async () => {
@@ -211,7 +220,10 @@ describe('Marketplace seller dashboard — visual regression', () => {
     view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-empty-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'dashboard-empty-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the loading state at desktop viewport', async () => {
@@ -223,6 +235,9 @@ describe('Marketplace seller dashboard — visual regression', () => {
     view.shop = shop;
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dashboard-loading-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'dashboard-loading-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 });

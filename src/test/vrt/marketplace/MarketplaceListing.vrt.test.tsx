@@ -2,7 +2,7 @@
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceListing } from '@/templates/Marketplace/MarketplaceListing';
 
@@ -390,7 +390,10 @@ describe('Marketplace listing detail — visual regression', () => {
     const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
       viewport: VRT_VIEWPORT_MOBILE,
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-fixed-price-mobile');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'listing-fixed-price-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders an auction listing with live bid state at desktop viewport', async () => {

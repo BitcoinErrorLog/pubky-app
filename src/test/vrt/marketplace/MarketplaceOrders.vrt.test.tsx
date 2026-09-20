@@ -2,7 +2,7 @@
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { expectVrtSurface, parkVrtHover, renderForVRT } from '@/test-utils/vrt';
+import { expectVrtSurface, parkVrtHover, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
 
@@ -492,7 +492,10 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.adapterMode = 'transaction-service';
 
     await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-review-edit-in-window-desktop');
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot(
+      'orders-review-edit-in-window-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
     ordersState.adapterMode = 'sandbox';
   });
 
@@ -504,7 +507,10 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.adapterMode = 'transaction-service';
 
     await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-review-edit-out-of-window-desktop');
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot(
+      'orders-review-edit-out-of-window-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
     ordersState.adapterMode = 'sandbox';
   });
 
