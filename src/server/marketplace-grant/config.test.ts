@@ -11,6 +11,7 @@ function validEnv(): NodeJS.ProcessEnv {
     SHOP_PUBLIC_ORIGIN: 'https://shop.example',
     MARKETPLACE_SERVICE_URL: 'https://service.example',
     SHOP_BFF_GRANT_STATE_DATABASE_URL: 'postgres://example',
+    CRON_SECRET: 'c'.repeat(32),
     SHOP_GRANT_ASSERTION_ISSUER: 'https://shop.example',
     SHOP_GRANT_ASSERTION_KEY_ID: 'shop-bff-test-0001',
     SHOP_GRANT_ASSERTION_KEY_EPOCH: '1',

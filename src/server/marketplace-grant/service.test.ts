@@ -7,6 +7,7 @@ const config: MarketplaceGrantConfig = {
   publicOrigin: 'https://shop.example',
   serviceUrl: 'https://service.example',
   databaseUrl: 'postgres://example',
+  cronSecret: 'c'.repeat(32),
   assertionIssuer: 'https://shop.example',
   assertionKeyId: 'shop-bff-test-0001',
   assertionKeyEpoch: 1,

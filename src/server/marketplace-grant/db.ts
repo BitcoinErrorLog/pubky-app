@@ -187,6 +187,42 @@ export async function abandonClaim(config: MarketplaceGrantConfig, stateId: stri
   `;
 }
 
+export async function cleanupGrantState(config: MarketplaceGrantConfig): Promise<{
+  expiredFlows: number;
+  abandonedClaims: number;
+  deletedFlows: number;
+  deletedBridges: number;
+}> {
+  const db = grantSql(config);
+  return await db.begin(async (tx) => {
+    const expired = await tx`
+      UPDATE shop_grant_bff.flow_state
+      SET status = 'expired', context_sealed = NULL, terminal_at = now(),
+          lease_owner = NULL, lease_until = NULL, version = version + 1
+      WHERE status IN ('creating','awaiting') AND expires_at <= now()
+    `;
+    const abandoned = await tx`
+      UPDATE shop_grant_bff.flow_state
+      SET status = 'abandoned', context_sealed = NULL, terminal_at = now(),
+          lease_owner = NULL, lease_until = NULL, version = version + 1
+      WHERE status = 'claiming' AND lease_until <= now()
+    `;
+    const deletedFlows = await tx`
+      DELETE FROM shop_grant_bff.flow_state
+      WHERE terminal_at < now() - interval '24 hours'
+    `;
+    const deletedBridges = await tx`
+      DELETE FROM shop_grant_bff.session_bridge WHERE expires_at <= now()
+    `;
+    return {
+      expiredFlows: expired.count,
+      abandonedClaims: abandoned.count,
+      deletedFlows: deletedFlows.count,
+      deletedBridges: deletedBridges.count,
+    };
+  });
+}
+
 export async function resetGrantSqlForTests(): Promise<void> {
   if (sql) await sql.end({ timeout: 1 });
   sql = undefined;
