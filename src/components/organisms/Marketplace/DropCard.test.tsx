@@ -38,10 +38,10 @@ describe('DropCard', () => {
     expect(screen.getByText('Open to confirm service state')).toBeInTheDocument();
   });
 
-  it('supports the horizontal list layout', () => {
-    render(<DropCard entry={entry} bucket="live" layout="list" />);
+  it('renders the live indexed state without a countdown', () => {
+    render(<DropCard entry={entry} bucket="live" />);
 
-    expect(screen.getByTestId('card')).toHaveClass('flex-row');
     expect(screen.getByText('Start time passed · indexed')).toBeInTheDocument();
+    expect(screen.queryByText('Starts in 2 hours')).not.toBeInTheDocument();
   });
 });

@@ -10,8 +10,6 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import type { DropStreamBucket, NexusDropStreamEntry } from '@/hooks/useMarketplaceDrops/drops-stream';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
-import { cn } from '@/libs/utils/utils';
-import type { CommerceLayout } from '@/stores/commerce/commerce.types';
 import { DropCountdown } from './DropCountdown';
 
 const BUCKET_BADGES: Record<DropStreamBucket, string> = {
@@ -27,15 +25,7 @@ const BUCKET_BADGES: Record<DropStreamBucket, string> = {
  * from a card — opening the page hydrates the authoritative service
  * projection first.
  */
-export function DropCard({
-  entry,
-  bucket,
-  layout = 'grid',
-}: {
-  entry: NexusDropStreamEntry;
-  bucket: DropStreamBucket;
-  layout?: CommerceLayout;
-}) {
+export function DropCard({ entry, bucket }: { entry: NexusDropStreamEntry; bucket: DropStreamBucket }) {
   const [mediaFailed, setMediaFailed] = useState(false);
   const [hoverRotation, setHoverRotation] = useState(0);
   const mediaUrl = useMarketplaceFirstMediaUrl(entry.media_urls);
@@ -48,18 +38,8 @@ export function DropCard({
       onMouseEnter={() => setHoverRotation(Math.random() * 6 - 3)}
       aria-label={`View ${entry.title}`}
     >
-      <Card
-        className={cn(
-          'h-full gap-0 overflow-hidden border-0 py-0 transition-all group-hover:shadow-[0_24px_64px_-8px_rgba(0,0,0,0.8),0_8px_24px_rgba(0,0,0,0.5)]',
-          layout === 'list' && 'flex-row',
-        )}
-      >
-        <div
-          className={cn(
-            'relative flex aspect-square items-center justify-center overflow-hidden bg-linear-to-br from-brand/45 via-purple-500/20 to-background',
-            layout === 'list' && 'aspect-square w-36 shrink-0 sm:w-48',
-          )}
-        >
+      <Card className="h-full gap-0 overflow-hidden border-0 py-0 transition-all group-hover:shadow-[0_24px_64px_-8px_rgba(0,0,0,0.8),0_8px_24px_rgba(0,0,0,0.5)]">
+        <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-linear-to-br from-brand/45 via-purple-500/20 to-background">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.16),transparent_32%)]" />
           <CalendarClock className="size-16 text-white opacity-80" aria-hidden="true" />
           {mediaUrl && !mediaFailed && (
