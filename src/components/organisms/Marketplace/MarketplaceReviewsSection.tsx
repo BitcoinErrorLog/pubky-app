@@ -131,9 +131,8 @@ function MarketplaceReviewItem({
             className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
           >
             <MessageSquareReply className="size-3.5" />
-            Response from {response.responderId === review.subjectId
-              ? 'the reviewed party'
-            : 'the subject'} · {formatReviewDate(response.updatedAt)}
+            Response from {response.responderId === review.subjectId ? 'the reviewed party' : 'the subject'} ·{' '}
+            {formatReviewDate(response.updatedAt)}
           </Typography>
           <Typography as="p" overrideDefaults className="text-sm whitespace-pre-wrap text-foreground">
             {response.text}
@@ -281,7 +280,9 @@ function formatReviewDate(iso: string): string {
   );
 }
 
-function toIndexedReviewResponse(response: CommerceReviewResponseModelSchema): NonNullable<CommerceIndexedReview['response']> {
+function toIndexedReviewResponse(
+  response: CommerceReviewResponseModelSchema,
+): NonNullable<CommerceIndexedReview['response']> {
   return {
     responderId: response.owner_id,
     text: response.record.text,

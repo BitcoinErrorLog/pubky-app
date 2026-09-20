@@ -116,6 +116,11 @@ export const pickupDetailsFormSchema = z
 export type PickupDetailsFormData = z.infer<typeof pickupDetailsFormSchema>;
 
 export function pickupDetailsFormDefaults(zone: string): PickupDetailsFormData {
+  // `Intl.DateTimeFormat().resolvedOptions().timeZone` returns the IANA link
+  // "UTC" on UTC hosts (including CI), while the marketplace contract
+  // requires an Area/City-shaped identifier. Canonicalize that valid device
+  // timezone before it reaches the form and wire schemas.
+  const contractZone = zone === 'UTC' ? 'Etc/UTC' : zone;
   return {
     kind: 'spot',
     spot: '',
@@ -128,7 +133,7 @@ export function pickupDetailsFormDefaults(zone: string): PickupDetailsFormData {
     countryCode: 'US',
     instructions: '',
     availabilityMode: 'arrange',
-    zone,
+    zone: contractZone,
     windows: [{ day: 'sat', start: '10:00', end: '14:00' }],
   };
 }

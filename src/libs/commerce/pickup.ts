@@ -106,14 +106,26 @@ export const pickupDetailsSchema = z
   .superRefine((details, context) => {
     if (details.kind === 'address') {
       if (details.address === undefined) {
-        context.addIssue({ code: 'custom', path: ['address'], message: 'Address-kind pickup details require an address' });
+        context.addIssue({
+          code: 'custom',
+          path: ['address'],
+          message: 'Address-kind pickup details require an address',
+        });
       }
       if (details.spot !== undefined) {
-        context.addIssue({ code: 'custom', path: ['spot'], message: 'Address-kind pickup details cannot carry a spot' });
+        context.addIssue({
+          code: 'custom',
+          path: ['spot'],
+          message: 'Address-kind pickup details cannot carry a spot',
+        });
       }
     } else {
       if (details.spot === undefined) {
-        context.addIssue({ code: 'custom', path: ['spot'], message: 'Spot-kind pickup details require a meeting point' });
+        context.addIssue({
+          code: 'custom',
+          path: ['spot'],
+          message: 'Spot-kind pickup details require a meeting point',
+        });
       }
       if (details.address !== undefined) {
         context.addIssue({
@@ -289,10 +301,7 @@ const PICKUP_REFUSAL_MESSAGES: ReadonlyMap<string, MarketplacePickupRefusal> = n
   ['The order is terminal; the pickup details are no longer revealed.', 'order_terminal'],
   ['Only pickup orders carry pickup details.', 'not_pickup_order'],
   ['This command applies only to pickup orders.', 'not_pickup_order'],
-  [
-    'This order was confirmed by a sandbox payment; its pickup details are never revealed.',
-    'sandbox_confirmed',
-  ],
+  ['This order was confirmed by a sandbox payment; its pickup details are never revealed.', 'sandbox_confirmed'],
   ['This order carries no pinned pickup details.', 'no_pinned_details'],
   [
     'The pickup terms changed after payment; the seller cannot confirm the handover until the buyer has seen the change.',

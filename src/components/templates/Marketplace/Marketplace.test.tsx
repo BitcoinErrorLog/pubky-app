@@ -119,9 +119,7 @@ describe('Marketplace', () => {
   it('shows the staging disclosure by deploy environment', () => {
     const { rerender } = render(<Marketplace />);
 
-    expect(screen.getByRole('note')).toHaveTextContent(
-      'Staging environment — test rails, no real funds move',
-    );
+    expect(screen.getByRole('note')).toHaveTextContent('Staging environment — test rails, no real funds move');
     expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
 
     runtime.deployEnv = 'production';

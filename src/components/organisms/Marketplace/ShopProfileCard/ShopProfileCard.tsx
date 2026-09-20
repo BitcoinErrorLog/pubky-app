@@ -40,7 +40,8 @@ const VARIANT = {
     bannerFallback: 'h-28 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-40',
     content: 'flex flex-col gap-4 p-6 sm:flex-row sm:items-end sm:justify-between',
     avatarLift: '-mt-16',
-    avatar: 'mb-4 flex size-20 items-center justify-center overflow-hidden rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg',
+    avatar:
+      'mb-4 flex size-20 items-center justify-center overflow-hidden rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg',
     storeIcon: 'size-9',
     headingLevel: 1 as const,
     headingSize: 'xl' as const,
@@ -56,7 +57,8 @@ const VARIANT = {
     bannerFallback: 'h-20 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-28',
     content: 'p-5',
     avatarLift: '-mt-12',
-    avatar: 'mb-3 flex size-16 items-center justify-center overflow-hidden rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg',
+    avatar:
+      'mb-3 flex size-16 items-center justify-center overflow-hidden rounded-2xl border-4 border-card bg-brand text-primary-foreground shadow-lg',
     storeIcon: 'size-7',
     headingLevel: 2 as const,
     headingSize: 'lg' as const,

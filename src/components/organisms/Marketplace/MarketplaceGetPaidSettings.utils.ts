@@ -54,8 +54,7 @@ export function deriveBitcoinStatus(args: {
 }
 
 export function atLeastOneMethodSentence(readyCount: number): string {
-  const each =
-    'Each method works on its own — turn on any of them, in any order, and change them whenever you like.';
+  const each = 'Each method works on its own — turn on any of them, in any order, and change them whenever you like.';
   if (readyCount === 0) {
     return `Set up at least one method below to start selling. ${each}`;
   }

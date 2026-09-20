@@ -458,7 +458,10 @@ describe('Home (global feed) — visual regression', () => {
     // The VRT root is the viewport-clamped wrapper added by `renderForVRT`,
     // so the screenshot is exactly the viewport size. Without it, the body
     // locator captures the full scrollable document height.
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-desktop', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'home-feed-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the global feed at mobile viewport', async () => {
@@ -474,7 +477,10 @@ describe('Home (global feed) — visual regression', () => {
     await waitForComposerMotion();
     await parkVrtHover();
 
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-desktop', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'home-feed-quick-reply-expanded-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders an expanded QuickReply at mobile viewport', async () => {
@@ -485,6 +491,9 @@ describe('Home (global feed) — visual regression', () => {
     await waitForComposerMotion();
     await parkVrtHover();
 
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-mobile', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'home-feed-quick-reply-expanded-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 });

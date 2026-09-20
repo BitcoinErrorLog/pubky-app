@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import MarketplaceShopPage from './page';
 
-const notFound = vi.hoisted(() => vi.fn(() => {
-  throw new Error('NEXT_NOT_FOUND');
-}));
+const notFound = vi.hoisted(() =>
+  vi.fn(() => {
+    throw new Error('NEXT_NOT_FOUND');
+  }),
+);
 const rendered = vi.hoisted(() => vi.fn(() => <div data-testid="marketplace-shop" />));
 
 vi.mock('next/navigation', () => ({ notFound }));
@@ -21,9 +23,9 @@ describe('MarketplaceShopPage', () => {
   });
 
   it('uses notFound for a base32-confusable seller pubky', async () => {
-    await expect(
-      MarketplaceShopPage({ params: Promise.resolve({ sellerPubky: 'l'.repeat(52) }) }),
-    ).rejects.toThrow('NEXT_NOT_FOUND');
+    await expect(MarketplaceShopPage({ params: Promise.resolve({ sellerPubky: 'l'.repeat(52) }) })).rejects.toThrow(
+      'NEXT_NOT_FOUND',
+    );
     expect(notFound).toHaveBeenCalled();
     expect(rendered).not.toHaveBeenCalled();
   });

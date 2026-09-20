@@ -10,11 +10,7 @@ import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDial
  * the durable transport reports `isMarketplaceSessionRequiredError`. Sandbox
  * surfaces never see this card because they do not use the durable transport.
  */
-export function MarketplaceSessionRequiredCard({
-  onConnected,
-}: {
-  onConnected?: () => void | Promise<void>;
-}) {
+export function MarketplaceSessionRequiredCard({ onConnected }: { onConnected?: () => void | Promise<void> }) {
   return (
     <div
       role="alert"

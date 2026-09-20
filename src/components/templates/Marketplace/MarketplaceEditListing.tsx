@@ -114,15 +114,15 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
               {editing.publishBlocked === 'session'
                 ? 'Connect your marketplace session before publishing'
                 : editing.publishBlocked === 'no-method'
-                ? 'Configure a payment method before publishing'
-                : 'We could not verify your payment settings. Reconnect your session and try again.'}
+                  ? 'Configure a payment method before publishing'
+                  : 'We could not verify your payment settings. Reconnect your session and try again.'}
             </Typography>
             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
               {editing.publishBlocked === 'session'
                 ? 'Approve the marketplace session in Pubky Ring, then submit these changes again.'
                 : editing.publishBlocked === 'no-method'
-                ? 'Buyers cannot pay for this listing until you add at least one payment method.'
-                : 'Your payment settings could not be checked against the marketplace service.'}
+                  ? 'Buyers cannot pay for this listing until you add at least one payment method.'
+                  : 'Your payment settings could not be checked against the marketplace service.'}
             </Typography>
             {editing.publishBlocked === 'no-method' ? (
               <Button asChild variant="link" className="mt-2 h-auto p-0">

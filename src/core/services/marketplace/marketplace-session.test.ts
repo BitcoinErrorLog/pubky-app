@@ -95,7 +95,10 @@ describe('MarketplaceSessionService', () => {
 
   it('never hands the bearer token to callers of the session flow', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    authTokenFlow.awaitToken.mockResolvedValueOnce({ toBytes: () => new Uint8Array([9, 9, 9]), publicKey: { z32: () => PUBKY } });
+    authTokenFlow.awaitToken.mockResolvedValueOnce({
+      toBytes: () => new Uint8Array([9, 9, 9]),
+      publicKey: { z32: () => PUBKY },
+    });
 
     const flow = MarketplaceSessionService.beginSessionFlow();
     const info = await flow.awaitSession();
@@ -218,7 +221,10 @@ describe('MarketplaceSessionService', () => {
   it('does not fire the timeout once the exchange already succeeded', async () => {
     vi.useFakeTimers();
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
-    authTokenFlow.awaitToken.mockResolvedValueOnce({ toBytes: () => new Uint8Array([7]), publicKey: { z32: () => PUBKY } });
+    authTokenFlow.awaitToken.mockResolvedValueOnce({
+      toBytes: () => new Uint8Array([7]),
+      publicKey: { z32: () => PUBKY },
+    });
 
     const flow = MarketplaceSessionService.beginSessionFlow();
     const info = await flow.awaitSession();
@@ -251,9 +257,7 @@ describe('MarketplaceSessionService', () => {
   });
 
   it('marks 401 already-used without putting the body in error context', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response('The auth token has already been used.', { status: 401 }),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('The auth token has already been used.', { status: 401 }));
 
     const error = await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY).catch(
       (caught) => caught,
@@ -266,24 +270,16 @@ describe('MarketplaceSessionService', () => {
   it('treats 401 already-used as success when this client already holds a bearer for the same pubky', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response('The auth token has already been used.', { status: 401 }),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('The auth token has already been used.', { status: 401 }));
 
-    const info = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(
-      new Uint8Array([2]),
-      PUBKY,
-      Date.now(),
-    );
+    const info = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([2]), PUBKY, Date.now());
 
     expect(info.pubky).toBe(PUBKY);
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
   });
 
   it('rejects a 401 already-used when this client holds NO bearer — never a silent success', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response('The auth token has already been used.', { status: 401 }),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('The auth token has already been used.', { status: 401 }));
 
     // Lost-201 self-race without a bearer (or a third party spent the bytes):
     // the redemption must fail so the caller surfaces a marketplace reconnect
@@ -297,9 +293,7 @@ describe('MarketplaceSessionService', () => {
   it('rejects a 401 already-used when the held bearer belongs to a DIFFERENT pubky', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response('The auth token has already been used.', { status: 401 }),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('The auth token has already been used.', { status: 401 }));
 
     const other = 'z'.repeat(52);
     await expect(
@@ -470,10 +464,10 @@ describe('MarketplaceSessionService', () => {
 
   it('rejects a session token that is not the 32-byte url-safe-base64 wire form', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ token: 'ATTACKER', pubky: PUBKY, capabilities: '', expires_at: inOneDay() }),
-        { status: 201, headers: { 'content-type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ token: 'ATTACKER', pubky: PUBKY, capabilities: '', expires_at: inOneDay() }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
     );
     await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',

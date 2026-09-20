@@ -249,16 +249,16 @@ Harness: `/Users/johncarvalho/work/mp-auth-cookie-exp`. Re-run: `cd /Users/johnc
 
 **Recorded result (staging, 2026-09-08):** `PASS`.
 
-| Presenter                        | Check                                                           | Result                                                             |
-| -------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Browser WASM (`Client.fetch`)    | POST session endpoint                                           | **200**, 99-byte body                                              |
-| Browser WASM                     | GET session with the resulting cookie, no second approval       | **200**, 96-byte body                                              |
-| Browser WASM                     | `Session.restore` on the **POST** body                          | succeeded (P3-2 alphabet match in practice)                        |
-| Browser WASM                     | `session.storage.putJson('/priv/pubky.app/one-auth-gate.json')` | succeeded (wider grant landed through WASM, not only on the token) |
-| Browser WASM                     | Restored session capabilities                                   | full production string                                             |
+| Presenter                        | Check                                                           | Result                                                                                                                                        |
+| -------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser WASM (`Client.fetch`)    | POST session endpoint                                           | **200**, 99-byte body                                                                                                                         |
+| Browser WASM                     | GET session with the resulting cookie, no second approval       | **200**, 96-byte body                                                                                                                         |
+| Browser WASM                     | `Session.restore` on the **POST** body                          | succeeded (P3-2 alphabet match in practice)                                                                                                   |
+| Browser WASM                     | `session.storage.putJson('/priv/pubky.app/one-auth-gate.json')` | succeeded (wider grant landed through WASM, not only on the token)                                                                            |
+| Browser WASM                     | Restored session capabilities                                   | full production string                                                                                                                        |
 | Browser WASM (fresh client)      | Cookie only — no token bytes, new WASM/`Session` handle         | `GET /session` **200**, **96-byte** body; `Session.restore` succeeded; capabilities = full grant; `/priv` write through that handle succeeded |
-| Marketplace (same bytes, second) | `POST /v1/auth/sessions`                                        | **201**, 230-byte body, bearer issued, capabilities = full grant   |
-| Marketplace                      | Replay of the same bytes                                        | **401**, “The auth token has already been used.”                   |
+| Marketplace (same bytes, second) | `POST /v1/auth/sessions`                                        | **201**, 230-byte body, bearer issued, capabilities = full grant                                                                              |
+| Marketplace                      | Replay of the same bytes                                        | **401**, “The auth token has already been used.”                                                                                              |
 
 **96 vs 99 bytes.** Both bodies are the same postcard `SessionInfo`. The POST `/session` path serializes a **fresh** timestamp into the new session record (99 bytes on this run). GET `/session` serializes the **stored** record (96 bytes). `Session.restore` accepted both. The length difference is benign and does not indicate a different type.
 

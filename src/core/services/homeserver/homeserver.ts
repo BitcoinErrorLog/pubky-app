@@ -191,15 +191,11 @@ export class HomeserverService {
         const body = new Uint8Array(await postResponse.arrayBuffer());
         return await this.restoreSession({ sessionExport: bytesToBase64(body) });
       } catch {
-        throw Err.auth(
-          AuthErrorCode.UNAUTHORIZED,
-          'Sign-in failed. Scan again.',
-          {
-            service: ErrorService.Homeserver,
-            operation: 'signInWithFullGrantAuthToken',
-            context: { stage: 'restore-after-post' },
-          },
-        );
+        throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign-in failed. Scan again.', {
+          service: ErrorService.Homeserver,
+          operation: 'signInWithFullGrantAuthToken',
+          context: { stage: 'restore-after-post' },
+        });
       }
     }
 

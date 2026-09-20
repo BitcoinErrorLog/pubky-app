@@ -4,11 +4,7 @@
   "aggregates": [
     {
       "aggregate": "listing",
-      "states": [
-        "available",
-        "reserved",
-        "sold"
-      ],
+      "states": ["available", "reserved", "sold"],
       "initial": "available",
       "transitions": [
         {
@@ -92,12 +88,7 @@
     },
     {
       "aggregate": "reservation",
-      "states": [
-        "active",
-        "converted",
-        "released",
-        "expired"
-      ],
+      "states": ["active", "converted", "released", "expired"],
       "initial": "active",
       "transitions": [
         {
@@ -139,21 +130,12 @@
           ]
         }
       ],
-      "commands": [
-        "inventory.reserve"
-      ],
+      "commands": ["inventory.reserve"],
       "unreachable_states": []
     },
     {
       "aggregate": "offer",
-      "states": [
-        "pending",
-        "countered",
-        "accepted",
-        "rejected",
-        "withdrawn",
-        "expired"
-      ],
+      "states": ["pending", "countered", "accepted", "rejected", "withdrawn", "expired"],
       "initial": "pending",
       "transitions": [
         {
@@ -257,24 +239,12 @@
           ]
         }
       ],
-      "commands": [
-        "offer.create",
-        "offer.counter",
-        "offer.accept",
-        "offer.reject",
-        "offer.withdraw"
-      ],
+      "commands": ["offer.create", "offer.counter", "offer.accept", "offer.reject", "offer.withdraw"],
       "unreachable_states": []
     },
     {
       "aggregate": "auction",
-      "states": [
-        "scheduled",
-        "active",
-        "sold",
-        "unsold",
-        "cancelled"
-      ],
+      "states": ["scheduled", "active", "sold", "unsold", "cancelled"],
       "initial": "scheduled",
       "transitions": [
         {
@@ -316,14 +286,8 @@
           ]
         }
       ],
-      "commands": [
-        "listing.register",
-        "auction.place_bid",
-        "auction.close"
-      ],
-      "unreachable_states": [
-        "cancelled"
-      ]
+      "commands": ["listing.register", "auction.place_bid", "auction.close"],
+      "unreachable_states": ["cancelled"]
     },
     {
       "aggregate": "order",
@@ -580,20 +544,11 @@
         "review.create",
         "review.update"
       ],
-      "unreachable_states": [
-        "processing",
-        "closed"
-      ]
+      "unreachable_states": ["processing", "closed"]
     },
     {
       "aggregate": "payment",
-      "states": [
-        "awaiting_entitlement",
-        "detected",
-        "confirmed",
-        "expired",
-        "manual_review"
-      ],
+      "states": ["awaiting_entitlement", "detected", "confirmed", "expired", "manual_review"],
       "initial": "awaiting_entitlement",
       "transitions": [
         {
@@ -679,20 +634,12 @@
           ]
         }
       ],
-      "commands": [
-        "payment.sandbox_advance",
-        "payment.register_locks"
-      ],
+      "commands": ["payment.sandbox_advance", "payment.register_locks"],
       "unreachable_states": []
     },
     {
       "aggregate": "return",
-      "states": [
-        "requested",
-        "approved",
-        "received",
-        "refunded"
-      ],
+      "states": ["requested", "approved", "received", "refunded"],
       "initial": "requested",
       "transitions": [
         {
@@ -726,23 +673,12 @@
           ]
         }
       ],
-      "commands": [
-        "return.request",
-        "return.approve",
-        "return.receive",
-        "refund.record_external"
-      ],
+      "commands": ["return.request", "return.approve", "return.receive", "refund.record_external"],
       "unreachable_states": []
     },
     {
       "aggregate": "drop",
-      "states": [
-        "announced",
-        "live",
-        "ended_sold_out",
-        "ended_closed",
-        "ended_cancelled"
-      ],
+      "states": ["announced", "live", "ended_sold_out", "ended_closed", "ended_cancelled"],
       "initial": "announced",
       "transitions": [
         {
@@ -818,13 +754,7 @@
           ]
         }
       ],
-      "commands": [
-        "drop.sync",
-        "drop.cancel",
-        "drop.release_listings",
-        "inventory.reserve",
-        "checkout.create"
-      ],
+      "commands": ["drop.sync", "drop.cancel", "drop.release_listings", "inventory.reserve", "checkout.create"],
       "unreachable_states": []
     }
   ]

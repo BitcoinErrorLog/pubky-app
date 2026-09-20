@@ -661,7 +661,10 @@ async function renderSingleCollection(
   // Preload so readiness is explicit instead of relying on toMatchScreenshot retries.
   await preloadImages(Object.values(f.collectionCoverUrls));
 
-  const screen = await renderForVRT(<CollectionWithHeader postId={collection.compositeId} />, { viewport, disableHover: true });
+  const screen = await renderForVRT(<CollectionWithHeader postId={collection.compositeId} />, {
+    viewport,
+    disableHover: true,
+  });
   await expect.element(screen.getByRole('heading', { name: 'Signals from the field' })).toBeVisible();
   if (layout === 'visual' && viewport.width >= 768) {
     await expect.element(screen.getByRole('button', { name: `Open post ${f.collectionItemIds[0]}` })).toBeVisible();
@@ -727,7 +730,10 @@ describe('Single collection — visual layout — visual regression', () => {
 describe('Bookmarks collection — visual regression', () => {
   it('renders bookmarks at desktop viewport', async () => {
     const screen = await renderBookmarks(VRT_VIEWPORT_DESKTOP);
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('bookmarks-collection-desktop', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'bookmarks-collection-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders bookmarks at mobile viewport', async () => {

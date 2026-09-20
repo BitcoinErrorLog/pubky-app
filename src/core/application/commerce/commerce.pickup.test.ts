@@ -255,7 +255,10 @@ describe('CommerceApplication local pickup (Wave 7)', () => {
         deliveryAddress: address,
       });
 
-      const payload = execute.mock.calls[0][1].payload as { lines: { fulfillment: string }[]; deliveryAddress?: unknown };
+      const payload = execute.mock.calls[0][1].payload as {
+        lines: { fulfillment: string }[];
+        deliveryAddress?: unknown;
+      };
       expect(payload.lines.map((line) => line.fulfillment)).toEqual(['shipping', 'pickup']);
       expect(payload.deliveryAddress).toEqual(address);
     });

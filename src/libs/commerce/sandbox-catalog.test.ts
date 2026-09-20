@@ -51,7 +51,8 @@ describe('createCommerceSandboxCatalog', () => {
 
   it('ships by default: auctions never publish pickup, shipped listings carry an option, all three badge states appear', () => {
     const { listings } = createCommerceSandboxCatalog();
-    const methodsOf = (listing: (typeof listings)[number]) => commerceListingFulfillmentMethods(listing.fulfillmentMethods);
+    const methodsOf = (listing: (typeof listings)[number]) =>
+      commerceListingFulfillmentMethods(listing.fulfillmentMethods);
 
     // Auctions and offers are shipping-only (local pickup design §A2): the
     // service refuses to register a pickup auction.

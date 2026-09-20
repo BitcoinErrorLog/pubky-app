@@ -40,10 +40,7 @@ export function MarketplaceSellerIdentity({
         <Typography as="p" className="text-sm text-muted-foreground">
           Sold by
         </Typography>
-        <Typography
-          as="p"
-          className="break-words font-semibold"
-        >
+        <Typography as="p" className="font-semibold break-words">
           {displayName}
         </Typography>
         {reputation.status === 'rated' && reputation.summary.count > 0 ? (

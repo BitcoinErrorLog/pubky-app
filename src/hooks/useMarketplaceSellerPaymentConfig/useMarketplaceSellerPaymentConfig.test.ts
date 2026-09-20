@@ -68,9 +68,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
       operation: 'getMyPaymentConfig',
     });
     useCommerceStore.setState({ marketplaceSession: null });
-    vi.mocked(CommerceController.getMyPaymentConfig)
-      .mockRejectedValueOnce(sessionError)
-      .mockResolvedValueOnce(config);
+    vi.mocked(CommerceController.getMyPaymentConfig).mockRejectedValueOnce(sessionError).mockResolvedValueOnce(config);
     vi.mocked(CommerceController.isOwnPaykitAccountClaimed)
       .mockRejectedValueOnce(sessionError)
       .mockResolvedValueOnce(true);
