@@ -98,7 +98,7 @@ export function MarketplaceSessionConnectDialog({
         </Typography>
         {requestsFullGrant && (
           <div className="rounded-md border border-border bg-muted/40 p-3">
-            <code className="block break-all font-sans text-xs" data-cy="session-connect-requested-capabilities">
+            <code className="block font-sans text-xs break-all" data-cy="session-connect-requested-capabilities">
               {CAPABILITIES}
             </code>
             <Typography as="p" className="mt-1 text-xs text-muted-foreground">
@@ -122,8 +122,8 @@ export function MarketplaceSessionConnectDialog({
           // progress), which holds the only scannable URL. No QR, Copy, or
           // Open here — approving there settles this session too.
           <div role="status" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-            An approval is already in progress on another surface. Approve it there — it also connects this
-            marketplace session.
+            An approval is already in progress on another surface. Approve it there — it also connects this marketplace
+            session.
           </div>
         ) : (
           <div className="grid justify-items-center gap-4">

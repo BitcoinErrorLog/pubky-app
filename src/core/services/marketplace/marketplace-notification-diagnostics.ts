@@ -7,7 +7,8 @@ const reportedInvalidTypeSets = new Set<string>();
 
 export function reportMarketplaceNotificationInvalidTypes(invalidTypes: readonly string[]): void {
   const key = invalidTypes.join('\u0000');
-  if (reportedInvalidTypeSets.has(key) || reportedInvalidTypeSets.size >= MARKETPLACE_NOTIFICATION_DIAGNOSTIC_MAX_SETS) return;
+  if (reportedInvalidTypeSets.has(key) || reportedInvalidTypeSets.size >= MARKETPLACE_NOTIFICATION_DIAGNOSTIC_MAX_SETS)
+    return;
   reportedInvalidTypeSets.add(key);
 
   Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace notification history was partially unrecognized.', {

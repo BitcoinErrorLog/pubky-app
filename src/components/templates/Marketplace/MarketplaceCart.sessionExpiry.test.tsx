@@ -6,10 +6,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import {
-  MARKETPLACE_SESSION_STORAGE_KEY,
-  MarketplaceSessionService,
-} from '@/services/marketplace/marketplace-session';
+import { MARKETPLACE_SESSION_STORAGE_KEY, MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceCart } from './MarketplaceCart';
@@ -63,7 +60,10 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
         variantId: string;
         listing: {
           record: {
-            variants: Array<{ id: string; priceOverride?: { amountMinor: number; currency: string; exponent: number } }>;
+            variants: Array<{
+              id: string;
+              priceOverride?: { amountMinor: number; currency: string; exponent: number };
+            }>;
             sale: { format: string; unitPrice?: { amountMinor: number; currency: string; exponent: number } };
           };
         };
@@ -178,7 +178,10 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Place order' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Place order' })).toHaveAttribute('aria-describedby', 'place-order-reason');
+    expect(screen.getByRole('button', { name: 'Place order' })).toHaveAttribute(
+      'aria-describedby',
+      'place-order-reason',
+    );
     await waitFor(() => {
       expect(useCommerceStore.getState().marketplaceSession).toBeNull();
     });

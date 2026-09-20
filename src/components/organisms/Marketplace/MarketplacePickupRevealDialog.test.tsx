@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { type MarketplacePickupReveal,MaskedPickupDetails } from '@/libs/commerce/pickup';
+import { type MarketplacePickupReveal, MaskedPickupDetails } from '@/libs/commerce/pickup';
 import type { AppError } from '@/libs/error/error';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -168,11 +168,9 @@ describe('MarketplacePickupRevealDialog persistence guard', () => {
     const franky = await import('@/core/database/franky/franky');
     const authStore = await import('@/stores/auth/auth.store');
     const commerceStore = await import('@/stores/commerce/commerce.store');
-    const dbSpy = vi
-      .spyOn(franky.db, 'table')
-      .mockImplementation(() => {
-        throw new Error('Dexie must not be touched by the reveal dialog');
-      });
+    const dbSpy = vi.spyOn(franky.db, 'table').mockImplementation(() => {
+      throw new Error('Dexie must not be touched by the reveal dialog');
+    });
     const authSpy = vi.spyOn(authStore.useAuthStore, 'getState').mockImplementation(() => {
       throw new Error('stores must not be touched by the reveal dialog');
     });

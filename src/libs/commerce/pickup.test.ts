@@ -81,12 +81,8 @@ describe('pickupDetailsSchema (mirrors the service validate_pickup_details)', ()
   it('bounds the spot, instructions, and zone like the service', () => {
     expect(pickupDetailsSchema.safeParse({ ...spotDetails, spot: 'x'.repeat(201) }).success).toBe(false);
     expect(pickupDetailsSchema.safeParse({ ...spotDetails, instructions: 'x'.repeat(1_001) }).success).toBe(false);
-    expect(
-      pickupDetailsSchema.safeParse({ ...spotDetails, availability: { zone: 'Berlin' } }).success,
-    ).toBe(false);
-    expect(
-      pickupDetailsSchema.safeParse({ ...spotDetails, availability: { zone: 'EU' } }).success,
-    ).toBe(false);
+    expect(pickupDetailsSchema.safeParse({ ...spotDetails, availability: { zone: 'Berlin' } }).success).toBe(false);
+    expect(pickupDetailsSchema.safeParse({ ...spotDetails, availability: { zone: 'EU' } }).success).toBe(false);
   });
 
   it('validates availability windows: weekday vocabulary, HH:MM, end after start, 1–14 windows', () => {
@@ -100,9 +96,9 @@ describe('pickupDetailsSchema (mirrors the service validate_pickup_details)', ()
         withWindows(Array.from({ length: 15 }, () => ({ day: 'mon', start: '09:00', end: '10:00' }))),
       ).success,
     ).toBe(false);
-    expect(pickupDetailsSchema.safeParse(withWindows([{ day: 'saturday', start: '10:00', end: '14:00' }])).success).toBe(
-      false,
-    );
+    expect(
+      pickupDetailsSchema.safeParse(withWindows([{ day: 'saturday', start: '10:00', end: '14:00' }])).success,
+    ).toBe(false);
     expect(pickupDetailsSchema.safeParse(withWindows([{ day: 'sat', start: '24:00', end: '14:00' }])).success).toBe(
       false,
     );

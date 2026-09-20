@@ -6,9 +6,7 @@ describe('getMarketplaceNotificationActionText', () => {
     expect(getMarketplaceNotificationActionText({ type: 'auction_ended' })).toBe('ended an auction');
     expect(getMarketplaceNotificationActionText({ type: 'outbid' })).toBe('outbid you in an auction');
     expect(getMarketplaceNotificationActionText({ type: 'offer_received' })).toBe('sent you an offer');
-    expect(getMarketplaceNotificationActionText({ type: 'payment_confirmed' })).toBe(
-      'confirmed payment for an order',
-    );
+    expect(getMarketplaceNotificationActionText({ type: 'payment_confirmed' })).toBe('confirmed payment for an order');
     expect(getMarketplaceNotificationActionText({ type: 'order_delivery_assumed' })).toBe(
       'marked an order delivered automatically',
     );
@@ -30,12 +28,8 @@ describe('getMarketplaceNotificationActionText', () => {
     // with shipped orders by contract); the unilateral buyer-protection exit
     // notifies as order_cancelled_terms_change — distinct from the ordinary
     // order_cancelled, with copy that names the buyer protection (§A3).
-    expect(getMarketplaceNotificationActionText({ type: 'pickup_details_updated' })).toBe(
-      'updated the pickup details',
-    );
-    expect(getMarketplaceNotificationActionText({ type: 'pickup_details_cleared' })).toBe(
-      'removed the pickup details',
-    );
+    expect(getMarketplaceNotificationActionText({ type: 'pickup_details_updated' })).toBe('updated the pickup details');
+    expect(getMarketplaceNotificationActionText({ type: 'pickup_details_cleared' })).toBe('removed the pickup details');
     expect(getMarketplaceNotificationActionText({ type: 'pickup_ready' })).toBe('marked your order ready for pickup');
     expect(getMarketplaceNotificationActionText({ type: 'order_delivered' })).toBe('confirmed delivery of an order');
     expect(getMarketplaceNotificationActionText({ type: 'order_cancelled' })).toBe('updated an order cancellation');

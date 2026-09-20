@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { classifyMarketplacePickupRefusal,type MarketplacePickupRefusal, type MarketplacePickupReveal } from '@/libs/commerce/pickup';
+import {
+  classifyMarketplacePickupRefusal,
+  type MarketplacePickupRefusal,
+  type MarketplacePickupReveal,
+} from '@/libs/commerce/pickup';
 import { AppError } from '@/libs/error/error';
 
 export type PickupRevealState = 'idle' | 'loading' | 'ready' | 'refused';

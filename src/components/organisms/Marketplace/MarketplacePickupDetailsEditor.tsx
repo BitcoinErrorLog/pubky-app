@@ -88,8 +88,8 @@ export function MarketplacePickupDetailsEditor({
     return (
       <div className="grid gap-3 rounded-xl border border-dashed p-4" data-testid="pickup-read-failed">
         <Typography as="p" className="text-sm text-muted-foreground">
-          The saved pickup details could not be read, so editing is blocked — saving blind could overwrite what
-          another device stored.
+          The saved pickup details could not be read, so editing is blocked — saving blind could overwrite what another
+          device stored.
         </Typography>
         <Button type="button" size="sm" variant="secondary" className="w-fit rounded-full" onClick={editor.reload}>
           Retry

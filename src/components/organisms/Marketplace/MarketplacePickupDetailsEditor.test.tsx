@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { type MarketplaceSellerPickupDetails,MaskedPickupDetails } from '@/libs/commerce/pickup';
+import { type MarketplaceSellerPickupDetails, MaskedPickupDetails } from '@/libs/commerce/pickup';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplacePickupDetailsEditor } from './MarketplacePickupDetailsEditor';
 
@@ -142,7 +142,9 @@ describe('MarketplacePickupDetailsEditor', () => {
     render(<MarketplacePickupDetailsEditor listingId={LISTING_ID} />);
 
     await user.click(await screen.findByRole('button', { name: 'Remove pickup details' }));
-    expect(await screen.findByText(/Buyers who already paid keep the terms they were shown at payment/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Buyers who already paid keep the terms they were shown at payment/),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Remove details' }));
 
     await waitFor(() => {

@@ -397,9 +397,8 @@ describe('AuthController single-approval ceremony', () => {
       // Seed a bearer at rest the way the ceremony's marketplace half leaves
       // it: real service memory + localStorage mirror + commerce store.
       const bearerPubky = 'y'.repeat(52);
-      const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } = await import(
-        '@/services/marketplace/marketplace-session'
-      );
+      const { MarketplaceSessionService, MARKETPLACE_SESSION_STORAGE_KEY } =
+        await import('@/services/marketplace/marketplace-session');
       window.localStorage.setItem(
         MARKETPLACE_SESSION_STORAGE_KEY,
         JSON.stringify({

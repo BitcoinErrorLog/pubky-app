@@ -166,4 +166,3 @@ describe('order state machine', () => {
     expect(canTransitionOrder(from, to)).toBe(false);
   });
 });
-

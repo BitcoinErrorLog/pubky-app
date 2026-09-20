@@ -74,7 +74,10 @@ vi.mock('@/hooks/usePublicRoute/usePublicRoute', () => ({
 describe('Profile (onboarding) — visual regression', () => {
   it('renders the create-profile page at desktop viewport', async () => {
     const screen = await renderForVRT(<ProfileWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('onboarding-profile-desktop', VRT_DENSE_CHROME_SCREENSHOT);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'onboarding-profile-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders the create-profile page at mobile viewport', async () => {

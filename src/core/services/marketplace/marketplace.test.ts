@@ -126,7 +126,6 @@ describe('MarketplaceGatewayService', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-
   it('routes single-order reads to the transaction-service transport in transaction-service mode', async () => {
     config.mode = 'transaction-service';
 
@@ -282,7 +281,10 @@ describe('MarketplaceGatewayService local pickup facade (Wave 7)', () => {
   });
 
   it.each([
-    ['getOrderPickupDetails', () => MarketplaceGatewayService.getOrderPickupDetails(SELLER, '00000000-0000-4000-8000-000000000920')],
+    [
+      'getOrderPickupDetails',
+      () => MarketplaceGatewayService.getOrderPickupDetails(SELLER, '00000000-0000-4000-8000-000000000920'),
+    ],
     ['getListingPickupDetails', () => MarketplaceGatewayService.getListingPickupDetails(SELLER, AGGREGATE_ID)],
   ] as const)('refuses %s outside durable modes before any bytes leave the client', async (operation, call) => {
     config.mode = 'sandbox';

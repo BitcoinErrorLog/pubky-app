@@ -693,8 +693,8 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
               The arbitrator will have the power to hear and determine challenges to its jurisdiction, including any
               objections with respect to the formation, existence, scope, enforceability or validity of the arbitration
               agreement. This authority extends to jurisdictional challenges with respect to both the subject matter of
-              the claim and the parties to the arbitration. Further, the arbitrator will have the power to determine
-              the existence, validity, or scope of the contract of which an arbitration clause forms a part. For the
+              the claim and the parties to the arbitration. Further, the arbitrator will have the power to determine the
+              existence, validity, or scope of the contract of which an arbitration clause forms a part. For the
               purposes of challenges to the jurisdiction of the arbitrator, each clause in this section will be
               considered as separable from any contract of which it forms a part. Any challenges to the jurisdiction of
               the arbitrator, except challenges based on the award itself, will be made not later than the notice of

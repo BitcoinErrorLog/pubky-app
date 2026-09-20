@@ -92,7 +92,9 @@ describe('CommerceController local pickup (Wave 7)', () => {
   });
 
   it('commits pickup_details.clear with the CAS version', async () => {
-    const clearDetails = vi.spyOn(CommerceApplication, 'commitClearPickupDetails').mockResolvedValue({ ok: true } as never);
+    const clearDetails = vi
+      .spyOn(CommerceApplication, 'commitClearPickupDetails')
+      .mockResolvedValue({ ok: true } as never);
 
     await CommerceController.commitClearPickupDetails(LISTING_ID, 4);
 
@@ -121,7 +123,9 @@ describe('CommerceController local pickup (Wave 7)', () => {
   });
 
   it('commits a checkout with fulfillment choices for the current user', async () => {
-    const checkout = vi.spyOn(CommerceApplication, 'commitCreateMarketplaceCheckout').mockResolvedValue({ ok: true } as never);
+    const checkout = vi
+      .spyOn(CommerceApplication, 'commitCreateMarketplaceCheckout')
+      .mockResolvedValue({ ok: true } as never);
     const input = {
       lines: [
         {

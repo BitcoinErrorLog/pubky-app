@@ -87,9 +87,5 @@ export async function unwrapPayload(key: CryptoKey, aad: Uint8Array, wrapped: Ui
 export function isUnwrapAuthenticationError(error: unknown): boolean {
   // Name-based, not instanceof: jsdom's DOMException does not extend Error,
   // and a DOMException crossing realms fails instanceof either way.
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { name?: unknown }).name === 'OperationError'
-  );
+  return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'OperationError';
 }

@@ -21,7 +21,7 @@ Sizing: **S** ≤ 1 day · **M** = 2–4 days · **L** = 1–2 weeks.
 | mp-ux client changes (this repo)                                                              | Paykit Server multi-asset `CriterionAsset` (noted in same proposal, optional)                              |
 | Lock-creation tooling for `asset: "USD"` locks (extends the live-test harness we already run) | Verifier-specific confirmation semantics in Lock Server config                                             |
 | Our Lock Server / Paykit Server / marketplace-service _deployments_ and their config          | Any change to Locks task lifecycle (none proposed — deliberately)                                          |
-| Chargeback handling without marketplace adjudication                                                       | —                                                                                                          |
+| Chargeback handling without marketplace adjudication                                          | —                                                                                                          |
 
 marketplace-service requires **zero changes** in every phase (design §1.6).
 
@@ -98,13 +98,13 @@ through the identical Locks lifecycle. **This is the demoable thesis moment.**
 
 ## Phase 5 — Chargebacks and reversal handling
 
-| #   | Task                                                                                                                                                           | Size | Parallel?                    |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---------------------------- |
+| #   | Task                                                                                                                                                                 | Size | Parallel?                    |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---------------------------- |
 | 5.1 | Reversal ingestion (Stripe chargeback/refund events, PayPal chargeback/reversal events) + reversal state on correlations; suppress promotion inside settlement delay | M    | parallel with Phase 4        |
-| 5.2 | Operator reporting endpoint + runbook: reversal on completed correlation → manual `refund.record_external` with processor reference as evidence                          | M    | after 5.1                    |
-| 5.3 | Automated bridge (decision needed: signing identity for `refund.record_external` commands)                                                                               | M    | after 5.2, optional for demo |
+| 5.2 | Operator reporting endpoint + runbook: reversal on completed correlation → manual `refund.record_external` with processor reference as evidence                      | M    | after 5.1                    |
+| 5.3 | Automated bridge (decision needed: signing identity for `refund.record_external` commands)                                                                           | M    | after 5.2, optional for demo |
 | 5.4 | Chargeback drill on staging: Stripe test-card chargeback + PayPal sandbox reversal → verify delay suppression and reversal handling end-to-end                       | M    | after 5.2                    |
-| 5.5 | Seller-facing chargeback disclosure copy (onboarding + docs)                                                                                                   | S    | with 5.2                     |
+| 5.5 | Seller-facing chargeback disclosure copy (onboarding + docs)                                                                                                         | S    | with 5.2                     |
 
 ## Phase 6 — Live-mode gating (after security review)
 

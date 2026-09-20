@@ -5,11 +5,7 @@
         "outcome": "abandoned",
         "reason": "buyer unreachable"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:1>/bitcoin/resolve"
     },
@@ -111,11 +107,7 @@
       "body": {
         "outcome": "abandoned"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:4>/bitcoin/resolve"
     },
@@ -137,11 +129,7 @@
         "external_refund_reference": "tx-forbidden",
         "outcome": "paid"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:5>/bitcoin/resolve"
     },
@@ -162,11 +150,7 @@
       "body": {
         "outcome": "chargeback"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:5>/bitcoin/resolve"
     },
@@ -187,11 +171,7 @@
       "body": {
         "outcome": "abandoned"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:4>/bitcoin/resolve"
     },
@@ -212,11 +192,7 @@
       "body": {
         "outcome": "paid"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:6>/bitcoin/resolve"
     },
@@ -237,11 +213,7 @@
       "body": {
         "outcome": "refunded"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:5>/bitcoin/resolve"
     },
@@ -262,11 +234,7 @@
       "body": {
         "outcome": "paid"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:7>/bitcoin/resolve"
     },
@@ -287,11 +255,7 @@
       "body": {
         "outcome": "paid"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:5>/bitcoin/resolve"
     },
@@ -312,10 +276,7 @@
       "body": {
         "outcome": "paid"
       },
-      "headers_present": [
-        "authorization",
-        "content-type"
-      ],
+      "headers_present": ["authorization", "content-type"],
       "method": "POST",
       "path": "/v0/orders/<uuid:5>/bitcoin/resolve"
     },
@@ -337,11 +298,7 @@
         "outcome": "paid",
         "reason": "checked in wallet"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:4>/bitcoin/resolve"
     },
@@ -444,11 +401,7 @@
         "external_refund_reference": "tx-contract-refund",
         "outcome": "refunded"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:11>/bitcoin/resolve"
     },
@@ -555,11 +508,7 @@
         "outcome": "paid",
         "reason": "checked in wallet"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:4>/bitcoin/resolve"
     },
@@ -661,11 +610,7 @@
       "body": {
         "outcome": "paid"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:14>/bitcoin/resolve"
     },
@@ -686,11 +631,7 @@
       "body": {
         "outcome": "paid"
       },
-      "headers_present": [
-        "authorization",
-        "content-type",
-        "idempotency-key"
-      ],
+      "headers_present": ["authorization", "content-type", "idempotency-key"],
       "method": "POST",
       "path": "/v0/orders/<uuid:15>/bitcoin/resolve"
     },

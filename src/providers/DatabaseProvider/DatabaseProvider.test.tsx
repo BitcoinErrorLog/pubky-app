@@ -69,7 +69,9 @@ describe('DatabaseProvider', () => {
 
     // Fail once (shows recovery screen) then succeed on retry.
     const initializeMock = vi.spyOn(db, 'initialize');
-    initializeMock.mockRejectedValueOnce(error).mockResolvedValueOnce({ wasDbReset: false, messagingAtRestDegraded: false });
+    initializeMock
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({ wasDbReset: false, messagingAtRestDegraded: false });
 
     render(
       <DatabaseProvider>
