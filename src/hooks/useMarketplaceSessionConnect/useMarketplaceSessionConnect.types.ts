@@ -4,6 +4,7 @@ import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.type
  * Lifecycle of one interactive session-connect attempt:
  *
  * - `idle`      — no flow in progress (initial, after cancel).
+ * - `creating`  — the BFF is creating a signer-bound flow.
  * - `awaiting`  — an authorization URL exists and the flow is waiting for the
  *                 user to approve on their signer.
  * - `joined`    — the flow JOINED an approval ceremony another surface already
@@ -17,7 +18,18 @@ import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.type
  *                 unreachable). The URL is cleared because AuthToken flows are
  *                 single-use: retrying always starts a FRESH flow.
  */
-export type MarketplaceSessionConnectStatus = 'idle' | 'awaiting' | 'joined' | 'connected' | 'error';
+export type MarketplaceSessionConnectStatus =
+  | 'idle'
+  | 'creating'
+  | 'awaiting'
+  | 'verifying'
+  | 'claiming'
+  | 'joined'
+  | 'connected'
+  | 'mismatch'
+  | 'expired'
+  | 'cancelled'
+  | 'error';
 
 export interface UseMarketplaceSessionConnectOptions {
   /** Called once per successful connect, after the store has been updated. */

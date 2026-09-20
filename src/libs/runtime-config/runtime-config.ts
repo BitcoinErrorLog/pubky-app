@@ -208,6 +208,8 @@ export const getPaykitSetupUrl = (): string => getRuntimeConfig().paykitSetupUrl
 export const getCommerceAdapterMode = (): CommerceAdapterMode => getRuntimeConfig().commerceAdapterMode;
 export const getCommercePollIntervalMs = (): number => getRuntimeConfig().commercePollIntervalMs;
 export const getSingleApprovalSignIn = (): boolean => getRuntimeConfig().singleApprovalSignIn;
+export const getMarketplaceGrantFlowEnabled = (): boolean => getRuntimeConfig().marketplaceGrantFlowEnabled;
+export const getMarketplaceGrantPollMilliseconds = (): number => getRuntimeConfig().marketplaceGrantPollMilliseconds;
 export const getPreludeSdkKey = (): string | undefined => getRuntimeConfig().preludeSdkKey;
 export const getPreludeSdkTimeoutMs = (): number => getRuntimeConfig().preludeSdkTimeoutMs;
 export const getPlausibleDomain = (): string | undefined => getRuntimeConfig().plausibleDomain;

@@ -1,0 +1,102 @@
+import { z } from 'zod';
+
+const exactOrigin = z
+  .string()
+  .url()
+  .refine((value) => new URL(value).origin === value, 'Expected an exact origin');
+const positiveSmallInt = z.coerce.number().int().min(1).max(32767);
+const canonicalBase64Key = z.string().refine((value) => {
+  try {
+    const bytes = Buffer.from(value, 'base64');
+    return bytes.length === 32 && bytes.toString('base64') === value;
+  } catch {
+    return false;
+  }
+}, 'Expected canonical padded Base64 for 32 bytes');
+const signingSeed = z.string().regex(/^[0-9a-f]{64}$/);
+const keyId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+
+const configSchema = z
+  .object({
+    allowedOrigins: z.string().transform((value, ctx) => {
+      try {
+        return z.array(exactOrigin).min(1).parse(JSON.parse(value));
+      } catch {
+        ctx.addIssue({ code: 'custom', message: 'SHOP_ALLOWED_ORIGINS must be a JSON array of exact origins' });
+        return z.NEVER;
+      }
+    }),
+    publicOrigin: exactOrigin,
+    serviceUrl: exactOrigin,
+    databaseUrl: z.string().min(1),
+    assertionIssuer: exactOrigin,
+    assertionKeyId: keyId,
+    assertionKeyEpoch: positiveSmallInt,
+    assertionSigningKey: signingSeed,
+    requestKeyId: keyId,
+    requestKeyEpoch: positiveSmallInt,
+    requestSigningKey: signingSeed,
+    stateKey: canonicalBase64Key,
+    stateKeyEpoch: positiveSmallInt,
+    previousStateKey: canonicalBase64Key.optional(),
+    previousStateKeyEpoch: positiveSmallInt.optional(),
+    stateTtlSeconds: z.coerce.number().int().min(60).max(600).default(300),
+    claimLeaseSeconds: z.coerce.number().int().min(10).max(30).default(15),
+    databaseTimeoutMs: z.coerce.number().int().min(1000).max(5000).default(2000),
+    serviceTimeoutMs: z.coerce.number().int().min(2000).max(10000).default(5000),
+  })
+  .superRefine((value, ctx) => {
+    if (value.assertionIssuer !== value.publicOrigin) {
+      ctx.addIssue({ code: 'custom', path: ['assertionIssuer'], message: 'Issuer must equal SHOP_PUBLIC_ORIGIN' });
+    }
+    const hasPreviousKey = value.previousStateKey !== undefined;
+    const hasPreviousEpoch = value.previousStateKeyEpoch !== undefined;
+    if (hasPreviousKey !== hasPreviousEpoch) {
+      ctx.addIssue({ code: 'custom', message: 'Previous BFF state key and epoch must be supplied together' });
+    }
+    if (value.previousStateKeyEpoch !== undefined && value.previousStateKeyEpoch !== value.stateKeyEpoch - 1) {
+      ctx.addIssue({ code: 'custom', message: 'Previous BFF state epoch must be active minus one' });
+    }
+  });
+
+export type MarketplaceGrantConfig = z.infer<typeof configSchema>;
+
+let cached: MarketplaceGrantConfig | null | undefined;
+
+export function marketplaceGrantEnabled(): boolean {
+  return process.env.SHOP_BFF_GRANT_FLOW_ENABLED === 'true';
+}
+
+export function getMarketplaceGrantConfig(): MarketplaceGrantConfig | null {
+  if (cached !== undefined) return cached;
+  if (!marketplaceGrantEnabled()) {
+    cached = null;
+    return null;
+  }
+  cached = configSchema.parse({
+    allowedOrigins: process.env.SHOP_ALLOWED_ORIGINS,
+    publicOrigin: process.env.SHOP_PUBLIC_ORIGIN,
+    serviceUrl: process.env.MARKETPLACE_SERVICE_URL,
+    databaseUrl: process.env.SHOP_BFF_GRANT_STATE_DATABASE_URL,
+    assertionIssuer: process.env.SHOP_GRANT_ASSERTION_ISSUER,
+    assertionKeyId: process.env.SHOP_GRANT_ASSERTION_KEY_ID,
+    assertionKeyEpoch: process.env.SHOP_GRANT_ASSERTION_KEY_EPOCH,
+    assertionSigningKey: process.env.SHOP_GRANT_ASSERTION_SIGNING_KEY,
+    requestKeyId: process.env.MARKETPLACE_SERVICE_REQUEST_KEY_ID,
+    requestKeyEpoch: process.env.MARKETPLACE_SERVICE_REQUEST_KEY_EPOCH,
+    requestSigningKey: process.env.MARKETPLACE_SERVICE_REQUEST_SIGNING_KEY,
+    stateKey: process.env.SHOP_BFF_GRANT_STATE_ENCRYPTION_KEY_B64,
+    stateKeyEpoch: process.env.SHOP_BFF_GRANT_STATE_KEY_EPOCH,
+    previousStateKey: process.env.SHOP_BFF_GRANT_STATE_PREVIOUS_ENCRYPTION_KEY_B64,
+    previousStateKeyEpoch: process.env.SHOP_BFF_GRANT_STATE_PREVIOUS_KEY_EPOCH,
+    stateTtlSeconds: process.env.SHOP_BFF_GRANT_STATE_TTL_SECONDS,
+    claimLeaseSeconds: process.env.SHOP_BFF_GRANT_CLAIM_LEASE_SECONDS,
+    databaseTimeoutMs: process.env.SHOP_BFF_GRANT_DB_TIMEOUT_MILLISECONDS,
+    serviceTimeoutMs: process.env.SHOP_BFF_GRANT_SERVICE_TIMEOUT_MILLISECONDS,
+  });
+  return cached;
+}
+
+export function resetMarketplaceGrantConfigForTests(): void {
+  cached = undefined;
+}
