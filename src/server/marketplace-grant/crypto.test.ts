@@ -72,7 +72,7 @@ describe('marketplace grant BFF cryptography', () => {
     const deliveryId = encodeBase64Url(new Uint8Array(32).fill(6));
     const resultCpk = resultPublicKey(new Uint8Array(32).fill(7));
     expect(resultCpk).toMatch(/^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/);
-    const assertion = signDeliveryAssertion(config, deliveryId, resultCpk, 1_760_000_000, randomUUID());
+    const assertion = signDeliveryAssertion(config, deliveryId, resultCpk, 'y'.repeat(52), 1_760_000_000, randomUUID());
     expect(assertion.split('.')).toHaveLength(3);
     const signed = signServiceBody(config, { method: 'POST', path: '/v1/example', request_id: randomUUID() });
     expect(signed.signature).toMatch(/^[A-Za-z0-9_-]{86}$/);

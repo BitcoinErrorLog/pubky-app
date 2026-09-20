@@ -235,6 +235,7 @@ export function signDeliveryAssertion(
   config: MarketplaceGrantConfig,
   deliveryId: string,
   resultCpk: string,
+  expectedPubky: string,
   nowSeconds: number,
   jti: string,
 ): string {
@@ -250,6 +251,7 @@ export function signDeliveryAssertion(
       purpose: 'marketplace-result-delivery',
       result_cpk: resultCpk,
       result_delivery_id: deliveryId,
+      sub: expectedPubky,
     },
   );
 }

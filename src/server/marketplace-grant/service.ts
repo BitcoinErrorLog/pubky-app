@@ -98,8 +98,16 @@ export async function createReconnectFlow(
   bearer: string,
   deliveryId: string,
   resultCpk: string,
+  expectedPubky: string,
 ): Promise<z.infer<typeof createSchema>> {
-  const assertion = signDeliveryAssertion(config, deliveryId, resultCpk, Math.floor(Date.now() / 1000), randomUUID());
+  const assertion = signDeliveryAssertion(
+    config,
+    deliveryId,
+    resultCpk,
+    expectedPubky,
+    Math.floor(Date.now() / 1000),
+    randomUUID(),
+  );
   const response = await request(config, '/v1/auth/grant-flows', {
     method: 'POST',
     headers: {

@@ -164,7 +164,7 @@ export async function createFlow(
     expiresAt: localExpiry,
   });
   try {
-    const created = await createReconnectFlow(config, bearer, deliveryId, resultCpk);
+    const created = await createReconnectFlow(config, bearer, deliveryId, resultCpk, bridge.pubky);
     const serviceExpiry = new Date(created.expires_at);
     if (!(await bindFlow(config, stateId, created.flow_id, serviceExpiry))) {
       await terminalizeFlow(config, stateId, 'abandoned');
