@@ -757,7 +757,7 @@ describe('HomeserverService', () => {
 
         const result = await HomeserverService.restoreSession({ sessionExport: 'exported-session' });
 
-        expect(mockState.restoreSession).toHaveBeenCalledWith('exported-session');
+        expect(mockState.restoreSession).toHaveBeenCalledWith('exported-session', expect.any(Object));
         expect(result).toBe(expectedSession);
       });
 
@@ -957,8 +957,8 @@ describe('HomeserverService', () => {
         await HomeserverService.signInWithFullGrantAuthToken(bytes);
         await HomeserverService.signInWithFullGrantAuthToken(bytes);
 
-        expect(mockState.restoreSession).toHaveBeenNthCalledWith(1, '+//+');
-        expect(mockState.restoreSession).toHaveBeenNthCalledWith(2, '+w==');
+        expect(mockState.restoreSession).toHaveBeenNthCalledWith(1, '+//+', expect.any(Object));
+        expect(mockState.restoreSession).toHaveBeenNthCalledWith(2, '+w==', expect.any(Object));
       });
 
       it('accepts a reordered full grant (order-insensitive set equality)', async () => {
