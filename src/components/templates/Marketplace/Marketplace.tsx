@@ -145,11 +145,6 @@ export function Marketplace({
             Staging environment — test rails, no real funds move
           </Typography>
         )}
-        {/* Drops entry (ADR 0026): durable modes only — drops are enforced by
-            the transaction service's clock, so the shelf never appears where
-            no such authority exists. */}
-        {isDurableCommerceMode(adapterMode) && <MarketplaceDropsShelfEntry />}
-
         {shouldShowPromo && (
           <section
             aria-label="Marketplace promo"
@@ -252,6 +247,12 @@ export function Marketplace({
               </Button>
             }
           />
+
+          {/* Drops entry (ADR 0026): durable modes only — drops are enforced by
+              the transaction service's clock, so the shelf never appears where
+              no such authority exists. Keep it with the catalog tools rather
+              than above the marketplace promo. */}
+          {isDurableCommerceMode(adapterMode) && <MarketplaceDropsShelfEntry />}
 
           {adapterMode === 'unavailable' && (
             <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
