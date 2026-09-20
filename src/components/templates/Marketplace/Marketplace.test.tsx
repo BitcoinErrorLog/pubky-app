@@ -25,10 +25,11 @@ const runtime = vi.hoisted(() => ({ deployEnv: 'staging' as 'production' | 'stag
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
+  usePathname: () => '/marketplace',
 }));
 
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
-  useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
+  useRequireAuth: () => ({ isAuthenticated: false, requireAuth: (action: () => void) => action() }),
 }));
 
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
@@ -105,14 +106,12 @@ describe('Marketplace', () => {
     window.localStorage.clear();
   });
 
-  it('renders both tool variants with breakpoint classes in SSR markup', () => {
+  it('renders the marketplace section navigation and primary actions in SSR markup', () => {
     const html = renderToString(<Marketplace />);
 
-    expect(html).toContain('data-testid="marketplace-mobile-tools"');
-    expect(html).toContain('data-testid="marketplace-desktop-tools"');
-    expect(html).toMatch(/class="[^"]*md:hidden[^"]*"/);
-    expect(html).toMatch(/class="[^"]*hidden[^"]*md:flex[^"]*"/);
-    expect(html).toContain('My marketplace');
+    expect(html).toContain('data-testid="marketplace-section-nav"');
+    expect(html).toContain('Sell an item');
+    expect(html).toContain('Browse auctions');
     expect(html).toContain('Seller studio');
   });
 
@@ -174,64 +173,18 @@ describe('Marketplace', () => {
 
     expect(screen.getByRole('heading', { name: 'Vintage leather boots' })).toBeInTheDocument();
     expect(
-      within(screen.getByTestId('marketplace-desktop-tools')).getByRole('button', { name: 'Orders' }),
+      within(screen.getByTestId('marketplace-section-nav')).getByRole('link', { name: 'Orders' }),
     ).toBeInTheDocument();
   });
 
-  it('renders an Orders marketplace nav entry for a signed-in buyer', async () => {
+  it('gates section navigation through the existing auth flow', async () => {
     const user = userEvent.setup();
 
     render(<Marketplace />);
 
-    await user.click(within(screen.getByTestId('marketplace-desktop-tools')).getByRole('button', { name: 'Orders' }));
+    await user.click(within(screen.getByTestId('marketplace-section-nav')).getByRole('link', { name: 'Orders' }));
 
     expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.ORDERS);
-    expect(screen.getByRole('button', { name: /My marketplace/ })).toBeInTheDocument();
-    expect(screen.getByTestId('marketplace-mobile-tools')).toHaveClass('md:hidden');
-    expect(screen.getByTestId('marketplace-desktop-tools')).toHaveClass('hidden', 'md:flex');
-  });
-
-  it('opens the mobile marketplace tools sheet with badge counts', async () => {
-    const user = userEvent.setup();
-    navCounts.cart = 3;
-    navCounts.activity = 5;
-
-    render(<Marketplace />);
-
-    await user.click(screen.getByRole('button', { name: /My marketplace/ }));
-
-    const sheet = screen.getByTestId('marketplace-buyer-tools-sheet');
-    expect(sheet).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Messages' })).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Offers' })).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Watchlist' })).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Cart, 3' })).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Orders' })).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Activity, 5' })).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Seller studio' })).toBeInTheDocument();
-
-    await user.click(within(sheet).getByRole('button', { name: 'Seller studio' }));
-
-    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.DASHBOARD);
-  });
-
-  it('gates every desktop tool through requireAuth', async () => {
-    const user = userEvent.setup();
-    render(<Marketplace />);
-    const desktop = within(screen.getByTestId('marketplace-desktop-tools'));
-
-    await user.click(desktop.getByRole('button', { name: 'Messages' }));
-    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.MESSAGES);
-    await user.click(desktop.getByRole('button', { name: 'Offers' }));
-    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.OFFERS);
-    await user.click(desktop.getByRole('button', { name: 'Watchlist' }));
-    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.WATCHLIST);
-    await user.click(desktop.getByRole('button', { name: 'Cart' }));
-    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.CART);
-    await user.click(desktop.getByRole('button', { name: 'Activity' }));
-    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.NOTIFICATIONS);
-    await user.click(desktop.getByRole('button', { name: 'Seller studio' }));
-    expect(routerPush).toHaveBeenCalledWith(MARKETPLACE_ROUTES.DASHBOARD);
   });
 
   it('persists marketplace promo dismissal for the device', async () => {

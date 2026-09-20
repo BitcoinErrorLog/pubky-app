@@ -1,7 +1,20 @@
 'use client';
 
-import { useState } from 'react';
-import { Bell, Camera, Disc3, Footprints, Gem, Heart, House, Keyboard, Package, Shirt } from 'lucide-react';
+import { type CSSProperties, useState } from 'react';
+import {
+  Bell,
+  Camera,
+  Disc3,
+  Footprints,
+  Gavel,
+  Gem,
+  Heart,
+  House,
+  Keyboard,
+  Package,
+  Shirt,
+  Star,
+} from 'lucide-react';
 import { getMarketplaceListingRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -63,6 +76,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
   // loading state; a failed load unmounts the image instead of showing a
   // broken-image icon.
   const [mediaFailed, setMediaFailed] = useState(false);
+  const [hoverRotation, setHoverRotation] = useState(0);
   const mediaUrl = useMarketplaceFirstMediaUrl(listing.mediaUrls);
   const showMedia = mediaUrl !== null && !mediaFailed;
 
@@ -70,19 +84,21 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
     <Link
       href={getMarketplaceListingRoute(listing.sellerId, listing.listingId)}
       overrideDefaults
-      className="group block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-105 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
+      style={{ '--card-hover-rotation': `${hoverRotation}deg` } as CSSProperties}
+      onMouseEnter={() => setHoverRotation(Math.random() * 6 - 3)}
       aria-label={`View ${listing.title}`}
     >
       <Card
         ref={liveBidRef}
         className={cn(
-          'h-full gap-0 overflow-hidden border border-border/60 py-0 transition-all group-hover:-translate-y-0.5 group-hover:border-brand/40 group-hover:shadow-lg',
+          'h-full gap-0 overflow-hidden border-0 py-0 transition-all group-hover:shadow-[0_24px_64px_-8px_rgba(0,0,0,0.8),0_8px_24px_rgba(0,0,0,0.5)]',
           layout === 'list' && 'flex-row',
         )}
       >
         <div
           className={cn(
-            `relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-linear-to-br ${background}`,
+            `relative flex aspect-square items-center justify-center overflow-hidden bg-linear-to-br ${background}`,
             layout === 'list' && 'aspect-square w-36 shrink-0 sm:w-48',
           )}
         >
@@ -98,7 +114,12 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
               onError={() => setMediaFailed(true)}
             />
           )}
-          <Badge className="absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
+          <Badge className="absolute top-3 left-3 gap-1 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
+            {isAuction ? (
+              <Gavel aria-hidden="true" className="size-3" />
+            ) : (
+              <Star aria-hidden="true" className="size-3" />
+            )}
             {isAuction ? 'Auction' : 'Buy now'}
           </Badge>
           <button
@@ -128,18 +149,21 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           )}
         </div>
 
-        <CardContent className="flex flex-1 flex-col gap-2 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <Typography as="h2" className="line-clamp-2 text-base leading-5 font-semibold text-foreground">
+        <CardContent className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+          <div className="space-y-1">
+            <Typography as="h2" className="line-clamp-2 text-base leading-6 font-semibold text-foreground">
               {listing.title}
             </Typography>
-            <div className="flex shrink-0 flex-col items-end">
-              {isAuction && (
-                <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                  {hasLiveBid ? 'Current bid' : 'Starting bid'}
-                </Typography>
-              )}
-              <Typography as="p" className="text-base font-bold text-brand">
+            <Typography as="p" className="truncate text-sm text-muted-foreground">
+              {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
+            </Typography>
+          </div>
+          <div className="space-y-1">
+            <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              {isAuction ? (hasLiveBid ? 'Current bid' : 'Starting bid') : 'Price'}
+            </Typography>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <Typography as="p" className="text-xl leading-7 font-semibold text-brand">
                 {formatCommerceMoney(hasLiveBid ? bid.currentPrice : listing.price)}
               </Typography>
               <MarketplaceIndicativePrice money={hasLiveBid ? bid.currentPrice : listing.price} />
@@ -148,16 +172,13 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
                   {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}
                 </Typography>
               )}
-              {listing.auction?.buyNowPrice && (
-                <Typography as="span" className="text-xs text-muted-foreground">
-                  Buy now {formatCommerceMoney(listing.auction.buyNowPrice)}
-                </Typography>
-              )}
             </div>
+            {listing.auction?.buyNowPrice && (
+              <Typography as="p" className="text-xs text-muted-foreground">
+                Buy now {formatCommerceMoney(listing.auction.buyNowPrice)}
+              </Typography>
+            )}
           </div>
-          <Typography as="p" className="truncate text-sm text-muted-foreground">
-            {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
-          </Typography>
           <div>
             <MarketplaceFulfillmentBadge methods={listing.fulfillmentMethods} />
           </div>
@@ -174,7 +195,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
             </Typography>
           )}
           <CardTopAttributes listing={listing} />
-          <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
             <Typography as="span" className="text-xs text-muted-foreground">
               {formatCommerceCondition(listing.condition)}
             </Typography>
@@ -230,7 +251,7 @@ function formatAuctionEnd(endsAt: string): string {
 }
 
 function MarketplaceCategoryIcon({ categoryId }: { categoryId: string }) {
-  const className = 'size-20 text-foreground/75 drop-shadow-xl transition-transform group-hover:scale-105';
+  const className = 'size-20 text-foreground opacity-75 drop-shadow-xl transition-transform group-hover:scale-105';
   switch (true) {
     case categoryId.includes('camera'):
       return <Camera aria-hidden="true" className={className} />;

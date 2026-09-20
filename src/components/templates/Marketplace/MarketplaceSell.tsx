@@ -69,7 +69,7 @@ export function MarketplaceSell() {
       showRightMobileButton={false}
       disableMainContentOverflow
       className="pb-28 lg:pb-16"
-      classNameWrapperContent="max-w-4xl"
+      classNameWrapperContent="max-w-7xl"
     >
       <Container
         overrideDefaults

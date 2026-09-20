@@ -2,10 +2,16 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceSectionNav } from './MarketplaceSectionNav';
 
-const state = vi.hoisted(() => ({ pathname: '/marketplace/offers' as string | null, activityCount: 22 }));
+const state = vi.hoisted(() => ({
+  pathname: '/marketplace/offers' as string | null,
+  activityCount: 22,
+  isAuthenticated: true,
+}));
+const routerPush = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   usePathname: () => state.pathname,
+  useRouter: () => ({ push: routerPush }),
 }));
 
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
@@ -16,10 +22,19 @@ vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () 
   useMarketplaceActivityUnread: () => state.activityCount,
 }));
 
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({
+    isAuthenticated: state.isAuthenticated,
+    requireAuth: (action: () => void) => action(),
+  }),
+}));
+
 describe('MarketplaceSectionNav', () => {
   beforeEach(() => {
     state.pathname = '/marketplace/offers';
     state.activityCount = 22;
+    state.isAuthenticated = true;
+    routerPush.mockClear();
   });
 
   it('highlights the active section and wires both badges', () => {
@@ -55,5 +70,14 @@ describe('MarketplaceSectionNav', () => {
     expect(nav.firstElementChild).toHaveClass('min-w-max');
     expect(screen.getByRole('link', { name: 'Seller studio' })).toHaveClass('shrink-0');
     expect(screen.getByTestId('marketplace-section-nav-activity-badge')).toHaveTextContent('12');
+  });
+
+  it('routes signed-out home visitors through the auth gate', () => {
+    state.isAuthenticated = false;
+    render(<MarketplaceSectionNav requireAuthentication />);
+
+    screen.getByRole('link', { name: 'Orders' }).click();
+
+    expect(routerPush).toHaveBeenCalledWith('/marketplace/orders');
   });
 });

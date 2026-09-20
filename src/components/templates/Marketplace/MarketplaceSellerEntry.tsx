@@ -18,7 +18,7 @@ export function MarketplaceSellerEntry() {
       showLeftMobileButton={false}
       showRightMobileButton={false}
       className="pb-28 lg:pb-16"
-      classNameWrapperContent="max-w-3xl"
+      classNameWrapperContent="max-w-7xl"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6 lg:px-8">
         <Link

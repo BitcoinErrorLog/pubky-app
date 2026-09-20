@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Bell, HandCoins, Heart, LayoutDashboard, MessageCircle, ReceiptText, ShoppingCart } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -8,6 +8,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 
 type MarketplaceSectionItem = {
@@ -38,8 +39,10 @@ const ITEMS: readonly MarketplaceSectionItem[] = [
   },
 ] as const;
 
-export function MarketplaceSectionNav() {
+export function MarketplaceSectionNav({ requireAuthentication = false }: { requireAuthentication?: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { isAuthenticated, requireAuth } = useRequireAuth();
   const cartCount = useMarketplaceCartCount();
   const activityUnreadCount = useMarketplaceActivityUnread();
 
@@ -48,9 +51,9 @@ export function MarketplaceSectionNav() {
       aria-label="Marketplace sections"
       data-testid="marketplace-section-nav"
       data-surface="marketplace-section-nav"
-      className="w-full overflow-x-auto border-b pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <div className="flex min-w-max gap-2">
+      <div className="flex min-w-max">
         {ITEMS.map(({ label, href, icon: Icon, badge, activePrefixes }) => {
           const prefixes = activePrefixes ?? [href];
           const active =
@@ -63,11 +66,17 @@ export function MarketplaceSectionNav() {
               href={href}
               overrideDefaults
               aria-current={active ? 'page' : undefined}
+              onClick={(event) => {
+                if (requireAuthentication && !isAuthenticated) {
+                  event.preventDefault();
+                  requireAuth(() => router.push(href));
+                }
+              }}
               className={cn(
-                'relative inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors',
+                'relative inline-flex min-h-12 shrink-0 items-center gap-2 border-b px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors',
                 active
-                  ? 'border-brand bg-brand/10 text-brand'
-                  : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+                  ? 'border-foreground text-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
               <Icon className="size-4" aria-hidden="true" />

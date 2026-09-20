@@ -1,31 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import {
-  ArrowRight,
-  Bell,
-  Gavel,
-  HandCoins,
-  Heart,
-  LayoutDashboard,
-  MessageCircle,
-  ReceiptText,
-  ShieldCheck,
-  ShoppingCart,
-  Store,
-  X,
-} from 'lucide-react';
+import { ArrowRight, Gavel, ShieldCheck, Store, X } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
-import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
+import { Card } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isDurableCommerceMode } from '@/config/commerce';
 import { buildFeatureDiscoveryDeviceStorageKey, MARKETPLACE_PROMO_STORAGE_ID } from '@/config/featureDiscovery';
-import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
-import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismissal/useMarketplacePromoDismissal';
@@ -35,10 +21,10 @@ import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
-import { MarketplaceBuyerToolsSheet } from '@/organisms/Marketplace/MarketplaceBuyerToolsSheet';
 import { MarketplaceDropsShelfEntry } from '@/organisms/Marketplace/MarketplaceDropsShelfEntry';
 import { MarketplaceFilters } from '@/organisms/Marketplace/MarketplaceFilters';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -62,11 +48,6 @@ export function Marketplace({
   const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
   const [promoStorageHydrated, setPromoStorageHydrated] = useState(false);
   const [isPromoDismissedOnDevice, setIsPromoDismissedOnDevice] = useState(false);
-  // Honest badges (see the hooks' contracts): the cart count is exactly what
-  // the cart page shows; the activity count is device-local unread — never a
-  // server-claimed read state, which the durable service does not have.
-  const cartCount = useMarketplaceCartCount();
-  const activityUnreadCount = useMarketplaceActivityUnread();
   // Visiting the marketplace (or refocusing its tab) runs the bounded
   // watchlist detection pass — the app has no background daemon.
   useMarketplaceWatchDetection();
@@ -101,7 +82,7 @@ export function Marketplace({
       className="pb-28 lg:pb-16"
       classNameWrapperContent="max-w-7xl"
     >
-      <Container overrideDefaults className="flex w-full flex-col gap-5 px-4 sm:gap-8 sm:px-6 lg:px-8">
+      <Container overrideDefaults className="flex w-full flex-col gap-6">
         {isStaging && (
           <div
             role="note"
@@ -110,102 +91,30 @@ export function Marketplace({
             Staging environment — test rails, no real funds move
           </div>
         )}
-        <section aria-label="Marketplace tools" className="flex flex-col gap-4 rounded-2xl border bg-card p-3 sm:p-5">
-          <div className="flex flex-wrap items-center gap-3">
+        <section aria-label="Marketplace tools" className="flex flex-col gap-5 rounded-2xl bg-card p-4 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <Heading level={1} size="lg" className="text-2xl">
               Marketplace
             </Heading>
-          </div>
-          <div className="flex flex-wrap gap-2 sm:gap-3">
-            <Button className="rounded-full" onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.SELL))}>
-              <Store className="mr-2 size-4" />
-              Sell an item
-            </Button>
-            <Button
-              variant="secondary"
-              className="rounded-full"
-              onClick={() => {
-                setSaleFormat('auction');
-                document.getElementById('marketplace-catalog')?.scrollIntoView({ behavior: 'smooth' });
-              }}
-            >
-              <Gavel className="mr-2 size-4" />
-              Browse auctions
-            </Button>
-            <div className="md:hidden" data-testid="marketplace-mobile-tools">
-              <MarketplaceBuyerToolsSheet
-                cartCount={cartCount}
-                activityUnreadCount={activityUnreadCount}
-                onNavigate={(href) => requireAuth(() => router.push(href))}
-              />
-            </div>
-            <div className="hidden flex-wrap gap-2 sm:gap-3 md:flex" data-testid="marketplace-desktop-tools">
-              <Button
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.MESSAGES))}
-              >
-                <MessageCircle className="mr-2 size-4" />
-                Messages
+            <div className="flex flex-wrap gap-2">
+              <Button className="rounded-full" onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.SELL))}>
+                <Store className="size-4" />
+                Sell an item
               </Button>
               <Button
-                variant="ghost"
+                variant="secondary"
                 className="rounded-full"
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.OFFERS))}
+                onClick={() => {
+                  setSaleFormat('auction');
+                  document.getElementById('marketplace-catalog')?.scrollIntoView({ behavior: 'smooth' });
+                }}
               >
-                <HandCoins className="mr-2 size-4" />
-                Offers
-              </Button>
-              <Button
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.WATCHLIST))}
-              >
-                <Heart className="mr-2 size-4" />
-                Watchlist
-              </Button>
-              <span className="relative inline-flex">
-                <Button
-                  variant="ghost"
-                  className="rounded-full"
-                  aria-label={cartCount > 0 ? `Cart, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}` : undefined}
-                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
-                >
-                  <ShoppingCart className="mr-2 size-4" />
-                  Cart
-                </Button>
-                <NavPillCountBadge count={cartCount} dataCy="marketplace-nav-cart" />
-              </span>
-              <Button
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.ORDERS))}
-              >
-                <ReceiptText className="mr-2 size-4" />
-                Orders
-              </Button>
-              <span className="relative inline-flex">
-                <Button
-                  variant="ghost"
-                  className="rounded-full"
-                  aria-label={activityUnreadCount > 0 ? `Activity, ${activityUnreadCount} unread` : undefined}
-                  onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.NOTIFICATIONS))}
-                >
-                  <Bell className="mr-2 size-4" />
-                  Activity
-                </Button>
-                <NavPillCountBadge count={activityUnreadCount} dataCy="marketplace-nav-activity" />
-              </span>
-              <Button
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.DASHBOARD))}
-              >
-                <LayoutDashboard className="mr-2 size-4" />
-                Seller studio
+                <Gavel className="size-4" />
+                Browse auctions
               </Button>
             </div>
           </div>
+          <MarketplaceSectionNav requireAuthentication />
         </section>
 
         {/* Drops entry (ADR 0026): durable modes only — drops are enforced by
@@ -214,11 +123,7 @@ export function Marketplace({
         {isDurableCommerceMode(adapterMode) && <MarketplaceDropsShelfEntry />}
 
         {shouldShowPromo && (
-          <section
-            aria-label="Marketplace promo"
-            className="relative overflow-hidden rounded-2xl border border-brand/20 bg-linear-to-br from-brand/20 via-card to-card p-3 sm:p-10"
-          >
-            <div className="absolute -top-24 -right-20 hidden size-64 rounded-full bg-brand/20 blur-3xl sm:block" />
+          <section aria-label="Marketplace promo" className="relative overflow-hidden rounded-2xl bg-card p-6 sm:p-10">
             <Button
               variant="ghost"
               size="icon"
@@ -228,49 +133,58 @@ export function Marketplace({
             >
               <X className="size-4" />
             </Button>
-            <div className="relative flex flex-col items-start gap-2 sm:gap-5">
-              <Badge className="hidden bg-brand text-primary-foreground sm:inline-flex">Pubky Marketplace</Badge>
-              <Heading level={2} size="xl" className="max-w-2xl pr-10 text-base leading-5 sm:text-6xl sm:leading-tight">
-                Find something rare.
-                <span className="text-brand"> Trade without the feed.</span>
-              </Heading>
-              <Typography
-                as="p"
-                className="hidden max-w-2xl text-base leading-7 text-muted-foreground sm:block sm:text-lg"
-              >
-                Owner-signed listings, local-first discovery, offers and auctions—with payment-backed access powered by
-                Pubky.
-              </Typography>
-              <div className="hidden w-full gap-3 sm:grid sm:grid-cols-3">
-                {[
-                  { icon: ShieldCheck, label: 'Owner-signed', detail: 'Listings remain tied to a Pubky identity.' },
-                  { icon: Gavel, label: 'Fair auctions', detail: 'Server-authoritative bids and deterministic close.' },
-                  {
-                    icon: ArrowRight,
-                    label: 'Local-first',
-                    detail: 'Browse cached catalog records even when offline.',
-                  },
-                ].map(({ icon: Icon, label, detail }) => (
-                  <div key={label} className="flex items-start gap-3 rounded-xl border bg-card/70 p-4">
-                    <div className="rounded-full bg-brand/15 p-2 text-brand">
-                      <Icon className="size-5" />
-                    </div>
-                    <div>
-                      <Typography as="h3" className="font-semibold">
-                        {label}
-                      </Typography>
-                      <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-                        {detail}
-                      </Typography>
-                    </div>
-                  </div>
-                ))}
+            <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center">
+              <div className="w-full min-w-0 flex-1">
+                <Heading level={2} size="xl" className="pr-8 text-3xl leading-tight sm:text-4xl lg:pr-0 lg:text-5xl">
+                  Find something rare. <span className="text-brand">Trade freely.</span>
+                </Heading>
+                <Typography as="p" className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground">
+                  Owner-signed listings, local-first discovery, offers and auctions—with payment-backed access powered
+                  by Pubky.
+                </Typography>
+                <div className="mt-6 hidden w-full gap-6 sm:grid sm:grid-cols-3">
+                  {[
+                    { icon: Gavel, label: 'Fair auctions', detail: 'Verified bids. Clear outcomes.' },
+                    {
+                      icon: ShieldCheck,
+                      label: 'Signed by owner',
+                      detail: 'Listings remain tied to a Pubky identity.',
+                    },
+                    {
+                      icon: ArrowRight,
+                      label: 'Local first',
+                      detail: 'Browse cached catalog records even when offline.',
+                    },
+                  ].map(({ icon: Icon, label, detail }) => (
+                    <Card key={label} className="flex-row items-start gap-4 bg-background p-5">
+                      <div className="rounded-full bg-brand/15 p-2 text-brand">
+                        <Icon className="size-5" />
+                      </div>
+                      <div>
+                        <Typography as="h3" className="font-semibold">
+                          {label}
+                        </Typography>
+                        <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                          {detail}
+                        </Typography>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
               </div>
+              <Image
+                src="/images/marketplace/marketplace-icon.png"
+                alt=""
+                width={1280}
+                height={1280}
+                sizes="(min-width: 1024px) 152px, (min-width: 640px) 112px, 144px"
+                className="h-auto w-36 shrink-0 self-center sm:w-28 lg:w-38"
+              />
             </div>
           </section>
         )}
 
-        <section id="marketplace-catalog" className="flex scroll-mt-28 flex-col gap-5">
+        <section id="marketplace-catalog" className="flex scroll-mt-28 flex-col gap-6">
           <MarketplaceFilters resultCount={listings.length} facetPool={facetPool} countryFacetPool={countryFacetPool} />
 
           {adapterMode === 'unavailable' && (
@@ -284,9 +198,7 @@ export function Marketplace({
           ) : listings.length > 0 ? (
             <div
               className={cn(
-                layout === 'grid'
-                  ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5'
-                  : 'grid grid-cols-1 gap-3',
+                layout === 'grid' ? 'grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4' : 'grid grid-cols-1 gap-6',
               )}
             >
               {listings.map((listing) => (
@@ -312,24 +224,5 @@ export function Marketplace({
         </section>
       </Container>
     </ContentLayout>
-  );
-}
-
-/**
- * The header navigation's honest unread badge, mirrored for the marketplace
- * nav pills: same atoms, placement, and 21+ cap; zero renders nothing.
- */
-function NavPillCountBadge({ count, dataCy }: { count: number; dataCy: string }) {
-  if (count <= 0) return null;
-  return (
-    <Badge
-      data-cy={`${dataCy}-counter`}
-      className="absolute -right-1 -bottom-1 h-5 w-5 rounded-full bg-brand shadow-sm"
-      variant="secondary"
-    >
-      <Typography className={cn('font-semibold text-primary-foreground', count > 21 && 'text-xs')} size="xs">
-        {count > 21 ? '21+' : count}
-      </Typography>
-    </Badge>
   );
 }
