@@ -38,9 +38,10 @@ describe('DropCard', () => {
     expect(screen.getByText('Open to confirm service state')).toBeInTheDocument();
   });
 
-  it('renders the live indexed state without a countdown', () => {
-    render(<DropCard entry={entry} bucket="live" />);
+  it('renders the live indexed state in the production list layout without a countdown', () => {
+    render(<DropCard entry={entry} bucket="live" layout="list" />);
 
+    expect(screen.getByTestId('card')).toHaveClass('flex-row');
     expect(screen.getByText('Start time passed · indexed')).toBeInTheDocument();
     expect(screen.queryByText('Starts in 2 hours')).not.toBeInTheDocument();
   });

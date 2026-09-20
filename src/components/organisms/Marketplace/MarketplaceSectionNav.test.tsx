@@ -42,7 +42,7 @@ describe('MarketplaceSectionNav', () => {
     state.pathname = null;
     render(<MarketplaceSectionNav />);
 
-    expect(screen.getAllByRole('link')).toHaveLength(7);
+    expect(screen.getAllByRole('link')).toHaveLength(8);
     expect(screen.getAllByRole('link').every((link) => !link.hasAttribute('aria-current'))).toBe(true);
   });
 

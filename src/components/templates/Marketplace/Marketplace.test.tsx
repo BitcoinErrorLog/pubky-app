@@ -1,5 +1,5 @@
 import { renderToString } from 'react-dom/server';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
@@ -58,6 +58,15 @@ vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () 
   useMarketplaceWatchDetection: () => {},
 }));
 
+vi.mock('@/hooks/useMarketplaceDrops/useMarketplaceDrops', () => ({
+  useMarketplaceDrops: () => ({
+    buckets: { upcoming: [], live: [], ended: [] },
+    isIndexed: true,
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: () => navCounts.cart,
 }));
@@ -76,7 +85,18 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 vi.mock('@/organisms/Marketplace/MarketplaceFilters', () => ({
-  MarketplaceFilters: () => <div data-testid="marketplace-filters" />,
+  MarketplaceFilters: ({
+    searchControl,
+    sellControl,
+  }: {
+    searchControl?: React.ReactNode;
+    sellControl?: React.ReactNode;
+  }) => (
+    <div data-testid="marketplace-filters">
+      {searchControl}
+      {sellControl}
+    </div>
+  ),
 }));
 
 vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
@@ -111,7 +131,6 @@ describe('Marketplace', () => {
 
     expect(html).toContain('data-testid="marketplace-section-nav"');
     expect(html).toContain('Sell an item');
-    expect(html).toContain('Browse auctions');
     expect(html).toContain('Seller studio');
   });
 
@@ -196,7 +215,7 @@ describe('Marketplace', () => {
     const dismissButton = await screen.findByRole('button', { name: 'Dismiss marketplace promo' });
     await user.click(dismissButton);
 
-    expect(promoDismiss).toHaveBeenCalledOnce();
+    await waitFor(() => expect(promoDismiss).toHaveBeenCalledOnce());
     expect(window.localStorage.getItem(buildFeatureDiscoveryDeviceStorageKey(MARKETPLACE_PROMO_STORAGE_ID))).toBe(
       'dismissed',
     );

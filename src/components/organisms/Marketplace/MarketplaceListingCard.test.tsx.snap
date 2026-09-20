@@ -3,9 +3,9 @@
 exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapshot rendered from an index entry 1`] = `
 <a
   aria-label="View 35mm rangefinder camera"
-  class="group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-105 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
+  class="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-110 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
   href="/marketplace/listing/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/rangefinder_camera"
-  style="--card-hover-rotation: 0deg;"
+  style="--card-hover-rotation: 0deg; --marketplace-card-index: 0;"
 >
   <div
     class="flex flex-col rounded-xl bg-card text-card-foreground shadow-sm h-full gap-0 overflow-hidden border-0 py-0 transition-all group-hover:shadow-[0_24px_64px_-8px_rgba(0,0,0,0.8),0_8px_24px_rgba(0,0,0,0.5)]"
@@ -157,7 +157,9 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
             class="text-xl leading-7 font-semibold text-brand"
             data-testid="typography"
           >
-            $45.00
+            <span>
+              $45.00
+            </span>
           </p>
         </div>
         <p
@@ -207,9 +209,9 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
 exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing snapshot 1`] = `
 <a
   aria-label="View Vintage leather boots"
-  class="group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-105 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
+  class="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-110 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
   href="/marketplace/listing/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy/leather_boots"
-  style="--card-hover-rotation: 0deg;"
+  style="--card-hover-rotation: 0deg; --marketplace-card-index: 0;"
 >
   <div
     class="flex flex-col rounded-xl bg-card text-card-foreground shadow-sm h-full gap-0 overflow-hidden border-0 py-0 transition-all group-hover:shadow-[0_24px_64px_-8px_rgba(0,0,0,0.8),0_8px_24px_rgba(0,0,0,0.5)]"
@@ -342,7 +344,9 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
             class="text-xl leading-7 font-semibold text-brand"
             data-testid="typography"
           >
-            $125.00
+            <span>
+              $125.00
+            </span>
           </p>
         </div>
       </div>
