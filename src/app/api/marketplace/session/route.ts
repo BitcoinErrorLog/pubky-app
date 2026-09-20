@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { clearSession, FLOW_COOKIE,pairSession, SESSION_COOKIE } from '@/server/marketplace-grant/bff';
+import { clearSession, FLOW_COOKIE, pairSession, SESSION_COOKIE } from '@/server/marketplace-grant/bff';
 import { grantCookieOptions, grantError } from '@/server/marketplace-grant/http';
 
 export const runtime = 'nodejs';
