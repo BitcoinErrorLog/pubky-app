@@ -139,9 +139,10 @@ export async function createFlow(
   maxAge: number;
   response: { authorization_url: string; expires_at: string; state_id: string; status: 'awaiting' };
 }> {
-  const { config, bridge, bearer } = await authenticatedBridge(sessionCookie);
-  assertSameOrigin(request, config);
+  const routeConfig = requiredConfig();
+  assertSameOrigin(request, routeConfig);
   await parseStrictJson(request, z.object({}).strict());
+  const { config, bridge, bearer } = await authenticatedBridge(sessionCookie);
   const stateId = randomUUID();
   const bound = makeBoundCookie(stateId);
   const deliveryId = encodeBase64Url(randomBytes(32));
@@ -205,9 +206,10 @@ export async function pollFlow(
   flowCookie: string | undefined,
   stateId: string,
 ): Promise<Record<string, unknown>> {
-  const initial = await authenticatedFlow(sessionCookie, flowCookie, stateId);
-  assertSameOrigin(request, initial.config);
+  const routeConfig = requiredConfig();
+  assertSameOrigin(request, routeConfig);
   await parseStrictJson(request, z.object({}).strict());
+  const initial = await authenticatedFlow(sessionCookie, flowCookie, stateId);
   if (!initial.flow.flow_id) throw new BffError(503, 'grant_unavailable');
   const status = await getGrantStatus(initial.config, initial.flow.flow_id);
   if (status.status === 'awaiting' || status.status === 'verifying') {
@@ -255,9 +257,10 @@ export async function cancelFlow(
   flowCookie: string | undefined,
   stateId: string,
 ): Promise<void> {
-  const { config, flow } = await authenticatedFlow(sessionCookie, flowCookie, stateId);
-  assertSameOrigin(request, config);
+  const routeConfig = requiredConfig();
+  assertSameOrigin(request, routeConfig);
   await parseStrictJson(request, z.object({}).strict());
+  const { config, flow } = await authenticatedFlow(sessionCookie, flowCookie, stateId);
   if (flow.flow_id && flow.context_sealed) {
     const context = openFlowContext(config, stateId, flow.bridge_id, flow.key_epoch, flow.context_sealed);
     await cancelGrant(config, flow.flow_id, context.resultDeliveryId);
