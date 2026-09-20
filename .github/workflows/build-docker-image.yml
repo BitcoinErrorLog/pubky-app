@@ -64,6 +64,8 @@ env:
 jobs:
   check_image:
     name: Validate and rebuild Pubky App
+    # BitcoinErrorLog Shop previews are built and deployed by Vercel.
+    if: github.repository == 'pubky/pubky-app'
     outputs:
       image_tag: ${{ steps.set_tag.outputs.image_tag }}
       image_name: ${{ steps.set_tag.outputs.image_name }}
@@ -104,7 +106,8 @@ jobs:
   build_image:
     name: Build and push image
     needs: [check_image]
-    if: ${{ needs.check_image.outputs.image_exists != 'true' }}
+    # BitcoinErrorLog Shop previews are built and deployed by Vercel.
+    if: github.repository == 'pubky/pubky-app' && needs.check_image.outputs.image_exists != 'true'
     runs-on: ['ubuntu-latest']
     steps:
       - name: Checkout repository
