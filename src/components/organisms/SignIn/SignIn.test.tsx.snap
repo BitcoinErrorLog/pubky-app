@@ -77,7 +77,7 @@ exports[`SignInContent - Snapshots > matches snapshot for the QR sign-in layout 
           class="max-w-sm rounded-md border border-border bg-muted/40 p-3"
         >
           <code
-            class="block break-all font-mono text-xs"
+            class="block font-mono text-xs break-all"
             data-cy="signin-requested-capabilities"
           >
             /pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw
