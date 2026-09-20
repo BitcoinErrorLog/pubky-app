@@ -138,6 +138,9 @@ vi.mock('@synonymdev/pubky', () => {
     AuthToken: {
       fromBytes: (...args: unknown[]) => mockState.authTokenFromBytes(...args),
     },
+    Session: {
+      restore: (...args: unknown[]) => mockState.restoreSession(...args),
+    },
     resolvePubky: vi.fn((url: string) => url.replace('pubky://', 'https://')),
   };
 });

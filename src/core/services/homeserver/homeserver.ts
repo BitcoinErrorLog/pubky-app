@@ -195,7 +195,7 @@ export class HomeserverService {
     if (postResponse?.ok) {
       try {
         const body = new Uint8Array(await postResponse.arrayBuffer());
-        return await this.restoreSession({ sessionExport: bytesToBase64(body) });
+        return await Session.restore(bytesToBase64(body), client);
       } catch {
         throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign-in failed. Scan again.', {
           service: ErrorService.Homeserver,
@@ -215,7 +215,7 @@ export class HomeserverService {
     if (getResponse?.ok) {
       try {
         const body = new Uint8Array(await getResponse.arrayBuffer());
-        return await this.restoreSession({ sessionExport: bytesToBase64(body) });
+        return await Session.restore(bytesToBase64(body), client);
       } catch {
         throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign-in failed. Scan again.', {
           service: ErrorService.Homeserver,
@@ -976,7 +976,11 @@ export class HomeserverService {
   static async restoreSession({ sessionExport }: THomeserverRestoreSessionParams): Promise<Session> {
     try {
       const pubkySdk = this.getPubkySdk();
-      return await pubkySdk.restoreSession(sessionExport);
+      // SDK 0.11's Pubky.restoreSession routes its string into secret-token
+      // parsing even though its JS docs also claim support for cookie metadata.
+      // Session.restore is the public metadata API: it decodes session.export()
+      // and revalidates it against the browser-managed HttpOnly cookie.
+      return await Session.restore(sessionExport, pubkySdk.client);
     } catch (error) {
       return handleError({
         error,

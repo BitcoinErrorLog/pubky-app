@@ -75,6 +75,9 @@ vi.mock('@synonymdev/pubky', () => {
     AuthToken: {
       fromBytes: (...args: unknown[]) => mockState.authTokenFromBytes(...args),
     },
+    Session: {
+      restore: (...args: unknown[]) => mockState.restoreSession(...args),
+    },
     resolvePubky: vi.fn((url: string) => url.replace('pubky://', 'https://')),
   };
 });
@@ -172,6 +175,8 @@ describe('single-approval ceremony at the transport seams', () => {
       `https://_pubky.${PUBKY}/session`,
       expect.objectContaining({ method: 'POST', credentials: 'include', body: TOKEN_BYTES }),
     );
+    expect(mockState.restoreSession).toHaveBeenCalledTimes(1);
+    expect(mockState.restoreSession).toHaveBeenCalledWith(expect.any(String), expect.any(Object));
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8080/v1/auth/sessions',
