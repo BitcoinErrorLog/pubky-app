@@ -8,6 +8,9 @@ export function noStoreJson(body: unknown, status = 200): NextResponse {
 }
 
 export function grantError(error: unknown): NextResponse {
+  const category =
+    error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : 'UnknownError';
+  console.warn('[marketplace-grant] request failed', { category });
   const mapped = mapBffError(error);
   return noStoreJson({ error: mapped.code }, mapped.status);
 }
