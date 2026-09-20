@@ -86,6 +86,13 @@ Do not replace this construction with two approvals. If a future SDK removes sou
 >
 > `Session.restore(base64(responseBody), client)` currently works as a browser adapter, but it is deprecated in favor of `Pubky.restoreSession` and requires app-owned base64 conversion. A supported response-hydration API would make the one-approval construction explicit and stable.
 
+## Known blockers at park time
+
+- **P1, fix before Stage 3:** `HomeserverService.restoreSignupSession` still calls `restoreSession(sessionExport)` at `src/core/services/homeserver/homeserver.ts:430`. Under SDK 0.11, the staging `signUpViaHomeserverUrl` path at `homeserver.ts:311-314` and `homeserver.ts:366-398` can exhaust all three restore attempts and throw `Err.server(SERVICE_UNAVAILABLE)` at `homeserver.ts:440` after the invite has already been consumed. The tests at `src/core/services/homeserver/homeserver.test.ts:96` and `homeserver.test.ts:142` mock `Pubky.restoreSession` and `Session.restore` through the same function, masking the distinction. Resume begins by fixing this P1 and making the signup tests distinguish the two restore APIs.
+- **P2, non-blocking:** `AuthController.logout` races homeserver signout against a five-second timeout at `src/core/controllers/auth/auth.ts:1056-1080`, then proceeds with local wipe. A timed-out server request can leave the HttpOnly homeserver cookie valid until server expiry.
+
+Kimi audit handoff: `internal/upstream-sync/kimi-stage2b-audit-handoff.md` in the Marketplace Project store.
+
 ## Conflict record
 
 Every Stage 1 and Stage 2 text conflict and its disposition is recorded at:
