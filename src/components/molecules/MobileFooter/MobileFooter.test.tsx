@@ -170,6 +170,10 @@ describe('MobileFooter', () => {
       configurable: true,
       value: createSessionStorageMock(),
     });
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
 
     // Reset keyboard offset mock
     vi.mocked(useKeyboardOffset).mockReturnValue({ isKeyboardVisible: false, keyboardOffset: 0 });
@@ -182,7 +186,7 @@ describe('MobileFooter', () => {
     expect(document.querySelector('.lucide-search')).toBeInTheDocument();
     expect(document.querySelector('.lucide-flame')).toBeInTheDocument();
     expect(document.querySelector('.lucide-library')).toBeInTheDocument();
-    expect(document.querySelector('.lucide-settings')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument();
     expect(screen.getByTestId('avatar-with-fallback')).toBeInTheDocument();
   });
 
@@ -200,7 +204,6 @@ describe('MobileFooter', () => {
       { href: '/search', iconClass: '.lucide-search', label: 'Search' },
       { href: '/hot', iconClass: '.lucide-flame', label: 'Hot' },
       { href: '/collections', iconClass: '.lucide-library', label: 'Collections' },
-      { href: '/settings/account', iconClass: '.lucide-settings', label: 'Settings' },
     ];
 
     const links = screen.getAllByRole('link');
@@ -268,12 +271,23 @@ describe('MobileFooter', () => {
     }
   });
 
-  it('renders profile link', () => {
+  it('renders the profile avatar inside the designer account menu trigger', () => {
     render(<MobileFooter />);
 
-    const profileLink = screen.getByTestId('avatar-with-fallback').closest('a');
-    expect(profileLink).toHaveAttribute('href', '/profile');
-    expect(profileLink).toHaveAttribute('aria-label', 'Profile');
+    const accountMenu = screen.getByTestId('avatar-with-fallback').closest('button');
+    expect(accountMenu).toHaveAttribute('aria-label', 'Account menu');
+  });
+
+  it('preserves messages, settings, notifications, profile, and posts routes in the account menu', () => {
+    render(<MobileFooter />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Account menu' }), { button: 0, ctrlKey: false });
+
+    expect(screen.getByRole('menuitem', { name: 'Messages' })).toHaveAttribute('href', '/messages');
+    expect(screen.getByRole('menuitem', { name: 'Settings' })).toHaveAttribute('href', '/settings/account');
+    expect(screen.getByRole('menuitem', { name: 'Notifications' })).toHaveAttribute('href', '/profile');
+    expect(screen.getByRole('menuitem', { name: 'Profile' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'My posts' })).toBeInTheDocument();
   });
 
   it('contains correct icons', () => {
@@ -282,7 +296,7 @@ describe('MobileFooter', () => {
     expect(document.querySelector('.lucide-search')).toBeInTheDocument();
     expect(document.querySelector('.lucide-house')).toBeInTheDocument();
     expect(document.querySelector('.lucide-library')).toBeInTheDocument();
-    expect(document.querySelector('.lucide-settings')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument();
   });
 
   it('renders avatar with user name', () => {
@@ -326,7 +340,7 @@ describe('MobileFooter', () => {
   it('applies correct icon classes', () => {
     render(<MobileFooter />);
 
-    const iconClasses = ['.lucide-house', '.lucide-search', '.lucide-flame', '.lucide-library', '.lucide-settings'];
+    const iconClasses = ['.lucide-house', '.lucide-search', '.lucide-flame', '.lucide-library'];
     iconClasses.forEach((selector) => {
       const iconElement = document.querySelector(selector) as HTMLElement | null;
       expect(iconElement).toHaveClass('h-6', 'w-6');
@@ -351,13 +365,11 @@ describe('MobileFooter', () => {
     expect(homeLink).not.toHaveClass('bg-secondary');
   });
 
-  it('highlights Settings when on a settings sub-route', () => {
+  it('keeps settings reachable from the account menu on settings routes', () => {
     vi.mocked(usePathname).mockReturnValue('/settings/account');
     render(<MobileFooter />);
 
-    const settingsLink = document.querySelector('.lucide-settings')?.closest('a');
-    expect(settingsLink).toHaveClass('bg-secondary');
-    expect(settingsLink).not.toHaveClass('border');
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument();
   });
 
   it('highlights Collections on the Collections landing page', () => {
@@ -378,26 +390,24 @@ describe('MobileFooter', () => {
     expect(collectionsLink).not.toHaveClass('border');
   });
 
-  it('shows the Collections NEW treatment before dismissal', () => {
+  it('keeps the designer Collections treatment when discovery is new', () => {
     collectionsDiscoveryMock.showCollectionsNew = true;
 
     render(<MobileFooter />);
 
     const collectionsLink = document.querySelector('.lucide-library')?.closest('a');
-    expect(collectionsLink).toHaveClass('border-brand', 'text-brand');
-    expect(screen.getByRole('link', { name: 'Collections, New' })).toBeInTheDocument();
-    expect(screen.getByText('New')).toBeInTheDocument();
+    expect(collectionsLink).toHaveClass('border', 'border-border', 'bg-white/5');
+    expect(screen.queryByText('New')).not.toBeInTheDocument();
   });
 
-  it('uses the discovery treatment instead of active background when Collections is active and new', () => {
+  it('keeps the active designer background when Collections is active and new', () => {
     vi.mocked(usePathname).mockReturnValue('/collections');
     collectionsDiscoveryMock.showCollectionsNew = true;
 
     render(<MobileFooter />);
 
     const collectionsLink = document.querySelector('.lucide-library')?.closest('a');
-    expect(collectionsLink).toHaveClass('border-brand', 'bg-white/5', 'text-brand');
-    expect(collectionsLink).not.toHaveClass('bg-secondary');
+    expect(collectionsLink).toHaveClass('bg-secondary');
   });
 
   it('marks Collections discovery seen when clicking the authenticated Collections nav link', () => {
@@ -427,29 +437,27 @@ describe('MobileFooter', () => {
     expect(collectionsDiscoveryMock.setShowSignInDialog).not.toHaveBeenCalled();
   });
 
-  it('highlights Settings when on any sibling settings page', () => {
+  it('keeps the account menu visible on sibling settings pages', () => {
     vi.mocked(usePathname).mockReturnValue('/settings/notifications');
     render(<MobileFooter />);
 
-    const settingsLink = document.querySelector('.lucide-settings')?.closest('a');
-    expect(settingsLink).toHaveClass('bg-secondary');
-    expect(settingsLink).not.toHaveClass('border');
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument();
   });
 
-  it('does not highlight profile avatar when on a profile route', () => {
+  it('does not add a route ring to the account menu on a profile route', () => {
     vi.mocked(usePathname).mockReturnValue('/profile/posts');
     render(<MobileFooter />);
 
-    const profileLink = screen.getByTestId('avatar-with-fallback').closest('a');
-    expect(profileLink).not.toHaveClass('ring-2', 'ring-primary');
+    const accountMenu = screen.getByTestId('avatar-with-fallback').closest('button');
+    expect(accountMenu).not.toHaveClass('ring-2', 'ring-primary');
   });
 
-  it('does not highlight profile avatar when on a non-profile route', () => {
+  it('does not add a route ring to the account menu on a non-profile route', () => {
     vi.mocked(usePathname).mockReturnValue('/home');
     render(<MobileFooter />);
 
-    const profileLink = screen.getByTestId('avatar-with-fallback').closest('a');
-    expect(profileLink).not.toHaveClass('ring-2', 'ring-primary');
+    const accountMenu = screen.getByTestId('avatar-with-fallback').closest('button');
+    expect(accountMenu).not.toHaveClass('ring-2', 'ring-primary');
   });
 
   it('displays notification counter badge when unread notifications > 0', () => {
@@ -550,23 +558,16 @@ describe('MobileFooter', () => {
     expect(footerContainer).toHaveClass('transition-transform', 'duration-75');
   });
 
-  it('renders public explore navigation with gated account actions when unauthenticated on a core explore route', () => {
+  it('renders the designer public navigation and join action for guests', () => {
     mockCurrentUserPubky = null;
     mockIsCoreExploreRoute = true;
 
     render(<MobileFooter />);
 
     const links = screen.getAllByRole('link');
-    expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/home',
-      '/search',
-      '/hot',
-      '/messages',
-      '/collections',
-      '/settings/account',
-    ]);
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/home', '/search', '/hot', '/collections']);
     expect(document.querySelector('.lucide-library')).toBeInTheDocument();
-    expect(document.querySelector('.lucide-settings')).toBeInTheDocument();
+    expect(document.querySelector('.lucide-settings')).not.toBeInTheDocument();
     expect(screen.queryByTestId('avatar-with-fallback')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Join Pubky' })).toBeInTheDocument();
   });
@@ -628,10 +629,10 @@ describe('MobileFooter - Snapshots', () => {
     expect(homeLink).toMatchSnapshot();
   });
 
-  it('matches snapshot for profile link', () => {
+  it('matches snapshot for account menu trigger', () => {
     render(<MobileFooter />);
 
-    const profileLink = screen.getByTestId('avatar-with-fallback').closest('a');
-    expect(profileLink).toMatchSnapshot();
+    const accountMenu = screen.getByTestId('avatar-with-fallback').closest('button');
+    expect(accountMenu).toMatchSnapshot();
   });
 });

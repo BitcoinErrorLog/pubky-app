@@ -2,11 +2,29 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Flame, Home, Library, MessageCircle, Search, Settings, Store, UserRoundPlus } from 'lucide-react';
-import { APP_ROUTES, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
+import {
+  Bell,
+  FileText,
+  Flame,
+  Home,
+  Library,
+  MessageCircle,
+  Search,
+  Settings,
+  Store,
+  UserRound,
+  UserRoundPlus,
+} from 'lucide-react';
+import { APP_ROUTES, isNavItemActive, PROFILE_ROUTES, SETTINGS_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/atoms/DropdownMenu/DropdownMenu';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { FileController } from '@/controllers/file/file';
@@ -45,10 +63,10 @@ export function MobileFooter({ className }: MobileFooterProps) {
   // postdates the local read checkpoint.
   const unreadMessages = useMessagesUnread();
   const marketplaceCartCount = useMarketplaceCartCount();
+  const accountUnread = unreadNotifications + unreadMessages;
   const localAvatarUrl = useLocalFilesStore((state) => state.profile);
   const { isKeyboardVisible, keyboardOffset } = useKeyboardOffset();
-  const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
-  const collectionsNewLabel = 'New';
+  const { markCollectionsNavSeen } = useCollectionsNavDiscovery();
 
   // Get avatar URL and fallback initial - same logic as desktop header
   const avatarUrl =
@@ -88,25 +106,12 @@ export function MobileFooter({ className }: MobileFooterProps) {
         ]
       : []),
     {
-      href: APP_ROUTES.MESSAGES,
-      activePrefix: APP_ROUTES.MESSAGES,
-      icon: MessageCircle,
-      label: 'Messages',
-    },
-    {
       href: APP_ROUTES.COLLECTIONS,
       activePrefix: APP_ROUTES.COLLECTIONS,
       icon: Library,
       label: 'Collections',
     },
-    {
-      href: SETTINGS_ROUTES.ACCOUNT,
-      activePrefix: APP_ROUTES.SETTINGS,
-      icon: Settings,
-      label: 'Settings',
-    },
   ];
-  const protectedNavHrefs = new Set<string>([SETTINGS_ROUTES.ACCOUNT, APP_ROUTES.MESSAGES]);
   // Hide footer for guests only on non-explore routes. Core explore and dynamic public
   // routes (/home, /post/..., /profile/...) use the public explore footer.
   if (!isAuthenticated && !isPublicExploreRoute) {
@@ -136,30 +141,17 @@ export function MobileFooter({ className }: MobileFooterProps) {
           const Icon = item.icon;
           const itemIsActive = isNavItemActive(pathname, item);
           const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
-          const showCollectionsNewTreatment = isCollectionsItem && showCollectionsNew;
-          const isMarketplaceItem = item.href === APP_ROUTES.MARKETPLACE;
-          const itemBadgeCount =
-            item.href === APP_ROUTES.MESSAGES ? unreadMessages : isMarketplaceItem ? marketplaceCartCount : 0;
-          const itemBadgeLabel = isMarketplaceItem ? 'items in cart' : 'unread';
+          const itemBadgeCount = item.href === APP_ROUTES.MARKETPLACE ? marketplaceCartCount : 0;
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-label={
                 itemBadgeCount > 0
-                  ? `${item.label}, ${itemBadgeCount} ${
-                      itemBadgeLabel === 'items in cart' && itemBadgeCount === 1 ? 'item in cart' : itemBadgeLabel
-                    }`
-                  : showCollectionsNewTreatment
-                    ? `${item.label}, ${collectionsNewLabel}`
-                    : item.label
+                  ? `${item.label}, ${itemBadgeCount} ${itemBadgeCount === 1 ? 'item' : 'items'} in cart`
+                  : item.label
               }
               onClick={(event) => {
-                if (!isAuthenticated && protectedNavHrefs.has(item.href)) {
-                  event.preventDefault();
-                  setShowSignInDialog(true);
-                  return;
-                }
                 if (isAuthenticated && isCollectionsItem) {
                   markCollectionsNavSeen();
                 }
@@ -169,17 +161,13 @@ export function MobileFooter({ className }: MobileFooterProps) {
               className={cn(
                 'rounded-full p-3 transition-all',
                 itemBadgeCount > 0 && 'relative inline-flex',
-                showCollectionsNewTreatment
-                  ? 'relative inline-flex border border-brand bg-white/5 text-brand hover:bg-brand/10'
-                  : itemIsActive
-                    ? 'bg-secondary'
-                    : 'border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10',
+                itemIsActive ? 'bg-secondary' : 'border border-border bg-white/5 backdrop-blur-sm hover:bg-white/10',
               )}
             >
               <Icon className="h-6 w-6" />
               {itemBadgeCount > 0 && (
                 <Badge
-                  data-cy={isMarketplaceItem ? 'mobile-marketplace-counter' : 'mobile-messages-counter'}
+                  data-cy="mobile-marketplace-counter"
                   className="absolute -right-1 -bottom-1 h-5 w-5 rounded-full bg-brand shadow-sm"
                   variant="secondary"
                 >
@@ -191,48 +179,83 @@ export function MobileFooter({ className }: MobileFooterProps) {
                   </Typography>
                 </Badge>
               )}
-              {showCollectionsNewTreatment ? (
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute top-12 left-1/2 -translate-x-1/2 text-xs font-semibold text-brand uppercase"
-                >
-                  {collectionsNewLabel}
-                </span>
-              ) : null}
             </Link>
           );
         })}
         {isAuthenticated ? (
-          <Link
-            data-cy="footer-nav-profile-btn"
-            href={APP_ROUTES.PROFILE}
-            aria-label={'Profile'}
-            className="relative shrink-0 rounded-full"
-          >
-            <AvatarWithFallback
-              avatarUrl={avatarUrl}
-              name={avatarName}
-              fallbackSeed={currentUserPubky || avatarName}
-              size="lg"
-              className="cursor-pointer"
-              alt={'Profile'}
-            />
-            {unreadNotifications > 0 && (
-              <Badge
-                data-testid="mobile-notification-counter"
-                data-cy="mobile-notification-counter"
-                className="absolute right-0 bottom-0 h-5 w-5 rounded-full bg-brand shadow-sm"
-                variant="secondary"
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                data-cy="footer-nav-profile-btn"
+                variant="ghost"
+                size="icon"
+                aria-label="Account menu"
+                className="relative size-12 shrink-0 rounded-full"
               >
-                <Typography
-                  className={cn('font-semibold text-primary-foreground', unreadNotifications > 21 && 'text-xs')}
-                  size="xs"
-                >
-                  {unreadNotifications > 21 ? '21+' : unreadNotifications}
-                </Typography>
-              </Badge>
-            )}
-          </Link>
+                <AvatarWithFallback
+                  avatarUrl={avatarUrl}
+                  name={avatarName}
+                  fallbackSeed={currentUserPubky || avatarName}
+                  size="lg"
+                  className="cursor-pointer"
+                  alt={'Profile'}
+                />
+                {accountUnread > 0 && (
+                  <Badge
+                    data-testid="mobile-notification-counter"
+                    data-cy="mobile-notification-counter"
+                    className="absolute right-0 bottom-0 h-5 w-5 rounded-full bg-brand shadow-sm"
+                    variant="secondary"
+                  >
+                    <Typography
+                      className={cn('font-semibold text-primary-foreground', accountUnread > 21 && 'text-xs')}
+                      size="xs"
+                    >
+                      {accountUnread > 21 ? '21+' : accountUnread}
+                    </Typography>
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="end" sideOffset={12} className="w-72 p-2">
+              <DropdownMenuItem asChild>
+                <Link href={APP_ROUTES.MESSAGES} className="gap-4 px-4 py-3 text-lg">
+                  <MessageCircle className="size-6" />
+                  <span className="flex-1">Messages</span>
+                  {unreadMessages > 0 && (
+                    <span className="text-brand">{unreadMessages > 21 ? '21+' : unreadMessages}</span>
+                  )}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={SETTINGS_ROUTES.ACCOUNT} className="gap-4 px-4 py-3 text-lg">
+                  <Settings className="size-6" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={APP_ROUTES.PROFILE} className="gap-4 px-4 py-3 text-lg">
+                  <Bell className="size-6" />
+                  <span className="flex-1">Notifications</span>
+                  {unreadNotifications > 0 && (
+                    <span className="text-brand">{unreadNotifications > 21 ? '21+' : unreadNotifications}</span>
+                  )}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={PROFILE_ROUTES.PROFILE_PAGE} className="gap-4 px-4 py-3 text-lg">
+                  <UserRound className="size-6" />
+                  Profile
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={PROFILE_ROUTES.POSTS} className="gap-4 px-4 py-3 text-lg">
+                  <FileText className="size-6" />
+                  My posts
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : (
           <Button
             variant="secondary"
