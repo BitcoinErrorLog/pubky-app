@@ -2,7 +2,9 @@
   "buyer_awaiting_confirmation": {
     "request": {
       "body": null,
-      "headers_present": ["authorization"],
+      "headers_present": [
+        "authorization"
+      ],
       "method": "GET",
       "path": "/v1/orders/<uuid:1>"
     },
@@ -103,7 +105,9 @@
   "buyer_manual_review_held": {
     "request": {
       "body": null,
-      "headers_present": ["authorization"],
+      "headers_present": [
+        "authorization"
+      ],
       "method": "GET",
       "path": "/v1/orders/<uuid:3>"
     },
@@ -204,7 +208,9 @@
   "buyer_manual_review_late": {
     "request": {
       "body": null,
-      "headers_present": ["authorization"],
+      "headers_present": [
+        "authorization"
+      ],
       "method": "GET",
       "path": "/v1/orders/<uuid:5>"
     },
@@ -305,7 +311,9 @@
   "seller_awaiting_confirmation": {
     "request": {
       "body": null,
-      "headers_present": ["authorization"],
+      "headers_present": [
+        "authorization"
+      ],
       "method": "GET",
       "path": "/v1/orders/<uuid:1>"
     },
@@ -417,7 +425,9 @@
   "seller_manual_review_held": {
     "request": {
       "body": null,
-      "headers_present": ["authorization"],
+      "headers_present": [
+        "authorization"
+      ],
       "method": "GET",
       "path": "/v1/orders/<uuid:3>"
     },
@@ -529,7 +539,9 @@
   "seller_manual_review_late": {
     "request": {
       "body": null,
-      "headers_present": ["authorization"],
+      "headers_present": [
+        "authorization"
+      ],
       "method": "GET",
       "path": "/v1/orders/<uuid:5>"
     },

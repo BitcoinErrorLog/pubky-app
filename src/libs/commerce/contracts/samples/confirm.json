@@ -4,7 +4,10 @@
       "body": {
         "confirmed_amount_sats": 51638
       },
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:1>/confirm-bitcoin-payment"
     },
@@ -25,7 +28,10 @@
       "body": {
         "reason": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
       },
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:1>/confirm-bitcoin-payment"
     },
@@ -44,7 +50,10 @@
   "not_order_seller": {
     "request": {
       "body": {},
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:1>/confirm-bitcoin-payment"
     },
@@ -63,7 +72,10 @@
   "order_not_awaiting_confirmation": {
     "request": {
       "body": {},
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:2>/confirm-bitcoin-payment"
     },
@@ -82,7 +94,10 @@
   "order_not_found": {
     "request": {
       "body": {},
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:3>/confirm-bitcoin-payment"
     },
@@ -103,7 +118,10 @@
       "body": {
         "reason": "checked in wallet"
       },
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:1>/confirm-bitcoin-payment"
     },
@@ -137,7 +155,10 @@
       "body": {
         "reason": "checked in wallet"
       },
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:1>/confirm-bitcoin-payment"
     },
@@ -250,7 +271,10 @@
       "body": {
         "txid": "9f2c9f2c9f2c9f2c9f2c9f2c9f2c9f2c9f2c9f2c9f2c9f2c9f2c9f2c0"
       },
-      "headers_present": ["authorization", "content-type"],
+      "headers_present": [
+        "authorization",
+        "content-type"
+      ],
       "method": "POST",
       "path": "/v0/orders/<uuid:1>/confirm-bitcoin-payment"
     },

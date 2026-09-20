@@ -48,6 +48,10 @@ next-env.d.ts
 
 # Vendored verbatim from pubky-marketplace-service (emit-contracts output);
 # kept byte-identical so re-vendoring is a plain copy
+src/libs/commerce/contracts/endpoints.json
+src/libs/commerce/contracts/samples/confirm.json
+src/libs/commerce/contracts/samples/resolve.json
+src/libs/commerce/contracts/samples/projections.json
 src/libs/commerce/contracts/state-machines.json
 
 # Vendored verbatim wasm-pack output of the Pubky Locks browser SDK;
