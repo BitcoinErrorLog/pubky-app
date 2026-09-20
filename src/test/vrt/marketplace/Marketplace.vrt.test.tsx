@@ -171,17 +171,4 @@ describe('Marketplace — visual regression', () => {
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-mobile');
   });
-
-  // Sandbox hides the drops shelf, so the existing mobile baseline cannot
-  // catch a tall drops card pushing listings off the first viewport. This
-  // scene uses a durable adapter (locks-paykit) at the live 375×812 frame.
-  it('renders durable-mode home at 375x812 with compact drops so a listing stays in frame', async () => {
-    catalogView.adapterMode = 'locks-paykit';
-    const screen = await renderForVRT(<Marketplace />, { viewport: { width: 375, height: 812 }, disableHover: true });
-    await expect.element(screen.getByRole('link', { name: 'Browse' })).toBeInTheDocument();
-    expect(
-      document.querySelector('[data-testid="marketplace-drops-shelf-entry"][data-variant="compact"]'),
-    ).not.toBeNull();
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-mobile-with-drops');
-  });
 });

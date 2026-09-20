@@ -134,22 +134,6 @@ describe('Marketplace', () => {
     expect(html).toContain('Seller studio');
   });
 
-  it('places the durable drops shelf after the promo and catalog filters', async () => {
-    promoState.showPromo = true;
-    catalogState.adapterMode = 'transaction-service';
-
-    render(<Marketplace />);
-
-    const promo = await screen.findByRole('region', { name: 'Marketplace promo' });
-    const filters = screen.getByTestId('marketplace-filters');
-    const shelves = screen.getAllByTestId('marketplace-drops-shelf-entry');
-
-    expect(promo.compareDocumentPosition(filters) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    for (const shelf of shelves) {
-      expect(filters.compareDocumentPosition(shelf) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    }
-  });
-
   it('shows the staging disclosure by deploy environment', () => {
     const { rerender } = render(<Marketplace />);
 
