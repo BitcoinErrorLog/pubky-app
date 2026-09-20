@@ -11,6 +11,12 @@ import { RUNTIME_CONFIG_WINDOW_KEY } from '@/libs/runtime-config/runtime-config'
 import { NETWORK_RUNTIME_DEFAULTS } from '@/libs/runtime-config/runtime-config.schema';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { getSentryInitBase } from './sentry';
+import {
+  SENTRY_LIMIT_REDACTED,
+  SENTRY_REDACTION_MAX_DEPTH,
+  SENTRY_REDACTION_MAX_NODES,
+  SENTRY_REDACTION_MAX_STRING_LENGTH,
+} from './sentry.constants';
 import { shouldDropAppErrorFromSentry } from './sentry.utils';
 
 const TEST_PUBKY = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
@@ -59,15 +65,33 @@ function injectRuntimeConfig(overrides: Record<string, unknown> = {}): () => voi
   };
 }
 
-function runBeforeSend(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
+function runBeforeSend(event: Sentry.ErrorEvent, hint: Sentry.EventHint = {}): Sentry.ErrorEvent {
   const beforeSend = getSentryInitBase().beforeSend;
 
   expect(beforeSend).toBeTypeOf('function');
 
-  const result = beforeSend!(event, {} as Sentry.EventHint);
+  const result = beforeSend!(event, hint);
 
   expect(result).not.toBeNull();
   return result as Sentry.ErrorEvent;
+}
+
+function runBeforeSendDroppable(event: Sentry.ErrorEvent, hint: Sentry.EventHint = {}): Sentry.ErrorEvent | null {
+  const beforeSend = getSentryInitBase().beforeSend;
+
+  expect(beforeSend).toBeTypeOf('function');
+  return beforeSend!(event, hint) as Sentry.ErrorEvent | null;
+}
+
+function runBeforeBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb {
+  const beforeBreadcrumb = getSentryInitBase().beforeBreadcrumb;
+
+  expect(beforeBreadcrumb).toBeTypeOf('function');
+
+  const result = beforeBreadcrumb!(breadcrumb);
+
+  expect(result).not.toBeNull();
+  return result as Sentry.Breadcrumb;
 }
 
 function runBeforeSendTransaction(event: TransactionEvent): TransactionEvent {
@@ -385,6 +409,259 @@ describe('captureAppError filtering', () => {
 });
 
 describe('Sentry PII scrubbing', () => {
+  it('strips every sensitive field from EventHint data carriers before sending', () => {
+    const sensitiveFields = {
+      accessToken: 'access-token',
+      apiKey: 'api-key',
+      auth: 'basic secret',
+      authorization: 'Bearer access-token',
+      avatar: 'avatar.png',
+      bio: 'private bio',
+      clientSecret: 'client-secret',
+      cookie: 'session=value',
+      credential: 'credential',
+      credentials: 'credentials',
+      displayName: 'Alice',
+      email: 'alice@example.com',
+      file: 'passport.png',
+      firstName: 'Alice',
+      image: 'avatar.png',
+      key: 'private-key',
+      lastName: 'Example',
+      name: 'Alice Example',
+      passwd: 'password',
+      password: 'password',
+      phone: '+1 555-123-4567',
+      phoneNumber: '+1 555-123-4567',
+      privateKey: 'private-key',
+      publicKey: TEST_PUBKY,
+      pubky: TEST_PUBKY,
+      refreshToken: 'refresh-token',
+      secret: 'secret',
+      secretKey: 'secret-key',
+      sessionToken: 'session-token',
+      setCookie: 'session=value',
+      signature: 'signature',
+      token: 'token',
+      user: 'alice',
+      userId: TEST_PUBKY,
+      username: 'alice',
+      'X-Api-Key': 'api-key',
+      author: TEST_PUBKY,
+      authorId: TEST_PUBKY,
+      followee: TEST_PUBKY,
+      follower: TEST_PUBKY,
+      mutee: TEST_PUBKY,
+      muter: TEST_PUBKY,
+      taggerId: TEST_PUBKY,
+    };
+    const redactedFields = Object.fromEntries(
+      Object.keys(sensitiveFields).map((key) => [key, '[redacted: sensitive field]']),
+    );
+    const hint = asOpaque<Sentry.EventHint>({
+      data: { ...sensitiveFields },
+      captureContext: { extra: { ...sensitiveFields } },
+      originalException: { ...sensitiveFields },
+      attachments: [
+        { filename: 'alice@example.com.txt', data: '{"token":"secret"}' },
+        { filename: 'opaque.bin', data: new Uint8Array([1, 2, 3]) },
+      ],
+      syntheticException: new Error('Bearer secret-token'),
+    });
+
+    runBeforeSend(asOpaque<Sentry.ErrorEvent>({ message: 'safe error' }), hint);
+
+    expect(hint.data).toEqual(redactedFields);
+    expect(hint.captureContext).toEqual({ extra: redactedFields });
+    expect(hint.originalException).toEqual(redactedFields);
+    expect(hint.attachments).toEqual([]);
+    expect(hint.syntheticException).toBeNull();
+  });
+
+  it('preserves benign EventHint fields', () => {
+    const benignFields = {
+      operation: 'profile.fetch',
+      requestId: 'req_123',
+      retryable: false,
+      statusCode: 503,
+    };
+    const hint = asOpaque<Sentry.EventHint>({
+      data: { ...benignFields },
+      captureContext: { extra: { ...benignFields } },
+      originalException: { ...benignFields },
+    });
+
+    runBeforeSend(asOpaque<Sentry.ErrorEvent>({ message: 'safe error' }), hint);
+
+    expect(hint.data).toEqual(benignFields);
+    expect(hint.captureContext).toEqual({ extra: benignFields });
+    expect(hint.originalException).toEqual(benignFields);
+  });
+
+  it('redacts nested case-variant keys inside stringified JSON on event and hint fields', () => {
+    const hint = asOpaque<Sentry.EventHint>({
+      data: '{"outer":{"ToKeN":"hint-secret"},"statusCode":200}',
+      originalException: 'Failed for hint@example.com',
+    });
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: {
+          payload: '{"nested":{"AUTHORIZATION":"Bearer event-secret"},"retryable":true}',
+        },
+      }),
+      hint,
+    );
+
+    expect(hint.data).toBe('{"outer":{"ToKeN":"[redacted: sensitive field]"},"statusCode":200}');
+    expect(hint.originalException).toBe('Failed for [redacted: email]');
+    expect(event.extra?.payload).toBe('{"nested":{"AUTHORIZATION":"[redacted: sensitive field]"},"retryable":true}');
+  });
+
+  it('redacts sensitive key aliases that are not protocol identifier fields', () => {
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: {
+          auth: 'basic secret',
+          Credentials: 'credential secret',
+          PASSWD: 'password secret',
+          'X-Api-Key': 'api secret',
+        },
+      }),
+    );
+
+    expect(event.extra).toEqual({
+      auth: '[redacted: sensitive field]',
+      Credentials: '[redacted: sensitive field]',
+      PASSWD: '[redacted: sensitive field]',
+      'X-Api-Key': '[redacted: sensitive field]',
+    });
+  });
+
+  it('fails closed for unknown non-plain and function-valued event and hint shapes', () => {
+    class UnsupportedPayload {
+      token = 'class-secret';
+    }
+
+    const hint = asOpaque<Sentry.EventHint>({
+      data: () => 'function-secret',
+      captureContext: new UnsupportedPayload(),
+      originalException: new Error('error-secret', { cause: new Error('cause-secret') }),
+    });
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: {
+          date: new Date('2026-09-19T00:00:00.000Z'),
+          instance: new UnsupportedPayload(),
+        },
+      }),
+      hint,
+    );
+
+    expect(hint.data).toBe('[redacted: sensitive field]');
+    expect(hint.captureContext).toBe('[redacted: sensitive field]');
+    expect(hint.originalException).toBe('[redacted: sensitive field]');
+    expect(event.extra).toEqual({
+      date: '[redacted: sensitive field]',
+      instance: '[redacted: sensitive field]',
+    });
+  });
+
+  it('bounds depth, node count, and string length with fail-closed limit markers', () => {
+    let deeplyNested: unknown = { token: 'deep-secret' };
+    for (let depth = 0; depth <= SENTRY_REDACTION_MAX_DEPTH; depth += 1) {
+      deeplyNested = { child: deeplyNested };
+    }
+
+    const widePayload = Array.from({ length: SENTRY_REDACTION_MAX_NODES + 10 }, (_, index) => `node-${index}`);
+    const oversizedString = 'x'.repeat(SENTRY_REDACTION_MAX_STRING_LENGTH + 1);
+
+    const depthEvent = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: { deeplyNested } }));
+    const nodeEvent = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: { widePayload } }));
+    const stringEvent = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: { oversizedString } }));
+
+    expect(JSON.stringify(depthEvent.extra)).toContain(SENTRY_LIMIT_REDACTED);
+    expect(JSON.stringify(depthEvent.extra)).not.toContain('deep-secret');
+    expect(nodeEvent.extra?.widePayload).toBe(SENTRY_LIMIT_REDACTED);
+    expect(stringEvent.extra?.oversizedString).toBe(SENTRY_LIMIT_REDACTED);
+  });
+
+  it('drops events when getters or proxies throw during sanitization', () => {
+    const throwingGetter = {
+      get safe(): string {
+        throw new Error('getter probe');
+      },
+    };
+    const throwingProxy = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('proxy probe');
+        },
+      },
+    );
+
+    expect(() => runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingGetter }))).not.toThrow();
+    expect(runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingGetter }))).toBeNull();
+    expect(() => runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingProxy }))).not.toThrow();
+    expect(runBeforeSendDroppable(asOpaque<Sentry.ErrorEvent>({ extra: throwingProxy }))).toBeNull();
+  });
+
+  it('redacts NFKC, zero-width, combining-mark, and Cyrillic homoglyph key bypasses', () => {
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: {
+          ｔｏｋｅｎ: 'fullwidth-secret',
+          'to\u200bken': 'zero-width-secret',
+          'to\u0301ken': 'combining-secret',
+          tоken: 'cyrillic-secret',
+        },
+      }),
+    );
+
+    expect(event.extra).toEqual({
+      ｔｏｋｅｎ: '[redacted: sensitive field]',
+      'to\u200bken': '[redacted: sensitive field]',
+      'to\u0301ken': '[redacted: sensitive field]',
+      tоken: '[redacted: sensitive field]',
+    });
+  });
+
+  it('handles circular event payloads without throwing or retaining the cycle', () => {
+    const circular: Record<string, unknown> = { token: 'cycle-secret' };
+    circular.self = circular;
+
+    const event = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ extra: circular }));
+
+    expect(event.extra?.token).toBe('[redacted: sensitive field]');
+    expect(event.extra?.self).toBe('[redacted: circular reference]');
+  });
+
+  it('covers every event carrier with a sensitive value while preserving SDK contexts', () => {
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        message: 'Contact event@example.com',
+        exception: { values: [{ type: 'Error', value: `Failed for ${TEST_PUBKY}` }] },
+        breadcrumbs: [{ data: { ToKeN: 'breadcrumb-secret' } }],
+        contexts: {
+          browser: { name: 'Chrome', version: '123' },
+          custom: { AuThOrIzAtIoN: 'Bearer context-secret' },
+        },
+        extra: { SeCrEt: 'extra-secret' },
+        request: { headers: { AUTHORIZATION: 'Bearer request-secret' } },
+        user: { email: 'user@example.com' },
+      }),
+    );
+
+    expect(event.message).toBe('Contact [redacted: email]');
+    expect(event.exception?.values?.[0]?.value).toBe('Failed for [redacted: pubky identifier]');
+    expect(event.breadcrumbs?.[0]?.data?.ToKeN).toBe('[redacted: sensitive field]');
+    expect(event.contexts?.custom?.AuThOrIzAtIoN).toBe('[redacted: sensitive field]');
+    expect(event.contexts?.browser).toEqual({ name: 'Chrome', version: '123' });
+    expect(event.extra?.SeCrEt).toBe('[redacted: sensitive field]');
+    expect(event.request?.headers?.AUTHORIZATION).toBe('[redacted: sensitive field]');
+    expect(event.user?.email).toBe('[redacted: sensitive field]');
+  });
+
   it('redacts identifiers from messages, exception values, and breadcrumb messages', () => {
     const event = runBeforeSend(
       asOpaque<Sentry.ErrorEvent>({
@@ -511,12 +788,77 @@ describe('Sentry PII scrubbing', () => {
 });
 
 describe('Sentry tracing hooks wired into init base', () => {
+  it('exposes beforeBreadcrumb as a function on getSentryInitBase()', () => {
+    expect(getSentryInitBase().beforeBreadcrumb).toBeTypeOf('function');
+  });
+
   it('exposes beforeSendTransaction as a function on getSentryInitBase()', () => {
     expect(getSentryInitBase().beforeSendTransaction).toBeTypeOf('function');
   });
 
   it('exposes beforeSendSpan as a function on getSentryInitBase()', () => {
     expect(getSentryInitBase().beforeSendSpan).toBeTypeOf('function');
+  });
+});
+
+describe('Sentry breadcrumb ingress scrubbing', () => {
+  it('redacts breadcrumb messages, nested data, and stringified JSON before storage', () => {
+    const breadcrumb = runBeforeBreadcrumb({
+      category: 'request',
+      message: 'Contact breadcrumb@example.com',
+      data: {
+        nested: { ReFrEsH_ToKeN: 'breadcrumb-secret' },
+        payload: '{"ApiKey":"json-secret","statusCode":200}',
+      },
+    });
+
+    expect(breadcrumb).toEqual({
+      category: 'request',
+      message: 'Contact [redacted: email]',
+      data: {
+        nested: { ReFrEsH_ToKeN: '[redacted: sensitive field]' },
+        payload: '{"ApiKey":"[redacted: sensitive field]","statusCode":200}',
+      },
+    });
+  });
+
+  it('preserves benign breadcrumb fields', () => {
+    const breadcrumb = {
+      category: 'navigation',
+      message: 'Opened settings',
+      data: { operation: 'settings.open', statusCode: 200, retryable: false },
+      level: 'info' as const,
+    };
+
+    expect(runBeforeBreadcrumb(breadcrumb)).toEqual(breadcrumb);
+  });
+
+  it('drops breadcrumbs when getters or proxies throw during sanitization', () => {
+    const beforeBreadcrumb = getSentryInitBase().beforeBreadcrumb;
+    const throwingGetter = asOpaque<Sentry.Breadcrumb>({
+      category: 'request',
+      data: {
+        get safe(): string {
+          throw new Error('getter probe');
+        },
+      },
+    });
+    const throwingProxy = asOpaque<Sentry.Breadcrumb>(
+      new Proxy(
+        {},
+        {
+          ownKeys() {
+            throw new Error('proxy probe');
+          },
+        },
+      ),
+    );
+
+    expect(beforeBreadcrumb).toBeTypeOf('function');
+    expect(() => beforeBreadcrumb!(throwingGetter)).not.toThrow();
+    expect(beforeBreadcrumb!(throwingGetter)).toBeNull();
+    expect(() => beforeBreadcrumb!(throwingProxy)).not.toThrow();
+    expect(beforeBreadcrumb!(throwingProxy)).toBeNull();
   });
 });
 
@@ -531,6 +873,7 @@ describe('Sentry transaction PII scrubbing', () => {
           method: 'GET',
           query_string: `ref=pubky://${TEST_PUBKY}/pub/post`,
           headers: {
+            Authorization: 'Bearer transaction-secret',
             'X-Custom-Identity': `bearer ${TEST_PUBKY}`,
             Accept: 'application/json',
           },
@@ -542,6 +885,7 @@ describe('Sentry transaction PII scrubbing', () => {
             op: 'pageload',
             status: 'ok',
             data: {
+              authorization: 'Bearer trace-secret',
               'url.full': `https://app.pubky.app/profile/${TEST_PUBKY}`,
               'http.url': `https://_pubky.${TEST_PUBKY}/pub/profile.json`,
               'http.response_code': 200,
@@ -549,7 +893,9 @@ describe('Sentry transaction PII scrubbing', () => {
           },
           browser: { name: 'Chrome', version: '123' },
           runtime: { name: 'node', version: '24' },
+          custom: { credentials: 'context-secret' },
         },
+        breadcrumbs: [{ message: `Viewed pubky://${TEST_PUBKY}/pub/post`, data: { token: 'crumb-secret' } }],
       }),
     );
 
@@ -558,11 +904,13 @@ describe('Sentry transaction PII scrubbing', () => {
     expect(event.request?.url).toBe('https://example.com/profile/[redacted: pubky identifier]');
     expect(event.request?.method).toBe('GET');
     expect(event.request?.query_string).toBe('ref=[redacted: pubky identifier]');
+    expect(event.request?.headers?.['Authorization']).toBe('[redacted: sensitive field]');
     expect(event.request?.headers?.['X-Custom-Identity']).toContain('[redacted: pubky identifier]');
     expect(event.request?.headers?.['Accept']).toBe('application/json');
 
     const traceCtx = event.contexts?.trace as Record<string, unknown>;
     const traceData = traceCtx?.data as Record<string, unknown>;
+    expect(traceData.authorization).toBe('[redacted: sensitive field]');
     expect(traceData['url.full']).toBe('https://app.pubky.app/profile/[redacted: pubky identifier]');
     // PUBKY_HTTP_HOST_PATTERN matches the entire `https://_pubky.<key>/...` URL up to whitespace
     // / quotes / angle brackets, so the path is consumed alongside the host. This is intentional —
@@ -581,6 +929,9 @@ describe('Sentry transaction PII scrubbing', () => {
     expect(browserCtx.version).toBe('123');
     expect(runtimeCtx.name).toBe('node');
     expect(runtimeCtx.version).toBe('24');
+    expect(event.contexts?.custom?.credentials).toBe('[redacted: sensitive field]');
+    expect(event.breadcrumbs?.[0]?.message).toBe('Viewed [redacted: pubky identifier]');
+    expect(event.breadcrumbs?.[0]?.data?.token).toBe('[redacted: sensitive field]');
   });
 
   it('scrubs string-array values inside an opaque runtime query_string payload (defensive — not the typed Sentry contract)', () => {
@@ -686,6 +1037,8 @@ describe('Sentry span PII scrubbing', () => {
         start_timestamp: 1,
         description: `GET pubky://${TEST_PUBKY}/pub/post`,
         data: {
+          token: 'span-secret',
+          'X-Api-Key': 'span-api-secret',
           url: `pubky://${TEST_PUBKY}/pub/x`,
           'http.url': `https://_pubky.${TEST_PUBKY}/pub/x`,
           'http.query': `?author=${TEST_PUBKY}`,
@@ -701,6 +1054,8 @@ describe('Sentry span PII scrubbing', () => {
 
     expect(span.description).toBe('GET [redacted: pubky identifier]');
     const data = span.data as Record<string, unknown>;
+    expect(data.token).toBe('[redacted: sensitive field]');
+    expect(data['X-Api-Key']).toBe('[redacted: sensitive field]');
     expect(data.url).toBe('[redacted: pubky identifier]');
     // `https://_pubky.<key>/pub/x` is fully consumed by PUBKY_HTTP_HOST_PATTERN — see comment in
     // the transaction test for `http.url`. Path segments after the host are still PII.
@@ -759,8 +1114,8 @@ describe('Sentry span PII scrubbing', () => {
     });
 
     expect(() => runBeforeSendSpan(span)).not.toThrow();
-    expect((cycle as { url: string }).url).toBe('[redacted: pubky identifier]');
-    expect(cycle.self).toBe(cycle);
+    expect(span.data.url).toBe('[redacted: pubky identifier]');
+    expect(span.data.self).toBe('[redacted: circular reference]');
   });
 
   it('returns the same span object reference', () => {

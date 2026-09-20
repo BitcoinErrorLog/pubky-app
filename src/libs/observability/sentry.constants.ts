@@ -4,6 +4,10 @@ export const PUBKY_REDACTED = '[redacted: pubky identifier]';
 export const EMAIL_REDACTED = '[redacted: email]';
 export const PHONE_REDACTED = '[redacted: phone]';
 export const SENSITIVE_VALUE_REDACTED = '[redacted: sensitive field]';
+export const SENTRY_LIMIT_REDACTED = '[redacted:limit]';
+export const SENTRY_REDACTION_MAX_DEPTH = 20;
+export const SENTRY_REDACTION_MAX_NODES = 1_000;
+export const SENTRY_REDACTION_MAX_STRING_LENGTH = 16_384;
 
 export const RAW_PUBKY_PATTERN = new RegExp(`\\b[${Z32_ALPHABET}]{52}\\b`, 'gi');
 export const PUBKY_URI_PATTERN = /\bpubky:\/\/[^\s"'<>]+/gi;
@@ -14,28 +18,47 @@ export const PHONE_PATTERN = /\+?\d[\d\s().-]{7,}\d/g;
 export const NEXUS_POST_TAGS_PATH_PATTERN = /^\/v0\/post\/[^/]+\/[^/]+\/tags$/;
 
 export const SENSITIVE_CONTEXT_KEYS = new Set([
+  'accesstoken',
+  'apikey',
+  'auth',
+  'authorization',
   'avatar',
   'address',
   'bio',
+  'clientsecret',
+  'cookie',
+  'credential',
+  'credentials',
   'deliveryaddress',
   'displayname',
   'email',
   'file',
   'firstname',
   'image',
+  'key',
   'lastname',
   'name',
+  'password',
+  'passwd',
   'phone',
   'phonenumber',
+  'privatekey',
   'publickey',
   'pubky',
   // Raw response-body excerpts (e.g. `responseText` from the generic HTTP
   // parse error) can carry endpoint-returned personal data; never ship them.
   'responsetext',
+  'refreshtoken',
+  'secret',
+  'secretkey',
+  'sessiontoken',
+  'setcookie',
   'signature',
+  'token',
   'user',
   'userid',
   'username',
+  'xapikey',
 ]);
 
 export const PUBKY_IDENTIFIER_KEYS = new Set([

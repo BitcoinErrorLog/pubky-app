@@ -18,25 +18,73 @@ import {
   RAW_PUBKY_PATTERN,
   SENSITIVE_CONTEXT_KEYS,
   SENSITIVE_VALUE_REDACTED,
+  SENTRY_LIMIT_REDACTED,
+  SENTRY_REDACTION_MAX_DEPTH,
+  SENTRY_REDACTION_MAX_NODES,
+  SENTRY_REDACTION_MAX_STRING_LENGTH,
 } from './sentry.constants';
 
-function normalizeContextKey(key: string): string {
-  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+type NormalizedContextKey = {
+  containsNonAscii: boolean;
+  value: string;
+};
+
+function isZeroWidthCodePoint(codePoint: number): boolean {
+  return (
+    codePoint === 0x200b || codePoint === 0x200c || codePoint === 0x200d || codePoint === 0x2060 || codePoint === 0xfeff
+  );
+}
+
+function normalizeContextKey(key: string): NormalizedContextKey {
+  let containsNonAscii = false;
+  let value = '';
+
+  for (const character of key.normalize('NFKC').normalize('NFD')) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint === undefined || isZeroWidthCodePoint(codePoint) || /\p{Mark}/u.test(character)) {
+      continue;
+    }
+    if (codePoint > 0x7f) {
+      containsNonAscii = true;
+      continue;
+    }
+    const lowerCodePoint = codePoint >= 0x41 && codePoint <= 0x5a ? codePoint + 0x20 : codePoint;
+    if ((lowerCodePoint >= 0x61 && lowerCodePoint <= 0x7a) || (lowerCodePoint >= 0x30 && lowerCodePoint <= 0x39)) {
+      value += String.fromCodePoint(lowerCodePoint);
+    }
+  }
+
+  return { containsNonAscii, value };
 }
 
 function isSensitiveContextKey(key: string): boolean {
+  if (key.length > SENTRY_REDACTION_MAX_STRING_LENGTH) return true;
+
   const normalizedKey = normalizeContextKey(key);
-  return SENSITIVE_CONTEXT_KEYS.has(normalizedKey) || PUBKY_IDENTIFIER_KEYS.has(normalizedKey);
+  return (
+    normalizedKey.containsNonAscii ||
+    SENSITIVE_CONTEXT_KEYS.has(normalizedKey.value) ||
+    PUBKY_IDENTIFIER_KEYS.has(normalizedKey.value)
+  );
 }
 
-function scrubSensitiveString(value: string): string {
-  return value
+function isPlainObject(value: object): value is Record<string, unknown> {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function scrubSensitiveStringPatterns(value: string): string {
+  if (value.length > SENTRY_REDACTION_MAX_STRING_LENGTH) return SENTRY_LIMIT_REDACTED;
+
+  const scrubbed = value
     .replace(PUBKY_URI_PATTERN, PUBKY_REDACTED)
     .replace(PUBKY_HTTP_HOST_PATTERN, PUBKY_REDACTED)
     .replace(PUBKY_COMPACT_URI_PATTERN, PUBKY_REDACTED)
     .replace(RAW_PUBKY_PATTERN, PUBKY_REDACTED)
     .replace(EMAIL_PATTERN, EMAIL_REDACTED)
     .replace(PHONE_PATTERN, PHONE_REDACTED);
+
+  return scrubbed;
 }
 
 function getEndpointPath(endpoint: unknown): string | null {
@@ -78,89 +126,227 @@ export function shouldDropAppErrorFromSentry(error: AppError): boolean {
 }
 
 function isSensitiveFieldValue(parent: Record<string, unknown>, key: string): boolean {
-  if (normalizeContextKey(key) !== 'value') return false;
+  if (normalizeContextKey(key).value !== 'value') return false;
   if (typeof parent.field !== 'string') return false;
   return isSensitiveContextKey(parent.field);
 }
 
-export function sanitizeForSentry(value: unknown, seen = new WeakSet<object>()): unknown {
+type SanitizationState = {
+  active: WeakSet<object>;
+  nodes: number;
+  sanitized: WeakMap<object, unknown>;
+};
+
+class SentrySanitizationError extends Error {}
+
+function readEnumerableKeys(value: Record<string, unknown>): string[] {
+  try {
+    return Object.keys(value);
+  } catch {
+    throw new SentrySanitizationError('Unable to read telemetry payload');
+  }
+}
+
+function readProperty(value: Record<string, unknown>, key: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor && !('value' in descriptor)) {
+      throw new SentrySanitizationError('Telemetry payload contains an accessor');
+    }
+    return value[key];
+  } catch (error) {
+    if (error instanceof SentrySanitizationError) throw error;
+    throw new SentrySanitizationError('Unable to read telemetry property');
+  }
+}
+
+function sanitizeString(value: string, state: SanitizationState, depth: number): string {
+  if (value.length > SENTRY_REDACTION_MAX_STRING_LENGTH) return SENTRY_LIMIT_REDACTED;
+
+  const scrubbed = scrubSensitiveStringPatterns(value);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return scrubbed;
+  }
+  if (parsed === null || typeof parsed !== 'object') return scrubbed;
+
+  const sanitized = sanitizeRecursively(parsed, state, depth + 1);
+  if (sanitized === SENTRY_LIMIT_REDACTED) return SENTRY_LIMIT_REDACTED;
+  try {
+    const serialized = JSON.stringify(sanitized);
+    return serialized.length > SENTRY_REDACTION_MAX_STRING_LENGTH ? SENTRY_LIMIT_REDACTED : serialized;
+  } catch {
+    throw new SentrySanitizationError('Unable to serialize telemetry payload');
+  }
+}
+
+function sanitizeRecursively(value: unknown, state: SanitizationState, depth: number): unknown {
+  if (depth > SENTRY_REDACTION_MAX_DEPTH || state.nodes >= SENTRY_REDACTION_MAX_NODES) {
+    return SENTRY_LIMIT_REDACTED;
+  }
+  state.nodes += 1;
+
   if (typeof value === 'string') {
-    return scrubSensitiveString(value);
+    return sanitizeString(value, state, depth);
   }
 
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeForSentry(item, seen));
+  if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') {
+    return SENSITIVE_VALUE_REDACTED;
   }
 
   if (typeof value !== 'object' || value === null) {
     return value;
   }
 
-  if (seen.has(value)) {
+  if (state.active.has(value)) {
     return '[redacted: circular reference]';
   }
-  seen.add(value);
 
-  if (value instanceof Date) {
-    return value;
+  if (state.sanitized.has(value)) {
+    return state.sanitized.get(value);
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    throw new SentrySanitizationError('Unable to inspect telemetry payload');
+  }
+
+  if (isArray) {
+    const arrayValue = value as unknown[];
+    if (arrayValue.length > SENTRY_REDACTION_MAX_NODES - state.nodes) {
+      state.nodes = SENTRY_REDACTION_MAX_NODES;
+      state.sanitized.set(value, SENTRY_LIMIT_REDACTED);
+      return SENTRY_LIMIT_REDACTED;
+    }
+
+    const sanitized: unknown[] = [];
+    state.sanitized.set(value, sanitized);
+    state.active.add(value);
+    for (const item of arrayValue) {
+      sanitized.push(sanitizeRecursively(item, state, depth + 1));
+    }
+    state.active.delete(value);
+    return sanitized;
+  }
+
+  if (!isPlainObject(value)) {
+    return SENSITIVE_VALUE_REDACTED;
+  }
+
+  const keys = readEnumerableKeys(value);
+  if (keys.length > SENTRY_REDACTION_MAX_NODES - state.nodes) {
+    state.nodes = SENTRY_REDACTION_MAX_NODES;
+    state.sanitized.set(value, SENTRY_LIMIT_REDACTED);
+    return SENTRY_LIMIT_REDACTED;
   }
 
   const sanitized: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    sanitized[key] =
+  state.sanitized.set(value, sanitized);
+  state.active.add(value);
+  for (const key of keys) {
+    const item = readProperty(value, key);
+    const sanitizedItem =
       isSensitiveContextKey(key) || isSensitiveFieldValue(value as Record<string, unknown>, key)
         ? SENSITIVE_VALUE_REDACTED
-        : sanitizeForSentry(item, seen);
+        : sanitizeRecursively(item, state, depth + 1);
+    Object.defineProperty(sanitized, key, {
+      configurable: true,
+      enumerable: true,
+      value: sanitizedItem,
+      writable: true,
+    });
   }
+  state.active.delete(value);
 
   return sanitized;
 }
 
+function createSanitizationState(): SanitizationState {
+  return {
+    active: new WeakSet<object>(),
+    nodes: 0,
+    sanitized: new WeakMap<object, unknown>(),
+  };
+}
+
+function sanitizeForSentryHook(value: unknown, state = createSanitizationState()): unknown {
+  return sanitizeRecursively(value, state, 0);
+}
+
+export function sanitizeForSentry(value: unknown): unknown {
+  try {
+    return sanitizeForSentryHook(value);
+  } catch {
+    return SENSITIVE_VALUE_REDACTED;
+  }
+}
+
 /**
- * String-only deep walker for SDK-owned telemetry payloads (transactions, spans).
+ * Removes sensitive values from Sentry's last-chance hook input.
  *
- * Mutates `value` in place: every string descendant is replaced with the scrubbed string;
- * non-string scalars pass through unchanged. The same input reference is returned so callers
- * can keep their existing object identity (Sentry's `beforeSendTransaction` / `beforeSendSpan`
- * contracts expect a value to be returned, and aliased references in span/trace data must
- * observe the first-pass scrubbed value).
- *
- * Crucially, this walker does NOT apply key-based redaction. SDK-owned payloads use keys like
- * `name` (input attributes, browser/runtime/os/device contexts) for structural data, so the
- * keyed `sanitizeForSentry` walker would corrupt them. Use `sanitizeForSentry` only on
- * AppError-shaped attachments (`extra`, `user`, `error.context`).
- *
- * Arrays are handled before generic objects. The shared `seen` WeakSet guards against cycles
- * and ensures aliased subtrees aren't double-walked. On a re-visit the original reference is
- * returned unchanged — its strings were scrubbed during the first visit (mutate-in-place).
+ * Sentry invokes `beforeSend` after integrations and event processors. Values they already copied
+ * from the hint are protected by the event scrub below, while this hint scrub protects retained
+ * carriers and removes attachments before Sentry builds the outgoing envelope.
  */
-function deepScrubTelemetryStrings<T>(value: T, seen: WeakSet<object>): T {
-  if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value)) return value;
-  seen.add(value);
+function scrubSensitiveEventHint(hint: Sentry.EventHint | undefined, state: SanitizationState): void {
+  if (!hint) return;
 
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      const item = value[i];
-      if (typeof item === 'string') {
-        value[i] = scrubSensitiveString(item);
-      } else if (item !== null && typeof item === 'object') {
-        deepScrubTelemetryStrings(item, seen);
-      }
-    }
-    return value;
+  if (hint.data !== undefined) {
+    hint.data = sanitizeForSentryHook(hint.data, state);
   }
 
-  const obj = value as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    const item = obj[key];
-    if (typeof item === 'string') {
-      obj[key] = scrubSensitiveString(item);
-    } else if (item !== null && typeof item === 'object') {
-      deepScrubTelemetryStrings(item, seen);
-    }
+  if (hint.captureContext !== undefined) {
+    hint.captureContext = sanitizeForSentryHook(hint.captureContext, state) as Sentry.EventHint['captureContext'];
   }
-  return value;
+
+  if (hint.originalException !== undefined) {
+    hint.originalException = sanitizeForSentryHook(hint.originalException, state);
+  }
+
+  // Attachments are opaque uploads whose filename and payload are both user-controlled.
+  // They cannot be inspected safely (payloads may be binary), so fail closed by dropping them.
+  if (hint.attachments !== undefined) {
+    hint.attachments = [];
+  }
+
+  // Error is a non-plain object and its message/stack can contain secrets. The event already
+  // contains the sanitized exception details, so the safest hint representation is no exception.
+  if (hint.syntheticException !== undefined) {
+    hint.syntheticException = null;
+  }
+}
+
+const STRUCTURAL_NAME_CONTEXTS = new Set(['browser', 'device', 'gpu', 'os', 'runtime']);
+
+function scrubEventContexts(
+  contexts: Sentry.ErrorEvent['contexts'],
+  state: SanitizationState,
+): Sentry.ErrorEvent['contexts'] {
+  if (!contexts) return contexts;
+
+  const sanitized: NonNullable<Sentry.ErrorEvent['contexts']> = {};
+  for (const [name, context] of Object.entries(contexts)) {
+    if (context === undefined) continue;
+
+    const sanitizedContext = sanitizeForSentryHook(context, state) as Sentry.Context;
+
+    // SDK-owned contexts use `name` structurally. Apply keyed redaction to every context first,
+    // then restore only this documented field after pattern-scrubbing its string value.
+    if (
+      STRUCTURAL_NAME_CONTEXTS.has(name) &&
+      typeof context.name === 'string' &&
+      sanitizedContext &&
+      typeof sanitizedContext === 'object'
+    ) {
+      sanitizedContext.name = scrubSensitiveStringPatterns(context.name);
+    }
+    sanitized[name] = sanitizedContext;
+  }
+  return sanitized;
 }
 
 /**
@@ -170,123 +356,127 @@ function deepScrubTelemetryStrings<T>(value: T, seen: WeakSet<object>): T {
  * The browser/server initializers also set sendDefaultPii: false; this hook is a
  * second line of defense for application payloads we attach ourselves.
  */
-export function scrubSensitiveData(event: Sentry.ErrorEvent): Sentry.ErrorEvent | null {
-  event.message = event.message ? scrubSensitiveString(event.message) : event.message;
+export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.EventHint): Sentry.ErrorEvent | null {
+  try {
+    const state = createSanitizationState();
+    scrubSensitiveEventHint(hint, state);
 
-  // captureException populates event.exception.values[].value with the error message.
-  // Unlike event.breadcrumbs, event.exception IS wrapped as { values: Exception[] } in-SDK.
-  if (event.exception?.values) {
-    event.exception.values = event.exception.values.map((exception) => {
-      return {
-        ...exception,
-        value: exception.value ? scrubSensitiveString(exception.value) : exception.value,
-      };
-    });
+    event.message = event.message ? (sanitizeForSentryHook(event.message, state) as string) : event.message;
+
+    if (event.exception) {
+      event.exception = sanitizeForSentryHook(event.exception, state) as Sentry.ErrorEvent['exception'];
+    }
+
+    if (event.breadcrumbs) {
+      event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
+        const sanitized = scrubBreadcrumbStrict(breadcrumb, state);
+        return sanitized ? [sanitized] : [];
+      });
+    }
+
+    if (event.contexts) {
+      event.contexts = scrubEventContexts(event.contexts, state);
+    }
+
+    if (event.extra) {
+      event.extra = sanitizeForSentryHook(event.extra, state) as Record<string, unknown>;
+    }
+
+    if (event.request) {
+      event.request = sanitizeForSentryHook(event.request, state) as Sentry.ErrorEvent['request'];
+    }
+
+    if (event.user) {
+      event.user = sanitizeForSentryHook(event.user, state) as Sentry.ErrorEvent['user'];
+    }
+
+    return event;
+  } catch {
+    return null;
   }
+}
 
-  if (event.breadcrumbs) {
-    event.breadcrumbs = event.breadcrumbs.map((crumb) => {
-      return {
-        ...crumb,
-        message: crumb.message ? scrubSensitiveString(crumb.message) : crumb.message,
-        data: crumb.data ? (sanitizeForSentry(crumb.data) as Sentry.Breadcrumb['data']) : crumb.data,
-      };
-    });
+/**
+ * Last-chance breadcrumb ingress filter. Breadcrumb data is application-controlled and can
+ * contain arbitrary nested values, so it uses the same fail-closed recursive redactor as events.
+ */
+function scrubBreadcrumbStrict(breadcrumb: Sentry.Breadcrumb, state: SanitizationState): Sentry.Breadcrumb | null {
+  const sanitized = sanitizeForSentryHook(breadcrumb, state);
+  return sanitized !== null && typeof sanitized === 'object' && isPlainObject(sanitized)
+    ? (sanitized as Sentry.Breadcrumb)
+    : null;
+}
+
+export function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null {
+  try {
+    return scrubBreadcrumbStrict(breadcrumb, createSanitizationState());
+  } catch {
+    return null;
   }
-
-  if (event.contexts?.['error.context']) {
-    event.contexts['error.context'] = sanitizeForSentry(event.contexts['error.context']) as Sentry.Context;
-  }
-
-  if (event.extra) {
-    event.extra = sanitizeForSentry(event.extra) as Record<string, unknown>;
-  }
-
-  if (event.request) {
-    event.request = sanitizeForSentry(event.request) as Sentry.ErrorEvent['request'];
-  }
-
-  if (event.user) {
-    event.user = sanitizeForSentry(event.user) as Sentry.ErrorEvent['user'];
-  }
-
-  return event;
 }
 
 /**
  * Defensive PII filter for transaction events.
  *
- * Tracing payloads are SDK-owned. `event.transaction`, `event.request`, and the root span data
- * at `event.contexts.trace.data` carry user-controlled URL strings (pageload/navigation routes,
- * fetch URLs) where pubky URIs and homeserver hostnames land verbatim. We mutate in place via
- * the string-only walker so aliased references converge on the scrubbed value.
+ * `event.transaction` is a structural string and receives pattern scrubbing. Request data,
+ * breadcrumbs, application contexts, extra/user data, and trace data can contain arbitrary
+ * application values, so they receive recursive pattern and keyed redaction.
  *
- * `event.extra`, `event.user`, and `event.contexts['error.context']` are the AppError-shaped
- * carriers that may surface on transactions when `Sentry.setUser` / `setExtra` / scope contexts
- * have been set application-side; those are routed through the keyed `sanitizeForSentry`
- * walker (copy-on-write) so we redact whole values keyed by sensitive name (e.g. `email`,
- * `displayName`).
- *
- * SDK-structural contexts (`browser`, `runtime`, `os`, `device`) are deliberately not walked —
- * the keyed walker would clobber `name: 'Chrome'` / `name: 'node'`, and the string-only walker
- * adds no value there. `event.spans[]` is handled per-span by `beforeSendSpan` and must not be
- * mutated here. Absent fields are not created.
+ * SDK-structural context fields keep their schema (for example `browser.name`); their strings
+ * are still pattern-scrubbed. `event.spans[]` is handled per-span by `beforeSendSpan`.
  */
-export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent {
-  const seen = new WeakSet<object>();
+export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent | null {
+  try {
+    const state = createSanitizationState();
+    if (typeof event.transaction === 'string') {
+      event.transaction = sanitizeForSentryHook(event.transaction, state) as string;
+    }
 
-  if (typeof event.transaction === 'string') {
-    event.transaction = scrubSensitiveString(event.transaction);
+    if (event.request) {
+      event.request = sanitizeForSentryHook(event.request, state) as typeof event.request;
+    }
+
+    if (event.breadcrumbs) {
+      event.breadcrumbs = event.breadcrumbs.flatMap((breadcrumb) => {
+        const sanitized = scrubBreadcrumbStrict(breadcrumb, state);
+        return sanitized ? [sanitized] : [];
+      });
+    }
+
+    if (event.contexts) {
+      event.contexts = scrubEventContexts(event.contexts, state);
+    }
+
+    if (event.extra) {
+      event.extra = sanitizeForSentryHook(event.extra, state) as typeof event.extra;
+    }
+
+    if (event.user) {
+      event.user = sanitizeForSentryHook(event.user, state) as typeof event.user;
+    }
+
+    // Tags are app-controlled operational labels; do not walk them as user payload.
+
+    return event;
+  } catch {
+    return null;
   }
-
-  if (event.request && typeof event.request === 'object') {
-    deepScrubTelemetryStrings(event.request, seen);
-  }
-
-  if (
-    event.contexts &&
-    event.contexts.trace &&
-    event.contexts.trace.data &&
-    typeof event.contexts.trace.data === 'object'
-  ) {
-    deepScrubTelemetryStrings(event.contexts.trace.data, seen);
-  }
-
-  if (event.extra) {
-    event.extra = sanitizeForSentry(event.extra) as typeof event.extra;
-  }
-
-  if (event.user) {
-    event.user = sanitizeForSentry(event.user) as typeof event.user;
-  }
-
-  if (event.contexts?.['error.context']) {
-    event.contexts['error.context'] = sanitizeForSentry(event.contexts['error.context']) as Sentry.Context;
-  }
-
-  // Tags are app-controlled operational labels; do not walk them as user payload.
-
-  return event;
 }
 
 /**
  * Defensive PII filter for span events.
  *
- * Span `description` (often a URL) and `span.data` (containing keys such as `http.url`,
- * `url.full`, `http.target`, `db.statement`) are user-controlled string surfaces. Walked
- * via the string-only walker; never apply key-based redaction (the SDK uses structural
- * keys here that overlap with our keyed walker's sensitive set). Always return the same
- * span object — `SpanJSON` is non-nullable in the v10.51 contract.
+ * Span `description` (often a URL) receives pattern scrubbing. `span.data` can contain
+ * arbitrary application attributes, so it receives recursive pattern and keyed redaction.
+ * The same span object is returned, as required by the v10.51 hook contract.
  */
 export function scrubSpanJson(span: SpanJSON): SpanJSON {
-  const seen = new WeakSet<object>();
-
   if (typeof span.description === 'string') {
-    span.description = scrubSensitiveString(span.description);
+    span.description = scrubSensitiveStringPatterns(span.description);
   }
 
-  if (span.data && typeof span.data === 'object') {
-    deepScrubTelemetryStrings(span.data, seen);
+  if (span.data) {
+    span.data = sanitizeForSentry(span.data) as SpanJSON['data'];
   }
 
   return span;
