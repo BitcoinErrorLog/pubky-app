@@ -156,10 +156,7 @@ export function MarketplaceFilters({
         )}
         <div className="contents">
           <Select value={saleFormat} onValueChange={(value) => setSaleFormat(value as CommerceSaleFormatFilter)}>
-            <SelectTrigger
-              aria-label="Sale format"
-              className={FILTER_TRIGGER_CLASS}
-            >
+            <SelectTrigger aria-label="Sale format" className={FILTER_TRIGGER_CLASS}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper" align="start" className={FILTER_MENU_CLASS}>
@@ -187,14 +184,7 @@ export function MarketplaceFilters({
             value={countryCode ?? 'anywhere'}
             onValueChange={(value) => setCountryCode(value === 'anywhere' ? null : value)}
           >
-<<<<<<< HEAD
-            <SelectTrigger
-              aria-label="Item location"
-              className="h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
-            >
-=======
             <SelectTrigger aria-label="Item location" className={FILTER_TRIGGER_CLASS}>
->>>>>>> a4cc811e0 (feat(marketplace): port designer visual system)
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper" align="start" className={FILTER_MENU_CLASS}>
@@ -212,14 +202,7 @@ export function MarketplaceFilters({
           </Select>
 
           <Select value={sort} onValueChange={(value) => setSort(value as CommerceSort)}>
-<<<<<<< HEAD
-            <SelectTrigger
-              aria-label="Sort marketplace"
-              className="h-11 min-w-32 shrink-0 rounded-full border px-4 whitespace-nowrap"
-            >
-=======
             <SelectTrigger aria-label="Sort marketplace" className={FILTER_TRIGGER_CLASS}>
->>>>>>> a4cc811e0 (feat(marketplace): port designer visual system)
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper" align="start" className={FILTER_MENU_CLASS}>
