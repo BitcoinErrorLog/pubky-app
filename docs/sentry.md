@@ -91,7 +91,9 @@ Pubky App is decentralized social — strict defaults:
 - Replay: `maskAllText: true`, `maskAllInputs: true`, `blockAllMedia: true`, `networkCaptureBodies: false`
 - `beforeSend` defensively redacts user identifiers and user-provided data from app-controlled payloads:
   `email`, `phone` / `phoneNumber`, `name`, `firstName`, `lastName`, `displayName`, `username`, `bio`, `file`,
-  `user`, raw Pubky public keys, `pubky://...` URIs, compact Pubky URLs, and `_pubky.` HTTP hostnames.
+  `user`, `cookie` / `cookies`, raw Pubky public keys, `pubky://...` URIs, compact Pubky URLs, and `_pubky.`
+  HTTP hostnames. The same bounded recursive scrubber covers `tags`, `fingerprint`, `threads`, and
+  `measurements`, including runtime payload shapes outside the SDK's static types.
 - `captureAppError()` sanitizes `error.context` before attaching it to Sentry. New `Err.*` contexts must avoid raw user
   data unless the key is covered by the scrubber in `src/libs/observability/sentry.ts`.
 
@@ -103,16 +105,15 @@ Tracing payloads carry user-controlled URL strings (route names, fetch URLs, roo
 the error-only `beforeSend` does not see. Two additional hooks in `src/libs/observability/sentry.ts`
 cover them:
 
-- **String-only walker** (mutates in place; no key-based redaction — SDK uses `name` etc. for
-  structural data) runs over: `event.transaction`, `event.request`, `event.contexts.trace.data`,
-  `span.description`, `span.data`.
-- **Keyed `sanitizeForSentry`** (copy-on-write) runs over the AppError-shaped attachments that may
-  surface on transactions: `event.extra`, `event.user`, `event.contexts['error.context']`.
+- **Bounded recursive walker** applies pattern and sensitive-key redaction to `event.request`,
+  `event.contexts`, `event.extra`, `event.user`, `event.tags`, `event.fingerprint`, `event.threads`,
+  and `event.measurements`.
+- Transaction names and span descriptions receive pattern scrubbing; `span.data` receives the same
+  bounded recursive scrub.
 
-Deliberately untouched: `event.tags` (app-controlled operational labels — `error.category`,
-`error.code`, `error.service`, `error.operation` are enum-shaped), SDK-structural contexts
-(`browser`, `runtime`, `os`, `device`), and `event.spans[]` (each child span flows through
-`beforeSendSpan` already; double-walking would be redundant and risks double-scrubbing).
+SDK-structural context names (`browser`, `runtime`, `os`, `device`) are preserved after their string
+values are pattern-scrubbed. `event.spans[]` remains delegated to `beforeSendSpan`; double-walking
+would be redundant and risks double-scrubbing.
 
 ## Disabled / deferred features
 

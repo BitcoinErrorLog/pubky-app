@@ -349,6 +349,17 @@ function scrubEventContexts(
   return sanitized;
 }
 
+const ADDITIONAL_EVENT_CARRIERS = ['tags', 'fingerprint', 'threads', 'measurements'] as const;
+
+function scrubAdditionalEventCarriers(event: Sentry.ErrorEvent | TransactionEvent, state: SanitizationState): void {
+  const carriers = event as unknown as Record<string, unknown>;
+  for (const key of ADDITIONAL_EVENT_CARRIERS) {
+    if (carriers[key] !== undefined) {
+      carriers[key] = sanitizeForSentryHook(carriers[key], state);
+    }
+  }
+}
+
 /**
  * Defensive PII filter — redacts user-provided identifiers across application-owned
  * event surfaces (messages, exception values, breadcrumb data, extras, and AppError context).
@@ -389,6 +400,8 @@ export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.Event
     if (event.user) {
       event.user = sanitizeForSentryHook(event.user, state) as Sentry.ErrorEvent['user'];
     }
+
+    scrubAdditionalEventCarriers(event, state);
 
     return event;
   } catch {
@@ -455,7 +468,7 @@ export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent
       event.user = sanitizeForSentryHook(event.user, state) as typeof event.user;
     }
 
-    // Tags are app-controlled operational labels; do not walk them as user payload.
+    scrubAdditionalEventCarriers(event, state);
 
     return event;
   } catch {

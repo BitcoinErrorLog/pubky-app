@@ -662,6 +662,37 @@ describe('Sentry PII scrubbing', () => {
     expect(event.user?.email).toBe('[redacted: sensitive field]');
   });
 
+  it.each([
+    ['tags', { token: 'tag-secret' }, { token: '[redacted: sensitive field]' }],
+    ['fingerprint', ['user@example.com'], ['[redacted: email]']],
+    [
+      'threads',
+      { values: [{ name: 'user@example.com', current: true }] },
+      { values: [{ name: '[redacted: sensitive field]', current: true }] },
+    ],
+    [
+      'measurements',
+      { custom: { value: `pubky://${TEST_PUBKY}/pub/profile.json`, unit: 'none' } },
+      { custom: { value: '[redacted: pubky identifier]', unit: 'none' } },
+    ],
+  ])('walks the %s event carrier', (carrier, raw, expected) => {
+    const event = runBeforeSend(asOpaque<Sentry.ErrorEvent>({ [carrier]: raw }));
+    expect(asOpaque<Record<string, unknown>>(event)[carrier]).toEqual(expected);
+  });
+
+  it('treats cookies plural as a sensitive key', () => {
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        extra: { cookies: 'session=private', nested: { Cookies: { session: 'private' } } },
+      }),
+    );
+
+    expect(event.extra).toEqual({
+      cookies: '[redacted: sensitive field]',
+      nested: { Cookies: '[redacted: sensitive field]' },
+    });
+  });
+
   it('redacts identifiers from messages, exception values, and breadcrumb messages', () => {
     const event = runBeforeSend(
       asOpaque<Sentry.ErrorEvent>({
