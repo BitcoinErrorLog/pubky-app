@@ -23,11 +23,13 @@ describe('MarketplaceDropsShelfEntry', () => {
 
     const desktop = variants().find((node) => node.getAttribute('data-variant') === 'desktop');
     expect(desktop).toBeDefined();
-    expect(desktop).toHaveClass('hidden', 'md:flex');
+    expect(desktop).toHaveClass('hidden', 'rounded-xl', 'bg-card', 'p-5', 'md:flex');
     expect(desktop).not.toHaveClass('h-14');
     expect(screen.getAllByRole('heading', { name: 'Drops' })).toHaveLength(2);
     expect(screen.getByText(/server-enforced clock/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Browse drops/ })).toHaveAttribute('href', MARKETPLACE_ROUTES.DROPS);
+    const cta = screen.getByRole('link', { name: /Browse drops/ });
+    expect(cta).toHaveAttribute('href', MARKETPLACE_ROUTES.DROPS);
+    expect(cta).toHaveClass('rounded-full', 'text-xs', 'font-bold');
   });
 
   it('keeps the compact single row with a one-line tagline and Browse chevron', () => {
@@ -35,9 +37,11 @@ describe('MarketplaceDropsShelfEntry', () => {
 
     const compact = variants().find((node) => node.getAttribute('data-variant') === 'compact');
     expect(compact).toBeDefined();
-    expect(compact).toHaveClass('h-14', 'max-h-14', 'md:hidden');
+    expect(compact).toHaveClass('h-14', 'max-h-14', 'rounded-xl', 'bg-card', 'md:hidden');
     const tagline = screen.getByText('Timed, limited releases');
     expect(tagline).toHaveClass('truncate');
-    expect(screen.getByRole('link', { name: 'Browse' })).toHaveAttribute('href', MARKETPLACE_ROUTES.DROPS);
+    const cta = screen.getByRole('link', { name: 'Browse' });
+    expect(cta).toHaveAttribute('href', MARKETPLACE_ROUTES.DROPS);
+    expect(cta).toHaveClass('rounded-full', 'text-xs', 'font-bold');
   });
 });

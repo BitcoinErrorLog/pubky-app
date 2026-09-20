@@ -25,7 +25,7 @@ export function MarketplaceDropsShelfEntry() {
         aria-label="Drops"
         data-testid="marketplace-drops-shelf-entry"
         data-variant="compact"
-        className="flex h-14 max-h-14 items-center gap-3 overflow-hidden rounded-2xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card px-3 md:hidden"
+        className="flex h-14 max-h-14 items-center gap-3 overflow-hidden rounded-xl bg-card px-3 md:hidden"
       >
         <div className="shrink-0 rounded-full bg-brand/15 p-1.5 text-brand">
           <CalendarClock className="size-4" aria-hidden />
@@ -36,20 +36,18 @@ export function MarketplaceDropsShelfEntry() {
         <Typography as="p" className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
           {DROPS_TAGLINE_COMPACT}
         </Typography>
-        <Link
-          href={MARKETPLACE_ROUTES.DROPS}
-          overrideDefaults
-          className="inline-flex shrink-0 items-center gap-0.5 text-sm font-medium text-brand"
-        >
-          Browse
-          <ChevronRight className="size-4" aria-hidden />
-        </Link>
+        <Button asChild size="sm" className="shrink-0 rounded-full px-3 text-xs font-bold">
+          <Link href={MARKETPLACE_ROUTES.DROPS} overrideDefaults>
+            Browse
+            <ChevronRight className="ml-0.5 size-4" aria-hidden />
+          </Link>
+        </Button>
       </section>
       <section
         aria-label="Drops"
         data-testid="marketplace-drops-shelf-entry"
         data-variant="desktop"
-        className="hidden flex-wrap items-center justify-between gap-4 rounded-2xl border border-brand/20 bg-linear-to-r from-brand/10 via-card to-card p-5 md:flex"
+        className="hidden flex-wrap items-center justify-between gap-4 rounded-xl bg-card p-5 md:flex"
       >
         <div className="flex items-start gap-3">
           <div className="rounded-full bg-brand/15 p-2 text-brand">
@@ -64,7 +62,7 @@ export function MarketplaceDropsShelfEntry() {
             </Typography>
           </div>
         </div>
-        <Button asChild className="rounded-full">
+        <Button asChild size="sm" className="rounded-full text-xs font-bold">
           <Link href={MARKETPLACE_ROUTES.DROPS} overrideDefaults>
             Browse drops
             <ArrowRight className="ml-2 size-4" />
