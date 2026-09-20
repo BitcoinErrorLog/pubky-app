@@ -175,7 +175,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
             </div>
             {listing.auction?.buyNowPrice && (
               <Typography as="p" className="text-xs text-muted-foreground">
-                Buy now {formatCommerceMoney(listing.auction.buyNowPrice)}
+                {`Buy now ${formatCommerceMoney(listing.auction.buyNowPrice)}`}
               </Typography>
             )}
           </div>
