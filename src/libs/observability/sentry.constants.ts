@@ -27,6 +27,7 @@ export const SENSITIVE_CONTEXT_KEYS = new Set([
   'bio',
   'clientsecret',
   'cookie',
+  'cookies',
   'credential',
   'credentials',
   'deliveryaddress',
