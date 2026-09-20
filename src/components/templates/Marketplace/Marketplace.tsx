@@ -114,7 +114,7 @@ export function Marketplace({
               </Button>
             </div>
           </div>
-          <MarketplaceSectionNav requireAuthentication />
+          <MarketplaceSectionNav onNavigate={(href) => requireAuth(() => router.push(href))} />
         </section>
 
         {/* Drops entry (ADR 0026): durable modes only — drops are enforced by

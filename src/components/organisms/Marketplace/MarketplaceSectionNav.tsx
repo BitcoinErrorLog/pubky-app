@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { Bell, HandCoins, Heart, LayoutDashboard, MessageCircle, ReceiptText, ShoppingCart } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -8,7 +8,6 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
-import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 
 type MarketplaceSectionItem = {
@@ -39,10 +38,8 @@ const ITEMS: readonly MarketplaceSectionItem[] = [
   },
 ] as const;
 
-export function MarketplaceSectionNav({ requireAuthentication = false }: { requireAuthentication?: boolean }) {
+export function MarketplaceSectionNav({ onNavigate }: { onNavigate?: (href: string) => void }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { isAuthenticated, requireAuth } = useRequireAuth();
   const cartCount = useMarketplaceCartCount();
   const activityUnreadCount = useMarketplaceActivityUnread();
 
@@ -67,9 +64,9 @@ export function MarketplaceSectionNav({ requireAuthentication = false }: { requi
               overrideDefaults
               aria-current={active ? 'page' : undefined}
               onClick={(event) => {
-                if (requireAuthentication && !isAuthenticated) {
+                if (onNavigate) {
                   event.preventDefault();
-                  requireAuth(() => router.push(href));
+                  onNavigate(href);
                 }
               }}
               className={cn(
