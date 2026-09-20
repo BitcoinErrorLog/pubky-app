@@ -30,7 +30,7 @@ import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/fo
 import { cn } from '@/libs/utils/utils';
 import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
 import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
-import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
+import { MarketplaceCardPrice } from '@/organisms/Marketplace/MarketplaceCardPrice';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
 
 const MEDIA_BACKGROUNDS = [
@@ -46,6 +46,7 @@ export interface MarketplaceListingCardProps {
   listing: MarketplaceCatalogItem;
   shopName?: string;
   layout?: CommerceLayout;
+  index?: number;
 }
 
 /**
@@ -64,7 +65,7 @@ export interface MarketplaceListingCardProps {
  * term fields (`auction === null`) simply omits the term badges instead of
  * guessing.
  */
-export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: MarketplaceListingCardProps) {
+export function MarketplaceListingCard({ listing, shopName, layout = 'grid', index = 0 }: MarketplaceListingCardProps) {
   const background = MEDIA_BACKGROUNDS[colorIndex(listing.listingId)];
   const isAuction = listing.saleFormat === 'auction';
   const { ref: liveBidRef, bid } = useMarketplaceLiveBid(listing.sellerId, listing.listingId, isAuction);
@@ -84,9 +85,14 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
     <Link
       href={getMarketplaceListingRoute(listing.sellerId, listing.listingId)}
       overrideDefaults
-      className="group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-105 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
-      style={{ '--card-hover-rotation': `${hoverRotation}deg` } as CSSProperties}
-      onMouseEnter={() => setHoverRotation(Math.random() * 6 - 3)}
+      className="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-110 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
+      style={
+        {
+          '--card-hover-rotation': `${hoverRotation}deg`,
+          '--marketplace-card-index': index,
+        } as CSSProperties
+      }
+      onMouseEnter={() => setHoverRotation(Math.random() * 14 - 7)}
       aria-label={`View ${listing.title}`}
     >
       <Card
@@ -164,9 +170,8 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
             </Typography>
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <Typography as="p" className="text-xl leading-7 font-semibold text-brand">
-                {formatCommerceMoney(hasLiveBid ? bid.currentPrice : listing.price)}
+                <MarketplaceCardPrice money={hasLiveBid ? bid.currentPrice : listing.price} />
               </Typography>
-              <MarketplaceIndicativePrice money={hasLiveBid ? bid.currentPrice : listing.price} />
               {hasLiveBid && (
                 <Typography as="span" className="text-xs text-muted-foreground">
                   {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}

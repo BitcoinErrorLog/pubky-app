@@ -277,7 +277,7 @@ const nexusReputationSummarySchema = z.object({
 const commerceSavedSearchParamsSchema: z.ZodType<CommerceSavedSearchParams> = z.object({
   query: z.string().max(200),
   categoryId: z.string().min(1).max(100).nullable(),
-  saleFormat: z.enum(['all', 'fixed_price', 'auction']),
+  saleFormat: z.enum(['all', 'fixed_price', 'auction', 'drops']),
   conditions: z.array(z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts'])).max(6),
   minimumPriceMinor: z.number().int().nonnegative().nullable(),
   maximumPriceMinor: z.number().int().nonnegative().nullable(),

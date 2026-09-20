@@ -130,18 +130,18 @@ const getNavigationItems = (): NavigationItemConfig[] => [
       ]
     : []),
   {
-    href: APP_ROUTES.MESSAGES,
-    icon: MessageCircle,
-    label: 'Messages',
-    dataCy: 'header-messages-btn',
-    activePrefix: APP_ROUTES.MESSAGES,
-  },
-  {
     href: APP_ROUTES.COLLECTIONS,
     icon: Library,
     label: 'Collections',
     dataCy: 'header-collections-btn',
     activePrefix: APP_ROUTES.COLLECTIONS,
+  },
+  {
+    href: APP_ROUTES.MESSAGES,
+    icon: MessageCircle,
+    label: 'Messages',
+    dataCy: 'header-messages-btn',
+    activePrefix: APP_ROUTES.MESSAGES,
   },
   {
     href: SETTINGS_ROUTES.ACCOUNT,

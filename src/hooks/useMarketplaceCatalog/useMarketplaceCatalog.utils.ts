@@ -187,7 +187,7 @@ export function filterMarketplaceCatalog(
       (filters.categoryId === null ||
         item.categoryId === filters.categoryId ||
         item.categoryId.startsWith(`${filters.categoryId}-`)) &&
-      (filters.saleFormat === 'all' || item.saleFormat === filters.saleFormat) &&
+      (filters.saleFormat === 'all' || (filters.saleFormat !== 'drops' && item.saleFormat === filters.saleFormat)) &&
       (filters.conditions.length === 0 || filters.conditions.includes(item.condition)) &&
       (filters.minimumPriceMinor === null || item.price.amountMinor >= filters.minimumPriceMinor) &&
       (filters.maximumPriceMinor === null || item.price.amountMinor <= filters.maximumPriceMinor) &&
