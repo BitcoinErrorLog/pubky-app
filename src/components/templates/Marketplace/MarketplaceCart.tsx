@@ -13,6 +13,7 @@ import { Image } from '@/atoms/Image/Image';
 import { Label } from '@/atoms/Label/Label';
 import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
+import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMode } from '@/config/commerce';
 import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
@@ -190,7 +191,14 @@ export function MarketplaceCart() {
                       data-surface={isPickupGroup ? 'cart-pickup-group' : undefined}
                     >
                       {cart.groups.length > 1 && <MarketplaceCartSellerHeader group={group} />}
-                      {fulfillmentOptions.length > 1 && fulfillment && (
+                      {checkout.isPickupCapabilityLoading ? (
+                        <Skeleton
+                          className="h-16 w-full"
+                          data-testid="pickup-capability-skeleton"
+                          aria-label="Checking pickup availability"
+                        />
+                      ) : null}
+                      {!checkout.isPickupCapabilityLoading && fulfillmentOptions.length > 1 && fulfillment && (
                         <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
                           <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
                           <Select
@@ -219,7 +227,7 @@ export function MarketplaceCart() {
                           </Select>
                         </div>
                       )}
-                      {isPickupGroup && (
+                      {!checkout.isPickupCapabilityLoading && isPickupGroup && (
                         <Typography
                           as="p"
                           className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
@@ -228,7 +236,7 @@ export function MarketplaceCart() {
                           on the order as soon as your payment confirms.
                         </Typography>
                       )}
-                      {fulfillmentOptions.length === 0 && (
+                      {!checkout.isPickupCapabilityLoading && fulfillmentOptions.length === 0 && (
                         <Typography
                           as="p"
                           role="alert"

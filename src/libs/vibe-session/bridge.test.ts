@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { requestFromBridge } from './bridge';
-import { PUBKY_SESSION_BRIDGE_VERSION, PUBKY_SESSION_REQUEST_TYPE } from './types';
+import { PUBKY_SESSION_BRIDGE_VERSION, PUBKY_SESSION_REQUEST_TYPE, VIBE_SESSION_LOAD_TIMEOUT_MS } from './types';
 
 const BRIDGE = 'https://pubky.app';
 const EXPORT = 'session-export-value';
@@ -12,7 +12,13 @@ let restoreCreateElement: (() => void) | undefined;
 
 function installIframeStub(
   win: Window,
-  stub?: { contentWindowNull?: boolean; skipLoad?: boolean; fireError?: boolean; delayedLoadMs?: number },
+  stub?: {
+    contentWindowNull?: boolean;
+    skipLoad?: boolean;
+    fireError?: boolean;
+    delayedLoadMs?: number;
+    alreadyComplete?: boolean;
+  },
 ) {
   restoreCreateElement?.();
   const originalCreate = win.document.createElement.bind(win.document);
@@ -30,6 +36,12 @@ function installIframeStub(
       configurable: true,
       get: () => (stub?.contentWindowNull ? null : fakeContent),
     });
+    if (stub?.alreadyComplete) {
+      Object.defineProperty(iframe, 'contentDocument', {
+        configurable: true,
+        get: () => ({ readyState: 'complete', URL: `${BRIDGE}/session-bridge` }),
+      });
+    }
     created.push(iframe);
     if (stub?.delayedLoadMs != null) {
       setTimeout(() => iframe.dispatchEvent(new Event('load')), stub.delayedLoadMs);
@@ -309,5 +321,36 @@ describe('requestFromBridge', () => {
     const [a, b] = await Promise.all([pendingA, pendingB]);
     expect(a).toEqual({ kind: 'export', sessionExport: 'export-a' });
     expect(b).toEqual({ kind: 'export', sessionExport: 'export-b' });
+  });
+
+  it('does not hide the iframe with display:none so the load event can fire', async () => {
+    const { created } = installIframeStub(window, { skipLoad: true });
+    const pending = requestFromBridge(window, BRIDGE, 50, 50);
+    expect(created[0]?.style.display).not.toBe('none');
+    expect(created[0]?.style.position).toBe('absolute');
+    await pending;
+  });
+
+  it('posts as soon as an already-complete iframe is appended, without waiting for load timeout', async () => {
+    vi.useFakeTimers();
+    const { fakeContent } = installIframeStub(window, { skipLoad: true, alreadyComplete: true });
+    const pending = requestFromBridge(window, BRIDGE, VIBE_SESSION_LOAD_TIMEOUT_MS, 100);
+    expect(fakeContent.postMessage).toHaveBeenCalled();
+    dispatchBridgeMessage(window, fakeContent, BRIDGE, {
+      type: 'pubky-session',
+      v: 1,
+      sessionExport: EXPORT,
+    });
+    await expect(pending).resolves.toEqual({ kind: 'export', sessionExport: EXPORT });
+  });
+
+  it('bounds a never-firing load to the 3s load timeout, not 15s', async () => {
+    vi.useFakeTimers();
+    installIframeStub(window, { skipLoad: true });
+    const pending = requestFromBridge(window, BRIDGE);
+    await vi.advanceTimersByTimeAsync(VIBE_SESSION_LOAD_TIMEOUT_MS - 1);
+    expect(document.querySelector('iframe')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toEqual({ kind: 'timeout', phase: 'load' });
   });
 });

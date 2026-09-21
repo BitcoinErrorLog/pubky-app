@@ -30,6 +30,7 @@ const view = vi.hoisted(() => ({
   fulfillmentEffective: {} as Record<string, 'shipping' | 'pickup'>,
   requiresDeliveryAddress: true,
   hasFulfillmentConflict: false,
+  isPickupCapabilityLoading: false,
   orderCount: 1,
   submitResult: false,
 }));
@@ -162,6 +163,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       setFulfillmentChoice: cartActions.setFulfillmentChoice,
       requiresDeliveryAddress: view.requiresDeliveryAddress,
       hasFulfillmentConflict: view.hasFulfillmentConflict,
+      isPickupCapabilityLoading: view.isPickupCapabilityLoading,
       orderCount: view.orderCount,
     }),
   };
@@ -225,6 +227,7 @@ describe('MarketplaceCart', () => {
     view.fulfillmentEffective = {};
     view.requiresDeliveryAddress = true;
     view.hasFulfillmentConflict = false;
+    view.isPickupCapabilityLoading = false;
     view.orderCount = 1;
     view.submitResult = false;
     routerActions.push.mockReset();
@@ -659,5 +662,21 @@ describe('MarketplaceCart local pickup (Wave 7, §A2)', () => {
       'id',
       'place-order-reason',
     );
+  });
+
+  it('shows a skeleton instead of pickup or conflict copy while pickup capability is loading', () => {
+    seededCart();
+    view.isPickupCapabilityLoading = true;
+    view.fulfillmentOptions = { [listing.record.ownerPubky]: [] };
+    view.hasFulfillmentConflict = true;
+
+    render(<MarketplaceCart />);
+
+    expect(screen.getByTestId('pickup-capability-skeleton')).toHaveAttribute(
+      'aria-label',
+      'Checking pickup availability',
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Local pickup — no delivery address/)).not.toBeInTheDocument();
   });
 });
