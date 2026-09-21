@@ -24,6 +24,7 @@ export type InventoryBoardRow = {
   total: number;
   serverRevision: number;
   sync: 'synced' | 'missing';
+  syncMessage?: string | null;
 };
 
 export type InventoryBoardLoad =
@@ -44,6 +45,12 @@ export type InventorySetResult =
   | { status: 'grant-needed' }
   | { status: 'revision_conflict' }
   | { status: 'session-required' }
+  | { status: 'error'; message: string };
+
+export type InventoryRetryResult =
+  | { status: 'synced'; listingId: string }
+  | { status: 'missing'; listingId: string; message: string }
+  | { status: 'grant-needed' }
   | { status: 'error'; message: string };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -106,6 +113,36 @@ export function planInventoryAdjust(input: {
       idempotency_key: input.idempotencyKey,
     },
   };
+}
+
+function syncManyHttpOk(status: unknown): boolean {
+  if (typeof status === 'number') return status >= 200 && status < 300;
+  if (typeof status === 'bigint') return status >= BigInt(200) && status < BigInt(300);
+  if (typeof status === 'string') {
+    if (status === 'success' || status === 'ok') return true;
+    const parsed = Number(status);
+    return Number.isInteger(parsed) && parsed >= 200 && parsed < 300;
+  }
+  return false;
+}
+
+function syncManyItemError(item: Record<string, unknown>): string {
+  const result = asObject(item.result);
+  const error = asObject(result?.error) ?? asObject(item.error);
+  return asString(error?.message) ?? asString(item.message) ?? 'Published, not yet registered for checkout';
+}
+
+/** Classify one 207 `listing.sync_many` result. HTTP 207 is the envelope, not success. */
+export function classifySyncManyItem(item: unknown): { listingId: string | null; ok: boolean; message: string } {
+  const object = asObject(item);
+  if (!object) {
+    return { listingId: null, ok: false, message: 'The service returned an invalid sync result.' };
+  }
+  const listingId = asString(object.listing_id);
+  if (syncManyHttpOk(object.status)) {
+    return { listingId, ok: true, message: 'Synced' };
+  }
+  return { listingId, ok: false, message: syncManyItemError(object) };
 }
 
 function classifyClientError(error: PubkyShopError): InventoryBoardLoad['status'] | 'revision_conflict' {
@@ -285,7 +322,7 @@ export class CommerceInventoryApplication {
     };
   }
 
-  static async retrySync(sellerPubky: string, listingId: string): Promise<InventorySetResult> {
+  static async retrySync(sellerPubky: string, listingId: string): Promise<InventoryRetryResult> {
     const inventory = MarketplaceInventorySessionService.getActiveSession();
     if (!inventory) return { status: 'grant-needed' };
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
@@ -302,7 +339,19 @@ export class CommerceInventoryApplication {
       }
       return { status: 'error', message: result.error.message };
     }
-    return { status: 'error', message: 'refetch' };
+    const items = Array.isArray(result.value.results) ? result.value.results : [];
+    const match = items.map((item) => classifySyncManyItem(item)).find((item) => item.listingId === listingId);
+    if (!match) {
+      return {
+        status: 'missing',
+        listingId,
+        message: 'The service did not return a sync result for this listing.',
+      };
+    }
+    if (match.ok) {
+      return { status: 'synced', listingId };
+    }
+    return { status: 'missing', listingId, message: match.message };
   }
 
   private static boardError(error: PubkyShopError): InventoryBoardLoad {

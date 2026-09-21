@@ -3,7 +3,12 @@ import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-gr
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
-import { CommerceInventoryApplication, type InventoryBoardRow, planInventoryAdjust } from './inventory';
+import {
+  CommerceInventoryApplication,
+  type InventoryBoardRow,
+  classifySyncManyItem,
+  planInventoryAdjust,
+} from './inventory';
 
 const PUBKY = 'y'.repeat(52);
 const TOKEN = 'A'.repeat(43);
@@ -134,6 +139,7 @@ describe('CommerceInventoryApplication', () => {
     vi.mocked(MarketplaceShopClientService.listSellerListings).mockReset();
     vi.mocked(MarketplaceShopClientService.getInventoryProjection).mockReset();
     vi.mocked(MarketplaceShopClientService.adjustInventory).mockReset();
+    vi.mocked(MarketplaceShopClientService.syncMany).mockReset();
   });
 
   it('returns grant-needed when inventory coverage is missing', async () => {
@@ -240,5 +246,87 @@ describe('CommerceInventoryApplication', () => {
       idempotencyKey: '11111111-1111-4111-8111-111111111111',
     });
     expect(result.status).not.toBe('grant-needed');
+  });
+});
+
+describe('classifySyncManyItem', () => {
+  it('treats HTTP 207 envelope items as per-id success or failure', () => {
+    expect(classifySyncManyItem({ listing_id: 'boots', status: 200 }).ok).toBe(true);
+    expect(
+      classifySyncManyItem({
+        listing_id: 'hats',
+        status: 500,
+        result: { ok: false, error: { code: 'internal', message: 'The listing could not be synchronized.' } },
+      }),
+    ).toEqual({
+      listingId: 'hats',
+      ok: false,
+      message: 'The listing could not be synchronized.',
+    });
+  });
+});
+
+describe('CommerceInventoryApplication.retrySync', () => {
+  beforeEach(() => {
+    vi.spyOn(MarketplaceInventorySessionService, 'getActiveSession').mockReturnValue({
+      token: 'I'.repeat(43),
+      pubky: PUBKY,
+      capabilities: INVENTORY_GRANT,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      expiresAtMs: Date.parse('2099-01-01T00:00:00.000Z'),
+      issuedAt: '2026-09-21T00:00:00.000Z',
+    });
+    vi.mocked(MarketplaceShopClientService.syncMany).mockReset();
+  });
+
+  it('classifies a mixed 207 per listing id and only requests the retried id', async () => {
+    vi.mocked(MarketplaceShopClientService.syncMany).mockResolvedValue({
+      ok: true,
+      value: {
+        schema_version: BigInt(1),
+        kind: 'listing.sync_many',
+        results: [
+          { listing_id: 'boots', seller_pubky: PUBKY, status: 200, result: { ok: true } },
+          {
+            listing_id: 'hats',
+            seller_pubky: PUBKY,
+            status: 500,
+            result: { ok: false, error: { code: 'internal', message: 'The listing could not be synchronized.' } },
+          },
+        ],
+      },
+    } as Awaited<ReturnType<typeof MarketplaceShopClientService.syncMany>>);
+
+    await expect(CommerceInventoryApplication.retrySync(PUBKY, 'boots')).resolves.toEqual({
+      status: 'synced',
+      listingId: 'boots',
+    });
+    expect(MarketplaceShopClientService.syncMany).toHaveBeenCalledWith(expect.anything(), [
+      { seller_pubky: PUBKY, listing_id: 'boots' },
+    ]);
+
+    await expect(CommerceInventoryApplication.retrySync(PUBKY, 'hats')).resolves.toEqual({
+      status: 'missing',
+      listingId: 'hats',
+      message: 'The listing could not be synchronized.',
+    });
+    expect(MarketplaceShopClientService.syncMany).toHaveBeenLastCalledWith(expect.anything(), [
+      { seller_pubky: PUBKY, listing_id: 'hats' },
+    ]);
+  });
+
+  it('does not treat a 207 success as a generic refetch error', async () => {
+    vi.mocked(MarketplaceShopClientService.syncMany).mockResolvedValue({
+      ok: true,
+      value: {
+        schema_version: BigInt(1),
+        kind: 'listing.sync_many',
+        results: [{ listing_id: 'boots', status: 200 }],
+      },
+    } as Awaited<ReturnType<typeof MarketplaceShopClientService.syncMany>>);
+    await expect(CommerceInventoryApplication.retrySync(PUBKY, 'boots')).resolves.toEqual({
+      status: 'synced',
+      listingId: 'boots',
+    });
   });
 });

@@ -1,8 +1,5 @@
 import { CommerceApplication, type CommerceCheckoutFulfillmentInput } from '@/application/commerce/commerce';
-import {
-  CommerceInventoryApplication,
-  type InventoryBoardRow,
-} from '@/application/commerce/inventory';
+import { CommerceInventoryApplication, type InventoryBoardRow } from '@/application/commerce/inventory';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS,
@@ -249,12 +246,20 @@ export class CommerceController {
   /**
    * Drops the purchase bearer, the inventory bearer, and both store mirrors.
    * Sign-out and failed sign-in go through here. Identity 401 uses
-   * `onMarketplaceSessionEnded` and must not reach this.
+   * `onMarketplaceSessionEnded` and must not reach this. Checkout TTL uses
+   * `clearIdentitySession` so a hold expiry cannot log the seller out of
+   * Inventory Studio.
    */
   static clearMarketplaceSession(): void {
     CommerceApplication.clearMarketplaceSession();
     this.clearMarketplaceSessionStore();
     this.clearInventorySession();
+  }
+
+  /** Identity checkout bearer only. Leaves `pubky.marketplace.inventory-session.v1` in place. */
+  static clearIdentitySession(): void {
+    CommerceApplication.clearMarketplaceSession();
+    this.clearMarketplaceSessionStore();
   }
 
   static clearInventorySession(): void {

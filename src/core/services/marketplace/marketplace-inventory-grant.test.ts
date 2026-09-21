@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { INVENTORY_GRANT, inventoryCapabilityCovers, studioInventoryCapabilities } from './marketplace-inventory-grant';
+import {
+  INVENTORY_GRANT,
+  clampInventoryPersistedCapabilities,
+  inventoryCapabilityCovers,
+  studioInventoryCapabilities,
+} from './marketplace-inventory-grant';
 
 describe('studio inventory grant allow-list', () => {
   it('is exactly the marketplace-service inventory path with read+write', () => {
@@ -17,5 +22,16 @@ describe('studio inventory grant allow-list', () => {
     expect(inventoryCapabilityCovers(':r')).toBe(false);
     expect(inventoryCapabilityCovers('/pub/pubky.app/marketplace-service/v1/:r')).toBe(false);
     expect(inventoryCapabilityCovers('/pub/paykit/v0/bitkit/server/:rw')).toBe(false);
+  });
+
+  it('clamps persistable caps to the requested grant and fails closed when wider', () => {
+    expect(clampInventoryPersistedCapabilities(INVENTORY_GRANT)).toBe(INVENTORY_GRANT);
+    expect(clampInventoryPersistedCapabilities(`  ${INVENTORY_GRANT}  `)).toBe(INVENTORY_GRANT);
+    expect(clampInventoryPersistedCapabilities(`${INVENTORY_GRANT},${INVENTORY_GRANT}`)).toBe(INVENTORY_GRANT);
+    expect(clampInventoryPersistedCapabilities('/:rw')).toBeNull();
+    expect(clampInventoryPersistedCapabilities(`${INVENTORY_GRANT},/:rw`)).toBeNull();
+    expect(clampInventoryPersistedCapabilities(`${INVENTORY_GRANT},/pub/pubky.app/:rw`)).toBeNull();
+    expect(clampInventoryPersistedCapabilities('')).toBeNull();
+    expect(clampInventoryPersistedCapabilities('/pub/pubky.app/marketplace-service/v1/:r')).toBeNull();
   });
 });

@@ -11,6 +11,7 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
 import {
   INVENTORY_GRANT,
   INVENTORY_SESSION_STORAGE_KEY,
+  clampInventoryPersistedCapabilities,
   inventoryCapabilityCovers,
   studioInventoryCapabilities,
 } from './marketplace-inventory-grant';
@@ -155,10 +156,23 @@ export class MarketplaceInventorySessionService {
         context: { statusCode: response.status },
       });
     }
-    const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
+    const capabilities = clampInventoryPersistedCapabilities(parsed.data.capabilities);
+    if (capabilities === null) {
+      throw Err.auth(
+        AuthErrorCode.FORBIDDEN,
+        'Marketplace returned inventory capabilities outside the Studio allow-list.',
+        {
+          service: ErrorService.Marketplace,
+          operation: 'mintInventorySession',
+          context: { statusCode: response.status },
+        },
+      );
+    }
+    const { token, sessionId, pubky, expiresAt } = parsed.data;
     const issuedAt = new Date().toISOString();
-    this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
-    this.writePersistedSession(parsed.data);
+    const session = { token, sessionId, pubky, capabilities, expiresAt };
+    this.session = { ...session, expiresAtMs: Date.parse(expiresAt), issuedAt };
+    this.writePersistedSession(session);
     Logger.info('Established marketplace inventory session', { pubky, expiresAt });
     return this.toPublicInfo(this.session);
   }
@@ -173,7 +187,12 @@ export class MarketplaceInventorySessionService {
       this.removePersistedSession();
       return null;
     }
-    const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
+    const capabilities = clampInventoryPersistedCapabilities(parsed.data.capabilities);
+    if (capabilities === null) {
+      this.removePersistedSession();
+      return null;
+    }
+    const { token, sessionId, pubky, expiresAt } = parsed.data;
     const expiresAtMs = Date.parse(expiresAt);
     if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
       this.removePersistedSession();
@@ -182,6 +201,7 @@ export class MarketplaceInventorySessionService {
 
     const issuedAt = new Date().toISOString();
     this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs, issuedAt };
+    this.writePersistedSession({ token, sessionId, pubky, capabilities, expiresAt });
     Logger.info('Restored marketplace inventory session', { pubky, expiresAt });
     return this.toPublicInfo(this.session);
   }

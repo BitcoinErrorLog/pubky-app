@@ -193,7 +193,7 @@ export function MarketplaceInventory() {
                         <td className="p-3">
                           {entry.sync === 'missing' ? (
                             <Typography as="p" className="text-sm text-muted-foreground">
-                              Published, not yet registered for checkout
+                              {entry.syncMessage ?? 'Published, not yet registered for checkout'}
                             </Typography>
                           ) : (
                             'Synced'

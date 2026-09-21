@@ -53,6 +53,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitMarkDeliveryAddressUsed: vi.fn(async () => {}),
     hasActiveMarketplaceSession: vi.fn(() => false),
     clearMarketplaceSession: vi.fn(),
+    clearIdentitySession: vi.fn(),
   },
 }));
 
@@ -570,6 +571,32 @@ describe('useMarketplaceCheckout', () => {
       ),
     );
     expect(expired.result.current.hasMarketplaceSession).toBe(false);
+  });
+
+  it('clears only the identity session when checkout TTL expires', () => {
+    vi.mocked(CommerceController.hasActiveMarketplaceSession).mockReturnValue(false);
+    useCommerceStore.setState({
+      marketplaceSession: {
+        pubky: BUYER,
+        capabilities: '',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        issuedAt: '2026-08-21T00:00:00.000Z',
+      },
+      inventorySession: {
+        pubky: BUYER,
+        capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        issuedAt: '2026-08-21T00:00:00.000Z',
+      },
+    });
+    renderHook(() =>
+      useMarketplaceCheckout(
+        [item],
+        vi.fn(async () => {}),
+      ),
+    );
+    expect(CommerceController.clearIdentitySession).toHaveBeenCalled();
+    expect(CommerceController.clearMarketplaceSession).not.toHaveBeenCalled();
   });
 });
 

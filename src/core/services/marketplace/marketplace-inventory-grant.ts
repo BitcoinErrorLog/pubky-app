@@ -14,15 +14,31 @@ export function studioInventoryCapabilities(): typeof INVENTORY_GRANT {
   return INVENTORY_GRANT;
 }
 
+function capabilityParts(capabilities: string): string[] {
+  return capabilities
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
 /**
  * True when a minted session's capability list covers inventory Read+Write.
  * Empty, `:r`, and unrelated paths do not. Root covers ACL but Studio never
  * requests it.
  */
 export function inventoryCapabilityCovers(capabilities: string): boolean {
-  const parts = capabilities
-    .split(',')
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+  const parts = capabilityParts(capabilities);
   return parts.includes(INVENTORY_GRANT) || parts.includes(ROOT_GRANT);
+}
+
+/**
+ * Studio persists only the requested grant. Returned caps that are empty,
+ * narrower, or wider (`/:rw`, extra paths) fail closed. Callers must store
+ * this constant, never the service string verbatim.
+ */
+export function clampInventoryPersistedCapabilities(capabilities: string): typeof INVENTORY_GRANT | null {
+  const parts = capabilityParts(capabilities);
+  if (parts.length === 0) return null;
+  if (parts.some((part) => part !== INVENTORY_GRANT)) return null;
+  return INVENTORY_GRANT;
 }

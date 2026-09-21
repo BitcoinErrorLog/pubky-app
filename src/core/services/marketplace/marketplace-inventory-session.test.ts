@@ -95,6 +95,9 @@ describe('MarketplaceInventorySessionService', () => {
     expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBe(identityBefore);
     expect(MarketplaceInventorySessionService.getActiveSession()?.token).toBe(INVENTORY_TOKEN);
     expect(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY)).toContain(INVENTORY_TOKEN);
+    expect(JSON.parse(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY) ?? '{}').capabilities).toBe(
+      INVENTORY_GRANT,
+    );
   });
 
   it('passes INVENTORY_GRANT into generateAuthTokenFlow', async () => {
@@ -131,5 +134,43 @@ describe('MarketplaceInventorySessionService', () => {
     MarketplaceInventorySessionService.clearSession('rejected');
     expect(MarketplaceInventorySessionService.getActiveSession()).toBeNull();
     expect(MarketplaceSessionService.getActiveSession()?.token).toBe(TOKEN);
+  });
+
+  it('clamps padded returned caps to the requested grant and refuses wider blobs', async () => {
+    await establishIdentity();
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), INVENTORY_TOKEN, ` ${INVENTORY_GRANT} `));
+    const padded = await MarketplaceInventorySessionService.mintInventorySession(new Uint8Array([1]), PUBKY);
+    expect(padded.capabilities).toBe(INVENTORY_GRANT);
+    expect(JSON.parse(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY) ?? '{}').capabilities).toBe(
+      INVENTORY_GRANT,
+    );
+
+    MarketplaceInventorySessionService.clearSession();
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), INVENTORY_TOKEN, '/:rw'));
+    await expect(
+      MarketplaceInventorySessionService.mintInventorySession(new Uint8Array([1]), PUBKY),
+    ).rejects.toMatchObject({ operation: 'mintInventorySession' });
+    expect(MarketplaceInventorySessionService.getActiveSession()).toBeNull();
+    expect(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY)).toBeNull();
+
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), INVENTORY_TOKEN, `${INVENTORY_GRANT},/:rw`));
+    await expect(
+      MarketplaceInventorySessionService.mintInventorySession(new Uint8Array([1]), PUBKY),
+    ).rejects.toMatchObject({ operation: 'mintInventorySession' });
+    expect(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it('drops a restored session whose stored caps are wider than the Studio grant', () => {
+    window.localStorage.setItem(
+      INVENTORY_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        token: INVENTORY_TOKEN,
+        pubky: PUBKY,
+        capabilities: '/:rw',
+        expiresAt: inOneDay(),
+      }),
+    );
+    expect(MarketplaceInventorySessionService.restorePersistedSession(PUBKY)).toBeNull();
+    expect(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY)).toBeNull();
   });
 });

@@ -69,9 +69,32 @@ export function useMarketplaceInventory() {
     async (row: InventoryBoardRow) => {
       if (!sellerPubky) return;
       setPendingListingId(row.listingId);
-      await CommerceController.retryInventorySync(sellerPubky, row.listingId);
+      const result = await CommerceController.retryInventorySync(sellerPubky, row.listingId);
       setPendingListingId(null);
-      await refresh();
+      if (result.status === 'grant-needed') {
+        setLoad({ status: 'grant-needed' });
+        return;
+      }
+      if (result.status === 'synced' || result.status === 'missing') {
+        setLoad((current) => {
+          if (current.status !== 'ready') return current;
+          return {
+            status: 'ready',
+            rows: current.rows.map((entry) =>
+              entry.listingId === result.listingId
+                ? {
+                    ...entry,
+                    sync: result.status,
+                    syncMessage: result.status === 'missing' ? result.message : null,
+                  }
+                : entry,
+            ),
+          };
+        });
+      }
+      if (result.status === 'synced') {
+        await refresh();
+      }
     },
     [refresh, sellerPubky],
   );
