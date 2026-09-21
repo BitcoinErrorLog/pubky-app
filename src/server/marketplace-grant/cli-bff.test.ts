@@ -132,9 +132,7 @@ describe('CLI grant BFF', () => {
   it('rejects a short pubky before inserting a challenge', async () => {
     const { createCliChallenge } = await import('./cli-bff');
     await expect(
-      createCliChallenge(
-        jsonRequest({ pubky: 'y'.repeat(51), result_cpk: pubky, result_delivery_id: deliveryId }),
-      ),
+      createCliChallenge(jsonRequest({ pubky: 'y'.repeat(51), result_cpk: pubky, result_delivery_id: deliveryId })),
     ).rejects.toEqual(new BffError(400, 'invalid_request'));
     expect(insertCliChallenge).not.toHaveBeenCalled();
   });
@@ -155,9 +153,7 @@ describe('CLI grant BFF', () => {
 
   it('creates a challenge and returns the raw nonce once', async () => {
     const { createCliChallenge } = await import('./cli-bff');
-    const created = await createCliChallenge(
-      jsonRequest({ pubky, result_cpk: pubky, result_delivery_id: deliveryId }),
-    );
+    const created = await createCliChallenge(jsonRequest({ pubky, result_cpk: pubky, result_delivery_id: deliveryId }));
     expect(created.proof_uri).toBe(
       `pubky://${pubky}/pub/pubky.app/marketplace/v1/cli-grant-proofs/${created.challenge_id}`,
     );
@@ -182,9 +178,9 @@ describe('CLI grant BFF', () => {
     });
     fetchHomeserverProofDocument.mockRejectedValue(new HomeserverFetchDenied());
     const { verifyCliChallenge } = await import('./cli-bff');
-    await expect(
-      verifyCliChallenge(jsonRequest({ nonce: encodeBase64Url(nonce) }), challengeId),
-    ).rejects.toEqual(new BffError(401, 'homeserver_proof_invalid'));
+    await expect(verifyCliChallenge(jsonRequest({ nonce: encodeBase64Url(nonce) }), challengeId)).rejects.toEqual(
+      new BffError(401, 'homeserver_proof_invalid'),
+    );
     expect(consumeChallengeAndInsertCliFlow).not.toHaveBeenCalled();
     expect(createBootstrapFlow).not.toHaveBeenCalled();
   });
@@ -267,16 +263,14 @@ describe('CLI grant BFF', () => {
       expires_at: new Date(Date.now() + 60_000),
     });
     const { verifyCliChallenge } = await import('./cli-bff');
-    await expect(
-      verifyCliChallenge(jsonRequest({ nonce: encodeBase64Url(nonce) }), challengeId),
-    ).rejects.toEqual(new BffError(409, 'challenge_consumed'));
+    await expect(verifyCliChallenge(jsonRequest({ nonce: encodeBase64Url(nonce) }), challengeId)).rejects.toEqual(
+      new BffError(409, 'challenge_consumed'),
+    );
   });
 
   it('rejects status without a CLI token and never tickets', async () => {
     const { cliFlowStatus } = await import('./cli-bff');
-    await expect(cliFlowStatus(jsonRequest({}), randomUUID())).rejects.toEqual(
-      new BffError(401, 'cli_token_denied'),
-    );
+    await expect(cliFlowStatus(jsonRequest({}), randomUUID())).rejects.toEqual(new BffError(401, 'cli_token_denied'));
     expect(getGrantStatus).not.toHaveBeenCalled();
     expect(ticketGrantResult).not.toHaveBeenCalled();
   });

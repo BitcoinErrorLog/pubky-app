@@ -256,18 +256,16 @@ export async function verifyCliChallenge(
     });
   } catch (error) {
     if (error instanceof CliChallengeConsumeConflict) {
-      throw new BffError(error.reason === 'consumed' ? 409 : 401, error.reason === 'consumed' ? 'challenge_consumed' : 'homeserver_proof_invalid');
+      throw new BffError(
+        error.reason === 'consumed' ? 409 : 401,
+        error.reason === 'consumed' ? 'challenge_consumed' : 'homeserver_proof_invalid',
+      );
     }
     throw error;
   }
 
   try {
-    const created = await createBootstrapFlow(
-      config,
-      deliveryIdCanonical,
-      challenge.result_cpk,
-      challenge.pubky,
-    );
+    const created = await createBootstrapFlow(config, deliveryIdCanonical, challenge.result_cpk, challenge.pubky);
     const serviceExpiry = new Date(created.expires_at);
     if (!(await bindCliFlow(config, stateId, created.flow_id, serviceExpiry))) {
       await terminalizeCliFlow(config, stateId, 'abandoned');
@@ -414,10 +412,7 @@ export async function issueCliResultNonce(
   return await issueNonce(config, flow.flow_id, input.purpose);
 }
 
-export async function ticketCliResult(
-  request: Request,
-  stateIdParam: string,
-): Promise<{ expires_at: string }> {
+export async function ticketCliResult(request: Request, stateIdParam: string): Promise<{ expires_at: string }> {
   const { config, flow, tokenHash } = await requireLiveFlow(request, stateIdParam, 'result');
   const input = await parseStrictJson(request, proofBody);
   await rateLimitResult(config, flow, tokenHash);
@@ -471,13 +466,7 @@ export async function claimCliResult(
     if (!(await renewCliClaim(config, flow.state_id, owner))) {
       throw new BffError(422, 'fresh_approval_required');
     }
-    const claimed = await claimGrantResultWithProof(
-      config,
-      claimedFlow.flow_id,
-      deliveryId,
-      resultToken,
-      input.proof,
-    );
+    const claimed = await claimGrantResultWithProof(config, claimedFlow.flow_id, deliveryId, resultToken, input.proof);
     if (claimed.pubky !== claimedFlow.pubky) {
       await terminalizeCliFlow(config, flow.state_id, 'mismatch');
       throw new BffError(409, 'identity_mismatch');

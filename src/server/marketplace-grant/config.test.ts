@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  getCliGrantConfig,
-  getMarketplaceGrantConfig,
-  resetMarketplaceGrantConfigForTests,
-} from './config';
+import { getCliGrantConfig, getMarketplaceGrantConfig, resetMarketplaceGrantConfigForTests } from './config';
 
 const ENV = { ...process.env };
 

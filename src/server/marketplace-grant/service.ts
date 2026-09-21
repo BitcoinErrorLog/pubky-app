@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { MarketplaceGrantConfig } from './config';
-import { canonicalJson, signBootstrapAssertion, signDeliveryAssertion, signResultProof, signServiceBody } from './crypto';
+import {
+  canonicalJson,
+  signBootstrapAssertion,
+  signDeliveryAssertion,
+  signResultProof,
+  signServiceBody,
+} from './crypto';
 
 const PUBKY = /^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/;
 const BEARER = /^[A-Za-z0-9_-]{43}$/;

@@ -375,11 +375,7 @@ export function openCliFlowContext(
   return parsed;
 }
 
-export function sealCliResultToken(
-  config: MarketplaceGrantConfig,
-  stateId: string,
-  resultToken: string,
-): Uint8Array {
+export function sealCliResultToken(config: MarketplaceGrantConfig, stateId: string, resultToken: string): Uint8Array {
   return seal(
     config,
     config.stateKeyEpoch,

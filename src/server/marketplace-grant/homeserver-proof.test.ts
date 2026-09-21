@@ -77,9 +77,7 @@ describe('CLI homeserver-session proof fetch', () => {
 
   it('GETs with pubky-host and no cookies, then requires JCS equality', async () => {
     const fetchProof = vi.fn(async (url: URL, init: RequestInit) => {
-      expect(url.href).toBe(
-        `https://homeserver.example/pub/pubky.app/marketplace/v1/cli-grant-proofs/${challengeId}`,
-      );
+      expect(url.href).toBe(`https://homeserver.example/pub/pubky.app/marketplace/v1/cli-grant-proofs/${challengeId}`);
       expect(url.search).toBe('');
       expect(init.headers).toEqual({ 'pubky-host': pubky, accept: 'application/json' });
       expect(init.redirect).toBe('error');

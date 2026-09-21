@@ -89,7 +89,14 @@ describe('marketplace grant BFF cryptography', () => {
   it('signs a bootstrap assertion with purpose marketplace-grant-flow', () => {
     const deliveryId = encodeBase64Url(new Uint8Array(32).fill(6));
     const resultCpk = resultPublicKey(new Uint8Array(32).fill(7));
-    const assertion = signBootstrapAssertion(config, deliveryId, resultCpk, 'y'.repeat(52), 1_760_000_000, randomUUID());
+    const assertion = signBootstrapAssertion(
+      config,
+      deliveryId,
+      resultCpk,
+      'y'.repeat(52),
+      1_760_000_000,
+      randomUUID(),
+    );
     const payload = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString()) as { purpose: string };
     expect(payload.purpose).toBe('marketplace-grant-flow');
   });

@@ -1,9 +1,9 @@
-import { Pubky,PublicKey } from '@synonymdev/pubky';
+import { Pubky, PublicKey } from '@synonymdev/pubky';
 import { z } from 'zod';
 import { getHomeserver, getHomeserverUrl } from '@/libs/runtime-config/runtime-config';
 import type { CliGrantConfig } from './config';
 import { canonicalJson, encodeBase64Url, sha256Bytes } from './crypto';
-import { assertSafeHomeserverTarget, HomeserverFetchDenied,proofPath } from './ssrf';
+import { assertSafeHomeserverTarget, HomeserverFetchDenied, proofPath } from './ssrf';
 
 const PROOF_BODY_LIMIT = 16 * 1024;
 export const PROOF_DOMAIN = 'shop-bff/cli-grant-homeserver-pop/v1';
