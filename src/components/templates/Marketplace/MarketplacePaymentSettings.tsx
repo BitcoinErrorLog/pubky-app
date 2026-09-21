@@ -43,7 +43,9 @@ export function MarketplacePaymentSettings() {
           Marketplace
         </Link>
         <div>
-          <Badge className="mb-4">Pre-production integration</Badge>
+          <Badge className="mb-4" data-testid="get-paid-integration-badge">
+            Seller-direct payouts
+          </Badge>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             How you get paid
           </Heading>

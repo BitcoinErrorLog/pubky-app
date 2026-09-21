@@ -76,6 +76,35 @@ export function isStripeRestrictedKey(value: string): boolean {
   return /^rk_(test|live)_[0-9A-Za-z]{8,}$/.test(value.trim());
 }
 
+/** Stripe Payment Links in test mode include `/test_` in the path. */
+export function isStripeTestPaymentLink(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return isStripePaymentLink(value) && url.pathname.includes('/test_');
+  } catch {
+    return false;
+  }
+}
+
+export type StripeProcessingMode = 'test' | 'live' | 'mixed';
+
+/**
+ * Test vs live from the seller's Payment Link path and/or a pasted `rk_` key.
+ * Stored configs never return the key, so the link is the lasting signal.
+ */
+export function stripeProcessingMode(args: {
+  paymentLink?: string | null;
+  restrictedKey?: string | null;
+}): StripeProcessingMode | null {
+  const link = args.paymentLink?.trim() ?? '';
+  const key = args.restrictedKey?.trim() ?? '';
+  const linkMode = link ? (isStripePaymentLink(link) ? (isStripeTestPaymentLink(link) ? 'test' : 'live') : null) : null;
+  const keyMode = /^rk_test_/.test(key) ? 'test' : /^rk_live_/.test(key) ? 'live' : null;
+  if (!linkMode && !keyMode) return null;
+  if (linkMode && keyMode && linkMode !== keyMode) return 'mixed';
+  return linkMode ?? keyMode;
+}
+
 /**
  * Client-side sanity check for a pasted BIP84 account key before it is sent
  * to the claim endpoint (which performs the authoritative parse). Accepts

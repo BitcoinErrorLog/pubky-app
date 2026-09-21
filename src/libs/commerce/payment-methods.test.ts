@@ -4,7 +4,9 @@ import {
   isPlausibleAccountXpub,
   isStripePaymentLink,
   isStripeRestrictedKey,
+  isStripeTestPaymentLink,
   sellerPaymentConfigSchema,
+  stripeProcessingMode,
 } from './payment-methods';
 
 const TPUB =
@@ -93,6 +95,23 @@ describe('payment-methods', () => {
       expect(isStripeRestrictedKey('pk_test_51NzXAbCdEfGh')).toBe(false);
       expect(isStripeRestrictedKey('rk_test_')).toBe(false);
       expect(isStripeRestrictedKey('')).toBe(false);
+    });
+  });
+
+  describe('stripeProcessingMode', () => {
+    it('reads test vs live from the Payment Link path and pasted rk_ keys', () => {
+      expect(isStripeTestPaymentLink('https://buy.stripe.com/test_abc123')).toBe(true);
+      expect(isStripeTestPaymentLink('https://buy.stripe.com/liveabc123')).toBe(false);
+      expect(stripeProcessingMode({ paymentLink: 'https://buy.stripe.com/test_abc' })).toBe('test');
+      expect(stripeProcessingMode({ paymentLink: 'https://buy.stripe.com/abc' })).toBe('live');
+      expect(stripeProcessingMode({ restrictedKey: 'rk_live_51NzXAbCdEfGh' })).toBe('live');
+      expect(
+        stripeProcessingMode({
+          paymentLink: 'https://buy.stripe.com/test_abc',
+          restrictedKey: 'rk_live_51NzXAbCdEfGh',
+        }),
+      ).toBe('mixed');
+      expect(stripeProcessingMode({ paymentLink: null, restrictedKey: '' })).toBeNull();
     });
   });
 
