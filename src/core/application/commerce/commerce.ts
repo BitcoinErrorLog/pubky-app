@@ -775,11 +775,16 @@ export class CommerceApplication {
 
     throw Err.validation(
       ValidationErrorCode.INVALID_INPUT,
-      `This seller sells through a different marketplace service (${declaredOrigin}). This deployment routes commerce to ${configuredOrigin} and cannot transact with their shop yet.`,
+      'This listing is not registered with this Shop, so checkout cannot continue here.',
       {
         service: ErrorService.Marketplace,
         operation: 'assertSellerAuthorityRoutable',
-        context: { sellerPubky, declaredOrigin, configuredOrigin, kind: command.kind },
+        context: {
+          sellerPubky,
+          declaredOrigin: declaredOrigin.length <= 64 ? declaredOrigin : declaredOrigin.slice(0, 64),
+          configuredOrigin: configuredOrigin.length <= 64 ? configuredOrigin : configuredOrigin.slice(0, 64),
+          kind: command.kind,
+        },
       },
     );
   }

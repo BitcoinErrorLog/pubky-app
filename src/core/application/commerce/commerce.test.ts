@@ -1011,7 +1011,7 @@ describe('CommerceApplication', () => {
       const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
 
       await expect(CommerceApplication.executeMarketplaceCommand('actor', command)).rejects.toThrow(
-        'sells through a different marketplace service',
+        'This listing is not registered with this Shop, so checkout cannot continue here.',
       );
       expect(execute).not.toHaveBeenCalled();
     });
