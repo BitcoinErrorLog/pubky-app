@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PUBKY_APP_POST_URI } from './answer';
 import { SHA256_HEX_RE } from './canonical';
 import { fromZod, zPubky, zUnix, zVersion1 } from './zod';
 
@@ -27,7 +28,7 @@ export const PubchiDraftPostReceiptSchema = z
           .refine((value) => value.startsWith('pubky://')),
       )
       .max(8),
-    post_uri: z.string().url().optional(),
+    post_uri: z.string().regex(PUBKY_APP_POST_URI).optional(),
     status: draftPostReceiptStatus,
     suggested_at: zUnix,
     applied_at: zUnix.optional(),

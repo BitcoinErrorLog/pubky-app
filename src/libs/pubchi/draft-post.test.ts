@@ -1,6 +1,55 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PubchiAnswerV1 } from '@/libs/pubchi/schemas';
-import { canPublishDraftPost, canRejectDraftPost } from './draft-post';
+import {
+  canPublishDraftPost,
+  canRejectDraftPost,
+  commitContentForDraftPost,
+  DRAFT_POST_RECEIPT_MAX_BYTES,
+  truncateDraftPostReceiptContent,
+  wrapDraftPostArticleContent,
+} from './draft-post';
+
+describe('draft post article wrap', () => {
+  it('uses the first line as title when a body follows', () => {
+    expect(wrapDraftPostArticleContent('Title line\nBody line')).toBe(
+      JSON.stringify({ title: 'Title line', body: 'Body line' }),
+    );
+  });
+
+  it('uses Untitled when there is no separate body', () => {
+    expect(wrapDraftPostArticleContent('Just a body')).toBe(JSON.stringify({ title: 'Untitled', body: 'Just a body' }));
+  });
+
+  it('marks long drafts as articles', () => {
+    expect(commitContentForDraftPost({ kind: 'long', content: 'Headline\nParagraph' })).toEqual({
+      content: JSON.stringify({ title: 'Headline', body: 'Paragraph' }),
+      isArticle: true,
+    });
+    expect(commitContentForDraftPost({ kind: 'short', content: 'Short post' })).toEqual({
+      content: 'Short post',
+      isArticle: false,
+    });
+  });
+});
+
+describe('draft post receipt truncation', () => {
+  it('keeps content that already fits', () => {
+    expect(truncateDraftPostReceiptContent({ schema: 'pubchi-draft-post' }, 'hello')).toBe('hello');
+  });
+
+  it('truncates so the encoded receipt stays within 64 KiB', () => {
+    const oversized = '你'.repeat(22_000);
+    const truncated = truncateDraftPostReceiptContent(
+      { schema: 'pubchi-draft-post', version: 1, rationale: 'x'.repeat(120) },
+      oversized,
+    );
+    expect(truncated.length).toBeLessThan(oversized.length);
+    const encoded = new TextEncoder().encode(
+      JSON.stringify({ schema: 'pubchi-draft-post', version: 1, rationale: 'x'.repeat(120), content: truncated }),
+    );
+    expect(encoded.byteLength).toBeLessThanOrEqual(DRAFT_POST_RECEIPT_MAX_BYTES);
+  });
+});
 
 const owner = '4bfmrcuwfq4ksqoupn6wcfxrh5enr1izdeyszmhfrntuf1mzoh5o';
 const bot = 'wnpkm7d4c7caym93kzhpamjkn11hu8jdz4m9o3y1x9huopniwuay';
@@ -86,6 +135,10 @@ describe('draft post apply binding', () => {
     expect(canPublishDraftPost(binding, session, 1_800_000_601)).toBe(false);
     expect(canPublishDraftPost({ ...binding, submitted_at: 1_800_000_000_000 - 601_000 }, session, 1_800_000_000)).toBe(
       false,
+    );
+    expect(canRejectDraftPost(binding, session, 1_800_000_601)).toBe(true);
+    expect(canRejectDraftPost({ ...binding, submitted_at: 1_800_000_000_000 - 601_000 }, session, 1_800_000_000)).toBe(
+      true,
     );
     vi.useRealTimers();
   });

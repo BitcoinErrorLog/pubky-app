@@ -13,12 +13,14 @@ import { TagKind } from '@/application/tag/tag.types';
 import { PostController } from '@/controllers/post/post';
 import { TagController } from '@/controllers/tag/tag';
 import { getPubchiDatabase } from '@/database/pubchi/pubchi';
-import { AuthErrorCode, NetworkErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { isAppError } from '@/libs/error/error';
+import { AuthErrorCode, ClientErrorCode, NetworkErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { APP_SIGNIN_CAPABILITIES, sessionCovers } from '@/libs/pubchi/capabilities';
+import { commitContentForDraftPost } from '@/libs/pubchi/draft-post';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { type FeedProposalV2, isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
 import { CompositeIdDomain } from '@/models/models.types';
@@ -350,12 +352,9 @@ export class PubchiController {
   }
 
   static async applyDraftPost(recordId: string): Promise<'applied' | 'reconciliation-pending'> {
-    PubchiApplication.beginDraftPostOperation(recordId);
-    try {
-      return await this.applyDraftPostInternal(recordId);
-    } finally {
-      PubchiApplication.endDraftPostOperation(recordId);
-    }
+    return PubchiApplication.runDraftPostOperation(recordId, 'applyDraftPost', () =>
+      this.applyDraftPostInternal(recordId),
+    );
   }
 
   private static async applyDraftPostInternal(recordId: string): Promise<'applied' | 'reconciliation-pending'> {
@@ -381,18 +380,29 @@ export class PubchiController {
       }
       parentPostId = composite;
     }
-    let compositePostId: string;
-    try {
-      compositePostId = await PostController.commitCreate({
-        authorId: owner,
-        content: prepared.draft.content,
-        isArticle: prepared.draft.kind === 'long',
-        ...(prepared.draft.tags?.length ? { tags: prepared.draft.tags } : {}),
-        ...(parentPostId ? { parentPostId } : {}),
-      });
-    } catch (cause) {
-      await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'failed');
-      throw cause;
+    const published = commitContentForDraftPost(prepared.draft);
+    let compositePostId = prepared.existingCompositePostId;
+    if (!compositePostId) {
+      const existing = await PubchiApplication.findOwnedDraftPostByContent(owner, published.content);
+      if (existing) compositePostId = existing.compositePostId;
+    }
+    if (!compositePostId) {
+      try {
+        compositePostId = await PostController.commitCreate({
+          authorId: owner,
+          content: published.content,
+          isArticle: published.isArticle,
+          ...(prepared.draft.tags?.length ? { tags: prepared.draft.tags } : {}),
+          ...(parentPostId ? { parentPostId } : {}),
+        });
+      } catch (cause) {
+        const recovered = await PubchiApplication.findOwnedDraftPostByContent(owner, published.content);
+        if (!recovered) {
+          await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'failed');
+          throw cause;
+        }
+        compositePostId = recovered.compositePostId;
+      }
     }
     const { pubky, id } = parseCompositeId(compositePostId);
     if (pubky !== owner) {
@@ -429,33 +439,36 @@ export class PubchiController {
   }
 
   static async rejectDraftPost(recordId: string): Promise<void> {
-    PubchiApplication.beginDraftPostOperation(recordId);
-    try {
+    await PubchiApplication.runDraftPostOperation(recordId, 'rejectDraftPost', async () => {
       const auth = useAuthStore.getState();
       await PubchiApplication.prepareDraftPostReject(
         recordId,
         auth.selectCurrentUserPubky(),
         auth.selectSession()?.info.capabilities ?? [],
       );
-    } finally {
-      PubchiApplication.endDraftPostOperation(recordId);
-    }
+    });
   }
 
   static async revertDraftPost(recordId: string): Promise<void> {
-    PubchiApplication.beginDraftPostOperation(recordId);
-    try {
-      await this.revertDraftPostInternal(recordId);
-    } finally {
-      PubchiApplication.endDraftPostOperation(recordId);
-    }
+    await PubchiApplication.runDraftPostOperation(recordId, 'revertDraftPost', () =>
+      this.revertDraftPostInternal(recordId),
+    );
   }
 
   private static async revertDraftPostInternal(recordId: string): Promise<void> {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
     const prepared = await PubchiApplication.prepareDraftPostRevert(recordId, owner);
     await PubchiApplication.recordDraftPostRevertOperation(recordId);
-    await PostController.commitDelete({ compositePostId: prepared.compositePostId });
+    try {
+      await PostController.commitDelete({ compositePostId: prepared.compositePostId });
+    } catch (cause) {
+      if (isAppError(cause) && cause.code === ClientErrorCode.NOT_FOUND) {
+        await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'reverted');
+        return;
+      }
+      await PubchiApplication.markDraftPostReconciliationPending(recordId);
+      throw cause;
+    }
     try {
       await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'reverted');
     } catch (cause) {

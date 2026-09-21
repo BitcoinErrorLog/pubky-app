@@ -10,7 +10,9 @@ import { isPubkyId, PUBKY_ID_RE } from './pubky';
 import { fromZod, zPubky, zUnix, zVersion1 } from './zod';
 
 export const SOURCE_URI = /^(?:pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/.+|https:\/\/nexus[^/]*\/.+)$/;
-const C5_POST_URI = /^pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/pubky\.app\/posts\/[A-Z0-9]{13}$/;
+export const PUBKY_APP_POST_URI =
+  /^pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/pubky\.app\/posts\/[A-Z0-9]{13}$/;
+const C5_POST_URI = PUBKY_APP_POST_URI;
 const C5_PROFILE_URI = /^pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/pubky\.app\/profile\.json$/;
 /** Maximum length accepted for a public Pubky evidence URI. */
 export const PUBLIC_EVIDENCE_URI_MAX_LENGTH = 512;
@@ -86,7 +88,7 @@ const C5SuggestionSchema = z
 
 const C6DraftPostSchema = z
   .object({
-    content: z.string().min(1),
+    content: z.string(),
     kind: z.enum(['short', 'long']),
     tags: z.array(C5LabelSchema).max(C6_TAG_MAX).optional(),
     parent_uri: z.string().regex(C5_POST_URI).optional(),
@@ -101,11 +103,12 @@ const C6DraftPostSchema = z
   .strict()
   .superRefine((draft, ctx) => {
     const max = draft.kind === 'long' ? C6_LONG_CONTENT_MAX : C6_SHORT_CONTENT_MAX;
-    if (codePointLength(draft.content) > max) {
+    const points = codePointLength(draft.content);
+    if (points < 1 || draft.content.trim().length === 0 || points > max) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['content'],
-        message: `content must be 1-${max} code points for kind ${draft.kind}`,
+        message: `content must be 1-${max} non-whitespace code points for kind ${draft.kind}`,
       });
     }
   });

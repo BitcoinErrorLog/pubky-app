@@ -467,6 +467,26 @@ describe('PubchiAnswerCard', () => {
     expect(screen.getByText(heading)).toBeInTheDocument();
   });
 
+  it('renders draft HTML and javascript: as text', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...draftAnswer(),
+          draft_post: {
+            ...draftAnswer().draft_post!,
+            content: '<script>alert(1)</script> and javascript:alert(1)',
+          },
+        }}
+        binding={draftBinding()}
+        currentUserPubky={owner}
+      />,
+    );
+    const content = screen.getByTestId('pubchi-draft-post-content');
+    expect(content).toHaveTextContent('<script>alert(1)</script> and javascript:alert(1)');
+    expect(content.querySelector('script')).toBeNull();
+    expect(content.querySelector('a')).toBeNull();
+  });
+
   it('renders a draft post for explicit approval and does not show tag actions', () => {
     render(<PubchiAnswerCard answer={draftAnswer()} binding={draftBinding()} currentUserPubky={owner} />);
     expect(screen.getByTestId('pubchi-draft-post')).toBeInTheDocument();

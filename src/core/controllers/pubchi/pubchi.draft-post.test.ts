@@ -4,6 +4,10 @@ import { PubchiApplication } from '@/application/pubchi/pubchi';
 import { PostController } from '@/controllers/post/post';
 import * as pubchiDatabase from '@/database/pubchi/pubchi';
 import { useDraftPostApplication } from '@/hooks/useDraftPostApplication/useDraftPostApplication';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import { HttpStatusCode } from '@/libs/http/http.types';
 import * as flags from '@/libs/pubchi/flags';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -21,6 +25,8 @@ const prepared = {
     rationale: 'Matches the public profile evidence.',
     evidence: [`pubky://${owner}/pub/pubky.app/profile.json`],
   },
+  existingCompositePostId: undefined as string | undefined,
+  existingPostUri: undefined as string | undefined,
 };
 
 describe('PubchiController draft post application', () => {
@@ -37,10 +43,14 @@ describe('PubchiController draft post application', () => {
     vi.spyOn(PubchiApplication, 'finalizeDraftPostApplication').mockResolvedValue();
     vi.spyOn(PubchiApplication, 'recordDraftPostApplyOutcome').mockResolvedValue();
     vi.spyOn(PubchiApplication, 'recordDraftPostRevertOperation').mockResolvedValue();
+    vi.spyOn(PubchiApplication, 'findOwnedDraftPostByContent').mockResolvedValue(undefined);
     vi.spyOn(PubchiController, 'getDraftPostStatus').mockResolvedValue('failed');
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    PubchiApplication.resetDraftPostOperationsForTests();
+  });
 
   it('C finalizes a published post as applied under U', async () => {
     const create = vi.spyOn(PostController, 'commitCreate').mockResolvedValue(`${owner}:${postId}`);
@@ -61,6 +71,126 @@ describe('PubchiController draft post application', () => {
       `pubky://${owner}/pub/pubky.app/posts/${postId}`,
       `${owner}:${postId}`,
     );
+  });
+
+  it('C wraps kind=long as App article JSON', async () => {
+    vi.spyOn(PubchiApplication, 'prepareDraftPostApplication').mockResolvedValue(
+      asOpaque<Awaited<ReturnType<typeof PubchiApplication.prepareDraftPostApplication>>>({
+        ...prepared,
+        draft: { ...prepared.draft, kind: 'long', content: 'Headline\nBody paragraph' },
+      }),
+    );
+    const create = vi.spyOn(PostController, 'commitCreate').mockResolvedValue(`${owner}:${postId}`);
+
+    await expect(PubchiController.applyDraftPost('record')).resolves.toBe('applied');
+    expect(create).toHaveBeenCalledWith({
+      authorId: owner,
+      content: JSON.stringify({ title: 'Headline', body: 'Body paragraph' }),
+      isArticle: true,
+      tags: ['pubky-app'],
+    });
+  });
+
+  it('C refuses a second in-flight apply', async () => {
+    let resolveCreate!: (value: string) => void;
+    const create = vi.spyOn(PostController, 'commitCreate').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const first = PubchiController.applyDraftPost('record');
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+
+    await expect(PubchiController.applyDraftPost('record')).rejects.toMatchObject({
+      message: 'Draft post operation is already in progress',
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    resolveCreate(`${owner}:${postId}`);
+    await expect(first).resolves.toBe('applied');
+  });
+
+  it('C retries from a stored composite without commitCreate', async () => {
+    vi.spyOn(PubchiApplication, 'prepareDraftPostApplication').mockResolvedValue(
+      asOpaque<Awaited<ReturnType<typeof PubchiApplication.prepareDraftPostApplication>>>({
+        ...prepared,
+        existingCompositePostId: `${owner}:${postId}`,
+        existingPostUri: `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+      }),
+    );
+    const create = vi.spyOn(PostController, 'commitCreate');
+
+    await expect(PubchiController.applyDraftPost('record')).resolves.toBe('applied');
+    expect(create).not.toHaveBeenCalled();
+    expect(PubchiApplication.recordDraftPostApplyOutcome).toHaveBeenCalledWith(
+      'record',
+      `${owner}:${postId}`,
+      `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+    );
+  });
+
+  it('C reuses a content-matching owned post instead of commitCreate', async () => {
+    vi.spyOn(PubchiApplication, 'findOwnedDraftPostByContent').mockResolvedValue({
+      compositePostId: `${owner}:${postId}`,
+      postUri: `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+    });
+    const create = vi.spyOn(PostController, 'commitCreate');
+
+    await expect(PubchiController.applyDraftPost('record')).resolves.toBe('applied');
+    expect(create).not.toHaveBeenCalled();
+    expect(PubchiApplication.recordDraftPostApplyOutcome).toHaveBeenCalledWith(
+      'record',
+      `${owner}:${postId}`,
+      `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+    );
+  });
+
+  it('C recovers a lost commitCreate by looking up the owned post', async () => {
+    const create = vi.spyOn(PostController, 'commitCreate').mockRejectedValue(new Error('response lost'));
+    vi.spyOn(PubchiApplication, 'findOwnedDraftPostByContent')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        compositePostId: `${owner}:${postId}`,
+        postUri: `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+      });
+
+    await expect(PubchiController.applyDraftPost('record')).resolves.toBe('applied');
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(PubchiApplication.recordDraftPostApplyOutcome).toHaveBeenCalledWith(
+      'record',
+      `${owner}:${postId}`,
+      `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+    );
+    expect(PubchiApplication.finalizeDraftPostApplication).not.toHaveBeenCalledWith(
+      'record',
+      prepared.applicationId,
+      'failed',
+    );
+  });
+
+  it('C hook coalesces a second approve so commitCreate runs once', async () => {
+    let resolveCreate!: (value: string) => void;
+    const create = vi.spyOn(PostController, 'commitCreate').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useDraftPostApplication('record'));
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    await act(async () => {
+      first = result.current.approve();
+      second = result.current.approve();
+    });
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+    resolveCreate(`${owner}:${postId}`);
+    await act(async () => {
+      await first;
+      await second;
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('applied');
   });
 
   it('C records failure and exposes failed hook status when creation throws', async () => {
@@ -155,7 +285,37 @@ describe('PubchiController draft post application', () => {
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
   });
 
-  it('D leaves the receipt untouched when delete fails', async () => {
+  it('D treats an already-deleted post as reverted', async () => {
+    vi.spyOn(PubchiApplication, 'prepareDraftPostRevert').mockResolvedValue(
+      asOpaque<Awaited<ReturnType<typeof PubchiApplication.prepareDraftPostRevert>>>({
+        applicationId: prepared.applicationId,
+        binding: prepared.binding,
+        compositePostId: `${owner}:${postId}`,
+      }),
+    );
+    const remove = vi.spyOn(PostController, 'commitDelete').mockRejectedValue(
+      Err.client(ClientErrorCode.NOT_FOUND, 'Post not found', {
+        service: ErrorService.Local,
+        operation: 'commitDelete',
+        context: { statusCode: HttpStatusCode.NOT_FOUND },
+      }),
+    );
+
+    await expect(PubchiController.revertDraftPost('record')).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(PubchiApplication.finalizeDraftPostApplication).toHaveBeenCalledWith(
+      'record',
+      prepared.applicationId,
+      'reverted',
+    );
+    expect(PubchiApplication.finalizeDraftPostApplication).not.toHaveBeenCalledWith(
+      'record',
+      prepared.applicationId,
+      'failed',
+    );
+  });
+
+  it('D persists reconciliation-pending when delete fails for a reason other than missing', async () => {
     vi.spyOn(PubchiApplication, 'prepareDraftPostRevert').mockResolvedValue(
       asOpaque<Awaited<ReturnType<typeof PubchiApplication.prepareDraftPostRevert>>>({
         applicationId: prepared.applicationId,
@@ -164,9 +324,11 @@ describe('PubchiController draft post application', () => {
       }),
     );
     vi.spyOn(PostController, 'commitDelete').mockRejectedValue(new Error('delete failed'));
+    const pending = vi.spyOn(PubchiApplication, 'markDraftPostReconciliationPending').mockResolvedValue();
 
     await expect(PubchiController.revertDraftPost('record')).rejects.toThrow('delete failed');
     expect(PubchiApplication.finalizeDraftPostApplication).not.toHaveBeenCalled();
+    expect(pending).toHaveBeenCalledWith('record');
   });
 
   it('D persists reconciliation-pending and returns a typed retryable error when receipt finalization fails', async () => {

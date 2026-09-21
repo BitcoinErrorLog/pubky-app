@@ -40,4 +40,14 @@ describe('pubchi draft-post receipt schema', () => {
   it('rejects a receipt with the wrong schema name', () => {
     expect(parsePubchiDraftPostReceipt({ ...receipt, schema: 'pubchi-tag-application' }).ok).toBe(false);
   });
+
+  it('accepts a canonical pubky post_uri and rejects https', () => {
+    expect(
+      parsePubchiDraftPostReceipt({
+        ...receipt,
+        post_uri: `pubky://${owner}/pub/pubky.app/posts/0032W6CBGDBP0`,
+      }).ok,
+    ).toBe(true);
+    expect(parsePubchiDraftPostReceipt({ ...receipt, post_uri: 'https://example.com/posts/1' }).ok).toBe(false);
+  });
 });

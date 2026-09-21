@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PubchiController } from '@/controllers/pubchi/pubchi';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 
 export function useDraftPostApplication(recordId?: string, visible = true) {
   const [status, setStatus] = useState<string>('proposed');
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -27,19 +28,35 @@ export function useDraftPostApplication(recordId?: string, visible = true) {
     };
   }, [recordId, visible]);
 
+  const runExclusive = (work: () => Promise<void>) => {
+    if (inFlightRef.current) return inFlightRef.current;
+    let run!: Promise<void>;
+    run = (async () => {
+      try {
+        await work();
+      } finally {
+        if (inFlightRef.current === run) inFlightRef.current = null;
+      }
+    })();
+    inFlightRef.current = run;
+    return run;
+  };
+
   const approve = async () => {
     if (!recordId) {
       setStatus('failed');
       return;
     }
-    setStatus('applying');
-    try {
-      const next = await PubchiController.applyDraftPost(recordId);
-      setStatus(next);
-    } catch {
-      const stored = await PubchiController.getDraftPostStatus(recordId);
-      setStatus(stored ?? 'failed');
-    }
+    await runExclusive(async () => {
+      setStatus('applying');
+      try {
+        const next = await PubchiController.applyDraftPost(recordId);
+        setStatus(next);
+      } catch {
+        const stored = await PubchiController.getDraftPostStatus(recordId);
+        setStatus(stored ?? 'failed');
+      }
+    });
   };
 
   const reject = async () => {
@@ -47,14 +64,16 @@ export function useDraftPostApplication(recordId?: string, visible = true) {
       setStatus('failed');
       return;
     }
-    setStatus('rejecting');
-    try {
-      await PubchiController.rejectDraftPost(recordId);
-      setStatus('rejected');
-    } catch {
-      const stored = await PubchiController.getDraftPostStatus(recordId);
-      setStatus(stored ?? 'failed');
-    }
+    await runExclusive(async () => {
+      setStatus('rejecting');
+      try {
+        await PubchiController.rejectDraftPost(recordId);
+        setStatus('rejected');
+      } catch {
+        const stored = await PubchiController.getDraftPostStatus(recordId);
+        setStatus(stored ?? 'failed');
+      }
+    });
   };
 
   const revert = async () => {
@@ -62,13 +81,15 @@ export function useDraftPostApplication(recordId?: string, visible = true) {
       setStatus('reconciliation-pending');
       return;
     }
-    setStatus('reconciling');
-    try {
-      await PubchiController.revertDraftPost(recordId);
-      setStatus('reverted');
-    } catch {
-      setStatus('reconciliation-pending');
-    }
+    await runExclusive(async () => {
+      setStatus('reconciling');
+      try {
+        await PubchiController.revertDraftPost(recordId);
+        setStatus('reverted');
+      } catch {
+        setStatus('reconciliation-pending');
+      }
+    });
   };
 
   const reconcile = async () => {

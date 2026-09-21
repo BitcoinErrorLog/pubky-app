@@ -20,6 +20,7 @@ export {
   PubchiEvidenceV1Schema,
   type PubchiKnownAnswerBasis,
   type PubchiTagSuggestion,
+  PUBKY_APP_POST_URI,
 } from './answer';
 export {
   type Conversation,

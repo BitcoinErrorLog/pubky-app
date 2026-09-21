@@ -11,6 +11,9 @@ import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
 import { PUBKY_RUNTIME_ENV_NAMES } from '@/libs/runtime-config/runtime-config.schema';
+import { PostDetailsModel } from '@/models/post/details/postDetails';
+import { DELETED } from '@/models/post/details/postDetails.constants';
+import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalPubchiBindingService } from '@/services/local/pubchi/binding';
 import { PubchiService } from '@/services/pubchi/pubchi';
@@ -166,10 +169,12 @@ describe('Pubchi draft post applications', () => {
       if (input.method === HttpMethod.PUT) receiptText = JSON.stringify(input.bodyJson);
       return undefined;
     });
+    vi.spyOn(PubchiApplication, 'findOwnedDraftPostByContent').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    PubchiApplication.resetDraftPostOperationsForTests();
     delete process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled];
     delete process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiApiUrl];
     resetRuntimeConfigForTests();
@@ -347,6 +352,127 @@ describe('Pubchi draft post applications', () => {
     expect(record.post_uri).toBe(`pubky://${owner}/pub/pubky.app/posts/${postId}`);
   });
 
+  it('C wraps kind=long as App article JSON before commitCreate', async () => {
+    const response = answer({
+      draft_post: {
+        content: 'Headline\nBody paragraph',
+        kind: 'long',
+        rationale: 'Matches the public profile evidence.',
+        evidence: [`pubky://${owner}/pub/pubky.app/profile.json`],
+      },
+    });
+    await setRecord(response);
+    const create = vi.spyOn(PostController, 'commitCreate').mockResolvedValue(`${owner}:${postId}`);
+
+    await expect(PubchiController.applyDraftPost(record.id)).resolves.toBe('applied');
+
+    expect(create).toHaveBeenCalledWith({
+      authorId: owner,
+      content: JSON.stringify({ title: 'Headline', body: 'Body paragraph' }),
+      isArticle: true,
+    });
+  });
+
+  it('C refuses a second in-flight apply before another commitCreate', async () => {
+    let resolveCreate!: (value: string) => void;
+    const create = vi.spyOn(PostController, 'commitCreate').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const first = PubchiController.applyDraftPost(record.id);
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+
+    await expect(PubchiController.applyDraftPost(record.id)).rejects.toMatchObject({
+      code: ClientErrorCode.CONFLICT,
+      message: 'Draft post operation is already in progress',
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    resolveCreate(`${owner}:${postId}`);
+    await expect(first).resolves.toBe('applied');
+    expect(record.post_uri).toBe(`pubky://${owner}/pub/pubky.app/posts/${postId}`);
+  });
+
+  it('C retries a failed apply from a stored URI without creating a second post', async () => {
+    record.status = 'failed';
+    record.composite_post_id = `${owner}:${postId}`;
+    record.post_uri = `pubky://${owner}/pub/pubky.app/posts/${postId}`;
+    const create = vi.spyOn(PostController, 'commitCreate');
+
+    await expect(PubchiController.applyDraftPost(record.id)).resolves.toBe('applied');
+
+    expect(create).not.toHaveBeenCalled();
+    expect(JSON.parse(receiptText!)).toMatchObject({
+      status: 'applied',
+      post_uri: `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+    });
+  });
+
+  it('C recovers a lost commitCreate response via the local idempotency lookup', async () => {
+    const create = vi.spyOn(PostController, 'commitCreate').mockRejectedValue(new Error('response lost'));
+    vi.mocked(PubchiApplication.findOwnedDraftPostByContent)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        compositePostId: `${owner}:${postId}`,
+        postUri: `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+      });
+
+    await expect(PubchiController.applyDraftPost(record.id)).resolves.toBe('applied');
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(record.composite_post_id).toBe(`${owner}:${postId}`);
+    expect(JSON.parse(receiptText!)).toMatchObject({ status: 'applied' });
+  });
+
+  it('findOwnedDraftPostByContent matches owner content and skips other owners and deleted rows', async () => {
+    vi.mocked(PubchiApplication.findOwnedDraftPostByContent).mockRestore();
+    const content = 'Pubky keeps public social state on your homeserver.';
+    const owned = {
+      id: `${owner}:${postId}`,
+      content,
+      uri: `pubky://${owner}/pub/pubky.app/posts/${postId}`,
+    };
+    const rows = [
+      { id: `${bot}:${postId}`, content, uri: `pubky://${bot}/pub/pubky.app/posts/${postId}` },
+      { id: `${owner}:DELETEDPOST00`, content: DELETED, uri: `pubky://${owner}/pub/pubky.app/posts/DELETEDPOST00` },
+      owned,
+    ];
+    vi.spyOn(PostDetailsModel.table, 'filter').mockImplementation((predicate) =>
+      asOpaque<ReturnType<typeof PostDetailsModel.table.filter>>({
+        first: async () => rows.find((row) => predicate(asOpaque<PostDetailsModelSchema>(row))),
+      }),
+    );
+
+    await expect(PubchiApplication.findOwnedDraftPostByContent(owner, content)).resolves.toEqual({
+      compositePostId: owned.id,
+      postUri: owned.uri,
+    });
+    await expect(PubchiApplication.findOwnedDraftPostByContent(owner, DELETED)).resolves.toBeUndefined();
+  });
+
+  it('C truncates oversized receipt content to 64 KiB and keeps the full draft hash', async () => {
+    const oversized = '你'.repeat(22_000);
+    const response = answer({
+      draft_post: {
+        content: oversized,
+        kind: 'long',
+        rationale: 'Matches the public profile evidence.',
+        evidence: [`pubky://${owner}/pub/pubky.app/profile.json`],
+      },
+    });
+    await setRecord(response);
+    vi.spyOn(PostController, 'commitCreate').mockResolvedValue(`${owner}:${postId}`);
+    const draftSha = await sha256Hex(canonicalJson(response.draft_post));
+
+    await expect(PubchiController.applyDraftPost(record.id)).resolves.toBe('applied');
+
+    const stored = JSON.parse(receiptText!) as { content: string; draft_sha256: string };
+    expect(new TextEncoder().encode(receiptText!).byteLength).toBeLessThanOrEqual(64 * 1024);
+    expect(stored.content.length).toBeLessThan(oversized.length);
+    expect(stored.draft_sha256).toBe(draftSha);
+  });
+
   it('C records failed receipt and surfaces create failures without retrying the post write', async () => {
     const create = vi.spyOn(PostController, 'commitCreate').mockRejectedValue(new Error('post write failed'));
 
@@ -376,6 +502,18 @@ describe('Pubchi draft post applications', () => {
     expect(JSON.parse(receiptText!)).toMatchObject({ status: 'rejected' });
     expect(record.status).toBe('rejected');
     expect(record.post_uri).toBeUndefined();
+  });
+
+  it('reject still writes a receipt after the 600s publish window', async () => {
+    record.submitted_at = Date.now() - 601_000;
+    record.response = { ...record.response, generated_at: Math.floor(Date.now() / 1000) - 601 };
+    record.response_sha256 = await sha256Hex(canonicalJson(record.response));
+    const create = vi.spyOn(PostController, 'commitCreate');
+
+    await expect(PubchiController.rejectDraftPost(record.id)).resolves.toBeUndefined();
+
+    expect(create).not.toHaveBeenCalled();
+    expect(JSON.parse(receiptText!)).toMatchObject({ status: 'rejected' });
   });
 
   it('D deletes the stored post and preserves receipt extensions on revert', async () => {
@@ -412,7 +550,21 @@ describe('Pubchi draft post applications', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  it('D leaves receipt unchanged and surfaces delete failures', async () => {
+  it('D treats an already-deleted post as reverted without a second delete', async () => {
+    record.status = 'applied';
+    record.composite_post_id = `${owner}:${postId}`;
+    record.post_uri = `pubky://${owner}/pub/pubky.app/posts/${postId}`;
+    receiptText = JSON.stringify({ ...receipt(), status: 'applied', post_uri: record.post_uri });
+    const remove = vi.spyOn(PostController, 'commitDelete').mockRejectedValue(notFound());
+
+    await expect(PubchiController.revertDraftPost(record.id)).resolves.toBeUndefined();
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(receiptText!)).toMatchObject({ status: 'reverted' });
+    expect(record.status).toBe('reverted');
+  });
+
+  it('D persists reconciliation-pending and surfaces other delete failures', async () => {
     record.status = 'applied';
     record.composite_post_id = `${owner}:${postId}`;
     receiptText = JSON.stringify({ ...receipt(), status: 'applied' });
@@ -421,6 +573,7 @@ describe('Pubchi draft post applications', () => {
 
     await expect(PubchiController.revertDraftPost(record.id)).rejects.toThrow('delete failed');
 
+    expect(record.status).toBe('reconciliation-pending');
     expect(receiptText).toBe(before);
   });
 

@@ -30,7 +30,13 @@ import {
   updateDeviceKeyExpiry,
   wipeDeviceKeysNotOwnedBy,
 } from '@/libs/pubchi/device-key';
-import { canPublishDraftPost, canRejectDraftPost, draftPostBinding } from '@/libs/pubchi/draft-post';
+import {
+  canPublishDraftPost,
+  canRejectDraftPost,
+  DRAFT_POST_RECEIPT_MAX_BYTES,
+  draftPostBinding,
+  truncateDraftPostReceiptContent,
+} from '@/libs/pubchi/draft-post';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
 import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
 import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
@@ -94,6 +100,8 @@ import {
 } from '@/libs/pubchi/schemas';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
 import { canApplyTagSuggestion, tagApplicationBinding } from '@/libs/pubchi/tag-application';
+import { PostDetailsModel } from '@/models/post/details/postDetails';
+import { DELETED } from '@/models/post/details/postDetails.constants';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
 import { toast } from '@/molecules/Toaster/toast';
 import { TagNormalizer } from '@/pipes/tag/tag.normalizer';
@@ -245,12 +253,44 @@ export class PubchiApplication {
     this.tagSuggestionOperationsInFlight.delete(`${recordId}:${suggestionIndex}`);
   }
 
-  static beginDraftPostOperation(recordId: string): void {
+  static tryBeginDraftPostOperation(recordId: string): boolean {
+    if (this.draftPostOperationsInFlight.has(recordId)) return false;
     this.draftPostOperationsInFlight.add(recordId);
+    return true;
   }
 
   static endDraftPostOperation(recordId: string): void {
     this.draftPostOperationsInFlight.delete(recordId);
+  }
+
+  static resetDraftPostOperationsForTests(): void {
+    this.draftPostOperationsInFlight.clear();
+  }
+
+  static async runDraftPostOperation<T>(recordId: string, operation: string, work: () => Promise<T>): Promise<T> {
+    if (!this.tryBeginDraftPostOperation(recordId)) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'Draft post operation is already in progress', {
+        service: ErrorService.Pubchi,
+        operation,
+      });
+    }
+    try {
+      return await work();
+    } finally {
+      this.endDraftPostOperation(recordId);
+    }
+  }
+
+  static async findOwnedDraftPostByContent(
+    owner: string,
+    content: string,
+  ): Promise<{ compositePostId: string; postUri: string } | undefined> {
+    const prefix = `${owner}:`;
+    const match = await PostDetailsModel.table
+      .filter((row) => row.id.startsWith(prefix) && row.content === content && row.content !== DELETED)
+      .first();
+    if (!match) return undefined;
+    return { compositePostId: match.id, postUri: match.uri };
   }
 
   static ensureDeviceReady(owner: string): Promise<boolean> {
@@ -1759,7 +1799,13 @@ export class PubchiApplication {
       operation: 'apply',
       updated_at: Date.now(),
     });
-    return { binding, applicationId, draft };
+    return {
+      binding,
+      applicationId,
+      draft,
+      existingCompositePostId: record.composite_post_id,
+      existingPostUri: record.post_uri,
+    };
   }
 
   static async prepareDraftPostReject(recordId: string, owner: string, capabilities: string[]) {
@@ -2023,7 +2069,7 @@ export class PubchiApplication {
     const url = `pubky://${binding.owner}${PUBCHI_PRIVATE_DIRECTORY}draft-posts/${applicationId}.json`;
     const existing = (await this.readDraftPostReceipt(binding, applicationId)) ?? {};
     const now = Math.floor(Date.now() / 1000);
-    const receipt = {
+    const receiptBase = {
       ...existing,
       schema: 'pubchi-draft-post',
       version: 1,
@@ -2033,7 +2079,6 @@ export class PubchiApplication {
       run_id: binding.response.run_id,
       draft_sha256: await sha256Hex(canonicalJson(draft)),
       kind: draft.kind,
-      content: draft.content,
       ...(draft.tags ? { tags: draft.tags } : {}),
       ...(draft.parent_uri ? { parent_uri: draft.parent_uri } : {}),
       rationale: draft.rationale,
@@ -2045,7 +2090,15 @@ export class PubchiApplication {
       ...(status === 'reverted' ? { reverted_at: now } : {}),
       ...(status === 'rejected' ? { rejected_at: now } : {}),
     };
-    if (new TextEncoder().encode(JSON.stringify(receipt)).byteLength > 64 * 1024) {
+    const content = truncateDraftPostReceiptContent(receiptBase, draft.content);
+    if (!content) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post receipt exceeds 64 KiB', {
+        service: ErrorService.Pubchi,
+        operation: 'writeDraftPostReceipt',
+      });
+    }
+    const receipt = { ...receiptBase, content };
+    if (new TextEncoder().encode(JSON.stringify(receipt)).byteLength > DRAFT_POST_RECEIPT_MAX_BYTES) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post receipt exceeds 64 KiB', {
         service: ErrorService.Pubchi,
         operation: 'writeDraftPostReceipt',
