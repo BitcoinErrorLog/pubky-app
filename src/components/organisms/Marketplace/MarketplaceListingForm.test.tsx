@@ -199,6 +199,12 @@ describe('MarketplaceListingForm', () => {
   });
 });
 
+async function waitForFulfillmentEnabled() {
+  await waitFor(() => {
+    expect(screen.getByRole('combobox', { name: 'Fulfillment' })).toBeEnabled();
+  });
+}
+
 describe('MarketplaceListingForm pickup capability (§A7)', () => {
   beforeEach(() => {
     pickupCapability.available = true;
@@ -208,7 +214,8 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     const user = userEvent.setup();
     render(<FormHarness />);
 
-    await user.click(await screen.findByRole('combobox', { name: 'Fulfillment' }));
+    await waitForFulfillmentEnabled();
+    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
     expect(await screen.findByRole('option', { name: 'Ship item' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Local pickup' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Pickup or shipping' })).toBeInTheDocument();
@@ -372,7 +379,8 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
       />,
     );
 
-    await user.click(await screen.findByRole('combobox', { name: 'Fulfillment' }));
+    await waitForFulfillmentEnabled();
+    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
     await user.click(await screen.findByRole('option', { name: 'Local pickup' }));
     await user.type(await screen.findByLabelText('Meeting point'), 'Harbor Market, stall 12');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
