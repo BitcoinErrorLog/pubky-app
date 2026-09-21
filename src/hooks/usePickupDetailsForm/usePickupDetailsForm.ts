@@ -5,9 +5,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
+  PICKUP_NOTHING_PUBLISHED_TOAST,
+  PICKUP_REVERT_FAILED_TOAST,
+  pickupCommandEnvelopeToastDescription,
   pickupCommandToastDescription,
   pickupRefusalFromUnknown,
-  pickupRefusalToastDescription,
 } from '@/libs/commerce/pickup';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
@@ -30,6 +32,12 @@ export type UsePickupDetailsFormOptions = {
    * Must be listing-only (no nested pickup save) to avoid a loop.
    */
   persistListing?: () => Promise<boolean>;
+  /**
+   * After a persist that flipped the listing to pickup, restore the previous
+   * fulfilment if the following `pickup_details.set` fails — otherwise the
+   * listing stays pickup-only with no sealed meeting point.
+   */
+  revertListing?: () => Promise<boolean>;
 };
 
 export interface UsePickupDetailsFormResult {
@@ -159,7 +167,10 @@ export function usePickupDetailsForm(
               });
               return false;
             }
-            toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
+            toast({
+              variant: 'error',
+              description: pickupCommandEnvelopeToastDescription(response.error.code, response.error.message),
+            });
             return false;
           }
           toast({ title: 'Pickup details saved', description: 'Buyers see them only after their payment confirms.' });
@@ -174,6 +185,19 @@ export function usePickupDetailsForm(
           toast({
             variant: 'error',
             description: pickupCommandToastDescription(pickupRefusalFromUnknown(saveError)),
+          });
+        };
+        const revertPersistedPickup = async () => {
+          if (!options.revertListing) return;
+          let reverted = false;
+          try {
+            reverted = await options.revertListing();
+          } catch {
+            reverted = false;
+          }
+          toast({
+            variant: 'error',
+            description: reverted ? PICKUP_NOTHING_PUBLISHED_TOAST : PICKUP_REVERT_FAILED_TOAST,
           });
         };
         try {
@@ -196,8 +220,10 @@ export function usePickupDetailsForm(
             if (persisted) {
               try {
                 succeeded = await applyResponse(await commit());
+                if (!succeeded) await revertPersistedPickup();
                 return;
               } catch (retryError) {
+                await revertPersistedPickup();
                 toastSaveError(retryError);
                 return;
               }
@@ -226,7 +252,10 @@ export function usePickupDetailsForm(
           });
           return false;
         }
-        toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
+        toast({
+          variant: 'error',
+          description: pickupCommandEnvelopeToastDescription(response.error.code, response.error.message),
+        });
         return false;
       }
       toast({ title: 'Pickup details removed', description: 'Paid buyers keep the terms they were shown at payment.' });

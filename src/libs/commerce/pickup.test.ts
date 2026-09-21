@@ -9,6 +9,10 @@ import {
   marketplaceSellerPickupDetailsSchema,
   MaskedPickupDetails,
   PICKUP_DETAILS_REDACTED,
+  PICKUP_LISTING_GONE_TOAST,
+  PICKUP_NOTHING_PUBLISHED_TOAST,
+  PICKUP_SESSION_EXPIRED_TOAST,
+  pickupCommandEnvelopeToastDescription,
   pickupCommandToastDescription,
   pickupDetailsSchema,
   pickupRefusalFailureMessage,
@@ -337,6 +341,19 @@ describe('pickup command toast classification (issue 51)', () => {
     );
     expect(pickupCommandToastDescription(null)).toBe('The pickup details could not be saved.');
     expect(pickupCommandToastDescription('pickup_unavailable')).toBe('Pickup is unavailable on this deployment.');
+  });
+
+  it('maps NOT_FOUND and UNAUTHORIZED envelopes to sign-in / refresh copy', () => {
+    expect(pickupCommandEnvelopeToastDescription('NOT_FOUND', 'The listing was not found.')).toBe(
+      PICKUP_LISTING_GONE_TOAST,
+    );
+    expect(pickupCommandEnvelopeToastDescription('UNAUTHORIZED', 'Only the listing seller may set pickup details.')).toBe(
+      PICKUP_SESSION_EXPIRED_TOAST,
+    );
+    expect(pickupCommandEnvelopeToastDescription('INVALID_STATE', 'The listing does not publish pickup.')).toBe(
+      pickupRefusalFailureMessage('pickup_not_published'),
+    );
+    expect(PICKUP_NOTHING_PUBLISHED_TOAST).toMatch(/not published as pickup/);
   });
 });
 

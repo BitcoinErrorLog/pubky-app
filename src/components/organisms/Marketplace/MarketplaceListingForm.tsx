@@ -45,6 +45,7 @@ import {
   presetToShippingFields,
   shippingFieldsToPresetInput,
 } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
+import { PICKUP_NOTHING_PUBLISHED_TOAST, PICKUP_REVERT_FAILED_TOAST } from '@/libs/commerce/pickup';
 import { amountInputSchemaForAsset, amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
 import {
   dimensionInputFromMillimeters,
@@ -79,7 +80,7 @@ type ListingFormSectionId = (typeof LISTING_FORM_SECTIONS)[number]['id'];
 export interface MarketplaceListingFormProps {
   form: UseFormReturn<CreateMarketplaceListingData>;
   media: UseListingMediaManagerResult;
-  onSubmit: () => Promise<boolean | void>;
+  onSubmit: (options?: { silent?: boolean }) => Promise<boolean | void>;
   /**
    * Called after the listing (and any dirty pickup details) persist. Edit
    * mode uses this for navigation so a pickup save can keep the seller on
@@ -247,9 +248,34 @@ export function MarketplaceListingForm({
     section?.focus({ preventScroll: true });
   };
   const pickupEditorRef = useRef<MarketplacePickupDetailsEditorHandle>(null);
-  const persistListing = async (): Promise<boolean> => {
-    const result = await onSubmit();
+  const publishedFulfillmentRef = useRef(form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT));
+  const persistListing = async (options?: { silent?: boolean }): Promise<boolean> => {
+    const result = await onSubmit(options);
     return result !== false;
+  };
+  const revertListing = async (): Promise<boolean> => {
+    const intended = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT);
+    const previous = publishedFulfillmentRef.current;
+    if (intended === previous) return true;
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, previous, { shouldValidate: true });
+    try {
+      const result = await onSubmit({ silent: true });
+      return result !== false;
+    } finally {
+      form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, intended, { shouldValidate: true });
+    }
+  };
+  const revertUnpublishedPickup = async (): Promise<void> => {
+    let reverted = false;
+    try {
+      reverted = await revertListing();
+    } catch {
+      reverted = false;
+    }
+    toast({
+      variant: 'error',
+      description: reverted ? PICKUP_NOTHING_PUBLISHED_TOAST : PICKUP_REVERT_FAILED_TOAST,
+    });
   };
   const submitListing = async () => {
     const editor = pickupEditorRef.current;
@@ -287,19 +313,23 @@ export function MarketplaceListingForm({
         }
       }
     }
-    const saved = await persistListing();
-    if (!saved) return;
-    if (
+    const willSavePickup =
       isEdit &&
       listingId &&
       offersPickup &&
       editor?.capability === 'available' &&
       editor.readState === 'ready' &&
-      editor.isDirty
-    ) {
+      editor.isDirty;
+    const saved = await persistListing({ silent: Boolean(willSavePickup) });
+    if (!saved) return;
+    if (willSavePickup) {
       const pickupSaved = await editor.save();
-      if (!pickupSaved) return;
+      if (!pickupSaved) {
+        await revertUnpublishedPickup();
+        return;
+      }
     }
+    publishedFulfillmentRef.current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT);
     onPublished?.();
   };
 
@@ -636,6 +666,7 @@ export function MarketplaceListingForm({
               listingId={listingId}
               disabled={isPublishing}
               persistListing={persistListing}
+              revertListing={revertListing}
             />
           )}
           {fulfillment !== 'shipping' && !isEdit && (

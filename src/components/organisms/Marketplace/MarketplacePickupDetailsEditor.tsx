@@ -62,9 +62,10 @@ export const MarketplacePickupDetailsEditor = forwardRef<
     listingId: string;
     disabled?: boolean;
     persistListing?: () => Promise<boolean>;
+    revertListing?: () => Promise<boolean>;
   }
->(function MarketplacePickupDetailsEditor({ listingId, disabled = false, persistListing }, ref) {
-  const editor = usePickupDetailsForm(listingId, { persistListing });
+>(function MarketplacePickupDetailsEditor({ listingId, disabled = false, persistListing, revertListing }, ref) {
+  const editor = usePickupDetailsForm(listingId, { persistListing, revertListing });
   useImperativeHandle(
     ref,
     () => ({

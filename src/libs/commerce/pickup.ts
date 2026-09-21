@@ -347,6 +347,20 @@ export function pickupRefusalToastDescription(serverMessage: string): string {
   return pickupRefusalFailureMessage(classifyMarketplacePickupRefusal(serverMessage));
 }
 
+export const PICKUP_LISTING_GONE_TOAST = 'This listing is gone. Refresh the page.';
+export const PICKUP_SESSION_EXPIRED_TOAST = 'Your session expired. Sign in and try again.';
+export const PICKUP_NOTHING_PUBLISHED_TOAST =
+  'The meeting point could not be saved, so the listing was not published as pickup.';
+export const PICKUP_REVERT_FAILED_TOAST =
+  'The meeting point could not be saved. Refresh the listing and check that pickup is not still offered.';
+
+/** Envelope-level pickup command toasts: `NOT_FOUND` / `UNAUTHORIZED` are not INVALID_STATE refusals. */
+export function pickupCommandEnvelopeToastDescription(code: string, serverMessage: string): string {
+  if (code === 'NOT_FOUND') return PICKUP_LISTING_GONE_TOAST;
+  if (code === 'UNAUTHORIZED') return PICKUP_SESSION_EXPIRED_TOAST;
+  return pickupRefusalToastDescription(serverMessage);
+}
+
 const KNOWN_PICKUP_REFUSALS: ReadonlySet<string> = new Set(PICKUP_REFUSAL_MESSAGES.values());
 
 /**

@@ -13,6 +13,7 @@ import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { PICKUP_NOTHING_PUBLISHED_TOAST } from '@/libs/commerce/pickup';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
 
@@ -132,10 +133,12 @@ function FormHarness({
   mode = 'create' as const,
   saleTermsLocked = false,
   listingId,
+  submittedFulfillment,
 }: {
   fulfillment?: CreateMarketplaceListingData['fulfillment'];
   defaultValues?: Partial<CreateMarketplaceListingData>;
-  onSubmit?: () => Promise<boolean | void>;
+  onSubmit?: (options?: { silent?: boolean }) => Promise<boolean | void>;
+  submittedFulfillment?: CreateMarketplaceListingData['fulfillment'][];
   onPublished?: () => void;
   media?: UseListingMediaManagerResult;
   mode?: 'create' | 'edit';
@@ -149,7 +152,10 @@ function FormHarness({
     <MarketplaceListingForm
       form={form}
       media={media}
-      onSubmit={onSubmit}
+      onSubmit={async (options) => {
+        submittedFulfillment?.push(form.getValues('fulfillment'));
+        return onSubmit(options);
+      }}
       onPublished={onPublished}
       isPublishing={false}
       mode={mode}
@@ -311,6 +317,86 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     await waitFor(() => {
       expect(onPublished).toHaveBeenCalledOnce();
     });
+  });
+
+  it('reverts fulfillment when pickup set fails after listing persist', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => true);
+    const onPublished = vi.fn();
+    const submittedFulfillment: CreateMarketplaceListingData['fulfillment'][] = [];
+    pickupCapability.commitSetPickupDetails.mockRejectedValueOnce(new Error('injected set failure'));
+    render(
+      <FormHarness
+        fulfillment="shipping"
+        mode="edit"
+        listingId="boots_01"
+        submittedFulfillment={submittedFulfillment}
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+          shippingPrice: '12.00',
+          packageWeight: '1200',
+          packageLength: '35.0',
+          packageWidth: '25.0',
+          packageHeight: '15.0',
+        }}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+        onPublished={onPublished}
+      />,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
+    await user.click(await screen.findByRole('option', { name: 'Local pickup' }));
+    await user.type(await screen.findByLabelText('Meeting point'), 'Harbor Market, stall 12');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(2);
+    });
+    expect(submittedFulfillment).toEqual(['pickup', 'shipping']);
+    expect(onPublished).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description: PICKUP_NOTHING_PUBLISHED_TOAST,
+    });
+  });
+
+  it('saves a shipping-only edit without writing pickup details', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => true);
+    const onPublished = vi.fn();
+    render(
+      <FormHarness
+        fulfillment="shipping"
+        mode="edit"
+        listingId="boots_01"
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+          shippingPrice: '12.00',
+          packageWeight: '1200',
+          packageLength: '35.0',
+          packageWidth: '25.0',
+          packageHeight: '15.0',
+        }}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+        onPublished={onPublished}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledOnce();
+    });
+    expect(pickupCapability.commitSetPickupDetails).not.toHaveBeenCalled();
+    expect(onPublished).toHaveBeenCalledOnce();
   });
 
   it('opens the photo picker and submits through the form owner', async () => {

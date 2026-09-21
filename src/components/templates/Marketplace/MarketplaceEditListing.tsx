@@ -27,10 +27,10 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
   const [isSaving, setIsSaving] = useState(false);
   const listingRoute = getMarketplaceListingRoute(sellerPubky, listingId);
 
-  const persistListing = async () => {
+  const persistListing = async (options?: { silent?: boolean }) => {
     setIsSaving(true);
     try {
-      const savedId = await editing.submit();
+      const savedId = await editing.submit(options);
       return Boolean(savedId);
     } finally {
       setIsSaving(false);
