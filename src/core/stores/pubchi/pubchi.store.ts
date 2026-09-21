@@ -97,13 +97,17 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
       lastUpdatedAt: Date.now(),
       ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),
     }),
-  openFlyout: (prefill, ownerPubky) =>
+  openFlyout: (prefill, ownerPubky) => {
+    if (prefill?.source === 'post-menu') {
+      get().clearConversation();
+    }
     set({
       flyout: {
         open: true,
         ...(prefill && ownerPubky ? { prefill: { ...prefill, ownerPubky } } : {}),
       },
-    }),
+    });
+  },
   closeFlyout: () => set({ flyout: { open: false } }),
   openFeedBuilder: (proposal) =>
     set({

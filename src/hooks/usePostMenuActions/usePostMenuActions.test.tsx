@@ -209,6 +209,38 @@ describe('usePostMenuActions', () => {
         },
       },
     });
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+  });
+
+  it('starts a fresh conversation when summarizing a second post from the menu', async () => {
+    usePubchiStore.getState().setPubchi(
+      {
+        bot: mockAuthorId,
+        displayName: 'Pubchi',
+        createdAt: 1,
+        backupConfirmedAt: 1,
+        verified: true,
+      },
+      mockCurrentUserId,
+    );
+    usePubchiStore
+      .getState()
+      .addConversationTurn({ role: 'user', text: 'Summarize this thread pubky://a/posts/1' }, mockCurrentUserId);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'First summary' }, mockCurrentUserId);
+
+    const { result } = renderHook(() =>
+      usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+    );
+    const item = result.current.menuItems.find((entry) => entry.id === POST_MENU_ACTION_IDS.SUMMARIZE_WITH_PUBCHI);
+
+    await act(async () => item?.onClick());
+
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    expect(usePubchiStore.getState().flyout.prefill?.source).toBe('post-menu');
+    expect(usePubchiStore.getState().flyout.prefill?.target).toEqual({
+      kind: 'post',
+      uri: 'pubky://author123/pub/pubky.app/posts/post456',
+    });
   });
 
   it('shows summarization after bootstrap hydrates the store without mounting a Pubchi surface', async () => {
@@ -231,7 +263,9 @@ describe('usePostMenuActions', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.menuItems.some((entry) => entry.id === POST_MENU_ACTION_IDS.SUMMARIZE_WITH_PUBCHI)).toBe(true);
+      expect(result.current.menuItems.some((entry) => entry.id === POST_MENU_ACTION_IDS.SUMMARIZE_WITH_PUBCHI)).toBe(
+        true,
+      );
     });
   });
 

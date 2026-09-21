@@ -92,6 +92,47 @@ describe('PubchiStore', () => {
     expect(usePubchiStore.getState().conversation.turns).toHaveLength(7);
   });
 
+  it('clears the conversation when opening a post-menu summarize', () => {
+    const first = {
+      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      source: 'post-menu' as const,
+      target: { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-1' },
+    };
+    const second = {
+      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-2',
+      source: 'post-menu' as const,
+      target: { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-2' },
+    };
+    usePubchiStore.getState().setConfig(null, OWNER);
+    usePubchiStore.getState().openFlyout(first, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: first.question }, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'First summary' }, OWNER);
+
+    usePubchiStore.getState().openFlyout(second, OWNER);
+
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    expect(usePubchiStore.getState().flyout.prefill).toEqual({ ...second, ownerPubky: OWNER });
+  });
+
+  it('does not clear the conversation for chip or empty flyout opens', () => {
+    usePubchiStore.getState().setConfig(null, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'prior' }, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'answer' }, OWNER);
+
+    usePubchiStore.getState().openFlyout(
+      {
+        question: 'Suggest tags for this user',
+        source: 'chip',
+        target: { kind: 'user', uri: 'pubky://owner/pub/pubky.app/profile.json' },
+      },
+      OWNER,
+    );
+    expect(usePubchiStore.getState().conversation.turns).toHaveLength(2);
+
+    usePubchiStore.getState().openFlyout();
+    expect(usePubchiStore.getState().conversation.turns).toHaveLength(2);
+  });
+
   it('isolates owners and clears on owner change', () => {
     usePubchiStore.getState().setConfig(null, OWNER);
     usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'private' }, OWNER);
