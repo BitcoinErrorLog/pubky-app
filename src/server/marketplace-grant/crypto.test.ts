@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { MarketplaceGrantConfig } from './config';
@@ -6,12 +7,17 @@ import {
   decodeBase64Url32,
   encodeBase64Url,
   hashBoundCookie,
+  hashCliDeliveryId,
+  hashCliToken,
   makeBoundCookie,
   openBearer,
+  openCliFlowContext,
   openFlowContext,
   resultPublicKey,
   sealBearer,
+  sealCliFlowContext,
   sealFlowContext,
+  signBootstrapAssertion,
   signDeliveryAssertion,
   signServiceBody,
 } from './crypto';
@@ -79,5 +85,44 @@ describe('marketplace grant BFF cryptography', () => {
     expect(signed.signature).toMatch(/^[A-Za-z0-9_-]{86}$/);
     expect(new TextDecoder().decode(signed.bytes)).toContain('"method":"POST"');
     expect(decodeBase64Url32(deliveryId)).toHaveLength(32);
+  });
+
+  it('signs a bootstrap assertion with purpose marketplace-grant-flow', () => {
+    const deliveryId = encodeBase64Url(new Uint8Array(32).fill(6));
+    const resultCpk = resultPublicKey(new Uint8Array(32).fill(7));
+    const assertion = signBootstrapAssertion(
+      config,
+      deliveryId,
+      resultCpk,
+      'y'.repeat(52),
+      1_760_000_000,
+      randomUUID(),
+    );
+    const payload = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString()) as { purpose: string };
+    expect(payload.purpose).toBe('marketplace-grant-flow');
+  });
+
+  it('binds CLI flow tokens and delivery-id hashes to distinct keys', () => {
+    const challengeId = randomUUID();
+    const stateId = randomUUID();
+    const secret = makeBoundCookie(stateId).secret;
+    const deliveryId = new Uint8Array(32).fill(8);
+    const tokenDigest = hashCliToken(config, 1, secret);
+    expect(cookieMatches(tokenDigest, hashCliToken(config, 1, secret))).toBe(true);
+    expect(cookieMatches(tokenDigest, hashBoundCookie(config, 1, 'flow', stateId, secret))).toBe(false);
+    expect(
+      cookieMatches(
+        hashCliDeliveryId(config, 1, challengeId, deliveryId),
+        hashCliDeliveryId(config, 1, randomUUID(), deliveryId),
+      ),
+    ).toBe(false);
+    const sealed = sealCliFlowContext(config, stateId, 'y'.repeat(52), {
+      resultDeliveryId: encodeBase64Url(deliveryId),
+      version: 1,
+    });
+    expect(openCliFlowContext(config, stateId, 'y'.repeat(52), 1, sealed).resultDeliveryId).toBe(
+      encodeBase64Url(deliveryId),
+    );
+    expect(() => openCliFlowContext(config, stateId, 'b'.repeat(52), 1, sealed)).toThrow();
   });
 });

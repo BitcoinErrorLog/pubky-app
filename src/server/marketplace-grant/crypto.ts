@@ -32,7 +32,7 @@ export function decodeBase64Url32(value: string): Uint8Array {
   if (bytes.length !== 32 || bytes.toString('base64url') !== value) {
     throw new TypeError('Expected canonical Base64url for 32 bytes');
   }
-  return bytes;
+  return Uint8Array.from(bytes);
 }
 
 function uuidBytes(value: string): Uint8Array {
@@ -254,6 +254,152 @@ export function signDeliveryAssertion(
       sub: expectedPubky,
     },
   );
+}
+
+export function signBootstrapAssertion(
+  config: MarketplaceGrantConfig,
+  deliveryId: string,
+  resultCpk: string,
+  expectedPubky: string,
+  nowSeconds: number,
+  jti: string,
+): string {
+  return signCompact(
+    config.assertionSigningKey,
+    { alg: 'EdDSA', kid: config.assertionKeyId, typ: 'JWT' },
+    {
+      aud: 'marketplace-service',
+      exp: nowSeconds + 60,
+      iat: nowSeconds,
+      iss: config.assertionIssuer,
+      jti,
+      purpose: 'marketplace-grant-flow',
+      result_cpk: resultCpk,
+      result_delivery_id: deliveryId,
+      sub: expectedPubky,
+    },
+  );
+}
+
+const CLI_TOKEN_SALT = utf8.encode('shop-bff/cli-flow-token/hkdf-salt/v1');
+
+function cliTokenKey(config: MarketplaceGrantConfig, epoch: number): Uint8Array {
+  return hkdf(
+    sha256,
+    rootForEpoch(config, epoch),
+    CLI_TOKEN_SALT,
+    concat(utf8.encode('shop-bff/cli-flow-token/token-key/v1'), u16(epoch)),
+    32,
+  );
+}
+
+export function hashCliToken(config: MarketplaceGrantConfig, epoch: number, secret: Uint8Array): Uint8Array {
+  return hmac(sha256, cliTokenKey(config, epoch), secret);
+}
+
+const CLI_DELIVERY_SALT = utf8.encode('shop-bff/cli-challenge/hkdf-salt/v1');
+
+function cliDeliveryKey(config: MarketplaceGrantConfig, epoch: number): Uint8Array {
+  return hkdf(
+    sha256,
+    rootForEpoch(config, epoch),
+    CLI_DELIVERY_SALT,
+    concat(utf8.encode('shop-bff/cli-challenge/delivery-key/v1'), u16(epoch)),
+    32,
+  );
+}
+
+export function hashCliDeliveryId(
+  config: MarketplaceGrantConfig,
+  epoch: number,
+  challengeId: string,
+  deliveryId: Uint8Array,
+): Uint8Array {
+  return hmac(
+    sha256,
+    cliDeliveryKey(config, epoch),
+    concat(utf8.encode('shop-bff/cli-challenge/delivery-id/v1'), uuidBytes(challengeId), deliveryId),
+  );
+}
+
+export type CliStateContext = {
+  resultDeliveryId: string;
+  version: 1;
+};
+
+function cliFlowAad(stateId: string, pubky: string, epoch: number): Uint8Array {
+  const pubkyBytes = utf8.encode(pubky);
+  return concat(
+    utf8.encode('marketplace/shop-bff-cli-state/envelope/v1'),
+    uuidBytes(stateId),
+    u16(pubkyBytes.length),
+    pubkyBytes,
+    u16(epoch),
+  );
+}
+
+function cliResultTokenAad(stateId: string, epoch: number): Uint8Array {
+  return concat(utf8.encode('marketplace/shop-bff-cli-result-token/v1'), uuidBytes(stateId), u16(epoch));
+}
+
+export function sealCliFlowContext(
+  config: MarketplaceGrantConfig,
+  stateId: string,
+  pubky: string,
+  context: CliStateContext,
+): Uint8Array {
+  return seal(
+    config,
+    config.stateKeyEpoch,
+    utf8.encode(canonicalJson(context)),
+    cliFlowAad(stateId, pubky, config.stateKeyEpoch),
+  );
+}
+
+export function openCliFlowContext(
+  config: MarketplaceGrantConfig,
+  stateId: string,
+  pubky: string,
+  epoch: number,
+  sealed: Uint8Array,
+): CliStateContext {
+  const text = new TextDecoder().decode(open(config, epoch, sealed, cliFlowAad(stateId, pubky, epoch)));
+  const parsed = JSON.parse(text) as CliStateContext;
+  if (
+    parsed.version !== 1 ||
+    canonicalJson(parsed) !== text ||
+    decodeBase64Url32(parsed.resultDeliveryId).length !== 32
+  ) {
+    throw new TypeError('Invalid CLI BFF flow envelope');
+  }
+  return parsed;
+}
+
+export function sealCliResultToken(config: MarketplaceGrantConfig, stateId: string, resultToken: string): Uint8Array {
+  return seal(
+    config,
+    config.stateKeyEpoch,
+    utf8.encode(canonicalJson({ resultToken, version: 1 })),
+    cliResultTokenAad(stateId, config.stateKeyEpoch),
+  );
+}
+
+export function openCliResultToken(
+  config: MarketplaceGrantConfig,
+  stateId: string,
+  epoch: number,
+  sealed: Uint8Array,
+): string {
+  const text = new TextDecoder().decode(open(config, epoch, sealed, cliResultTokenAad(stateId, epoch)));
+  const parsed = JSON.parse(text) as { resultToken?: string; version?: number };
+  if (parsed.version !== 1 || typeof parsed.resultToken !== 'string' || canonicalJson(parsed) !== text) {
+    throw new TypeError('Invalid CLI result-token envelope');
+  }
+  return parsed.resultToken;
+}
+
+export function sha256Bytes(value: Uint8Array): Uint8Array {
+  return sha256(value);
 }
 
 export function signServiceBody(

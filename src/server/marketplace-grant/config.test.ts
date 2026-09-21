@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getMarketplaceGrantConfig, resetMarketplaceGrantConfigForTests } from './config';
+import { getCliGrantConfig, getMarketplaceGrantConfig, resetMarketplaceGrantConfigForTests } from './config';
 
 const ENV = { ...process.env };
 
@@ -76,5 +76,36 @@ describe('marketplace grant BFF config', () => {
       claimLeaseSeconds: 45,
       serviceTimeoutMs: 10000,
     });
+  });
+
+  it('keeps CLI routes disabled unless both grant flags are true', () => {
+    process.env = { ...validEnv(), SHOP_BFF_CLI_GRANT_ENABLED: 'true', SHOP_BFF_GRANT_FLOW_ENABLED: 'false' };
+    expect(getCliGrantConfig()).toBeNull();
+    process.env = { ...validEnv(), SHOP_BFF_CLI_GRANT_ENABLED: 'false' };
+    resetMarketplaceGrantConfigForTests();
+    expect(getCliGrantConfig()).toBeNull();
+  });
+
+  it('loads CLI extras only when the CLI flag is on', () => {
+    process.env = { ...validEnv(), SHOP_BFF_CLI_GRANT_ENABLED: 'true' };
+    expect(getCliGrantConfig()).toMatchObject({
+      challengeTtlSeconds: 60,
+      createPerIpPerMinute: 10,
+      createPerPubkyPerMinute: 5,
+      verifyPerIpPerMinute: 10,
+      statusPerTokenPerMinute: 60,
+      resultPerTokenPerMinute: 30,
+      homeserverFetchTimeoutMs: 5000,
+      trustedProxyCount: 0,
+    });
+  });
+
+  it('refuses a CLI challenge TTL outside 30–120 when the CLI flag is on', () => {
+    process.env = {
+      ...validEnv(),
+      SHOP_BFF_CLI_GRANT_ENABLED: 'true',
+      SHOP_BFF_CLI_GRANT_CHALLENGE_TTL_SECONDS: '29',
+    };
+    expect(() => getCliGrantConfig()).toThrow();
   });
 });
