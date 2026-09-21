@@ -188,7 +188,7 @@ function nextFrame(): Promise<void> {
 }
 
 interface VrtHoverLocator {
-  hover(): Promise<void>;
+  hover(options?: { force?: boolean }): Promise<void>;
   element(): Element;
 }
 
@@ -203,6 +203,21 @@ function requireHoverElement(locator: VrtHoverLocator): HTMLElement {
 function vrtHoverRoot(element: HTMLElement): HTMLElement {
   const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
   return root instanceof HTMLElement ? root : element;
+}
+
+function pinVrtRootScroll(): void {
+  const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
+  resetVrtScroll(root instanceof HTMLElement ? root : undefined);
+}
+
+async function hoverWithoutScroll(locator: VrtHoverLocator): Promise<void> {
+  pinVrtRootScroll();
+  // Method call — extracting `locator.hover` drops the vitest receiver and
+  // throws `Cannot read properties of undefined (reading 'triggerCommand')`.
+  // `force: true` skips Playwright's scroll-into-view (~39px on the mobile
+  // bottom-row drop card, ±8px vs the committed crop).
+  await locator.hover({ force: true });
+  pinVrtRootScroll();
 }
 
 function finishCssAnimations(root: HTMLElement): void {
@@ -232,6 +247,9 @@ function runningAnimationCount(root: HTMLElement): number {
  * transition duration so the hover end-state can paint on the first frame,
  * re-assert `:hover` if suite load drops the pointer, then wait until bbox
  * width is ≥ rest × 1.04 and no CSS animations are still running.
+ * Hover uses `force: true` as a bound method and pins VRT_ROOT at scroll 0
+ * so Playwright does not crop the grid by scrolling a bottom-row card into
+ * view (~39px, flakes ±8px against the committed mobile drop-hover crop).
  */
 export async function hoverAndWaitForScale(
   locator: VrtHoverLocator,
@@ -244,19 +262,21 @@ export async function hoverAndWaitForScale(
   }
 
   finishCssAnimations(vrtHoverRoot(requireHoverElement(locator)));
+  pinVrtRootScroll();
   await nextFrame();
   await nextFrame();
 
   const restWidth = requireHoverElement(locator).getBoundingClientRect().width;
   const minWidth = restWidth * minScale;
-  await locator.hover();
+  await hoverWithoutScroll(locator);
   const deadline = Date.now() + timeoutMs;
   let lastWidth = requireHoverElement(locator).getBoundingClientRect().width;
   while (Date.now() < deadline) {
     let element = requireHoverElement(locator);
     finishCssAnimations(vrtHoverRoot(element));
+    pinVrtRootScroll();
     if (!element.matches(':hover')) {
-      await locator.hover();
+      await hoverWithoutScroll(locator);
       element = requireHoverElement(locator);
     }
     lastWidth = element.getBoundingClientRect().width;
@@ -267,6 +287,7 @@ export async function hoverAndWaitForScale(
       await nextFrame();
       element = requireHoverElement(locator);
       finishCssAnimations(vrtHoverRoot(element));
+      pinVrtRootScroll();
       lastWidth = element.getBoundingClientRect().width;
       if (element.matches(':hover') && lastWidth >= minWidth && runningAnimationCount(vrtHoverRoot(element)) === 0) {
         return;

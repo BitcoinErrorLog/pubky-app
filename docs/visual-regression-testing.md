@@ -110,6 +110,11 @@ Pin every deterministic source below so real diffs stand out:
   Never rewrite `animation: none` to `animation-duration: 0s`: hover is a
   transition, card-enter is an animation; duration-only re-enables delayed
   fill-mode `from` and composes with hover.
+  Playwright `locator.hover()` also scrolls a bottom-row card into view
+  inside overflow-hidden `VRT_ROOT` (~39px, ±8px vs the committed crop).
+  Call `hover({ force: true })` as a method (do not extract it) and pin
+  `VRT_ROOT` at scroll 0 before capture so the scene is rest layout plus
+  hover, not a scrolled crop.
 
 - **Avatars** — VRT profile fixtures use `image: null` so every avatar renders
   `FacehashAvatar`. `vrt.setup.ts` sets `globalThis.__VRT__` and stabiliser CSS;
