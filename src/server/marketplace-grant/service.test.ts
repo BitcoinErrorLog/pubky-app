@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MarketplaceGrantConfig } from './config';
-import { GrantServiceError, claimGrantResult, verifyMarketplaceSession } from './service';
+import { claimGrantResult, GrantServiceError, verifyMarketplaceSession } from './service';
 
 const config: MarketplaceGrantConfig = {
   allowedOrigins: ['https://shop.example'],
