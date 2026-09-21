@@ -28,6 +28,7 @@ const statusSchema = z.object({
   status: z.enum(['awaiting', 'verifying', 'complete', 'mismatch', 'expired', 'cancelled', 'invalid', 'failed']),
   terminal_code: z.string().nullable().optional(),
 });
+const redactedTerminalSchema = z.object({ status: z.literal('terminal') }).strict();
 const nonceSchema = z.object({
   expires_at: z.iso.datetime({ offset: true }),
   nonce: z.string(),
@@ -147,6 +148,17 @@ export async function getGrantStatus(
 ): Promise<z.infer<typeof statusSchema>> {
   const response = await request(config, `/v1/auth/grant-flows/${flowId}`, { method: 'GET' });
   const body = (await response.json().catch(() => null)) as unknown;
+  if (response.status === 410) {
+    const redacted = redactedTerminalSchema.safeParse(body);
+    if (redacted.success) {
+      return {
+        expires_at: new Date().toISOString(),
+        flow_id: flowId,
+        status: 'invalid',
+        terminal_code: null,
+      };
+    }
+  }
   if (![200, 409, 410, 422].includes(response.status)) {
     const code =
       typeof body === 'object' && body !== null && typeof (body as { error?: unknown }).error === 'string'
