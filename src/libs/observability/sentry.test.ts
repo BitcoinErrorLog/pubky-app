@@ -663,8 +663,12 @@ describe('Sentry PII scrubbing', () => {
   });
 
   it.each([
-    ['tags', { token: 'tag-secret' }, { token: '[redacted: sensitive field]' }],
-    ['fingerprint', ['user@example.com'], ['[redacted: email]']],
+    [
+      'tags',
+      { token: 'tag-secret', 'error.category': 'network' },
+      { token: '[redacted: sensitive field]', 'error.category': 'network' },
+    ],
+    ['fingerprint', ['user@example.com', '{{ default }}'], ['[redacted: email]', '{{ default }}']],
     [
       'threads',
       { values: [{ name: 'user@example.com', current: true }] },
@@ -683,13 +687,19 @@ describe('Sentry PII scrubbing', () => {
   it('treats cookies plural as a sensitive key', () => {
     const event = runBeforeSend(
       asOpaque<Sentry.ErrorEvent>({
-        extra: { cookies: 'session=private', nested: { Cookies: { session: 'private' } } },
+        extra: { cookies: 'session=private', nested: { Cookies: { session: 'private' } }, statusCode: 200 },
+        request: { cookies: { session: 'private' }, method: 'GET' },
       }),
     );
 
     expect(event.extra).toEqual({
       cookies: '[redacted: sensitive field]',
       nested: { Cookies: '[redacted: sensitive field]' },
+      statusCode: 200,
+    });
+    expect(event.request).toEqual({
+      cookies: '[redacted: sensitive field]',
+      method: 'GET',
     });
   });
 
@@ -894,6 +904,42 @@ describe('Sentry breadcrumb ingress scrubbing', () => {
 });
 
 describe('Sentry transaction PII scrubbing', () => {
+  it.each([
+    [
+      'tags',
+      { token: 'tag-secret', 'error.category': 'network' },
+      { token: '[redacted: sensitive field]', 'error.category': 'network' },
+    ],
+    ['fingerprint', ['user@example.com', '{{ default }}'], ['[redacted: email]', '{{ default }}']],
+    [
+      'threads',
+      { values: [{ name: 'user@example.com', current: true }] },
+      { values: [{ name: '[redacted: sensitive field]', current: true }] },
+    ],
+    [
+      'measurements',
+      { custom: { value: `pubky://${TEST_PUBKY}/pub/profile.json`, unit: 'none' } },
+      { custom: { value: '[redacted: pubky identifier]', unit: 'none' } },
+    ],
+  ])('walks the %s event carrier on transaction events', (carrier, raw, expected) => {
+    const event = runBeforeSendTransaction(asOpaque<TransactionEvent>({ type: 'transaction', [carrier]: raw }));
+    expect(asOpaque<Record<string, unknown>>(event)[carrier]).toEqual(expected);
+  });
+
+  it('redacts request.cookies on transaction events while preserving method', () => {
+    const event = runBeforeSendTransaction(
+      asOpaque<TransactionEvent>({
+        type: 'transaction',
+        request: { cookies: { session: 'private' }, method: 'GET' },
+      }),
+    );
+
+    expect(event.request).toEqual({
+      cookies: '[redacted: sensitive field]',
+      method: 'GET',
+    });
+  });
+
   it('redacts pubky-bearing transaction names, request fields, header values, and trace.data URL fields while preserving structural names', () => {
     const event = runBeforeSendTransaction(
       asOpaque<TransactionEvent>({
