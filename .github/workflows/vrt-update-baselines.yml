@@ -95,7 +95,7 @@ jobs:
     name: Commit baselines
     needs: regenerate
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     concurrency:
       group: vrt-update-baselines-${{ github.ref }}
       cancel-in-progress: true

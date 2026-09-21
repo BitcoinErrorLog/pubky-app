@@ -66,7 +66,7 @@ jobs:
     name: Validate and rebuild Pubky App
     # BitcoinErrorLog Shop previews are built and deployed by Vercel.
     if: github.repository == 'pubky/pubky-app'
-    timeout-minutes: 5
+    timeout-minutes: 6
     outputs:
       image_tag: ${{ steps.set_tag.outputs.image_tag }}
       image_name: ${{ steps.set_tag.outputs.image_name }}
