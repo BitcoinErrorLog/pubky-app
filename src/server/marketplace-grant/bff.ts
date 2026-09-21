@@ -47,6 +47,7 @@ export class BffError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(code);
   }
@@ -281,14 +282,16 @@ export async function clearSession(request: Request, sessionCookie: string | und
   if (parsed) await deleteBridge(config, parsed.id);
 }
 
-export function mapBffError(error: unknown): { status: number; code: string } {
-  if (error instanceof BffError) return { status: error.status, code: error.code };
+export function mapBffError(error: unknown): { status: number; code: string; retryAfterSeconds?: number } {
+  if (error instanceof BffError) {
+    return { status: error.status, code: error.code, retryAfterSeconds: error.retryAfterSeconds };
+  }
   if (error instanceof GrantServiceError) {
     if (error.status === 401 || error.status === 403) {
       return { status: 401, code: 'shop_session_expired' };
     }
     if (error.status === 409 && error.code === 'identity_mismatch') return { status: 409, code: 'identity_mismatch' };
-    if (error.status === 429) return { status: 429, code: 'retry_later' };
+    if (error.status === 429) return { status: 429, code: 'retry_later', retryAfterSeconds: 60 };
     if (error.status === 410) return { status: 410, code: error.code };
     if (error.status === 422) return { status: 422, code: 'approval_invalid' };
   }

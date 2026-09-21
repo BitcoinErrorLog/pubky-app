@@ -35,6 +35,7 @@ describe('mapBffError', () => {
     expect(mapBffError(new GrantServiceError(429, 'slow_down'))).toEqual({
       status: 429,
       code: 'retry_later',
+      retryAfterSeconds: 60,
     });
   });
 
