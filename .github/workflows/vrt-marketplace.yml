@@ -1,0 +1,61 @@
+name: Marketplace VRT
+
+on:
+  pull_request:
+    branches:
+      - 'release/shop-*'
+
+jobs:
+  vrt-marketplace:
+    name: vrt-marketplace
+    runs-on: ubuntu-latest
+    # Same image as local Linux proof (`package-lock.json` playwright 1.60.0).
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      options: --user 1001
+    # Non-container HEAD median 4m0s (run 35590590935). Containerized
+    # 9fb822a01 cancelled at 8m with tests still running (run 35593190722:
+    # ~1.5m setup, ~3m cold vite optimize, tests unfinished). Missing
+    # baselines run compare then --update. 25 min covers that second suite.
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run marketplace visual regression tests
+        env:
+          VRT_BROWSERS: chromium,firefox
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          VRT_REPORT_DIR: ${{ github.workspace }}/.vrt-marketplace-ci
+        run: bash scripts/ci-vrt-marketplace.sh
+
+      - name: Upload newly recorded Linux baselines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrt-marketplace-linux-baselines
+          path: ${{ github.workspace }}/.vrt-marketplace-ci/new-linux-baselines/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload VRT report and attachments
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrt-marketplace-report
+          path: |
+            ${{ github.workspace }}/.vrt-marketplace-ci/report.json
+            .vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
