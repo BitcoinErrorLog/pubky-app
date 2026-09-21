@@ -12,6 +12,7 @@ import { createOrderFixture, createPaymentFixture } from '@/test/fixtures/commer
 import { MarketplacePaymentStatusCard } from './MarketplacePaymentStatusCard';
 
 const runtime = vi.hoisted(() => ({ deployEnv: 'production' as 'production' | 'staging' | undefined }));
+const auth = vi.hoisted(() => ({ currentUserPubky: 's'.repeat(52) }));
 
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
@@ -55,12 +56,13 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 's'.repeat(52) }),
+    selector({ currentUserPubky: auth.currentUserPubky }),
 }));
 
 describe('MarketplacePaymentStatusCard', () => {
   beforeEach(() => {
     runtime.deployEnv = 'production';
+    auth.currentUserPubky = 's'.repeat(52);
     vi.mocked(useMarketplaceOrderPayment).mockReturnValue({
       availableMethods: null,
       bitcoinOfferUnavailable: false,
@@ -412,6 +414,32 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(screen.getByText(CHECKOUT_HOLD_COPY.lateCompleteSeller)).toBeInTheDocument();
   });
 
+  it('renders refund_required copy for the buyer without seller bitcoin instructions', () => {
+    auth.currentUserPubky = 'b'.repeat(52);
+    const payment = createPaymentFixture('manual_review', {
+      adapter: 'paykit',
+      reviewReason: 'refund_required',
+    });
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('cancelled', {
+          paymentId: payment.id,
+          paymentMethod: 'bitcoin',
+          cancellationReason: 'payment window elapsed',
+        })}
+        payment={payment}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(CHECKOUT_HOLD_COPY.refundRequiredBuyer)).toBeInTheDocument();
+    expect(screen.queryByText(CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller)).not.toBeInTheDocument();
+    expect(screen.queryByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+  });
+
   it('renders refund_required copy and hides Paid for the seller', () => {
     const payment = createPaymentFixture('manual_review', {
       adapter: 'paykit',
@@ -433,6 +461,7 @@ describe('MarketplacePaymentStatusCard', () => {
     );
 
     expect(screen.getByText(CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller)).toBeInTheDocument();
+    expect(screen.queryByText(CHECKOUT_HOLD_COPY.refundRequiredBuyer)).not.toBeInTheDocument();
     expect(screen.getByLabelText('Outcome')).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Paid' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Refunded' })).toBeInTheDocument();

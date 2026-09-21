@@ -47,10 +47,7 @@ export function holderBoundCopy(holdExpiresAt: string | null | undefined): strin
     : 'If the window ends, the item restocks.';
 }
 
-export function isLateCompletionOrder(order: {
-  state: string;
-  cancellationReason?: string | null;
-}): boolean {
+export function isLateCompletionOrder(order: { state: string; cancellationReason?: string | null }): boolean {
   return order.state === 'paid' && order.cancellationReason === PAYMENT_WINDOW_ELAPSED_REASON;
 }
 
@@ -74,4 +71,8 @@ export function refundRequiredSellerCopy(paymentMethod: string | null | undefine
   if (paymentMethod === 'paypal') return CHECKOUT_HOLD_COPY.refundRequiredPaypalSeller;
   if (paymentMethod === 'stripe') return CHECKOUT_HOLD_COPY.refundRequiredStripeSeller;
   return CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller;
+}
+
+export function refundRequiredCopyForRole(isBuyer: boolean, paymentMethod: string | null | undefined): string {
+  return isBuyer ? CHECKOUT_HOLD_COPY.refundRequiredBuyer : refundRequiredSellerCopy(paymentMethod);
 }

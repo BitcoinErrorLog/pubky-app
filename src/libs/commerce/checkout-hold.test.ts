@@ -8,6 +8,7 @@ import {
   isLateCompletionOrder,
   isRefundRequiredPayment,
   PAYMENT_WINDOW_ELAPSED_REASON,
+  refundRequiredCopyForRole,
   refundRequiredSellerCopy,
   UNBOUND_BACK_CANCEL_REASON,
 } from './checkout-hold';
@@ -27,13 +28,11 @@ describe('checkout-hold copy', () => {
   });
 
   it('detects late completion from paid plus leftover elapsed reason', () => {
-    expect(
-      isLateCompletionOrder({ state: 'paid', cancellationReason: PAYMENT_WINDOW_ELAPSED_REASON }),
-    ).toBe(true);
+    expect(isLateCompletionOrder({ state: 'paid', cancellationReason: PAYMENT_WINDOW_ELAPSED_REASON })).toBe(true);
     expect(isLateCompletionOrder({ state: 'paid', cancellationReason: null })).toBe(false);
-    expect(
-      isLateCompletionOrder({ state: 'cancelled', cancellationReason: PAYMENT_WINDOW_ELAPSED_REASON }),
-    ).toBe(false);
+    expect(isLateCompletionOrder({ state: 'cancelled', cancellationReason: PAYMENT_WINDOW_ELAPSED_REASON })).toBe(
+      false,
+    );
   });
 
   it('detects refund_required and elapsed-without-late-money', () => {
@@ -58,5 +57,13 @@ describe('checkout-hold copy', () => {
     expect(refundRequiredSellerCopy('bitcoin')).toBe(CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller);
     expect(UNBOUND_BACK_CANCEL_REASON.length).toBeGreaterThanOrEqual(1);
     expect(UNBOUND_BACK_CANCEL_REASON.length).toBeLessThanOrEqual(500);
+  });
+
+  it('splits refund_required copy by buyer vs seller role', () => {
+    expect(refundRequiredCopyForRole(true, 'bitcoin')).toBe(CHECKOUT_HOLD_COPY.refundRequiredBuyer);
+    expect(refundRequiredCopyForRole(true, 'paypal')).toBe(CHECKOUT_HOLD_COPY.refundRequiredBuyer);
+    expect(refundRequiredCopyForRole(false, 'bitcoin')).toBe(CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller);
+    expect(refundRequiredCopyForRole(false, 'paypal')).toBe(CHECKOUT_HOLD_COPY.refundRequiredPaypalSeller);
+    expect(refundRequiredCopyForRole(false, 'stripe')).toBe(CHECKOUT_HOLD_COPY.refundRequiredStripeSeller);
   });
 });

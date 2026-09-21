@@ -282,7 +282,12 @@ describe('Marketplace payment status card — visual regression', () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
       deployEnv: 'staging',
-      orderOverrides: { paymentMethod: 'bitcoin', paykitRequestState: 'pending', holdExpiresAt: HOLD_DEADLINE, holdSource: 'bind' },
+      orderOverrides: {
+        paymentMethod: 'bitcoin',
+        paykitRequestState: 'pending',
+        holdExpiresAt: HOLD_DEADLINE,
+        holdSource: 'bind',
+      },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-bitcoin-desktop');
     view.locks.enabled = true;
@@ -434,7 +439,9 @@ describe('Marketplace payment status card — visual regression', () => {
       orderState: 'paid',
       orderOverrides: { cancellationReason: 'payment window elapsed' },
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-late-completion-seller-desktop');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-late-completion-seller-desktop',
+    );
     view.locks.enabled = true;
   });
 
@@ -442,10 +449,13 @@ describe('Marketplace payment status card — visual regression', () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('manual_review', 'transaction-service', {
       deployEnv: 'staging',
+      currentUserPubky: 'b'.repeat(52),
       orderState: 'cancelled',
       paymentOverrides: { reviewReason: 'refund_required' },
       orderOverrides: { cancellationReason: 'payment window elapsed', paymentMethod: 'bitcoin' },
     });
+    await expect.element(screen.getByText(/The seller must return your funds/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/Return the observed bitcoin/)).not.toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-refund-required-buyer-desktop');
     view.locks.enabled = true;
   });

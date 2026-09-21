@@ -35,7 +35,7 @@ import {
   isHoldExpiredNoLateMoney,
   isLateCompletionOrder,
   isRefundRequiredPayment,
-  refundRequiredSellerCopy,
+  refundRequiredCopyForRole,
   UNBOUND_BACK_CANCEL_REASON,
 } from '@/libs/commerce/checkout-hold';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
@@ -239,14 +239,9 @@ export function MarketplacePaymentStatusCard({
           {isBuyer ? CHECKOUT_HOLD_COPY.lateCompleteBuyer : CHECKOUT_HOLD_COPY.lateCompleteSeller}
         </Typography>
       )}
-      {refundRequired && isBuyer && (
+      {refundRequired && (
         <Typography as="p" className="text-sm text-muted-foreground">
-          {CHECKOUT_HOLD_COPY.refundRequiredBuyer}
-        </Typography>
-      )}
-      {refundRequired && isSeller && (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          {refundRequiredSellerCopy(order.paymentMethod)}
+          {refundRequiredCopyForRole(isBuyer, order.paymentMethod)}
         </Typography>
       )}
 
