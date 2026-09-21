@@ -192,46 +192,94 @@ interface VrtHoverLocator {
   element(): Element;
 }
 
+async function hoverCard(locator: VrtHoverLocator): Promise<void> {
+  const hover = locator.hover as (options?: { force?: boolean }) => Promise<void>;
+  await hover({ force: true });
+}
+
+function requireHoverElement(locator: VrtHoverLocator): HTMLElement {
+  const element = locator.element();
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('VRT hover scale requires an HTMLElement');
+  }
+  return element;
+}
+
+function vrtHoverRoot(element: HTMLElement): HTMLElement {
+  const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
+  return root instanceof HTMLElement ? root : element;
+}
+
+function finishCssAnimations(root: HTMLElement): void {
+  if (typeof root.getAnimations !== 'function') return;
+  for (const animation of root.getAnimations({ subtree: true })) {
+    try {
+      animation.finish();
+    } catch {
+      animation.cancel();
+    }
+  }
+}
+
+function runningAnimationCount(root: HTMLElement): number {
+  if (typeof root.getAnimations !== 'function') return 0;
+  return root.getAnimations({ subtree: true }).filter((animation) => animation.playState === 'running').length;
+}
+
 /**
  * Hover a marketplace card and wait until the transformed box is settled.
  *
  * `offsetWidth` is layout and ignores `transform: scale()`.
  * `getComputedStyle().transform` / `scale` report the hover *target* as soon
- * as `:hover` matches, including during `duration-300`. Measure rest
- * `getBoundingClientRect().width` before hover, inject 0s transition duration
- * so the end-state can paint on the first frame, re-assert `:hover` if suite
- * load drops the pointer, then wait until bbox width is ≥ rest × 1.04.
+ * as `:hover` matches, including during `duration-300`. Finish leftover enter
+ * animations on the VRT root (so rest width is not the delayed `from`
+ * keyframe), measure rest `getBoundingClientRect().width`, inject 0s
+ * transition duration so the hover end-state can paint on the first frame,
+ * re-assert `:hover` if suite load drops the pointer, then wait until bbox
+ * width is ≥ rest × 1.04 and no CSS animations are still running.
  */
 export async function hoverAndWaitForScale(
   locator: VrtHoverLocator,
   minScale = VRT_HOVER_SCALE_SETTLED,
   timeoutMs = VRT_HOVER_SCALE_TIMEOUT_MS,
 ): Promise<void> {
-  const element = locator.element();
-  if (!(element instanceof HTMLElement)) {
-    throw new Error('VRT hover scale requires an HTMLElement');
-  }
   injectMarketplaceZeroMotion();
-  const restWidth = element.getBoundingClientRect().width;
+  if (document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+
+  finishCssAnimations(vrtHoverRoot(requireHoverElement(locator)));
+  await nextFrame();
+  await nextFrame();
+
+  const restWidth = requireHoverElement(locator).getBoundingClientRect().width;
   const minWidth = restWidth * minScale;
-  await locator.hover();
+  await hoverCard(locator);
   const deadline = Date.now() + timeoutMs;
-  let lastWidth = element.getBoundingClientRect().width;
+  let lastWidth = requireHoverElement(locator).getBoundingClientRect().width;
   while (Date.now() < deadline) {
+    let element = requireHoverElement(locator);
+    finishCssAnimations(vrtHoverRoot(element));
     if (!element.matches(':hover')) {
-      await locator.hover();
+      await hoverCard(locator);
+      element = requireHoverElement(locator);
     }
     lastWidth = element.getBoundingClientRect().width;
-    if (element.matches(':hover') && lastWidth >= minWidth) {
+    const settled =
+      element.matches(':hover') && lastWidth >= minWidth && runningAnimationCount(vrtHoverRoot(element)) === 0;
+    if (settled) {
       await nextFrame();
+      await nextFrame();
+      element = requireHoverElement(locator);
+      finishCssAnimations(vrtHoverRoot(element));
       lastWidth = element.getBoundingClientRect().width;
-      if (element.matches(':hover') && lastWidth >= minWidth) {
-        await nextFrame();
+      if (element.matches(':hover') && lastWidth >= minWidth && runningAnimationCount(vrtHoverRoot(element)) === 0) {
         return;
       }
     }
     await nextFrame();
   }
+  const element = requireHoverElement(locator);
   throw new Error(
     `VRT hover transformed box stayed below rest×${minScale} (lastWidth=${lastWidth.toFixed(2)}, restWidth=${restWidth.toFixed(2)}, minWidth=${minWidth.toFixed(2)}, :hover=${element.matches(':hover')}) after ${timeoutMs}ms`,
   );

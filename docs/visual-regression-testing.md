@@ -91,14 +91,20 @@ Pin every deterministic source below so real diffs stand out:
   `preloadImages(...)` them too when a surface has flaked on a specific asset
   (see the Landing VRT's header/brand logos).
 - **Hover transforms** — marketplace listing/drop cards use
-  `transition-transform duration-300` plus `hover:scale-105`. The
-  `vrt-marketplace` project injects
-  `* { transition-duration: 0s !important; animation-duration: 0s !important; }`
-  so the hover end-state paints on the first frame, and runs marketplace
-  files serially (`fileParallelism: false`). Capture hover scenes with
-  `hoverAndWaitForScale` from `src/test-utils/vrt.tsx`: re-assert `:hover`,
-  then wait until `getBoundingClientRect().width` is ≥ the pre-hover rest
-  width × 1.04 (the transformed box). Do not wait on `offsetWidth` (layout
+  `transition-transform duration-300` plus `hover:scale-105` and a random
+  `--card-hover-rotation`. They also run `.marketplace-card-enter`
+  (`420ms both`, delay `index * 60ms`). The `vrt-marketplace` project
+  rewrites shared `transition: none` to `transition-duration: 0s` so the
+  hover end-state paints on the first frame, and **leaves `animation: none`**
+  so the delayed enter `from` keyframe (`translateY(18px) scale(0.96)`)
+  cannot compose with hover. Zero-motion CSS sets `animation-name: none`
+  and `animation-delay: 0s`; it must not replace `animation: none` with
+  duration-only `animation-duration: 0s`. Files run serially
+  (`fileParallelism: false`). Capture hover scenes with
+  `hoverAndWaitForScale` from `src/test-utils/vrt.tsx`: finish leftover
+  animations on the VRT root, re-assert `:hover`, then wait until
+  `getBoundingClientRect().width` is ≥ the pre-hover rest width × 1.04
+  and no CSS animations are running. Do not wait on `offsetWidth` (layout
   ignores transforms) or `getComputedStyle().transform` / `scale` (they
   report the target immediately).
 - **Avatars** — VRT profile fixtures use `image: null` so every avatar renders
