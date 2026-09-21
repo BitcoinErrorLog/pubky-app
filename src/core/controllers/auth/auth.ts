@@ -50,7 +50,11 @@ import { clearRouteGuardReturnTo } from '@/providers/RouteGuardProvider/RouteGua
 import { createCanceledError } from '@/services/homeserver/error.utils';
 import type { TGenerateAuthUrlResult, THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
 import type { MarketplaceSessionFlow } from '@/services/marketplace/marketplace-session';
-import { hasPersistedAuthIdentity } from '@/stores/auth/auth.persisted';
+import {
+  clearPersistedAuthIdentity,
+  hasPersistedAuthIdentity,
+  readPersistedAuthIdentity,
+} from '@/stores/auth/auth.persisted';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
@@ -571,17 +575,19 @@ export class AuthController {
 
   /**
    * Destructive restore finalization, serialized across tabs (and against
-   * same-tab sign-in completion) by the auth finalization lock.
+   * same-tab sign-in completion) by the auth finalization lock
+   * (`navigator.locks` name `pubky-auth-finalization-v1` is origin-scoped and
+   * cross-tab; the in-process tail is only the no-Web-Locks fallback).
    *
-   * The identity snapshot is re-read INSIDE the lock — the live store first
-   * (a QR sign-in completing on THIS tab during the bridge window), then the
-   * persisted blob (another tab's sign-in). Cleanup is keyed to the identity
-   * captured at restore start: a different live pubky means that sign-in now
-   * owns origin-scoped Dexie, so this wipe no-ops. An identity that was
-   * absent at capture time means a sign-in now owns the private data: skip
-   * cleanup entirely and let the caller return signed-out. Wiping here would
-   * erase that sign-in's private rows and the messaging wrapping key, making
-   * its wrapped messaging state unrecoverable.
+   * The identity snapshot is re-read INSIDE the lock from `AUTH_PERSIST_KEY`
+   * (cross-tab source of truth; Zustand is per-tab and is not storage-event
+   * synced) and from the live store (same-tab QR). Cleanup is keyed to the
+   * identity captured at restore start: a different persist-blob or live pubky
+   * means that sign-in now owns origin-scoped Dexie, so this wipe no-ops. An
+   * identity that was absent at capture time means a sign-in now owns the
+   * private data: skip cleanup entirely and let the caller return signed-out.
+   * Wiping here would erase that sign-in's private rows and the messaging
+   * wrapping key, making its wrapped messaging state unrecoverable.
    *
    * `preservePublicCache` keeps the shared public browsing cache (catalog,
    * counts, TTLs): the no-identity path exists to drop orphaned PRIVATE
@@ -595,10 +601,11 @@ export class AuthController {
     preservePublicCache: boolean;
   }): Promise<void> {
     await withAuthFinalizationLock(async () => {
-      if (shouldSkipDestructiveCleanup(captured, useAuthStore.getState(), hasPersistedAuthIdentity())) {
+      if (shouldSkipDestructiveCleanup(captured, useAuthStore.getState(), readPersistedAuthIdentity())) {
         // A skipped logout must not pin the winning identity in the
         // logging-out state: `init` preserves `isLoggingOut`, and skip
-        // does not run `reset`.
+        // does not run `reset`. This `set()` is not persisted when
+        // `AUTH_PERSIST_KEY` already holds a different pubky (owner fence).
         useAuthStore.getState().setIsLoggingOut(false);
         return;
       }
@@ -612,7 +619,7 @@ export class AuthController {
    */
   private static async takeLocalStateForCapturedIdentity(captured: CapturedAuthIdentity): Promise<boolean> {
     return await withAuthFinalizationLock(async () => {
-      if (shouldSkipDestructiveCleanup(captured, useAuthStore.getState(), hasPersistedAuthIdentity())) {
+      if (shouldSkipDestructiveCleanup(captured, useAuthStore.getState(), readPersistedAuthIdentity())) {
         return false;
       }
       await clearDatabase();
@@ -624,7 +631,8 @@ export class AuthController {
 
   /**
    * Persist `newPubky` under the same lock that serializes cleanup. No-ops
-   * (returns false) when a third identity owns local state.
+   * (returns false) when `AUTH_PERSIST_KEY` or the live store already holds a
+   * third identity.
    */
   private static async persistIdentityUnderLock(
     newPubky: string,
@@ -633,8 +641,15 @@ export class AuthController {
   ): Promise<boolean> {
     return await withAuthFinalizationLock(async () => {
       const currentPubky = nonEmptyPubky(useAuthStore.getState().currentUserPubky);
-      if (shouldAbortIdentityPersist(captured, newPubky, currentPubky)) {
+      const persistedPubky = readPersistedAuthIdentity().pubky;
+      if (shouldAbortIdentityPersist(captured, newPubky, currentPubky, persistedPubky)) {
+        this.pendingLocalStateCapture = null;
         return false;
+      }
+      // Owner-guarded persist storage refuses A→B clobbers. A captured-identity
+      // replace (same-tab switch) must drop the blob first so `init` can write.
+      if (persistedPubky && persistedPubky !== newPubky) {
+        clearPersistedAuthIdentity();
       }
       persist();
       this.markLocalStateDirty();
