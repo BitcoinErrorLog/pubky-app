@@ -73,10 +73,28 @@ const configSchema = z
 
 export type MarketplaceGrantConfig = z.infer<typeof configSchema>;
 
+const cliExtrasSchema = z.object({
+  challengeTtlSeconds: z.coerce.number().int().min(30).max(120).default(60),
+  createPerIpPerMinute: z.coerce.number().int().min(1).default(10),
+  createPerPubkyPerMinute: z.coerce.number().int().min(1).default(5),
+  verifyPerIpPerMinute: z.coerce.number().int().min(1).default(10),
+  statusPerTokenPerMinute: z.coerce.number().int().min(1).default(60),
+  resultPerTokenPerMinute: z.coerce.number().int().min(1).default(30),
+  homeserverFetchTimeoutMs: z.coerce.number().int().min(2000).max(10000).default(5000),
+  trustedProxyCount: z.coerce.number().int().min(0).max(8).default(0),
+});
+
+export type CliGrantConfig = MarketplaceGrantConfig & z.infer<typeof cliExtrasSchema>;
+
 let cached: MarketplaceGrantConfig | null | undefined;
+let cachedCli: CliGrantConfig | null | undefined;
 
 export function marketplaceGrantEnabled(): boolean {
   return process.env.SHOP_BFF_GRANT_FLOW_ENABLED === 'true';
+}
+
+export function marketplaceCliGrantEnabled(): boolean {
+  return marketplaceGrantEnabled() && process.env.SHOP_BFF_CLI_GRANT_ENABLED === 'true';
 }
 
 export function getMarketplaceGrantConfig(): MarketplaceGrantConfig | null {
@@ -110,6 +128,34 @@ export function getMarketplaceGrantConfig(): MarketplaceGrantConfig | null {
   return cached;
 }
 
+export function getCliGrantConfig(): CliGrantConfig | null {
+  if (cachedCli !== undefined) return cachedCli;
+  if (!marketplaceCliGrantEnabled()) {
+    cachedCli = null;
+    return null;
+  }
+  const base = getMarketplaceGrantConfig();
+  if (!base) {
+    cachedCli = null;
+    return null;
+  }
+  cachedCli = {
+    ...base,
+    ...cliExtrasSchema.parse({
+      challengeTtlSeconds: process.env.SHOP_BFF_CLI_GRANT_CHALLENGE_TTL_SECONDS,
+      createPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_IP_PER_MINUTE,
+      createPerPubkyPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_PUBKY_PER_MINUTE,
+      verifyPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_VERIFY_PER_IP_PER_MINUTE,
+      statusPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_STATUS_PER_TOKEN_PER_MINUTE,
+      resultPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_RESULT_PER_TOKEN_PER_MINUTE,
+      homeserverFetchTimeoutMs: process.env.SHOP_BFF_CLI_HOMESERVER_FETCH_TIMEOUT_MILLISECONDS,
+      trustedProxyCount: process.env.SHOP_BFF_CLI_TRUSTED_PROXY_COUNT,
+    }),
+  };
+  return cachedCli;
+}
+
 export function resetMarketplaceGrantConfigForTests(): void {
   cached = undefined;
+  cachedCli = undefined;
 }

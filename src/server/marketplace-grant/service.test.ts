@@ -1,6 +1,7 @@
+/** @vitest-environment node */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MarketplaceGrantConfig } from './config';
-import { claimGrantResult, GrantServiceError, verifyMarketplaceSession } from './service';
+import { claimGrantResult, getGrantStatus, GrantServiceError, verifyMarketplaceSession } from './service';
 
 const config: MarketplaceGrantConfig = {
   allowedOrigins: ['https://shop.example'],
@@ -78,6 +79,61 @@ describe('marketplace service session pairing', () => {
     await expect(verifyMarketplaceSession(config, bearer, pubky, sessionId)).rejects.toEqual(
       new GrantServiceError(401, 'invalid_session_pair'),
     );
+  });
+});
+
+describe('marketplace grant status', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('parses a live awaiting GET body', async () => {
+    const flowId = '018f4f36-7a61-7d4e-8f22-3e31ed45d2af';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      Response.json({
+        expires_at: '2026-09-21T10:05:00.000Z',
+        flow_id: flowId,
+        status: 'awaiting',
+      }),
+    );
+    await expect(getGrantStatus(config, flowId)).resolves.toEqual({
+      expires_at: '2026-09-21T10:05:00.000Z',
+      flow_id: flowId,
+      status: 'awaiting',
+    });
+  });
+
+  it('maps a redacted 410 terminal body to invalid without throwing ZodError', async () => {
+    const flowId = '018f4f36-7a61-7d4e-8f22-3e31ed45d2af';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'terminal' }), {
+        status: 410,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const status = await getGrantStatus(config, flowId);
+    expect(status.status).toBe('invalid');
+    expect(status.flow_id).toBe(flowId);
+    expect(status.terminal_code).toBeNull();
+  });
+
+  it('maps a live-shaped 410 body to invalid and does not parse it as awaiting', async () => {
+    const flowId = '018f4f36-7a61-7d4e-8f22-3e31ed45d2af';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          expires_at: '2026-09-21T10:05:00.000Z',
+          flow_id: flowId,
+          status: 'awaiting',
+        }),
+        {
+          status: 410,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    const status = await getGrantStatus(config, flowId);
+    expect(status.status).toBe('invalid');
+    expect(status.flow_id).toBe(flowId);
+    expect(status.terminal_code).toBeNull();
   });
 });
 

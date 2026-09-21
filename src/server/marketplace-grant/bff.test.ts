@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, expect, it } from 'vitest';
 import { BffError, mapBffError } from './bff';
 import { GrantServiceError } from './service';
@@ -35,6 +36,7 @@ describe('mapBffError', () => {
     expect(mapBffError(new GrantServiceError(429, 'slow_down'))).toEqual({
       status: 429,
       code: 'retry_later',
+      retryAfterSeconds: 60,
     });
   });
 

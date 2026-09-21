@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { MarketplaceGrantConfig } from './config';
-import { canonicalJson, signDeliveryAssertion, signResultProof, signServiceBody } from './crypto';
+import {
+  canonicalJson,
+  signBootstrapAssertion,
+  signDeliveryAssertion,
+  signResultProof,
+  signServiceBody,
+} from './crypto';
 
 const PUBKY = /^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/;
 const BEARER = /^[A-Za-z0-9_-]{43}$/;
@@ -119,13 +125,43 @@ export async function createReconnectFlow(
   return createSchema.parse(await jsonOrError(response));
 }
 
+export async function createBootstrapFlow(
+  config: MarketplaceGrantConfig,
+  deliveryId: string,
+  resultCpk: string,
+  expectedPubky: string,
+): Promise<z.infer<typeof createSchema>> {
+  const assertion = signBootstrapAssertion(
+    config,
+    deliveryId,
+    resultCpk,
+    expectedPubky,
+    Math.floor(Date.now() / 1000),
+    randomUUID(),
+  );
+  const response = await request(config, '/v1/auth/grant-flows', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ assertion }),
+  });
+  return createSchema.parse(await jsonOrError(response));
+}
+
 export async function getGrantStatus(
   config: MarketplaceGrantConfig,
   flowId: string,
 ): Promise<z.infer<typeof statusSchema>> {
   const response = await request(config, `/v1/auth/grant-flows/${flowId}`, { method: 'GET' });
   const body = (await response.json().catch(() => null)) as unknown;
-  if (![200, 409, 410, 422].includes(response.status)) {
+  if (response.status === 410) {
+    return {
+      expires_at: new Date().toISOString(),
+      flow_id: flowId,
+      status: 'invalid',
+      terminal_code: null,
+    };
+  }
+  if (![200, 409, 422].includes(response.status)) {
     const code =
       typeof body === 'object' && body !== null && typeof (body as { error?: unknown }).error === 'string'
         ? (body as { error: string }).error
@@ -152,7 +188,7 @@ async function signedPost(
   return await jsonOrError(response);
 }
 
-async function issueNonce(
+export async function issueNonce(
   config: MarketplaceGrantConfig,
   flowId: string,
   purpose: 'ticket' | 'claim',
@@ -234,6 +270,51 @@ export async function claimGrantResult(
   );
   await heartbeat();
   return claimed;
+}
+
+export type ResultProof = {
+  issued_at: number;
+  nonce: string;
+  nonce_id: string;
+  signature: string;
+};
+
+export async function ticketGrantResult(
+  config: MarketplaceGrantConfig,
+  flowId: string,
+  deliveryId: string,
+  proof: ResultProof,
+): Promise<z.infer<typeof ticketSchema>> {
+  const ticketPath = `/v1/auth/grant-flows/${flowId}/result-ticket`;
+  return ticketSchema.parse(
+    await signedPost(config, ticketPath, {
+      method: 'POST',
+      path: ticketPath,
+      proof,
+      request_id: randomUUID(),
+      result_delivery_id: deliveryId,
+    }),
+  );
+}
+
+export async function claimGrantResultWithProof(
+  config: MarketplaceGrantConfig,
+  flowId: string,
+  deliveryId: string,
+  resultToken: string,
+  proof: ResultProof,
+): Promise<z.infer<typeof claimedSessionSchema>> {
+  const claimPath = `/v1/auth/grant-flows/${flowId}/claim`;
+  return claimedSessionSchema.parse(
+    await signedPost(config, claimPath, {
+      method: 'POST',
+      path: claimPath,
+      proof,
+      request_id: randomUUID(),
+      result_delivery_id: deliveryId,
+      result_token: resultToken,
+    }),
+  );
 }
 
 export async function cancelGrant(config: MarketplaceGrantConfig, flowId: string, deliveryId: string): Promise<void> {
