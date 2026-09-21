@@ -147,6 +147,9 @@ describe('pubchi answer schema', () => {
     ],
     ['scope extra key', invalidScopeFixture],
     ['unknown evidence section', invalidSectionFixture],
+    ['empty basis', { ...fixture, basis: '' }],
+    ['basis longer than 40', { ...fixture, basis: 'x'.repeat(41) }],
+    ['non-string basis', { ...fixture, basis: 1 }],
   ])('rejects %s', (_, input) => {
     expect(parsePubchiAnswerV1(input).ok).toBe(false);
   });
