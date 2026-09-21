@@ -91,12 +91,16 @@ Pin every deterministic source below so real diffs stand out:
   `preloadImages(...)` them too when a surface has flaked on a specific asset
   (see the Landing VRT's header/brand logos).
 - **Hover transforms** — marketplace listing/drop cards use
-  `transition-transform duration-300` plus `hover:scale-105`. Capture those
-  scenes with `hoverAndWaitForScale` from `src/test-utils/vrt.tsx` (painted
-  bounding-box width / `offsetWidth` ≥ 1.04, matching the live-proof gate).
-  Do not wait on `getComputedStyle().scale`: it jumps to the hover target
-  before the 300ms transition paints. A fixed 150ms wait captured rest vs
-  hover on the full marketplace suite under load after shop-v0.6.12 PR #47.
+  `transition-transform duration-300` plus `hover:scale-105`. The
+  `vrt-marketplace` project injects
+  `* { transition-duration: 0s !important; animation-duration: 0s !important; }`
+  so the hover end-state paints on the first frame, and runs marketplace
+  files serially (`fileParallelism: false`). Capture hover scenes with
+  `hoverAndWaitForScale` from `src/test-utils/vrt.tsx`: re-assert `:hover`,
+  then wait until `getBoundingClientRect().width` is ≥ the pre-hover rest
+  width × 1.04 (the transformed box). Do not wait on `offsetWidth` (layout
+  ignores transforms) or `getComputedStyle().transform` / `scale` (they
+  report the target immediately).
 - **Avatars** — VRT profile fixtures use `image: null` so every avatar renders
   `FacehashAvatar`. `vrt.setup.ts` sets `globalThis.__VRT__` and stabiliser CSS;
   `FacehashAvatar` disables blink, 3D tilt, and hover when that flag is set.
