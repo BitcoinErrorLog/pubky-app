@@ -94,8 +94,8 @@ function vrtProject(opts: {
             // match Playwright locator.screenshot defaults so linux and darwin
             // capture the same region.
             screenshotOptions: {
-              animations: 'disabled',
-              caret: 'hide',
+              animations: 'disabled' as const,
+              caret: 'hide' as const,
             },
             // Image-heavy suites (Home, Collections) on WebKit/Linux need
             // extra headroom for layout to settle after fonts/images decode.
