@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthApplication } from '@/application/auth/auth';
 import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
 import { AuthController } from '@/controllers/auth/auth';
-import { withAuthFinalizationLock } from '@/controllers/auth/auth-finalization-lock';
+import { resetAuthFinalizationLockForTests, withAuthFinalizationLock } from '@/controllers/auth/auth-finalization-lock';
 import { db } from '@/database/franky/franky';
 import { PUBLIC_CACHE_TABLES } from '@/database/franky/franky.helpers';
 import {
@@ -9,20 +10,26 @@ import {
   getOrCreateWrappingKey,
   resetMessagingKeyringForTests,
 } from '@/libs/crypto/messaging-keyring';
+import { Identity } from '@/libs/identity/identity';
 import * as vibeSessionAutoRestore from '@/libs/vibe-session/auto-restore';
 import * as vibeSessionConfig from '@/libs/vibe-session/config';
 import * as vibeSessionFragment from '@/libs/vibe-session/fragment';
 import type { Pubky } from '@/models/models.types';
 import { ROUTE_GUARD_RETURN_TO_STORAGE_KEY } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
+import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { MARKETPLACE_SESSION_STORAGE_KEY } from '@/services/marketplace/marketplace-session';
 import { MESSAGING_SESSION_STORAGE_KEY } from '@/services/paykit/paykit-messaging';
-import { useAuthStore } from '@/stores/auth/auth.store';
+import { readPersistedAuthPubky } from '@/stores/auth/auth.persisted';
+import { createAuthStore, useAuthStore } from '@/stores/auth/auth.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
-import { ONBOARDING_PERSIST_KEY } from '@/stores/persistedKeys';
-import { mockSession } from '@/test-utils/pubky';
+import { AUTH_PERSIST_KEY, ONBOARDING_PERSIST_KEY } from '@/stores/persistedKeys';
+import { mockKeypair, mockSession } from '@/test-utils/pubky';
 
 const BRIDGE_ORIGIN = 'https://pubky.app';
 const PERSISTED_PUBKY = '5a1diz4pghi47ywdfyfzpit5f3bdomzt4pugpbmq4rngdd4iub4y' as Pubky;
+const ACCOUNT_B = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' as Pubky;
+const ACCOUNT_B_BOOKMARK = 'account-b:bookmark';
+const ACCOUNT_B_LOCKS = 'account-b:locks-correlation';
 
 const EXPECTED_PUBLIC_CACHE_TABLES = [
   'user_counts',
@@ -129,6 +136,79 @@ async function expectWrappingKeyProbeSurvives({
   expect(new TextDecoder().decode(roundTrip)).toBe(WRAPPING_PROBE_PLAINTEXT);
 }
 
+function holdAuthFinalizationLock(): {
+  acquired: Promise<void>;
+  release: () => void;
+  held: Promise<void>;
+} {
+  let release!: () => void;
+  let markAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => {
+    markAcquired = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const held = withAuthFinalizationLock(async () => {
+    markAcquired();
+    await gate;
+  });
+  return { acquired, release, held };
+}
+
+async function writeAccountBLocally(): Promise<void> {
+  useAuthStore.getState().init({
+    session: mockSession({ export: () => 'account-b-session-export' }),
+    currentUserPubky: ACCOUNT_B,
+    hasProfile: true,
+  });
+  await db.table('bookmarks').put({ id: ACCOUNT_B_BOOKMARK });
+  await db.table('commerce_locks_correlations').put({ id: ACCOUNT_B_LOCKS });
+}
+
+async function persistAccountBUnderLock(): Promise<void> {
+  await withAuthFinalizationLock(async () => {
+    await writeAccountBLocally();
+  });
+}
+
+/**
+ * Tab B: a second persist-backed auth store sharing `AUTH_PERSIST_KEY` + Dexie.
+ * Tab A's `useAuthStore` heap is left untouched (the production cross-tab gap).
+ */
+async function persistAccountBFromOtherTab(): Promise<ReturnType<typeof createAuthStore>> {
+  const tabBStore = createAuthStore();
+  await withAuthFinalizationLock(async () => {
+    // Production identity switch clears the blob before writing a new pubky
+    // (`persistIdentityUnderLock`). Reset here so the owner fence allows B
+    // to take `AUTH_PERSIST_KEY` without mutating Tab A's live store.
+    tabBStore.getState().reset();
+    tabBStore.getState().init({
+      session: mockSession({ export: () => 'account-b-session-export' }),
+      currentUserPubky: ACCOUNT_B,
+      hasProfile: true,
+    });
+    await db.table('bookmarks').put({ id: ACCOUNT_B_BOOKMARK });
+    await db.table('commerce_locks_correlations').put({ id: ACCOUNT_B_LOCKS });
+  });
+  return tabBStore;
+}
+
+async function expectAccountBCrossTabStateSurvives(tabALivePubky: Pubky): Promise<void> {
+  expect(await db.table('bookmarks').get(ACCOUNT_B_BOOKMARK)).toBeDefined();
+  expect(await db.table('commerce_locks_correlations').get(ACCOUNT_B_LOCKS)).toBeDefined();
+  expect(readPersistedAuthPubky()).toBe(ACCOUNT_B);
+  expect(useAuthStore.getState().currentUserPubky).toBe(tabALivePubky);
+  const raw = window.localStorage.getItem(AUTH_PERSIST_KEY);
+  expect(raw).toEqual(expect.stringContaining(ACCOUNT_B));
+}
+
+async function expectAccountBPrivateRowsSurvive(): Promise<void> {
+  expect(await db.table('bookmarks').get(ACCOUNT_B_BOOKMARK)).toBeDefined();
+  expect(await db.table('commerce_locks_correlations').get(ACCOUNT_B_LOCKS)).toBeDefined();
+  expect(useAuthStore.getState().currentUserPubky).toBe(ACCOUNT_B);
+}
+
 /**
  * A fake `navigator.locks` that actually queues exclusive requests — one
  * promise tail PER LOCK NAME, like the platform (nested requests on a
@@ -177,6 +257,7 @@ async function runRealBridgeTimeoutRestore(currentUserPubky: Pubky | null) {
 describe('AuthController restore cleanup with the real bridge and database', () => {
   beforeEach(() => {
     AuthController.resetCleanupLocalStateGuard();
+    resetAuthFinalizationLockForTests();
     useAuthStore.getState().reset();
     vi.spyOn(vibeSessionConfig, 'getVibeSessionBridgeOrigin').mockReturnValue(BRIDGE_ORIGIN);
     vi.spyOn(vibeSessionConfig, 'getVibeId').mockReturnValue('marketplace-grid-test');
@@ -306,5 +387,194 @@ describe('AuthController restore cleanup with the real bridge and database', () 
     await expectTableCountsAtLeast(EXPECTED_PRIVATE_TABLES, 1);
     await expectTableCounts(EXPECTED_PUBLIC_CACHE_TABLES, 1);
     await expectWrappingKeyProbeSurvives(probe);
+  });
+
+  it('does not wipe a concurrent different-account sign-in after identityAtCapture=true restore failure', async () => {
+    installQueuingFakeLocks();
+    await seedEveryTable();
+
+    useAuthStore.setState({
+      session: null,
+      sessionExport: null,
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+      hasHydrated: true,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+    });
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const restoreA = AuthController.restorePersistedSession();
+
+    await persistAccountBUnderLock();
+
+    vi.advanceTimersByTime(15_000);
+    vi.useRealTimers();
+    await expect(restoreA).resolves.toEqual({ status: 'signed-out' });
+
+    await expectAccountBPrivateRowsSurvive();
+    expect(useAuthStore.getState().isLoggingOut).toBe(false);
+  });
+
+  it('no-ops pre-ceremony Dexie clear when a different identity acquired the lock first', async () => {
+    const request = installQueuingFakeLocks();
+    await seedEveryTable();
+    useAuthStore.setState({
+      session: mockSession({ export: () => 'account-a-session-export' }),
+      sessionExport: 'account-a-session-export',
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+      hasHydrated: true,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+    });
+
+    vi.spyOn(Identity, 'keypairFromMnemonic').mockReturnValue(mockKeypair());
+    const signInSpy = vi
+      .spyOn(AuthApplication, 'signIn')
+      .mockRejectedValue(new Error('sign-in must not run after a skipped clear'));
+
+    const lock = holdAuthFinalizationLock();
+    await lock.acquired;
+    const loginPromise = AuthController.loginWithMnemonic({ mnemonic: 'test mnemonic phrase' });
+    await vi.waitFor(() => expect(request.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await writeAccountBLocally();
+    lock.release();
+    await lock.held;
+
+    await expect(loginPromise).resolves.toBe(false);
+    expect(signInSpy).not.toHaveBeenCalled();
+    await expectAccountBPrivateRowsSurvive();
+  });
+
+  it('aborts identity persist when a third account wrote under the lock after the ceremony clear', async () => {
+    installQueuingFakeLocks();
+    useAuthStore.setState({
+      session: null,
+      sessionExport: null,
+      currentUserPubky: null,
+      hasProfile: null,
+      hasHydrated: true,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+    });
+
+    let resolveSignIn: ((value: { session: ReturnType<typeof mockSession> }) => void) | undefined;
+    vi.spyOn(Identity, 'keypairFromMnemonic').mockReturnValue(mockKeypair());
+    vi.spyOn(Identity, 'z32FromSession').mockReturnValue(PERSISTED_PUBKY);
+    const signInSpy = vi.spyOn(AuthApplication, 'signIn').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSignIn = resolve;
+        }),
+    );
+    vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+
+    const loginPromise = AuthController.loginWithMnemonic({ mnemonic: 'test mnemonic phrase' });
+    await vi.waitFor(() => expect(signInSpy).toHaveBeenCalled());
+    await persistAccountBUnderLock();
+    expect(resolveSignIn).toBeDefined();
+    resolveSignIn!({ session: mockSession({ export: () => 'account-a-session-export' }) });
+
+    await expect(loginPromise).rejects.toMatchObject({ name: AUTH_FLOW_CANCELED_ERROR_NAME });
+    await expectAccountBPrivateRowsSurvive();
+    expect(AuthApplication.logout).toHaveBeenCalled();
+  });
+
+  it('does not wipe a concurrent different-account sign-in when logout cleanup acquires the lock', async () => {
+    const request = installQueuingFakeLocks();
+    await seedEveryTable();
+    useAuthStore.setState({
+      session: mockSession({ export: () => 'account-a-session-export' }),
+      sessionExport: 'account-a-session-export',
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+      hasHydrated: true,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+      isLoggingOut: false,
+    });
+
+    vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(false);
+    vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+
+    const lock = holdAuthFinalizationLock();
+    await lock.acquired;
+    const logoutPromise = AuthController.logout();
+    await vi.waitFor(() => expect(request.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await writeAccountBLocally();
+    lock.release();
+    await lock.held;
+    await logoutPromise;
+
+    await expectAccountBPrivateRowsSurvive();
+    expect(useAuthStore.getState().isLoggingOut).toBe(false);
+  });
+
+  it('does not wipe Tab B Dexie when Tab A live store stays A and AUTH_PERSIST_KEY is B', async () => {
+    installQueuingFakeLocks();
+    await seedEveryTable();
+
+    useAuthStore.setState({
+      session: null,
+      sessionExport: null,
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+      hasHydrated: true,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+    });
+    expect(useAuthStore.getState().currentUserPubky).toBe(PERSISTED_PUBKY);
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const restoreA = AuthController.restorePersistedSession();
+
+    const tabBStore = await persistAccountBFromOtherTab();
+    expect(tabBStore.getState().currentUserPubky).toBe(ACCOUNT_B);
+    expect(useAuthStore.getState().currentUserPubky).toBe(PERSISTED_PUBKY);
+    expect(readPersistedAuthPubky()).toBe(ACCOUNT_B);
+
+    vi.advanceTimersByTime(15_000);
+    vi.useRealTimers();
+    await expect(restoreA).resolves.toEqual({ status: 'signed-out' });
+
+    await expectAccountBCrossTabStateSurvives(PERSISTED_PUBKY);
+    expect(useAuthStore.getState().isLoggingOut).toBe(false);
+  });
+
+  it('aborts Tab A persist when AUTH_PERSIST_KEY already holds Tab B', async () => {
+    installQueuingFakeLocks();
+    await seedEveryTable();
+
+    useAuthStore.setState({
+      session: null,
+      sessionExport: 'account-a-session-export',
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+      hasHydrated: true,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+    });
+
+    let resolveRestore: ((value: { status: 'restored'; session: ReturnType<typeof mockSession> }) => void) | undefined;
+    vi.spyOn(AuthApplication, 'restorePersistedSession').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRestore = resolve;
+        }),
+    );
+    vi.spyOn(Identity, 'z32FromSession').mockReturnValue(PERSISTED_PUBKY);
+
+    const restoreA = AuthController.restorePersistedSession();
+    await vi.waitFor(() => expect(resolveRestore).toBeDefined());
+
+    const tabBStore = await persistAccountBFromOtherTab();
+    expect(tabBStore.getState().currentUserPubky).toBe(ACCOUNT_B);
+    expect(useAuthStore.getState().currentUserPubky).toBe(PERSISTED_PUBKY);
+
+    resolveRestore!({ status: 'restored', session: mockSession({ export: () => 'account-a-session-export' }) });
+    await expect(restoreA).resolves.toEqual({ status: 'signed-out' });
+
+    await expectAccountBCrossTabStateSurvives(PERSISTED_PUBKY);
   });
 });
