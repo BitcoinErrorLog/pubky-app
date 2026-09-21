@@ -6,6 +6,7 @@
     "**/*.test.tsx",
     "**/*.test.js",
     "**/*.test.jsx",
-    "src/test/**"
+    "src/test/**",
+    "scripts/pubchi-portability-proof.ts"
   ]
 }
