@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  INVENTORY_GRANT,
   clampInventoryPersistedCapabilities,
+  INVENTORY_GRANT,
   inventoryCapabilityCovers,
   studioInventoryCapabilities,
 } from './marketplace-inventory-grant';

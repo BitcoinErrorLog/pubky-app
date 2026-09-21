@@ -9,9 +9,9 @@ import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import {
+  clampInventoryPersistedCapabilities,
   INVENTORY_GRANT,
   INVENTORY_SESSION_STORAGE_KEY,
-  clampInventoryPersistedCapabilities,
   inventoryCapabilityCovers,
   studioInventoryCapabilities,
 } from './marketplace-inventory-grant';

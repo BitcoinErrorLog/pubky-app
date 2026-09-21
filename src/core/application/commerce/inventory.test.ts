@@ -4,9 +4,9 @@ import { MarketplaceInventorySessionService } from '@/services/marketplace/marke
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
 import {
+  classifySyncManyItem,
   CommerceInventoryApplication,
   type InventoryBoardRow,
-  classifySyncManyItem,
   planInventoryAdjust,
 } from './inventory';
 
