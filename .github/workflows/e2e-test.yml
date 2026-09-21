@@ -15,6 +15,7 @@ jobs:
   rebuild_images:
     name: Getting images to rebuild
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       homeserver-testnet_tag: ${{ steps.set_tag.outputs.homeserver-testnet_tag }}
       pubky-nexus_tag: ${{ steps.set_tag.outputs.pubky-nexus_tag }}
@@ -79,6 +80,7 @@ jobs:
   set_vars_pubky_app:
     name: Set vars for Pubky App
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       env: ${{ steps.set_vars.outputs.env }}
       platforms: ${{ steps.set_vars.outputs.platforms }}
@@ -90,6 +92,7 @@ jobs:
 
   rebuild_pubky_app:
     needs: [ set_vars_pubky_app ]
+    timeout-minutes: 30
     uses: ./.github/workflows/build-docker-image.yml
     with:
       platforms: ${{ needs.set_vars_pubky_app.outputs.platforms }}
@@ -98,6 +101,7 @@ jobs:
   e2e-test:
     name: End-to-End Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [rebuild_images, rebuild_pubky_app]
     env:
       HOMESERVER_TAG: ${{ needs.rebuild_images.outputs.homeserver-testnet_tag }}

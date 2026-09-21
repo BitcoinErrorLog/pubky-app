@@ -12,6 +12,7 @@ jobs:
   regenerate:
     name: Regenerate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 27 || 14 }}
     concurrency:
       group: vrt-update-baselines-regenerate-${{ github.ref }}-${{ matrix.os }}
       cancel-in-progress: true
@@ -94,6 +95,7 @@ jobs:
     name: Commit baselines
     needs: regenerate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     concurrency:
       group: vrt-update-baselines-${{ github.ref }}
       cancel-in-progress: true

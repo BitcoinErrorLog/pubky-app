@@ -26,21 +26,24 @@ const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 const nodeModulesRoot = realpathSync(new URL('./node_modules', import.meta.url));
 const fontAssetPattern = /\.(woff2?|ttf|otf)(?:\?.*)?$/;
 
-const vrtBrowserInstances = [
-  {
-    browser: 'chromium' as const,
-    viewport: VRT_VIEWPORT_DESKTOP,
-  },
-  {
-    browser: 'firefox' as const,
-    viewport: VRT_VIEWPORT_DESKTOP,
-  },
-  {
-    // `webkit` covers Safari's rendering engine.
-    browser: 'webkit' as const,
-    viewport: VRT_VIEWPORT_DESKTOP,
-  },
-];
+const vrtBrowserNames = (process.env.VRT_BROWSERS ?? 'chromium,firefox,webkit')
+  .split(',')
+  .map((name) => name.trim())
+  .filter(Boolean);
+
+const allowedVrtBrowsers = new Set(['chromium', 'firefox', 'webkit']);
+for (const name of vrtBrowserNames) {
+  if (!allowedVrtBrowsers.has(name)) {
+    throw new Error(
+      `VRT_BROWSERS contains unknown browser "${name}". Use chromium, firefox, and/or webkit.`,
+    );
+  }
+}
+
+const vrtBrowserInstances = vrtBrowserNames.map((browser) => ({
+  browser: browser as 'chromium' | 'firefox' | 'webkit',
+  viewport: VRT_VIEWPORT_DESKTOP,
+}));
 
 type PixelmatchComparatorOptions = {
   allowedMismatchedPixels?: number;

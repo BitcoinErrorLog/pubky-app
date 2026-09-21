@@ -21,6 +21,7 @@ jobs:
   test:
     name: Run Shard Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +68,7 @@ jobs:
     name: Merge Coverage Reports
     needs: test # 3. Wait for all test shards to complete
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always()
     steps:
       - name: Checkout code
@@ -95,6 +97,7 @@ jobs:
     needs: test     # Waits for all your test shards to finish
     if: always()    # Forces this to run even if a shard fails
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check test matrix status
         # If any shard failed or was cancelled, this step fails the gatekeeper job
