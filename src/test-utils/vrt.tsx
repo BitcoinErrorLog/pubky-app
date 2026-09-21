@@ -140,6 +140,73 @@ export async function parkVrtHover() {
   if (root instanceof HTMLElement) root.style.pointerEvents = 'none';
 }
 
+/** Marketplace cards use `hover:scale-105`. Live proof treats ≥ 1.04 as settled. */
+export const VRT_HOVER_SCALE_SETTLED = 1.04;
+
+/** `duration-300` plus Firefox full-suite pointer lag. */
+export const VRT_HOVER_SCALE_TIMEOUT_MS = 2_000;
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+interface VrtHoverLocator {
+  hover(): Promise<void>;
+  element(): Element;
+}
+
+function paintedScale(element: HTMLElement): number {
+  // offsetWidth is the layout box (ignores transform). getBoundingClientRect
+  // includes the interpolated hover scale/rotate. getComputedStyle().scale is
+  // the transition *target* and is not safe to wait on.
+  return element.getBoundingClientRect().width / Math.max(element.offsetWidth, 1);
+}
+
+/**
+ * Hover a marketplace card and wait until the *painted* scale is settled.
+ *
+ * `getComputedStyle().scale` jumps to the `hover:scale-105` target as soon as
+ * `:hover` matches, while `transition-transform duration-300` is still at
+ * rest. shop-v0.6.12 after PR #47 used that property (and before that a
+ * 150ms timeout) and captured rest vs hover on Firefox mobile under the
+ * full marketplace suite. Bounding-box width vs `offsetWidth` tracks the
+ * interpolated transform; `:hover` is re-asserted if suite load drops the
+ * pointer. Throws rather than screenshotting an in-flight transition.
+ */
+export async function hoverAndWaitForScale(
+  locator: VrtHoverLocator,
+  minScale = VRT_HOVER_SCALE_SETTLED,
+  timeoutMs = VRT_HOVER_SCALE_TIMEOUT_MS,
+): Promise<void> {
+  const element = locator.element();
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('VRT hover scale requires an HTMLElement');
+  }
+  await locator.hover();
+  const deadline = Date.now() + timeoutMs;
+  let last = paintedScale(element);
+  while (Date.now() < deadline) {
+    if (!element.matches(':hover')) {
+      await locator.hover();
+    }
+    last = paintedScale(element);
+    if (element.matches(':hover') && last >= minScale) {
+      await nextFrame();
+      last = paintedScale(element);
+      if (element.matches(':hover') && last >= minScale) {
+        await nextFrame();
+        return;
+      }
+    }
+    await nextFrame();
+  }
+  throw new Error(
+    `VRT hover visual scale stayed below ${minScale} (last=${last.toFixed(4)}, offsetWidth=${element.offsetWidth}, :hover=${element.matches(':hover')}) after ${timeoutMs}ms`,
+  );
+}
+
 async function waitForImagesReady(root: Element) {
   const images = Array.from(root.querySelectorAll('img'));
   await Promise.all(images.map((img) => waitForHtmlImage(img)));
