@@ -230,7 +230,7 @@ export function MarketplaceOffers() {
                             if (added) router.push(`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${offer.id}`);
                           }}
                         >
-                          Buy for {formatCommerceMoney(offer.award.merchandiseTotal)}
+                          Buy for {formatCommerceMoney(offer.award.subtotal)} + shipping
                         </Button>
                         <Typography as="p" className="text-xs text-muted-foreground">
                           Priced from your accepted offer

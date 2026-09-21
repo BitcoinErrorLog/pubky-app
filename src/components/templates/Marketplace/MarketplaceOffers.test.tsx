@@ -170,8 +170,8 @@ describe('Marketplace offers UX', () => {
     const user = userEvent.setup();
     render(<MarketplaceOffers />);
 
-    expect(screen.getByRole('button', { name: 'Buy for $7.00' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Buy for $7.00' }));
+    expect(screen.getByRole('button', { name: 'Buy for $6.00 + shipping' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Buy for $6.00 + shipping' }));
 
     await waitFor(() => expect(offerView.addAward).toHaveBeenCalledTimes(1));
     expect(offerView.addAward).toHaveBeenCalledWith(`${seller}:boots`, 'variant_42', 1, accepted.award?.id, 1);
@@ -233,7 +233,7 @@ describe('Marketplace offers UX', () => {
     const user = userEvent.setup();
     render(<MarketplaceOffers />);
 
-    await user.click(screen.getByRole('button', { name: 'Buy for $7.00' }));
+    await user.click(screen.getByRole('button', { name: 'Buy for $6.00 + shipping' }));
     await waitFor(() => expect(offerView.addAward).toHaveBeenCalledTimes(1));
     expect(offerView.push).not.toHaveBeenCalled();
   });

@@ -260,6 +260,19 @@ describe('Header Components', () => {
       const container = screen.getByRole('banner');
       expect(container).toHaveClass('custom-class');
     });
+
+    it('uses a denser fade on marketplace routes so scrolled tabs stay behind the header', () => {
+      vi.mocked(usePathname).mockReturnValue('/marketplace');
+      render(
+        <HeaderContainer>
+          <div>Test Content</div>
+        </HeaderContainer>,
+      );
+
+      const container = screen.getByRole('banner');
+      expect(container).toHaveClass('from-90%');
+      expect(container).not.toHaveClass('from-50%');
+    });
   });
 
   describe('HeaderTitle', () => {

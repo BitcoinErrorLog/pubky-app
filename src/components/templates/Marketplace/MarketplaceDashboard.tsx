@@ -39,6 +39,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
+import { listingDisplayState } from '@/libs/commerce/auction-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { isListingRegistrationPending } from '@/models/commerce/commerce.schema';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -415,7 +416,9 @@ export function MarketplaceDashboard() {
                                   </div>
                                 </td>
                                 <td className="p-3">
-                                  <Badge variant="secondary">{listing.state}</Badge>
+                                  <Badge variant="secondary">
+                                    {listingDisplayState(listing.state, listing.record.sale)}
+                                  </Badge>
                                 </td>
                                 <td className="p-3">{listing.format.replace('_', ' ')}</td>
                                 <td className="p-3">

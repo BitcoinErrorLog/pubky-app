@@ -8,6 +8,18 @@ const OWNER = 'y'.repeat(52);
 const OTHER_OWNER = 'z'.repeat(52);
 let currentUserPubky = OWNER;
 let localListings: Array<{ state: 'active'; record: ReturnType<typeof createCommerceListingFixture> }> = [];
+const ordersState = vi.hoisted(() => ({
+  orders: [] as Array<{
+    order: {
+      sellerPubky: string;
+      state: string;
+      total: { amountMinor: number; currency: string; exponent: number };
+    };
+  }>,
+  isLoading: false,
+  needsSession: false,
+  error: null as string | null,
+}));
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) =>
@@ -19,7 +31,7 @@ vi.mock('@/hooks/useMeasurementSystem/useMeasurementSystem', () => ({
 }));
 
 vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
-  useMarketplaceOrders: () => ({ orders: [], isLoading: false, needsSession: false, error: null }),
+  useMarketplaceOrders: () => ordersState,
 }));
 
 vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
@@ -53,6 +65,7 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     vi.clearAllMocks();
     currentUserPubky = OWNER;
     localListings = [];
+    ordersState.orders = [];
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([]);
     vi.mocked(CommerceController.commitUpdateListingDraft).mockResolvedValue(undefined);
     vi.mocked(CommerceController.commitDeleteListingDraft).mockResolvedValue(undefined);
@@ -337,6 +350,48 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     });
 
     expect(draftId).toBeNull();
+  });
+
+  it('counts paidOrders only for revenue states, not pending_payment', () => {
+    ordersState.orders = [
+      {
+        order: {
+          sellerPubky: OWNER,
+          state: 'pending_payment',
+          total: { amountMinor: 800, currency: 'USD', exponent: 2 },
+        },
+      },
+      {
+        order: {
+          sellerPubky: OWNER,
+          state: 'paid',
+          total: { amountMinor: 900, currency: 'USD', exponent: 2 },
+        },
+      },
+    ];
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    expect(result.current.metrics.paidOrders).toBe(1);
+  });
+
+  it('does not count ended auctions as active listings', () => {
+    localListings = [
+      {
+        state: 'active',
+        record: createCommerceListingFixture({
+          sale: {
+            format: 'auction',
+            startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+            minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+            startsAt: '2020-01-01T00:00:00.000Z',
+            endsAt: '2020-01-02T00:00:00.000Z',
+            antiSnipingWindowSeconds: 120,
+            antiSnipingExtensionSeconds: 120,
+          },
+        }),
+      },
+    ];
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    expect(result.current.metrics.activeListings).toBe(0);
   });
 
   it('copies an auction as fixed price with a notice flag', async () => {

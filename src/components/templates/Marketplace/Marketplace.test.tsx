@@ -22,6 +22,39 @@ const catalogState = vi.hoisted(() => ({
   adapterMode: 'sandbox' as 'sandbox' | 'transaction-service' | 'locks-paykit' | 'unavailable',
 }));
 const runtime = vi.hoisted(() => ({ deployEnv: 'staging' as 'production' | 'staging' | undefined }));
+const commerceState = vi.hoisted(() => ({
+  query: '',
+  setQuery: vi.fn(),
+  saleFormat: 'all' as string,
+  categoryId: '',
+  countryCode: '',
+  sort: 'newest',
+  layout: 'grid' as const,
+  setSaleFormat,
+}));
+const dropEntry = vi.hoisted(() => ({
+  id: 'drop-1',
+  owner_id: 'y'.repeat(52),
+  title: 'Drops live proof — 1 of 1',
+  description: 'Indexed drop',
+  media_urls: [] as string[],
+  format: 'fixed_price',
+  starts_at: '2026-09-20T12:00:00.000Z',
+  ends_at: '2026-09-22T12:00:00.000Z',
+  total_quantity: 1,
+  per_buyer_limit: 1,
+}));
+const dropsState = vi.hoisted(() => ({
+  buckets: {
+    upcoming: [] as Array<typeof dropEntry>,
+    live: [] as Array<typeof dropEntry>,
+    ended: [] as Array<typeof dropEntry>,
+  },
+  isIndexed: true,
+  isLoading: false,
+  error: null as string | null,
+  adapterMode: 'transaction-service',
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
@@ -59,12 +92,11 @@ vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () 
 }));
 
 vi.mock('@/hooks/useMarketplaceDrops/useMarketplaceDrops', () => ({
-  useMarketplaceDrops: () => ({
-    buckets: { upcoming: [], live: [], ended: [] },
-    isIndexed: true,
-    isLoading: false,
-    error: null,
-  }),
+  useMarketplaceDrops: () => dropsState,
+}));
+
+vi.mock('@/organisms/Marketplace/DropCard', () => ({
+  DropCard: ({ entry }: { entry: { title: string } }) => <article>{entry.title}</article>,
 }));
 
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
@@ -76,8 +108,7 @@ vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () 
 }));
 
 vi.mock('@/stores/commerce/commerce.store', () => ({
-  useCommerceStore: (selector: (state: { layout: 'grid'; setSaleFormat: typeof setSaleFormat }) => unknown) =>
-    selector({ layout: 'grid', setSaleFormat }),
+  useCommerceStore: (selector: (state: typeof commerceState) => unknown) => selector(commerceState),
 }));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
@@ -123,6 +154,15 @@ describe('Marketplace', () => {
     catalogState.isLoading = false;
     catalogState.adapterMode = 'sandbox';
     runtime.deployEnv = 'staging';
+    commerceState.query = '';
+    commerceState.saleFormat = 'all';
+    commerceState.categoryId = '';
+    commerceState.countryCode = '';
+    commerceState.sort = 'newest';
+    dropsState.buckets = { upcoming: [], live: [], ended: [] };
+    dropsState.isLoading = false;
+    dropsState.error = null;
+    dropsState.isIndexed = true;
     window.localStorage.clear();
   });
 
@@ -223,5 +263,21 @@ describe('Marketplace', () => {
       `${FEATURE_DISCOVERY_STORAGE_PREFIX}:${MARKETPLACE_PROMO_STORAGE_ID}`,
     );
     expect(screen.queryByRole('region', { name: 'Marketplace promo' })).not.toBeInTheDocument();
+  });
+
+  it('shows the indexed-state caveat on the drops filter and does not repeat the same drop', () => {
+    commerceState.saleFormat = 'drops';
+    catalogState.adapterMode = 'transaction-service';
+    catalogState.listings = [{ id: 'seller:listing-1', title: 'Drops live proof — 1 of 1' }];
+    dropsState.buckets = { live: [dropEntry], upcoming: [dropEntry], ended: [] };
+
+    render(<Marketplace />);
+
+    expect(
+      screen.getByText(
+        /Timed, limited releases listed by the discovery index. Open a drop to confirm its current state/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('Drops live proof — 1 of 1')).toHaveLength(1);
   });
 });

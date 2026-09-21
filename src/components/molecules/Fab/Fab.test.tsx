@@ -5,6 +5,7 @@ import type { FabAction } from '@/hooks/useFabAction/useFabAction.types';
 import { useCollectionReorderStore } from '@/stores/collectionReorder/collectionReorder.store';
 import { Fab } from './Fab';
 
+const mockPathname = vi.fn(() => '/home');
 const mockUseAuthStatus = vi.fn(() => ({
   isFullyAuthenticated: true,
   isLoading: false,
@@ -15,6 +16,10 @@ const mockUseAuthStatus = vi.fn(() => ({
 const mockIsPublicExploreRoute = vi.fn(() => false);
 const mockRequireAuth = vi.fn((action: () => void) => action());
 const mockUseFabAction = vi.fn<() => FabAction>(() => ({ kind: 'createPost', ariaLabel: 'New post' }));
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockPathname(),
+}));
 
 vi.mock('@/hooks/useAuthStatus/useAuthStatus', () => ({
   useAuthStatus: () => mockUseAuthStatus(),
@@ -99,6 +104,7 @@ vi.mock('@/atoms/Button/Button', () => ({
 describe('Fab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPathname.mockReturnValue('/home');
     mockUseAuthStatus.mockReturnValue({
       isFullyAuthenticated: true,
       isLoading: false,
@@ -156,6 +162,12 @@ describe('Fab', () => {
       hasKeypair: false,
       hasProfile: false,
     });
+    const { container } = render(<Fab />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it.each(['/marketplace/cart', '/marketplace/award-checkout'])('hides on checkout route %s', (pathname) => {
+    mockPathname.mockReturnValue(pathname);
     const { container } = render(<Fab />);
     expect(container.firstChild).toBeNull();
   });
@@ -241,6 +253,7 @@ describe('Fab', () => {
 describe('Fab - Snapshots', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPathname.mockReturnValue('/home');
     mockUseAuthStatus.mockReturnValue({
       isFullyAuthenticated: true,
       isLoading: false,

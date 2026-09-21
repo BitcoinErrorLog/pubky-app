@@ -32,6 +32,7 @@ import { MarketplaceSavedSearches } from '@/organisms/Marketplace/MarketplaceSav
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
+import { DROPS_INDEX_CAVEAT } from './MarketplaceDrops';
 
 const MARKETPLACE_PROMO_DEVICE_STORAGE_KEY = buildFeatureDiscoveryDeviceStorageKey(MARKETPLACE_PROMO_STORAGE_ID);
 
@@ -70,7 +71,8 @@ export function Marketplace({
   const { shopsBySeller, adapterMode, listings, facetPool, countryFacetPool } = catalog;
   const isStaging = getDeployEnv() === 'staging';
   const listingCards = listings.map((listing) => ({ kind: 'listing' as const, listing }));
-  const dropCards = visibleDrops.map((drop) => ({ kind: 'drop' as const, ...drop }));
+  const dropCards = uniqueDropCards(visibleDrops.map((drop) => ({ kind: 'drop' as const, ...drop })));
+  const catalogListingCards = saleFormat === 'drops' ? [] : listingCards;
   const catalogCards: Array<(typeof listingCards)[number] | (typeof dropCards)[number]> = [];
   if (sort === 'recommended' && saleFormat === 'all') {
     const groups = [
@@ -86,9 +88,9 @@ export function Marketplace({
       }
     }
   } else {
-    catalogCards.push(...dropCards, ...listingCards);
+    catalogCards.push(...dropCards, ...catalogListingCards);
   }
-  const resultCount = listings.length + visibleDrops.length;
+  const resultCount = catalogListingCards.length + dropCards.length;
   const isLoading =
     (saleFormat !== 'drops' && catalog.isLoading && listings.length === 0) ||
     ((saleFormat === 'all' || saleFormat === 'drops') && drops.isLoading && resultCount === 0);
@@ -253,6 +255,11 @@ export function Marketplace({
             </div>
           )}
 
+          {saleFormat === 'drops' && !drops.isLoading && (
+            <Typography as="p" role="note" className="text-sm text-muted-foreground">
+              {DROPS_INDEX_CAVEAT}
+            </Typography>
+          )}
           {saleFormat === 'drops' &&
             !drops.isLoading &&
             ((!isDurableCommerceMode(adapterMode) && adapterMode !== 'sandbox') || drops.error || !drops.isIndexed) && (
@@ -305,4 +312,19 @@ export function Marketplace({
       </Container>
     </ContentLayout>
   );
+}
+
+function uniqueDropCards<T extends { entry: { owner_id: string; id: string }; bucket: 'live' | 'upcoming' | 'ended' }>(
+  cards: T[],
+): T[] {
+  const rank = { live: 0, upcoming: 1, ended: 2 } as const;
+  const seen = new Set<string>();
+  return [...cards]
+    .sort((a, b) => rank[a.bucket] - rank[b.bucket])
+    .filter((card) => {
+      const key = `${card.entry.owner_id}:${card.entry.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }

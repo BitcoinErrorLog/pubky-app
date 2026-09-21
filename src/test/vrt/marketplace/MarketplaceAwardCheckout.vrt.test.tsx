@@ -105,7 +105,7 @@ describe('Marketplace award checkout — visual regression', () => {
   it('captures the success state', async () => {
     state.outcome = 'success';
     const screen = await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await userEvent.click(screen.getByRole('button', { name: 'Pay agreed price' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Place order' }));
     const surface = expectVrtSurface('marketplace-award-checkout');
     await expect(surface).toMatchScreenshot('award-checkout-success-desktop');
   });

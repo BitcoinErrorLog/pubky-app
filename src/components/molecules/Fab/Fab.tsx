@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { Plus } from 'lucide-react';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { useAuthStatus } from '@/hooks/useAuthStatus/useAuthStatus';
 import { useFabAction } from '@/hooks/useFabAction/useFabAction';
@@ -37,15 +39,17 @@ import { useCollectionReorderStore } from '@/stores/collectionReorder/collection
  */
 export function Fab() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
   const { isFullyAuthenticated, isLoading } = useAuthStatus();
   const { isPublicExploreRoute } = usePublicRoute();
   const { requireAuth } = useRequireAuth();
   const action = useFabAction();
   const isReorderActive = useCollectionReorderStore((state) => state.activeCollectionId !== null);
+  const hideOnCheckout = pathname === MARKETPLACE_ROUTES.CART || pathname === MARKETPLACE_ROUTES.AWARD_CHECKOUT;
 
   // Show FAB for authenticated users OR unauthenticated users on public explore routes
   const shouldShow = isFullyAuthenticated || isPublicExploreRoute;
-  if (isLoading || !shouldShow || isReorderActive) {
+  if (isLoading || !shouldShow || isReorderActive || hideOnCheckout) {
     return null;
   }
   const buttonClasses = cn(

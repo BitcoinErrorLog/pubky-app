@@ -498,9 +498,9 @@ describe('MarketplaceCart', () => {
     expect(awardGroup).toHaveAttribute('data-surface', 'marketplace-award-cart-group');
     expect(within(awardGroup).getByText('Accepted offer')).toBeInTheDocument();
     expect(within(awardGroup).getByText('Quantity and variant are fixed at the accepted offer.')).toBeInTheDocument();
-    expect(within(awardGroup).getByText('$1.00 × 1 = $2.00')).toBeInTheDocument();
+    expect(within(awardGroup).getByText('$1.00 × 1 + $1.00 shipping = $2.00')).toBeInTheDocument();
     expect(within(awardGroup).getByText(/Buy by/)).toBeInTheDocument();
-    expect(within(awardGroup).getByRole('link', { name: 'Pay agreed price' })).toHaveAttribute(
+    expect(within(awardGroup).getByRole('link', { name: 'Place order' })).toHaveAttribute(
       'href',
       `/marketplace/award-checkout?offer=${offer.award?.id}`,
     );

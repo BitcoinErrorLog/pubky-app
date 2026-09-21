@@ -573,7 +573,7 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
       </MethodCard>
 
       <Dialog open={paykitSetupOpen} onOpenChange={(open) => (open ? setPaykitSetupOpen(true) : closePaykitSetup())}>
-        <DialogContent className="w-full max-w-lg" centered>
+        <DialogContent className="w-full max-w-lg overflow-hidden" centered>
           <DialogHeader>
             <DialogTitle>Connect Bitkit</DialogTitle>
           </DialogHeader>
@@ -588,7 +588,7 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
               title="Connect Bitkit"
               sandbox="allow-scripts allow-same-origin allow-forms"
               referrerPolicy="no-referrer"
-              className="h-[min(28rem,60vh)] w-full rounded-lg border bg-popover"
+              className="h-[min(22rem,45vh)] w-full rounded-lg border bg-popover"
             />
           )}
           {paykitSetupStatus !== 'idle' && (
@@ -600,7 +600,7 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
                     ? 'Bitkit approved a different account. In Bitkit, sign in with the same Pubky identity you use here, then try again.'
                     : paykitSetupStatus === 'verifying'
                       ? 'Confirming your Bitkit account…'
-                      : 'No approval received. Update Bitkit to 2.5 or newer and try again.'}
+                      : 'No approval received. Try again.'}
               </Typography>
               <Button variant="secondary" className="w-fit rounded-full" onClick={openPaykitSetup}>
                 <RefreshCw className="mr-2 size-4" />
