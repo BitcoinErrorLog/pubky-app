@@ -188,8 +188,52 @@ function nextFrame(): Promise<void> {
 }
 
 interface VrtHoverLocator {
-  hover(): Promise<void>;
+  hover(options?: { force?: boolean }): Promise<void>;
   element(): Element;
+}
+
+function requireHoverElement(locator: VrtHoverLocator): HTMLElement {
+  const element = locator.element();
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('VRT hover scale requires an HTMLElement');
+  }
+  return element;
+}
+
+function vrtHoverRoot(element: HTMLElement): HTMLElement {
+  const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
+  return root instanceof HTMLElement ? root : element;
+}
+
+function pinVrtRootScroll(): void {
+  const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
+  resetVrtScroll(root instanceof HTMLElement ? root : undefined);
+}
+
+async function hoverWithoutScroll(locator: VrtHoverLocator): Promise<void> {
+  pinVrtRootScroll();
+  // Method call — extracting `locator.hover` drops the vitest receiver and
+  // throws `Cannot read properties of undefined (reading 'triggerCommand')`.
+  // `force: true` skips Playwright's scroll-into-view (~39px on the mobile
+  // bottom-row drop card, ±8px vs the committed crop).
+  await locator.hover({ force: true });
+  pinVrtRootScroll();
+}
+
+function finishCssAnimations(root: HTMLElement): void {
+  if (typeof root.getAnimations !== 'function') return;
+  for (const animation of root.getAnimations({ subtree: true })) {
+    try {
+      animation.finish();
+    } catch {
+      animation.cancel();
+    }
+  }
+}
+
+function runningAnimationCount(root: HTMLElement): number {
+  if (typeof root.getAnimations !== 'function') return 0;
+  return root.getAnimations({ subtree: true }).filter((animation) => animation.playState === 'running').length;
 }
 
 /**
@@ -197,41 +241,61 @@ interface VrtHoverLocator {
  *
  * `offsetWidth` is layout and ignores `transform: scale()`.
  * `getComputedStyle().transform` / `scale` report the hover *target* as soon
- * as `:hover` matches, including during `duration-300`. Measure rest
- * `getBoundingClientRect().width` before hover, inject 0s transition duration
- * so the end-state can paint on the first frame, re-assert `:hover` if suite
- * load drops the pointer, then wait until bbox width is ≥ rest × 1.04.
+ * as `:hover` matches, including during `duration-300`. Finish leftover enter
+ * animations on the VRT root (so rest width is not the delayed `from`
+ * keyframe), measure rest `getBoundingClientRect().width`, inject 0s
+ * transition duration so the hover end-state can paint on the first frame,
+ * re-assert `:hover` if suite load drops the pointer, then wait until bbox
+ * width is ≥ rest × 1.04 and no CSS animations are still running.
+ * Hover uses `force: true` as a bound method and pins VRT_ROOT at scroll 0
+ * so Playwright does not crop the grid by scrolling a bottom-row card into
+ * view (~39px, flakes ±8px against the committed mobile drop-hover crop).
  */
 export async function hoverAndWaitForScale(
   locator: VrtHoverLocator,
   minScale = VRT_HOVER_SCALE_SETTLED,
   timeoutMs = VRT_HOVER_SCALE_TIMEOUT_MS,
 ): Promise<void> {
-  const element = locator.element();
-  if (!(element instanceof HTMLElement)) {
-    throw new Error('VRT hover scale requires an HTMLElement');
-  }
   injectMarketplaceZeroMotion();
-  const restWidth = element.getBoundingClientRect().width;
+  if (document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+
+  finishCssAnimations(vrtHoverRoot(requireHoverElement(locator)));
+  pinVrtRootScroll();
+  await nextFrame();
+  await nextFrame();
+
+  const restWidth = requireHoverElement(locator).getBoundingClientRect().width;
   const minWidth = restWidth * minScale;
-  await locator.hover();
+  await hoverWithoutScroll(locator);
   const deadline = Date.now() + timeoutMs;
-  let lastWidth = element.getBoundingClientRect().width;
+  let lastWidth = requireHoverElement(locator).getBoundingClientRect().width;
   while (Date.now() < deadline) {
+    let element = requireHoverElement(locator);
+    finishCssAnimations(vrtHoverRoot(element));
+    pinVrtRootScroll();
     if (!element.matches(':hover')) {
-      await locator.hover();
+      await hoverWithoutScroll(locator);
+      element = requireHoverElement(locator);
     }
     lastWidth = element.getBoundingClientRect().width;
-    if (element.matches(':hover') && lastWidth >= minWidth) {
+    const settled =
+      element.matches(':hover') && lastWidth >= minWidth && runningAnimationCount(vrtHoverRoot(element)) === 0;
+    if (settled) {
       await nextFrame();
+      await nextFrame();
+      element = requireHoverElement(locator);
+      finishCssAnimations(vrtHoverRoot(element));
+      pinVrtRootScroll();
       lastWidth = element.getBoundingClientRect().width;
-      if (element.matches(':hover') && lastWidth >= minWidth) {
-        await nextFrame();
+      if (element.matches(':hover') && lastWidth >= minWidth && runningAnimationCount(vrtHoverRoot(element)) === 0) {
         return;
       }
     }
     await nextFrame();
   }
+  const element = requireHoverElement(locator);
   throw new Error(
     `VRT hover transformed box stayed below rest×${minScale} (lastWidth=${lastWidth.toFixed(2)}, restWidth=${restWidth.toFixed(2)}, minWidth=${minWidth.toFixed(2)}, :hover=${element.matches(':hover')}) after ${timeoutMs}ms`,
   );
