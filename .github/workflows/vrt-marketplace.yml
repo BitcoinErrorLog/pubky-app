@@ -13,8 +13,11 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.60.0-noble
       options: --user 1001
-    # HEAD median 4m0s (run 35590590935); 8 min is 2×.
-    timeout-minutes: 8
+    # Non-container HEAD median 4m0s (run 35590590935). Containerized
+    # 9fb822a01 cancelled at 8m with tests still running (run 35593190722:
+    # ~1.5m setup, ~3m cold vite optimize, tests unfinished). Missing
+    # baselines run compare then --update. 25 min covers that second suite.
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
